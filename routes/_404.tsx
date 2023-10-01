@@ -15,13 +15,7 @@ export default function Error404() {
             <input id="nav-input" type="checkbox" className="nav-unshown" />
             <label id="nav-open" for="nav-input"><span></span></label>
             <label className="nav-unshown" id="nav-close" for="nav-input"></label>
-            <div id="nav-content">
-            <ul className="">
-              <li>ロリコン</li>
-              <li>ショタコン</li>
-              <li>ホモ</li>
-            </ul>
-            </div>
+            
         </div>
         <a className="logo-area"><img src="/logo.png" alt="takoserver logo" className="logo-img" /></a>
         </div>
