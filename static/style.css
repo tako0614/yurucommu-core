@@ -56,13 +56,8 @@ header {
   display:  flex;
   padding-left: 1rem;
 }
-.nav-content-ul {
-    width: 0px;
-    height: 0px;
+#nav-content ul li {
     font-size: 0px;
-}
-.nav-content-ul {
-    
 }
 @media screen and (max-width:800px) {
     header {
@@ -179,4 +174,7 @@ header {
         height: 0px;
         font-size: 0px;
       }
+      #nav-content ul li {
+        font-size: 40px;
+    }
     }
