@@ -17,9 +17,9 @@ export default function Error404() {
             <label className="nav-unshown" id="nav-close" for="nav-input"></label>
             <div id="nav-content">
               <ul>
-                <li>ロリコン</li>
-                <li>ショタコン</li>
-                <li>ホモ</li>
+                <li>ホーム</li>
+                <li>About</li>
+                <li>SNS(開発中)</li>
               </ul>
             </div>
         </div>
@@ -27,9 +27,9 @@ export default function Error404() {
         </div>
         {/*↓デスクトップ用*/}
           <ul className="dt-ul-menu">
-            <li className="dt-nav-menu">ロリコン</li>
-            <li className="dt-nav-menu">ショタコン</li>
-            <li className="dt-nav-menu">ホモ</li>
+            <li className="dt-nav-menu">ホーム</li>
+            <li className="dt-nav-menu">About</li>
+            <li className="dt-nav-menu">SNS(開発中)</li>
           </ul>
         </div>
       </header>
