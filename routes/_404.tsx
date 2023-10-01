@@ -16,10 +16,10 @@ export default function Error404() {
             <label id="nav-open" for="nav-input"><span></span></label>
             <label className="nav-unshown" id="nav-close" for="nav-input"></label>
             <div id="nav-content">
-            <ul className="">
-              <li>ロリコン</li>
-              <li>ショタコン</li>
-              <li>ホモ</li>
+            <ul className="nav-content-ul">
+              <li className="nav-content-ul">ロリコン</li>
+              <li className="nav-content-ul">ショタコン</li>
+              <li className="nav-content-ul">ホモ</li>
             </ul>
             </div>
         </div>

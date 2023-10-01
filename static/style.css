@@ -56,15 +56,13 @@ header {
   display:  flex;
   padding-left: 1rem;
 }
-.nav-content ul {
+.nav-content-ul {
     width: 0px;
     height: 0px;
     font-size: 0px;
 }
-.nav-content ul li {
-    width: 0px;
-    height: 0px;
-    font-size: 0px;
+.nav-content-ul {
+    
 }
 @media screen and (max-width:800px) {
     header {
