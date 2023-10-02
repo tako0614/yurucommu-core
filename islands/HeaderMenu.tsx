@@ -13,7 +13,7 @@ export default function HeaderMenu ({ children }: Props) {
     <div class={`
       fixed top-0 left-0 w-screen h-screen bg-white border p-3
       duration-100
-      ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
       <div>
         <button class="text-xl" onClick={() => setIsOpen(false)}>
