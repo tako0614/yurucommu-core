@@ -9,7 +9,7 @@ const Contents = () => <>
 export default function Header () {
   return <header>
     <div className="w-full flex">
-      <div className="pr-3">
+      <div className="pr-3 flex justify-between">
         <div class="block lg:hidden">
           <HeaderMenu>
             <Contents />
