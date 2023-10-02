@@ -5,6 +5,11 @@ header {
     padding-top:16px;
     padding-bottom:16px;
     background: black;
+    position: fixed;
+    z-index: 999;
+    top: 0;
+    left: 0;
+    width: 100%;
   }
   
   /*チェックボックス等は非表示に*/
