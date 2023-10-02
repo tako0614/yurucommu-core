@@ -9,7 +9,7 @@ const Contents = () => <>
 export default function Header () {
   return <header>
     <div className="w-full flex">
-      <div className="pr-3 flex justify-between">
+      <div className="pr-3 flex justify-between items-center">
         <div class="block lg:hidden">
           <HeaderMenu>
             <Contents />
@@ -18,7 +18,7 @@ export default function Header () {
         <div>
           <a className="logo-area"><img src="/logo.png" alt="takoserver logo" className="logo-img" /></a>
         </div>
-        <div class="hidden lg:grid grid-cols-3 text-white">
+        <div class="hidden lg:grid grid-cols-3 text-white items-center">
           <Contents />
         </div>
       </div>
