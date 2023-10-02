@@ -8,7 +8,7 @@ const Contents = () => <>
 
 export default function Header () {
   return <header>
-    <div className="w-full">
+    <div className="w-full flex">
       <div className="pr-3">
         <div class="block lg:hidden">
           <HeaderMenu>
