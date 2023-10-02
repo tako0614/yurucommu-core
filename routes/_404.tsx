@@ -12,7 +12,7 @@ export default function Error404() {
         <div className="header-menu w-full">
         <div className="header-logo-menu pr-3">
         <div id="nav-drawer">
-            <input id="nav-input" type="checkbox" className="nav-unshown" />
+            <input id="nav-input" type="checkbox" className="nav-unshown hidden" />
             <label id="nav-open" for="nav-input"><span></span></label>
             <label className="nav-unshown" id="nav-close" for="nav-input"></label>
             <div id="nav-content">
