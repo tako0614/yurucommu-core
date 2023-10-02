@@ -16,7 +16,7 @@ export default function Header () {
           </HeaderMenu>
         </div>
         <a className="logo-area"><img src="/logo.png" alt="takoserver logo" className="logo-img" /></a>
-        <div class="hidden lg:block grid grid-cols-3">
+        <div class="hidden lg:block grid grid-cols-3 text-white">
           <Contents />
         </div>
       </div>
