@@ -1,3 +1,4 @@
+import { JSX } from "preact";
 import { useState } from 'preact/hooks'
 
 export interface Props {
