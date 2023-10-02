@@ -15,7 +15,14 @@ export default function HeaderMenu ({ children }: Props) {
       duration-100
       ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
-      { children }
+      <div>
+        <button class="text-xl" onClick={() => setIsOpen(false)}>
+          x
+        </button>
+      </div>
+      <div class="my-2">
+        { children }
+      </div>
     </div>
   </>
 }
