@@ -9,7 +9,7 @@ export default function HeaderMenu ({ children }: Props) {
   
   return <>
     <div>
-      <button onClick={() => setIsOpen(true)} className="text-4xl text-white">≡</button>
+      <button onClick={() => setIsOpen(true)} class="text-4xl text-white">≡</button>
     </div>
     <div class={`
       fixed top-0 left-0 w-screen h-screen bg-white border p-3

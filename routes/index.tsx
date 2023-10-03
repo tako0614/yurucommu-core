@@ -1,21 +1,19 @@
 import { useSignal } from "@preact/signals";
 import Counter from "../islands/Counter.tsx";
 import Header from '../components/Header.tsx'
-
 export default function Home() {
   const count = useSignal(3);
   return (
     <>
-    <html>
       <head>
         <title>takoserver project</title>
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       <Header />
-      <section className="pt-16 pb-10">
-        <h1 className="text-5xl text-center text-white">メイン</h1>
-        <p className="text-xl text-center text-white">(書いてないだけ)</p>
-        <div className="m-auto w-3/4 text-white">
+      <section class="pt-16 pb-10">
+        <h1 class="text-5xl text-center text-white">メイン</h1>
+        <p class="text-xl text-center text-white">(書いてないだけ)</p>
+        <div class="m-auto w-3/4 text-white">
           <p>
             テストメッセージ
             スクロールテストのための謎文章↓
@@ -301,10 +299,9 @@ export default function Home() {
         </div>
       </section>
       <footer>
-        <p className="text-white text-center">Copyright © 2021-2023 Takoserver All Rights Reserved.</p>
-        <p className="text-white text-center"><a href="https://aranpect.com">Aranpect</a></p>
+        <p class="text-white text-center">Copyright © 2021-2023 Takoserver All Rights Reserved.</p>
+        <p class="text-white text-center"><a href="https://aranpect.com">Aranpect</a></p>
       </footer>
-    </html>
     </>
   );
 }

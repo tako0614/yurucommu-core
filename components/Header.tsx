@@ -8,15 +8,15 @@ const Contents = () => <>
 
 export default function Header () {
   return <header>
-    <div className="w-full flex">
-      <div className="pr-3 flex justify-between items-center w-full">
+    <div class="w-full flex">
+      <div class="pr-3 flex justify-between items-center w-full">
         <div class="block lg:hidden">
           <HeaderMenu>
             <Contents />
           </HeaderMenu>
         </div>
         <div>
-          <a className="logo-area flex mb-4"><img src="/logo.png" alt="takoserver logo" className="logo-img" /></a>
+          <a class="logo-area flex mb-4"><img src="/logo.png" alt="takoserver logo" class="logo-img" /></a>
         </div>
         <div class="hidden lg:grid grid-cols-3 text-white items-center">
           <Contents />
