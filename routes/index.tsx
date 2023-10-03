@@ -8,7 +8,7 @@ export default function Home() {
     <>
     <html>
       <head>
-        <title>Takoserver project</title>
+        <title>takoserver project</title>
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       <Header />
