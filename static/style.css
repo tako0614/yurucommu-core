@@ -13,7 +13,6 @@
   width: 100%;
   text-align: center;
   font-size: 6rem;
-  font-family: "Montserrat", sans-serif;
   color: #fff;
 }
 body {
@@ -215,7 +214,6 @@ header {
       width: 100%;
       text-align: center;
       font-size: 8vw;
-      font-family: "Montserrat", sans-serif;
       color: #fff;
     }
     }
