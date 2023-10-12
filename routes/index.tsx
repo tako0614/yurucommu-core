@@ -9,6 +9,9 @@ export default function Home() {
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       <Header />
+        <div class="full">
+          <h1 class="h1">takoserver project</h1>
+        </div>
       <section class="pt-16 pb-10">
         <h1 class="text-5xl text-center text-white">メイン</h1>
         <p class="text-xl text-center text-white">(書いてないだけ)</p>
