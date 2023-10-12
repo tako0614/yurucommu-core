@@ -23,7 +23,6 @@ export default function Home() {
       </section>
       <footer>
         <p class="text-white text-center">Copyright © 2021-2023 Takoserver All Rights Reserved.</p>
-        <p class="text-white text-center"><a href="https://aranpect.com">Aranpect</a></p>
       </footer>
     </>
   );
