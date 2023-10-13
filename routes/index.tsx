@@ -10,7 +10,10 @@ export default function Home() {
       </head>
       <Header />
         <div class="full">
-          <h1 class="h1">takoserver project</h1>
+          <div  class="full-title">
+          <h1>takoserver project</h1>
+          <p class="text-lg">takoserverはゆるくプログラミングしてわちゃわちゃしている謎軍団です</p>
+          </div>
         </div>
       <section class="pt-16 pb-10">
         <h1 class="text-5xl text-center text-white">takoserver</h1>

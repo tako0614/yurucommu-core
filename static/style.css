@@ -6,14 +6,17 @@
     center / cover;
 }
 
-.h1 {
+.full-title {
   margin: 0;
   position: absolute;
-  top: calc(50% - 0.5em);
+  top: calc(40% - 0.5em);
   width: 100%;
   text-align: center;
-  font-size: 6rem;
   color: #fff;
+}
+.full-title h1 {
+  font-family: Roboto;
+  font-size: 6rem;
 }
 body {
     background-color: #0D1117;
@@ -207,13 +210,15 @@ header {
         center / cover;
     }
     
-    .h1 {
+    .full-title {
       margin: 0;
       position: absolute;
       top: calc(50% - 0.5em);
       width: 100%;
       text-align: center;
-      font-size: 8vw;
       color: #fff;
+    }
+    .full-title h1 {
+      font-family: Roboto;
     }
     }
