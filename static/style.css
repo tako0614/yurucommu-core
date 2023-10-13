@@ -213,12 +213,13 @@ header {
     .full-title {
       margin: 0;
       position: absolute;
-      top: calc(50% - 0.5em);
+      top: calc(40% - 0.5em);
       width: 100%;
       text-align: center;
       color: #fff;
     }
     .full-title h1 {
       font-family: Roboto;
+      font-size: 3.75rem;
     }
     }
