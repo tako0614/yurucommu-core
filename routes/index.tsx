@@ -1,5 +1,6 @@
 import { useSignal } from "@preact/signals";
 import Header from '../components/Header.tsx'
+import Footer from '../components/Footer.tsx'
 export default function Home() {
   const count = useSignal(3);
   return (
@@ -24,9 +25,7 @@ export default function Home() {
           </p>
         </div>
       </section>
-      <footer>
-        <p class="text-white text-center">Copyright © 2021-2023 Takoserver All Rights Reserved.</p>
-      </footer>
+      <Footer />
     </>
   );
 }
