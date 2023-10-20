@@ -57,7 +57,6 @@ export default function tako() {
   ＿/　 .|ニニニニ|
   <br />
 </p>
-<script src="./tako.js"></script>
     </body>
     </html>
   );
