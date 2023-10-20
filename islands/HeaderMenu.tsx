@@ -17,7 +17,7 @@ export default function HeaderMenu ({ children }: Props) {
       ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
       <div>
-        <button class="text-xl" onClick={() => setIsOpen(false)}>
+        <button class="text-3xl" onClick={() => setIsOpen(false)}>
           x
         </button>
       </div>
