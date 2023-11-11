@@ -1,227 +1,212 @@
 .full {
-  position: relative;
-  width: 100%;
-  min-height: 100vh;
-  background: url("./main-bg.webp")
-    center / cover;
+     position: relative;
+     width: 100%;
+     min-height: 100vh;
+     background: url("./main-bg.webp") center / cover;
 }
-
-.full-title {
-  margin: 0;
-  position: absolute;
-  top: calc(40% - 0.5em);
-  width: 100%;
-  text-align: center;
-  color: #fff;
+ .full-title {
+     margin: 0;
+     position: absolute;
+     top: calc(40% - 0.5em);
+     width: 100%;
+     text-align: center;
+     color: #fff;
 }
-.full-title h1 {
-  font-family: Roboto;
-  font-size: 70px;
-  font-weight: bold;
-  line-height: 1.2;
+ .full-title h1 {
+     font-family: Roboto;
+     font-size: 70px;
+     font-weight: bold;
+     line-height: 1.2;
 }
-body {
-    background-color: #0D1117;
+ body {
+     background-color: #0D1117;
 }
-header {
-    padding-top:16px;
-    padding-bottom:16px;
-    background: black;
-    position: fixed;
-    z-index: 999;
-    top: 0;
-    left: 0;
-    width: 100%;
-  }
-  
-  /*チェックボックス等は非表示に*/
-  .nav-unshown {
-    display:none;
-  }
-
-  /*メニューの中身*/
-  #nav-content {
-    width: 0px;
-    height: 0px;
-  }
-  
-  /*チェックがついたら表示させる*/
-  #nav-input:checked ~ #nav-close {
-    display: block;
-    opacity: .5;
-  }
-  
-  #nav-input:checked ~ #nav-content {
-    -webkit-transform: translateX(0%);
-    transform: translateX(0%);
-    box-shadow: 6px 0 25px rgba(0,0,0,.15);
-  }
-  .header-logo-menu{
-   display: flex;
-  }
-  
-  /*ロゴやサイトタイトルをセンタリング*/
-  .logo-area{
-    height: 10px;
-    margin-left: 10px;
-    margin-top: 0px;
-  }
-  .logo-area img {
-    height: 30px;
-  }
-.dt-nav-menu {
-    color: #fff;
-    display: inline-block;
-    margin-right: 60px;
+ header {
+     padding-top:16px;
+     padding-bottom:16px;
+     background: black;
+     position: fixed;
+     z-index: 999;
+     top: 0;
+     left: 0;
+     width: 100%;
 }
-.dt-ul-menu {
-  width: 100%;
-  display: flex;
-  justify-content: flex-end; /* 要素を右寄せに配置してるんやでby aranpect */
-  }
-.header-menu {
-  display:  flex;
-  padding-left: 1rem;
+/*チェックボックス等は非表示に*/
+ .nav-unshown {
+     display:none;
 }
-#nav-content ul li {
-    font-size: 0px;
+/*メニューの中身*/
+ #nav-content {
+     width: 0px;
+     height: 0px;
 }
-@media screen and (max-width:800px) {
-    header {
-        padding:10px;
-        background: black;
-      }
-      
-      #nav-drawer {
-        position: relative;
-      }
-      
-      /*チェックボックス等は非表示に*/
-      .nav-unshown {
-        display:none;
-      }
-      
-      /*アイコンのスペース*/
-      #nav-open {
-        display: inline-block;
-        width: 30px;
-        height: 22px;
-        vertical-align: middle;
-      }
-      
-      /*ハンバーガーの形をCSSで表現*/
-      #nav-open span, #nav-open span:before, #nav-open span:after {
-        position: absolute;
-        height: 3px;/*線の太さ*/
-        width: 25px;/*長さ*/
-        border-radius: 3px;
-        background: #555;
-        display: block;
-        content: '';
-        cursor: pointer;
-      }
-      #nav-open span:before {
-        bottom: -8px;
-      }
-      #nav-open span:after {
-        bottom: -16px;
-      }
-      
-      /*閉じる用の薄黒箇所*/
-      #nav-close {
-        display: none;
-        position: fixed;
-        z-index: 99;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: black;
-        opacity: 0;
-        transition: .3s ease-in-out;
-      }
-      
-      /*メニューの中身*/
-      #nav-content {
-        overflow: auto;
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: 9999;
-        width: 90%;
-        max-width: 330px;/*最大幅（お好みで調整を）*/
-        height: 100%;
-        background: #fff;
-        transition: .3s ease-in-out;
-        -webkit-transform: translateX(-105%);
-        transform: translateX(-105%);
-      }
-      
-      /*チェックがついたら表示させる*/
-      #nav-input:checked ~ #nav-close {
-        display: block;
-        opacity: .5;
-      }
-      
-      #nav-input:checked ~ #nav-content {
-        -webkit-transform: translateX(0%);
-        transform: translateX(0%);
-        box-shadow: 6px 0 25px rgba(0,0,0,.15);
-      }
-      
-      .header-logo-menu{
-       display: flex;
-       display: -moz-flex;
-       display: -o-flex;
-       display: -webkit-flex;
-       display: -ms-flex;
-       flex-direction: row;
-       -moz-flex-direction: row;
-       -o-flex-direction: row;
-       -webkit-flex-direction: row;
-       -ms-flex-direction: row;
-      }
-      
-      /*ロゴやサイトタイトルをセンタリング*/
-      .logo-area{
-        height: 10px;
-        text-align:center;
-        margin:auto;
-        margin-top: 0px;
-      }
-      .logo-area img {
-        height: 30px;
-      }
-      .dt-ul-menu {
-        width: 0px;
-        height: 0px;
-      }
-      .dt-ul-menu li {
-        width: 0px;
-        height: 0px;
-        font-size: 0px;
-      }
-      #nav-content ul li {
-        font-size: 40px;
+/*チェックがついたら表示させる*/
+ #nav-input:checked ~ #nav-close {
+     display: block;
+     opacity: .5;
+}
+ #nav-input:checked ~ #nav-content {
+     -webkit-transform: translateX(0%);
+     transform: translateX(0%);
+     box-shadow: 6px 0 25px rgba(0,0,0,.15);
+}
+ .header-logo-menu{
+     display: flex;
+}
+/*ロゴやサイトタイトルをセンタリング*/
+ .logo-area{
+     height: 10px;
+     margin-left: 10px;
+     margin-top: 0px;
+}
+ .logo-area img {
+     height: 30px;
+}
+ .dt-nav-menu {
+     color: #fff;
+     display: inline-block;
+     margin-right: 60px;
+}
+ .dt-ul-menu {
+     width: 100%;
+     display: flex;
+     justify-content: flex-end;
+    /* 要素を右寄せに配置してるんやでby aranpect */
+}
+ .header-menu {
+     display: flex;
+     padding-left: 1rem;
+}
+ #nav-content ul li {
+     font-size: 0px;
+}
+ @media screen and (max-width:800px) {
+     header {
+         padding:10px;
+         background: black;
     }
-    .full {
-      position: relative;
-      width: 100%;
-      min-height: 100vh;
-      background: url("./main-bg.webp")
-        center / cover;
+     #nav-drawer {
+         position: relative;
     }
-    
-    .full-title {
-      margin: 0;
-      position: absolute;
-      top: calc(40% - 0.5em);
-      width: 100%;
-      text-align: center;
-      color: #fff;
+    /*チェックボックス等は非表示に*/
+     .nav-unshown {
+         display:none;
     }
-    .full-title h1 {
-      font-family: Roboto;
-      font-size: 3.5rem;
+    /*アイコンのスペース*/
+     #nav-open {
+         display: inline-block;
+         width: 30px;
+         height: 22px;
+         vertical-align: middle;
     }
+    /*ハンバーガーの形をCSSで表現*/
+     #nav-open span, #nav-open span:before, #nav-open span:after {
+         position: absolute;
+         height: 3px;
+        /*線の太さ*/
+         width: 25px;
+        /*長さ*/
+         border-radius: 3px;
+         background: #555;
+         display: block;
+         content: '';
+         cursor: pointer;
     }
+     #nav-open span:before {
+         bottom: -8px;
+    }
+     #nav-open span:after {
+         bottom: -16px;
+    }
+    /*閉じる用の薄黒箇所*/
+     #nav-close {
+         display: none;
+         position: fixed;
+         z-index: 99;
+         top: 0;
+         left: 0;
+         width: 100%;
+         height: 100%;
+         background: black;
+         opacity: 0;
+         transition: .3s ease-in-out;
+    }
+    /*メニューの中身*/
+     #nav-content {
+         overflow: auto;
+         position: fixed;
+         top: 0;
+         left: 0;
+         z-index: 9999;
+         width: 90%;
+         max-width: 330px;
+        /*最大幅（お好みで調整を）*/
+         height: 100%;
+         background: #fff;
+         transition: .3s ease-in-out;
+         -webkit-transform: translateX(-105%);
+         transform: translateX(-105%);
+    }
+    /*チェックがついたら表示させる*/
+     #nav-input:checked ~ #nav-close {
+         display: block;
+         opacity: .5;
+    }
+     #nav-input:checked ~ #nav-content {
+         -webkit-transform: translateX(0%);
+         transform: translateX(0%);
+         box-shadow: 6px 0 25px rgba(0,0,0,.15);
+    }
+     .header-logo-menu{
+         display: flex;
+         display: -moz-flex;
+         display: -o-flex;
+         display: -webkit-flex;
+         display: -ms-flex;
+         flex-direction: row;
+         -moz-flex-direction: row;
+         -o-flex-direction: row;
+         -webkit-flex-direction: row;
+         -ms-flex-direction: row;
+    }
+    /*ロゴやサイトタイトルをセンタリング*/
+     .logo-area{
+         height: 10px;
+         text-align:center;
+         margin:auto;
+         margin-top: 0px;
+    }
+     .logo-area img {
+         height: 30px;
+    }
+     .dt-ul-menu {
+         width: 0px;
+         height: 0px;
+    }
+     .dt-ul-menu li {
+         width: 0px;
+         height: 0px;
+         font-size: 0px;
+    }
+     #nav-content ul li {
+         font-size: 40px;
+    }
+     .full {
+         position: relative;
+         width: 100%;
+         min-height: 100vh;
+         background: url("./main-bg.webp") center / cover;
+    }
+     .full-title {
+         margin: 0;
+         position: absolute;
+         top: calc(40% - 0.5em);
+         width: 100%;
+         text-align: center;
+         color: #fff;
+    }
+     .full-title h1 {
+         font-family: Roboto;
+         font-size: 3.5rem;
+    }
+}
