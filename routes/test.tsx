@@ -16,8 +16,8 @@ export default async function privacy() {
   const user = "John";
   const tako = "Tako";
   //const result = await database.insert("test_table", ["name","password","status"], ["tako","tako","tako"]);
-  const result = await database.select("test_table","password", "id =1")
+  const result = await database.select("test_table","password", "id = 111")
   console.log(result)
   //const id = `your id is ${result.lastInsertId}`
-  //return (<div>{id}</div>);
+  return (<div>{result.password}</div>);
 }
