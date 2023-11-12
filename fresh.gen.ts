@@ -6,16 +6,18 @@ import * as $0 from "./routes/_404.tsx";
 import * as $1 from "./routes/_app.tsx";
 import * as $2 from "./routes/api/joke.ts";
 import * as $3 from "./routes/api/login.ts";
-import * as $4 from "./routes/greet/[name].tsx";
-import * as $5 from "./routes/index.tsx";
-import * as $6 from "./routes/privacypolicy.tsx";
-import * as $7 from "./routes/tako.jsx";
-import * as $8 from "./routes/test.tsx";
-import * as $$0 from "./islands/Counter.tsx";
-import * as $$1 from "./islands/Fuka.tsx";
-import * as $$2 from "./islands/HeaderMenu.tsx";
-import * as $$3 from "./islands/Test.tsx";
-import * as $$4 from "./islands/header.tsx";
+import * as $4 from "./routes/button.tsx";
+import * as $5 from "./routes/greet/[name].tsx";
+import * as $6 from "./routes/index.tsx";
+import * as $7 from "./routes/privacypolicy.tsx";
+import * as $8 from "./routes/tako.jsx";
+import * as $9 from "./routes/test.tsx";
+import * as $$0 from "./islands/Button.tsx";
+import * as $$1 from "./islands/Counter.tsx";
+import * as $$2 from "./islands/Fuka.tsx";
+import * as $$3 from "./islands/HeaderMenu.tsx";
+import * as $$4 from "./islands/Test.tsx";
+import * as $$5 from "./islands/header.tsx";
 
 const manifest = {
   routes: {
@@ -23,18 +25,20 @@ const manifest = {
     "./routes/_app.tsx": $1,
     "./routes/api/joke.ts": $2,
     "./routes/api/login.ts": $3,
-    "./routes/greet/[name].tsx": $4,
-    "./routes/index.tsx": $5,
-    "./routes/privacypolicy.tsx": $6,
-    "./routes/tako.jsx": $7,
-    "./routes/test.tsx": $8,
+    "./routes/button.tsx": $4,
+    "./routes/greet/[name].tsx": $5,
+    "./routes/index.tsx": $6,
+    "./routes/privacypolicy.tsx": $7,
+    "./routes/tako.jsx": $8,
+    "./routes/test.tsx": $9,
   },
   islands: {
-    "./islands/Counter.tsx": $$0,
-    "./islands/Fuka.tsx": $$1,
-    "./islands/HeaderMenu.tsx": $$2,
-    "./islands/Test.tsx": $$3,
-    "./islands/header.tsx": $$4,
+    "./islands/Button.tsx": $$0,
+    "./islands/Counter.tsx": $$1,
+    "./islands/Fuka.tsx": $$2,
+    "./islands/HeaderMenu.tsx": $$3,
+    "./islands/Test.tsx": $$4,
+    "./islands/header.tsx": $$5,
   },
   baseUrl: import.meta.url,
 };
