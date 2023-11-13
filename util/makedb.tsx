@@ -11,12 +11,22 @@ const client = await new Client().connect({
   db,
   password,
 });
-let result = await client.execute(`
-CREATE TABLE users (
-    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-`);
-console.log(result);
+queries = {
+    //make database
+    
+    //tables
+    users:`CREATE TABLE users (
+        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(50) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`,
+    
+}
+
+export default async function makeDB() {
+    queries.forEach(async (query) => {
+        let result = await client.execute(query);
+        console.log(result);
+    })
+}
