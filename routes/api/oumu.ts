@@ -1,12 +1,19 @@
-import { HandlerContext } from "$fresh/server.ts";
-
-export const handler: Handlers<User | null> = {
-    async POST(req, _ctx) {
-        const user = (await req.json()) as User;
-        const userKey = ["user", user.id];
-        const ok = await kv.atomic().set(userKey, user).commit();
-        if (!ok) throw new Error("Something went wrong.");
+import { Handlers, PageProps } from "$fresh/server.ts";
+function isJson(data) {
+	try {
+		const isjson = req.json();
+	} catch (error) {
+		return false;
+	}
+	return true;
+}
+export const handler: Handlers<Data> = {
+  async POST(req, ctx) {
+    try {
+		const user = (await req.json());
         return new Response(JSON.stringify(user));
-    },
+	} catch (error) {
+		return new Response("Error: Invalid JSON");
+	}
+  },
 };
-
