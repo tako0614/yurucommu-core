@@ -18,7 +18,6 @@ export default function Home() {
         </div>
       <section class="pt-16 pb-10">
         <h1 class="text-5xl text-center text-white">takoserver</h1>
-        <p class="text-xl text-center text-white">takoserverは</p>
         <div class="m-auto w-3/4 text-white md:flex">
           <div class="md:w-1/2">
           <img class="m-full" src="logo-mine.jpg" alt="キャラクター" />
