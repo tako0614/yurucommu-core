@@ -11,12 +11,13 @@ import * as $5 from "./routes/button.tsx";
 import * as $6 from "./routes/greet/[name].tsx";
 import * as $7 from "./routes/index.tsx";
 import * as $8 from "./routes/privacypolicy.tsx";
-import * as $9 from "./routes/tako.jsx";
-import * as $10 from "./routes/test.tsx";
-import * as $11 from "./routes/test_post.tsx";
-import * as $12 from "./routes/tests/form.tsx";
-import * as $13 from "./routes/tests/post-reception.tsx";
-import * as $14 from "./routes/tests/post-send.tsx";
+import * as $9 from "./routes/sns.tsx";
+import * as $10 from "./routes/tako.jsx";
+import * as $11 from "./routes/test.tsx";
+import * as $12 from "./routes/test_post.tsx";
+import * as $13 from "./routes/tests/form.tsx";
+import * as $14 from "./routes/tests/post-reception.tsx";
+import * as $15 from "./routes/tests/post-send.tsx";
 import * as $$0 from "./islands/Button.tsx";
 import * as $$1 from "./islands/Counter.tsx";
 import * as $$2 from "./islands/Fuka.tsx";
@@ -35,12 +36,13 @@ const manifest = {
     "./routes/greet/[name].tsx": $6,
     "./routes/index.tsx": $7,
     "./routes/privacypolicy.tsx": $8,
-    "./routes/tako.jsx": $9,
-    "./routes/test.tsx": $10,
-    "./routes/test_post.tsx": $11,
-    "./routes/tests/form.tsx": $12,
-    "./routes/tests/post-reception.tsx": $13,
-    "./routes/tests/post-send.tsx": $14,
+    "./routes/sns.tsx": $9,
+    "./routes/tako.jsx": $10,
+    "./routes/test.tsx": $11,
+    "./routes/test_post.tsx": $12,
+    "./routes/tests/form.tsx": $13,
+    "./routes/tests/post-reception.tsx": $14,
+    "./routes/tests/post-send.tsx": $15,
   },
   islands: {
     "./islands/Button.tsx": $$0,

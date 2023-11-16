@@ -210,3 +210,64 @@
          font-size: 3.5rem;
     }
 }
+/*メニューをページ下部に固定*/
+#sp-fixed-menu{
+    position: fixed;
+    width: 100%;
+    bottom: 0px;
+    font-size: 0;
+    z-index: 99;
+ }
+ 
+ /*メニューを横並びにする*/
+ #sp-fixed-menu ul{
+    display: flex;
+    list-style: none;
+    padding:0;
+    margin:0;
+    width:100%;
+    background-color: black;
+ }
+ 
+ #sp-fixed-menu li{
+    justify-content: center;
+    /*align-items: center;*/
+    width: 50%;
+    padding:0;
+    margin:0;
+    font-size: 14px;
+ }
+ /*ボタンを調整*/
+#sp-fixed-menu li a{
+    color: #fff;
+    text-align: center;
+    display:block;
+    width: 100%;
+    padding:20px;
+ }
+ 
+ /*左側メニューを緑色に
+ #sp-fixed-menu li:first-child{
+    background: #38b435;
+ }
+ 
+ 左側メニューをオレンジ色に
+ #sp-fixed-menu li:last-child{
+    background: #f3a324;
+ }*/
+ 
+ ボタンを調整
+ #sp-fixed-menu li a{
+    color: #fff;
+    text-align: center;
+    display:block;
+    width: 100%;
+    margin:auto;
+ }
+ /*PCの場合にはメニューを表示させない*/
+
+@media (min-width: 768px) {
+    .for-sp{
+       display:none;
+     }
+ }

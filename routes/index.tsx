@@ -1,6 +1,7 @@
 import { useSignal } from "@preact/signals";
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
+import UnderMenu from '../components/UnderMenu.tsx'
 export default function Home() {
   const count = useSignal(3);
   return (
@@ -12,7 +13,7 @@ export default function Home() {
       <Header />
         <div class="full">
           <div  class="full-title">
-          <h1>takoserver project</h1>
+          <h1>takos</h1>
           <p class="text-lg">Technology for All Knowledge & Octopus</p>
           </div>
         </div>
@@ -33,6 +34,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      <UnderMenu />
       <Footer />
     </>
   );
