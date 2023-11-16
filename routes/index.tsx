@@ -13,7 +13,7 @@ export default function Home() {
         <div class="full">
           <div  class="full-title">
           <h1>takoserver project</h1>
-          <p class="text-lg">takoserverはゆるくプログラミングしてわちゃわちゃしている謎軍団です。</p>
+          <p class="text-lg"> tako: Technology for All Knowledge Openness</p>
           </div>
         </div>
       <section class="pt-16 pb-10">
