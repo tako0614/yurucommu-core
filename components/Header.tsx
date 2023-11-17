@@ -1,11 +1,12 @@
 import HeaderMenu from '../islands/HeaderMenu.tsx'
 
 const Contents = () => <>
-  <div>ホーム</div>
-  <div>About</div>
-  <div>SNS(開発中)</div>
+  <a href="">DM</a>
+  <a href="">トーク</a>
+  <a href="">About</a>
+  <a href="">SNS(開発中)</a>
 </>
-
+//メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
 export default function Header () {
   return <header>
     <div class="w-full flex">
@@ -18,7 +19,7 @@ export default function Header () {
         <div>
           <a class="logo-area flex mb-4"><img src="/logo.png" alt="takoserver logo" class="logo-img" /></a>
         </div>
-        <div class="hidden lg:grid grid-cols-3 text-white items-center">
+        <div class="hidden lg:grid grid-cols-4 text-white items-center">
           <Contents />
         </div>
       </div>

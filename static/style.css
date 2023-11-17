@@ -264,6 +264,11 @@
     width: 100%;
     margin:auto;
  }
+.font-size0 {
+    float: left;
+    padding: 20px 30px;
+    text-align: center;
+ }
  /*PCの場合にはメニューを表示させない*/
 
 @media (min-width: 768px) {
