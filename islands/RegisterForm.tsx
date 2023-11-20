@@ -1,8 +1,8 @@
 // routes/_app.tsx
 import { useSignal } from "@preact/signals";
-import Header from '../components/Header.js'
-import Footer from '../components/Footer.js'
-import Button from '../components/Button.js'
+import Header from '../components/Header.tsx'
+import Footer from '../components/Footer.tsx'
+import Button from '../components/Button.tsx'
 export default function privacy() {
 return (<div>
     <form action="" method="post" name="register">
@@ -14,36 +14,27 @@ return (<div>
             <label for="email" class="text-white">メールアドレス</label>
             <input type="email" name="email" id="email" class="form-control" placeholder="メールアドレス" required />
         </div>
-        <div class="form-group">
-            <label for="password" class="text-white">パスワード</label>
-            <input type="password" name="password" id="password" class="form-control" placeholder="パスワード" required />
-        </div>
-        <div class="form-group">
-            <label for="password_confirmation" class="text-white">パスワード(確認用)</label>
-            <input type="password" name="password_confirmation" id="password_confirmation" class="form-control" placeholder="パスワード(確認用)" required />
-        </div>
-        <submit 
+        <button 
+        class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
         onClick={async function() {
             const name = document.getElementById("name").value;
             const email = document.getElementById("email").value;
-            const password = document.getElementById("password").value;
-            const password_confirmation = document.getElementById("password_confirmation").value;
-            
+            let errors = [];
+            let iserror = false;
             if (!name || !email || !password || !password_confirmation) {
-                alert("すべての値を入力してください");
+                //alert("すべての値を入力してください");
+                //return;
+                errors.push("すべての値を入力してください");
+                iserror = true;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                errors.push("メールアドレスの形式が正しくありません");
+                iserror = true;
+            }
+            if(iserror) {
+                alert(errors.join("\n"));
                 return;
             }
-
-            if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/.test(password)) {
-                alert("パスワードは8桁の英数字を含む必要があります");
-                return;
-            }
-            
-            if(password !== password_confirmation) {
-                alert("パスワードが一致しません");
-                return;
-            }
-            
             const data = { name: name, email: email, password: password};
             try {
                 const response = await fetch("https://localhost:8000/api/login", {
@@ -54,31 +45,29 @@ return (<div>
                     body: JSON.stringify(data),
                 });
                 const result = await response.json();
-                if(result.status === "success") {
-                    const token = result.uuid;
-                    document.cookie = `token=${token}`;
-                } else if(result.status === "error") {
-                    alert("エラーが発生しました。");
-                }else if(result.status ==="duplication"){
-                    alert("そのユーザー名は既に使われています。");
-                }
                 switch(result){
                     case result.status === "success":
                         const token = result.uuid;
-                        document.cookie = `token=${token}`;
+                        alert("仮登録が完了しました。メールを確認してください。");
+                        return;
                         break;
                     case result.status === "error" && result.message === "duplication username":
                         alert("そのユーザー名は既に使われています。");
+                        return;
                         break;
                     case result.status === "error" && result.message === "duplication email":
                         alert("そのメールアドレスは既に使われています。");
+                        return;
+                        break;
+                    default:
+                        alert("エラーが発生しました。");
                         break;
                 }
             } catch (error) {
-                alert("エラーが発生しました。");
+                alert("エラーが発生しました。" + error);
             }
         }}
-        />
+        >登録</button>
     </form>
 </div>)
 }

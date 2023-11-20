@@ -10,8 +10,8 @@ import * as $4 from "./routes/api/oumu.ts";
 import * as $5 from "./routes/button.tsx";
 import * as $6 from "./routes/greet/[name].tsx";
 import * as $7 from "./routes/index.tsx";
-import * as $8 from "./routes/login.tsx";
-import * as $9 from "./routes/privacypolicy.tsx";
+import * as $8 from "./routes/privacypolicy.tsx";
+import * as $9 from "./routes/register.tsx";
 import * as $10 from "./routes/sns.tsx";
 import * as $11 from "./routes/tako.jsx";
 import * as $12 from "./routes/test.tsx";
@@ -24,8 +24,9 @@ import * as $$0 from "./islands/Button.tsx";
 import * as $$1 from "./islands/Counter.tsx";
 import * as $$2 from "./islands/Fuka.tsx";
 import * as $$3 from "./islands/HeaderMenu.tsx";
-import * as $$4 from "./islands/Test.tsx";
-import * as $$5 from "./islands/header.tsx";
+import * as $$4 from "./islands/RegisterForm.tsx";
+import * as $$5 from "./islands/Test.tsx";
+import * as $$6 from "./islands/header.tsx";
 
 const manifest = {
   routes: {
@@ -37,8 +38,8 @@ const manifest = {
     "./routes/button.tsx": $5,
     "./routes/greet/[name].tsx": $6,
     "./routes/index.tsx": $7,
-    "./routes/login.tsx": $8,
-    "./routes/privacypolicy.tsx": $9,
+    "./routes/privacypolicy.tsx": $8,
+    "./routes/register.tsx": $9,
     "./routes/sns.tsx": $10,
     "./routes/tako.jsx": $11,
     "./routes/test.tsx": $12,
@@ -53,8 +54,9 @@ const manifest = {
     "./islands/Counter.tsx": $$1,
     "./islands/Fuka.tsx": $$2,
     "./islands/HeaderMenu.tsx": $$3,
-    "./islands/Test.tsx": $$4,
-    "./islands/header.tsx": $$5,
+    "./islands/RegisterForm.tsx": $$4,
+    "./islands/Test.tsx": $$5,
+    "./islands/header.tsx": $$6,
   },
   baseUrl: import.meta.url,
 };
