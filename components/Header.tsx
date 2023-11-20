@@ -11,7 +11,7 @@ export default function Header () {
   return <header>
     <div class="w-full flex">
       <div class="pr-3 flex justify-between items-center w-full">
-        <div class="block lg:hidden">
+        <div class="block lg:hidden bg-gray-900">
           <HeaderMenu>
             <Contents />
           </HeaderMenu>

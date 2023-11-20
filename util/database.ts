@@ -13,7 +13,6 @@ const client = await new Client().connect({
   db,
   password,
 });
-
 const database = {
   async insert(table: string, columns: string[], values: string[]): Promise<any> {
     if (columns.length !== values.length) {
@@ -27,13 +26,15 @@ const database = {
     const result = await client.execute(`INSERT INTO ${table} (${column}) VALUES (${value});`);
     return result;
   },
+  async execute(query: string): Promise<any> {
+    const result = await client.execute(query);
+    return result;
+  },
   async select(table: string, columns: string | string[], where?: string): Promise<any[]> {
     let query = `SELECT ${Array.isArray(columns) ? columns.join(",") : columns} FROM ${table}`;
-
     if (where) {
       query += ` WHERE ${where}`;
     }
-
     const result = await client.execute(query);
     return result.rows;
   },
