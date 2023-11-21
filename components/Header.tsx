@@ -1,10 +1,10 @@
 import HeaderMenu from '../islands/HeaderMenu.tsx'
 
 const Contents = () => <>
-  <a href="">DM</a>
-  <a href="">トーク</a>
-  <a href="">About</a>
-  <a href="">SNS(開発中)</a>
+  <p><a href="">DM</a></p>
+  <p><a href="">トーク</a></p>
+  <p><a href="">About</a></p>
+  <p><a href="">SNS(開発中)</a></p>
 </>
 //メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
 export default function Header () {
