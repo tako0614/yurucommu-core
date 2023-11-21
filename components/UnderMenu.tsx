@@ -11,11 +11,11 @@ export default function Header () {
     
     <div id="sp-fixed-menu" class="for-sp w-full border-t">
       <ul class="">
-        <li><a href="#"><img class="w-7 flex" src="./icons/talk.svg" alt="トーク" /></a></li>
-        <li><a href="#"><img class="w-7 m-auto" src="./icons/mail.svg" alt="DM" /></a></li>
-        <li><a href="#"><img class="w-7 m-auto" src="./icons/home.svg" alt="ホーム" /></a></li>
-        <li><a href="#"><img class="w-7 m-auto" src="./icons/serach.svg" alt="検索" /></a></li>
-        <li><a href="#"><img class="w-7 m-auto" src="./icons/bell.svg" alt="通知" /></a></li>
+        <li><a href="#"><img class="w-6 flex" src="./icons/talk.svg" alt="トーク" /></a></li>
+        <li><a href="#"><img class="w-6 m-auto" src="./icons/mail.svg" alt="DM" /></a></li>
+        <li><a href="#"><img class="w-6 m-auto" src="./icons/home.svg" alt="ホーム" /></a></li>
+        <li><a href="#"><img class="w-6 m-auto" src="./icons/serach.svg" alt="検索" /></a></li>
+        <li><a href="#"><img class="w-6 m-auto" src="./icons/bell.svg" alt="通知" /></a></li>
       </ul>
     </div>
   )
