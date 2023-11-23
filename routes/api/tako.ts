@@ -7,8 +7,8 @@ export const handler: Handlers<Data> = {
 		    const request = (await req.json());
         let result;
         switch (request) {
-          case request.requirements == "register":
-            return register(request);
+          case request.requirements == "temp_register":
+            return temp_register(request);
             break;
           case request.requirements == "login":
             result = login(request);
@@ -29,12 +29,10 @@ export const handler: Handlers<Data> = {
 //リクエスト処理
 //処理
 //登録
-async function register(request) {
+async function temp_register(request) {
   const req_username = request.username;
   const req_email = request.email;
-  const req_password = request.password;
-  const req_passwordConfirm = request.passwordConfirm;
-  if(isValueDefined(req_username) == false || isValueDefined(req_email) == false || isValueDefined(req_password) == false || isValueDefined(req_passwordConfirm) == false) {
+  if(isValueDefined(req_username) == false || isValueDefined(req_email) == false) {
     return {
       status: false,
       message: "value is undefined"
@@ -44,12 +42,6 @@ async function register(request) {
     return {
       status: false,
       message: "email is invalid"
-    }
-  }
-  if(req_password !== req_passwordConfirm) {
-    return {
-      status: false,
-      message: "password is not match"
     }
   }
   if(isDuplicationUsername(req_username) == true) {
@@ -64,18 +56,16 @@ async function register(request) {
       message: "email is duplication"
     }
   }
-  const uuid = crypto.randomUUID();
-  const salt = crypto.randomBytes(16).toString('hex');
-  const password: string = request.password;
-  const saltedPassword = password + salt;
-  const hashedPassword = crypto.createHash('sha256').update(saltedPassword).digest('hex');
-  const result = await database.insert("users", ["username", "email", "password", "salt", "uuid"], [username, email, hashedPassword, salt, uuid]);
+  const result = await database.insert("temp_users", ["username", "email", "password","key"], [username, email, hashedPassword, salt, uuid]);
   const status = result.affectedRows === 1;
   return {
     status,
     uuid,
     message: status ? "success" : "server error"
   }
+}
+async function register(request) {
+
 }
 //AIで生成修正必要　！開始!
 async function login(request) {
