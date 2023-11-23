@@ -22,35 +22,35 @@ async function isDuplicationEmail(email: string) {
   return count > 0;
 }
 async function register(request) {
-  const username = request.username;
-  const email = request.email;
-  const password = request.password;
-  const passwordConfirm = request.passwordConfirm;
-  if(isValueDefined(username) == false || isValueDefined(email) == false || isValueDefined(password) == false || isValueDefined(passwordConfirm) == false) {
+  const req_username = request.username;
+  const req_email = request.email;
+  const req_password = request.password;
+  const req_passwordConfirm = request.passwordConfirm;
+  if(isValueDefined(req_username) == false || isValueDefined(req_email) == false || isValueDefined(req_password) == false || isValueDefined(req_passwordConfirm) == false) {
     return {
       status: false,
       message: "value is undefined"
     }
   }
-  if(isEmail(email) == false) {
+  if(isEmail(req_email) == false) {
     return {
       status: false,
       message: "email is invalid"
     }
   }
-  if(password !== passwordConfirm) {
+  if(req_password !== req_passwordConfirm) {
     return {
       status: false,
       message: "password is not match"
     }
   }
-  if(isDuplicationUsername(username) == true) {
+  if(isDuplicationUsername(req_username) == true) {
     return {
       status: false,
       message: "username is duplication"
     }
   }
-  if(isDuplicationEmail(email) == true) {
+  if(isDuplicationEmail(req_email) == true) {
     return {
       status: false,
       message: "email is duplication"
@@ -70,7 +70,7 @@ async function register(request) {
   }
 }
 //AIで生成修正必要　！開始!
-function login(request) {
+async function login(request) {
   const req_username = request.username;
   const req_password = request.password;
   if(isValueDefined(req_username) == false || isValueDefined(req_password) == false) {
@@ -79,7 +79,7 @@ function login(request) {
       message: "value is undefined"
     }
   }
-  const query = `SELECT * FROM users WHERE username = ?`;
+  const query = `SELECT COUNT(*) FROM customer WHERE customer_id = ${req_username}`;
   const result = await database.execute(query);
   const user = result[0];
   if(user == undefined) {
