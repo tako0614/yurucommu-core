@@ -26,28 +26,9 @@ export const handler: Handlers<Data> = {
 	}
   },
 };
-//リクエスト処理↑ 以下関数
+//リクエスト処理
+//処理
 //登録
-function isEmail(email: string) {
-  if(email.match(/.+@.+\..+/) == null) {
-    return false;
-  }
-}
-function isValueDefined(value: any): boolean {
-  return value !== undefined && value !== null;
-}
-async function isDuplicationUsername(username: string) {
-  const query = `SELECT COUNT(*) as count FROM users WHERE username = ?`;
-  const result = await database.execute(query, [username]);
-  const count = result[0].count;
-  return count > 0;
-}
-async function isDuplicationEmail(email: string) {
-  const query = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
-  const result = await database.execute(query, [username]);
-  const count = result[0].count;
-  return count > 0;
-}
 async function register(request) {
   const req_username = request.username;
   const req_email = request.email;
@@ -133,3 +114,25 @@ async function login(request) {
   }
 }
 //AIで生成修正必要　！終了!
+
+//関数
+function isEmail(email: string) {
+  if(email.match(/.+@.+\..+/) == null) {
+    return false;
+  }
+}
+function isValueDefined(value: any): boolean {
+  return value !== undefined && value !== null;
+}
+async function isDuplicationUsername(username: string) {
+  const query = `SELECT COUNT(*) as count FROM users WHERE username = ?`;
+  const result = await database.execute(query, [username]);
+  const count = result[0].count;
+  return count > 0;
+}
+async function isDuplicationEmail(email: string) {
+  const query = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
+  const result = await database.execute(query, [username]);
+  const count = result[0].count;
+  return count > 0;
+}
