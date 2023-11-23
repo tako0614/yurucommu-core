@@ -24,7 +24,7 @@ let queries = {
         name VARCHAR(50) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         mail VARCHAR(255) NOT NULL,
-        solt VARCHAR(255) NOT NULL,
+        salt VARCHAR(255) NOT NULL,
         uuid VARCHAR(255) NOT NULL UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );`,
