@@ -13,13 +13,21 @@ async function isDuplicationUsername(username: string) {
   return count > 0;
 }
 async function isDuplicationEmail(email: string) {
-
+  const query = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
+  const result = await database.execute(query, [username]);
+  const count = result[0].count;
+  return count > 0;
 }
 async function register(request) {
   const username = request.username;
   const email = request.email;
-  if(isDuplicationUsername(username) == true && isEmail(email) == true) {
+  if(isDuplicationUsername(username) == true && isDuplicationEmail(email) == true) {
+    const uuid = crypto.randomUUID();
     const isDuplicationUsername = await database.execute("")
+    return {
+      status,
+
+    }
   }
 }
 export const handler: Handlers<Data> = {
@@ -38,12 +46,12 @@ export const handler: Handlers<Data> = {
             }
             break;
           default:
-            return new Response("Error: Invalid JSON");
+            return new Response({status: false, message: "json is invalid"});
             break;
         }
         //return new Response(JSON.stringify(user));
 	} catch (error) {
-		return new Response("Error: Invalid JSON");
+		return new Response({status: false, message: "server error"});
 	}
   },
 };

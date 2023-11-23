@@ -11,9 +11,9 @@ export default function privacy() {
         </head>
         <body>
           <Header />
-          <div class="p-16 w-3/4 m-auto">
-            <Form></Form>
-          </div>
+            <div class="p-16 w-3/4 m-auto">
+              <Form></Form>
+            </div>
           <Footer />
         </body>
       </html>

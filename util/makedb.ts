@@ -12,9 +12,6 @@ const client = await new Client().connect({
   password,
 });
 let queries = {
-    //make database
-
-    //tables
     temp_users: `CREATE TABLE temp_users (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         name VARCHAR(50) NOT NULL UNIQUE,
@@ -31,14 +28,11 @@ let queries = {
         uuid VARCHAR(255) NOT NULL UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );`,
-    posts:`CREATE TABLE post (
+    forinUsers : `CREATE TABLE forinUsers (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         user_id INT NOT NULL,
-        post_id INT NOT NULL,
-        post TXT(10000) NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    );`,
+        server VARCHAR(255) NOT NULL,
+    )`,
     OAuth2:`CREATE TABLE OAuth2 (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         user_id INT NOT NULL,
