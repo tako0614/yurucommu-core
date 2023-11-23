@@ -9,9 +9,11 @@ export const handler: Handlers<Data> = {
     async GET(req, ctx) {
       const url = new URL(req.url);
       //console.log(url);
-      const userName = url.searchParams.get("userName") || "";
-      console.log(userName);
+      const key = url.searchParams.get("userName") || "";
+      const result = await database.execute(`SELECT * FROM temp_users WHERE key = "${key}"`);
+      console.log(result);
       return new Response(JSON.stringify(userName));
+
       //return ctx.render(JSON.stringify(user));
     },
 };
