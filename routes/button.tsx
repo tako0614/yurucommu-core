@@ -6,3 +6,4 @@ export default function Home() {
     <div><Button script="location.href='https://dev.takoserver.com'" text="ボタン"></Button></div>
   );
 }
+//
