@@ -37,7 +37,7 @@ return (<div>
             }
             const data = { name: name, email: email, password: password};
             try {
-                const response = await fetch("https://localhost:8000/api/login", {
+                const response = await fetch("https://localhost:8000/api/tako", {
                     method: "POST", // or 'PUT'
                     headers: {
                         "Content-Type": "application/json",

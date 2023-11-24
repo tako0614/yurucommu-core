@@ -1,6 +1,7 @@
 import { Handlers, PageProps } from "$fresh/server.ts";
 import database from "../../util/database.ts";
-
+import { testMail } from "../../util/denomail.ts";
+import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 export const handler: Handlers<Data> = {
   async POST(req, ctx) {
     try {
@@ -57,12 +58,15 @@ async function temp_register(request) {
     }
   }
   const result = await database.insert("temp_users", ["username", "email", "password","key"], [username, email, hashedPassword, salt, uuid]);
+  console.log(result);
   const status = result.affectedRows === 1;
+  if(status === true) {
+    testMail(req_mail,"メールアドレス認証",`こちらのリンクをクリックして認証してくださいhttps://takos.jp/api/register?userName=${req_username}&key=${uuid}`)
   return {
-    status,
-    uuid,
-    message: status ? "success" : "server error"
+    status: true,
+    message: "success"
   }
+}
 }
 async function register(request) {
 
