@@ -26,7 +26,7 @@ export default function Home() {
           </div>
           <div class="md:w-1/2 md:ml-8">
           <p>
-          ※TAKOserver NEXUSとは無関係です<br />
+          ※TAKOserver NEXUSとは無関係です。<br />
           ※takoserverにもマインクラフトサーバーはありましたが現在は停止中です<br />
           takoserverは(LINE+twitter+instagram)÷4みたいな分散型SNSを作ることを目指しています<br />
           最近親にルーターを侵略されたせいでvpn経由で公開しております<br />
