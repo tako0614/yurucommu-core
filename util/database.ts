@@ -6,7 +6,6 @@ const hostname = env["hostname"];
 const username = env["username"];
 const db = env["db"];
 const password = env["password"];
-
 const client = await new Client().connect({
   hostname,
   username,

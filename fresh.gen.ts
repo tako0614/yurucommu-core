@@ -6,20 +6,21 @@ import * as $0 from "./routes/_404.tsx";
 import * as $1 from "./routes/_app.tsx";
 import * as $2 from "./routes/api/oumu.ts";
 import * as $3 from "./routes/api/register.ts";
-import * as $4 from "./routes/api/tako.ts";
-import * as $5 from "./routes/button.tsx";
-import * as $6 from "./routes/greet/[name].tsx";
-import * as $7 from "./routes/index.tsx";
-import * as $8 from "./routes/privacypolicy.tsx";
-import * as $9 from "./routes/register.tsx";
-import * as $10 from "./routes/sns.tsx";
-import * as $11 from "./routes/tako.jsx";
-import * as $12 from "./routes/test.tsx";
-import * as $13 from "./routes/test_post.tsx";
-import * as $14 from "./routes/tests/UnderMenu.tsx";
-import * as $15 from "./routes/tests/form.tsx";
-import * as $16 from "./routes/tests/post-reception.tsx";
-import * as $17 from "./routes/tests/post-send.tsx";
+import * as $4 from "./routes/api/sendmail.ts";
+import * as $5 from "./routes/api/tako.ts";
+import * as $6 from "./routes/button.tsx";
+import * as $7 from "./routes/greet/[name].tsx";
+import * as $8 from "./routes/index.tsx";
+import * as $9 from "./routes/privacypolicy.tsx";
+import * as $10 from "./routes/register.tsx";
+import * as $11 from "./routes/sns.tsx";
+import * as $12 from "./routes/tako.jsx";
+import * as $13 from "./routes/test.tsx";
+import * as $14 from "./routes/test_post.tsx";
+import * as $15 from "./routes/tests/UnderMenu.tsx";
+import * as $16 from "./routes/tests/form.tsx";
+import * as $17 from "./routes/tests/post-reception.tsx";
+import * as $18 from "./routes/tests/post-send.tsx";
 import * as $$0 from "./islands/Button.tsx";
 import * as $$1 from "./islands/Counter.tsx";
 import * as $$2 from "./islands/Fuka.tsx";
@@ -34,20 +35,21 @@ const manifest = {
     "./routes/_app.tsx": $1,
     "./routes/api/oumu.ts": $2,
     "./routes/api/register.ts": $3,
-    "./routes/api/tako.ts": $4,
-    "./routes/button.tsx": $5,
-    "./routes/greet/[name].tsx": $6,
-    "./routes/index.tsx": $7,
-    "./routes/privacypolicy.tsx": $8,
-    "./routes/register.tsx": $9,
-    "./routes/sns.tsx": $10,
-    "./routes/tako.jsx": $11,
-    "./routes/test.tsx": $12,
-    "./routes/test_post.tsx": $13,
-    "./routes/tests/UnderMenu.tsx": $14,
-    "./routes/tests/form.tsx": $15,
-    "./routes/tests/post-reception.tsx": $16,
-    "./routes/tests/post-send.tsx": $17,
+    "./routes/api/sendmail.ts": $4,
+    "./routes/api/tako.ts": $5,
+    "./routes/button.tsx": $6,
+    "./routes/greet/[name].tsx": $7,
+    "./routes/index.tsx": $8,
+    "./routes/privacypolicy.tsx": $9,
+    "./routes/register.tsx": $10,
+    "./routes/sns.tsx": $11,
+    "./routes/tako.jsx": $12,
+    "./routes/test.tsx": $13,
+    "./routes/test_post.tsx": $14,
+    "./routes/tests/UnderMenu.tsx": $15,
+    "./routes/tests/form.tsx": $16,
+    "./routes/tests/post-reception.tsx": $17,
+    "./routes/tests/post-send.tsx": $18,
   },
   islands: {
     "./islands/Button.tsx": $$0,
