@@ -10,7 +10,6 @@ function isJson(data) {
 export const handler: Handlers<Data> = {
   async POST(req, ctx) {
     try {
-		console.log(req);
 		const user = (await req.json());
         return new Response(JSON.stringify(user));
 	} catch (error) {

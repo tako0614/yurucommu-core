@@ -15,7 +15,7 @@ export default function RegisterForm() {
             email: email,
             password: password,
         };
-        fetch("/api/tako", {
+        fetch("/api/oumu", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -32,9 +32,10 @@ export default function RegisterForm() {
                 console.error(error);
             });
     };
+    const isFormValid = email !== "" && password !== ""; // Check if both email and password are not empty
     return (
         <div>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} class="block">
                 <input
                     type="email"
                     placeholder="Email"
@@ -47,7 +48,7 @@ export default function RegisterForm() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                 />
-                <button type="submit">Submit</button>
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" disabled={!isFormValid}>登録</button> {/* Disable the button if the form is not valid */}
             </form>
         </div>
     );
