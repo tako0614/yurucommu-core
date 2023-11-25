@@ -6,6 +6,7 @@ export const handler: Handlers<Data> = {
   async POST(req, ctx) {
     try {
 		    const request = (await req.json());
+        console.log(request);
         let result;
         switch (request) {
           case request.requirements == "temp_register":
