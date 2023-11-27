@@ -2,19 +2,33 @@
 import { useSignal } from "@preact/signals";
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
-import Button from '../components/Button.tsx'
+//import Button from '../components/Button.tsx'
 import { useState, useEffect } from "preact/hooks";
+import { JSX, h} from "preact";
+
 
 
 export default function RegisterForm() {
+    const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const handleSubmit = (e) => {
-        e.preventDefault();
+
+    const handleUsernameChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
+        setUsername(event.currentTarget.value);
+    };
+
+    const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
+        setEmail(event.currentTarget.value);
+    };
+
+
+    const handleSubmit = (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
+        event.preventDefault();
+
         const data = {
+            username: username,
             email: email,
-            password: password,
         };
+
         fetch("/api/oumu", {
             method: "POST",
             headers: {
@@ -24,32 +38,26 @@ export default function RegisterForm() {
         })
             .then((response) => response.json())
             .then((data) => {
-                // Handle the response from the server
                 console.log(data);
             })
             .catch((error) => {
-                // Handle any errors
-                console.error(error);
+                // エラーハンドリング
             });
     };
-    const isFormValid = email !== "" && password !== ""; // Check if both email and password are not empty
+
     return (
-        <div>
-            <form onSubmit={handleSubmit} class="block">
-                <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                />
-                <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                />
-                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" disabled={!isFormValid}>登録</button> {/* Disable the button if the form is not valid */}
-            </form>
-        </div>
+        <form onSubmit={handleSubmit}>
+            <label>
+                <p class="text-white">Username:</p>
+                <input type="text" value={username} onChange={handleUsernameChange} />
+            </label>
+            <br />
+            <label>
+                <p class="text-white">Email:</p>
+                <input type="email" value={email} onChange={handleEmailChange} />
+            </label>
+            <br />
+            <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-white">Submit</button>
+        </form>
     );
 }

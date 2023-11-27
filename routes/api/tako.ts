@@ -1,133 +1,68 @@
-import { Handlers, PageProps } from "$fresh/server.ts";
-import database from "../../util/database.ts";
-import { testMail } from "../../util/denomail.ts";
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
-export const handler: Handlers<Data> = {
-  async POST(req, ctx) {
-    try {
-		    const request = (await req.json());
-        console.log(request);
-        let result;
-        switch (request) {
-          case request.requirements == "temp_register":
-            return temp_register(request);
-            break;
-          case request.requirements == "login":
-            result = login(request);
-            if(result.status === true) {
-              return new Response({status: true, message: "success" , uuid: result.uuid});
-            }
-            break;
-          default:
-            return new Response({status: false, message: "json is invalid"});
-            break;
-        }
-        //return new Response(JSON.stringify(user));
-	} catch (error) {
-		return new Response({status: false, message: "server error"});
-	}
+import { Handlers } from "$fresh/server.ts";
+//import database from "../../util/database.ts";
+//import { testMail } from "../../util/denomail.ts";
+//import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
+import { isMail, isUserDuplication, isMailDuplication, generateSalt, hashPassword, sendMail,client} from "../../util/takoFunction.ts";
+
+interface Data {
+  userName: string;
+}
+interface takojson  {
+  status: string;
+  requirements: string;
+  mail: string;
+  password: string;
+  userName: string;
+}
+export const handler: Handlers = {
+  async POST(req) {
+    const request = (await req.json());
+    let result = {};
+    switch (request) {
+      case request.requirements == "temp_register":
+        result = temp_register(request);
+        break;
+      case request.requirements == "login":
+        result = login(request);
+        break;
+    }
+    return new Response(JSON.stringify(result));
+  },
+  async GET(req) {
+    let result = {};
+    const url = new URL(req.url);
+    const requirments = url.searchParams.get("requirments") || "";
+    switch(requirments) {
+      case "register":
+        result = register(url);
+        break;
+    }
+    return new Response(JSON.stringify(result));
   },
 };
-//リクエスト処理
-//処理
-//登録
-async function temp_register(request) {
-  const req_username = request.username;
-  const req_email = request.email;
-  if(isValueDefined(req_username) == false || isValueDefined(req_email) == false) {
-    return {
-      status: false,
-      message: "value is undefined"
-    }
+async function temp_register(request: takojson) {
+  if (!isMail(request.mail)) {
+    return { "status": "error", "message": "メールアドレスが不正です" };
   }
-  if(isEmail(req_email) == false) {
-    return {
-      status: false,
-      message: "email is invalid"
-    }
+  if (await isMailDuplication(request.mail)) {
+    return { "status": "error", "message": "すでにそのメールアドレスは使われています" };
   }
-  if(isDuplicationUsername(req_username) == true) {
-    return {
-      status: false,
-      message: "username is duplication"
-    }
+  if (await isUserDuplication(request.userName)) {
+    return { "status": "error", "message": "すでにそのユーザー名は使われています" };
   }
-  if(isDuplicationEmail(req_email) == true) {
-    return {
-      status: false,
-      message: "email is duplication"
-    }
+  const salt = generateSalt(32);
+  const password = hashPassword(request.password, salt);
+  const token = generateSalt(32);
+  const result = await client.execute(`INSERT INTO users (userid, mail, password, salt, token) VALUES ("${request.userName}", "${request.mail}", "${password}", "${salt}", "${token}");`);
+  if (result.affectedRows === 0) {
+    return { "status": "error", "message": "登録に失敗しました" };
   }
-  const result = await database.insert("temp_users", ["username", "email", "password","key"], [username, email, hashedPassword, salt, uuid]);
-  console.log(result);
-  const status = result.affectedRows === 1;
-  if(status === true) {
-    testMail(req_mail,"メールアドレス認証",`こちらのリンクをクリックして認証してくださいhttps://takos.jp/api/register?userName=${req_username}&key=${uuid}`)
-  return {
-    status: true,
-    message: "success"
-  }
+  sendMail(request.mail, "仮登録完了", `以下のURLから本登録を完了してください\nhttps://tako.freshlive.tv/api/tako?requirements=register&token=${token}`);
+  return { "status": "success", "message": "仮登録が完了しました" };
 }
+function login(request: takojson) {
+return { "status": "success",request }
 }
-async function register(request) {
-
-}
-//AIで生成修正必要　！開始!
-async function login(request) {
-  const req_username = request.username;
-  const req_password = request.password;
-  if(isValueDefined(req_username) == false || isValueDefined(req_password) == false) {
-    return {
-      status: false,
-      message: "value is undefined"
-    }
-  }
-  const query = `SELECT COUNT(*) FROM customer WHERE customer_id = ${req_username}`;
-  const result = await database.execute(query);
-  const user = result[0];
-  if(user == undefined) {
-    return {
-      status: false,
-      message: "username is not found"
-    }
-  }
-  const salt = user.salt;
-  const password: string = request.password;
-  const saltedPassword = password + salt;
-  const hashedPassword = crypto.createHash('sha256').update(saltedPassword).digest('hex');
-  const uuid = crypto.randomUUID();
-  if(hashedPassword !== user.password) {
-    return {
-      status: false,
-      message: "password is not match"
-    }
-  }
-  return {
-    status: true,
-    uuid,
-    message: "success"
-  }
-}
-//AIで生成修正必要　！終了!
-
-//関数
-function isEmail(email: string) {
-  if(email.match(/.+@.+\..+/) == null) {
-    return false;
-  }
-}
-function isValueDefined(value: any): boolean {
-  return value !== undefined && value !== null;
-}
-async function isDuplicationUsername(username: string) {
-  const query = `SELECT COUNT(*) as count FROM users WHERE username = ?`;
-  const result = await database.execute(query, [username]);
-  const count = result[0].count;
-  return count > 0;
-}
-async function isDuplicationEmail(email: string) {
-  const query = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
-  const result = await database.execute(query, [username]);
-  const count = result[0].count;
-  return count > 0;
+function register(request: object) {
+return { "status": "success",request }
 }
