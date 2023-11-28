@@ -1,4 +1,4 @@
-import { Handlers, PageProps } from "$fresh/server.ts";
+/*import { Handlers, PageProps } from "$fresh/server.ts";
 function isJson(data) {
 	try {
 		const isjson = req.json();
@@ -16,4 +16,4 @@ export const handler: Handlers<Data> = {
 		return new Response("Error: Invalid JSON");
 	}
   },
-};
+};*/

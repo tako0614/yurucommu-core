@@ -52,7 +52,7 @@ function isMail(mail: string): boolean {
     return emailRegex.test(mail);
 }
 async function isUserDuplication(userid: string): Promise<boolean> {
-    const result = await client.query(`SELECT * FROM users WHERE userid = "${userid}"`);
+    const result = await client.query(`SELECT * FROM users WHERE name = "${userid}"`);
     return result.length > 0;
 }
 async function isMailDuplication(mail: string): Promise<boolean> {
@@ -84,4 +84,11 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     const hash = await crypto.subtle.digest('SHA-256', data);
     return encode(new Uint8Array(hash));
   }
-export { client, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword };  
+  export type takojson = {
+    status: string;
+    requirements: string;
+    mail: string;
+    password: string;
+    userName: string;
+  }
+export { client, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword};  

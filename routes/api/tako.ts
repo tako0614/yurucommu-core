@@ -1,7 +1,5 @@
 import { Handlers } from "$fresh/server.ts";
-//import database from "../../util/database.ts";
-//import { testMail } from "../../util/denomail.ts";
-//import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
+import { re } from "$std/semver/_shared.ts";
 import { isMail, isUserDuplication, isMailDuplication, generateSalt, hashPassword, sendMail,client} from "../../util/takoFunction.ts";
 
 interface Data {
@@ -13,20 +11,25 @@ interface takojson  {
   mail: string;
   password: string;
   userName: string;
+  message?: string;
 }
 export const handler: Handlers = {
   async POST(req) {
     const request = (await req.json());
+    console.log(request.requirements);
+    const requirements = request.requirements;
     let result = {};
-    switch (request) {
-      case request.requirements == "temp_register":
-        result = temp_register(request);
+    switch (requirements) {
+      case "temp_register":
+        //return new Response(JSON.stringify(temp_register(request)))
+        result = await temp_register(request);
         break;
-      case request.requirements == "login":
+      case "login":
         result = login(request);
         break;
     }
-    return new Response(JSON.stringify(result));
+    console.log(result);
+    return new Response(JSON.stringify(result))//new Response(JSON.stringify(result));
   },
   async GET(req) {
     let result = {};
@@ -44,21 +47,33 @@ async function temp_register(request: takojson) {
   if (!isMail(request.mail)) {
     return { "status": "error", "message": "メールアドレスが不正です" };
   }
+  
   if (await isMailDuplication(request.mail)) {
     return { "status": "error", "message": "すでにそのメールアドレスは使われています" };
   }
+  
   if (await isUserDuplication(request.userName)) {
     return { "status": "error", "message": "すでにそのユーザー名は使われています" };
   }
+  /*
   const salt = generateSalt(32);
-  const password = hashPassword(request.password, salt);
+  const password = hashPassword(request.password, salt);*/
   const token = generateSalt(32);
-  const result = await client.execute(`INSERT INTO users (userid, mail, password, salt, token) VALUES ("${request.userName}", "${request.mail}", "${password}", "${salt}", "${token}");`);
+  const result = await client.execute(`INSERT INTO temp_users (name, mail, kye) VALUES ("${request.userName}", "${request.mail}", "${token}");`);
   if (result.affectedRows === 0) {
     return { "status": "error", "message": "登録に失敗しました" };
   }
   sendMail(request.mail, "仮登録完了", `以下のURLから本登録を完了してください\nhttps://tako.freshlive.tv/api/tako?requirements=register&token=${token}`);
-  return { "status": "success", "message": "仮登録が完了しました" };
+  console.log(request)
+  const response: takojson = {
+    status: "success",
+    requirements: "temp_register",
+    mail: "",
+    password: "",
+    userName: "",
+    "message": "仮登録が完了しました"
+  }
+  return response;
 }
 function login(request: takojson) {
 return { "status": "success",request }

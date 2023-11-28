@@ -1,13 +1,15 @@
 // routes/_app.tsx
-import { useSignal } from "@preact/signals";
-import Header from '../components/Header.tsx'
-import Footer from '../components/Footer.tsx'
+import { render } from "preact";
 //import Button from '../components/Button.tsx'
 import { useState, useEffect } from "preact/hooks";
 import { JSX, h} from "preact";
-
-
-
+import { isMail, isUserDuplication, takojson } from "../util/takoFunction.ts"
+const SuccessPage = () => 
+<div>
+    <h1 class="text-white">登録完了</h1>
+    <p class="text-white">登録が完了しました。メールを確認してください。</p>
+    <a href="/">トップページへ</a>
+</div>;
 export default function RegisterForm() {
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
@@ -19,17 +21,17 @@ export default function RegisterForm() {
     const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
         setEmail(event.currentTarget.value);
     };
-
-
     const handleSubmit = (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-
-        const data = {
-            username: username,
-            email: email,
+        
+        const data: takojson = {
+            status: "",
+            password: "",
+            requirements: "temp_register",
+            userName: username,
+            mail: email,
         };
-
-        fetch("/api/oumu", {
+        const response = fetch("/api/tako", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -38,7 +40,34 @@ export default function RegisterForm() {
         })
             .then((response) => response.json())
             .then((data) => {
-                console.log(data);
+                console.log(data.status);
+                if (data.status === "success") {
+                    const container = document.getElementById("register-form");
+                    if (container) {
+                        
+                        render(SuccessPage(), container);
+                    } else {
+                        console.error("Container element not found");
+                    }
+                } else if (data.status === "error") {
+                    switch (data.error) {
+                        case "mail":
+                            alert("メールアドレスが不正です。");
+                            break;
+                        case "user":
+                            alert("ユーザー名が不正です。");
+                            break;
+                        case "user_duplication":
+                            alert("ユーザー名が重複しています。");
+                            break;
+                        case "mail_duplication":
+                            alert("メールアドレスが重複しています。");
+                            break;
+                        default:
+                            alert("不明なエラーが発生しました。");
+                            break;
+                    }
+                }
             })
             .catch((error) => {
                 // エラーハンドリング
@@ -46,7 +75,7 @@ export default function RegisterForm() {
     };
 
     return (
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} id="register-form">
             <label>
                 <p class="text-white">Username:</p>
                 <input type="text" value={username} onChange={handleUsernameChange} />
