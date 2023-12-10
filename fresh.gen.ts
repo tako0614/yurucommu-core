@@ -2,61 +2,62 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
-import * as $0 from "./routes/_404.tsx";
-import * as $1 from "./routes/_app.tsx";
-import * as $2 from "./routes/api/oumu.ts";
-import * as $3 from "./routes/api/tako.ts";
-import * as $4 from "./routes/button.tsx";
-import * as $5 from "./routes/greet/[name].tsx";
-import * as $6 from "./routes/index.tsx";
-import * as $7 from "./routes/privacypolicy.tsx";
-import * as $8 from "./routes/register.tsx";
-import * as $9 from "./routes/sns.tsx";
-import * as $10 from "./routes/tako.jsx";
-import * as $11 from "./routes/test.tsx";
-import * as $12 from "./routes/test_post.tsx";
-import * as $13 from "./routes/tests/UnderMenu.tsx";
-import * as $14 from "./routes/tests/form.tsx";
-import * as $15 from "./routes/tests/post-reception.tsx";
-import * as $16 from "./routes/tests/post-send.tsx";
-import * as $$0 from "./islands/Button.tsx";
-import * as $$1 from "./islands/Counter.tsx";
-import * as $$2 from "./islands/Fuka.tsx";
-import * as $$3 from "./islands/HeaderMenu.tsx";
-import * as $$4 from "./islands/RegisterForm.tsx";
-import * as $$5 from "./islands/Test.tsx";
-import * as $$6 from "./islands/header.tsx";
+import * as $_404 from "./routes/_404.tsx";
+import * as $_app from "./routes/_app.tsx";
+import * as $api_oumu from "./routes/api/oumu.ts";
+import * as $api_tako from "./routes/api/tako.ts";
+import * as $button from "./routes/button.tsx";
+import * as $greet_name_ from "./routes/greet/[name].tsx";
+import * as $index from "./routes/index.tsx";
+import * as $privacypolicy from "./routes/privacypolicy.tsx";
+import * as $register from "./routes/register.tsx";
+import * as $sns from "./routes/sns.tsx";
+import * as $tako from "./routes/tako.jsx";
+import * as $test from "./routes/test.tsx";
+import * as $test_post from "./routes/test_post.tsx";
+import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
+import * as $tests_form from "./routes/tests/form.tsx";
+import * as $tests_post_reception from "./routes/tests/post-reception.tsx";
+import * as $tests_post_send from "./routes/tests/post-send.tsx";
+import * as $Button from "./islands/Button.tsx";
+import * as $Counter from "./islands/Counter.tsx";
+import * as $Fuka from "./islands/Fuka.tsx";
+import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
+import * as $RegisterForm from "./islands/RegisterForm.tsx";
+import * as $Test from "./islands/Test.tsx";
+import * as $header from "./islands/header.tsx";
+import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
   routes: {
-    "./routes/_404.tsx": $0,
-    "./routes/_app.tsx": $1,
-    "./routes/api/oumu.ts": $2,
-    "./routes/api/tako.ts": $3,
-    "./routes/button.tsx": $4,
-    "./routes/greet/[name].tsx": $5,
-    "./routes/index.tsx": $6,
-    "./routes/privacypolicy.tsx": $7,
-    "./routes/register.tsx": $8,
-    "./routes/sns.tsx": $9,
-    "./routes/tako.jsx": $10,
-    "./routes/test.tsx": $11,
-    "./routes/test_post.tsx": $12,
-    "./routes/tests/UnderMenu.tsx": $13,
-    "./routes/tests/form.tsx": $14,
-    "./routes/tests/post-reception.tsx": $15,
-    "./routes/tests/post-send.tsx": $16,
+    "./routes/_404.tsx": $_404,
+    "./routes/_app.tsx": $_app,
+    "./routes/api/oumu.ts": $api_oumu,
+    "./routes/api/tako.ts": $api_tako,
+    "./routes/button.tsx": $button,
+    "./routes/greet/[name].tsx": $greet_name_,
+    "./routes/index.tsx": $index,
+    "./routes/privacypolicy.tsx": $privacypolicy,
+    "./routes/register.tsx": $register,
+    "./routes/sns.tsx": $sns,
+    "./routes/tako.jsx": $tako,
+    "./routes/test.tsx": $test,
+    "./routes/test_post.tsx": $test_post,
+    "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
+    "./routes/tests/form.tsx": $tests_form,
+    "./routes/tests/post-reception.tsx": $tests_post_reception,
+    "./routes/tests/post-send.tsx": $tests_post_send,
   },
   islands: {
-    "./islands/Button.tsx": $$0,
-    "./islands/Counter.tsx": $$1,
-    "./islands/Fuka.tsx": $$2,
-    "./islands/HeaderMenu.tsx": $$3,
-    "./islands/RegisterForm.tsx": $$4,
-    "./islands/Test.tsx": $$5,
-    "./islands/header.tsx": $$6,
+    "./islands/Button.tsx": $Button,
+    "./islands/Counter.tsx": $Counter,
+    "./islands/Fuka.tsx": $Fuka,
+    "./islands/HeaderMenu.tsx": $HeaderMenu,
+    "./islands/RegisterForm.tsx": $RegisterForm,
+    "./islands/Test.tsx": $Test,
+    "./islands/header.tsx": $header,
   },
   baseUrl: import.meta.url,
-};
+} satisfies Manifest;
 
 export default manifest;

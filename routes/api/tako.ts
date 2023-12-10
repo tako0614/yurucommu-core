@@ -1,6 +1,6 @@
 import { Handlers } from "$fresh/server.ts";
-import { re } from "$std/semver/_shared.ts";
-import { isMail, isUserDuplication, isMailDuplication, generateSalt, hashPassword, sendMail,client} from "../../util/takoFunction.ts";
+//import { re } from "$std/semver/_shared.ts";
+import { isMail, isUserDuplication, isMailDuplication, generateSalt, /*hashPassword,*/ sendMail,client} from "../../util/takoFunction.ts";
 
 interface Data {
   userName: string;
@@ -12,6 +12,21 @@ interface takojson  {
   password: string;
   userName: string;
   message?: string;
+}
+interface takoresponse {
+    method: string,
+    headers: {
+        "Content-Type": string,
+        "Access-Control-Allow-Origin": string,
+    },
+    body: {
+      status: string;
+      requirements: string;
+      mail: string;
+      password: string;
+      userName: string;
+      message?: string;
+    }
 }
 export const handler: Handlers = {
   async POST(req) {
