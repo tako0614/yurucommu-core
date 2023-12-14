@@ -6,6 +6,7 @@ import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
+import * as $api_token from "./routes/api/token.ts";
 import * as $button from "./routes/button.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
@@ -34,6 +35,7 @@ const manifest = {
     "./routes/_app.tsx": $_app,
     "./routes/api/oumu.ts": $api_oumu,
     "./routes/api/tako.ts": $api_tako,
+    "./routes/api/token.ts": $api_token,
     "./routes/button.tsx": $button,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,

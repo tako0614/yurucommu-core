@@ -22,9 +22,9 @@ interface takoresponse {
     body: {
       status: string;
       requirements: string;
-      mail: string;
-      password: string;
-      userName: string;
+      mail?: string;
+      password?: string;
+      userName?: string;
       message?: string;
     }
 }
