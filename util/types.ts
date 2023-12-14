@@ -5,7 +5,7 @@ export type takojson = {
     password: string;
     userName: string;
 }
-interface takoresponse {
+export type takoresponse = {
   method: string,
   headers: {
     "Content-Type": string,
