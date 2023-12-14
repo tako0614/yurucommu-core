@@ -39,27 +39,15 @@ let queries = {
         provider VARCHAR(255) NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id)
     );`,
+    csrftoken:`CREATE TABLE csrftoken (
+        kye VARCHAR(255) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        sessionid VARCHAR(255) NOT NULL
+    );`,
 }
-changes = {
-    temp_users: {
-        //
-    },
-    users: {
-        //
-    },
-    posts: {
-        //
-    },
-    posts: {    
-        //
-    },
-    OAuth2: {
-        //
-    },
-    
-}
-export default async function makeDB() {
-    queries.forEach(async (query) => {
+function makeDB() {
+    const value = Object.values(queries)
+    value.forEach(async (query) => {
     let result = await client.execute(query);
     console.log(result);
     })

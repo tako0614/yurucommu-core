@@ -1,4 +1,6 @@
 import { Handlers } from "$fresh/server.ts";
+import { client } from "../../util/takoFunction.ts";
+
 //import { re } from "$std/semver/_shared.ts";
 //import { isMail, isUserDuplication, isMailDuplication, generateSalt, /*hashPassword,*/ sendMail,client} from "../../util/takoFunction.ts";
 const arrow_domain = [
@@ -7,9 +9,7 @@ const arrow_domain = [
 ]
 export const handler: Handlers = {
     async POST(req) {
-      const request = (await req.json());
-      console.log(request.requirements);
-      console.log(result);
-      
+      //const request = (await req.json());
+      console.log(req)
     },
-  };
+};

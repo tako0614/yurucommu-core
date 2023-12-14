@@ -5,7 +5,7 @@ function isbutton(a: string,b: string) {
       }
   }
   }
-  export default function Button({ text, script }: { text: string, script: string}) {
+  export default function Button({ text, script }: { text: string, script: any}) {
     return (
       <button 
         class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
