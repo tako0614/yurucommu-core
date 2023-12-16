@@ -13,7 +13,7 @@ export default function Home() {
       <Header />
         <div class="full">
           <div  class="full-title">
-          <h1>tako's powered by takoserver</h1>
+          <h1>tako's</h1>
           <p class="text-lg">Technology for All Knowledge & Octopus</p>
           </div>
         </div>
