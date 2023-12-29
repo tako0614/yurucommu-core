@@ -1,33 +1,9 @@
+
 import { Handlers } from "$fresh/server.ts";
 //import { re } from "$std/semver/_shared.ts";
 import { isMail, isUserDuplication, isMailDuplication, generateSalt, /*hashPassword,*/ sendMail,client} from "../../util/takoFunction.ts";
-
-interface Data {
-  userName: string;
-}
-interface takojson  {
-  status: string;
-  requirements: string;
-  mail: string;
-  password: string;
-  userName: string;
-  message?: string;
-}
-interface takoresponse {
-    method: string,
-    headers: {
-        "Content-Type": string,
-        "Access-Control-Allow-Origin": string,
-    },
-    body: {
-      status: string;
-      requirements: string;
-      mail?: string;
-      password?: string;
-      userName?: string;
-      message?: string;
-    }
-}
+import * as types from "../../util/types.ts";
+ //@ts-ignore: origin
 export const handler: Handlers = {
   async POST(req) {
     const request = (await req.json());
@@ -46,6 +22,7 @@ export const handler: Handlers = {
     console.log(result);
     return new Response(JSON.stringify(result))//new Response(JSON.stringify(result));
   },
+  //@ts-ignore: otintin
   async GET(req) {
     let result = {};
     const url = new URL(req.url);
@@ -58,7 +35,8 @@ export const handler: Handlers = {
     return new Response(JSON.stringify(result));
   },
 };
-async function temp_register(request: takojson) {
+//@ts-ignore: otintin
+async function temp_register(request) {
   if (!isMail(request.mail)) {
     return { "status": "error", "message": "メールアドレスが不正です" };
   }
@@ -80,7 +58,7 @@ async function temp_register(request: takojson) {
   }
   sendMail(request.mail, "仮登録完了", `以下のURLから本登録を完了してください\nhttps://tako.freshlive.tv/api/tako?requirements=register&token=${token}`);
   console.log(request)
-  const response: takojson = {
+  const response = {
     status: "success",
     requirements: "temp_register",
     mail: "",
@@ -90,7 +68,8 @@ async function temp_register(request: takojson) {
   }
   return response;
 }
-function login(request: takojson) {
+//@ts-ignore: otintin
+function login(request) {
 return { "status": "success",request }
 }
 function register(request: object) {

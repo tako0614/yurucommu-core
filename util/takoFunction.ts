@@ -2,6 +2,7 @@ import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import * as nodemailer from "npm:nodemailer@6.9.5";
 import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts";
+import { escapeSql } from "https://deno.land/x/escape/mod.ts";
 const env = await load();
 const hostname = env["hostname"];
 const username = env["username"];
@@ -47,6 +48,10 @@ const client = await new Client().connect({
   db,
   password,
 });
+//@ts-ignore: origin
+async function sql(query) {
+  return await client.execute(escapeSql(query))
+}
 function isMail(mail: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(mail);
@@ -91,4 +96,4 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     password: string;
     userName: string;
   }
-export { client, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword};  
+export { client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword};  

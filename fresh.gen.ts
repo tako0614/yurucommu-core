@@ -4,6 +4,7 @@
 
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
+import * as $api_auth from "./routes/api/auth.ts";
 import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
 import * as $api_token from "./routes/api/token.ts";
@@ -33,6 +34,7 @@ const manifest = {
   routes: {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
+    "./routes/api/auth.ts": $api_auth,
     "./routes/api/oumu.ts": $api_oumu,
     "./routes/api/tako.ts": $api_tako,
     "./routes/api/token.ts": $api_token,
