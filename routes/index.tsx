@@ -18,7 +18,7 @@ export default function Home() {
       <img src="./logo2.png" alt="logo" class="w-full"/>
     </div>
   </div>
-  <div class="flex flex-col justify-start items-start space-y-3 w-1/2">
+  <div class="flex flex-col justify-start items-start space-y-3 md:w-1/2 w-full">
     <div class="text-left">
       <h1 class="text-5xl font-bold mb-3">tako's</h1>
       <p class="text-lg mb-8">Next generation decentralized chat service</p>
