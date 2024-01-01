@@ -4,6 +4,7 @@
 
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
+import * as $about from "./routes/about.tsx";
 import * as $api_auth from "./routes/api/auth.ts";
 import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
@@ -13,7 +14,6 @@ import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
 import * as $register from "./routes/register.tsx";
-import * as $sns from "./routes/sns.tsx";
 import * as $tako from "./routes/tako.jsx";
 import * as $test from "./routes/test.tsx";
 import * as $test_post from "./routes/test_post.tsx";
@@ -34,6 +34,7 @@ const manifest = {
   routes: {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
+    "./routes/about.tsx": $about,
     "./routes/api/auth.ts": $api_auth,
     "./routes/api/oumu.ts": $api_oumu,
     "./routes/api/tako.ts": $api_tako,
@@ -43,7 +44,6 @@ const manifest = {
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
     "./routes/register.tsx": $register,
-    "./routes/sns.tsx": $sns,
     "./routes/tako.jsx": $tako,
     "./routes/test.tsx": $test,
     "./routes/test_post.tsx": $test_post,
