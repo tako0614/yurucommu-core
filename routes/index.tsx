@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <>
       <head>
-        <title>takoserver project</title>
+        <title>tako's</title>
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       <Header />
