@@ -18,7 +18,7 @@ export default function HeaderMenu ({ children }: Props) {
   const [isOpenMenu1, setIsOpenMenu1] = useState(false)
   return <>
     <div class="">
-      <img onClick={() => setIsOpen(true)} src="./icons/menu.png" class="text-4xl text-white w-7 pt-1" />
+      <img onClick={() => setIsOpen(true)} src="./icons/menu.png" alt="hanger menu" class="text-4xl text-white w-7 pt-1" />
     </div>
     <div class={`
       fixed top-0 left-0 w-screen h-screen bg-gray-900 p-3
