@@ -26,7 +26,7 @@ export default function HeaderMenu ({ children }: Props) {
       ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
       <div>
-        <img src="./icons/batu.png" class="text-3xl w-7" onClick={() => setIsOpen(false)} />
+        <img src="./icons/batu.png" alt="hanger menu" class="text-3xl w-7" onClick={() => setIsOpen(false)} />
       </div>
       <ul class="divide-y border-gray-500 m-auto w-4/5">
         <li><a href="/"class={class1}>HOME</a></li>
