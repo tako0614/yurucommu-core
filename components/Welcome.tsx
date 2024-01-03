@@ -12,6 +12,8 @@ export default function Welcome () {
     <div class="text-center md:text-left">
       <h1 class="text-5xl font-bold mb-3">tako's</h1>
       <p class="text-lg mb-8">Next generation decentralized chat service</p>
+<p class="text-lg mb-8">現在開発中です！</p>
+
     </div>
     <div class="flex flex-col space-y-3 mb-8">
       <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-10 px-4 py-2 bg-white text-black w-64">
