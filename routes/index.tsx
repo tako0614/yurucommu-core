@@ -8,8 +8,9 @@ export default function Home() {
   return (
     <>
       <head>
-        <title>tako's</title>
+        <title>tako's | takos.jp</title>
         <link rel="stylesheet" href="/style.css"></link>
+        <meta name="discription" content="日本産オープンソース分散型チャットアプリ「tako's」" />
       </head>
       <Header />
       <Welcom />

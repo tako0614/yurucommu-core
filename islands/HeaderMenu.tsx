@@ -30,16 +30,10 @@ export default function HeaderMenu ({ children }: Props) {
       </div>
       <ul class="divide-y border-gray-500 m-auto w-4/5">
         <li><a href="/"class={class1}>HOME</a></li>
-        <li><a href="/serach"class={class1}>検索</a></li>
+        <li><a href="/about"class={class1}>About</a></li>
         <li><a href="/talk"class={class1}>トーク</a></li>
-        <li><a class={class1}>ダイレクトメッセージ</a></li>
-        <li><a class={class1}>通知</a></li>
-        <li><a class={class1}>プロフィール</a></li>
         <li><a href="/setting"class={class1}>設定</a></li>
-        <li><a href="/login"class={class1}>ログイン</a></li>
-        <li><a href="/register" class={class1}>新規登録</a></li>
         <li><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" class={class1}>公式オープンチャット</a></li>
-        <li><a class={class1}></a></li>
       </ul>
       {/*
       <div class="divide-y border-gray-500">
