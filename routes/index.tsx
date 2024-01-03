@@ -10,7 +10,7 @@ export default function Home() {
       <head>
         <title>tako's | takos.jp</title>
         <link rel="stylesheet" href="/style.css"></link>
-        <meta name="discription" content="日本産オープンソース分散型チャットアプリ「tako's」" />
+        <meta name="description" content="日本産オープンソース分散型チャットアプリ「tako's」" />
       </head>
       <Header />
       <Welcom />
