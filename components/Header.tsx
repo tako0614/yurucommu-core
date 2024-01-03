@@ -3,7 +3,7 @@ import HeaderMenu from '../islands/HeaderMenu.tsx'
 const Contents = () => <>
   <p><a href="/">Home</a></p>
   <p><a href="/about">About</a></p>
-  <p><a href="/privacypolicy">プライバシーポリシー</a></p>
+  <p><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></p>
   <p><a href="/setting">設定</a></p>
 </>
 //メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
