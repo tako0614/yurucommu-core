@@ -14,7 +14,6 @@ import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
 import * as $register from "./routes/register.tsx";
-import * as $tako from "./routes/tako.jsx";
 import * as $test from "./routes/test.tsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
@@ -44,7 +43,6 @@ const manifest = {
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
     "./routes/register.tsx": $register,
-    "./routes/tako.jsx": $tako,
     "./routes/test.tsx": $test,
     "./routes/test_post.tsx": $test_post,
     "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
