@@ -1,4 +1,5 @@
 ※このソフトウェアを使用してサービスを提供する場合以下のライセンスに同意したと見なします
+https://github.com/takoserver/takos/blob/main/LICENSE-takos
 # 日本産オープンソース分散型チャットアプリ「tako's」
 ※takosだとタコスになっちゃうから'入れたのは内緒
 ## tako'sのコンセプト！
