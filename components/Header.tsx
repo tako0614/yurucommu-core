@@ -1,10 +1,12 @@
 import HeaderMenu from '../islands/HeaderMenu.tsx'
 
 const Contents = () => <>
-  <p><a href="/">Home</a></p>
-  <p><a href="/about">About</a></p>
-  <p><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></p>
-  <p><a href="/setting">設定</a></p>
+
+</>
+const Contents1 = () => <>
+<div>ホーム</div>
+<div>About</div>
+<div>SNS(開発中)</div>
 </>
 //メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
 export default function Header () {
@@ -19,8 +21,11 @@ export default function Header () {
         <div>
           <a class="logo-area flex mb-4" href="/"><img src="/logo.png" alt="takoserver logo" class="logo-img" /></a>
         </div>
-        <div class="hidden lg:grid grid-cols-4 text-white items-center">
-          <Contents />
+        <div class="text-white items-centerhiddenlg:grid ">
+        <div class="float-left pr-8"><a href="/">Home</a></div>
+        <div class="float-left pr-8"><a href="/about">About</a></div>
+        <div class="float-left pr-8"><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></div>
+        <div class="float-left pr-2"><a href="/setting">設定</a></div>
         </div>
       </div>
     </div>
