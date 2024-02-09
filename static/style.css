@@ -269,6 +269,9 @@
     padding: 20px 30px;
     text-align: center;
  }
+.font0 {
+    font-size: 0px;
+}
  /*PCの場合にはメニューを表示させない*/
 
 @media (min-width: 768px) {

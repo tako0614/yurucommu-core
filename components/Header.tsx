@@ -22,10 +22,10 @@ export default function Header () {
           <a class="logo-area flex mb-4" href="/"><img src="/logo.png" alt="takoserver logo" class="logo-img" /></a>
         </div>
         <div class="text-white items-centerhiddenlg:grid ">
-        <div class="float-left pr-8"><a href="/">Home</a></div>
-        <div class="float-left pr-8"><a href="/about">About</a></div>
-        <div class="float-left pr-8"><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></div>
-        <div class="float-left pr-2"><a href="/setting">設定</a></div>
+        <div class="font0 md:text-base md:float-left md:pr-8"><a href="/">Home</a></div>
+        <div class="font0 md:text-base md:float-left md:pr-8"><a href="/about">About</a></div>
+        <div class="font0 md:text-base md:float-left md:pr-8"><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></div>
+        <div class="font0 md:text-base md:float-left md:pr-8"><a href="/setting">設定</a></div>
         </div>
       </div>
     </div>
