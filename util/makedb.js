@@ -11,6 +11,7 @@ const client = await new Client().connect({
   db,
   password,
 });
+// deno-lint-ignore prefer-const
 let queries = {
     temp_users: `CREATE TABLE temp_users (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -46,10 +47,16 @@ let queries = {
     );`,
 }
 function makeDB() {
-    const value = Object.values(queries)
-    value.forEach(async (query) => {
-    let result = await client.execute(query);
-    console.log(result);
-    })
+    Object.keys(queries).forEach(async function (key) {
+        const isset = `SHOW TABLES LIKE ${key}`;
+        if(isset == "0") {
+            const query = queries[key]
+            const result = await client.execute(query);
+            console.log(result)
+            console.log(`${key}を作成しました`)
+        } else{
+            console.log(`${key}はすでにあります`)
+        }
+    });
 }
 makeDB()
