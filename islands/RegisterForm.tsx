@@ -13,17 +13,14 @@ const SuccessPage = () =>
 export default function RegisterForm() {
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
-
     const handleUsernameChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
         setUsername(event.currentTarget.value);
     };
-
     const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
         setEmail(event.currentTarget.value);
     };
     const handleSubmit = (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-        
         const data: takojson = {
             status: "",
             password: "",

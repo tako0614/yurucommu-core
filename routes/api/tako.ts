@@ -5,9 +5,11 @@ import { isMail, isUserDuplication, isMailDuplication, generateSalt, /*hashPassw
 import * as types from "../../util/types.ts";
  //@ts-ignore: origin
 export const handler: Handlers = {
-  async POST(req) {
-    const request = (await req.json());
-    console.log(request.requirements);
+  POST(req) {
+    console.log(req)
+    
+    return new Response(JSON.stringify({}))
+   /* console.log(request.requirements);
     const requirements = request.requirements;
     let result = {};
     switch (requirements) {
@@ -20,7 +22,7 @@ export const handler: Handlers = {
         break;
     }
     console.log(result);
-    return new Response(JSON.stringify(result))//new Response(JSON.stringify(result));
+    return new Response(JSON.stringify(result))//new Response(JSON.stringify(result));*/
   },
   //@ts-ignore: otintin
   async GET(req) {

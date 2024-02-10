@@ -5,8 +5,8 @@
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
-import * as $api_auth from "./routes/api/auth.ts";
 import * as $api_oumu from "./routes/api/oumu.ts";
+import * as $api_register from "./routes/api/register.js";
 import * as $api_tako from "./routes/api/tako.ts";
 import * as $api_token from "./routes/api/token.ts";
 import * as $button from "./routes/button.tsx";
@@ -34,8 +34,8 @@ const manifest = {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
-    "./routes/api/auth.ts": $api_auth,
     "./routes/api/oumu.ts": $api_oumu,
+    "./routes/api/register.js": $api_register,
     "./routes/api/tako.ts": $api_tako,
     "./routes/api/token.ts": $api_token,
     "./routes/button.tsx": $button,

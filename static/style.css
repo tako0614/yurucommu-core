@@ -99,13 +99,10 @@
          height: 22px;
          vertical-align: middle;
     }
-    /*ハンバーガーの形をCSSで表現*/
      #nav-open span, #nav-open span:before, #nav-open span:after {
          position: absolute;
          height: 3px;
-        /*線の太さ*/
          width: 25px;
-        /*長さ*/
          border-radius: 3px;
          background: #555;
          display: block;
@@ -131,7 +128,6 @@
          opacity: 0;
          transition: .3s ease-in-out;
     }
-    /*メニューの中身*/
      #nav-content {
          overflow: auto;
          position: fixed;
@@ -140,14 +136,12 @@
          z-index: 9999;
          width: 90%;
          max-width: 330px;
-        /*最大幅（お好みで調整を）*/
          height: 100%;
          background: #fff;
          transition: .3s ease-in-out;
          -webkit-transform: translateX(-105%);
          transform: translateX(-105%);
     }
-    /*チェックがついたら表示させる*/
      #nav-input:checked ~ #nav-close {
          display: block;
          opacity: .5;
@@ -169,7 +163,6 @@
          -webkit-flex-direction: row;
          -ms-flex-direction: row;
     }
-    /*ロゴやサイトタイトルをセンタリング*/
      .logo-area{
          height: 10px;
          text-align:center;
