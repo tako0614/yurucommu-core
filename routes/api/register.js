@@ -1,7 +1,6 @@
 export const handler = {
-  async POST(req) {
-    const request = (await req.url());
-    console.log(req)
+  POST(req) {
+    console.log(req.body)
     const a = {
       "a": "a"
     }

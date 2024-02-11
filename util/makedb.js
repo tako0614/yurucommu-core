@@ -46,7 +46,7 @@ let queries = {
         sessionid VARCHAR(255) NOT NULL
     );`,
 }
-function makeDB() {
+export function makeDB() {
     Object.keys(queries).forEach(async function (key) {
         const isset = `SHOW TABLES LIKE ${key}`;
         if(isset == "0") {
@@ -55,8 +55,9 @@ function makeDB() {
             console.log(result)
             console.log(`${key}を作成しました`)
         } else{
-            console.log(`${key}はすでにあります`)
+            console.log(`${key}はすでに作成されています`)
         }
     });
+    console.log("正常に処理されました")
 }
 makeDB()
