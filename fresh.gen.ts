@@ -22,11 +22,10 @@ import * as $tests_post_reception from "./routes/tests/post-reception.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $Button from "./islands/Button.tsx";
 import * as $Counter from "./islands/Counter.tsx";
-import * as $Fuka from "./islands/Fuka.tsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $RegisterForm from "./islands/RegisterForm.tsx";
-import * as $Test from "./islands/Test.tsx";
 import * as $header from "./islands/header.tsx";
+import * as $test_1 from "./islands/test.jsx";
 import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
@@ -53,11 +52,10 @@ const manifest = {
   islands: {
     "./islands/Button.tsx": $Button,
     "./islands/Counter.tsx": $Counter,
-    "./islands/Fuka.tsx": $Fuka,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/RegisterForm.tsx": $RegisterForm,
-    "./islands/Test.tsx": $Test,
     "./islands/header.tsx": $header,
+    "./islands/test.jsx": $test_1,
   },
   baseUrl: import.meta.url,
 } satisfies Manifest;

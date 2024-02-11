@@ -14,6 +14,8 @@ export default function Home() {
       </head>
       <Header />
       <Welcom />
+      <Footer></Footer>
+      
     </>
   );
 }

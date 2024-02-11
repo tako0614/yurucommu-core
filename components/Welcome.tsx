@@ -1,3 +1,4 @@
+import RegisterForm from "../islands/RegisterForm.tsx"
 export default function Welcome () {
   return (
     <>
@@ -16,15 +17,9 @@ export default function Welcome () {
 <p class="text-lg mb-8">開発者募集中です！公式オープンチャットから</p>
     </div>
     <div class="flex flex-col space-y-3 mb-8">
-      <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-10 px-4 py-2 bg-white text-black w-64">
-        インスタンス一覧
-      </button>
-      <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 bg-black border border-white text-white w-64">
-        このサーバーに登録
-      </button>
-      <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-10 px-4 py-2 bg-blue-600 text-white w-64">
-        ログイン
-      </button>
+      <RegisterForm tako="instans" color="hover:bg-primary/90 h-10 px-4 py-2 bg-white text-black w-64" text="インスタンス作成"></RegisterForm>
+      <RegisterForm tako="register" color="hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 bg-black border border-white text-white w-64" text="このサーバーに登録"></RegisterForm>
+      <RegisterForm tako="login" color="hover:bg-primary/90 h-10 px-4 py-2 bg-blue-600 text-white w-64" text="ログイン"></RegisterForm>
     </div>
     <div class="text-center md:text-left text-sm mb-8">
       <p>
