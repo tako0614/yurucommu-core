@@ -283,6 +283,7 @@
     right: 11px;
     top: 16px;
 }
+/*ポップアップ*/
 .modal {
     position: fixed;
     z-index: 1;
@@ -299,7 +300,7 @@
     margin: 15% auto;
     padding: 20px;
     border: 1px solid #888;
-    width: 80%;
+    width: 50%;
   }
   
   .close {
@@ -315,4 +316,13 @@
     text-decoration: none;
     cursor: pointer;
   }
-  
+
+  /* フェードインアニメーションを追加 */
+  .fade-in {
+    animation: fadeIn 0.3s;
+  }
+
+  @keyframes fadeIn {
+    0% {opacity: 0;}
+    100% {opacity: 1;}
+  }
