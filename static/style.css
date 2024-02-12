@@ -300,7 +300,8 @@
     margin: 15% auto;
     padding: 20px;
     border: 1px solid #888;
-    width: 50%;
+    width: 30%;
+    height: 30%;
   }
   
   .close {
@@ -317,12 +318,12 @@
     cursor: pointer;
   }
 
-  /* フェードインアニメーションを追加 */
-  .fade-in {
-    animation: fadeIn 0.3s;
+  /* フェードインとズームインのアニメーションを追加 */
+  .fade-in-zoom-in {
+    animation: fadeInZoomIn 0.15s; /* アニメーションの時間を0.5秒に変更 */
   }
 
-  @keyframes fadeIn {
-    0% {opacity: 0;}
-    100% {opacity: 1;}
+  @keyframes fadeInZoomIn {
+    0% {opacity: 0; transform: scale(0.9);}
+    100% {opacity: 1; transform: scale(1);}
   }

@@ -15,7 +15,7 @@ return <>
         {text}
     </button>
     {showModal && (
-        <div className="modal fade-in">
+        <div className="modal fade-in-zoom-in">
           <div className="modal-content">
             <span className="close" onClick={handleButtonClick}>×</span>
             <p class="	text-black">text message</p>
@@ -25,3 +25,4 @@ return <>
     </> 
 
 }
+
