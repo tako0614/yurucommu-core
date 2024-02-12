@@ -17,7 +17,7 @@ https://github.com/takoserver/takos/blob/main/LICENSE-takos
 
 Denoをインストールした後以下のコマンドを実行
 ```
-debo -A run takos.js make database
+deno run -A takos.js make database
 //↑は初回のみ
 deno task start
 ```
