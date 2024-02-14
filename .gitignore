@@ -4,6 +4,6 @@
 .env.test.local
 .env.production.local
 .env.local
-
+node_modules/
 # Fresh build directory
 _fresh/
