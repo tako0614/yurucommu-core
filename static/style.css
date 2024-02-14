@@ -3,7 +3,6 @@
 @tailwind utilities;
  .full-title {
      font-family: Roboto;
-     font-size: 70px;
      font-weight: bold;
      line-height: 1.2;
 }
@@ -159,11 +158,6 @@
     }
      #nav-content ul li {
          font-size: 40px;
-    }
-    
-     .full-title h1 {
-         font-family: Roboto;
-         font-size: 3.5rem;
     }
 }
 /*メニューをページ下部に固定*/

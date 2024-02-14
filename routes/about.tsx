@@ -13,7 +13,7 @@ export default function Home() {
       <Header />
         <div class="bg-[url('./main-bg.webp')] bg-center bg-cover relative w-full min-h-screen">
           <div  class="lg:absolute lg:top-[calc(40%_-_0.5em)] lg:w-full lg:text-center lg:text-white lg:m-0 absolute top-[calc(40%_-_0.5em)] w-full text-center text-white m-0">
-          <h1 class="full-title">tako's</h1>
+          <h1 class="full-title text-[3.5rem] lg:text-[70px]">tako's</h1>
           <p class="text-lg">Technology for All Knowledge & Octopus</p>
           </div>
         </div>
