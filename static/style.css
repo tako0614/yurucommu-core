@@ -1,21 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-.full {
-     position: relative;
-     width: 100%;
-     min-height: 100vh;
-     background: url("./main-bg.webp") center / cover;
-}
  .full-title {
-     margin: 0;
-     position: absolute;
-     top: calc(40% - 0.5em);
-     width: 100%;
-     text-align: center;
-     color: #fff;
-}
- .full-title h1 {
      font-family: Roboto;
      font-size: 70px;
      font-weight: bold;

@@ -15,7 +15,7 @@ return <>
         {text}
     </button>
     {showModal && (
-        <div className="modal fade-in-zoom-in">
+        <div className="modal animate-scale-in-center {/*fade-in-zoom-in">
           <div className="modal-content">
             <span className="close" onClick={handleButtonClick}>×</span>
             <p class="	text-black">text message</p>
