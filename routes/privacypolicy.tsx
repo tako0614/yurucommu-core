@@ -1,6 +1,8 @@
 // routes/_app.tsx
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
+import { JSX } from "preact";
+import { useState } from 'preact/hooks'
 function Title({ children }: Props) {
   return (
     <h2 class="text-3xl text-left text-white font-size mt-14 border-b-2 border-indigo-500">{ children }</h2>
@@ -18,9 +20,7 @@ export default function privacy() {
       <html>
         <head>
           <title>takoserver</title>
-          <link rel="stylesheet" href="/style.css"></link>
         </head>
-        <body>
           <Header />
           <div class="p-16 lg:w-2/3 m-auto">
           <h1 class="text-5xl text-center text-white">プライバシーポリシー</h1>
@@ -92,7 +92,6 @@ export default function privacy() {
           </Value>
           </div>
           <Footer />
-        </body>
       </html>
     );
 }
