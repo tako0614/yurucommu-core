@@ -1,14 +1,12 @@
 // routes/_app.tsx
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
-import { JSX } from "preact";
-import { useState } from 'preact/hooks'
-function Title({ children }: Props) {
+function Title({ children }: any) {
   return (
     <h2 class="text-3xl text-left text-white font-size mt-14 border-b-2 border-indigo-500">{ children }</h2>
   );
 }
-function Value({ children }: Props) {
+function Value({ children }: any) {
   return (
     <div class="ml-5">
     { children }
