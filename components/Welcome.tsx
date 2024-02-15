@@ -31,13 +31,6 @@ export default function Welcome () {
     </div>
   </div>
   </div>
-  <div class="text-xs text-gray-400 absolute bottom-0 left-0 right-0 flex justify-center p-4">
-    <p>
-      基本情報 マルチプラットフォーム ヘルプセンター 利用規約 プライバシーポリシー Cookieのポリシー アクセシビリティ
-      広告情報 ブログ ステータス 法的情報 マーケティング パートナーシップ デベロッパーズ ポータル
-      プロフィールディレクトリ 設定 © 2024 Tomiyama Shota
-    </p>
-  </div>
 </div>
     </>
   )
