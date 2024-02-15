@@ -17,9 +17,9 @@ export default function Welcome () {
 <p class="text-lg mb-8">開発者募集中です！公式オープンチャットから</p>
     </div>
     <div class="flex flex-col space-y-3 mb-8">
-      <RegisterForm tako="instans" color="hover:bg-primary/90 h-11 px-4 py-2 bg-white text-black w-72 " text="インスタンス作成"></RegisterForm>
-      <RegisterForm tako="register" color="hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-72" text="このサーバーに登録"></RegisterForm>
-      <RegisterForm tako="login" color="hover:bg-primary/90 h-11 px-4 py-2 bg-blue-600 text-white w-72 " text="ログイン"></RegisterForm>
+      <RegisterForm tako="instans" color="hover:bg-primary/90 h-11 px-4 py-2 bg-white text-black w-64 " text="インスタンス作成"></RegisterForm>
+      <RegisterForm tako="register" color="hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64" text="このサーバーに登録"></RegisterForm>
+      <RegisterForm tako="login" color="hover:bg-primary/90 h-11 px-4 py-2 bg-blue-600 text-white w-64 " text="ログイン"></RegisterForm>
     </div>
     <div class="text-center md:text-left text-sm mb-8">
       <p>
