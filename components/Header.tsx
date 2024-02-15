@@ -20,10 +20,10 @@ export default function Header () {
         </div>
         <a class="logo-area flex" href="/"><img src="/logo.png" alt="takoserver logo" class="logo-img" /></a>
         <div class="text-white items-centerhiddenlg:grid ">
-        <div class="font0 lg:text-lg lg:float-left lg:pr-8"><a href="/">Home</a></div>
-        <div class="font0 lg:text-lg lg:float-left lg:pr-8"><a href="/about">About</a></div>
-        <div class="font0 lg:text-lg lg:float-left lg:pr-8"><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></div>
-        <div class="font0 lg:text-lg lg:float-left lg:pr-8"><a href="/setting">設定</a></div>
+        <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="/">Home</a></div>
+        <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="/about">About</a></div>
+        <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default">LINE</a></div>
+        <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="/setting">設定</a></div>
         </div>
       </div>
     </div>
