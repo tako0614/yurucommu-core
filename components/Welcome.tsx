@@ -11,7 +11,7 @@ export default function Welcome () {
   </div>
   <div class="flex flex-col justify-start items-center md:items-start space-y-3 md:w-1/2 w-full">
     <div class="text-center md:text-left">
-      <h1 class="text-4xl font-bold mb-3">tako's</h1>
+      <h1 class="text-5xl font-bold mb-3">tako's</h1>
       <p class="text-lg mb-8">Next generation decentralized chat service</p>
 <p class="text-lg">現在開発中</p>
 <p class="text-lg mb-8">開発者募集中です！公式オープンチャットから</p>
