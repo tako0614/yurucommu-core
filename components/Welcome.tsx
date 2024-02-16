@@ -6,7 +6,7 @@ export default function Welcome () {
 <div class="min-h-screen bg-black flex flex-row justify-center items-center text-white">
   <div class="flex flex-col justify-center items-center space-y-6 md:w-1/2 w-0">
     <div>
-      <img src="./logo2.webp" alt="logo" class="w-full"/>
+      <img src="./logo2.webp" alt="logo" class="h-full w-full"/>
     </div>
   </div>
   <div class="flex flex-col justify-start items-center md:items-start space-y-3 md:w-1/2 w-full">

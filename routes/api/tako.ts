@@ -7,7 +7,6 @@ import * as types from "../../util/types.ts";
 export const handler: Handlers = {
   POST(req) {
     console.log(req)
-    
     return new Response(JSON.stringify({}))
    /* console.log(request.requirements);
     const requirements = request.requirements;

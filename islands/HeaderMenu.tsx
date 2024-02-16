@@ -22,7 +22,7 @@ export default function HeaderMenu ({ children }: Props) {
     </div>
     <div class={`
       fixed top-0 left-0 w-screen h-screen bg-gray-900 p-3
-      duration-100 text-white 
+      duration-100 text-white
       ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
       <div>
@@ -35,25 +35,6 @@ export default function HeaderMenu ({ children }: Props) {
         <li><a href="/setting"class={class1}>設定</a></li>
         <li><a href="https://line.me/ti/g2/Q0c8YJlkh5f_hkDuODxp39XF9A7BOCFqezaAHA?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" class={class1}>公式オープンチャット</a></li>
       </ul>
-      {/*
-      <div class="divide-y border-gray-500">
-      <div class="my-2">
-      <div class="divide-y border-gray-500 text-xl">
-      <p class="text-center"><a href="">DM</a></p>
-      <p class="text-center"><a href="">トーク</a></p>
-      <p class="text-center"><a href="">About</a></p>
-      <p class="text-center"><a href="">SNS(開発中)</a></p>
-      <div 
-        class="flex text-xl text-center"
-        onClick={() => setIsOpenMenu1(!isOpenMenu1)}
-        >
-          <p class="m-auto">コミュニティー</p>
-          <p class="ml-10 text-lg">{isOpenMenu1 ? "∧" : "∨"}</p>
-        </div>
-        {isOpenMenu1 ? Menu1 : ""} 
-      </div>
-      </div>
-      </div>*/}
     </div>
   </>
 }

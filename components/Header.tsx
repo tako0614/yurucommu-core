@@ -18,7 +18,7 @@ export default function Header () {
             <Contents />
           </HeaderMenu>
         </div>
-        <a class="logo-area flex" href="/"><img src="/logo.webp" alt="takoserver logo" class="logo-img" /></a>
+        <a class="logo-area flex" href="/"><img src="/logo.webp" alt="takoserver logo" class="w-full h-full" /></a>
         <div class="text-white items-centerhiddenlg:grid ">
         <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="/">Home</a></div>
         <div class="font0 lg:text-base lg:float-left lg:pr-8"><a href="/about">About</a></div>
