@@ -6,28 +6,6 @@
      font-weight: bold;
      line-height: 1.2;
 }
-/*チェックボックス等は非表示に*/
- .nav-unshown {
-     display:none;
-}
-/*メニューの中身*/
- #nav-content {
-     width: 0px;
-     height: 0px;
-}
-/*チェックがついたら表示させる*/
- #nav-input:checked ~ #nav-close {
-     display: block;
-     opacity: .5;
-}
- #nav-input:checked ~ #nav-content {
-     -webkit-transform: translateX(0%);
-     transform: translateX(0%);
-     box-shadow: 6px 0 25px rgba(0,0,0,.15);
-}
- .header-logo-menu{
-     display: flex;
-}
 /*ロゴやサイトタイトルをセンタリング*/
  .logo-area{
      height: 10px;
@@ -56,76 +34,6 @@
      font-size: 0px;
 }
  @media screen and (max-width:800px) {
-     header {
-         padding:10px;
-         background: black;
-    }
-     #nav-drawer {
-         position: relative;
-    }
-    /*チェックボックス等は非表示に*/
-     .nav-unshown {
-         display:none;
-    }
-    /*アイコンのスペース*/
-     #nav-open {
-         display: inline-block;
-         width: 30px;
-         height: 22px;
-         vertical-align: middle;
-    }
-     #nav-open span, #nav-open span:before, #nav-open span:after {
-         position: absolute;
-         height: 3px;
-         width: 25px;
-         border-radius: 3px;
-         background: #555;
-         display: block;
-         content: '';
-         cursor: pointer;
-    }
-     #nav-open span:before {
-         bottom: -8px;
-    }
-     #nav-open span:after {
-         bottom: -16px;
-    }
-    /*閉じる用の薄黒箇所*/
-     #nav-close {
-         display: none;
-         position: fixed;
-         z-index: 99;
-         top: 0;
-         left: 0;
-         width: 100%;
-         height: 100%;
-         background: black;
-         opacity: 0;
-         transition: .3s ease-in-out;
-    }
-     #nav-content {
-         overflow: auto;
-         position: fixed;
-         top: 0;
-         left: 0;
-         z-index: 9999;
-         width: 90%;
-         max-width: 330px;
-         height: 100%;
-         background: #fff;
-         transition: .3s ease-in-out;
-         -webkit-transform: translateX(-105%);
-         transform: translateX(-105%);
-    }
-     #nav-input:checked ~ #nav-close {
-         display: block;
-         opacity: .5;
-    }
-     #nav-input:checked ~ #nav-content {
-         -webkit-transform: translateX(0%);
-         transform: translateX(0%);
-         box-shadow: 6px 0 25px rgba(0,0,0,.15);
-    }
      .header-logo-menu{
          display: flex;
          display: -moz-flex;
@@ -216,22 +124,4 @@
  }
 .font0 {
     font-size: 0px;
-}
- /*PCの場合にはメニューを表示させない*/
-
-@media (min-width: 768px) {
-    .for-sp{
-       display:none;
-     }
- }
- .menu-content::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-top: solid 2px #ffffff;
-    border-right: solid 2px #ffffff;
-    transform: rotate(45deg);
-    position: absolute;
-    right: 11px;
-    top: 16px;
 }

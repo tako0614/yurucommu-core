@@ -10,8 +10,8 @@ const Contents1 = () => <>
 </>
 //メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
 export default function Header () {
-  return <header class="fixed z-[999] w-full py-4 left-0 top-0"> {/* */}
-    <div class="w-full flex">
+  return <header class="p-2.5 bg-black fixed z-[999] w-full py-4 left-0 top-0"> {/* */}
+    <div class=" w-full flex">
       <div class="pr-3 flex justify-between items-center w-full">
         <div class="block lg:hidden bg-gray-900">
           <HeaderMenu>

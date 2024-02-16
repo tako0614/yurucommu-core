@@ -9,7 +9,7 @@ const Contents = () => <>
 export default function Header () {
   return (
     
-    <div id="sp-fixed-menu" class="for-sp w-full border-t">
+    <div id="sp-fixed-menu" class="lg:hidden w-full border-t">
       <ul class="">
         <li><a href="#"><img class="w-6 flex" src="./icons/talk.svg" alt="トーク" /></a></li>
         <li><a href="#"><img class="w-6 m-auto" src="./icons/mail.svg" alt="DM" /></a></li>
