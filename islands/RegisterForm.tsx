@@ -15,10 +15,10 @@ return <>
         {text}
     </button>
     {showModal && (
-        <div className="fixed z-[1] w-full h-full overflow-auto bg-[rgba(0,0,0,0.4)] left-0 top-0 animate-scale-in-center">
-          <div className="bg-[#fefefe] border w-[30%] h-[30%] mx-auto my-[15%] p-5 border-solid border-[#888]">
+        <div className="fixed z-[999999999] w-full h-full overflow-auto bg-[rgba(0,0,0,0.16)] left-0 top-0 //animate-scale-in-center">
+          <div className="bg-[#000000] border w-[30%] h-[30%] mx-auto my-[15%] p-5 border-solid border-[#888] rounded-xl">
             <span className="text-[#aaa] float-right text-[28px] font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
-            <p class="	text-black">text message</p>
+            <p class="text-white">text message</p>
           </div>
         </div>
       )}
