@@ -7,6 +7,7 @@ function isbutton(a: string,b: string) {
       }
   }
   }
+  // deno-lint-ignore no-explicit-any
   export default function Button({ text, script }: { text: string, script: any}) {
     return (
       <button
