@@ -1,7 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
- .full-title {
+.full-title {
      font-family: Roboto;
      font-weight: bold;
      line-height: 1.2;
@@ -200,17 +200,7 @@
     width: 100%;
     padding:20px;
  }
- 
- /*左側メニューを緑色に
- #sp-fixed-menu li:first-child{
-    background: #38b435;
- }
- 
- 左側メニューをオレンジ色に
- #sp-fixed-menu li:last-child{
-    background: #f3a324;
- }*/
- 
+
  ボタンを調整
  #sp-fixed-menu li a{
     color: #fff;
