@@ -20,12 +20,6 @@
      display: inline-block;
      margin-right: 60px;
 }
- .dt-ul-menu {
-     width: 100%;
-     display: flex;
-     justify-content: flex-end;
-    /* 要素を右寄せに配置してるんやでby aranpect */
-}
  .header-menu {
      display: flex;
      padding-left: 1rem;
@@ -54,15 +48,6 @@
     }
      .logo-area img {
          height: 30px;
-    }
-     .dt-ul-menu {
-         width: 0px;
-         height: 0px;
-    }
-     .dt-ul-menu li {
-         width: 0px;
-         height: 0px;
-         font-size: 0px;
     }
      #nav-content ul li {
          font-size: 40px;
