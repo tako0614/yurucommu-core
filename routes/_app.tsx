@@ -9,7 +9,7 @@ export default function App({ Component }: AppProps) {
         <title>takoserver project</title>
         <link rel="stylesheet" href="/style.css"></link>
       </head>
-      <body class="bg-[#0D1117] overflow-hidden">
+      <body class="bg-[#0D1117]">
         <Component />
       </body>
       </>

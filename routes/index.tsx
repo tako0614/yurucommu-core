@@ -12,10 +12,9 @@ export default function Home() {
         <link rel="stylesheet" href="/style.css"></link>
         <meta name="description" content="日本産オープンソース分散型チャットアプリ「tako's」" />
       </head>
-      <Header />
+      {/*<Header />*/}
       <Welcom />
       <Footer></Footer>
-      
     </>
   );
 }
