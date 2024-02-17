@@ -53,7 +53,7 @@ return <>
                     <input type="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Username"  value={password} onInput={(e) => e.target && setPassword((e.target as HTMLInputElement).value)} />
                   </label>
                   <div>
-                    <input type="submit" value="Submit" />
+                    <input type="submit" value="Submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />
                   </div>
                 </form>
               </div>
