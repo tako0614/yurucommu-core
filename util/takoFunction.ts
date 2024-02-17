@@ -1,8 +1,9 @@
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
-import * as nodemailer from "npm:nodemailer@6.9.5";
+
 import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts";
 import { escapeSql } from "https://deno.land/x/escape/mod.ts";
+import * as nodemailer from "npm:nodemailer@6.9.5";
 const env = await load();
 const hostname = env["hostname"];
 const username = env["username"];
@@ -21,7 +22,6 @@ const MAIL_SETTINGS = {
   smtp_ssl: `TLS`,
   smtp_from: smtp_auth_user,
 };
-
 function buildMessage(to: string, subject: string, text: string) {
   return {
     from: MAIL_SETTINGS.smtp_from,
@@ -30,7 +30,6 @@ function buildMessage(to: string, subject: string, text: string) {
     text,
   };
 }
-
 const transporter = nodemailer.createTransport({
   pool: false,
   host: MAIL_SETTINGS.smtp_host,
@@ -41,7 +40,16 @@ const transporter = nodemailer.createTransport({
     pass: MAIL_SETTINGS.smtp_auth_pass,
   },
 });
+const sendMail = (to: string, subject: string, body: string) => {
 
+  transporter.sendMail(
+    buildMessage(
+      /* to address */ to,
+      /* Subject    */ subject,
+      /* Body       */ body
+    )
+  );
+};
 const client = await new Client().connect({
   hostname,
   username,
@@ -68,16 +76,6 @@ function isSavePassword(password: string): boolean {
     const passwordRegex = /^[a-zA-Z0-9]{8,16}$/;
     return passwordRegex.test(password);
 }
-const sendMail = (to: string, subject: string, body: string) => {
-    
-    transporter.sendMail(
-      buildMessage(
-        /* to address */ to,
-        /* Subject    */ subject,
-        /* Body       */ body
-      )
-    );
-};
 function generateSalt(length: number): string {
   const array = new Uint8Array(length);
   crypto.getRandomValues(array);
