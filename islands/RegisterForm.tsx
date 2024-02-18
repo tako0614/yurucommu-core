@@ -19,42 +19,26 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
         setEmail(event.currentTarget.value);
     };
-    const handleSubmit = (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
+    const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
         alert(email)
+        const token = await fetch("http://localhost:8000/api/token?origin=http://localhost:8000")
+        const csrftoken = await token.json();
         const data = {
-            requirements: "temp_register",
-            userName: username,
-            mail: email,
+          requirements: "temp_register",
+          userName: username,
+          mail: email,
+          csrftoken: csrftoken.csrftoken
         };
-        const response = fetch("/api/logins/register", {
+        const res = await fetch("/api/logins/register", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(data),
         })
-            .then((response) => response.json())
-            .then((data) => {
-                console.log(data.status);
-                if (data.status === "success") {
-                  alert("成功")
-                    //const container = document.getElementById("register-form");
-                    /*
-                    if (container) {
-                      //
-                    } else {
-                        console.error("Container element not found");
-                    }*/
-                } else if (data.status === "error") {
-                  alert("error")
-                } else {
-                  alert("error")
-                }
-            })
-            .catch((error) => {
-                alert("error")
-            });
+        const response = await res.json()
+        //レスポンス届いてからの処理
     };
 return <>
     <button class={classs} onClick={handleButtonClick}>

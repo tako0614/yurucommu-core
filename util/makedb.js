@@ -41,9 +41,9 @@ let queries = {
         FOREIGN KEY (user_id) REFERENCES users(id)
     );`,
     csrftoken:`CREATE TABLE csrftoken (
-        kye VARCHAR(255) NOT NULL,
+        kye INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        sessionid VARCHAR(255) NOT NULL
+        csrftoken VARCHAR(255) NOT NULL
     );`,
 }
 export function makeDB() {

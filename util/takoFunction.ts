@@ -13,6 +13,10 @@ const smtp_host = env["smtp_host"];
 const smtp_port = env["smtp_port"];
 const smtp_auth_user = env["smtp_username"];
 const smtp_auth_pass = env["smtp_password"];
+function envRoader(value: string) {
+  const result = env[value]
+  return result
+}
 //const smtp_ssl = env["tls"];
 const MAIL_SETTINGS = {
   smtp_host,
@@ -94,4 +98,4 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     password: string;
     userName: string;
   }
-export { client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword};  
+export { envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password};

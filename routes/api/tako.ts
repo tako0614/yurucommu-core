@@ -41,7 +41,7 @@ async function temp_register(request) {
   if (!isMail(request.mail)) {
     return { "status": "error", "message": "メールアドレスが不正です" };
   }
-  
+
   if (await isMailDuplication(request.mail)) {
     return { "status": "error", "message": "すでにそのメールアドレスは使われています" };
   }
