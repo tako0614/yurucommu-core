@@ -2,7 +2,7 @@ import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 
 import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts";
-import { escapeSql } from "https://deno.land/x/escape/mod.ts";
+import { escapeSql } from "https://deno.land/x/escape@1.4.2/mod.ts";
 import * as nodemailer from "npm:nodemailer@6.9.5";
 const env = await load();
 const hostname = env["hostname"];
@@ -73,8 +73,18 @@ async function isUserDuplication(userid: string): Promise<boolean> {
     return result.length > 0;
 }
 async function isMailDuplication(mail: string): Promise<boolean> {
-    const result = await client.query(`SELECT * FROM users WHERE mail = "${mail}"`);
+    const result = await client.query(`SELECT * FROM users WHERE name = "${mail}"`);
     return result.length > 0;
+}
+async function isMailDuplicationTemp(mail: string): Promise<any>/*Promise<boolean>*/ {
+  const query = `SELECT * FROM temp_users WHERE mail = "${mail}"`
+  const result = await client.query(query);
+  if(result.length > 0) {
+    await client.execute(`DELETE FROM temp_users WHERE mail = "${mail}";`)
+    return true
+  } else {
+     return false
+  }
 }
 function isSavePassword(password: string): boolean {
     const passwordRegex = /^[a-zA-Z0-9]{8,16}$/;
@@ -98,4 +108,4 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     password: string;
     userName: string;
   }
-export { envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password};
+export { envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password,isMailDuplicationTemp};

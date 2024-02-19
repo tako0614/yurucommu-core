@@ -15,16 +15,15 @@ const client = await new Client().connect({
 let queries = {
     temp_users: `CREATE TABLE temp_users (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        name VARCHAR(50) NOT NULL UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        mail VARCHAR(255) NOT NULL,
+        mail VARCHAR(255) NOT NULL UNIQUE,
         kye VARCHAR(255) NOT NULL UNIQUE
     );`,
     users: `CREATE TABLE users (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         name VARCHAR(50) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
-        mail VARCHAR(255) NOT NULL,
+        mail VARCHAR(255) NOT NULL UNIQUE,
         salt VARCHAR(255) NOT NULL,
         uuid VARCHAR(255) NOT NULL UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
