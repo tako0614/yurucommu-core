@@ -18,7 +18,8 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-        const token = await fetch("http://localhost:8000/api/token?origin=http://localhost:8000")
+        const uri = new URL(window.location.href);
+        const token = await fetch(`${uri.protocol}//${uri.hostname}/api/token?origin=${uri.protocol}//${uri.hostname}`)
         const csrftoken = await token.json();
         const data = {
           requirements: "temp_register",
