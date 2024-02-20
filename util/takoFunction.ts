@@ -73,14 +73,22 @@ async function isUserDuplication(userid: string): Promise<boolean> {
     return result.length > 0;
 }
 async function isMailDuplication(mail: string): Promise<boolean> {
-    const result = await client.query(`SELECT * FROM users WHERE name = "${mail}"`);
+    const result = await client.query(`SELECT * FROM users WHERE mail = "${mail}"`);
     return result.length > 0;
 }
-async function isMailDuplicationTemp(mail: string): Promise<any>/*Promise<boolean>*/ {
+async function isCsrftoken(token:string):Promise<any> {
+  const query = `SELECT * FROM csrftoken WHERE csrftoken = "${token}"`
+  const result = await client.query(query);
+  if(result.length > 0) {
+    return true
+  } else {
+     return false
+  }
+}
+async function isMailDuplicationTemp(mail: string): Promise<boolean> {
   const query = `SELECT * FROM temp_users WHERE mail = "${mail}"`
   const result = await client.query(query);
   if(result.length > 0) {
-    await client.execute(`DELETE FROM temp_users WHERE mail = "${mail}";`)
     return true
   } else {
      return false
@@ -108,4 +116,4 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     password: string;
     userName: string;
   }
-export { envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password,isMailDuplicationTemp};
+export { isCsrftoken,envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password,isMailDuplicationTemp};

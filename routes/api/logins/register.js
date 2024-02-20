@@ -1,6 +1,6 @@
 // deno-lint-ignore-file
 import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
-import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, hashPassword, sendMail,client} from "../../../util/takoFunction.ts";
+import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, isCsrftoken, sendMail,client} from "../../../util/takoFunction.ts";
 
 export const handler = {
   async POST(req) {
@@ -12,32 +12,39 @@ export const handler = {
       }
       const ismail = isMail(email)
       const ismailduplication = await isMailDuplication(email)
-      if(ismail) {
-        if(!ismailduplication) {
-            try {
-            await isMailDuplicationTemp(email)
-            const key = generateRandomString(255);
-            await client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
-            sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
-            return new Response(JSON.stringify({status: true}), {
-              headers: { "Content-Type": "application/json" },
-            });
-            } catch (error) {
-              return new Response(JSON.stringify({"status": "error"}), {
+      const iscsrftoken = await isCsrftoken(CsrfToken)
+      if(isCsrftoken) {
+        client.execute(`DELETE FROM csrftoken WHERE csrftoken = "${CsrfToken}";`)
+      }
+      if(iscsrftoken) {
+        if(ismail) {
+          if(!ismailduplication) {
+              try {
+              const key = generateRandomString(255);
+              if(isMailDuplicationTemp(email)) {
+                client.execute(`DELETE FROM temp_users WHERE mail = "${email}";`)
+              }
+              client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
+              sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
+              return new Response(JSON.stringify({status: true}), {
                 headers: { "Content-Type": "application/json" },
               });
-            }
+              } catch (error) {
+                return new Response(JSON.stringify({"status": "error"}), {
+                  headers: { "Content-Type": "application/json" },
+                });
+              }
+          }else {
+            return new Response(JSON.stringify({"status": "error"}), {
+              headers: { "Content-Type": "application/json" },
+            });
+          }
         }else {
           return new Response(JSON.stringify({"status": "error"}), {
             headers: { "Content-Type": "application/json" },
           });
         }
-      }else {
-        return new Response(JSON.stringify({"status": "error"}), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
+    }
   }
 };
 function generateRandomString(length) {

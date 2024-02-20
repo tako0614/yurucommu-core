@@ -21,6 +21,7 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
+        const startTime = Date.now();
         const token = await fetch("http://localhost:8000/api/token?origin=http://localhost:8000")
         const csrftoken = await token.json();
         const data = {
@@ -38,6 +39,9 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
         })
         const response = await res.json()
         if(response.status == true) {
+
+          const endTime = Date.now();
+          alert(endTime - startTime);
           alert("ueeeee")
         } else {
           alert("takotako")
