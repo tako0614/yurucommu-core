@@ -22,6 +22,7 @@ export const handler = {
     if(allow.includes(origin)){
       const csrftoken = generateRandomString(128)
       await client.execute(`INSERT INTO csrftoken VALUES (default,default,"${csrftoken}");`)
+      console.log(aaaaa)
       return new Response(JSON.stringify({"csrftoken": csrftoken}), {
         headers: { "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": origin
