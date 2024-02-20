@@ -29,7 +29,6 @@ export const handler = {
       }
       );
     }else {
-      console.log(a)
       return new Response(JSON.stringify({"csrftoken": "This origin is not allowed"}), {
         headers: { "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": origin
