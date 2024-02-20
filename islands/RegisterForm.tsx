@@ -7,26 +7,21 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" + color 
 
     const [showModal, setShowModal] = useState(false);
-
+    const [showForm, setShowFrom] = useState(false);
     const handleButtonClick = () => {
       setShowModal(!showModal);
     }
     //const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
-    //const handleUsernameChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
-    //    setUsername(event.currentTarget.value);
-    //};
     const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
         setEmail(event.currentTarget.value);
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-        const startTime = Date.now();
         const token = await fetch("http://localhost:8000/api/token?origin=http://localhost:8000")
         const csrftoken = await token.json();
         const data = {
           requirements: "temp_register",
-          //userName: username,
           mail: email,
           csrftoken: csrftoken.csrftoken
         };
@@ -39,10 +34,7 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
         })
         const response = await res.json()
         if(response.status == true) {
-
-          const endTime = Date.now();
-          alert(endTime - startTime);
-          alert("ueeeee")
+          setShowFrom(!showForm)
         } else {
           alert("takotako")
           console.log(response)
@@ -62,11 +54,7 @@ return <>
             <div class="w-[80%] mx-auto my-0">
               <div class="">
               <p class="text-white text-3xl mb-10 font-sans font-bold">アカウントを作成</p>
-                <form onSubmit={handleSubmit} class="">
-                  {/*<label class="mb-5">
-                    <div>ユーザーネーム</div>
-                    <input type="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Username" value={username} onChange={handleUsernameChange} />
-                  </label>*/}
+                {showForm || (<form onSubmit={handleSubmit} class="">
                   <label>
                   <div class="text-2xl">メールアドレス</div>
                     <input type="email" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Username"  value={email} onChange={handleEmailChange} />
@@ -74,7 +62,13 @@ return <>
                   <div>
                     <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />
                   </div>
-                </form>
+                </form>)
+                }
+                {showForm && (
+                  <div class="text-white text-3xl">送信されたで!本登録してや！</div>
+                )
+
+                }
               </div>
             </div>
           </div>

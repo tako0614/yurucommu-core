@@ -1,11 +1,13 @@
 // routes/_app.tsx
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
+// deno-lint-ignore no-explicit-any
 function Title({ children }: any) {
   return (
     <h2 class="text-3xl text-left text-white font-size mt-14 border-b-2 border-indigo-500">{ children }</h2>
   );
 }
+// deno-lint-ignore no-explicit-any
 function Value({ children }: any) {
   return (
     <div class="ml-5">
