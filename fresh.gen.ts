@@ -23,6 +23,7 @@ import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $Button from "./islands/Button.tsx";
 import * as $Counter from "./islands/Counter.tsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
+import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $RegisterForm from "./islands/RegisterForm.jsx";
 import * as $RegisterForm_1 from "./islands/RegisterForm.tsx";
 import * as $header from "./islands/header.tsx";
@@ -54,6 +55,7 @@ const manifest = {
     "./islands/Button.tsx": $Button,
     "./islands/Counter.tsx": $Counter,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
+    "./islands/LoginForm.tsx": $LoginForm,
     "./islands/RegisterForm.jsx": $RegisterForm,
     "./islands/RegisterForm.tsx": $RegisterForm_1,
     "./islands/header.tsx": $header,
