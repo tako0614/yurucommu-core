@@ -49,7 +49,6 @@ export const handler = {
         headers: { "Content-Type": "application/json" },
       });
     }
-    }
   }
 };
 function generateRandomString(length) {
