@@ -44,6 +44,11 @@ export const handler = {
             headers: { "Content-Type": "application/json" },
           });
         }
+    } else {
+      return new Response(JSON.stringify({"status": "error"}), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     }
   }
 };
