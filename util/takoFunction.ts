@@ -65,8 +65,8 @@ async function sql(query) {
   return await client.execute(escapeSql(query))
 }
 function isMail(mail: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(mail);
+  const  emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+  return emailPattern.test(mail)
 }
 async function isUserDuplication(userid: string): Promise<boolean> {
     const result = await client.query(`SELECT * FROM users WHERE name = "${userid}"`);

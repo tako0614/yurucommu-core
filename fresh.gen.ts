@@ -10,6 +10,7 @@ import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
 import * as $api_token from "./routes/api/token.js";
 import * as $button from "./routes/button.tsx";
+import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
@@ -40,6 +41,7 @@ const manifest = {
     "./routes/api/tako.ts": $api_tako,
     "./routes/api/token.js": $api_token,
     "./routes/button.tsx": $button,
+    "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
