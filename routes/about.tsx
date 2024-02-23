@@ -68,7 +68,7 @@ export default function Home() {
         </div>
         <div class="w-2/3 flex flex-col h-screen m-auto text-white">
         <main class="flex-1 overflow-y-auto py-6 pt-20">
-              <h1 class="text-center pb-5 text-3xl lg:text-5xl">tako's developpers</h1>
+              <h1 class="text-center pb-5 text-3xl lg:text-5xl">tako's developers</h1>
               <div class="grid gap-4 md:gap-6">
               <Name border="true" developerss={developers.tako}></Name>
               <div class="border-t w-full"></div>
