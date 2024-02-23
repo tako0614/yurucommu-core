@@ -3,6 +3,7 @@ import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
 import UnderMenu from '../components/UnderMenu.tsx'
 
+// deno-lint-ignore no-explicit-any
 function Name({developerss}: {developerss: any}) {
 
 
@@ -48,7 +49,7 @@ function Name({developerss}: {developerss: any}) {
       src: "/natu.jpg",
       name: "natsuki",
       position: "takoserver member",
-      body: "ひまじんなつき"
+      body: "ひまじんなつきひまじんなつきひまじんなつきひまじんなつきひまじんなつきひまじんなつき"
     }
   }
 export default function Home() {
