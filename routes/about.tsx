@@ -41,8 +41,14 @@ function Name({developerss,border}: {developerss: any,border: any}) {
     minai: {
       src: "/379213.jpg",
       name: "371tti",
-      position: "適当に考えてくださんせ",
+      position: "tako's developer, takoserver member",
       body: "しがないタコのコードのダメ出しをするうっさいやつ。姉妹？SNSをつくっている。なおjsが苦手"
+    },
+    nasuki: {
+      src: "/natu.jpg",
+      name: "natsuki",
+      position: "takoserver member",
+      body: "ひまじんなつき"
     }
   }
 export default function Home() {
@@ -67,6 +73,8 @@ export default function Home() {
               <Name border="true" developerss={developers.tako}></Name>
               <div class="border-t w-full"></div>
               <Name border="false" developerss={developers.minai}></Name>
+              <div class="border-t w-full"></div>
+              <Name border="false" developerss={developers.nasuki}></Name>
               </div>
         </main>
         </div>
