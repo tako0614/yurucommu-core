@@ -3,7 +3,7 @@ import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
 import UnderMenu from '../components/UnderMenu.tsx'
 
-function Name({developerss,border}: {developerss: any,border: any}) {
+function Name({developerss}: {developerss: any}) {
 
 
   return (
@@ -70,11 +70,11 @@ export default function Home() {
         <main class="flex-1 overflow-y-auto py-6 pt-20">
               <h1 class="text-center pb-5 text-3xl lg:text-5xl">tako's developers</h1>
               <div class="grid gap-4 md:gap-6">
-              <Name border="true" developerss={developers.tako}></Name>
+              <Name developerss={developers.tako}></Name>
               <div class="border-t w-full"></div>
-              <Name border="false" developerss={developers.minai}></Name>
+              <Name developerss={developers.minai}></Name>
               <div class="border-t w-full"></div>
-              <Name border="false" developerss={developers.nasuki}></Name>
+              <Name developerss={developers.nasuki}></Name>
               </div>
         </main>
         </div>
@@ -102,7 +102,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-      <UnderMenu />
       <Footer />
     </>
   );
