@@ -2,6 +2,49 @@ import { useSignal } from "@preact/signals";
 import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
 import UnderMenu from '../components/UnderMenu.tsx'
+
+function Name({developerss}: {developerss: any}) {
+
+
+  return (
+    <div class="grid gap-4 md:gap-6">
+    <div class="flex gap-4 items-start">
+      <img
+        src={developerss.src}
+        width="120"
+        height="120"
+        alt="Portrait of the team member"
+        class="rounded-full overflow-hidden object-cover w-120 h-120 aspect-square"
+      />
+      <div class="grid gap-2">
+        <div class="space-y-2">
+          <h2 class="text-2xl font-bold">{developerss.name}</h2>
+          <p class="text-gray-500 dark:text-gray-400">{developerss.position}</p>
+        </div>
+        <div class="space-y-4">
+          <p class="text-lg leading-loose">
+            {developerss.body}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  )
+  }
+  const developers = {
+    tako: {
+      src: "/logo-mine.jpg",
+      name: "たこ",
+      position: "takoserver,takotopia leader",
+      body: "takoserverのリーダー!!マイクラサーバーや分散型チャットサービス「tako's」など様々なサービスを展開してます"
+    },
+    minai: {
+      src: "/379213.jpg",
+      name: "371tti",
+      position: "適当に考えてくださんせ",
+      body: "しがないタコのコードのダメ出しをするうっさいやつ。姉妹？SNSをつくっている。なおjsが苦手"
+    }
+  }
 export default function Home() {
   const count = useSignal(3);
   return (
@@ -16,6 +59,13 @@ export default function Home() {
           <h1 class="full-title text-[3.5rem] lg:text-[70px]">tako's</h1>
           <p class="text-lg">Technology for All Knowledge & Octopus</p>
           </div>
+        </div>
+        <div class="w-2/3 flex flex-col h-screen m-auto text-white">
+        <main class="flex-1 overflow-y-auto py-6 pt-20">
+              <h1 class="text-center pb-5 text-3xl lg:text-5xl">tako's developpers</h1>
+              <Name developerss={developers.tako}></Name>
+              <Name developerss={developers.minai}></Name>
+        </main>
         </div>
       <section class="pt-16 pb-10">
         <h1 class="text-5xl text-center text-white">takoserver</h1>
@@ -41,75 +91,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-      <div class="w-2/3 flex flex-col h-screen m-auto text-white">
-  <main class="flex-1 overflow-y-auto py-6 pt-20">
-        <h1 class="text-center text-5xl">tako's developpers</h1>
-        <div class="grid gap-4 md:gap-6">
-          <div class="flex gap-4 items-start">
-            <img
-              src="/logo-mine.jpg"
-              width="120"
-              height="120"
-              alt="Portrait of the team member"
-              class="rounded-full overflow-hidden object-cover w-120 h-120 aspect-square"
-            />
-            <div class="grid gap-2">
-              <div class="space-y-2">
-                <h2 class="text-2xl font-bold">たこ</h2>
-                <p class="text-gray-500 dark:text-gray-400">takoserver leader</p>
-              </div>
-              <div class="space-y-4">
-                <p class="text-lg leading-loose">
-                  test message
-                </p>
-              </div>
-            </div>
-          </div>
-          <div class="border-t w-full"></div>
-          <div class="flex gap-4 items-start">
-          <img
-              src="/logo-mine.jpg"
-              width="120"
-              height="120"
-              alt="Portrait of the team member"
-              class="rounded-full overflow-hidden object-cover w-120 h-120 aspect-square"
-            />
-            <div class="grid gap-2">
-              <div class="space-y-2">
-                <h2 class="text-2xl font-bold">tako</h2>
-                <p class="text-gray-500 dark:text-gray-400">tako</p>
-              </div>
-              <div class="space-y-4">
-                <p class="text-lg leading-loose">
-                  tako
-                </p>
-              </div>
-            </div>
-          </div>
-          <div class="border-t w-full"></div>
-          <div class="flex gap-4 items-start">
-          <img
-              src="/logo-mine.jpg"
-              width="120"
-              height="120"
-              alt="Portrait of the team member"
-              class="rounded-full overflow-hidden object-cover w-120 h-120 aspect-square"
-            />
-            <div class="grid gap-2">
-              <div class="space-y-2">
-                <h2 class="text-2xl font-bold">tako</h2>
-                <p class="text-gray-500 dark:text-gray-400">tako</p>
-              </div>
-              <div class="space-y-4">
-                <p class="text-lg leading-loose">
-                  tako
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-  </main>
-</div>
       <UnderMenu />
       <Footer />
     </>
