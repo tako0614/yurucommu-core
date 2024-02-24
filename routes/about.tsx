@@ -85,7 +85,7 @@ export default function Home() {
               <div class="border-t w-full"></div>
               <Developper developerss={developers.nasuki}></Developper>
               </div>
-              <p>その他諸々<a href="https://github.com/orgs/takoserver/people">github</a></p>
+              <p>その他諸々<a class="text-blue-600 underline text-xl"href="https://github.com/orgs/takoserver/people">github</a></p>
         </main>
         </div>
       <section class="pt-16 pb-10">
