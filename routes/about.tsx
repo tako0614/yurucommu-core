@@ -4,7 +4,7 @@ import Footer from '../components/Footer.tsx'
 import UnderMenu from '../components/UnderMenu.tsx'
 
 // deno-lint-ignore no-explicit-any
-function Name({developerss}: {developerss: any}) {
+function Developper({developerss}: {developerss: any}) {
 
 
   return (
@@ -50,6 +50,12 @@ function Name({developerss}: {developerss: any}) {
       name: "natsuki",
       position: "takoserver member",
       body: "ひまじんなつきひまじんなつきひまじんなつきひまじんなつきひまじんなつきひまじんなつき"
+    },
+    aranpect: {
+      src: "https://aranpect.com/_next/static/media/logo.04149793.webp",
+      name: "Aranpect",
+      position: "takos developer",
+      body: "ガジェット好き/たまにプログラミング/株"
     }
   }
 export default function Home() {
@@ -71,11 +77,13 @@ export default function Home() {
         <main class="flex-1 overflow-y-auto py-6 pt-20">
               <h1 class="text-center pb-5 text-3xl lg:text-5xl">tako's developers</h1>
               <div class="grid gap-4 md:gap-6">
-              <Name developerss={developers.tako}></Name>
+              <Developper developerss={developers.tako}></Developper>
               <div class="border-t w-full"></div>
-              <Name developerss={developers.minai}></Name>
+              <Developper developerss={developers.minai}></Developper>
               <div class="border-t w-full"></div>
-              <Name developerss={developers.nasuki}></Name>
+              <Developper developerss={developers.aranpect}></Developper>
+              <div class="border-t w-full"></div>
+              <Developper developerss={developers.nasuki}></Developper>
               </div>
         </main>
         </div>
