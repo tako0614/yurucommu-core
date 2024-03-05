@@ -1,31 +1,15 @@
-import { h } from 'preact';
-import { useState } from 'preact/hooks';
 
-
-const App = () => {
-  const [showModal, setShowModal] = useState(false);
-
-  const handleButtonClick = () => {
-    setShowModal(!showModal);
-  }
+const MyForm = () => {
 
   return (
-    <div className="App">
-      <button onClick={handleButtonClick}>
-        ボタン
-      </button>
-
-      {showModal && (
-        <div className="modal">
-          <div className="modal-content">
-            <span className="close" onClick={handleButtonClick}>×</span>
-            <p>ここにフォームを追加します</p>
-          </div>
-        </div>
-      )}
-    </div>
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register("firstName")} />
+      <input {...register("lastName")} />
+      {errors.lastName && <p>{errors.lastName.message}</p>} 
+      <button type="submit">Submit</button>
+    </form>
   );
-}
+};
 
-export default App;
+export default MyForm;
 

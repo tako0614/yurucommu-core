@@ -3,7 +3,7 @@ import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
 import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, isCsrftoken, sendMail,client} from "../../../util/takoFunction.ts";
 
 export const handler = {
-  async POST(req) {
+  async POST(req,res, ctx) {
       const data = await req.json();
       const email = await data.mail;
       const CsrfToken = await data.csrftoken;
@@ -26,9 +26,10 @@ export const handler = {
               }
               client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
               sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
+              /*
               return new Response(JSON.stringify({status: true}), {
                 headers: { "Content-Type": "application/json" },
-              });
+              });*/
               } catch (error) {
                 return new Response(JSON.stringify({"status": "error"}), {
                   headers: { "Content-Type": "application/json" },
@@ -40,9 +41,10 @@ export const handler = {
             });
           }
         }else {
-          return new Response(JSON.stringify({"status": "error"}), {
+          ctx.status(403).send({"status": "error"})
+          /*return new Response(JSON.stringify({"status": "error"}), {
             headers: { "Content-Type": "application/json" },
-          });
+          });*/
         }
     } else {
       return new Response(JSON.stringify({"status": "error"}), {
