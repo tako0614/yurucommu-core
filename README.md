@@ -19,4 +19,3 @@ deno run -A takos.js make database
 //↑は初回のみ
 deno task start
 ```
-
