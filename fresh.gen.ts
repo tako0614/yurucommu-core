@@ -6,6 +6,7 @@ import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
 import * as $api_logins_register from "./routes/api/logins/register.js";
+import * as $api_logins_talk from "./routes/api/logins/talk.js";
 import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
 import * as $api_token from "./routes/api/token.js";
@@ -37,6 +38,7 @@ const manifest = {
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
     "./routes/api/logins/register.js": $api_logins_register,
+    "./routes/api/logins/talk.js": $api_logins_talk,
     "./routes/api/oumu.ts": $api_oumu,
     "./routes/api/tako.ts": $api_tako,
     "./routes/api/token.js": $api_token,

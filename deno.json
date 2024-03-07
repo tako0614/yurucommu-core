@@ -20,7 +20,8 @@
     "preact/": "https://esm.sh/preact@10.19.2/",
     "tailwindcss": "npm:tailwindcss@3.4.1",
     "tailwindcss/": "npm:/tailwindcss@3.4.1/",
-    "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js"
+    "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js",
+    "ws": "npm:ws@8.16.0"
   },
   "alias": {
     "react": "preact/compat",
