@@ -16,35 +16,35 @@ export const handler = {
       if(isCsrftoken) {
         client.execute(`DELETE FROM csrftoken WHERE csrftoken = "${CsrfToken}";`)
       }
-    if(ismail) {
-      if(!ismailduplication) {
-          try {
-          const key = generateRandomString(255);
-          if(isMailDuplicationTemp(email)) {
-            client.execute(`DELETE FROM temp_users WHERE mail = "${email}";`)
-          }
-          client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
-          sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
-          /*
-          return new Response(JSON.stringify({status: true}), {
-            headers: { "Content-Type": "application/json" },
-          });*/
-          } catch (error) {
-            return new Response(JSON.stringify({"status": "error"}), {
+      if(ismail) {
+        if(!ismailduplication) {
+            try {
+            const key = generateRandomString(255);
+            if(isMailDuplicationTemp(email)) {
+              client.execute(`DELETE FROM temp_users WHERE mail = "${email}";`)
+            }
+            client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
+            sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
+            /*
+            return new Response(JSON.stringify({status: true}), {
               headers: { "Content-Type": "application/json" },
-            });
-          }
+            });*/
+            } catch (error) {
+              return new Response(JSON.stringify({"status": "error"}), {
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+        }else {
+          return new Response(JSON.stringify({"status": "error"}), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
       }else {
-        return new Response(JSON.stringify({"status": "error"}), {
+        ctx.status(403).send({"status": "error"})
+        /*return new Response(JSON.stringify({"status": "error"}), {
           headers: { "Content-Type": "application/json" },
-        });
+        });*/
       }
-    }else {
-      ctx.status(403).send({"status": "error"})
-      /*return new Response(JSON.stringify({"status": "error"}), {
-        headers: { "Content-Type": "application/json" },
-      });*/
-    }
   }
 };
 function generateRandomString(length) {
