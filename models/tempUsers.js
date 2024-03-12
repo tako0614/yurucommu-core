@@ -9,7 +9,7 @@ export const tempUsersSchema = new mongoose.Schema({
     key: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
     },
     timestamp: true
 })

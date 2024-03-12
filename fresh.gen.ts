@@ -20,7 +20,9 @@ import * as $register from "./routes/register.tsx";
 import * as $test from "./routes/test.tsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
+import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
 import * as $tests_form from "./routes/tests/form.tsx";
+import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
 import * as $tests_post_reception from "./routes/tests/post-reception.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $Button from "./islands/Button.tsx";
@@ -53,7 +55,9 @@ const manifest = {
     "./routes/test.tsx": $test,
     "./routes/test_post.tsx": $test_post,
     "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
+    "./routes/tests/cp-test.jsx": $tests_cp_test,
     "./routes/tests/form.tsx": $tests_form,
+    "./routes/tests/mongoDB.tsx": $tests_mongoDB,
     "./routes/tests/post-reception.tsx": $tests_post_reception,
     "./routes/tests/post-send.tsx": $tests_post_send,
   },
