@@ -6,7 +6,6 @@ export const handler = {
     async GET(req, ctx) {
         const url = new URL(req.url);
         const key = url.searchParams.get("key") || "";
-
         //return ctx.render({ userName });
     },
 };

@@ -11,7 +11,7 @@ const UsersSchema = new Schema({
 	title: String,
 	body: String,
 });*/
-const UsersSchema = new mongoose.Schema({
+const usersSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true,
