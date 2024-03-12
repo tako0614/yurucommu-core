@@ -5,6 +5,7 @@
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
+import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
 import * as $api_logins_talk from "./routes/api/logins/talk.js";
 import * as $api_oumu from "./routes/api/oumu.ts";
@@ -37,6 +38,7 @@ const manifest = {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
+    "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,
     "./routes/api/logins/talk.js": $api_logins_talk,
     "./routes/api/oumu.ts": $api_oumu,
