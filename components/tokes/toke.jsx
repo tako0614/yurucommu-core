@@ -1,14 +1,12 @@
 export default function name(params) {
     return (
-        <>
-<div class="flex w-full h-full bg-white">
-  <div class="w-1/2 h-full">
-  </div>
-  <div class="w-1/2 h-full bg-white">
-    aaa
-  </div>
-</div>
-
-        </>
-    )
+        <div className="flex h-screen text-black">
+            <div className="w-1/2 bg-white m-auto">
+                <p>a</p>
+            </div>
+            <div className="w-1/2 bg-white m-auto">
+                <p>a</p>
+            </div>
+        </div>
+    );
 }

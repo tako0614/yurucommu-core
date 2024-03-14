@@ -1,18 +1,4 @@
-import { envRoader} from "../../util/takoFunction.ts";
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
-import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
-const env = await load();
-const hostname = env["hostname"];
-const username = env["username"];
-const db = env["db"];
-const password = env["password"];
-const client = await new Client().connect({
-  hostname,
-  username,
-  db,
-  password,
-});
-
+import csrfToken from "../../models/csrftoken.js";
 export const handler = {
   async GET(req) {
     const url = new URL(req.url);
@@ -21,7 +7,7 @@ export const handler = {
     const allow = allows.split(',')
     if(allow.includes(origin)){
       const csrftoken = generateRandomString(128)
-      await client.execute(`INSERT INTO csrftoken VALUES (default,default,"${csrftoken}");`)
+      await csrfToken.create({token: csrftoken})
       return new Response(JSON.stringify({"csrftoken": csrftoken}), {
         headers: { "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": origin

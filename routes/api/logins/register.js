@@ -1,29 +1,19 @@
-// deno-lint-ignore-file
-import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
-import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, isCsrftoken, sendMail,client} from "../../../util/takoFunction.ts";
-
+import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, isCsrftoken, sendMail} from "../../../util/takoFunction.ts";
+import tempUsers from "../../../models/tempUsers.js";
 export const handler = {
   async POST(req,res, ctx) {
       const data = await req.json();
       const email = await data.mail;
-      const CsrfToken = await data.csrftoken;
-      const error = {
-        "status": "error"
-      }
       const ismail = isMail(email)
       const ismailduplication = await isMailDuplication(email)
-      const iscsrftoken = await isCsrftoken(CsrfToken)
-      if(isCsrftoken) {
-        client.execute(`DELETE FROM csrftoken WHERE csrftoken = "${CsrfToken}";`)
-      }
       if(ismail) {
         if(!ismailduplication) {
             try {
             const key = generateRandomString(255);
             if(isMailDuplicationTemp(email)) {
-              client.execute(`DELETE FROM temp_users WHERE mail = "${email}";`)
+              tempUsers.deleteOne({mail: email})
             }
-            client.query(`INSERT INTO temp_users (id,created_at,mail, kye) VALUES (default,default,"${email}",'${key}');`)
+            await tempUsers.create({mail: email, key: key})
             sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
             /*
             return new Response(JSON.stringify({status: true}), {

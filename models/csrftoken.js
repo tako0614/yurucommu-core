@@ -1,4 +1,4 @@
-import mongoose from "npm:mongoose@^6.7";
+import mongoose from "mongoose";
 
 export const csrfTokenSchama = new mongoose.Schema({
     token: {
@@ -8,3 +8,5 @@ export const csrfTokenSchama = new mongoose.Schema({
     },
     timestamp: true
 })
+const csrfToken = mongoose.model('csrfToken', csrfTokenSchama);
+export default csrfToken;

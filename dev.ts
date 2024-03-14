@@ -7,14 +7,11 @@ import "$std/dotenv/load.ts";
 
 import { envRoader } from "./util/takoFunction.ts";
 /**connect mongoDB */
-import mongoose from "npm:mongoose@8.2.0";
-/*
-try {
-    mongoose.connect(
-        `mongodb://192.168.0.30:27017/takos`
-      )
-} catch (error) {
-    console.log(error)
-}*/
+import mongoose from "mongoose";
+import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
+/**connect mongoDB */
+const env = await load();
+const url = env["MONGO_URL"];
+await mongoose.connect(url).then(() => {console.log("mongo DB 接続")}).catch((err) => {console.log(err)});
 await dev(import.meta.url, "./main.ts", config);
 

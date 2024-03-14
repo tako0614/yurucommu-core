@@ -1,14 +1,12 @@
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
-import { Client } from "https://deno.land/x/mysql@v2.12.1/mod.ts";
-
 import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts";
 import { escapeSql } from "https://deno.land/x/escape@1.4.2/mod.ts";
+import mongoose from "mongoose";
+import users from "../models/users.js"
+import csrfToken from "../models/csrftoken.js"
+import tempUsers from "../models/tempUsers.js";
 import * as nodemailer from "npm:nodemailer@6.9.5";
 const env = await load();
-const hostname = env["hostname"];
-const username = env["username"];
-const db = env["db"];
-const password = env["password"];
 const smtp_host = env["smtp_host"];
 const smtp_port = env["smtp_port"];
 const smtp_auth_user = env["smtp_username"];
@@ -54,45 +52,27 @@ const sendMail = (to: string, subject: string, body: string) => {
     )
   );
 };
-const client = await new Client().connect({
-  hostname,
-  username,
-  db,
-  password,
-});
 //@ts-ignore: origin
-async function sql(query) {
-  return await client.execute(escapeSql(query))
-}
 function isMail(mail: string): boolean {
   const  emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
   return emailPattern.test(mail)
 }
 async function isUserDuplication(userid: string): Promise<boolean> {
-    const result = await client.query(`SELECT * FROM users WHERE name = "${userid}"`);
-    return result.length > 0;
+    const result = await users.findOne({name: userid})
+    return result !== null;
 }
 async function isMailDuplication(mail: string): Promise<boolean> {
-    const result = await client.query(`SELECT * FROM users WHERE mail = "${mail}"`);
-    return result.length > 0;
+  const result = await users.findOne({mail: mail})
+  return result !== null;
 }
 async function isCsrftoken(token:string):Promise<any> {
-  const query = `SELECT * FROM csrftoken WHERE csrftoken = "${token}"`
-  const result = await client.query(query);
-  if(result.length > 0) {
-    return true
-  } else {
-     return false
-  }
+  const result = await csrfToken.findOne({csrftoken: token})
+    return result !== null;
+
 }
 async function isMailDuplicationTemp(mail: string): Promise<boolean> {
-  const query = `SELECT * FROM temp_users WHERE mail = "${mail}"`
-  const result = await client.query(query);
-  if(result.length > 0) {
-    return true
-  } else {
-     return false
-  }
+  const result = await tempUsers.findOne({mail: mail})
+  return result !== null;
 }
 function isSavePassword(password: string): boolean {
     const passwordRegex = /^[a-zA-Z0-9]{8,16}$/;
@@ -116,4 +96,4 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     password: string;
     userName: string;
   }
-export { isCsrftoken,envRoader,client,sql, isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,hostname,username,db,password,isMailDuplicationTemp};
+export { isCsrftoken,envRoader,isMail, isUserDuplication, isMailDuplication, isSavePassword, sendMail, generateSalt, hashPassword,isMailDuplicationTemp};

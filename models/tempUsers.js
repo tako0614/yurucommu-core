@@ -1,4 +1,4 @@
-import mongoose from "npm:mongoose@^6.7";
+import mongoose from "mongoose";
 
 export const tempUsersSchema = new mongoose.Schema({
     mail: {
@@ -13,3 +13,5 @@ export const tempUsersSchema = new mongoose.Schema({
     },
     timestamp: true
 })
+const tempUsers = mongoose.model('tempUsers', tempUsersSchema);
+export default tempUsers;

@@ -21,7 +21,8 @@
     "tailwindcss": "npm:tailwindcss@3.4.1",
     "tailwindcss/": "npm:/tailwindcss@3.4.1/",
     "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js",
-    "ws": "npm:ws@8.16.0"
+    "ws": "npm:ws@8.16.0",
+    "mongoose": "npm:mongoose@8.2.0"
   },
   "alias": {
     "react": "preact/compat",

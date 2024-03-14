@@ -11,7 +11,6 @@ import * as $api_logins_talk from "./routes/api/logins/talk.js";
 import * as $api_oumu from "./routes/api/oumu.ts";
 import * as $api_tako from "./routes/api/tako.ts";
 import * as $api_token from "./routes/api/token.js";
-import * as $button from "./routes/button.tsx";
 import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
@@ -21,7 +20,6 @@ import * as $test from "./routes/test.tsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
 import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
-import * as $tests_form from "./routes/tests/form.tsx";
 import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
 import * as $tests_post_reception from "./routes/tests/post-reception.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
@@ -46,7 +44,6 @@ const manifest = {
     "./routes/api/oumu.ts": $api_oumu,
     "./routes/api/tako.ts": $api_tako,
     "./routes/api/token.js": $api_token,
-    "./routes/button.tsx": $button,
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
@@ -56,7 +53,6 @@ const manifest = {
     "./routes/test_post.tsx": $test_post,
     "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
     "./routes/tests/cp-test.jsx": $tests_cp_test,
-    "./routes/tests/form.tsx": $tests_form,
     "./routes/tests/mongoDB.tsx": $tests_mongoDB,
     "./routes/tests/post-reception.tsx": $tests_post_reception,
     "./routes/tests/post-send.tsx": $tests_post_send,

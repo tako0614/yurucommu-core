@@ -1,5 +1,5 @@
-import mongoose from "npm:mongoose@^6.7";
-export const usersSchema = new mongoose.Schema({
+import mongoose from "mongoose";
+const usersSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true,
@@ -24,3 +24,6 @@ export const usersSchema = new mongoose.Schema({
     },
     timestamp: true
 })
+const users = mongoose.model('users', usersSchema);
+
+export default users;
