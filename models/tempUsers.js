@@ -11,7 +11,7 @@ export const tempUsersSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
-    timestamp: true
+    timestamp: { type: Date, default: Date.now }
 })
 const tempUsers = mongoose.model('tempUsers', tempUsersSchema);
 export default tempUsers;

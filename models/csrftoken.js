@@ -6,7 +6,7 @@ export const csrfTokenSchama = new mongoose.Schema({
         required: true,
         unique: true
     },
-    timestamp: true
+    timestamp: { type: Date, default: Date.now }
 })
 const csrfToken = mongoose.model('csrfToken', csrfTokenSchama);
 export default csrfToken;
