@@ -15,10 +15,9 @@ export const handler = {
             }
             await tempUsers.create({mail: email, key: key})
             sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
-            /*
             return new Response(JSON.stringify({status: true}), {
               headers: { "Content-Type": "application/json" },
-            });*/
+            });
             } catch (error) {
               return new Response(JSON.stringify({"status": "error"}), {
                 headers: { "Content-Type": "application/json" },
