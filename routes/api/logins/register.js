@@ -29,7 +29,7 @@ export const handler = {
           });
         }
       }else {
-        ctx.status(403).send({"status": "error"})
+        res.status(403).send({"status": "error"})
         /*return new Response(JSON.stringify({"status": "error"}), {
           headers: { "Content-Type": "application/json" },
         });*/

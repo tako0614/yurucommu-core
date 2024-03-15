@@ -18,12 +18,9 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-        const token = await fetch("http://localhost:8000/api/token?origin=http://localhost:8000")
-        const csrftoken = await token.json();
         const data = {
           requirements: "temp_register",
           mail: email,
-          csrftoken: csrftoken.csrftoken
         };
         const res = await fetch("/api/logins/register", {
             method: "POST",
@@ -45,13 +42,13 @@ return <>
         {text}
     </button>
     {showModal && (
-        <div className="fixed z-[999999999] w-full h-full overflow-auto bg-[rgba(91,112,131,0.4)] left-0 top-0">
+        <div className="fixed z-50 w-full h-full overflow-auto bg-[rgba(91,112,131,0.4)] left-0 top-0">
           <div className="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
             <div class="flex">
               <img src="./logo.webp" alt="logo" class="w-[120px] m-auto" />
-              <span className="text-[#aaa] ml-0 text-[28px] font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
+              <span className="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
             </div>
-            <div class="w-[80%] mx-auto my-0">
+            <div class="w-4/5 mx-auto my-0">
               <div class="">
               <p class="text-white text-3xl mb-10 font-sans font-bold">アカウントを作成</p>
                 {showForm || (<form onSubmit={handleSubmit} class="">
