@@ -18,13 +18,13 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
-        const uri = new URL(window.location.href);
+        /*const uri = new URL(window.location.href);
         const token = await fetch(`${uri.protocol}//${uri.host}/api/token?origin=${uri.protocol}//${uri.host}`)
-        const csrftoken = await token.json();
+        const csrftoken = await token.json();*/
         const data = {
           requirements: "temp_register",
           mail: email,
-          csrftoken: csrftoken.csrftoken
+          token: rechapcha
         };
         const res = await fetch("/api/logins/register", {
             method: "POST",
@@ -58,7 +58,7 @@ return <>
                 {showForm || (<form onSubmit={handleSubmit} class="">
                   <label>
                   <div class="text-2xl">メールアドレス</div>
-                    <input type="email" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Username"  value={email} onChange={handleEmailChange} />
+                    <input type="email" placeholder="Username"  value={email} onChange={handleEmailChange} class="shadow appearance-none  rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
                   </label>
                   <div>
                     <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />

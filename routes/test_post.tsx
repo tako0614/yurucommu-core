@@ -1,32 +1,12 @@
-import { Handlers } from "$fresh/server.ts";
+import { Handlers, PageProps } from "$fresh/server.ts";
 
-export const handler: Handlers = {
-  async GET(req, ctx) {
-    return await ctx.render();
-  },
-  async POST(req, ctx) {
-    const form = await req.formData();
-    const email = form.get("email")?.toString();
-
-    // Add email to list.
-
-    // Redirect user to thank you page.
-    const headers = new Headers();
-    headers.set("location", "/thanks-for-subscribing");
-    return new Response(null, {
-      status: 303, // See Other
-      headers,
-    });
-  },
-};
-
-export default function Subscribe() {
+export default function GetSendPage() {
   return (
-    <>
-      <form method="post">
-        <input type="email" name="email" value="" />
-        <button type="submit">Subscribe</button>
+    <div>
+      <form method="GET" action="/register">
+        <input type="text" name="userName" />
+        <button type="submit">Submit</button>
       </form>
-    </>
+    </div>
   );
 }

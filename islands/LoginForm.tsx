@@ -1,11 +1,10 @@
-import { useState } from 'preact/hooks';
+import { useState,useEffect } from 'preact/hooks';
 import { render } from "preact";
 //import Button from '../components/Button.tsx'
 import { JSX, h} from "preact";
 import { isMail, isUserDuplication, takojson } from "../util/takoFunction.ts"
-export default function RegisterForm({ text, color,tako }: { text: string, color: string; tako: string;}) {
-    const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" + color 
-
+export default function RegisterForm({ text, color,tako,key}: { text: string, color: string; tako: string; key: string;}) {
+    const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" + color
     const [showModal, setShowModal] = useState(false);
     const [showForm, setShowFrom] = useState(false);
     const handleButtonClick = () => {
@@ -17,6 +16,8 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
         setEmail(event.currentTarget.value);
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
+        // TODO token を用いた処理
+
         event.preventDefault();
         const data = {
           requirements: "temp_register",
@@ -37,6 +38,7 @@ export default function RegisterForm({ text, color,tako }: { text: string, color
           console.log(response)
         }
     };
+    //rechapcha
 return <>
     <button class={classs} onClick={handleButtonClick}>
         {text}
@@ -62,7 +64,7 @@ return <>
                 </form>)
                 }
                 {showForm && (
-                  <div class="text-white text-3xl">送信されたで!本登録してや！</div>
+                  <div class="text-white text-3xl">メールアドレスに本登録用のurlを送信しました</div>
                 )
 
                 }
