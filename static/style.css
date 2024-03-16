@@ -1,112 +1,130 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+.checkbox {
+    border-radius: 0.25rem; 
+    border-color: #D1D5DB; 
+    width: 1.5rem;
+    height: 1.5rem;
+    color: #2563EB; 
+    background-color: #F3F4F6; 
+}
+.mb-6noyotei {
+    margin-bottom: 30px;
+}
+.mt-10noyotei {
+    margin-top: 30px;
+    margin-bottom: 50px;
+}
+.border-color {
+    border-color: gray;
+}
 .full-title {
-     font-family: Roboto;
-     font-weight: bold;
-     line-height: 1.2;
+    font-family: Roboto;
+    font-weight: bold;
+    line-height: 1.2;
 }
 /*ロゴやサイトタイトルをセンタリング*/
- .logo-area{
-     height: 10px;
-     margin-left: 10px;
-     margin-top: 0px;
+.logo-area{
+    height: 10px;
+    margin-left: 10px;
+    margin-top: 0px;
 }
- .logo-area img {
-     height: 30px;
+.logo-area img {
+    height: 30px;
 }
- .dt-nav-menu {
-     color: #fff;
-     display: inline-block;
-     margin-right: 60px;
+.dt-nav-menu {
+    color: #fff;
+    display: inline-block;
+    margin-right: 60px;
 }
- .header-menu {
-     display: flex;
-     padding-left: 1rem;
+.header-menu {
+    display: flex;
+    padding-left: 1rem;
 }
- #nav-content ul li {
-     font-size: 0px;
+#nav-content ul li {
+    font-size: 0px;
 }
- @media screen and (max-width:800px) {
-     .header-logo-menu{
-         display: flex;
-         display: -moz-flex;
-         display: -o-flex;
-         display: -webkit-flex;
-         display: -ms-flex;
-         flex-direction: row;
-         -moz-flex-direction: row;
-         -o-flex-direction: row;
-         -webkit-flex-direction: row;
-         -ms-flex-direction: row;
-    }
-     .logo-area{
-         height: 10px;
-         text-align:center;
-         margin:auto;
-         margin-top: 0px;
-    }
-     .logo-area img {
-         height: 30px;
-    }
-     #nav-content ul li {
-         font-size: 40px;
-    }
-    
-     .full-title h1 {
-         font-family: Roboto;
-         font-size: 3.5rem;
-    }
+@media screen and (max-width:800px) {
+    .header-logo-menu{
+        display: flex;
+        display: -moz-flex;
+        display: -o-flex;
+        display: -webkit-flex;
+        display: -ms-flex;
+        flex-direction: row;
+        -moz-flex-direction: row;
+        -o-flex-direction: row;
+        -webkit-flex-direction: row;
+        -ms-flex-direction: row;
+   }
+    .logo-area{
+        height: 10px;
+        text-align:center;
+        margin:auto;
+        margin-top: 0px;
+   }
+    .logo-area img {
+        height: 30px;
+   }
+    #nav-content ul li {
+        font-size: 40px;
+   }
+   
+    .full-title h1 {
+        font-family: Roboto;
+        font-size: 3.5rem;
+   }
 }
 /*メニューをページ下部に固定*/
 #sp-fixed-menu{
-    position: fixed;
-    width: 100%;
-    bottom: 0px;
-    font-size: 0;
-    z-index: 99;
- }
- 
- /*メニューを横並びにする*/
- #sp-fixed-menu ul{
-    display: flex;
-    list-style: none;
-    padding:0;
-    margin:0;
-    width:100%;
-    background-color: black;
- }
- 
- #sp-fixed-menu li{
-    justify-content: center;
-    /*align-items: center;*/
-    width: 50%;
-    padding:0;
-    margin:0;
-    font-size: 14px;
- }
- /*ボタンを調整*/
-#sp-fixed-menu li a{
-    color: #fff;
-    text-align: center;
-    display:block;
-    width: 100%;
-    padding:20px;
- }
+   position: fixed;
+   width: 100%;
+   bottom: 0px;
+   font-size: 0;
+   z-index: 99;
+}
 
- ボタンを調整
- #sp-fixed-menu li a{
-    color: #fff;
-    text-align: center;
-    display:block;
-    width: 100%;
-    margin:auto;
- }
+/*メニューを横並びにする*/
+#sp-fixed-menu ul{
+   display: flex;
+   list-style: none;
+   padding:0;
+   margin:0;
+   width:100%;
+   background-color: black;
+}
+
+#sp-fixed-menu li{
+   justify-content: center;
+   /*align-items: center;*/
+   width: 50%;
+   padding:0;
+   margin:0;
+   font-size: 14px;
+}
+/*ボタンを調整*/
+#sp-fixed-menu li a{
+   color: #fff;
+   text-align: center;
+   display:block;
+   width: 100%;
+   padding:20px;
+}
+
+ボタンを調整
+#sp-fixed-menu li a{
+   color: #fff;
+   text-align: center;
+   display:block;
+   width: 100%;
+   margin:auto;
+}
 .font-size0 {
-    float: left;
-    padding: 20px 30px;
-    text-align: center;
- }
+   float: left;
+   padding: 20px 30px;
+   text-align: center;
+}
 .font0 {
-    font-size: 0px;
+   font-size: 0px;
 }

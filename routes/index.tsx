@@ -1,32 +1,20 @@
-import { useSignal } from "@preact/signals";
-import Header from '../components/Header.tsx'
 import Footer from '../components/Footer.tsx'
-import UnderMenu from '../components/UnderMenu.tsx'
 import Welcom from "../components/Welcome.tsx";
+import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
+const env = await load();
+const key = env["rechapcha_site_key"];
 export default function Home() {
-  const count = useSignal(3);
+  const url = `https://www.google.com/recaptcha/api.js?render=${key}`
   return (
     <>
       <head>
         <title>tako's | takos.jp</title>
         <link rel="stylesheet" href="/style.css"></link>
         <meta name="description" content="日本産オープンソース分散型チャットアプリ「tako's」" />
+        <script src={url}></script>
+        <script src="./rechapcha.js"></script>
       </head>
-      {/*<Header />*/}
-      {/*
-      <div class="absolute top-0 right-0 flex items-center justify-center w-16 overflow-hidden h-16">
-        <a href="https://github.com/takoserver/takos">
-      <img
-        src="/github.svg"
-        alt="Insert Image"
-        width="30"
-        height="30"
-        class="w-12 h-12 flex items-center justify-center bg-white"
-        //style="aspect-ratio: 24 / 24; object-fit: cover;"
-      />
-      </a>
-  </div>*/}
-      <Welcom />
+      <Welcom key={key}/>
       <Footer></Footer>
     </>
   );
