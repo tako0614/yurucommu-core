@@ -28,7 +28,7 @@ export default function PostReceptionPage({ data }) {
         <script src="./rechapcha.js"></script>
     </head>
     <div class="text-white">
-      <MainAuthForm key={data.key} />
+      <MainAuthForm sitekey={data.key} />
     </div>
       </>);
   }else {

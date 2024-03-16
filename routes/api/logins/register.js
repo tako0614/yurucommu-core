@@ -1,7 +1,6 @@
 import { isMail, isMailDuplication, isMailDuplicationTemp, sendMail} from "../../../util/takoFunction.ts";
 import tempUsers from "../../../models/tempUsers.js";
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
-import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
 const env = await load();
 const secretKey = env["rechapcha_seecret_key"]
 export const handler = {
@@ -12,8 +11,7 @@ export const handler = {
       const rechapcha = await data.token
       if(email === undefined || rechapcha === undefined || rechapcha === "" || email === "" || rechapcha === null || email === null) {
         return new Response(JSON.stringify({"status": "error"}), {
-          headers: { "Content-Type": "application/json",
-                      status : 403},
+          headers: { "Content-Type": "application/json",status : 403},
         });
       }
       const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapcha}`)
@@ -21,8 +19,7 @@ export const handler = {
       console.log(score)
       if(score.score < 0.7 || score.secsus == false) {
         return new Response(JSON.stringify({"status": "rechapchaerror"}), {
-          headers: { "Content-Type": "application/json",
-                      status : 403},
+          headers: { "Content-Type": "application/json",status : 403},
         });
       }
       const ismailduplication = await isMailDuplication(email)
@@ -40,6 +37,7 @@ export const handler = {
                           status : 200 },
             });
             } catch (error) {
+              console.log(error)
               return new Response(JSON.stringify({"status": "500error"}), {
                 headers: { "Content-Type": "application/json",
                             status : 403},
@@ -54,9 +52,7 @@ export const handler = {
       }else {
         headers.set("Content-Type", "application/json");
         return new Response(JSON.stringify({"status": "error"}), {
-          headers: { "Content-Type": "application/json",
-                      status : 403
-                    },
+          headers: { "Content-Type": "application/json",status : 403},
         });
       }
   }

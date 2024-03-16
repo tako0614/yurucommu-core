@@ -3,7 +3,7 @@ import * as React from "preact/compat"
 const css = {
     "input": "block "
 }
-export function MainAuthForm({ key }) {
+export function MainAuthForm({ sitekey }) {
     const [showForm, setShowForm] = useState(false);
     const [userName, setUserName] = useState('');
     const [password, setPassword] = useState('');
