@@ -25,6 +25,7 @@ import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $RegisterForm from "./islands/RegisterForm.jsx";
 import * as $RegisterForm_1 from "./islands/RegisterForm.tsx";
+import * as $Welcome from "./islands/Welcome.tsx";
 import * as $mainAuthForm from "./islands/mainAuthForm.jsx";
 import { type Manifest } from "$fresh/server.ts";
 
@@ -55,6 +56,7 @@ const manifest = {
     "./islands/LoginForm.tsx": $LoginForm,
     "./islands/RegisterForm.jsx": $RegisterForm,
     "./islands/RegisterForm.tsx": $RegisterForm_1,
+    "./islands/Welcome.tsx": $Welcome,
     "./islands/mainAuthForm.jsx": $mainAuthForm,
   },
   baseUrl: import.meta.url,

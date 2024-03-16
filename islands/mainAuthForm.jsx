@@ -55,6 +55,8 @@ export function MainAuthForm({ key }) {
             alert("年齢は数字で入力してください")
             return
         }
+        console.log(values)
+        
         const body = JSON.stringify(values)
         const result = await fetch('./api/mainRgsiter', {
             method: 'POST',
