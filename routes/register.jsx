@@ -4,7 +4,7 @@ import tempUsers from "../models/tempUsers.js";
 import { MainAuthForm } from "../islands/mainAuthForm.jsx";
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 const env = await load();
-const key = env["rechapcha_site_key"];
+const sitekey = env["rechapcha_site_key"];
 export const handler = {
   async GET(req, ctx) {
     const url = new URL(req.url);
@@ -19,7 +19,7 @@ export const handler = {
     return ctx.render({ key, status: status });
   },
 };
-const url = `https://www.google.com/recaptcha/api.js?render=${key}`
+const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
 export default function PostReceptionPage({ data }) {
   if (data.status) {
     return (<>
@@ -28,7 +28,7 @@ export default function PostReceptionPage({ data }) {
         <script src="./rechapcha.js"></script>
     </head>
     <div class="text-white">
-      <MainAuthForm sitekey={data.key} />
+      <MainAuthForm token={data.key} sitekey={sitekey} />
     </div>
       </>);
   }else {

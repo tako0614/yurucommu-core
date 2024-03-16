@@ -1,9 +1,28 @@
-import { useState } from 'preact/hooks';
-import * as React from "preact/compat"
+import { useState,useEffect } from 'preact/hooks';
 const css = {
     "input": "block "
 }
-export function MainAuthForm({ sitekey }) {
+export function MainAuthForm({ sitekey, token }) {
+    const [rechapchaToken, setRecaptchaToken] = useState("");
+    const [recaptchaLoaded, setRecaptchaLoaded] = useState(false);
+    useEffect(() => {
+        const script = document.createElement("script");
+        script.src = "https://www.google.com/recaptcha/api.js?render=" + sitekey;
+        script.async = true;
+        script.onload = () => {
+          setRecaptchaLoaded(true);
+        };
+        document.body.appendChild(script);
+      }, [sitekey]);
+      useEffect(() => {
+        if (recaptchaLoaded) {
+          window.grecaptcha.ready(() => {
+            window.grecaptcha.execute(sitekey, { action: "homepage" }).then((token) => {
+              setRecaptchaToken(token);
+            });
+          });
+        }
+      }, [recaptchaLoaded, sitekey]);
     const [showForm, setShowForm] = useState(false);
     const [userName, setUserName] = useState('');
     const [password, setPassword] = useState('');
@@ -29,7 +48,8 @@ export function MainAuthForm({ sitekey }) {
             password,
             age,
             isagreement,
-            key
+            token,
+            rechapchaToken
         }
         if(values.isagreement === false){
             alert("利用規約に同意してください")
@@ -56,7 +76,6 @@ export function MainAuthForm({ sitekey }) {
             return
         }
         console.log(values)
-        
         const body = JSON.stringify(values)
         const result = await fetch('./api/mainRgsiter', {
             method: 'POST',
@@ -143,7 +162,6 @@ export function MainAuthForm({ sitekey }) {
                 </h1>
             </div>
         )
-        
         }
 
         </>

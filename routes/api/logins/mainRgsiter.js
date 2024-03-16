@@ -1,9 +1,9 @@
 // deno-lint-ignore-file
-/*
 import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, isCsrftoken, sendMail} from "../../../util/takoFunction.ts";
+import { useState, useEffect } from "preact/hooks";
 export const handler = {
-    POST(req, ctx) {
+    async POST(req, ctx) {
         const data = await req.json();
-        const email = await data.mail;
+        //const[userName, password,age]
     }
-}*/
+}
