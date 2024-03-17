@@ -4,13 +4,13 @@ export const handler = {
     const data = await req.json();
     const { userName, password } = data;
     if(userName == undefined || password == undefined) {
-      return new Response(JSON.stringify({"status": "ぜんぶいれろ"}), {
+      return new Response(JSON.stringify({"status": " 全て入力してください"}), {
         headers: { "Content-Type": "application/json",status : 403},
       });
     }
     const user = await users.findOne({ userName: userName });
     if(user == null) {
-      return new Response(JSON.stringify({"status": "おまえおらん"}), {
+      return new Response(JSON.stringify({"status": " 登録されていません"}), {
         headers: { "Content-Type": "application/json",status : 403},
       });
     }
