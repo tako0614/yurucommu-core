@@ -38,7 +38,8 @@ const usersSchema = new mongoose.Schema({
     },
     age: {
         type: Number,
-        required: true
+        required: true,
+        rating: {type: Number, required: true, min: 1, max: 120},
     },
     timestamp: { type: Date, default: Date.now }
 })

@@ -1,6 +1,6 @@
-import Toke from "../../components/tokes/toke.jsx";
+import {SecsusPage} from "../../components/SecsusPage.jsx";
 export default function name() {
     return <>
-    <Toke></Toke>
+    <SecsusPage />
     </>
 }

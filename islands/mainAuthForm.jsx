@@ -1,7 +1,8 @@
-import { useState,useEffect } from 'preact/hooks';
+import { useEffect, useState } from "preact/hooks";
+import { SecsusPage } from "../components/SecsusPage.jsx";
 const css = {
-    "input": "block "
-}
+    "input": "block",
+};
 export function MainAuthForm({ sitekey, token }) {
     const [rechapchaToken, setRecaptchaToken] = useState("");
     const [recaptchaLoaded, setRecaptchaLoaded] = useState(false);
@@ -85,22 +86,38 @@ export function MainAuthForm({ sitekey, token }) {
         });
         const response = await result.json()
         console.log(response)
-        if (result.status === 200) {
+        if (response.status === true) {
             setShowForm(true);
         } else {
-            switch(result.why){
-                case "user already exists":
-                    alert("ユーザーは既に存在しています")
-                    break;
+            switch (response.status) {
                 case "key is not found":
-                    alert("keyが見つかりませんでした")
+                    alert("key is not found")
+                    break;
+                case "usererror":
+                    alert("ユーザー名が重複しています")
+                    break;
+                case "mailerror":
+                    alert("メールアドレスが重複しています")
+                    break;
+                case "passworderror":
+                    alert("パスワードは8文字以上で入力してください")
+                    break;
+                case "rechapchaerror":
+                    alert("手動で入力してください")
                     break;
                 default:
-                    alert("エラーが発生しました")
+                    alert("error")
                     break;
             }
         }
     };
+    useEffect(() => {
+        if (showForm) {
+            setTimeout(() => {
+                window.location.href = "./login";
+            }, 5000);
+        }
+    }, [showForm]);
     return (
         <>{showForm || (
             <section class="text-gray-600 flex flex-col items-center px-2">
@@ -158,9 +175,7 @@ export function MainAuthForm({ sitekey, token }) {
         }
         {showForm && (
             <div>
-                <h1 class="text-5xl text-white m-auto">
-                    登録完了
-                </h1>
+            <SecsusPage />
             </div>
         )
         }

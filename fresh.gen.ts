@@ -13,6 +13,7 @@ import * as $api_token from "./routes/api/token.js";
 import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
+import * as $lgoin from "./routes/lgoin.jsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
 import * as $register from "./routes/register.jsx";
 import * as $test_post from "./routes/test_post.tsx";
@@ -41,6 +42,7 @@ const manifest = {
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
+    "./routes/lgoin.jsx": $lgoin,
     "./routes/privacypolicy.tsx": $privacypolicy,
     "./routes/register.jsx": $register,
     "./routes/test_post.tsx": $test_post,
