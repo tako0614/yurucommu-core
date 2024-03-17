@@ -42,7 +42,6 @@ export function MainAuthForm({ sitekey, token }) {
     };
     const handleSubmit = async (event) => {
         event.preventDefault();
-
         const values = {
             userName,
             password,
@@ -77,13 +76,15 @@ export function MainAuthForm({ sitekey, token }) {
         }
         console.log(values)
         const body = JSON.stringify(values)
-        const result = await fetch('./api/mainRgsiter', {
+        const result = await fetch('./api/logins/mainRgsiter', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body,
         });
+        const response = await result.json()
+        console.log(response)
         if (result.status === 200) {
             setShowForm(true);
         } else {

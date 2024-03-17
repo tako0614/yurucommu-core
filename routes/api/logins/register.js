@@ -17,7 +17,7 @@ export const handler = {
       const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapcha}`)
       const score = await isSecsusRechapcha.json()
       console.log(score)
-      if(score.score < 0.7 || score.secsus == false) {
+      if(score.score < 0.7 || score.success == false) {
         return new Response(JSON.stringify({"status": "rechapchaerror"}), {
           headers: { "Content-Type": "application/json",status : 403},
         });

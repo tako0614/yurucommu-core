@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 const usersSchema = new mongoose.Schema({
-    name: {
+    userName: {
         type: String,
         required: true,
         unique: true
@@ -18,12 +18,11 @@ const usersSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    uuid: {
-        type: String,
+    age: {
+        type: Number,
         required: true
     },
     timestamp: { type: Date, default: Date.now }
 })
 const users = mongoose.model('users', usersSchema);
-
 export default users;
