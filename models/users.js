@@ -41,6 +41,10 @@ const usersSchema = new mongoose.Schema({
         required: true,
         rating: {type: Number, required: true, min: 1, max: 120},
     },
+    sessionID: {
+        type: String,
+        unique: true
+    },
     timestamp: { type: Date, default: Date.now }
 })
 const users = mongoose.model('users', usersSchema);
