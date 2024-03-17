@@ -58,7 +58,7 @@ function isMail(mail: string): boolean {
   return emailPattern.test(mail)
 }
 async function isUserDuplication(userid: string): Promise<boolean> {
-    const result = await users.findOne({name: userid})
+    const result = await users.findOne({userName: userid})
     return result !== null;
 }
 async function isMailDuplication(mail: string): Promise<boolean> {

@@ -1,5 +1,6 @@
 import csrfToken from "../../models/csrftoken.js";
 import {envRoader} from "../../util/takoFunction.ts";
+import { crypto } from "https://deno.land/std@0.220.1/crypto/crypto.ts";
 export const handler = {
   async GET(req) {
     const url = new URL(req.url);
@@ -7,7 +8,9 @@ export const handler = {
     const allows = envRoader("origin")
     const allow = allows.split(',')
     if(allow.includes(origin)){
-      const csrftoken = generateRandomString(128)
+      const array = new Uint8Array(64);
+      crypto.getRandomValues(array);
+      const csrftoken = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
       await csrfToken.create({token: csrftoken})
       return new Response(JSON.stringify({"csrftoken": csrftoken}), {
         headers: { "Content-Type": "application/json",
@@ -25,12 +28,3 @@ export const handler = {
     }
   }
 };
-function generateRandomString(length) {
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    result += characters.charAt(randomIndex);
-  }
-  return result;
-}

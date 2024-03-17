@@ -3,6 +3,7 @@ import tempUsers from "../../../models/tempUsers.js";
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 const env = await load();
 const secretKey = env["rechapcha_seecret_key"]
+const mailDomain = env["mailDomain"]
 export const handler = {
   async POST(req) {
       const data = await req.json();
@@ -26,12 +27,14 @@ export const handler = {
       if(ismail) {
         if(!ismailduplication) {
             try {
-            const key = generateRandomString(255);
+              const array = new Uint8Array(64);
+              crypto.getRandomValues(array);
+              const key = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
             if(isMailDuplicationTemp(email)) {
               await tempUsers.deleteOne({mail: email})
             }
             await tempUsers.create({mail: email, key: key})
-            sendMail(email,"本登録を完了してください",`https://takos.jp/register?key=${key}`)
+            sendMail(email,"本登録を完了してください",`${mailDomain}/register?key=${key}`)
             return new Response(JSON.stringify({status: true}), {
               headers: { "Content-Type": "application/json",
                           status : 200 },
@@ -57,12 +60,3 @@ export const handler = {
       }
   }
 };
-function generateRandomString(length) {
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    result += characters.charAt(randomIndex);
-  }
-  return result;
-}

@@ -11,6 +11,16 @@ export const handler = {
         /*--------------reCAPCHA------------------*/
         const data = await req.json();
         const { userName, password, age, isagreement, token, rechapchaToken } = data;
+        if(userName == undefined || password == undefined || age == undefined || isagreement == undefined || token == undefined || rechapchaToken == undefined) {
+            return new Response(JSON.stringify({"status": "error"}), {
+                headers: { "Content-Type": "application/json",status : 403},
+            });
+        }
+        if( userName == null || password == null || age == null || isagreement == null || token == null || rechapchaToken == null) {
+            return new Response(JSON.stringify({"status": "error"}), {
+                headers: { "Content-Type": "application/json",status : 403},
+            });
+        }
         const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapchaToken}`)
         const score = await isSecsusRechapcha.json()
         if(score.score < 0.7 || score.success == false) {
@@ -54,7 +64,7 @@ export const handler = {
         const hashArray = new Uint8Array(hash);
         const hashHex = Array.from(hashArray, byte => byte.toString(16).padStart(2, '0')).join('');
         //ユーザーを登録
-        const result = await users.create({userName: userName, mail: mail, password: hashHex, salt: salt, age: age});
+        const result = await users.create({userName, mail: mail, password: hashHex, salt: salt, age: age});
         //tempUsersから削除
         await tempUsers.deleteOne({mail: mail});
         return new Response(JSON.stringify({status: true}), {

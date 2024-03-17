@@ -19,7 +19,6 @@ import * as $test_post from "./routes/test_post.tsx";
 import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
 import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
 import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
-import * as $tests_post_reception from "./routes/tests/post-reception.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
@@ -48,7 +47,6 @@ const manifest = {
     "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
     "./routes/tests/cp-test.jsx": $tests_cp_test,
     "./routes/tests/mongoDB.tsx": $tests_mongoDB,
-    "./routes/tests/post-reception.tsx": $tests_post_reception,
     "./routes/tests/post-send.tsx": $tests_post_send,
   },
   islands: {
