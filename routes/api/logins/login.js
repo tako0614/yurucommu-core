@@ -7,14 +7,14 @@ export const handler = {
       const data = await req.json();
       const { userName, password } = data;
       if(userName == undefined || password == undefined) {
-        return new Response(JSON.stringify({"status": " 全て入力してください"}), {
+        return new Response(JSON.stringify({"status": false,error: "input"}), {
           headers: { "Content-Type": "application/json"},
           status: 403,
         });
       }
       const user = await users.findOne({ userName: userName });
       if(user == null) {
-        return new Response(JSON.stringify({"status": " 登録されていません"}), {
+        return new Response(JSON.stringify({"status": false,error: "userNotFound"}), {
           headers: { "Content-Type": "application/json"},
           status: 403,
         });
@@ -26,7 +26,7 @@ export const handler = {
       const hashArray = new Uint8Array(reqHash);
       const hashHex = Array.from(hashArray, byte => byte.toString(16).padStart(2, '0')).join('');
       if(hash !== hashHex) {
-        return new Response(JSON.stringify({"status": "error"}), {
+        return new Response(JSON.stringify({"status": false,error: "password"}), {
           headers: { "Content-Type": "application/json"},
           status: 403,
         });
@@ -44,7 +44,7 @@ export const handler = {
       }
     } catch (error) {
       console.error(error);
-      return new Response(JSON.stringify({"status": "error"}), {
+      return new Response(JSON.stringify({"status": false,error: "server error"}), {
         headers: { "Content-Type": "application/json"},
         status: 500,
       });

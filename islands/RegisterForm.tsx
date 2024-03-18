@@ -1,16 +1,23 @@
 import { useState,useEffect } from 'preact/hooks';
 //import Button from '../components/Button.tsx'
 import { JSX, h} from "preact";
+function isMail(mail: string) {
+  const  emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+  return emailPattern.test(mail)
+}
 export default function RegisterForm({ text,sitekey }: { text: string, sitekey: string; }) {
     const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64"
     const [showModal, setShowModal] = useState(false);
     const [showForm, setShowFrom] = useState(false);
+    const [showError, setShowError] = useState(false);
+    const [errorMessages, setErrorMessages] = useState("");
     const handleButtonClick = () => {
       setShowModal(!showModal);
     }
     const [email, setEmail] = useState("");
     const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
-        setEmail(event.currentTarget.value);
+      const value = event.currentTarget.value;
+        setEmail(value);
     };
     const handleSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
         event.preventDefault();
@@ -19,6 +26,12 @@ export default function RegisterForm({ text,sitekey }: { text: string, sitekey: 
           mail: email,
           token: sitekey
         };
+        if(!isMail(data.mail)) {
+          setShowError(true)
+          setErrorMessages("メールアドレスが不正です")
+          console.log(data.mail)
+          return
+        }
         const res = await fetch("/api/logins/register", {
             method: "POST",
             headers: {
@@ -30,10 +43,28 @@ export default function RegisterForm({ text,sitekey }: { text: string, sitekey: 
         if(response.status == true) {
           setShowFrom(!showForm)
         } else {
-          alert("takotako")
-          console.log(response)
+          console.log(response.error)
+          setShowError(true)
+          switch(response.error) {
+            case "mail":
+              setErrorMessages("メールアドレスが不正です")
+              break;
+            case "mailDuplication":
+              setErrorMessages("メールアドレスが重複しています")
+              break;
+            case "recaptcha":
+              setErrorMessages("reCAPTCHAが正しくありません")
+              break;
+            case "input":
+              setErrorMessages("入力が不正です")
+              break;
+            default:
+              setErrorMessages("不明なエラーが発生しました")
+              break;
+          }
         }
     };
+    const formClass = showError ? 'rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none border-red-500 border-4' : '';
 return <>
     <button class={classs} onClick={handleButtonClick}>
         {text}
@@ -51,8 +82,11 @@ return <>
                 {showForm || (<form onSubmit={handleSubmit} class="">
                   <label>
                   <div class="text-2xl">メールアドレス</div>
-                    <input type="email" placeholder="Username"  value={email} onChange={handleEmailChange} class="shadow appearance-none  rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
+                    <input type="email" placeholder="Username"  value={email} onChange={handleEmailChange} class="shadow appearance-none rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" />
                   </label>
+                  {showError && (
+                    <div class="text-red-500 text-xs">{errorMessages}</div>
+                  )}
                   <div>
                     <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />
                   </div>
@@ -61,7 +95,6 @@ return <>
                 {showForm && (
                   <div class="text-white text-3xl">送信されたで!本登録してや！</div>
                 )
-
                 }
               </div>
             </div>

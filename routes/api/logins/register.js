@@ -11,16 +11,18 @@ export const handler = {
       const ismail = isMail(email)
       const rechapcha = await data.token
       if(email === undefined || rechapcha === undefined || rechapcha === "" || email === "" || rechapcha === null || email === null) {
-        return new Response(JSON.stringify({"status": "error"}), {
-          headers: { "Content-Type": "application/json",status : 403},
+        return new Response(JSON.stringify({"status": false}), {
+          headers: { "Content-Type": "application/json",error: "input"},
+          status : 403,
         });
       }
       const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapcha}`)
       const score = await isSecsusRechapcha.json()
       console.log(score)
       if(score.score < 0.7 || score.success == false) {
-        return new Response(JSON.stringify({"status": "rechapchaerror"}), {
-          headers: { "Content-Type": "application/json",status : 403},
+        return new Response(JSON.stringify({"status": false,error: "rechapcha"}), {
+          headers: { "Content-Type": "application/json"},
+          status : 403,
         });
       }
       const ismailduplication = await isMailDuplication(email)
@@ -36,25 +38,27 @@ export const handler = {
             await tempUsers.create({mail: email, key: key})
             sendMail(email,"本登録を完了してください",`${mailDomain}/register?key=${key}`)
             return new Response(JSON.stringify({status: true}), {
-              headers: { "Content-Type": "application/json",
-                          status : 200 },
+              headers: { "Content-Type": "application/json"},
+              status : 200,
             });
             } catch (error) {
               console.log(error)
-              return new Response(JSON.stringify({"status": "500error"}), {
-                headers: { "Content-Type": "application/json",
-                            status : 403},
+              return new Response(JSON.stringify({"status": false,error: "Unknown"}), {
+                headers: { "Content-Type": "application/json"},
+                status : 500,
               });
             }
         }else {
-          return new Response(JSON.stringify({"status": "mailerror"}), {
-            headers: { "Content-Type": "application/json",
-                        status : 403},
+          return new Response(JSON.stringify({"status": false,error: "mailDuplication"}), {
+            headers: { "Content-Type": "application/json",},
+          status: 200,
+          
           });
         }
       }else {
-        return new Response(JSON.stringify({"status": "error"}), {
-          headers: { "Content-Type": "application/json",status : 403},
+        return new Response(JSON.stringify({"status": false,error: "mail"}), {
+          headers: { "Content-Type": "application/json"},
+          status : 403,
         });
       }
   }

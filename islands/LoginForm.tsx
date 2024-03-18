@@ -8,6 +8,10 @@ export default function RegisterForm({ text,sitekey}: { text: string, sitekey: s
     }
     const [userName, setUserName] = useState("")
     const [password, setPassword] = useState("")
+    const [userNameErrorMessages, setUserNameErrorMessages] = useState("");
+    const [showUserNameError, setShowUserNameError] = useState(false);
+    const [passwordErrorMessages, setPasswordErrorMessages] = useState("");
+    const [showPasswordError, setShowPasswordError] = useState(false);
     const handleUserNameChange = (event: any) => {
         setUserName(event.currentTarget.value);
     };
@@ -36,7 +40,28 @@ export default function RegisterForm({ text,sitekey}: { text: string, sitekey: s
         if(response.status === true) {
             window.location.href = "/"
         } else {
-            alert("ログインに失敗しました"+ response.status)
+            switch(response.error) {
+                case "input":
+                  setUserNameErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setShowUserNameError(true)
+                  setPasswordErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setShowPasswordError(true)
+                  break;
+                case "userNotFound":
+                  setUserNameErrorMessages("ユーザーが見つかりません")
+                  setShowUserNameError(true)
+                  break;
+                case "password":
+                  setPasswordErrorMessages("パスワードが不正です")
+                  setShowPasswordError(true)
+                  break;
+                default:
+                  setUserNameErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setShowUserNameError(true)
+                  setPasswordErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setShowPasswordError(true)
+                  break;
+            }
         }
         }
 return <>
@@ -58,10 +83,16 @@ return <>
                   <div class="text-2xl">ユーザーネーム</div>
                     <input type="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" value={userName} onChange={handleUserNameChange} />
                   </label>
+                  {showUserNameError && (
+                    <div class="text-red-500 text-xs">{userNameErrorMessages}</div>
+                  )}
                   <label>
                   <div class="text-2xl">パスワード</div>
                     <input type="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" value={password} onChange={handlePasswordChange} />
                   </label>
+                  {showPasswordError && (
+                    <div class="text-red-500 text-xs">{passwordErrorMessages}</div>
+                  )}
                   <div>
                     <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />
                   </div>
