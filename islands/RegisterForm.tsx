@@ -51,7 +51,7 @@ return <>
                 {showForm || (<form onSubmit={handleSubmit} class="">
                   <label>
                   <div class="text-2xl">メールアドレス</div>
-                    <input type="mail" placeholder="Username"  value={email} onChange={handleEmailChange} class="shadow appearance-none  rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
+                    <input type="email" placeholder="Username"  value={email} onChange={handleEmailChange} class="shadow appearance-none  rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
                   </label>
                   <div>
                     <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />

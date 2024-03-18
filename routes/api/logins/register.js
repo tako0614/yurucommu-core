@@ -53,7 +53,6 @@ export const handler = {
           });
         }
       }else {
-        headers.set("Content-Type", "application/json");
         return new Response(JSON.stringify({"status": "error"}), {
           headers: { "Content-Type": "application/json",status : 403},
         });
