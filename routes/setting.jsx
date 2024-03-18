@@ -1,6 +1,6 @@
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 const env = await load();
-const sitekey = env["rechapcha_site_key"];
+const sitekey = env["recaptcha_site_key"];
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
 import PleaseLogin from "../islands/PleaseLogin.jsx";
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts";

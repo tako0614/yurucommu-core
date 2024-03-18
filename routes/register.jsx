@@ -4,7 +4,7 @@ import tempUsers from "../models/tempUsers.js";
 import { MainAuthForm } from "../islands/mainAuthForm.jsx";
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 const env = await load();
-const sitekey = env["rechapcha_site_key"];
+const sitekey = env["recaptcha_site_key"];
 export const handler = {
   async GET(req, ctx) {
     const url = new URL(req.url);

@@ -4,7 +4,7 @@ const css = {
     "input": "block",
 };
 export function MainAuthForm({ sitekey, token }) {
-    const [rechapchaToken, setRecaptchaToken] = useState("");
+    const [recaptchaToken, setRecaptchaToken] = useState("");
     const [recaptchaLoaded, setRecaptchaLoaded] = useState(false);
     useEffect(() => {
         const script = document.createElement("script");
@@ -54,7 +54,7 @@ export function MainAuthForm({ sitekey, token }) {
             age,
             isagreement,
             token,
-            rechapchaToken
+            recaptchaToken
         }
         if(values.isagreement === false){
             alert("利用規約に同意してください")

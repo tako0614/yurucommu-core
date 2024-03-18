@@ -1,5 +1,5 @@
 // deno-lint-ignore-file
-import { isMail, isUserDuplication, isMailDuplication, isMailDuplicationTemp, sendMail} from "../../../util/takoFunction.ts";
+import { isUserDuplication, isMailDuplication,} from "../../../util/takoFunction.ts";
 import tempUsers from "../../../models/tempUsers.js";
 import users from "../../../models/users.js";
 import * as mod from "https://deno.land/std@0.220.1/crypto/mod.ts";
@@ -10,53 +10,61 @@ export const handler = {
     async POST(req, ctx) {
         /*--------------reCAPCHA------------------*/
         const data = await req.json();
-        const { nickName,userName, password, age, isagreement, token, rechapchaToken } = data;
-        if(userName == undefined || password == undefined || age == undefined || isagreement == undefined || token == undefined || rechapchaToken == undefined || nickName == undefined) {
+        const { nickName,userName, password, age, isagreement, token, recaptchaToken } = data;
+        const variablesToCheck = [userName, password, age, isagreement, token, recaptchaToken, nickName];
+        if (variablesToCheck.some(variable => variable == null || variable == undefined)) {
             return new Response(JSON.stringify({"status": "error"}), {
-                headers: { "Content-Type": "application/json",status : 403},
+                headers: { "Content-Type": "application/json"},
+                status : 403
             });
         }
         if (!/^[ぁ-んァ-ンa-zA-Z0-9]{1,18}$/.test(nickName)) {
             return new Response(JSON.stringify({"status": "nickNameerror"}), {
-                headers: { "Content-Type": "application/json", status: 403 },
+                headers: { "Content-Type": "application/json" },
+                status : 403
             });
         }
-        if( userName == null || password == null || age == null || isagreement == null || token == null || rechapchaToken == null || nickName == undefined) {
-            return new Response(JSON.stringify({"status": "error"}), {
-                headers: { "Content-Type": "application/json",status : 403},
-            });
-        }
-        const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapchaToken}`)
+        const isSecsusRechapcha = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${recaptchaToken}`)
         const score = await isSecsusRechapcha.json()
+        if(score.score == undefined || score.success == undefined || score.score == null || score.success == null) {
+            return new Response(JSON.stringify({"status": "rechapchaerror"}), {
+                headers: { "Content-Type": "application/json"},
+                status : 500
+            });
+        }
         if(score.score < 0.7 || score.success == false) {
           return new Response(JSON.stringify({"status": "rechapchaerror"}), {
-            headers: { "Content-Type": "application/json",status : 403},
+            headers: { "Content-Type": "application/json"},
+            status : 403
           });
         }
-        /*---------------reCAPCHA---------------*/
         //tempUsersからkeyを探して、mailを取得
         const tempUserInfo = await tempUsers.findOne({key: token});
         if(tempUserInfo === null) {
             return new Response(JSON.stringify({"status": "key is not found"}), {
-                headers: { "Content-Type": "application/json",status : 403},
+                headers: { "Content-Type": "application/json"},
+                status : 403
             });
         }
         const mail = tempUserInfo.mail;
         //Userの重複を確認
         if(await isUserDuplication(userName)) {
             return new Response(JSON.stringify({"status": "usererror"}), {
-                headers: { "Content-Type": "application/json",status : 403},
+                headers: { "Content-Type": "application/json"},
+                status : 403
             });
         }
         //mailの重複を確認
         if(await isMailDuplication(mail)) {
             return new Response(JSON.stringify({"status": "mailerror"}), {
-                headers: { "Content-Type": "application/json",status : 403},
+                headers: { "Content-Type": "application/json"},
+                status : 403
             });
         }
         if(!ispassword(password)) {
             return new Response(JSON.stringify({"status": "passworderror"}), {
-                headers: { "Content-Type": "application/json",status : 403},
+                headers: { "Content-Type": "application/json"},
+                status : 403
             });
         }
         //塩を生成

@@ -40,6 +40,8 @@ const usersSchema = new mongoose.Schema({
         type: Number,
         required: true,
         rating: {type: Number, required: true, min: 1, max: 120},
+        min: 1,
+        max: 120
     },
     nickName: {
         type: String,

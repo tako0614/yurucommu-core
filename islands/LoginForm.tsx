@@ -1,9 +1,4 @@
-import { useState,useEffect } from 'preact/hooks';
-import { render } from "preact";
-//import Button from '../components/Button.tsx'
-import { JSX, h} from "preact";
-//hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64
-import { isMail, isUserDuplication, takojson } from "../util/takoFunction.ts"
+import { useState,useEffect } from "preact/hooks";
 export default function RegisterForm({ text,sitekey}: { text: string, sitekey: string;}) {
     const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-11 px-4 py-2 bg-blue-600 text-white w-64 "
     const [showModal, setShowModal] = useState(false);

@@ -6,13 +6,15 @@ export const handler = {
         const cookies = getCookies(req.headers);
         if(cookies.sessionid === undefined) {
             return new Response(JSON.stringify({"status": "error"}), {
-                headers: { "Content-Type": "application/json",status : 403},
-            });
+                headers: { "Content-Type": "application/json"},
+                status: 403,
+              });
         }
         if(data.reqirments !== "logout") {
             return new Response(JSON.stringify({"status": "error"}), {
-                headers: { "Content-Type": "application/json",status : 403},
-            });
+                headers: { "Content-Type": "application/json"},
+                status: 403,
+              });
         }
         const sessionid = cookies.sessionid;
         const result = await sessionID.deleteOne({sessionID: sessionid});

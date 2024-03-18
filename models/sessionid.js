@@ -25,7 +25,7 @@ export const sessionidSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now,
-        requried: true,
+        required: true,
     }
 })
 const ssessionID = mongoose.model('sessionid', sessionidSchema);
