@@ -1,6 +1,7 @@
 import RegisterForm from "../islands/RegisterForm.tsx"
 import LoginForm from "../islands/LoginForm.tsx"
 import { useState,useEffect } from "preact/hooks";
+import Footer from '../components/Footer.tsx'
 declare global {
   interface Window {
     grecaptcha: {
@@ -33,7 +34,7 @@ export default function Welcome ({sitekey}: {sitekey: string;}) {
   }, [recaptchaLoaded, sitekey]);
   return (
     <>
-<div>
+<div class="bg-[#0D1117]">
 <div class="min-h-screen bg-black flex flex-row justify-center items-center text-white">
   <div class="flex flex-col justify-center items-center space-y-6 md:w-1/2 w-0">
     <div>
@@ -62,6 +63,7 @@ export default function Welcome ({sitekey}: {sitekey: string;}) {
   </div>
   </div>
 </div>
+<Footer></Footer>
     </>
   )
 }

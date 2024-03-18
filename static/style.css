@@ -70,7 +70,6 @@
     #nav-content ul li {
         font-size: 40px;
    }
-   
     .full-title h1 {
         font-family: Roboto;
         font-size: 3.5rem;
@@ -127,4 +126,515 @@
 }
 .font0 {
    font-size: 0px;
+}
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100..900&display=swap');
+
+* {
+    box-sizing: border-box;
+    font-family: "Noto Sans JP", sans-serif;
+}
+/*navけした*/
+abbr, address, article, aside, audio, b, blockquote, body, canvas, caption, cite, code, dd, del, details, dfn, div, dl, dt, em, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, html, i, iframe, img, ins, kbd, label, legend, li, mark, menu, object, ol, p, pre, q, samp, section, small, span, strong, sub, summary, sup, table, tbody, td, tfoot, th, thead, time, tr, ul, var, video {
+    background: transparent;
+    border: 0;
+    font-size: 100%;
+    margin: 0;
+    outline: 0;
+    padding: 0;
+    vertical-align: initial;
+}
+
+img {
+    height: auto;
+    object-fit: cover;
+    user-select: none;
+    vertical-align: bottom;
+    width: 100%;
+}
+
+a {
+    background: transparent;
+    font-size: 100%;
+    margin: 0;
+    padding: 0;
+    vertical-align: initial;
+    text-decoration: none;
+}
+
+nav ul, ol, ul {
+    list-style: none;
+}
+
+html, body {
+    background-color: #fafaff;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.wrapper {
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.l-header {
+    background-color: #242428;
+    display: block;
+    position: fixed;
+    z-index: 2;
+}
+
+.l-header-logo {
+    margin-bottom: 25px;
+    position: relative;
+    transition: .2s background-color ease;
+    border-radius: 6px;
+}
+
+.l-header-logo a {
+    padding: 6px;
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.l-header-logo:hover {
+    background-color: rgba(250, 250, 255, 0.1);
+}
+
+.l-header__ul {
+    padding: 0;
+    margin: 0;
+    display: flex;
+    gap: 8px;
+}
+
+.l-header__ul-item {
+    border-radius: 6px;
+    position: relative;
+    transition: .2s background-color ease;
+}
+
+.l-header__ul-item.is-active svg {
+    fill: #fafaff;
+}
+
+.l-header__ul-item:hover {
+    background-color: rgba(250, 250, 255, 0.1);
+}
+
+.l-header__ul-item a {
+    height: 100%;
+    width: 100%;
+    padding: 12px;
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+@media(min-width: 769px) {
+    .wrapper {
+        padding-left: 78px;
+    }
+
+    .l-header {
+        width: 78px;
+        height: 100%;
+        padding: 50px 14px;
+        top: 0;
+        left: 0;
+        right: 0;
+    }
+
+    .l-header__ul {
+        flex-direction: column;
+    }
+
+    .l-header__ul-item {
+        width: 100%;
+        padding-top: 100%;
+    }
+}
+
+@media(max-width: 768px) {
+    .wrapper {
+        padding-bottom: 64px;
+    }
+
+    .l-header {
+        width: 100%;
+        height: 64px;
+        padding: 8px;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+    }
+
+    .l-header-logo {
+        display: none;
+    }
+
+    .l-header__ul {
+        width: 100%;
+        justify-content: space-evenly;
+    }
+
+    .l-header__ul-item {
+        height: 100%;
+        aspect-ratio: 1 / 1;
+    }
+}
+
+.p-talk {
+    height: 100%;
+    display: flex;
+}
+
+.p-talk-list {
+    padding: 12px;
+    overflow-y: auto;
+}
+
+.p-talk-list-title {
+    font-size: 32px;
+    margin: 6px 0 12px;
+}
+
+.p-talk-list-search, .p-talk-list-search form, input {
+    display: block;
+}
+
+.p-talk-list-search input {
+    width: 100%;
+    outline: none;
+    border: none;
+    background-color: #e8e8ef;
+    font-weight: 400;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.p-talk-list-rooms {
+    margin: 10px 0;
+    /*overflow-y: scroll;*/
+}
+
+.c-talk-rooms {
+    height: 64px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.c-talk-rooms:hover {
+    background-color: #f2f2f8;
+}
+
+.c-talk-rooms.is-active {
+    background-color: #e8e8ef;
+}
+
+.c-talk-rooms a {
+    height: 100%;
+    width: 100%;
+    padding: 10px 8px;
+    display: flex;
+    color: #000000;
+}
+
+.c-talk-rooms-icon {
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    display: block;
+    position: relative;
+}
+
+.c-talk-rooms-icon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: #e8e8ef;
+}
+
+.c-talk-rooms-box {
+    padding-left: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.c-talk-rooms-name {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.c-talk-rooms-msg {
+    font-weight: 400;
+    font-size: 12px;
+}
+
+@media(min-width: 769px) {
+    .p-talk {
+        width: 100%;
+    }
+    .p-talk-list {
+        width: 360px;
+    }
+
+    .p-talk-chat {
+        flex-grow: 1;
+        padding: 12px 12px 12px 0;
+    }
+}
+
+@media(max-width: 768px) {
+    .p-talk {
+        overflow-x: hidden;
+        width: fit-content;
+        transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
+    }
+
+    .p-talk-list {
+        width: 100vw;
+    }
+
+    .p-talk-chat {
+        width: 100vw;
+        padding: 12px;
+    }
+
+    .p-talk.is-inview {
+        transform: translateX(-50%);
+    }
+}
+
+.p-talk-chat {
+    height: 100%;
+    display: block;
+}
+
+.p-talk-chat-container {
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    background-color: #f0f0f5;
+    height: 100%;
+}
+
+.p-talk-chat-title {
+    padding: 8px 18px;
+    font-weight: 700;
+    font-size: 20px;
+    border-bottom: #ededf3 1px solid;
+    display: flex;
+    align-items: center;
+    height: 48px;
+}
+
+.p-talk-chat-prev {
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    margin-right: 10px;
+    border-radius: 100px;
+    padding: 3px;
+    cursor: pointer;
+}
+
+.p-talk-chat-prev:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.p-talk-chat-prev svg {
+    width: 100%;
+    height: 100%;
+}
+
+@media(min-width: 769px) {
+    .p-talk-chat-prev {
+        display: none;
+    }
+}
+
+.p-talk-chat-main {
+    padding: 16px;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+.c-talk-chat {
+    display: flex;
+    margin: 8px 0;
+}
+
+.c-talk-chat.self {
+    justify-content: right;
+    margin-right: 24px;
+}
+
+.c-talk-chat-box {
+    max-width: 80%;
+    display: flex;
+}
+
+.c-talk-chat-icon {
+    height: 42px;
+    aspect-ratio: 1 / 1;
+}
+
+.c-talk-chat-name {
+    font-size: 12px;
+    font-weight: 700;
+    margin-left: 10px;
+}
+
+.c-talk-chat-msg {
+    position: relative;
+    padding: 8px 16px;
+    border-radius: 12px;
+    z-index: 2;
+}
+
+.c-talk-chat.other .c-talk-chat-msg {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.c-talk-chat.self .c-talk-chat-msg {
+    background-color: #ff3b3b;
+    color: #ffffff;
+}
+
+.c-talk-chat.subsequent.other .c-talk-chat-msg {
+    margin-left: 52px;
+}
+
+.c-talk-chat.primary.other .c-talk-chat-msg {
+    margin-left: 10px;
+}
+
+.c-talk-chat.primary .c-talk-chat-msg::before {
+    content: "";
+    display: flex;
+    position: absolute;
+    height: 26px;
+    width: 26px;
+    background-repeat: no-repeat;
+    background-size: contain;
+    background-position: center;
+    top: 0;
+}
+
+.c-talk-chat.primary.other .c-talk-chat-msg::before {
+    background-image: url("static/icon_tale.svg");
+    left: -10px;
+}
+
+.c-talk-chat.primary.self .c-talk-chat-msg::before {
+    background-image: url("static/icon_tale_red.svg");
+    right: -10px;
+    transform: scale(-1, 1);
+}
+
+.c-talk-chat-date {
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    justify-content: end;
+    color: #7d7d86;
+}
+
+.c-talk-chat.other .c-talk-chat-date {
+    margin-left: 13px;
+    text-align: left;
+}
+
+.c-talk-chat.self .c-talk-chat-date {
+    margin-right: 13px;
+    text-align: right;
+}
+
+.c-talk-date {
+    width: 100%;
+    margin: 20px 0 8px
+}
+
+.c-talk-chat-date-box {
+    font-size: 13px;
+    padding: 4px 12px;
+    background-color: rgba(255, 255, 255, 0.6);
+    width: fit-content;
+    margin: 0 auto;
+    border-radius: 100px;
+}
+
+.p-talk-chat-send {
+    padding: 0 18px 12px;
+}
+
+.p-talk-chat-send__form {
+    height: 100%;
+    border-radius: 12px;
+    background-color: #ffffff;
+    display: flex;
+}
+
+.p-talk-chat-send__msg {
+    flex-grow: 1;
+    position: relative;
+}
+
+.p-talk-chat-send__file {
+    height: 44px;
+    padding: 6px;
+}
+
+.p-talk-chat-send__file img {
+    border-radius: 100px;
+    padding: 4px;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+}
+.grecaptcha-badge { visibility: hidden; }
+.p-talk-chat-send__file img:hover {
+    background-color: #ededf3;
+}
+
+.p-talk-chat-send__dummy {
+    overflow: hidden;
+    visibility: hidden;
+    padding: 8px 16px;
+    min-height: 42px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    border: 1px solid;
+}
+
+.p-talk-chat-send__msg label {
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.p-talk-chat-send__textarea {
+    width: 100%;
+    height: 100%;
+    outline: none;
+    border: none;
+    font-size: 16px;
+    padding: 8px 16px;
+    margin: 0;
+    overflow: hidden;
+    resize: none;
+    background-color: transparent;
 }

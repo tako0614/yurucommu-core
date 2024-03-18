@@ -41,9 +41,9 @@ const usersSchema = new mongoose.Schema({
         required: true,
         rating: {type: Number, required: true, min: 1, max: 120},
     },
-    sessionID: {
+    nickName: {
         type: String,
-        unique: true
+        required: true,
     },
     timestamp: { type: Date, default: Date.now }
 })

@@ -6,6 +6,7 @@ import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
 import * as $api_logins_login from "./routes/api/logins/login.js";
+import * as $api_logins_logout from "./routes/api/logins/logout.js";
 import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
 import * as $api_logins_talk from "./routes/api/logins/talk.js";
@@ -16,7 +17,8 @@ import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
 import * as $register from "./routes/register.jsx";
-import * as $test from "./routes/test.tsx";
+import * as $setting from "./routes/setting.jsx";
+import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
 import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
@@ -24,6 +26,8 @@ import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
+import * as $LogoutButton from "./islands/LogoutButton.jsx";
+import * as $PleaseLogin from "./islands/PleaseLogin.jsx";
 import * as $RegisterForm from "./islands/RegisterForm.tsx";
 import * as $Welcome from "./islands/Welcome.tsx";
 import * as $mainAuthForm from "./islands/mainAuthForm.jsx";
@@ -35,6 +39,7 @@ const manifest = {
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
     "./routes/api/logins/login.js": $api_logins_login,
+    "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,
     "./routes/api/logins/talk.js": $api_logins_talk,
@@ -45,7 +50,8 @@ const manifest = {
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
     "./routes/register.jsx": $register,
-    "./routes/test.tsx": $test,
+    "./routes/setting.jsx": $setting,
+    "./routes/test.jsx": $test,
     "./routes/test_post.tsx": $test_post,
     "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
     "./routes/tests/cp-test.jsx": $tests_cp_test,
@@ -55,6 +61,8 @@ const manifest = {
   islands: {
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,
+    "./islands/LogoutButton.jsx": $LogoutButton,
+    "./islands/PleaseLogin.jsx": $PleaseLogin,
     "./islands/RegisterForm.tsx": $RegisterForm,
     "./islands/Welcome.tsx": $Welcome,
     "./islands/mainAuthForm.jsx": $mainAuthForm,

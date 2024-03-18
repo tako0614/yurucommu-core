@@ -26,9 +26,13 @@ export function MainAuthForm({ sitekey, token }) {
       }, [recaptchaLoaded, sitekey]);
     const [showForm, setShowForm] = useState(false);
     const [userName, setUserName] = useState('');
+    const [nickName, setNickName] = useState('');
     const [password, setPassword] = useState('');
     const [age, setAge] = useState();
     const [isagreement, setIsAgreement] = useState(false);
+    const handleNickNameChange = (event) => {
+        setNickName(event.currentTarget.value)
+    }
     const handleUserNameChange = (event) => {
         setUserName(event.currentTarget.value);
     };
@@ -44,6 +48,7 @@ export function MainAuthForm({ sitekey, token }) {
     const handleSubmit = async (event) => {
         event.preventDefault();
         const values = {
+            nickName,
             userName,
             password,
             age,
@@ -55,7 +60,7 @@ export function MainAuthForm({ sitekey, token }) {
             alert("利用規約に同意してください")
             return
         }
-        if(values.userName === "" || values.password === "" || values.age === ""){
+        if(values.userName === "" || values.password === "" || values.age === "" || values.nickName === ""){
             alert("全ての項目を入力してください")
             return
         }
@@ -114,7 +119,7 @@ export function MainAuthForm({ sitekey, token }) {
     useEffect(() => {
         if (showForm) {
             setTimeout(() => {
-                window.location.href = "./login";
+                window.location.href = "./";
             }, 5000);
         }
     }, [showForm]);
@@ -134,6 +139,18 @@ export function MainAuthForm({ sitekey, token }) {
                     id="name"
                     type="text"
                     value={userName} onChange={handleUserNameChange}
+                />
+                </div>
+                <div class="flex sm:items-center mb-6noyotei flex-col sm:flex-row">
+                <label
+                    class="block sm:w-1/3 font-bold sm:text-right mb-1 pr-4"
+                    for="name"
+                    >ニックネーム <span class="text-red-600"> * </span></label
+                ><input
+                    class="block w-full sm:w-2/3 bg-[#0D1117] py-2 px-3 text-white border border-color rounded focus:outline-none focus:bg-white"
+                    id="name"
+                    type="text"
+                    value={nickName} onChange={handleNickNameChange}
                 />
                 </div>
                 <div class="flex sm:items-center mb-6noyotei flex-col sm:flex-row">

@@ -26,8 +26,9 @@ export default function PostReceptionPage({ data }) {
     <head>
     <script src={url}></script>
         <script src="./rechapcha.js"></script>
+        <link rel="stylesheet" href="style.css" />
     </head>
-    <div class="text-white">
+    <div class="text-white bg-[#0D1117] h-screen">
       <MainAuthForm token={data.key} sitekey={sitekey} />
     </div>
       </>);

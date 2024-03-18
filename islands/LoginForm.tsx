@@ -39,7 +39,7 @@ export default function RegisterForm({ text,sitekey}: { text: string, sitekey: s
         })
         const response = await res.json()
         if(response.status === true) {
-            alert("ログインに成功しました")
+            window.location.href = "/"
         } else {
             alert("ログインに失敗しました"+ response.status)
         }
