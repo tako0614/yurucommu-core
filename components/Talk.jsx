@@ -41,7 +41,26 @@ export default function Talks() {
                         </form>
                     </div>
                     <div class="p-talk-list-rooms">
-                        <ul class="p-talk-list-rooms__ul">
+                    <ul class="p-talk-list-rooms__ul">
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
+                            <User userName="たこ" latestMessage="にゃーーー"></User>
+                            <User userName="たこ2" latestMessage="たこたこ"></User>
+                            <User userName="たこ3" latestMessage="love"></User>
                             <User userName="たこ" latestMessage="にゃーーー"></User>
                             <User userName="たこ2" latestMessage="たこたこ"></User>
                             <User userName="たこ3" latestMessage="love"></User>

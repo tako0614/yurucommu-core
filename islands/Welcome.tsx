@@ -49,7 +49,7 @@ export default function Welcome ({sitekey}: {sitekey: string;}) {
 <p class="text-lg mb-8">開発者募集中です！公式オープンチャットから</p>
     </div>
     <div class="flex flex-col space-y-3 mb-8">
-    <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-11 px-4 py-2 bg-white text-black w-64 ">
+    <button class="inline-flex hover:bg-slate-300 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-11 px-4 py-2 bg-white text-black w-64 ">
         他のサーバーを探す
     </button>
       <RegisterForm token={recaptchaToken} sitekey={sitekey} text="このサーバーに登録" />

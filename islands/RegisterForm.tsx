@@ -14,7 +14,6 @@ declare global {
   }
 }
 export default function RegisterForm({ text,token,sitekey }: { text: string, token: string; sitekey: string;}) {
-    const classs = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64"
     const [showModal, setShowModal] = useState(false);
     const [showForm, setShowFrom] = useState("closed");
     const [showError, setShowError] = useState(false);
@@ -259,10 +258,8 @@ export default function RegisterForm({ text,token,sitekey }: { text: string, tok
 
       }
     }
-    const formClass = showError ? 'rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none border-red-500 border-4' : '';
-
 return <>
-    <button class={classs} onClick={handleButtonClick}>
+    <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64 hover:bg-gray-900" onClick={handleButtonClick}>
         {text}
     </button>
     {showModal && (
@@ -296,12 +293,12 @@ return <>
                   passwordOnChange={handlePasswordChange}
                   ageOnChange={handleAgeChange}
                   agreementOnChange={handleAgreementChange}
+                  onSubmit={registerHandleSubmit}
                   userName={userName}
                   nickName={nickName}
                   password={password}
                   age={age}
                   isagreement={isagreement}
-                  onSubmit={registerHandleSubmit}
                   errorMessages={errorMessages}
                   showUsernameError={showUserNameError}
                   showNickNameError={showNickNameError}
@@ -309,7 +306,7 @@ return <>
                   showAgeError={showAgeError}
                   showIsAgreementError={showIsAgreementError}
                   userNameErrorMessage={userNameErrorMessages}
-                  nicknameErrorMessage={nickName}
+                  nicknameErrorMessage={nickNameErrorMessages}
                   passwordErrorMessage={passwordErrorMessages}
                   ageErrorMessage={ageErrorMessages}
                   isAgreementErrorMessage={isagreementErrorMessages}
