@@ -46,6 +46,12 @@ const usersSchema = new mongoose.Schema({
     nickName: {
         type: String,
         required: true,
+        validate: {
+            validator: function(v) {
+                return /^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(v);
+            },
+            message: props => `${props.value} is not a valid mail address!`
+        },
     },
     timestamp: { type: Date, default: Date.now }
 })

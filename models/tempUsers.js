@@ -17,6 +17,16 @@ export const tempUsersSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    checkCode: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 4294967295
+    },
+    checked: {
+        type: Boolean,
+        default: false
+    },
     timestamp: { type: Date, default: Date.now }
 })
 const tempUsers = mongoose.model('tempUsers', tempUsersSchema);
