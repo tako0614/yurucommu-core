@@ -263,11 +263,11 @@ export default function RegisterForm({ text,token,sitekey }: { text: string, tok
       }
     }
 return <>
-    <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64 hover:bg-gray-900" onClick={handleButtonClick}>
+    <button class="mb-3 inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 bg-black border border-white text-white w-64 hover:bg-gray-900" onClick={handleButtonClick}>
         {text}
     </button>
     {showModal && (
-        <div className="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
+        <div className="fixed z-50 w-full h-screen overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
           <div className="bg-[#000000] lg:w-1/3 w-[90%] h-[90%] lg:h-4/5 mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
             <div class="flex float-right">
               <span className="text-[#aaa] text-[28px] font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
