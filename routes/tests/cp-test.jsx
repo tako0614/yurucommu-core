@@ -1,6 +1,8 @@
-import {SecsusPage} from "../../components/SecsusPage.jsx";
+import { SecsusPage } from "../../components/SecsusPage.jsx";
 export default function name() {
-    return <>
-    <SecsusPage />
+  return (
+    <>
+      <SecsusPage />
     </>
+  );
 }

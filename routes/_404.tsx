@@ -13,7 +13,9 @@ export default function Error404() {
         <p class="text-xl text-center text-white">このページはないんやで</p>
       </section>
       <footer>
-        <p class="text-white text-center">Copyright © 2021-2023 Takoserver All Rights Reserved.</p>
+        <p class="text-white text-center">
+          Copyright © 2021-2023 Takoserver All Rights Reserved.
+        </p>
       </footer>
     </>
   );

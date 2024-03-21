@@ -1,9 +1,11 @@
-import Header from '../components/Header.tsx'
-import Footer from '../components/Footer.tsx'
+import Header from "../components/Header.tsx";
+import Footer from "../components/Footer.tsx";
 export default function name() {
-    return <>
-<Header></Header>
+  return (
+    <>
+      <Header></Header>
 
-<Footer></Footer>
+      <Footer></Footer>
     </>
+  );
 }

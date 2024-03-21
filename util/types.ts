@@ -5,31 +5,31 @@ export type takoreqponseBody = {
   password?: string;
   userName?: string;
   message?: string;
-}
+};
 export type takoresponse = {
-  method: string,
+  method: string;
   headers: {
-    "Content-Type": string,
-    "Access-Control-Allow-Origin"?: string,
-  },
-  body: takoreqponseBody
-}
+    "Content-Type": string;
+    "Access-Control-Allow-Origin"?: string;
+  };
+  body: takoreqponseBody;
+};
 
 export type takorequest = {
-  userName: string,
-  password: string,
-  sessionid: string,
-  mail: string,
-}
+  userName: string;
+  password: string;
+  sessionid: string;
+  mail: string;
+};
 //サーバー間通信の時使う
 export type talkmassage = {
-  to: string,
-  from: string,
-  token: string,
+  to: string;
+  from: string;
+  token: string;
   body: {
-    message: string,
-  }
-}
+    message: string;
+  };
+};
 /*
 export type addfrineds = {
 

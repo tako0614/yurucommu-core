@@ -1,5 +1,5 @@
 import { AppProps } from "$fresh/server.ts";
-import react from "preact/compat"
+import react from "preact/compat";
 export default function App({ Component }: AppProps) {
   return (
     <>
@@ -10,6 +10,6 @@ export default function App({ Component }: AppProps) {
       <body>
         <Component />
       </body>
-      </>
+    </>
   );
 }
