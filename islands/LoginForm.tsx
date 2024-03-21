@@ -69,10 +69,10 @@ return <>
     {text}
   </button>
   {showModal && (
-    <div className="fixed z-50 w-full h-full overflow-auto bg-[rgba(91,112,131,0.4)] left-0 top-0">
-      <div className="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
+    <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
+      <div class="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
       <div class="flex justify-end">
-        <span className="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
+        <span class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
       </div>
       <div class="w-4/5 mx-auto my-0">
       <div class="text-center text-sm">
@@ -105,7 +105,7 @@ function LoginForm({onUserNameChange,onPasswordChange,userNameValue,passwordValu
   return (<>
     <form onSubmit={onSubmit} class="max-w-sm mx-auto">
       <Input placeholder="tako" onChange={onUserNameChange} value={userNameValue} title="ユーザーネーム" type="text" showError={showUserNameError} errorMessage={userNameError} />
-      <Input placeholder=" " onChange={onPasswordChange} value={passwordValue} title="password" type="password" showError={showPasswordError} errorMessage={passwordError} />
+      <Input placeholder=" " onChange={onPasswordChange} value={passwordValue} title="パスワード" type="password" showError={showPasswordError} errorMessage={passwordError} />
         <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
           送信
           </button>
