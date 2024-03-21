@@ -1,4 +1,5 @@
 import { useState,useEffect } from "preact/hooks";
+import { JSX, h} from "preact";
 export default function RegisterForm({ text,token}: { text: string, token: string;}) {
     const [showModal, setShowModal] = useState(false);
     const [showForm, setShowFrom] = useState(false);
@@ -7,10 +8,10 @@ export default function RegisterForm({ text,token}: { text: string, token: strin
     }
     const [userName, setUserName] = useState("")
     const [password, setPassword] = useState("")
-    const [userNameErrorMessages, setUserNameErrorMessages] = useState("");
-    const [showUserNameError, setShowUserNameError] = useState(false);
-    const [passwordErrorMessages, setPasswordErrorMessages] = useState("");
-    const [showPasswordError, setShowPasswordError] = useState(false);
+    const [showUserNameError, setShowUserNameError] = useState(false)
+    const [showPasswordError, setShowPasswordError] = useState(false)
+    const [userNameError, setUserNameError] = useState("")
+    const [passwordError, setPasswordError] = useState("")
     const handleUserNameChange = (event: any) => {
         setUserName(event.currentTarget.value);
     };
@@ -41,23 +42,23 @@ export default function RegisterForm({ text,token}: { text: string, token: strin
         } else {
             switch(response.error) {
                 case "input":
-                  setUserNameErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setUserNameError("ユーザーネームまたはパスワードが不正です")
                   setShowUserNameError(true)
-                  setPasswordErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setPasswordError("ユーザーネームまたはパスワードが不正です")
                   setShowPasswordError(true)
                   break;
                 case "userNotFound":
-                  setUserNameErrorMessages("ユーザーが見つかりません")
+                  setUserNameError("ユーザーが見つかりません")
                   setShowUserNameError(true)
                   break;
                 case "password":
-                  setPasswordErrorMessages("パスワードが不正です")
+                  setPasswordError("パスワードが不正です")
                   setShowPasswordError(true)
                   break;
                 default:
-                  setUserNameErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setUserNameError("ユーザーネームまたはパスワードが不正です")
                   setShowUserNameError(true)
-                  setPasswordErrorMessages("ユーザーネームまたはパスワードが不正です")
+                  setPasswordError("ユーザーネームまたはパスワードが不正です")
                   setShowPasswordError(true)
                   break;
             }
@@ -75,37 +76,40 @@ return <>
               <span className="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
             </div>
             <div class="w-4/5 mx-auto my-0">
-              <div class="">
-              <p class="text-white text-3xl mb-10 font-sans font-bold">ログイン</p>
-                {showForm || (<form onSubmit={handleSubmit} class="">
-                  <label>
-                  <div class="text-2xl">ユーザーネーム</div>
-                    <input type="text" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" value={userName} onChange={handleUserNameChange} />
-                  </label>
-                  {showUserNameError && (
-                    <div class="text-red-500 text-xs">{userNameErrorMessages}</div>
-                  )}
-                  <label>
-                  <div class="text-2xl">パスワード</div>
-                    <input type="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" value={password} onChange={handlePasswordChange} />
-                  </label>
-                  {showPasswordError && (
-                    <div class="text-red-500 text-xs">{passwordErrorMessages}</div>
-                  )}
-                  <div>
-                    <input type="submit" value="送信" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" />
-                  </div>
-                </form>)
-                }
-                {showForm && (
-                  <div class="text-white text-3xl">メールアドレスに本登録用のurlを送信しました</div>
-                )
-
-                }
+            <div class="text-center text-sm">
+                <p class="text-white hover:underline font-medium text-3xl mb-10">
+                  ログイン
+                </p>
               </div>
+              <LoginForm onUserNameChange={handleUserNameChange} onPasswordChange={handlePasswordChange} userNameValue={userName} passwordValue={password} onSubmit={handleSubmit} showUserNameError={showUserNameError} userNameError={userNameError} showPasswordError={showPasswordError} passwordError={passwordError} />
             </div>
           </div>
         </div>
       )}
     </>
+}
+function Input({value,onChange,placeholder,title,type,showError,errorMessage}: {showError: boolean,errorMessage : string,value: any, onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void, placeholder: string, title: string,type: string}) {
+  return (<>
+    <div class="mb-5">
+      <label for="email" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">{title}</label>
+      <input
+      onChange={onChange}
+      value={value}
+      type={type} class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500" placeholder={placeholder} required />
+    </div>
+    {showError && (
+      <div class="text-red-500 text-xs">{errorMessage}</div>
+      )}
+  </>)
+}
+function LoginForm({onUserNameChange,onPasswordChange,userNameValue,passwordValue,onSubmit,showUserNameError,userNameError,showPasswordError,passwordError }: {onUserNameChange: any,onPasswordChange: any,userNameValue: any,passwordValue: any,onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void,showUserNameError: boolean,userNameError: string,showPasswordError: boolean,passwordError: string}) {
+  return (<>
+    <form onSubmit={onSubmit} class="max-w-sm mx-auto">
+      <Input placeholder="tako" onChange={onUserNameChange} value={userNameValue} title="ユーザーネーム" type="text" showError={showUserNameError} errorMessage={userNameError} />
+      <Input placeholder=" " onChange={onPasswordChange} value={passwordValue} title="password" type="password" showError={showPasswordError} errorMessage={passwordError} />
+        <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
+          送信
+          </button>
+      </form>
+  </>)
 }

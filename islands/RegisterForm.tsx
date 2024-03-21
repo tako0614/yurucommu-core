@@ -78,6 +78,9 @@ export default function RegisterForm({ text,token,sitekey }: { text: string, tok
           setShowEmailError(true)
           setEmailErrorMessages("メールアドレスが不正です")
           console.log(data.email)
+          window.grecaptcha.execute(sitekey, { action: "homepage" }).then((token) => {
+            setRecaptchaToken(token);
+          });
           return
         }
         setShowError(false)
@@ -116,6 +119,7 @@ export default function RegisterForm({ text,token,sitekey }: { text: string, tok
           }
           window.grecaptcha.execute(sitekey, { action: "homepage" }).then((token) => {
             setRecaptchaToken(token);
+            console.log("recaptcha token is updated")
           });
         } else {
           setMailToken(response.mailToken);

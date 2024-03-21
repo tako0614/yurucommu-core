@@ -46,8 +46,6 @@ export default function Home({ data }: { data: any}) {
       <head>
         <title>tako's | takos.jp</title>
         <meta name="description" content="日本産オープンソース分散型チャットアプリ「tako's」" />
-        <script src={url}></script>
-        <script src="./rechapcha.js"></script>
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       {data.loggedIn ? (
