@@ -1,4 +1,3 @@
-import { ObjectBindingPattern } from "https://deno.land/x/ts_morph@20.0.0/ts_morph.js";
 import mongoose from "mongoose";
 
 export const chatSchema = new mongoose.Schema({
