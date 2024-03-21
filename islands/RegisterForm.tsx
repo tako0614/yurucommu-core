@@ -272,11 +272,10 @@ return <>
             <div class="flex float-right">
               <span className="text-[#aaa] text-[28px] font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
             </div>
-            <img src="./logo.webp" alt="logo" class="w-[150px] m-auto mb-10" />
             <div class="w-4/5 mx-auto my-0">
               <div class="">
               <div class="text-center text-sm">
-                <p class="text-white hover:underline font-medium text-3xl mb-10">
+                <p class="text-white hover:underline font-medium text-3xl mt-16 mb-10">
                   アカウント作成
                 </p>
               </div>

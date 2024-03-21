@@ -65,28 +65,27 @@ export default function RegisterForm({ text,token}: { text: string, token: strin
         }
         }
 return <>
-    <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-11 px-4 py-2 bg-blue-600 text-white w-64 hover:bg-blue-900" onClick={handleButtonClick}>
-        {text}
-    </button>
-    {showModal && (
-        <div className="fixed z-50 w-full h-full overflow-auto bg-[rgba(91,112,131,0.4)] left-0 top-0">
-          <div className="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
-            <div class="flex">
-              <img src="./logo.webp" alt="logo" class="w-[120px] m-auto" />
-              <span className="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
-            </div>
-            <div class="w-4/5 mx-auto my-0">
-            <div class="text-center text-sm">
-                <p class="text-white hover:underline font-medium text-3xl mb-10">
-                  ログイン
-                </p>
-              </div>
-              <LoginForm onUserNameChange={handleUserNameChange} onPasswordChange={handlePasswordChange} userNameValue={userName} passwordValue={password} onSubmit={handleSubmit} showUserNameError={showUserNameError} userNameError={userNameError} showPasswordError={showPasswordError} passwordError={passwordError} />
-            </div>
-          </div>
+  <button class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/90 h-11 px-4 py-2 bg-blue-600 text-white w-64 hover:bg-blue-900" onClick={handleButtonClick}>
+    {text}
+  </button>
+  {showModal && (
+    <div className="fixed z-50 w-full h-full overflow-auto bg-[rgba(91,112,131,0.4)] left-0 top-0">
+      <div className="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
+      <div class="flex justify-end">
+        <span className="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer" onClick={handleButtonClick}>×</span>
+      </div>
+      <div class="w-4/5 mx-auto my-0">
+      <div class="text-center text-sm">
+        <p class="text-white hover:underline font-medium text-3xl mt-8 mb-10">
+          ログイン
+        </p>
         </div>
-      )}
-    </>
+        <LoginForm onUserNameChange={handleUserNameChange} onPasswordChange={handlePasswordChange} userNameValue={userName} passwordValue={password} onSubmit={handleSubmit} showUserNameError={showUserNameError} userNameError={userNameError} showPasswordError={showPasswordError} passwordError={passwordError} />
+      </div>
+      </div>
+    </div>
+    )}
+  </>
 }
 function Input({value,onChange,placeholder,title,type,showError,errorMessage}: {showError: boolean,errorMessage : string,value: any, onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void, placeholder: string, title: string,type: string}) {
   return (<>
