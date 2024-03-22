@@ -76,7 +76,7 @@ export default function RegisterForm(
       </button>
       {showModal && (
         <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
-          <div class="bg-[#000000] lg:w-[35%] w-[90%] h-[90%] lg:h-[80%] mx-auto my-[15%] lg:my-[5%] p-5 rounded-xl">
+          <div class="bg-[#000000] lg:w-1/3 w-full h-full lg:h-4/5 mx-auto lg:my-[5%] p-5 lg:rounded-xl">
             <div class="flex justify-end">
               <span
                 class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"

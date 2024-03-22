@@ -1,4 +1,4 @@
-import Footer from "./Footer.tsx";
+import Footer from "../Footer.tsx";
 import User from "./ChatUserList.jsx";
 import ChatHeader from "./ChatHeader.jsx";
 import ChatMain from "./ChatTalk.jsx";
