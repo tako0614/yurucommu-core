@@ -1,7 +1,9 @@
-import ChatDate from "./ChatDate.jsx";
-import ChatTitle from "./ChatTitle.jsx";
-import ChatOtherMessages from "./ChatOtherMessage.jsx";
-import ChatSendMessages from "./ChatSendMessage.jsx";
+import ChatDate from "../../components/Chats/ChatDate.jsx";
+import ChatTitle from "../../components/Chats/ChatTitle.jsx";
+import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx";
+import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx";
+import WebSocket from 'ws';
+
 export default function ChatTalk() {
   return (
     <>
@@ -22,8 +24,16 @@ export default function ChatTalk() {
                 message="オブジェクトだぁ！"
                 time={new Date()}
               />
-              <ChatSendMessages message="わたしも♡" time={new Date()} isRead={true} />
-              <ChatSendMessages message="結婚しよう！" time={new Date()} isRead={true}/>
+              <ChatSendMessages
+                message="わたしも♡"
+                time={new Date()}
+                isRead={true}
+              />
+              <ChatSendMessages
+                message="結婚しよう！"
+                time={new Date()}
+                isRead={true}
+              />
               <ChatOtherMessages
                 sender="たこ"
                 message="♡♡♡"

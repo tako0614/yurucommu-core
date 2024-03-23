@@ -10,7 +10,7 @@
   "lint": { "rules": { "tags": ["fresh", "recommended"] } },
   "nodeModulesDir": true,
   "imports": {
-    "$fresh/": "https://deno.land/x/fresh@1.6.7/",
+    "$fresh/": "https://deno.land/x/fresh@1.6.8/",
     "$std/": "https://deno.land/std@0.193.0/",
     "@preact/signals": "https://esm.sh/*@preact/signals@1.2.2",
     "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.5.1",

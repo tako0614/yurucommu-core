@@ -5,13 +5,13 @@
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
+import * as $api_csrfToken from "./routes/api/csrfToken.js";
 import * as $api_logins_login from "./routes/api/logins/login.js";
 import * as $api_logins_logout from "./routes/api/logins/logout.js";
 import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
-import * as $api_logins_talk from "./routes/api/logins/talk.js";
 import * as $api_oumu from "./routes/api/oumu.ts";
-import * as $api_token from "./routes/api/token.js";
+import * as $api_talk from "./routes/api/talk.js";
 import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
@@ -24,6 +24,8 @@ import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
 import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
 import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
+import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
+import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $LogoutButton from "./islands/LogoutButton.jsx";
@@ -38,13 +40,13 @@ const manifest = {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
+    "./routes/api/csrfToken.js": $api_csrfToken,
     "./routes/api/logins/login.js": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,
-    "./routes/api/logins/talk.js": $api_logins_talk,
     "./routes/api/oumu.ts": $api_oumu,
-    "./routes/api/token.js": $api_token,
+    "./routes/api/talk.js": $api_talk,
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
@@ -59,6 +61,8 @@ const manifest = {
     "./routes/tests/post-send.tsx": $tests_post_send,
   },
   islands: {
+    "./islands/Chats/ChatList.jsx": $Chats_ChatList,
+    "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,
     "./islands/LogoutButton.jsx": $LogoutButton,

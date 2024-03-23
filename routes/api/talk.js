@@ -1,6 +1,7 @@
 export const handler = {
   GET(req) {
     if (req.headers.get("upgrade") === "websocket") {
+      console.log(req);
       const { socket, response } = Deno.upgradeWebSocket(req);
       if (!socket) throw new Error("unreachable");
       socket.onmessage = (ev) => {

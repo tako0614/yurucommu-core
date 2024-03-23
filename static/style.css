@@ -3,11 +3,11 @@
 @tailwind utilities;
 .checkbox {
     border-radius: 0.25rem; 
-    border-color: #D1D5DB; 
+    border-color: #D1D5DB;
     width: 1.5rem;
     height: 1.5rem;
-    color: #2563EB; 
-    background-color: #F3F4F6; 
+    color: #2563EB;
+    background-color: #F3F4F6;
 }
 .mb-6noyotei {
     margin-bottom: 30px;
@@ -389,7 +389,6 @@ html, body {
     .p-talk-list {
         width: 360px;
     }
-
     .p-talk-chat {
         flex-grow: 1;
         padding: 12px 12px 12px 0;
@@ -402,7 +401,6 @@ html, body {
         width: fit-content;
         transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
     }
-
     .p-talk-list {
         width: 100vw;
     }
@@ -416,7 +414,18 @@ html, body {
         transform: translateX(-50%);
     }
 }
+/*pm!!*/
+@media(max-width: 768px) {
+    .pm-talk-list {
+        display: none;
+    }
 
+    .pm-talk-chat {
+        display: block;
+        width: 100vw;
+        padding: 12px;
+    }
+}
 .p-talk-chat {
     height: 100%;
     display: block;
