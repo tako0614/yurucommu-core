@@ -2,9 +2,9 @@ import ChatDate from "../../components/Chats/ChatDate.jsx";
 import ChatTitle from "../../components/Chats/ChatTitle.jsx";
 import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx";
 import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx";
-import WebSocket from 'ws';
-
-export default function ChatTalk() {
+import WebSocket from "ws";
+import { useEffect, useState } from "preact/hooks";
+export default function ChatTalk({isChoiceUser,setIsChoiceUser}) {
   return (
     <>
       <div class="p-talk-chat">
@@ -39,6 +39,13 @@ export default function ChatTalk() {
                 message="♡♡♡"
                 time={new Date()}
               />
+              <button
+                onClick={() => {
+                  setIsChoiceUser(!isChoiceUser);
+                }}
+              >
+                たこたこボタン
+              </button>
             </ul>
           </div>
           <div class="p-talk-chat-send">

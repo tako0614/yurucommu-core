@@ -25,6 +25,7 @@ import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
 import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
 import * as $tests_post_send from "./routes/tests/post-send.tsx";
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
+import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
@@ -62,6 +63,7 @@ const manifest = {
   },
   islands: {
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
+    "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,
     "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,

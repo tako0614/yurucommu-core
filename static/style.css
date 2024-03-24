@@ -300,6 +300,10 @@ html, body {
     padding: 12px;
     overflow-y: auto;
 }
+.pm-talk-list {
+    padding: 12px;
+    overflow-y: auto;
+}
 
 .p-talk-list-title {
     font-size: 32px;
@@ -394,7 +398,18 @@ html, body {
         padding: 12px 12px 12px 0;
     }
 }
-
+@media(min-width: 769px) {
+    .pm-talk {
+        width: 100%;
+    }
+    .pm-talk-list {
+        width: 360px;
+    }
+    .pm-talk-chat {
+        flex-grow: 1;
+        padding: 12px 12px 12px 0;
+    }
+}
 @media(max-width: 768px) {
     .p-talk {
         overflow-x: hidden;
@@ -404,13 +419,30 @@ html, body {
     .p-talk-list {
         width: 100vw;
     }
-
     .p-talk-chat {
         width: 100vw;
         padding: 12px;
     }
 
     .p-talk.is-inview {
+        transform: translateX(-50%);
+    }
+}
+@media(max-width: 768px) {
+    .pm-talk {
+        overflow-x: hidden;
+        width: fit-content;
+        transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
+    }
+    .pm-talk-list {
+        width: 100vw;
+    }
+    .pm-talk-chat {
+        width: 100vw;
+        padding: 12px;
+    }
+
+    .pm-talk.is-inview {
         transform: translateX(-50%);
     }
 }
