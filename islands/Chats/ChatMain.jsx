@@ -5,14 +5,8 @@ export default function ChatMain() {
     const [isChoiceUser, setIsChoiceUser] = useState(false);
   return (
     <>
-    <ChatList
-    isChoiceUser={isChoiceUser}
-    setIsChoiceUser={setIsChoiceUser}
-    ></ChatList>
-    <ChatTalk
-    isChoiceUser={isChoiceUser}
-    setIsChoiceUser={setIsChoiceUser}
-    ></ChatTalk>
+    <ChatList isChoiceUser={isChoiceUser} setIsChoiceUser={setIsChoiceUser} a="a" ></ChatList>
+    <ChatTalk isChoiceUser={isChoiceUser} setIsChoiceUser={setIsChoiceUser} a="a"></ChatTalk>
     </>
   )
 }

@@ -1,7 +1,6 @@
 import { useState } from "preact/hooks";
 import User from "../../components/Chats/ChatUserList.jsx";
-const ChatList = ({isChoiceUser,setIsChoiceUser}) => {
-
+function  ChatList({ isChoiceUser, setIsChoiceUser, a }) {
   return (
     <div class={isChoiceUser ? "pm-talk-list" : "p-talk-list"}>
       <h1 class="p-talk-list-title">トーク</h1>
