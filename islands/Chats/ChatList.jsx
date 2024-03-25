@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import User from "../../components/Chats/ChatUserList.jsx";
-function  ChatList({ isChoiceUser, setIsChoiceUser, a }) {
+function ChatList({ isChoiceUser, setIsChoiceUser, a }) {
   return (
     <div class={isChoiceUser ? "pm-talk-list" : "p-talk-list"}>
       <h1 class="p-talk-list-title">トーク</h1>
@@ -26,15 +26,15 @@ function  ChatList({ isChoiceUser, setIsChoiceUser, a }) {
           <User userName="たこ" latestMessage="にゃーーー"></User>
           <User userName="たこ2" latestMessage="たこたこ"></User>
           <button
-          onClick={() => {
-            setIsChoiceUser(!isChoiceUser);
-          }}
-        >
-          たこたこボタン
-        </button>
+            onClick={() => {
+              setIsChoiceUser(!isChoiceUser);
+            }}
+          >
+            たこたこボタン
+          </button>
         </ul>
       </div>
     </div>
   );
-};
+}
 export default ChatList;

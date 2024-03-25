@@ -4,7 +4,7 @@ import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx";
 import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx";
 import WebSocket from "ws";
 import { useEffect, useState } from "preact/hooks";
-export default function ChatTalk({isChoiceUser,setIsChoiceUser,a}) {
+export default function ChatTalk({ isChoiceUser, setIsChoiceUser, a }) {
   return (
     <>
       <div class="p-talk-chat">
