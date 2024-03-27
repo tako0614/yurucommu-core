@@ -1,15 +1,11 @@
 import mongoose from "mongoose";
 
-export const chatSchema = new mongoose.Schema({
-  room: {
-    type: String,
-    required: true,
-  },
-  messages: {
-    type: String,
-    required: true,
-  },
+export const messagesSchema = new mongoose.Schema({
   sender: {
+    type: String,
+    required: true,
+  },
+  room: {
     type: String,
     required: true,
   },
@@ -19,5 +15,5 @@ export const chatSchema = new mongoose.Schema({
   },
   timestamp: { type: Date, default: Date.now },
 });
-const chat = mongoose.model("chat", chatSchema);
-export default chat;
+const messages = mongoose.model("messages", messagesSchema);
+export default messages;

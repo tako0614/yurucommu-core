@@ -53,6 +53,10 @@ const usersSchema = new mongoose.Schema({
       message: (props) => `${props.value} is not a valid mail address!`,
     },
   },
+  JoiningRoom: {
+    type: Array,
+    default: [],
+  },
   timestamp: { type: Date, default: Date.now },
 });
 const users = mongoose.model("users", usersSchema);

@@ -6,6 +6,23 @@ export const friendsSchema = new mongoose.Schema({
     required: true,
   },
   friends: {
+    objects: [
+      {
+        userName: {
+          type: String,
+          required: true,
+          unique: true,
+        },
+        room: {
+          type: String,
+          required: true,
+        },
+        lastMessage: {
+          type: String,
+        },
+        required: true,
+      },
+    ],
     type: Array,
     required: true,
     default: [],

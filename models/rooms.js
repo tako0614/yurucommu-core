@@ -11,10 +11,25 @@ export const roomsSchema = new mongoose.Schema({
       message: (props) => `${props.value} is not a valid room name!`,
     },
   },
+  types: {
+    type: String,
+    required: true,
+    enum: ["group", "friend", "public"],
+  },
   users: {
     type: Array,
     required: true,
     default: [],
+  },
+  latestmessage: {
+    type: String,
+    required: true,
+    default: "",
+  },
+  latestMessageTime: {
+    type: Date,
+    required: true,
+    default: Date.now,
   },
   timestamp: { type: Date, default: Date.now },
 });

@@ -5,6 +5,9 @@
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
+import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
+import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
+import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
 import * as $api_csrfToken from "./routes/api/csrfToken.js";
 import * as $api_logins_login from "./routes/api/logins/login.js";
 import * as $api_logins_logout from "./routes/api/logins/logout.js";
@@ -41,6 +44,9 @@ const manifest = {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
+    "./routes/api/chats/friendList.js": $api_chats_friendList,
+    "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
+    "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
     "./routes/api/csrfToken.js": $api_csrfToken,
     "./routes/api/logins/login.js": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,

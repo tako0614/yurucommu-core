@@ -1,5 +1,28 @@
 import { useEffect, useState } from "preact/hooks";
 import { h, JSX } from "preact";
+
+interface LoginFormProps {
+  onUserNameChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
+  onPasswordChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
+  userNameValue: string;
+  passwordValue: string;
+  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
+  showUserNameError: boolean;
+  userNameError: string;
+  showPasswordError: boolean;
+  passwordError: string;
+}
+
+interface InputProps {
+  showError: boolean;
+  errorMessage: string;
+  value: string;
+  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
+  placeholder: string;
+  title: string;
+  type: string;
+}
+
 export default function RegisterForm(
   { text, token }: { text: string; token: string },
 ) {
@@ -14,23 +37,34 @@ export default function RegisterForm(
   const [showPasswordError, setShowPasswordError] = useState(false);
   const [userNameError, setUserNameError] = useState("");
   const [passwordError, setPasswordError] = useState("");
-  const handleUserNameChange = (event: any) => {
+
+  const handleUserNameChange = (
+    event: h.JSX.TargetedEvent<HTMLInputElement>,
+  ) => {
     setUserName(event.currentTarget.value);
   };
-  const handlePasswordChange = (event: any) => {
+
+  const handlePasswordChange = (
+    event: h.JSX.TargetedEvent<HTMLInputElement>,
+  ) => {
     setPassword(event.currentTarget.value);
   };
-  const handleSubmit = async (event: any) => {
+
+  const handleSubmit = async (
+    event: h.JSX.TargetedEvent<HTMLFormElement, Event>,
+  ) => {
     event.preventDefault();
     const values = {
       userName,
       password,
       sitekey: token,
     };
+
     if (values.userName === "" || values.password === "") {
       alert("全ての項目を入力してください");
       return;
     }
+
     const res = await fetch("./api/logins/login", {
       method: "POST",
       headers: {
@@ -38,7 +72,9 @@ export default function RegisterForm(
       },
       body: JSON.stringify(values),
     });
+
     const response = await res.json();
+
     if (response.status === true) {
       window.location.href = "/";
     } else {
@@ -66,6 +102,7 @@ export default function RegisterForm(
       }
     }
   };
+
   return (
     <>
       <button
@@ -109,6 +146,7 @@ export default function RegisterForm(
     </>
   );
 }
+
 function Input({
   value,
   onChange,
@@ -117,15 +155,7 @@ function Input({
   type,
   showError,
   errorMessage,
-}: {
-  showError: boolean;
-  errorMessage: string;
-  value: any;
-  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
-  placeholder: string;
-  title: string;
-  type: string;
-}) {
+}: InputProps) {
   return (
     <>
       <div class="mb-5">
@@ -148,6 +178,7 @@ function Input({
     </>
   );
 }
+
 function LoginForm({
   onUserNameChange,
   onPasswordChange,
@@ -158,17 +189,7 @@ function LoginForm({
   userNameError,
   showPasswordError,
   passwordError,
-}: {
-  onUserNameChange: any;
-  onPasswordChange: any;
-  userNameValue: any;
-  passwordValue: any;
-  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
-  showUserNameError: boolean;
-  userNameError: string;
-  showPasswordError: boolean;
-  passwordError: string;
-}) {
+}: LoginFormProps) {
   return (
     <>
       <form onSubmit={onSubmit} class="max-w-sm mx-auto">
