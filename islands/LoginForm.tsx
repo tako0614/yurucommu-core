@@ -49,7 +49,6 @@ export default function RegisterForm(
   ) => {
     setPassword(event.currentTarget.value);
   };
-
   const handleSubmit = async (
     event: h.JSX.TargetedEvent<HTMLFormElement, Event>,
   ) => {
@@ -72,9 +71,7 @@ export default function RegisterForm(
       },
       body: JSON.stringify(values),
     });
-
     const response = await res.json();
-
     if (response.status === true) {
       window.location.href = "/";
     } else {

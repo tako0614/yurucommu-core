@@ -52,7 +52,7 @@ export default function ChatHeader() {
             </a>
           </li>
           <li class="l-header__ul-item">
-            <a href="/">
+            <a href="./addFriend">
               <svg
                 width="100%"
                 height="100%"

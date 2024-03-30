@@ -1,14 +1,10 @@
 import { mongoose } from "mongoose";
 export const requestAddFriendSchema = new mongoose.Schema({
-  user: {
+  userName: {
     type: String,
     required: true,
   },
   Applicant: [{
-    userid: {
-      type: String,
-      required: true,
-    },
     username: {
       type: String,
       required: true,
@@ -22,5 +18,8 @@ export const requestAddFriendSchema = new mongoose.Schema({
   },
   timestamp: { type: Date, default: Date.now },
 });
-const rooms = mongoose.model("rooms", requestAddFriendSchema);
-export default rooms;
+const requestAddFriend = mongoose.model(
+  "requestAddFriend",
+  requestAddFriendSchema,
+);
+export default requestAddFriend;

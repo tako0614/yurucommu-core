@@ -5,6 +5,7 @@
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
 import * as $about from "./routes/about.tsx";
+import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
 import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
@@ -23,13 +24,11 @@ import * as $register from "./routes/register.jsx";
 import * as $setting from "./routes/setting.jsx";
 import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
-import * as $tests_UnderMenu from "./routes/tests/UnderMenu.tsx";
-import * as $tests_cp_test from "./routes/tests/cp-test.jsx";
-import * as $tests_mongoDB from "./routes/tests/mongoDB.tsx";
-import * as $tests_post_send from "./routes/tests/post-send.tsx";
+import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
 import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
+import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $LogoutButton from "./islands/LogoutButton.jsx";
@@ -44,6 +43,7 @@ const manifest = {
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/about.tsx": $about,
+    "./routes/addFriend.jsx": $addFriend,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
     "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
@@ -62,15 +62,13 @@ const manifest = {
     "./routes/setting.jsx": $setting,
     "./routes/test.jsx": $test,
     "./routes/test_post.tsx": $test_post,
-    "./routes/tests/UnderMenu.tsx": $tests_UnderMenu,
-    "./routes/tests/cp-test.jsx": $tests_cp_test,
-    "./routes/tests/mongoDB.tsx": $tests_mongoDB,
-    "./routes/tests/post-send.tsx": $tests_post_send,
   },
   islands: {
+    "./islands/Chats/AddFriend.jsx": $Chats_AddFriend,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
     "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,
     "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
+    "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,
     "./islands/LogoutButton.jsx": $LogoutButton,

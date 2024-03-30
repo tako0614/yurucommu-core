@@ -3,35 +3,20 @@ import sessionID from "../../../models/sessionid.js";
 import csrfToken from "../../../models/csrftoken.js";
 import rooms from "../../../models/rooms.js";
 import Friends from "../../../models/friends.js";
+import { checksesssionCSRF, isNullorUndefind } from "../../../util/Checker.js";
 export const handler = {
   async POST(req) {
-    const data = await req.json();
-    const cookies = getCookies(req.headers);
-    if (cookies.sessionid === undefined) {
+    // Check if the CSRF token and session ID are valid
+    const isCsrfSessionid = await checksesssionCSRF(req);
+    if (isCsrfSessionid.status === false) {
       return new Response(JSON.stringify({ "status": "error" }), {
         headers: { "Content-Type": "application/json" },
         status: 403,
       });
     }
-    const iscsrfToken = await csrfToken.findOne({ token: data.csrftoken });
-    if (iscsrfToken === null || iscsrfToken === undefined) {
-      return new Response(JSON.stringify({ "status": "error" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 403,
-      });
-    }
-    if (iscsrfToken.sessionID !== cookies.sessionid) {
-      return new Response(JSON.stringify({ "status": "error" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 403,
-      });
-    }
-    await csrfToken.deleteOne({ token: data.csrftoken });
-    const sessionid = cookies.sessionid;
-    // Check if the session ID is valid↑↑↑
+    const { sessionidinfo } = isCsrfSessionid;
     try {
-      await sessionID.deleteOne({ sessionID: sessionid });
-      const { userName } = result;
+      const { userName } = sessionidinfo;
       const chatRooms = await rooms.find({ users: userName });
       const friendsInfo = await Friends.findOne({ userName: userName });
       if (friendsInfo === null || friendsInfo === undefined) {
@@ -58,6 +43,7 @@ export const handler = {
             roomName: friendName,
             lastMessage: room.latestmessage,
             roomID: room._id,
+            latestMessageTime: room.latestMessageTime,
           };
           return result;
         } else if (room.types === "group") {
@@ -78,19 +64,11 @@ export const handler = {
         },
       );
     } catch (error) {
-      if (error instanceof MongooseServerSelectionError) {
-        return new Response(
-          JSON.stringify({
-            "status": "error",
-            "message": "Database connection failed",
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-            status: 500,
-          },
-        );
-      }
-      // 他のエラーハンドリング
+      console.log(error);
+      return new Response(JSON.stringify({ "status": "error" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 500,
+      });
     }
   },
 };
