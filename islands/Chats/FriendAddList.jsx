@@ -10,9 +10,9 @@ function ChatList({ isChoiceUser, setIsChoiceUser, a }) {
       <h1 class="p-talk-list-title">友達を追加</h1>
       <div class="p-talk-list-rooms">
         <ul class="p-talk-list-rooms__ul" id="friendList">
-            <User userName="idで追加" latestMessage="" />
-            <User userName="QRコードで追加" latestMessage="" />
-            <User userName="urlを作成" latestMessage="" />
+          <User userName="idで追加" latestMessage="" />
+          <User userName="QRコードで追加" latestMessage="" />
+          <User userName="urlを作成" latestMessage="" />
         </ul>
       </div>
     </div>

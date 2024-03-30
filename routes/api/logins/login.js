@@ -15,7 +15,10 @@ export const handler = {
           },
         );
       }
-      const user = await users.findOne({ userName: userName });
+      const user = await users.findOne({ userName: userName }, {
+        password: 1,
+        salt: 1,
+      });
       if (user == null) {
         return new Response(
           JSON.stringify({ "status": false, error: "userNotFound" }),

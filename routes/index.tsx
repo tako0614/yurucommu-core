@@ -9,36 +9,12 @@ const sitekey = env["recaptcha_site_key"];
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`;
 
 export const handler = {
-  async GET(req: any, ctx: any) {
-    const cookies = getCookies(req.headers);
-    const sessionid = cookies.sessionid;
-    if (sessionid === undefined) {
+  GET(req: any, ctx: any) {
+    if(ctx.state.data.loggedIn){
+      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName });
+    } else {
       return ctx.render({ loggedIn: false });
     }
-    const sessions = await sessionID.findOne({ sessionID: sessionid });
-    if (sessions === null) {
-      return ctx.render({ loggedIn: false });
-    }
-    const today = new Date();
-    const sessionCreatedat = sessions.createdAt;
-    const sessionExpiryDate = new Date(sessionCreatedat.getTime());
-    sessionExpiryDate.setMonth(sessionExpiryDate.getMonth() + 3);
-    if (today < sessionExpiryDate) {
-      // セッションIDが作成されてから3ヶ月未満の場合に行う処理
-      const result = await sessionID.updateOne({ sessionID: sessionid }, {
-        $set: { lastLogin: today },
-      });
-      if (result === null) {
-        return ctx.render({ loggedIn: false });
-      }
-    }
-    const userName = sessions.userName;
-    const user = await users.findOne({ userName: userName });
-    if (user === null) {
-      return ctx.render({ loggedIn: false });
-    }
-    const mail = user.mail;
-    return ctx.render({ userName, mail, loggedIn: true });
   },
 };
 export default function Home({ data }: { data: any }) {

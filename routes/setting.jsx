@@ -8,32 +8,12 @@ import users from "../models/users.js";
 import sessionID from "../models/sessionid.js";
 import LogoutButton from "../islands/LogoutButton.jsx";
 export const handler = {
-  async GET(req, ctx) {
-    const cookies = getCookies(req.headers);
-    const sessionid = cookies.sessionid;
-    if (sessionid === undefined) {
-      return ctx.render({ loogined: false });
+  GET(req, ctx) {
+    if(ctx.state.data.loggedIn){
+      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName });
+    } else {
+      return ctx.render({ loggedIn: false });
     }
-    const sessions = await sessionID.findOne({ sessionID: sessionid });
-    if (sessions === null) {
-      return ctx.render({ loogined: false });
-    }
-    const today = new Date();
-    const sessionCreatedat = sessions.createdAt;
-    const sessionLastLogin = sessions.lastLogin;
-    sessionCreatedat.setMonth(sessionCreatedat.getMonth() + 3);
-    if (sessionCreatedat > sessionLastLogin) {
-      await sessionID.findOneAndUpdate({ sessionID: sessionid }, {
-        $set: { lastLogin: today },
-      });
-    }
-    const userName = sessions.userName;
-    const user = await users.findOne({ userName: userName });
-    if (user === null) {
-      return ctx.render({ loogined: false });
-    }
-    const mail = user.mail;
-    return ctx.render({ userName, mail, loogined: true });
   },
 };
 //PleaseLogin
@@ -41,7 +21,7 @@ export default function settingPage({ data }) {
   return (
     <>
       <head>
-        <title>{data.loogined ? ("設定") : ("エラー")}</title>
+        <title>{data.loggedIn ? ("設定") : ("エラー")}</title>
         <meta
           name="description"
           content="日本産オープンソース分散型チャットアプリ「tako's」"
@@ -51,7 +31,7 @@ export default function settingPage({ data }) {
         <link rel="stylesheet" href="/style.css"></link>
         <script src="https://cdn.tailwindcss.com"></script>
       </head>
-      {data.loogined ? <Setting></Setting> : <PleaseLogin />}
+      {data.loggedIn ? <Setting></Setting> : <PleaseLogin />}
     </>
   );
 }

@@ -2,8 +2,10 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
+import * as $_userName_ from "./routes/[userName].tsx";
 import * as $_404 from "./routes/_404.tsx";
 import * as $_app from "./routes/_app.tsx";
+import * as $_middleware from "./routes/_middleware.ts";
 import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
@@ -20,7 +22,6 @@ import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
 import * as $privacypolicy from "./routes/privacypolicy.tsx";
-import * as $register from "./routes/register.jsx";
 import * as $setting from "./routes/setting.jsx";
 import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
@@ -29,6 +30,7 @@ import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
 import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
+import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $LogoutButton from "./islands/LogoutButton.jsx";
@@ -40,8 +42,10 @@ import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
   routes: {
+    "./routes/[userName].tsx": $_userName_,
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
+    "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
@@ -58,7 +62,6 @@ const manifest = {
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
-    "./routes/register.jsx": $register,
     "./routes/setting.jsx": $setting,
     "./routes/test.jsx": $test,
     "./routes/test_post.tsx": $test_post,
@@ -69,6 +72,7 @@ const manifest = {
     "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,
     "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
+    "./islands/Chats/TalkTimeLine.jsx": $Chats_TalkTimeLine,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,
     "./islands/LogoutButton.jsx": $LogoutButton,

@@ -1,5 +1,4 @@
 import { mongoose } from "mongoose";
-
 export const roomsSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -31,6 +30,19 @@ export const roomsSchema = new mongoose.Schema({
     required: true,
     default: Date.now,
   },
+  messages: [
+    {
+      sender: {
+        type: String,
+        required: true,
+      },
+      message: {
+        type: String,
+        required: true,
+      },
+      timestamp: { type: Date, default: Date.now },
+    },
+  ],
   timestamp: { type: Date, default: Date.now },
 });
 const rooms = mongoose.model("rooms", roomsSchema);

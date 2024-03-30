@@ -9,11 +9,10 @@ export default function Talks() {
       <ChatHeader></ChatHeader>
       <div class="wrapper">
         <main class="p-talk">
-        <ChatList>
-      </ChatList>
-      <ChatTalk
-      >
-      </ChatTalk>
+          <ChatList>
+          </ChatList>
+          <ChatTalk>
+          </ChatTalk>
         </main>
       </div>
       <Footer></Footer>

@@ -14,7 +14,9 @@ export const handler = {
       });
     }
     const sessionid = cookies.sessionid;
-    const result = await sessionID.findOne({ sessionID: sessionid });
+    const result = await sessionID.findOne({ sessionID: sessionid }, {
+      _id: 1,
+    });
     if (result === null || result === undefined) {
       return new Response(
         JSON.stringify({ "csrftoken": "Invalid sessionid" }),
