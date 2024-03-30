@@ -10,7 +10,7 @@ const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`;
 
 export const handler = {
   GET(req: any, ctx: any) {
-    if(ctx.state.data.loggedIn){
+    if (ctx.state.data.loggedIn) {
       return ctx.render({ loggedIn: true, userName: ctx.state.data.userName });
     } else {
       return ctx.render({ loggedIn: false });
@@ -28,7 +28,9 @@ export default function Home({ data }: { data: any }) {
         />
         <link rel="stylesheet" href="/style.css"></link>
       </head>
-      {data.loggedIn ? <Chat /> : <Welcom sitekey={sitekey} />}
+      {data.loggedIn
+        ? <Chat isChoiceUser={false} />
+        : <Welcom sitekey={sitekey} />}
     </>
   );
 }

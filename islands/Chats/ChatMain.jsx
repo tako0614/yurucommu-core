@@ -1,20 +1,16 @@
 import { useState } from "preact/hooks";
 import ChatList from "./ChatList.jsx";
 import ChatTalk from "./ChatTalk.jsx";
-export default function ChatMain() {
-  const [isChoiceUser, setIsChoiceUser] = useState(false);
+export default function ChatMain(props) {
   return (
     <>
       <ChatList
-        isChoiceUser={isChoiceUser}
-        setIsChoiceUser={setIsChoiceUser}
-        a="a"
+        isChoiceUser={props.isChoiceUser}
       >
       </ChatList>
       <ChatTalk
-        isChoiceUser={isChoiceUser}
-        setIsChoiceUser={setIsChoiceUser}
-        a="a"
+        isChoiceUser={props.isChoiceUser}
+        roomid={props.roomid}
       >
       </ChatTalk>
     </>

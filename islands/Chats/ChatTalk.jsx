@@ -1,10 +1,13 @@
 import TalkTimeLine from "./TalkTimeLine.jsx";
-export default function ChatTalk({ isChoiceUser, setIsChoiceUser, a }) {
+import IsnotSelectUser from "./isnotSelectUser.jsx";
+export default function ChatTalk(props) {
   return (
     <>
       <div class="p-talk-chat">
         <div class="p-talk-chat-container">
-          <TalkTimeLine />
+          {props.isChoiceUser
+            ? <TalkTimeLine roomid={props.roomid} />
+            : <IsnotSelectUser />}
           <div class="p-talk-chat-send">
             <form class="p-talk-chat-send__form">
               <div class="p-talk-chat-send__msg">

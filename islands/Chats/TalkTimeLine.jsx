@@ -37,13 +37,6 @@ export default function TalkTimeLine(props) {
             message="♡♡♡"
             time={new Date()}
           />
-          <button
-            onClick={() => {
-              setIsChoiceUser(!isChoiceUser);
-            }}
-          >
-            たこたこボタン
-          </button>
         </ul>
       </div>
     </>

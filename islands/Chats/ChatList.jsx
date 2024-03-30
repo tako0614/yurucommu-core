@@ -4,7 +4,7 @@ import { h, render } from "preact";
 import User from "../../components/Chats/ChatUserList.jsx";
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
 
-function ChatList({ isChoiceUser, setIsChoiceUser, a }) {
+function ChatList({ isChoiceUser }) {
   useEffect(async () => {
     const csrftokenres = await fetch(
       "./api/csrfToken?origin=http://localhost:8000",
@@ -58,13 +58,6 @@ function ChatList({ isChoiceUser, setIsChoiceUser, a }) {
       <div class="p-talk-list-rooms">
         <ul class="p-talk-list-rooms__ul" id="friendList">
           {/**ここにフレンドリストを表示 useEffectでレンダリング */}
-          <button
-            onClick={() => {
-              setIsChoiceUser(!isChoiceUser);
-            }}
-          >
-            たこたこボタン
-          </button>
         </ul>
       </div>
     </div>

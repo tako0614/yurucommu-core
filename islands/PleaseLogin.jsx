@@ -1,11 +1,9 @@
 import { useEffect } from "preact/hooks";
 export default function PleaseLogin() {
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      navigate("/");
+    setTimeout(() => {
+      window.location.href = "/";
     }, 5000);
-
-    return () => clearTimeout(timeout);
   }, []);
   return (
     <>

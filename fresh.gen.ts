@@ -9,6 +9,7 @@ import * as $_middleware from "./routes/_middleware.ts";
 import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
+import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.js";
 import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
 import * as $api_csrfToken from "./routes/api/csrfToken.js";
@@ -31,6 +32,7 @@ import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
 import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx";
+import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $LogoutButton from "./islands/LogoutButton.jsx";
@@ -49,6 +51,7 @@ const manifest = {
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
+    "./routes/api/chats/getTalkData.js": $api_chats_getTalkData,
     "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
     "./routes/api/csrfToken.js": $api_csrfToken,
@@ -73,6 +76,7 @@ const manifest = {
     "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/TalkTimeLine.jsx": $Chats_TalkTimeLine,
+    "./islands/Chats/isnotSelectUser.jsx": $Chats_isnotSelectUser,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,
     "./islands/LogoutButton.jsx": $LogoutButton,

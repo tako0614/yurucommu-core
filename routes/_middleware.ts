@@ -1,5 +1,6 @@
 import { MiddlewareHandlerContext } from "$fresh/server.ts";
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts";
+import csrfToken from "../models/csrftoken.js";
 import users from "../models/users.js";
 import sessionID from "../models/sessionid.js";
 export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
@@ -29,9 +30,9 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
       $set: { lastLogin: today },
     });
     if (result === null) {
-        ctx.state.data = { loggedIn: false };
-        const resp = await ctx.next();
-        return resp;
+      ctx.state.data = { loggedIn: false };
+      const resp = await ctx.next();
+      return resp;
     }
   }
   const userName = sessions.userName;
@@ -45,7 +46,7 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     return resp;
   }
   const mail = user.mail;
-  ctx.state.data = { userName, mail, loggedIn: true, };
+  ctx.state.data = { userName, mail, loggedIn: true, sessionid };
   const resp = await ctx.next();
   return resp;
 }
