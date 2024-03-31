@@ -4,6 +4,7 @@ import users from "../models/users.js";
 import sessionID from "../models/sessionid.js";
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
 import Chat from "../components/Chats/Chat.jsx";
+import { useState } from "preact/hooks";
 const env = await load();
 const sitekey = env["recaptcha_site_key"];
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`;
@@ -44,6 +45,13 @@ export const handler = {
   },
 };
 export default function Home({ data }: { data: any }) {
+  useState(() => {
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    document.body.appendChild(script);
+  }
+  );
   return (
     <>
       <head>

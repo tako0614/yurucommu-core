@@ -29,6 +29,7 @@ import * as $setting from "./routes/setting.jsx";
 import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
+import * as $Chats_AddFriendForm from "./islands/Chats/AddFriendForm.jsx";
 import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx";
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
 import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
@@ -77,6 +78,7 @@ const manifest = {
   },
   islands: {
     "./islands/Chats/AddFriend.jsx": $Chats_AddFriend,
+    "./islands/Chats/AddFriendForm.jsx": $Chats_AddFriendForm,
     "./islands/Chats/ChatHeader.jsx": $Chats_ChatHeader,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
     "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,

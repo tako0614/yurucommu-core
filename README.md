@@ -16,8 +16,7 @@
 
 ## 動かし方
 
-DenoとmongoDBをインストール
-.envを記述して以下のコマンドを実行
+DenoとmongoDBをインストール .envを記述して以下のコマンドを実行
 
 ```
 deno task build
