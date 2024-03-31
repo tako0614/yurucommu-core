@@ -1,19 +1,32 @@
 import rooms from "../../../models/rooms.js";
 import messages from "../../../models/messages.js";
 import { checksesssionCSRF, isNullorUndefind } from "../../../util/Checker.js";
+import csrftoken from "../../../models/csrftoken.js";
+import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts";
 export const handler = {
-  async POST(req) {
-    // Check if the CSRF token and session ID are valid
-    const isCsrfSessionid = await checksesssionCSRF(req);
-    if (isCsrfSessionid.status === false) {
-      return new Response(JSON.stringify({ "status": "error" }), {
+  async POST(ctx,req) {
+    if (!ctx.state.data.loggedIn) {
+      return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
-        status: 403,
+        status: 401,
       });
     }
-    const { sessionidinfo, data } = isCsrfSessionid;
+    const cookies = getCookies(req.headers);
+    const data = await req.json();
+    if (typeof data.csrftoken !== "string") {
+      console.log("aa");
+      return { status: false };
+    }
+    const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken });
+    if (iscsrfToken === null || iscsrfToken === undefined) {
+      return false;
+    }
+    if (iscsrfToken.sessionID !== cookies.sessionid) {
+      return { status: false };
+    }
+    await csrftoken.deleteOne({ token: data.csrftoken });
+    const userName = ctx.state.data.userName;
     // send message
-    const { userName } = sessionidinfo;
     const { room, message } = data;
     const roomInfo = await rooms.findOne(
       { _id: room },

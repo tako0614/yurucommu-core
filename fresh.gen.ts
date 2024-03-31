@@ -8,8 +8,9 @@ import * as $_app from "./routes/_app.tsx";
 import * as $_middleware from "./routes/_middleware.ts";
 import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
+import * as $api_chats_addFriend from "./routes/api/chats/addFriend.js";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
-import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.js";
+import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
 import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
 import * as $api_csrfToken from "./routes/api/csrfToken.js";
@@ -50,8 +51,9 @@ const manifest = {
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
+    "./routes/api/chats/addFriend.js": $api_chats_addFriend,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
-    "./routes/api/chats/getTalkData.js": $api_chats_getTalkData,
+    "./routes/api/chats/getTalkData.ts": $api_chats_getTalkData,
     "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
     "./routes/api/csrfToken.js": $api_csrfToken,
