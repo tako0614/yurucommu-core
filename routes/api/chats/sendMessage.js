@@ -4,7 +4,7 @@ import { checksesssionCSRF, isNullorUndefind } from "../../../util/Checker.js";
 import csrftoken from "../../../models/csrftoken.js";
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts";
 export const handler = {
-  async POST(ctx,req) {
+  async POST(ctx, req) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },

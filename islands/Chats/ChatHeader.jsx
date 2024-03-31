@@ -1,7 +1,7 @@
-export default function ChatHeader() {
+export default function ChatHeader(props) {
   return (
     <>
-      <header class="l-header">
+      <header class={props.isChoiceUser ? "l-header is-inview" : "l-header"}>
         <div class="l-header-logo">
           <a href="/">
             <img src="static/logo.png" alt="takos" />

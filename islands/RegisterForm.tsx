@@ -319,7 +319,7 @@ export default function RegisterForm(
       </button>
       {showModal && (
         <div className="fixed z-50 w-full h-screen overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
-          <div className="bg-[#000000] lg:w-1/3 w-full h-full lg:h-4/5 mx-auto lg:my-[5%] p-5 lg:rounded-xl">
+          <div className="bg-[#010005] lg:w-1/3 w-full h-full lg:h-2/3 mx-auto lg:my-[7%] p-5 lg:rounded-xl">
             <div class="flex float-right">
               <span
                 className="text-[#aaa] text-[28px] font-[bold] no-underline cursor-pointer"

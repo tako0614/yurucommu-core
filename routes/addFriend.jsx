@@ -1,5 +1,10 @@
 import ChatAddFriend from "../components/Chats/ChatAddFriend.jsx";
-export default function Home() {
+import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
+import users from "../models/users.js";
+import Chat from "../components/Chats/Chat.jsx";
+const env = await load();
+const origin = env["friendOrigin"];
+export default function Home(props) {
   return (
     <>
       <head>
@@ -10,7 +15,7 @@ export default function Home() {
         />
         <link rel="stylesheet" href="/style.css"></link>
       </head>
-      <ChatAddFriend></ChatAddFriend>
+      <ChatAddFriend origin={origin}></ChatAddFriend>
     </>
   );
 }

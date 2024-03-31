@@ -133,9 +133,8 @@
     box-sizing: border-box;
     font-family: "Noto Sans JP", sans-serif;
 }
-/*navけした*/
 
-abbr, address, article, aside, audio, b, blockquote, body, canvas, caption, cite, code, dd, del, details, dfn, div, dl, dt, em, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, html, i, iframe, img, ins, kbd, label, legend, li, mark, menu, object, ol, p, pre, q, samp, section, small, span, strong, sub, summary, sup, table, tbody, td, tfoot, th, thead, time, tr, ul, var, video {
+abbr, address, article, aside, audio, b, blockquote, body, canvas, caption, cite, code, dd, del, details, dfn, div, dl, dt, em, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, html, i, iframe, img, ins, kbd, label, legend, li, mark, menu, nav, object, ol, p, pre, q, samp, section, small, span, strong, sub, summary, sup, table, tbody, td, tfoot, th, thead, time, tr, ul, var, video {
     background: transparent;
     border: 0;
     font-size: 100%;
@@ -162,6 +161,27 @@ a {
     text-decoration: none;
 }
 
+*::-webkit-scrollbar {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 20px;
+    width: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: #c0c0c0;
+    border-radius: 20px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: #949494;
+}
+
+@media (max-width: 768px) {
+    *::-webkit-scrollbar {
+        width: 5px;
+    }
+}
+
 nav ul, ol, ul {
     list-style: none;
 }
@@ -172,6 +192,7 @@ html, body {
     padding: 0;
     width: 100%;
     height: 100%;
+    overflow: hidden;
 }
 
 .wrapper {
@@ -186,7 +207,14 @@ html, body {
     display: block;
     position: fixed;
     z-index: 2;
+    transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
 }
+@media (max-width: 768px) {
+    .l-header.is-inview {
+        transform: translateY(100%)
+    }
+}
+
 
 .l-header-logo {
     margin-bottom: 25px;
@@ -237,7 +265,7 @@ html, body {
     left: 0;
 }
 
-@media(min-width: 769px) {
+@media (min-width: 769px) {
     .wrapper {
         padding-left: 78px;
     }
@@ -261,9 +289,9 @@ html, body {
     }
 }
 
-@media(max-width: 768px) {
+@media (max-width: 768px) {
     .wrapper {
-        padding-bottom: 64px;
+        padding: 0;
     }
 
     .l-header {
@@ -297,12 +325,7 @@ html, body {
 }
 
 .p-talk-list {
-    padding: 12px;
-    overflow-y: auto;
-}
-.pm-talk-list {
-    padding: 12px;
-    overflow-y: auto;
+    padding: 12px 12px 76px;
 }
 
 .p-talk-list-title {
@@ -326,7 +349,7 @@ html, body {
 
 .p-talk-list-rooms {
     margin: 10px 0;
-    /*overflow-y: scroll;*/
+    overflow-y: auto;
 }
 
 .c-talk-rooms {
@@ -343,12 +366,25 @@ html, body {
     background-color: #e8e8ef;
 }
 
+.c-talk-rooms button {
+    height: 100%;
+    width: 100%;
+    padding: 10px 8px;
+    display: flex;
+    color: #000000;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    outline: none;
+}
+
 .c-talk-rooms a {
     height: 100%;
     width: 100%;
     padding: 10px 8px;
     display: flex;
     color: #000000;
+    cursor: pointer;
 }
 
 .c-talk-rooms-icon {
@@ -379,6 +415,7 @@ html, body {
 .c-talk-rooms-name {
     font-weight: 700;
     font-size: 14px;
+    width: fit-content;
 }
 
 .c-talk-rooms-msg {
@@ -386,85 +423,76 @@ html, body {
     font-size: 12px;
 }
 
-@media(min-width: 769px) {
+@media (min-width: 1053px) {
     .p-talk {
         width: 100%;
     }
+
     .p-talk-list {
         width: 360px;
+        flex-grow: 0;
+        flex-shrink: 0;
     }
+
     .p-talk-chat {
         flex-grow: 1;
         padding: 12px 12px 12px 0;
-    }
-}
-@media(min-width: 769px) {
-    .pm-talk {
         width: 100%;
     }
-    .pm-talk-list {
-        width: 360px;
-    }
-    .pm-talk-chat {
-        flex-grow: 1;
-        padding: 12px 12px 12px 0;
+
+    .p-talk-chat-container {
+        border-radius: 8px;
     }
 }
-@media(max-width: 768px) {
+
+@media (max-width: 1052px) and (min-width: 769px) {
+    .p-talk {
+        width: 100%;
+    }
+
+    .p-talk-list {
+        width: 360px;
+        flex-shrink: 1;
+    }
+
+    .p-talk-chat {
+        flex-shrink: 2;
+        padding: 12px 12px 12px 0;
+        width: 100%;
+    }
+
+    .p-talk-chat-container {
+        border-radius: 8px;
+    }
+}
+
+@media (max-width: 768px) {
     .p-talk {
         overflow-x: hidden;
         width: fit-content;
         transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
     }
+
     .p-talk-list {
         width: 100vw;
     }
+
     .p-talk-chat {
         width: 100vw;
-        padding: 12px;
+        padding: 0;
     }
 
     .p-talk.is-inview {
         transform: translateX(-50%);
     }
 }
-@media(max-width: 768px) {
-    .pm-talk {
-        overflow-x: hidden;
-        width: fit-content;
-        transition: transform .3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
-    }
-    .pm-talk-list {
-        width: 100vw;
-    }
-    .pm-talk-chat {
-        width: 100vw;
-        padding: 12px;
-    }
 
-    .pm-talk.is-inview {
-        transform: translateX(-50%);
-    }
-}
-/*pm!!*/
-@media(max-width: 768px) {
-    .pm-talk-list {
-        display: none;
-    }
-
-    .pm-talk-chat {
-        display: block;
-        width: 100vw;
-        padding: 12px;
-    }
-}
 .p-talk-chat {
     height: 100%;
     display: block;
 }
 
 .p-talk-chat-container {
-    border-radius: 8px;
     display: flex;
     flex-direction: column;
     background-color: #f0f0f5;
@@ -472,7 +500,6 @@ html, body {
 }
 
 .p-talk-chat-title {
-    padding: 8px 18px;
     font-weight: 700;
     font-size: 20px;
     border-bottom: #ededf3 1px solid;
@@ -488,6 +515,11 @@ html, body {
     border-radius: 100px;
     padding: 3px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    border: none;
+    background-color: #ffffff;
+    outline: none;
 }
 
 .p-talk-chat-prev:hover {
@@ -499,14 +531,13 @@ html, body {
     height: 100%;
 }
 
-@media(min-width: 769px) {
+@media (min-width: 769px) {
     .p-talk-chat-prev {
         display: none;
     }
 }
 
 .p-talk-chat-main {
-    padding: 16px;
     overflow-y: auto;
     flex-grow: 1;
 }
@@ -518,7 +549,7 @@ html, body {
 
 .c-talk-chat.self {
     justify-content: right;
-    margin-right: 24px;
+    margin-right: 12px;
 }
 
 .c-talk-chat-box {
@@ -527,7 +558,7 @@ html, body {
 }
 
 .c-talk-chat-icon {
-    height: 42px;
+    height: 36px;
     aspect-ratio: 1 / 1;
 }
 
@@ -537,11 +568,22 @@ html, body {
     margin-left: 10px;
 }
 
+.c-talk-chat-right {
+    flex-grow: 1;
+}
+
 .c-talk-chat-msg {
     position: relative;
-    padding: 8px 16px;
+    padding: 6px 16px;
     border-radius: 12px;
     z-index: 2;
+    font-size: 15px;
+    line-height: 20px;
+    width: fit-content;
+}
+
+.c-talk-chat-msg p {
+    width: fit-content;
 }
 
 .c-talk-chat.other .c-talk-chat-msg {
@@ -555,7 +597,7 @@ html, body {
 }
 
 .c-talk-chat.subsequent.other .c-talk-chat-msg {
-    margin-left: 52px;
+    margin-left: 46px;
 }
 
 .c-talk-chat.primary.other .c-talk-chat-msg {
@@ -586,11 +628,12 @@ html, body {
 }
 
 .c-talk-chat-date {
-    font-size: 13px;
+    font-size: 11px;
     display: flex;
     flex-direction: column;
     justify-content: end;
     color: #7d7d86;
+    white-space: nowrap;
 }
 
 .c-talk-chat.other .c-talk-chat-date {
@@ -609,12 +652,12 @@ html, body {
 }
 
 .c-talk-chat-date-box {
-    font-size: 13px;
-    padding: 4px 12px;
+    padding: 3px 12px;
     background-color: rgba(255, 255, 255, 0.6);
     width: fit-content;
     margin: 0 auto;
     border-radius: 100px;
+    font-size: 11px;
 }
 
 .p-talk-chat-send {
@@ -635,7 +678,10 @@ html, body {
 
 .p-talk-chat-send__file {
     height: 44px;
+    width: 44px;
     padding: 6px;
+    flex-grow: 0;
+    flex-shrink: 0;
 }
 
 .p-talk-chat-send__file img {
@@ -645,19 +691,24 @@ html, body {
     height: 100%;
     cursor: pointer;
 }
-.grecaptcha-badge { visibility: hidden; }
+
 .p-talk-chat-send__file img:hover {
     background-color: #ededf3;
 }
 
 .p-talk-chat-send__dummy {
+    width: 100%;
+    height: 100%;
+    outline: none;
+    border: none;
+    font-size: 16px;
+    padding: 10px 0 10px 16px;
+    margin: 0;
     overflow: hidden;
-    visibility: hidden;
-    padding: 8px 16px;
-    min-height: 42px;
-    white-space: pre-wrap;
+    background-color: transparent;
+    white-space: break-spaces;
     overflow-wrap: break-word;
-    border: 1px solid;
+    visibility: hidden;
 }
 
 .p-talk-chat-send__msg label {
@@ -674,9 +725,31 @@ html, body {
     outline: none;
     border: none;
     font-size: 16px;
-    padding: 8px 16px;
+    padding: 10px 0 10px 16px;
     margin: 0;
     overflow: hidden;
     resize: none;
-    background-color: transparent;
+    background-color: #ffffff;
+    white-space: break-spaces;
+    overflow-wrap: break-word;
+}
+
+@media (min-width: 769px) {
+    .p-talk-chat-main {
+        padding: 16px;
+    }
+
+    .p-talk-chat-title {
+        padding: 8px 18px;
+    }
+}
+
+@media (max-width: 768px) {
+    .p-talk-chat-main {
+        padding: 8px;
+    }
+
+    .p-talk-chat-title {
+        padding: 8px;
+    }
 }

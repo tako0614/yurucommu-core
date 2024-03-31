@@ -86,7 +86,6 @@ function Setting() {
               </a>
               <a
                 class="flex items-center gap-2 py-2 px-3 rounded-md text-sm font-medium"
-                onclick="alert('Yo!')"
                 href="#"
               >
                 <svg

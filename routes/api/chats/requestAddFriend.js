@@ -4,7 +4,7 @@ import csrftoken from "../../../models/csrftoken.js";
 import Friends from "../../../models/friends.js";
 import requestAddFriend from "../../../models/reqestAddFriend.js";
 export const handler = {
-  async post(ctx,req) {
+  async post(ctx, req) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },

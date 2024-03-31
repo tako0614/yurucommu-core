@@ -10,6 +10,7 @@ import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_chats_addFriend from "./routes/api/chats/addFriend.js";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
+import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js";
 import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
 import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
@@ -28,11 +29,13 @@ import * as $setting from "./routes/setting.jsx";
 import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
+import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx";
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
 import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
 import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx";
+import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx";
 import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx";
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
 import * as $LoginForm from "./islands/LoginForm.tsx";
@@ -53,6 +56,7 @@ const manifest = {
     "./routes/addFriend.jsx": $addFriend,
     "./routes/api/chats/addFriend.js": $api_chats_addFriend,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
+    "./routes/api/chats/getAddFriendKey.js": $api_chats_getAddFriendKey,
     "./routes/api/chats/getTalkData.ts": $api_chats_getTalkData,
     "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
@@ -73,11 +77,13 @@ const manifest = {
   },
   islands: {
     "./islands/Chats/AddFriend.jsx": $Chats_AddFriend,
+    "./islands/Chats/ChatHeader.jsx": $Chats_ChatHeader,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
     "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,
     "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/TalkTimeLine.jsx": $Chats_TalkTimeLine,
+    "./islands/Chats/getAddFriendKey.tsx": $Chats_getAddFriendKey,
     "./islands/Chats/isnotSelectUser.jsx": $Chats_isnotSelectUser,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
     "./islands/LoginForm.tsx": $LoginForm,

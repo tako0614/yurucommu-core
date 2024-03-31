@@ -3,13 +3,13 @@ import sessionID from "../../../models/sessionid.js";
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
 export const handler = {
   async POST(req, ctx) {
-    if(!ctx.state.data.loggedIn){
+    if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
         status: 401,
       });
     }
-    try{
+    try {
       const data = await req.json();
       const sessionid = ctx.state.data.sessionid;
       if (data.reqirments !== "logout") {
@@ -43,6 +43,5 @@ export const handler = {
         status: 403,
       });
     }
-
   },
 };

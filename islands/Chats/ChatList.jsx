@@ -43,7 +43,7 @@ function ChatList({ isChoiceUser }) {
     render(elements, ListElement);
   }, []);
   return (
-    <div class={isChoiceUser ? "pm-talk-list" : "p-talk-list"}>
+    <div class="p-talk-list">
       <h1 class="p-talk-list-title">トーク</h1>
       <div class="p-talk-list-search">
         <form name="talk-search">
