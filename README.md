@@ -16,10 +16,10 @@
 
 ## 動かし方
 
-Denoをインストールした後以下のコマンドを実行
+DenoとmongoDBをインストール
+.envを記述して以下のコマンドを実行
 
 ```
-deno run -A takos.js make database
-//↑は初回のみ
-deno task start
+deno task build
+deno run -A main.ts
 ```
