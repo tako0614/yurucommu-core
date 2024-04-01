@@ -8,16 +8,6 @@ import { useState } from "preact/hooks";
 const env = await load();
 const sitekey = env["recaptcha_site_key"];
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`;
-/*
-export const handler = {
-  GET(req: any, ctx: any) {
-    if (ctx.state.data.loggedIn) {
-      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName });
-    } else {
-      return ctx.render({ loggedIn: false });
-    }
-  },
-};*/
 export const handler = {
   async GET(req: any, ctx: any) {
     if (!ctx.state.data.loggedIn) {
@@ -45,13 +35,6 @@ export const handler = {
   },
 };
 export default function Home({ data }: { data: any }) {
-  useState(() => {
-    const script = document.createElement("script");
-    script.src = url;
-    script.async = true;
-    document.body.appendChild(script);
-  }
-  );
   return (
     <>
       <head>
@@ -61,6 +44,7 @@ export default function Home({ data }: { data: any }) {
           content="日本産オープンソース分散型チャットアプリ「tako's」"
         />
         <link rel="stylesheet" href="/style.css"></link>
+        <script src={url}></script>
       </head>
       {data.loggedIn
         ? (

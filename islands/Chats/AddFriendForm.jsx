@@ -1,11 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 const AddFriendForm = (props) => {
-    useEffect(() => {
-        const addFriendKey = props.addFriendKey
-        const fetchData = async () => {
-            
-        }
-    }, []);
+  useEffect(() => {
+    const addFriendKey = props.addFriendKey;
+    const fetchData = async () => {
+    };
+  }, []);
   return (
     <>
       {true && (

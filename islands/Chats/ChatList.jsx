@@ -4,7 +4,9 @@ import { h, render } from "preact";
 import User from "../../components/Chats/ChatUserList.jsx";
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
 function ChatList(props) {
-    const [showAddFriendForm, setShowAddFriendForm] = useState(props.isAddFriendForm);
+  const [showAddFriendForm, setShowAddFriendForm] = useState(
+    props.isAddFriendForm,
+  );
   useEffect(async () => {
     const csrftokenres = await fetch(
       "./api/csrfToken?origin=http://localhost:8000",
@@ -35,7 +37,11 @@ function ChatList(props) {
     let elements = [];
     result.map((friend) => {
       const element = (
-        <User userName={friend.userName} latestMessage={friend.latestMessage} addFriendKey={props.addFriendKey}/>
+        <User
+          userName={friend.userName}
+          latestMessage={friend.latestMessage}
+          addFriendKey={props.addFriendKey}
+        />
       );
       elements.push(element);
     });
@@ -44,7 +50,9 @@ function ChatList(props) {
   }, []);
   return (
     <>
-      {showAddFriendForm && <AddFriendForm isAddFriendForm={props.isAddFriendForm}/>}
+      {showAddFriendForm && (
+        <AddFriendForm isAddFriendForm={props.isAddFriendForm} />
+      )}
       <div class="p-talk-list">
         <h1 class="p-talk-list-title">トーク</h1>
         <div class="p-talk-list-search">
@@ -67,15 +75,16 @@ function ChatList(props) {
   );
 }
 const AddFriendForm = () => {
-  
-  return(
+  return (
     <>
       <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
         <div class="bg-[#010005] lg:w-1/3 w-full h-full lg:h-2/3 mx-auto lg:my-[7%] p-5 lg:rounded-xl">
           <div class="flex justify-end bg-blue-500">
             <span
               class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
-              onClick={() => {window.location.href = "./"}}
+              onClick={() => {
+                window.location.href = "./";
+              }}
             >
               ×
             </span>
@@ -86,7 +95,7 @@ const AddFriendForm = () => {
         </div>
       </div>
     </>
-  )
+  );
 };
 
 export default ChatList;
