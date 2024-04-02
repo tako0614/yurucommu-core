@@ -8,19 +8,20 @@ import * as $_app from "./routes/_app.tsx";
 import * as $_middleware from "./routes/_middleware.ts";
 import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
-import * as $api_chats_addFriend from "./routes/api/chats/addFriend.js";
+import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js";
+import * as $api_Friends_getIcon from "./routes/api/Friends/getIcon.js";
+import * as $api_Friends_requestAddFriendByFriendKey from "./routes/api/Friends/requestAddFriendByFriendKey.ts";
+import * as $api_Friends_requestAddFriendById from "./routes/api/Friends/requestAddFriendById.ts";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
 import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js";
 import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
-import * as $api_chats_requestAddFriend from "./routes/api/chats/requestAddFriend.js";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
+import * as $api_chats_talk from "./routes/api/chats/talk.js";
 import * as $api_csrfToken from "./routes/api/csrfToken.js";
 import * as $api_logins_login from "./routes/api/logins/login.js";
 import * as $api_logins_logout from "./routes/api/logins/logout.js";
 import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
-import * as $api_oumu from "./routes/api/oumu.ts";
-import * as $api_talk from "./routes/api/talk.js";
 import * as $developper from "./routes/developper.tsx";
 import * as $greet_name_ from "./routes/greet/[name].tsx";
 import * as $index from "./routes/index.tsx";
@@ -29,7 +30,6 @@ import * as $setting from "./routes/setting.jsx";
 import * as $test from "./routes/test.jsx";
 import * as $test_post from "./routes/test_post.tsx";
 import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
-import * as $Chats_AddFriendForm from "./islands/Chats/AddFriendForm.jsx";
 import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx";
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
 import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
@@ -55,19 +55,22 @@ const manifest = {
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
-    "./routes/api/chats/addFriend.js": $api_chats_addFriend,
+    "./routes/api/Friends/addFriend.js": $api_Friends_addFriend,
+    "./routes/api/Friends/getIcon.js": $api_Friends_getIcon,
+    "./routes/api/Friends/requestAddFriendByFriendKey.ts":
+      $api_Friends_requestAddFriendByFriendKey,
+    "./routes/api/Friends/requestAddFriendById.ts":
+      $api_Friends_requestAddFriendById,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
     "./routes/api/chats/getAddFriendKey.js": $api_chats_getAddFriendKey,
     "./routes/api/chats/getTalkData.ts": $api_chats_getTalkData,
-    "./routes/api/chats/requestAddFriend.js": $api_chats_requestAddFriend,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
+    "./routes/api/chats/talk.js": $api_chats_talk,
     "./routes/api/csrfToken.js": $api_csrfToken,
     "./routes/api/logins/login.js": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,
-    "./routes/api/oumu.ts": $api_oumu,
-    "./routes/api/talk.js": $api_talk,
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
     "./routes/index.tsx": $index,
@@ -78,7 +81,6 @@ const manifest = {
   },
   islands: {
     "./islands/Chats/AddFriend.jsx": $Chats_AddFriend,
-    "./islands/Chats/AddFriendForm.jsx": $Chats_AddFriendForm,
     "./islands/Chats/ChatHeader.jsx": $Chats_ChatHeader,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
     "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,

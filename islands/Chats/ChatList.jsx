@@ -74,7 +74,10 @@ function ChatList(props) {
     </>
   );
 }
-const AddFriendForm = () => {
+const AddFriendForm = (props) => {
+  useEffect(() => {
+    const addFriendKey = props.addFriendKey;
+  }, []);
   return (
     <>
       <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
@@ -89,7 +92,7 @@ const AddFriendForm = () => {
               ×
             </span>
           </div>
-          <div class="w-4/5 mx-auto my-0">
+          <div class="w-4/5 mx-auto my-0 text-white">
             テストメッセージ
           </div>
         </div>

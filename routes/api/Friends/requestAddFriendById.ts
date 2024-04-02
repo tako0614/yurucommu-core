@@ -3,8 +3,9 @@ import sessionID from "../../../models/sessionid.js";
 import csrftoken from "../../../models/csrftoken.js";
 import Friends from "../../../models/friends.js";
 import requestAddFriend from "../../../models/reqestAddFriend.js";
+import { RequestAddFriendById } from "../../../util/ResponseTypes.ts";
 export const handler = {
-  async post(ctx, req) {
+  async post(ctx: any, req: Request) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -14,7 +15,6 @@ export const handler = {
     const cookies = getCookies(req.headers);
     const data = await req.json();
     if (typeof data.csrftoken !== "string") {
-      console.log("aa");
       return { status: false };
     }
     const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken });
@@ -55,7 +55,7 @@ export const handler = {
       });
     }
     const isAlreadyRequest = isAlreadyFriendRequest.Applicant.find(
-      (applicant) => {
+      (applicant: any) => {
         applicant.userName === userName;
       },
     );

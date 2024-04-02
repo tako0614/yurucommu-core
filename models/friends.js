@@ -5,28 +5,22 @@ export const friendsSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  friends: {
-    objects: [
-      {
-        userName: {
-          type: String,
-          required: true,
-          unique: true,
-        },
-        room: {
-          type: String,
-          required: true,
-        },
-        lastMessage: {
-          type: String,
-        },
+  friends: [
+    {
+      userName: {
+        type: String,
+        required: true,
+        unique: true,
+      },
+      room: {
+        type: String,
         required: true,
       },
-    ],
-    type: Array,
-    required: true,
-    default: [],
-  },
+      lastMessage: {
+        type: String,
+      },
+    },
+  ],
   timestamp: { type: Date, default: Date.now },
 });
 const friends = mongoose.model("friends", friendsSchema);
