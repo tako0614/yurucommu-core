@@ -22,7 +22,11 @@
     "tailwindcss/": "npm:/tailwindcss@3.4.1/",
     "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js",
     "ws": "npm:ws@8.16.0",
-    "mongoose": "npm:mongoose@8.2.0"
+    "mongoose": "npm:mongoose@8.2.0",
+    "react": "https://esm.sh/preact/compat",
+    "react-dom": "https://esm.sh/preact/compat",
+    "react/jsx-runtime": "https://esm.sh/preact/jsx-runtime",
+    "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime"
   },
   "alias": {
     "react": "preact/compat",
