@@ -7,7 +7,6 @@ export default function User({ userName, latestMessage }) {
       const res = await csurfToken.json();
       const result = await fetch("./api/Friends/getIcon?requirments=getFriendIcon&friendName=" + userName+"&csrfToken="+res.csrftoken);
       const res2 = await result.json();
-      console.log(res2)
       if(!res2.status) {
         setIcon("people.png");
         console.log("a")
