@@ -26,7 +26,9 @@
     "react": "https://esm.sh/preact/compat",
     "react-dom": "https://esm.sh/preact/compat",
     "react/jsx-runtime": "https://esm.sh/preact/jsx-runtime",
-    "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime"
+    "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime",
+    "react-hook-form": "https://esm.sh/react-hook-form?external=react,react-dom,react%2Fjsx-runtime",
+    "swr": "https://esm.sh/swr?external=react,react-dom,react%2Fjsx-runtime"
   },
   "alias": {
     "react": "preact/compat",

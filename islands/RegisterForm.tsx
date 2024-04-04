@@ -1,6 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
 //import Button from '../components/Button.tsx'
 import { h, JSX } from "preact";
+import { useForm } from "react-hook-form";
+
 function isMail(mail: string) {
   const emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
   return emailPattern.test(mail);
@@ -16,6 +18,7 @@ declare global {
     };
   }
 }
+
 export default function RegisterForm(
   { text, token, sitekey }: { text: string; token: string; sitekey: string },
 ) {
@@ -46,6 +49,7 @@ export default function RegisterForm(
   const [showIsAgreementError, setShowIsAgreementError] = useState(false);
   const [checkCodeErrorMessages, setCheckCodeErrorMessages] = useState("");
   const [showCheckCodeError, setShowCheckCodeError] = useState(false);
+  //errors end
   const handleCheckCodeChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {

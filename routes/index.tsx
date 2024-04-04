@@ -33,6 +33,7 @@ export const handler = {
   },
 };
 export default function Home({ data }: { data: any }) {
+  console.log(data);
   return (
     <>
       <head>
