@@ -25,7 +25,7 @@ function ChatList(props) {
     if (res.status == "You are alone") {
       const ListElement = document.getElementById("friendList");
       render(
-        <User userName="友達がいません！！" latestMessage="ざぁこ♡ざぁこ♡" />,
+        <User userName="友達がいません！！" latestMessage="ざぁこ♡ざぁこ♡" icon="./people.png" />,
         ListElement,
       );
       return;
@@ -36,11 +36,12 @@ function ChatList(props) {
     });
     let elements = [];
     result.map((friend) => {
+      const icon = `./api/friends/getFriendIcon?friendName=${friend.userName}`;
       const element = (
         <User
           userName={friend.userName}
           latestMessage={friend.latestMessage}
-          addFriendKey={props.addFriendKey}
+          icon={icon}
         />
       );
       elements.push(element);

@@ -9,7 +9,7 @@ import * as $_middleware from "./routes/_middleware.ts";
 import * as $about from "./routes/about.tsx";
 import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js";
-import * as $api_Friends_getIcon from "./routes/api/Friends/getIcon.js";
+import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js";
 import * as $api_Friends_requestAddFriendByFriendKey from "./routes/api/Friends/requestAddFriendByFriendKey.ts";
 import * as $api_Friends_requestAddFriendById from "./routes/api/Friends/requestAddFriendById.ts";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
@@ -56,7 +56,7 @@ const manifest = {
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
     "./routes/api/Friends/addFriend.js": $api_Friends_addFriend,
-    "./routes/api/Friends/getIcon.js": $api_Friends_getIcon,
+    "./routes/api/Friends/getFriendIcon.js": $api_Friends_getFriendIcon,
     "./routes/api/Friends/requestAddFriendByFriendKey.ts":
       $api_Friends_requestAddFriendByFriendKey,
     "./routes/api/Friends/requestAddFriendById.ts":

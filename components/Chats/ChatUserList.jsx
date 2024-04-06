@@ -1,27 +1,5 @@
-import { useEffect, useState } from "preact/hooks";
-export default function User({ userName, latestMessage }) {
-  const [icon, setIcon] = useState("");
-  useEffect((userName) => {
-    const async = async () => {
-      const csurfToken = await fetch(
-        "./api/csrfToken?origin=http://localhost:8000",
-      );
-      const res = await csurfToken.json();
-      const result = await fetch(
-        "./api/Friends/getIcon?requirments=getFriendIcon&friendName=" +
-          userName + "&csrfToken=" + res.csrftoken,
-      );
-      const res2 = await result.json();
-      if (!res2.status) {
-        setIcon("people.png");
-        console.log("a");
-        return;
-      }
-      setIcon(res2.icon);
-      return;
-    };
-    async();
-  }, []);
+
+export default function User({ userName, latestMessage, icon }) {
   return (
     <>
       <li class="c-talk-rooms">
