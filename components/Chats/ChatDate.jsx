@@ -1,17 +1,17 @@
 const ChatDate = ({ date }) => {
-  const currentDate = new Date();
-  const chatDate = new Date(date);
+  const currentDate = new Date()
+  const chatDate = new Date(date)
 
-  const isToday = chatDate.getDate() === currentDate.getDate();
-  const isYesterday = chatDate.getDate() === currentDate.getDate() - 1;
+  const isToday = chatDate.getDate() === currentDate.getDate()
+  const isYesterday = chatDate.getDate() === currentDate.getDate() - 1
 
-  let formattedDate = "";
+  let formattedDate = ""
   if (isToday) {
-    formattedDate = "今日";
+    formattedDate = "今日"
   } else if (isYesterday) {
-    formattedDate = "昨日";
+    formattedDate = "昨日"
   } else {
-    formattedDate = chatDate.toLocaleDateString();
+    formattedDate = chatDate.toLocaleDateString()
   }
 
   return (
@@ -20,6 +20,6 @@ const ChatDate = ({ date }) => {
         <p>{formattedDate}</p>
       </div>
     </li>
-  );
-};
-export default ChatDate;
+  )
+}
+export default ChatDate

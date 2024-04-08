@@ -1,6 +1,6 @@
-import { useSignal } from "@preact/signals";
-import Header from "../components/Header.tsx";
-import Footer from "../components/Footer.tsx";
+import { useSignal } from "@preact/signals"
+import Header from "../components/Header.tsx"
+import Footer from "../components/Footer.tsx"
 // deno-lint-ignore no-explicit-any
 function Developper({ developerss }: { developerss: any }) {
   return (
@@ -28,7 +28,7 @@ function Developper({ developerss }: { developerss: any }) {
         </div>
       </div>
     </>
-  );
+  )
 }
 const developers = {
   tako: {
@@ -58,9 +58,9 @@ const developers = {
     position: "takos developer",
     body: "ガジェット好き/たまにプログラミング/株",
   },
-};
+}
 export default function Home() {
-  const count = useSignal(3);
+  const count = useSignal(3)
   return (
     <>
       <head>
@@ -128,5 +128,5 @@ export default function Home() {
       </section>
       <Footer />
     </>
-  );
+  )
 }

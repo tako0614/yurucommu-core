@@ -1,5 +1,5 @@
-import Header from "../components/Header.tsx";
-import Footer from "../components/Footer.tsx";
+import Header from "../components/Header.tsx"
+import Footer from "../components/Footer.tsx"
 export default function name() {
   return (
     <>
@@ -7,5 +7,5 @@ export default function name() {
 
       <Footer></Footer>
     </>
-  );
+  )
 }

@@ -1,21 +1,21 @@
-import { Handlers, PageProps } from "$fresh/server.ts";
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts";
-import users from "../models/users.js";
-import sessionID from "../models/sessionid.js";
-import Chat from "../components/Chats/Chat.jsx";
-import PleaseLogin from "../islands/PleaseLogin.jsx";
+import { Handlers, PageProps } from "$fresh/server.ts"
+import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import users from "../models/users.js"
+import sessionID from "../models/sessionid.js"
+import Chat from "../components/Chats/Chat.jsx"
+import PleaseLogin from "../islands/PleaseLogin.jsx"
 export const handler = {
   GET(req: any, ctx: any) {
     if (ctx.state.data.loggedIn) {
-      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName });
+      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName })
     } else {
-      return ctx.render({ loggedIn: false });
+      return ctx.render({ loggedIn: false })
     }
   },
-};
+}
 export default function talk(props: PageProps) {
-  const roomid = props.params.userName;
-  const userName = props.data.userName;
+  const roomid = props.params.userName
+  const userName = props.data.userName
   return (
     <>
       <head>
@@ -30,5 +30,5 @@ export default function talk(props: PageProps) {
         ? <Chat userName={userName} isChoiceUser={true} />
         : <PleaseLogin />}
     </>
-  );
+  )
 }

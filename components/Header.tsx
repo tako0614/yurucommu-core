@@ -1,16 +1,16 @@
-import HeaderMenu from "../islands/HeaderMenu.tsx";
+import HeaderMenu from "../islands/HeaderMenu.tsx"
 
 const Contents = () => (
   <>
   </>
-);
+)
 const Contents1 = () => (
   <>
     <div>ホーム</div>
     <div>About</div>
     <div>SNS(開発中)</div>
   </>
-);
+)
 //メモ: grid-cols-4は4個ずつ並べるという意味。増やすときは数字変える
 export default function Header() {
   return (
@@ -45,5 +45,5 @@ export default function Header() {
         </div>
       </div>
     </header>
-  );
+  )
 }

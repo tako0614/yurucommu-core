@@ -1,11 +1,11 @@
-import { JSX } from "preact";
-import { useState } from "preact/hooks";
+import { JSX } from "preact"
+import { useState } from "preact/hooks"
 
 export interface Props {
-  children: JSX.Element;
+  children: JSX.Element
 }
 const class1 =
-  "block w-full text-base box-border text-color-white no-underline pt-2.5 pr-4 text-center pb-0 pl-4 font-bold";
+  "block w-full text-base box-border text-color-white no-underline pt-2.5 pr-4 text-center pb-0 pl-4 font-bold"
 const Menu1 = (
   <div class="ml-5 divide-y border-gray-500 text-center">
     <p>
@@ -21,10 +21,10 @@ const Menu1 = (
       <a href="">instagram</a>
     </p>
   </div>
-);
+)
 export default function HeaderMenu({ children }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isOpenMenu1, setIsOpenMenu1] = useState(false);
+  const [isOpen, setIsOpen] = useState(false)
+  const [isOpenMenu1, setIsOpenMenu1] = useState(false)
   return (
     <>
       <div class="">
@@ -73,5 +73,5 @@ export default function HeaderMenu({ children }: Props) {
         </ul>
       </div>
     </>
-  );
+  )
 }

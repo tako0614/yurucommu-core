@@ -1,4 +1,4 @@
-import { mongoose } from "mongoose";
+import { mongoose } from "mongoose"
 export const requestAddFriendSchema = new mongoose.Schema({
   userName: {
     type: String,
@@ -17,9 +17,9 @@ export const requestAddFriendSchema = new mongoose.Schema({
     default: false,
   },
   timestamp: { type: Date, default: Date.now },
-});
+})
 const requestAddFriend = mongoose.model(
   "requestAddFriend",
   requestAddFriendSchema,
-);
-export default requestAddFriend;
+)
+export default requestAddFriend

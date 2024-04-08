@@ -1,207 +1,207 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks"
 //import Button from '../components/Button.tsx'
-import { h, JSX } from "preact";
-import { useForm } from "react-hook-form";
+import { h, JSX } from "preact"
+import { useForm } from "react-hook-form"
 
 function isMail(mail: string) {
-  const emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
-  return emailPattern.test(mail);
+  const emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/
+  return emailPattern.test(mail)
 }
 declare global {
   interface Window {
     grecaptcha: {
-      ready: (callback: () => void) => void;
+      ready: (callback: () => void) => void
       execute: (
         siteKey: string,
         options: { action: string },
-      ) => Promise<string>;
-    };
+      ) => Promise<string>
+    }
   }
 }
 
 export default function RegisterForm(
   { text, token, sitekey }: { text: string; token: string; sitekey: string },
 ) {
-  const [showModal, setShowModal] = useState(false);
-  const [showForm, setShowFrom] = useState("closed");
-  const [showError, setShowError] = useState(false);
-  const [errorMessages, setErrorMessages] = useState("");
-  const [userName, setUserName] = useState("");
-  const [nickName, setNickName] = useState("");
-  const [password, setPassword] = useState("");
-  const [age, setAge] = useState();
-  const [mailToken, setMailToken] = useState("");
-  const [isagreement, setIsAgreement] = useState(false);
-  const [checkCode, setcheckCode] = useState("");
-  const [recaptchaToken, setRecaptchaToken] = useState("");
+  const [showModal, setShowModal] = useState(false)
+  const [showForm, setShowFrom] = useState("closed")
+  const [showError, setShowError] = useState(false)
+  const [errorMessages, setErrorMessages] = useState("")
+  const [userName, setUserName] = useState("")
+  const [nickName, setNickName] = useState("")
+  const [password, setPassword] = useState("")
+  const [age, setAge] = useState()
+  const [mailToken, setMailToken] = useState("")
+  const [isagreement, setIsAgreement] = useState(false)
+  const [checkCode, setcheckCode] = useState("")
+  const [recaptchaToken, setRecaptchaToken] = useState("")
   //errors
-  const [userNameErrorMessages, setUserNameErrorMessages] = useState("");
-  const [showUserNameError, setShowUserNameError] = useState(false);
-  const [passwordErrorMessages, setPasswordErrorMessages] = useState("");
-  const [showPasswordError, setShowPasswordError] = useState(false);
-  const [emailErrorMessages, setEmailErrorMessages] = useState("");
-  const [showEmailError, setShowEmailError] = useState(false);
-  const [ageErrorMessages, setAgeErrorMessages] = useState("");
-  const [showAgeError, setShowAgeError] = useState(false);
-  const [nickNameErrorMessages, setNickNameErrorMessages] = useState("");
-  const [showNickNameError, setShowNickNameError] = useState(false);
-  const [isagreementErrorMessages, setIsAgreementErrorMessages] = useState("");
-  const [showIsAgreementError, setShowIsAgreementError] = useState(false);
-  const [checkCodeErrorMessages, setCheckCodeErrorMessages] = useState("");
-  const [showCheckCodeError, setShowCheckCodeError] = useState(false);
+  const [userNameErrorMessages, setUserNameErrorMessages] = useState("")
+  const [showUserNameError, setShowUserNameError] = useState(false)
+  const [passwordErrorMessages, setPasswordErrorMessages] = useState("")
+  const [showPasswordError, setShowPasswordError] = useState(false)
+  const [emailErrorMessages, setEmailErrorMessages] = useState("")
+  const [showEmailError, setShowEmailError] = useState(false)
+  const [ageErrorMessages, setAgeErrorMessages] = useState("")
+  const [showAgeError, setShowAgeError] = useState(false)
+  const [nickNameErrorMessages, setNickNameErrorMessages] = useState("")
+  const [showNickNameError, setShowNickNameError] = useState(false)
+  const [isagreementErrorMessages, setIsAgreementErrorMessages] = useState("")
+  const [showIsAgreementError, setShowIsAgreementError] = useState(false)
+  const [checkCodeErrorMessages, setCheckCodeErrorMessages] = useState("")
+  const [showCheckCodeError, setShowCheckCodeError] = useState(false)
   //errors end
   const handleCheckCodeChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setcheckCode(event.currentTarget.value);
-  };
+    setcheckCode(event.currentTarget.value)
+  }
   const handleNickNameChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setNickName(event.currentTarget.value);
-  };
+    setNickName(event.currentTarget.value)
+  }
   const handleUserNameChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setUserName(event.currentTarget.value);
-  };
+    setUserName(event.currentTarget.value)
+  }
   const handlePasswordChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setPassword(event.currentTarget.value);
-  };
+    setPassword(event.currentTarget.value)
+  }
   const handleAgeChange = (event: any) => {
-    setAge(event.currentTarget.value);
-  };
+    setAge(event.currentTarget.value)
+  }
   const handleAgreementChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setIsAgreement(!isagreement);
-  };
+    setIsAgreement(!isagreement)
+  }
   const handleButtonClick = () => {
-    setShowModal(!showModal);
-  };
-  const [email, setEmail] = useState("");
+    setShowModal(!showModal)
+  }
+  const [email, setEmail] = useState("")
   const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
-    const value = event.currentTarget.value;
-    setEmail(value);
-  };
+    const value = event.currentTarget.value
+    setEmail(value)
+  }
   const handleSubmit = async (
     event: JSX.TargetedEvent<HTMLFormElement, Event>,
   ) => {
-    event.preventDefault();
+    event.preventDefault()
     const data = {
       email,
       rechapchaToken: token,
       requirments: "register",
-    };
+    }
     if (!isMail(data.email)) {
-      setShowEmailError(true);
-      setEmailErrorMessages("メールアドレスが不正です");
-      console.log(data.email);
+      setShowEmailError(true)
+      setEmailErrorMessages("メールアドレスが不正です")
+      console.log(data.email)
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
-    setShowError(false);
+    setShowError(false)
     const res = await fetch("/api/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(data),
-    });
-    const response = await res.json();
+    })
+    const response = await res.json()
     if (response.status !== true) {
-      console.log(response.error);
-      setShowEmailError(true);
+      console.log(response.error)
+      setShowEmailError(true)
       switch (response.error) {
         case "mail":
           //setErrorMessages("メールアドレスが不正です")
-          setEmailErrorMessages("メールアドレスが不正です");
-          break;
+          setEmailErrorMessages("メールアドレスが不正です")
+          break
         case "mailDuplication":
           //setErrorMessages("メールアドレスが重複しています")
-          setEmailErrorMessages("メールアドレスが重複しています");
-          break;
+          setEmailErrorMessages("メールアドレスが重複しています")
+          break
         case "recaptcha":
           //setErrorMessages("reCAPTCHAが正しくありません")
-          setEmailErrorMessages("reCAPTCHAが正しくありません");
-          break;
+          setEmailErrorMessages("reCAPTCHAが正しくありません")
+          break
         case "input":
           //setErrorMessages("入力が不正です")
-          setEmailErrorMessages("入力が不正です");
-          break;
+          setEmailErrorMessages("入力が不正です")
+          break
         default:
           //setErrorMessages("不明なエラーが発生しました")
-          setEmailErrorMessages("不明なエラーが発生しました");
-          break;
+          setEmailErrorMessages("不明なエラーが発生しました")
+          break
       }
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
-          console.log("recaptcha token is updated");
+          setRecaptchaToken(token)
+          console.log("recaptcha token is updated")
         },
-      );
+      )
     } else {
-      setMailToken(response.mailToken);
-      setShowFrom("checkMail");
+      setMailToken(response.mailToken)
+      setShowFrom("checkMail")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
+      )
     }
-  };
+  }
   const mailCkeckHandleSubmit = async (
     event: JSX.TargetedEvent<HTMLFormElement, Event>,
   ) => {
-    event.preventDefault();
+    event.preventDefault()
     const data = {
       requirments: "checkMail",
       mailToken,
       rechapchaToken: recaptchaToken,
       checkCode: checkCode,
-    };
-    if (data.mailToken === undefined || data.mailToken === "") {
-      setShowCheckCodeError(true);
-      setCheckCodeErrorMessages("トークンが不正です");
-      return;
     }
-    setShowError(false);
+    if (data.mailToken === undefined || data.mailToken === "") {
+      setShowCheckCodeError(true)
+      setCheckCodeErrorMessages("トークンが不正です")
+      return
+    }
+    setShowError(false)
     const res = await fetch("/api/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(data),
-    });
-    const response = await res.json();
+    })
+    const response = await res.json()
     if (response.status !== true) {
-      setShowCheckCodeError(true);
-      setCheckCodeErrorMessages("トークンが不正です");
+      setShowCheckCodeError(true)
+      setCheckCodeErrorMessages("トークンが不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
+      )
     } else {
-      setShowFrom("registering");
+      setShowFrom("registering")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
+      )
     }
-  };
+  }
   const registerHandleSubmit = async (
     event: JSX.TargetedEvent<HTMLFormElement, Event>,
   ) => {
-    event.preventDefault();
-    console.log();
+    event.preventDefault()
+    console.log()
     const data = {
       requirments: "mainRegister",
       userName,
@@ -211,108 +211,108 @@ export default function RegisterForm(
       rechapchaToken: recaptchaToken,
       mailToken,
       isagreement,
-    };
+    }
     if (
       data.userName === undefined || data.nickName === undefined ||
       data.password === undefined || data.age === undefined ||
       data.userName === "" || data.nickName === "" || data.password === "" ||
       data.age === ""
     ) {
-      setShowError(true);
-      setErrorMessages("全ての項目を入力してください");
-      return;
+      setShowError(true)
+      setErrorMessages("全ての項目を入力してください")
+      return
     }
     //ユーザーネーム検証
     if (/^[a-zA-Z0-9-_]{4,16}$/.test(data.userName) === false) {
-      setShowUserNameError(true);
-      setUserNameErrorMessages("ユーザーネームが不正です");
+      setShowUserNameError(true)
+      setUserNameErrorMessages("ユーザーネームが不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
     //パスワード検証
     if (/^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(data.password) === false) {
-      setShowPasswordError(true);
-      setPasswordErrorMessages("パスワードが不正です");
+      setShowPasswordError(true)
+      setPasswordErrorMessages("パスワードが不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
     if (data.age < 1 || data.age > 120) {
-      setShowAgeError(true);
-      setAgeErrorMessages("年齢が不正です");
+      setShowAgeError(true)
+      setAgeErrorMessages("年齢が不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
     if (/^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(nickName) === false) {
-      setShowNickNameError(true);
-      setNickNameErrorMessages("ニックネームが不正です");
+      setShowNickNameError(true)
+      setNickNameErrorMessages("ニックネームが不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
     if (isagreement === false) {
-      setShowIsAgreementError(true);
-      setIsAgreementErrorMessages("利用規約に同意してください");
+      setShowIsAgreementError(true)
+      setIsAgreementErrorMessages("利用規約に同意してください")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
-      return;
+      )
+      return
     }
-    setShowError(false);
+    setShowError(false)
     const res = await fetch("/api/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(data),
-    });
-    const response = await res.json();
+    })
+    const response = await res.json()
     if (response.status !== true) {
-      setShowError(true);
+      setShowError(true)
       switch (response.error) {
         case "userName":
-          setShowUserNameError(true);
-          setUserNameErrorMessages("ユーザーネームが重複しています");
-          break;
+          setShowUserNameError(true)
+          setUserNameErrorMessages("ユーザーネームが重複しています")
+          break
         case "nickName":
-          setShowNickNameError(true);
-          setNickNameErrorMessages("ニックネームが重複しています");
-          break;
+          setShowNickNameError(true)
+          setNickNameErrorMessages("ニックネームが重複しています")
+          break
         case "input":
-          alert("入力が不正です");
-          break;
+          alert("入力が不正です")
+          break
         case "recaptcha":
-          alert("reCAPTCHAが正しくありません");
-          break;
+          alert("reCAPTCHAが正しくありません")
+          break
         default:
-          alert("不明なエラーが発生しました" + response.error);
-          break;
+          alert("不明なエラーが発生しました" + response.error)
+          break
       }
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
-          setRecaptchaToken(token);
+          setRecaptchaToken(token)
         },
-      );
+      )
     } else {
-      setShowFrom("finished");
+      setShowFrom("finished")
     }
-  };
+  }
   return (
     <>
       <button
@@ -400,7 +400,7 @@ export default function RegisterForm(
         </div>
       )}
     </>
-  );
+  )
 }
 function Input({
   value,
@@ -411,13 +411,13 @@ function Input({
   showError,
   errorMessage,
 }: {
-  showError: boolean;
-  errorMessage: string;
-  value: any;
-  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
-  placeholder: string;
-  title: string;
-  type: string;
+  showError: boolean
+  errorMessage: string
+  value: any
+  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void
+  placeholder: string
+  title: string
+  type: string
 }) {
   return (
     <>
@@ -439,7 +439,7 @@ function Input({
       </div>
       {showError && <div class="text-red-500 text-xs">{errorMessage}</div>}
     </>
-  );
+  )
 }
 function EmailForm({
   onChange,
@@ -448,11 +448,11 @@ function EmailForm({
   showError,
   errorMessages,
 }: {
-  onChange: any;
-  value: any;
-  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
-  showError: boolean;
-  errorMessages: string;
+  onChange: any
+  value: any
+  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void
+  showError: boolean
+  errorMessages: string
 }) {
   return (
     <>
@@ -474,7 +474,7 @@ function EmailForm({
         </button>
       </form>
     </>
-  );
+  )
 }
 function CheckEmailForm({
   onChange,
@@ -483,11 +483,11 @@ function CheckEmailForm({
   showError,
   errorMessages,
 }: {
-  onChange: any;
-  value: any;
-  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
-  showError: boolean;
-  errorMessages: string;
+  onChange: any
+  value: any
+  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void
+  showError: boolean
+  errorMessages: string
 }) {
   return (
     <>
@@ -512,7 +512,7 @@ function CheckEmailForm({
         </button>
       </form>
     </>
-  );
+  )
 }
 function MainRegisterForm({
   userNameOnChange,
@@ -537,28 +537,28 @@ function MainRegisterForm({
   ageErrorMessage,
   isAgreementErrorMessage,
 }: {
-  userNameOnChange: any;
-  nickNameOnChnage: any;
-  passwordOnChange: any;
-  ageOnChange: any;
-  agreementOnChange: any;
-  userName: string;
-  nickName: string;
-  password: string;
-  age: any;
-  isagreement: boolean;
-  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
-  showUsernameError: boolean;
-  showNickNameError: boolean;
-  showPasswordError: boolean;
-  showAgeError: boolean;
-  showIsAgreementError: boolean;
-  errorMessages: string;
-  userNameErrorMessage: string;
-  nicknameErrorMessage: string;
-  passwordErrorMessage: string;
-  ageErrorMessage: string;
-  isAgreementErrorMessage: string;
+  userNameOnChange: any
+  nickNameOnChnage: any
+  passwordOnChange: any
+  ageOnChange: any
+  agreementOnChange: any
+  userName: string
+  nickName: string
+  password: string
+  age: any
+  isagreement: boolean
+  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void
+  showUsernameError: boolean
+  showNickNameError: boolean
+  showPasswordError: boolean
+  showAgeError: boolean
+  showIsAgreementError: boolean
+  errorMessages: string
+  userNameErrorMessage: string
+  nicknameErrorMessage: string
+  passwordErrorMessage: string
+  ageErrorMessage: string
+  isAgreementErrorMessage: string
 }) {
   return (
     <>
@@ -627,5 +627,5 @@ function MainRegisterForm({
         </button>
       </form>
     </>
-  );
+  )
 }

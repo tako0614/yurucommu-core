@@ -6,13 +6,13 @@ function LogoutButton() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ reqirments: "logout" }),
-    });
-    const data = await res.json();
+    })
+    const data = await res.json()
     if (data.status === true) {
-      document.cookie = "sessionid=; max-age=0";
-      window.location.href = "/";
+      document.cookie = "sessionid=; max-age=0"
+      window.location.href = "/"
     }
-  };
+  }
   return (
     <a
       class="flex items-center gap-2 py-2 px-3 rounded-md text-sm font-medium"
@@ -37,7 +37,7 @@ function LogoutButton() {
       </svg>
       <span class="font-medium">Logout</span>
     </a>
-  );
+  )
 }
 
-export default LogoutButton;
+export default LogoutButton

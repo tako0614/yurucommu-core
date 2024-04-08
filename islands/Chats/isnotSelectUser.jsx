@@ -1,9 +1,9 @@
-import ChatTitle from "../../components/Chats/ChatTitle.jsx";
-import ChatDate from "../../components/Chats/ChatDate.jsx";
-import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx";
-import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx";
+import ChatTitle from "../../components/Chats/ChatTitle.jsx"
+import ChatDate from "../../components/Chats/ChatDate.jsx"
+import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx"
+import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx"
 export default function TalkTimeLine(props) {
-  const { userName, friendName } = props;
+  const { userName, friendName } = props
 
   return (
     <>
@@ -13,5 +13,5 @@ export default function TalkTimeLine(props) {
         </ul>
       </div>
     </>
-  );
+  )
 }

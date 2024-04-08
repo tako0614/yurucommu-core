@@ -1,4 +1,3 @@
-
 export default function User({ userName, latestMessage, icon }) {
   return (
     <>
@@ -18,7 +17,7 @@ export default function User({ userName, latestMessage, icon }) {
         </a>
       </li>
     </>
-  );
+  )
 }
 /*
 export default async function User({ userName, latestMessage }) {

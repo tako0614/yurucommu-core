@@ -99,5 +99,5 @@ export default function ChatHeader(props) {
         </ul>
       </header>
     </>
-  );
+  )
 }

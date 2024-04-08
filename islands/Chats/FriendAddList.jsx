@@ -1,9 +1,9 @@
 // deno-lint-ignore-file
-import { useEffect } from "preact/hooks";
-import { h, render } from "preact";
-import User from "./AddFriend.jsx";
-import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
-import GetAddFriendKey from "./getAddFriendKey.tsx";
+import { useEffect } from "preact/hooks"
+import { h, render } from "preact"
+import User from "./AddFriend.jsx"
+import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
+import GetAddFriendKey from "./getAddFriendKey.tsx"
 function ChatList(props) {
   return (
     <div class="p-talk-list">
@@ -16,8 +16,8 @@ function ChatList(props) {
         </ul>
       </div>
     </div>
-  );
+  )
 }
-export default ChatList;
+export default ChatList
 const AddFriendId = () => {
-};
+}

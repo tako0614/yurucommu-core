@@ -17,5 +17,5 @@ export default function User({ userName, latestMessage }) {
         </button>
       </li>
     </>
-  );
+  )
 }

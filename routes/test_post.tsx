@@ -1,4 +1,4 @@
-import { Handlers, PageProps } from "$fresh/server.ts";
+import { Handlers, PageProps } from "$fresh/server.ts"
 
 export default function GetSendPage() {
   return (
@@ -8,5 +8,5 @@ export default function GetSendPage() {
         <button type="submit">Submit</button>
       </form>
     </div>
-  );
+  )
 }

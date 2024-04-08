@@ -1,42 +1,42 @@
-import RegisterForm from "../islands/RegisterForm.tsx";
-import LoginForm from "../islands/LoginForm.tsx";
-import { useEffect, useState } from "preact/hooks";
-import Footer from "../components/Footer.tsx";
+import RegisterForm from "../islands/RegisterForm.tsx"
+import LoginForm from "../islands/LoginForm.tsx"
+import { useEffect, useState } from "preact/hooks"
+import Footer from "../components/Footer.tsx"
 declare global {
   interface Window {
     grecaptcha: {
-      ready: (callback: () => void) => void;
+      ready: (callback: () => void) => void
       execute: (
         siteKey: string,
         options: { action: string },
-      ) => Promise<string>;
-    };
+      ) => Promise<string>
+    }
   }
 }
 export default function Welcome({ sitekey }: { sitekey: string }) {
-  const [recaptchaToken, setRecaptchaToken] = useState("");
-  const [recaptchaLoaded, setRecaptchaLoaded] = useState(false);
+  const [recaptchaToken, setRecaptchaToken] = useState("")
+  const [recaptchaLoaded, setRecaptchaLoaded] = useState(false)
   useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://www.google.com/recaptcha/api.js?render=" + sitekey;
-    script.async = true;
+    const script = document.createElement("script")
+    script.src = "https://www.google.com/recaptcha/api.js?render=" + sitekey
+    script.async = true
     script.onload = () => {
-      setRecaptchaLoaded(true);
-    };
-    document.body.appendChild(script);
-  }, [sitekey]);
+      setRecaptchaLoaded(true)
+    }
+    document.body.appendChild(script)
+  }, [sitekey])
 
   useEffect(() => {
     if (recaptchaLoaded) {
       window.grecaptcha.ready(() => {
         window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
           (token) => {
-            setRecaptchaToken(token);
+            setRecaptchaToken(token)
           },
-        );
-      });
+        )
+      })
     }
-  }, [recaptchaLoaded, sitekey]);
+  }, [recaptchaLoaded, sitekey])
   return (
     <>
       <div class="">
@@ -78,8 +78,8 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
       </div>
       <Footer></Footer>
     </>
-  );
+  )
 }
 function setRecaptcha(token: string) {
-  throw new Error("Function not implemented.");
+  throw new Error("Function not implemented.")
 }

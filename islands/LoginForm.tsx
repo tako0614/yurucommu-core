@@ -1,67 +1,67 @@
-import { useEffect, useState } from "preact/hooks";
-import { h, JSX } from "preact";
+import { useEffect, useState } from "preact/hooks"
+import { h, JSX } from "preact"
 
 interface LoginFormProps {
-  onUserNameChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
-  onPasswordChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
-  userNameValue: string;
-  passwordValue: string;
-  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void;
-  showUserNameError: boolean;
-  userNameError: string;
-  showPasswordError: boolean;
-  passwordError: string;
+  onUserNameChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void
+  onPasswordChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void
+  userNameValue: string
+  passwordValue: string
+  onSubmit: (event: h.JSX.TargetedEvent<HTMLFormElement, Event>) => void
+  showUserNameError: boolean
+  userNameError: string
+  showPasswordError: boolean
+  passwordError: string
 }
 
 interface InputProps {
-  showError: boolean;
-  errorMessage: string;
-  value: string;
-  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void;
-  placeholder: string;
-  title: string;
-  type: string;
+  showError: boolean
+  errorMessage: string
+  value: string
+  onChange: (event: h.JSX.TargetedEvent<HTMLInputElement>) => void
+  placeholder: string
+  title: string
+  type: string
 }
 
 export default function RegisterForm(
   { text, token }: { text: string; token: string },
 ) {
-  const [showModal, setShowModal] = useState(false);
-  const [showForm, setShowFrom] = useState(false);
+  const [showModal, setShowModal] = useState(false)
+  const [showForm, setShowFrom] = useState(false)
   const handleButtonClick = () => {
-    setShowModal(!showModal);
-  };
-  const [userName, setUserName] = useState("");
-  const [password, setPassword] = useState("");
-  const [showUserNameError, setShowUserNameError] = useState(false);
-  const [showPasswordError, setShowPasswordError] = useState(false);
-  const [userNameError, setUserNameError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
+    setShowModal(!showModal)
+  }
+  const [userName, setUserName] = useState("")
+  const [password, setPassword] = useState("")
+  const [showUserNameError, setShowUserNameError] = useState(false)
+  const [showPasswordError, setShowPasswordError] = useState(false)
+  const [userNameError, setUserNameError] = useState("")
+  const [passwordError, setPasswordError] = useState("")
 
   const handleUserNameChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setUserName(event.currentTarget.value);
-  };
+    setUserName(event.currentTarget.value)
+  }
 
   const handlePasswordChange = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
-    setPassword(event.currentTarget.value);
-  };
+    setPassword(event.currentTarget.value)
+  }
   const handleSubmit = async (
     event: h.JSX.TargetedEvent<HTMLFormElement, Event>,
   ) => {
-    event.preventDefault();
+    event.preventDefault()
     const values = {
       userName,
       password,
       sitekey: token,
-    };
+    }
 
     if (values.userName === "" || values.password === "") {
-      alert("全ての項目を入力してください");
-      return;
+      alert("全ての項目を入力してください")
+      return
     }
 
     const res = await fetch("./api/logins/login", {
@@ -70,35 +70,35 @@ export default function RegisterForm(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(values),
-    });
-    const response = await res.json();
+    })
+    const response = await res.json()
     if (response.status === true) {
-      window.location.href = "/";
+      window.location.href = "/"
     } else {
       switch (response.error) {
         case "input":
-          setUserNameError("ユーザーネームまたはパスワードが不正です");
-          setShowUserNameError(true);
-          setPasswordError("ユーザーネームまたはパスワードが不正です");
-          setShowPasswordError(true);
-          break;
+          setUserNameError("ユーザーネームまたはパスワードが不正です")
+          setShowUserNameError(true)
+          setPasswordError("ユーザーネームまたはパスワードが不正です")
+          setShowPasswordError(true)
+          break
         case "userNotFound":
-          setUserNameError("ユーザーが見つかりません");
-          setShowUserNameError(true);
-          break;
+          setUserNameError("ユーザーが見つかりません")
+          setShowUserNameError(true)
+          break
         case "password":
-          setPasswordError("パスワードが不正です");
-          setShowPasswordError(true);
-          break;
+          setPasswordError("パスワードが不正です")
+          setShowPasswordError(true)
+          break
         default:
-          setUserNameError("ユーザーネームまたはパスワードが不正です");
-          setShowUserNameError(true);
-          setPasswordError("ユーザーネームまたはパスワードが不正です");
-          setShowPasswordError(true);
-          break;
+          setUserNameError("ユーザーネームまたはパスワードが不正です")
+          setShowUserNameError(true)
+          setPasswordError("ユーザーネームまたはパスワードが不正です")
+          setShowPasswordError(true)
+          break
       }
     }
-  };
+  }
 
   return (
     <>
@@ -141,7 +141,7 @@ export default function RegisterForm(
         </div>
       )}
     </>
-  );
+  )
 }
 
 function Input({
@@ -173,7 +173,7 @@ function Input({
       </div>
       {showError && <div class="text-red-500 text-xs">{errorMessage}</div>}
     </>
-  );
+  )
 }
 
 function LoginForm({
@@ -216,5 +216,5 @@ function LoginForm({
         </button>
       </form>
     </>
-  );
+  )
 }

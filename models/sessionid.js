@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 
 export const sessionidSchema = new mongoose.Schema({
   userName: {
@@ -6,7 +6,7 @@ export const sessionidSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function (v) {
-        return /^[a-zA-Z0-9-_]{4,16}$/.test(v);
+        return /^[a-zA-Z0-9-_]{4,16}$/.test(v)
       },
       message: (props) => `${props.value} is not a valid username!`,
     },
@@ -27,6 +27,6 @@ export const sessionidSchema = new mongoose.Schema({
     default: Date.now,
     required: true,
   },
-});
-const ssessionID = mongoose.model("sessionid", sessionidSchema);
-export default ssessionID;
+})
+const ssessionID = mongoose.model("sessionid", sessionidSchema)
+export default ssessionID

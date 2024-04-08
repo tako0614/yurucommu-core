@@ -1,13 +1,13 @@
 // routes/_app.tsx
-import Header from "../components/Header.tsx";
-import Footer from "../components/Footer.tsx";
+import Header from "../components/Header.tsx"
+import Footer from "../components/Footer.tsx"
 // deno-lint-ignore no-explicit-any
 function Title({ children }: any) {
   return (
     <h2 class="text-3xl text-left text-white font-size mt-14 border-b-2 border-indigo-500">
       {children}
     </h2>
-  );
+  )
 }
 // deno-lint-ignore no-explicit-any
 function Value({ children }: any) {
@@ -15,7 +15,7 @@ function Value({ children }: any) {
     <div class="ml-5">
       {children}
     </div>
-  );
+  )
 }
 export default function privacy() {
   return (
@@ -137,5 +137,5 @@ export default function privacy() {
       </div>
       <Footer />
     </html>
-  );
+  )
 }

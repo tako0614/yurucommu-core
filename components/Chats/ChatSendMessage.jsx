@@ -15,16 +15,16 @@ const ChatSendMessage = ({ message, time, isRead }) => {
         </div>
       </div>
     </li>
-  );
-};
-export default ChatSendMessage;
+  )
+}
+export default ChatSendMessage
 function convertTime(time) {
-  const date = new Date(time);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? "午後" : "午前";
-  const hour = hours % 12;
-  const zeroPaddingHour = hour === 0 ? 12 : hour;
-  const zeroPaddingMinutes = String(minutes).padStart(2, "0");
-  return `${ampm} ${zeroPaddingHour}:${zeroPaddingMinutes}`;
+  const date = new Date(time)
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const ampm = hours >= 12 ? "午後" : "午前"
+  const hour = hours % 12
+  const zeroPaddingHour = hour === 0 ? 12 : hour
+  const zeroPaddingMinutes = String(minutes).padStart(2, "0")
+  return `${ampm} ${zeroPaddingHour}:${zeroPaddingMinutes}`
 }

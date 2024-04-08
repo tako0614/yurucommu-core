@@ -22,6 +22,6 @@ const ChatTitile = ({ title }) => {
         <p>{title}</p>
       </div>
     </>
-  );
-};
-export default ChatTitile;
+  )
+}
+export default ChatTitile

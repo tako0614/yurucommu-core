@@ -1,8 +1,8 @@
-import { AppProps } from "$fresh/server.ts";
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts";
-const env = await load();
-import { createContext } from "preact/compat";
-export const Context = createContext(env);
+import { AppProps } from "$fresh/server.ts"
+import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
+const env = await load()
+import { createContext } from "preact/compat"
+export const Context = createContext(env)
 export default function App({ Component }: AppProps) {
   return (
     <>
@@ -14,5 +14,5 @@ export default function App({ Component }: AppProps) {
         <Component />
       </body>
     </>
-  );
+  )
 }

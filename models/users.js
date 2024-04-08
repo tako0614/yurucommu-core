@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 const usersSchema = new mongoose.Schema({
   userName: {
     type: String,
@@ -6,7 +6,7 @@ const usersSchema = new mongoose.Schema({
     unique: true,
     validate: {
       validator: function (v) {
-        return /^[a-zA-Z0-9-_]{4,16}$/.test(v);
+        return /^[a-zA-Z0-9-_]{4,16}$/.test(v)
       },
       message: (props) => `${props.value} is not a valid username!`,
     },
@@ -16,7 +16,7 @@ const usersSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function (v) {
-        return /^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(v);
+        return /^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(v)
       },
       message: (props) => `${props.value} is not a valid password!`,
     },
@@ -27,7 +27,7 @@ const usersSchema = new mongoose.Schema({
     unique: true,
     validate: {
       validator: function (v) {
-        return /^[\w-]+@[\w-]+\.[a-z]{2,3}$/.test(v);
+        return /^[\w-]+@[\w-]+\.[a-z]{2,3}$/.test(v)
       },
       message: (props) => `${props.value} is not a valid mail address!`,
     },
@@ -48,7 +48,7 @@ const usersSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function (v) {
-        return /^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(v);
+        return /^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(v)
       },
       message: (props) => `${props.value} is not a valid mail address!`,
     },
@@ -61,6 +61,6 @@ const usersSchema = new mongoose.Schema({
     type: String,
   },
   timestamp: { type: Date, default: Date.now },
-});
-const users = mongoose.model("users", usersSchema);
-export default users;
+})
+const users = mongoose.model("users", usersSchema)
+export default users

@@ -1,5 +1,5 @@
-import TalkTimeLine from "./TalkTimeLine.jsx";
-import IsnotSelectUser from "./isnotSelectUser.jsx";
+import TalkTimeLine from "./TalkTimeLine.jsx"
+import IsnotSelectUser from "./isnotSelectUser.jsx"
 export default function ChatTalk(props) {
   return (
     <>
@@ -29,5 +29,5 @@ export default function ChatTalk(props) {
         </div>
       </div>
     </>
-  );
+  )
 }

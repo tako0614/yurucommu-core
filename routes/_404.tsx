@@ -1,5 +1,5 @@
-import { Head } from "$fresh/runtime.ts";
-import Header from "../components/Header.tsx";
+import { Head } from "$fresh/runtime.ts"
+import Header from "../components/Header.tsx"
 export default function Error404() {
   return (
     <>
@@ -18,5 +18,5 @@ export default function Error404() {
         </p>
       </footer>
     </>
-  );
+  )
 }

@@ -20,5 +20,5 @@ export function SecsusPage() {
         </div>
       </div>
     </div>
-  );
+  )
 }

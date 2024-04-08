@@ -1,6 +1,6 @@
-import { useState } from "preact/hooks";
-import ChatList from "./ChatList.jsx";
-import ChatTalk from "./ChatTalk.jsx";
+import { useState } from "preact/hooks"
+import ChatList from "./ChatList.jsx"
+import ChatTalk from "./ChatTalk.jsx"
 export default function ChatMain(props) {
   if (props.isAddFriendForm) {
     return (
@@ -16,7 +16,7 @@ export default function ChatMain(props) {
         >
         </ChatTalk>
       </>
-    );
+    )
   }
   return (
     <>
@@ -30,5 +30,5 @@ export default function ChatMain(props) {
       >
       </ChatTalk>
     </>
-  );
+  )
 }

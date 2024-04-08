@@ -1,10 +1,10 @@
-import { useEffect } from "preact/hooks";
+import { useEffect } from "preact/hooks"
 export default function PleaseLogin() {
   useEffect(() => {
     setTimeout(() => {
-      window.location.href = "/";
-    }, 5000);
-  }, []);
+      window.location.href = "/"
+    }, 5000)
+  }, [])
   return (
     <>
       <div>
@@ -12,5 +12,5 @@ export default function PleaseLogin() {
         <p>5秒後にトップにリダイレクトされます</p>
       </div>
     </>
-  );
+  )
 }

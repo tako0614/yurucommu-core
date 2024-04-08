@@ -1,6 +1,6 @@
-import Footer from "../Footer.tsx";
-import ChatMain from "../../islands/Chats/ChatMain.jsx";
-import ChatHeader from "../../islands/Chats/ChatHeader.jsx";
+import Footer from "../Footer.tsx"
+import ChatMain from "../../islands/Chats/ChatMain.jsx"
+import ChatHeader from "../../islands/Chats/ChatHeader.jsx"
 export default function Talks(props) {
   if (props.isAddFriendForm) {
     return (
@@ -17,7 +17,7 @@ export default function Talks(props) {
         </div>
         <Footer></Footer>
       </>
-    );
+    )
   }
   return (
     <>
@@ -34,5 +34,5 @@ export default function Talks(props) {
       </div>
       <Footer></Footer>
     </>
-  );
+  )
 }

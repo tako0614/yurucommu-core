@@ -1,4 +1,4 @@
-import HeaderMenu from "../islands/HeaderMenu.tsx";
+import HeaderMenu from "../islands/HeaderMenu.tsx"
 
 const Contents = () => (
   <>
@@ -6,7 +6,7 @@ const Contents = () => (
     <div>About</div>
     <div>SNS(開発中)</div>
   </>
-);
+)
 
 export default function Header() {
   return (
@@ -39,5 +39,5 @@ export default function Header() {
         </li>
       </ul>
     </div>
-  );
+  )
 }

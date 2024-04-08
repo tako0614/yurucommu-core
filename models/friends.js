@@ -1,4 +1,4 @@
-import { mongoose } from "mongoose";
+import { mongoose } from "mongoose"
 
 export const friendsSchema = new mongoose.Schema({
   user: {
@@ -22,6 +22,6 @@ export const friendsSchema = new mongoose.Schema({
     },
   ],
   timestamp: { type: Date, default: Date.now },
-});
-const friends = mongoose.model("friends", friendsSchema);
-export default friends;
+})
+const friends = mongoose.model("friends", friendsSchema)
+export default friends

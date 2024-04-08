@@ -20,8 +20,8 @@ const ChatOtherMessage = ({ sender, message, time }) => {
         </div>
       </div>
     </li>
-  );
-};
+  )
+}
 //preactで動作する改行を反映させるために、改行コードをbrタグに変換する関数
 function convertLineBreak(message) {
   return message.split("\n").map((line, index) => (
@@ -29,17 +29,17 @@ function convertLineBreak(message) {
       {line}
       <br />
     </span>
-  ));
+  ))
 }
 //Date型のデータを受け取り、午前か午後何時何分かを返す関数
 function convertTime(time) {
-  const date = new Date(time);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? "午後" : "午前";
-  const hour = hours % 12;
-  const zeroPaddingHour = hour === 0 ? 12 : hour;
-  const zeroPaddingMinutes = String(minutes).padStart(2, "0");
-  return `${ampm} ${zeroPaddingHour}:${zeroPaddingMinutes}`;
+  const date = new Date(time)
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const ampm = hours >= 12 ? "午後" : "午前"
+  const hour = hours % 12
+  const zeroPaddingHour = hour === 0 ? 12 : hour
+  const zeroPaddingMinutes = String(minutes).padStart(2, "0")
+  return `${ampm} ${zeroPaddingHour}:${zeroPaddingMinutes}`
 }
-export default ChatOtherMessage;
+export default ChatOtherMessage

@@ -1,36 +1,36 @@
-import { useEffect, useState } from "preact/hooks";
-import { h, JSX } from "preact";
+import { useEffect, useState } from "preact/hooks"
+import { h, JSX } from "preact"
 interface InputProps {
-  value: string;
-  setValue: (value: string) => void;
-  origin: string;
+  value: string
+  setValue: (value: string) => void
+  origin: string
 }
 
 export default function RegisterForm(props: any) {
-  const [showModal, setShowModal] = useState(false);
-  const [value, setValue] = useState("");
+  const [showModal, setShowModal] = useState(false)
+  const [value, setValue] = useState("")
   const handleButtonClick = () => {
-    setShowModal(!showModal);
-  };
+    setShowModal(!showModal)
+  }
   useEffect(() => {
     const fetchData = async () => {
-      const resp = await fetch("./api/chats/getAddFriendKey?reload=false");
-      const data = await resp.json();
+      const resp = await fetch("./api/chats/getAddFriendKey?reload=false")
+      const data = await resp.json()
       if (data.status === false) {
-        console.log("error");
-        return;
+        console.log("error")
+        return
       }
-      const url = props.origin + data.addFriendKey;
-      setValue(url);
-    };
-    fetchData();
-  }, [showModal]);
+      const url = props.origin + data.addFriendKey
+      setValue(url)
+    }
+    fetchData()
+  }, [showModal])
   return (
     <>
       <li class="c-talk-rooms">
         <a
           onClick={() => {
-            setShowModal(!showModal);
+            setShowModal(!showModal)
           }}
         >
           <div class="c-talk-rooms-icon">
@@ -75,14 +75,14 @@ export default function RegisterForm(props: any) {
         </div>
       )}
     </>
-  );
+  )
 }
 async function copyToClipboard(value: string) {
   try {
-    await navigator.clipboard.writeText(value);
-    alert("urlをコピーしました！");
+    await navigator.clipboard.writeText(value)
+    alert("urlをコピーしました！")
   } catch (err) {
-    alert("Failed to copy!");
+    alert("Failed to copy!")
   }
 }
 function Input({
@@ -91,19 +91,19 @@ function Input({
   origin,
 }: InputProps) {
   const handleChangeUrl = (event: any) => {
-    event.preventDefault();
+    event.preventDefault()
     const updateurl = async () => {
-      const resp = await fetch("./api/chats/getAddFriendKey?reload=true");
-      const data = await resp.json();
+      const resp = await fetch("./api/chats/getAddFriendKey?reload=true")
+      const data = await resp.json()
       if (data.status === false) {
-        console.log("error");
-        return;
+        console.log("error")
+        return
       }
-      const url = origin + data.addFriendKey;
-      setValue(url);
-    };
-    updateurl();
-  };
+      const url = origin + data.addFriendKey
+      setValue(url)
+    }
+    updateurl()
+  }
   return (
     <>
       <label
@@ -132,7 +132,7 @@ function Input({
         <div class="1/2">
           <button
             onClick={() => {
-              copyToClipboard(value);
+              copyToClipboard(value)
             }}
             type="submit"
             class="text-white h-10 bg-blue-700 hover:bg-blue-800 focus:ring-4 p-2.5 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
@@ -142,5 +142,5 @@ function Input({
         </div>
       </div>
     </>
-  );
+  )
 }

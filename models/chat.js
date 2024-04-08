@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 
 export const chatSchema = new mongoose.Schema({
   room: {
@@ -18,6 +18,6 @@ export const chatSchema = new mongoose.Schema({
     required: true,
   },
   timestamp: { type: Date, default: Date.now },
-});
-const chat = mongoose.model("chat", chatSchema);
-export default chat;
+})
+const chat = mongoose.model("chat", chatSchema)
+export default chat

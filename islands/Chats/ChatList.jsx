@@ -1,54 +1,58 @@
 // deno-lint-ignore-file
-import { useEffect, useState } from "preact/hooks";
-import { h, render } from "preact";
-import User from "../../components/Chats/ChatUserList.jsx";
-import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs";
+import { useEffect, useState } from "preact/hooks"
+import { h, render } from "preact"
+import User from "../../components/Chats/ChatUserList.jsx"
+import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
 function ChatList(props) {
   const [showAddFriendForm, setShowAddFriendForm] = useState(
     props.isAddFriendForm,
-  );
+  )
   useEffect(async () => {
     const csrftokenres = await fetch(
       "./api/csrfToken?origin=http://localhost:8000",
       {
         method: "GET",
       },
-    );
-    const csrftoken = await csrftokenres.json();
+    )
+    const csrftoken = await csrftokenres.json()
     const result = await fetch("./api/chats/friendList", {
       method: "POST",
       body: JSON.stringify({
         csrftoken: csrftoken.csrftoken,
       }),
-    });
-    const res = await result.json();
+    })
+    const res = await result.json()
     if (res.status == "You are alone") {
-      const ListElement = document.getElementById("friendList");
+      const ListElement = document.getElementById("friendList")
       render(
-        <User userName="友達がいません！！" latestMessage="ざぁこ♡ざぁこ♡" icon="./people.png" />,
+        <User
+          userName="友達がいません！！"
+          latestMessage="ざぁこ♡ざぁこ♡"
+          icon="./people.png"
+        />,
         ListElement,
-      );
-      return;
+      )
+      return
     }
-    let ListElement;
+    let ListElement
     result.sort((a, b) => {
-      a.latestMessageTime - b.latestMessageTime;
-    });
-    let elements = [];
+      a.latestMessageTime - b.latestMessageTime
+    })
+    let elements = []
     result.map((friend) => {
-      const icon = `./api/friends/getFriendIcon?friendName=${friend.userName}`;
+      const icon = `./api/friends/getFriendIcon?friendName=${friend.userName}`
       const element = (
         <User
           userName={friend.userName}
           latestMessage={friend.latestMessage}
           icon={icon}
         />
-      );
-      elements.push(element);
-    });
-    document.getElementById("friendList").appendChild(user);
-    render(elements, ListElement);
-  }, []);
+      )
+      elements.push(element)
+    })
+    document.getElementById("friendList").appendChild(user)
+    render(elements, ListElement)
+  }, [])
   return (
     <>
       {showAddFriendForm && (
@@ -73,12 +77,12 @@ function ChatList(props) {
         </div>
       </div>
     </>
-  );
+  )
 }
 const AddFriendForm = (props) => {
   useEffect(() => {
-    const addFriendKey = props.addFriendKey;
-  }, []);
+    const addFriendKey = props.addFriendKey
+  }, [])
   return (
     <>
       <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
@@ -87,7 +91,7 @@ const AddFriendForm = (props) => {
             <span
               class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
               onClick={() => {
-                window.location.href = "./";
+                window.location.href = "./"
               }}
             >
               ×
@@ -99,7 +103,7 @@ const AddFriendForm = (props) => {
         </div>
       </div>
     </>
-  );
-};
+  )
+}
 
-export default ChatList;
+export default ChatList
