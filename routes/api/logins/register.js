@@ -219,6 +219,26 @@ export const handler = {
     } else if (requirments === "checkMail") {
       const mailToken = await data.mailToken
       const checkCode = await data.checkCode
+      const missCheck = await tempUsers.findOne({ key: mailToken }, { missCheck: 1 })
+      if(missCheck === null){
+        return new Response(
+          JSON.stringify({ "status": false, error: "key" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          },
+        )
+      }
+      if(missCheck.missCheck > 5){
+        await tempUsers.deleteMany({ key: mailToken })
+        return new Response(
+          JSON.stringify({ "status": false, error: "missCheck" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          },
+        )
+      }
       if (
         mailToken === undefined || mailToken === "" || mailToken === null ||
         checkCode === undefined || checkCode === "" || checkCode === null
@@ -233,12 +253,18 @@ export const handler = {
       }
       const tempUserInfo = await tempUsers.findOne({ key: mailToken })
       if (tempUserInfo === null) {
+        await tempUsers.updateOne({ key: mailToken }, {
+          $inc: { missCheck: 1 },
+        })
         return new Response(JSON.stringify({ "status": false, error: "key" }), {
           headers: { "Content-Type": "application/json" },
           status: 403,
         })
       }
       if (tempUserInfo.checkCode != checkCode) {
+        await tempUsers.updateOne({ key: mailToken }, {
+          $inc: { missCheck: 1 },
+        })
         return new Response(
           JSON.stringify({ "status": false, error: "token" }),
           {

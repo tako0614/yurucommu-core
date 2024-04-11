@@ -27,6 +27,10 @@ export const tempUsersSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  missCheck: {
+    type: Number,
+    default: 0,
+  },
   timestamp: { type: Date, default: Date.now },
 })
 const tempUsers = mongoose.model("tempUsers", tempUsersSchema)
