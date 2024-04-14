@@ -219,8 +219,10 @@ export const handler = {
     } else if (requirments === "checkMail") {
       const mailToken = await data.mailToken
       const checkCode = await data.checkCode
-      const missCheck = await tempUsers.findOne({ key: mailToken }, { missCheck: 1 })
-      if(missCheck === null){
+      const missCheck = await tempUsers.findOne({ key: mailToken }, {
+        missCheck: 1,
+      })
+      if (missCheck === null) {
         return new Response(
           JSON.stringify({ "status": false, error: "key" }),
           {
@@ -229,7 +231,7 @@ export const handler = {
           },
         )
       }
-      if(missCheck.missCheck > 5){
+      if (missCheck.missCheck > 5) {
         await tempUsers.deleteMany({ key: mailToken })
         return new Response(
           JSON.stringify({ "status": false, error: "missCheck" }),
