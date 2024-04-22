@@ -19,7 +19,7 @@ import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
 import * as $api_chats_talk from "./routes/api/chats/talk.js";
 import * as $api_csrfToken from "./routes/api/csrfToken.js";
-import * as $api_logins_login from "./routes/api/logins/login.js";
+import * as $api_logins_login from "./routes/api/logins/login.ts";
 import * as $api_logins_logout from "./routes/api/logins/logout.js";
 import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
@@ -69,7 +69,7 @@ const manifest = {
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
     "./routes/api/chats/talk.js": $api_chats_talk,
     "./routes/api/csrfToken.js": $api_csrfToken,
-    "./routes/api/logins/login.js": $api_logins_login,
+    "./routes/api/logins/login.ts": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,

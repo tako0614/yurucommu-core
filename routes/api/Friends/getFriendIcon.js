@@ -10,9 +10,10 @@ export const handler = {
         status: 401,
       })
     }
-    const userName = ctx.data.userName
+    const url = new URL(req.url)
+    const userName = ctx.state.data.userName
     const friendName = url.searchParams.get("friendName") || ""
-    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || ""
+    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || false
     if(isuseAddFriendKey == "true"){
       const addFriendKey = url.searchParams.get("addFriendKey") || ""
       if(addFriendKey == ""){
@@ -21,23 +22,18 @@ export const handler = {
           status: 400,
         })
       }
-      const user = await users.findOne({ userName:  addFriendKey})
+      console.log(addFriendKey)
+      const user = await users.findOne({ addFriendKey:  addFriendKey})
       if(user == null){
         return new Response(JSON.stringify({ "status": "No such user" }), {
           headers: { "Content-Type": "application/json" },
           status: 400,
         })
       }
-      const friend = await friends.findOne({ userName: userName })
-      if(friend == null){
-        return new Response(JSON.stringify({ "status": "You are alone" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 200,
-        })
-      }
       try {
         const result = await Deno.readFile(
-          "../../files/userIcons/" + friend._id + ".webp",
+          //"../../../../files/userIcons/" + user._id + ".webp"
+          "./files/userIcons/" + user._id + ".webp"
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
@@ -51,21 +47,23 @@ export const handler = {
         })
       }
     }
+    //フレンドのアイコンを取得
+    //未実装
     if (friendName == "") {
       return new Response(JSON.stringify({ "status": "No userName" }), {
         headers: { "Content-Type": "application/json" },
         status: 400,
       })
     }
-    const friends = await friends.find({ userName: userName })
-    if (friends == null) {
+    const friend = await friends.find({ userName: userName })
+    if (friend == null) {
       return new Response(JSON.stringify({ "status": "You are alone" }), {
         headers: { "Content-Type": "application/json" },
         status: 200,
       })
     }
     if (
-      friends.friends.find((friend) => friend.userName == friendName) == null
+      friend.find((friend) => friend.userName == friendName) == null
     ) {
       return new Response(JSON.stringify({ "status": "No such friend" }), {
         headers: { "Content-Type": "application/json" },
