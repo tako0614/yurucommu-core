@@ -12,6 +12,45 @@ export const handler = {
     }
     const userName = ctx.data.userName
     const friendName = url.searchParams.get("friendName") || ""
+    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || ""
+    if(isuseAddFriendKey == "true"){
+      const addFriendKey = url.searchParams.get("addFriendKey") || ""
+      if(addFriendKey == ""){
+        return new Response(JSON.stringify({ "status": "No addFriendKey" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        })
+      }
+      const user = await users.findOne({ userName:  addFriendKey})
+      if(user == null){
+        return new Response(JSON.stringify({ "status": "No such user" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        })
+      }
+      const friend = await friends.findOne({ userName: userName })
+      if(friend == null){
+        return new Response(JSON.stringify({ "status": "You are alone" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        })
+      }
+      try {
+        const result = await Deno.readFile(
+          "../../files/userIcons/" + friend._id + ".webp",
+        )
+        return new Response(result, {
+          headers: { "Content-Type": "image/webp" },
+          status: 200,
+        })
+      } catch (error) {
+        console.log(error)
+        return new Response("./people.png", {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        })
+      }
+    }
     if (friendName == "") {
       return new Response(JSON.stringify({ "status": "No userName" }), {
         headers: { "Content-Type": "application/json" },
