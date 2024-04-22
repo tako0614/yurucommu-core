@@ -56,7 +56,11 @@ function ChatList(props) {
   return (
     <>
       {showAddFriendForm && (
-        <AddFriendForm isAddFriendForm={showAddFriendForm} setShowAddFriendForm={setShowAddFriendForm} addFriendKey={props.addFriendKey} />
+        <AddFriendForm
+          isAddFriendForm={showAddFriendForm}
+          setShowAddFriendForm={setShowAddFriendForm}
+          addFriendKey={props.addFriendKey}
+        />
       )}
       <div class="p-talk-list">
         <h1 class="p-talk-list-title">トーク</h1>
@@ -83,9 +87,12 @@ const AddFriendForm = (props) => {
   const [addFriendInfo, setAddFriendInfo] = useState([])
   useEffect(async () => {
     const addFriendKey = props.addFriendKey
-    const addFriendInfoTemp = await fetch("./api/Friends/getFriendInfoById?key=" + addFriendKey, {
-      method: "GET",
-    })
+    const addFriendInfoTemp = await fetch(
+      "./api/Friends/getFriendInfoById?key=" + addFriendKey,
+      {
+        method: "GET",
+      },
+    )
     const res = await addFriendInfoTemp.json()
     setAddFriendInfo(res)
   }, [])
@@ -108,15 +115,21 @@ const AddFriendForm = (props) => {
               <h1 class="text-3xl mb-10">友達を追加</h1>
               <div class="w-full bg-gray-700 h-screen">
                 <div class="text-lg">{addFriendInfo.data}</div>
-                <img src={() => {
-                  const icon = fetch("./api/friends/getFriendIcon?friendName=" + addFriendInfo.userName)
-                }} alt="" />
+                <img
+                  src={() => {
+                    const icon = fetch(
+                      "./api/friends/getFriendIcon?friendName=" +
+                        addFriendInfo.userName,
+                    )
+                  }}
+                  alt=""
+                />
                 <button
-          type="submit"
-          class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-        >
-          申請する
-        </button>
+                  type="submit"
+                  class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+                >
+                  申請する
+                </button>
               </div>
             </div>
           </div>

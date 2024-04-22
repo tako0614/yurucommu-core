@@ -13,18 +13,19 @@ export const handler = {
     const url = new URL(req.url)
     const userName = ctx.state.data.userName
     const friendName = url.searchParams.get("friendName") || ""
-    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || false
-    if(isuseAddFriendKey == "true"){
+    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") ||
+      false
+    if (isuseAddFriendKey == "true") {
       const addFriendKey = url.searchParams.get("addFriendKey") || ""
-      if(addFriendKey == ""){
+      if (addFriendKey == "") {
         return new Response(JSON.stringify({ "status": "No addFriendKey" }), {
           headers: { "Content-Type": "application/json" },
           status: 400,
         })
       }
       console.log(addFriendKey)
-      const user = await users.findOne({ addFriendKey:  addFriendKey})
-      if(user == null){
+      const user = await users.findOne({ addFriendKey: addFriendKey })
+      if (user == null) {
         return new Response(JSON.stringify({ "status": "No such user" }), {
           headers: { "Content-Type": "application/json" },
           status: 400,
@@ -33,7 +34,7 @@ export const handler = {
       try {
         const result = await Deno.readFile(
           //"../../../../files/userIcons/" + user._id + ".webp"
-          "./files/userIcons/" + user._id + ".webp"
+          "./files/userIcons/" + user._id + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
