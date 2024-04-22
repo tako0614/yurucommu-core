@@ -115,15 +115,14 @@ const AddFriendForm = (props) => {
               <h1 class="text-3xl mb-10">友達を追加</h1>
               <div class="w-full bg-gray-700 h-screen">
                 <div class="text-lg">{addFriendInfo.data}</div>
-                <img
-                  src={() => {
-                    const icon = fetch(
-                      "./api/friends/getFriendIcon?friendName=" +
-                        addFriendInfo.userName,
-                    )
-                  }}
-                  alt=""
-                />
+                <div class="w-2/3 m-auto mb-10">
+                  <img
+                    src={"./api/Friends/getFriendIcon?isuseAddFriendKey=true&addFriendKey=" +
+                      props.addFriendKey}
+                    alt=""
+                    class="rounded-full mx-auto my-5"
+                  />
+                </div>
                 <button
                   type="submit"
                   class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
