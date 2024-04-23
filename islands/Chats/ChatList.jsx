@@ -2,8 +2,21 @@
 import { useEffect, useState } from "preact/hooks"
 import { h, render } from "preact"
 import User from "../../components/Chats/ChatUserList.jsx"
+import SettingList from "../SettingList.tsx"
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
 function ChatList(props) {
+  if(props.isSetting) {
+    return (
+      <div class="p-talk-list">
+      <h1 class="p-talk-list-title">設定</h1>
+      <div class="p-talk-list-rooms">
+        <ul class="p-talk-list-rooms__ul" id="friendList">
+          <SettingList></SettingList>
+        </ul>
+      </div>
+    </div>
+    )
+  }
   const [showAddFriendForm, setShowAddFriendForm] = useState(
     props.isAddFriendForm,
   )

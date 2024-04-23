@@ -35,84 +35,11 @@ export default function settingPage({ data }) {
     </>
   )
 }
-
+import Chat from "../components/Chats/Chat.jsx"
 function Setting() {
   return (
     <>
-      <div class="w-full min-h-screen bg-black text-white flex flex-col gap-0.5">
-        <div class="flex flex-1 min-h-0">
-          <nav class="border-gray-800 border-r w-60 flex flex-col">
-            <div class="p-4 flex flex-col gap-0.5">
-              <a
-                class="flex items-center gap-2 py-2 px-3 rounded-md bg-gray-800 text-sm font-medium"
-                href="#"
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="w-5 h-5"
-                >
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                <span class="font-medium">プロフィール</span>
-              </a>
-              <a
-                class="flex items-center gap-2 py-2 px-3 rounded-md text-sm font-medium"
-                href="#"
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="w-5 h-5"
-                >
-                  <rect width="18" height="11" x="3" y="11" rx="2" ry="2">
-                  </rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-                <span class="font-medium">プライバシー</span>
-              </a>
-              <a
-                class="flex items-center gap-2 py-2 px-3 rounded-md text-sm font-medium"
-                href="#"
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="w-5 h-5"
-                >
-                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z">
-                  </path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-                <span class="font-medium">その他</span>
-              </a>
-              <LogoutButton></LogoutButton>
-            </div>
-          </nav>
-          <main class="flex flex-col gap-4 p-4 min-h-0 flex-1">
-            <ProfileSetting />
-          </main>
-        </div>
-      </div>
+      return <Chat isSetting={true}></Chat>
     </>
   )
 }

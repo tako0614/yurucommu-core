@@ -42,6 +42,7 @@ import * as $LoginForm from "./islands/LoginForm.tsx";
 import * as $LogoutButton from "./islands/LogoutButton.jsx";
 import * as $PleaseLogin from "./islands/PleaseLogin.jsx";
 import * as $RegisterForm from "./islands/RegisterForm.tsx";
+import * as $SettingList from "./islands/SettingList.tsx";
 import * as $Welcome from "./islands/Welcome.tsx";
 import * as $newLoginForm from "./islands/newLoginForm.tsx";
 import { type Manifest } from "$fresh/server.ts";
@@ -91,6 +92,7 @@ const manifest = {
     "./islands/LogoutButton.jsx": $LogoutButton,
     "./islands/PleaseLogin.jsx": $PleaseLogin,
     "./islands/RegisterForm.tsx": $RegisterForm,
+    "./islands/SettingList.tsx": $SettingList,
     "./islands/Welcome.tsx": $Welcome,
     "./islands/newLoginForm.tsx": $newLoginForm,
   },

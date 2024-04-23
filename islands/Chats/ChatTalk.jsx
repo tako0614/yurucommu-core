@@ -1,6 +1,17 @@
 import TalkTimeLine from "./TalkTimeLine.jsx"
 import IsnotSelectUser from "./isnotSelectUser.jsx"
 export default function ChatTalk(props) {
+  if(props.isSetting) {
+    return (
+      <>
+        <div class="p-talk-chat">
+          <div class="p-talk-chat-container">
+            test
+          </div>
+        </div>
+      </>
+    )
+  }
   return (
     <>
       <div class="p-talk-chat">

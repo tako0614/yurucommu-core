@@ -19,6 +19,22 @@ export default function Talks(props) {
       </>
     )
   }
+  if(props.isSetting) {
+    return (
+      <>
+        <ChatHeader isChoiceUser={props.isChoiceUser} />
+        <div class="wrapper">
+          <main class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"}>
+            <ChatMain
+              isSetting={props.isSetting}
+              roomid={props.roomid}
+            />
+          </main>
+        </div>
+        <Footer></Footer>
+      </>
+    )
+  }
   return (
     <>
       <ChatHeader isChoiceUser={props.isChoiceUser} />

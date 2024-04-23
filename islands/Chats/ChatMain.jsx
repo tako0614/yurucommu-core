@@ -18,6 +18,21 @@ export default function ChatMain(props) {
       </>
     )
   }
+  if (props.isSetting) {
+    return (
+      <>
+        <ChatList
+          isSetting={props.isSetting}
+          isChoiceUser={false}
+        >
+        </ChatList>
+        <ChatTalk
+          isSetting={props.isSetting}
+        >
+        </ChatTalk>
+      </>
+    )
+  }
   return (
     <>
       <ChatList
