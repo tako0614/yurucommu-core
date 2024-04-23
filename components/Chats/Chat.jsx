@@ -19,7 +19,7 @@ export default function Talks(props) {
       </>
     )
   }
-  if(props.isSetting) {
+  if (props.isSetting) {
     return (
       <>
         <ChatHeader isChoiceUser={props.isChoiceUser} />

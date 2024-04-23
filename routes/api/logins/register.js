@@ -214,7 +214,7 @@ export const handler = {
       const defaultIcon = await Deno.readFile(
         "./static/people.webp",
       )
-      try{
+      try {
         await Deno.writeFile(
           `./files/userIcons/${result._id}.webp`,
           defaultIcon,
@@ -223,12 +223,12 @@ export const handler = {
         console.log("Icon Folder not found")
         try {
           await Deno.mkdir("./files")
-        await Deno.mkdir("./files/userIcons")
-        await Deno.mkdir("./files/pictures")
-        await Deno.writeFile(
-          `./files/userIcons/${result._id}.webp`,
-          defaultIcon,
-        )
+          await Deno.mkdir("./files/userIcons")
+          await Deno.mkdir("./files/pictures")
+          await Deno.writeFile(
+            `./files/userIcons/${result._id}.webp`,
+            defaultIcon,
+          )
         } catch (error) {
           console.log(error)
           await users.deleteOne({ userName: userName })
