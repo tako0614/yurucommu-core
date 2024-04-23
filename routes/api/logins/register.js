@@ -203,7 +203,7 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       //ユーザーを登録
-      await users.create({
+      const result = await users.create({
         userName,
         nickName,
         mail: mail,
@@ -211,6 +211,36 @@ export const handler = {
         salt: salt,
         age: age,
       })
+      const defaultIcon = await Deno.readFile(
+        "./static/people.webp",
+      )
+      try{
+        await Deno.writeFile(
+          `./files/userIcons/${result._id}.webp`,
+          defaultIcon,
+        )
+      } catch (error) {
+        console.log("Icon Folder not found")
+        try {
+          await Deno.mkdir("./files")
+        await Deno.mkdir("./files/userIcons")
+        await Deno.mkdir("./files/pictures")
+        await Deno.writeFile(
+          `./files/userIcons/${result._id}.webp`,
+          defaultIcon,
+        )
+        } catch (error) {
+          console.log(error)
+          await users.deleteOne({ userName: userName })
+          return new Response(
+            JSON.stringify({ status: false, error: "icon" }),
+            {
+              headers: { "Content-Type": "application/json" },
+              status: 500,
+            },
+          )
+        }
+      }
       //tempUsersから削除
       await tempUsers.deleteOne({ mail: mail })
       return new Response(JSON.stringify({ status: true }), {

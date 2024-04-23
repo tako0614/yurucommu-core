@@ -2,51 +2,49 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
-import * as $_userName_ from "./routes/[userName].tsx"
-import * as $_404 from "./routes/_404.tsx"
-import * as $_app from "./routes/_app.tsx"
-import * as $_middleware from "./routes/_middleware.ts"
-import * as $about from "./routes/about.tsx"
-import * as $addFriend from "./routes/addFriend.jsx"
-import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js"
-import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js"
-import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts"
-import * as $api_Friends_requestAddFriendByFriendKey from "./routes/api/Friends/requestAddFriendByFriendKey.ts"
-import * as $api_Friends_requestAddFriendById from "./routes/api/Friends/requestAddFriendById.ts"
-import * as $api_chats_friendList from "./routes/api/chats/friendList.js"
-import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js"
-import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts"
-import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js"
-import * as $api_chats_talk from "./routes/api/chats/talk.js"
-import * as $api_csrfToken from "./routes/api/csrfToken.js"
-import * as $api_logins_login from "./routes/api/logins/login.ts"
-import * as $api_logins_logout from "./routes/api/logins/logout.js"
-import * as $api_logins_mainRgsiter from "./routes/api/logins/mainRgsiter.js"
-import * as $api_logins_register from "./routes/api/logins/register.js"
-import * as $developper from "./routes/developper.tsx"
-import * as $greet_name_ from "./routes/greet/[name].tsx"
-import * as $index from "./routes/index.tsx"
-import * as $privacypolicy from "./routes/privacypolicy.tsx"
-import * as $setting from "./routes/setting.jsx"
-import * as $test from "./routes/test.jsx"
-import * as $test_post from "./routes/test_post.tsx"
-import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx"
-import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx"
-import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
-import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx"
-import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx"
-import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
-import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx"
-import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx"
-import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx"
-import * as $HeaderMenu from "./islands/HeaderMenu.tsx"
-import * as $LoginForm from "./islands/LoginForm.tsx"
-import * as $LogoutButton from "./islands/LogoutButton.jsx"
-import * as $PleaseLogin from "./islands/PleaseLogin.jsx"
-import * as $RegisterForm from "./islands/RegisterForm.tsx"
-import * as $Welcome from "./islands/Welcome.tsx"
-import * as $newLoginForm from "./islands/newLoginForm.tsx"
-import { type Manifest } from "$fresh/server.ts"
+import * as $_userName_ from "./routes/[userName].tsx";
+import * as $_404 from "./routes/_404.tsx";
+import * as $_app from "./routes/_app.tsx";
+import * as $_middleware from "./routes/_middleware.ts";
+import * as $about from "./routes/about.tsx";
+import * as $addFriend from "./routes/addFriend.jsx";
+import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js";
+import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js";
+import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts";
+import * as $api_Friends_requestAddFriendById from "./routes/api/Friends/requestAddFriendById.ts";
+import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
+import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js";
+import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
+import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
+import * as $api_chats_talk from "./routes/api/chats/talk.js";
+import * as $api_csrfToken from "./routes/api/csrfToken.js";
+import * as $api_logins_login from "./routes/api/logins/login.ts";
+import * as $api_logins_logout from "./routes/api/logins/logout.js";
+import * as $api_logins_register from "./routes/api/logins/register.js";
+import * as $developper from "./routes/developper.tsx";
+import * as $greet_name_ from "./routes/greet/[name].tsx";
+import * as $index from "./routes/index.tsx";
+import * as $privacypolicy from "./routes/privacypolicy.tsx";
+import * as $setting from "./routes/setting.jsx";
+import * as $test from "./routes/test.jsx";
+import * as $test_post from "./routes/test_post.tsx";
+import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
+import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx";
+import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
+import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
+import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
+import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
+import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx";
+import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx";
+import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx";
+import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
+import * as $LoginForm from "./islands/LoginForm.tsx";
+import * as $LogoutButton from "./islands/LogoutButton.jsx";
+import * as $PleaseLogin from "./islands/PleaseLogin.jsx";
+import * as $RegisterForm from "./islands/RegisterForm.tsx";
+import * as $Welcome from "./islands/Welcome.tsx";
+import * as $newLoginForm from "./islands/newLoginForm.tsx";
+import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
   routes: {
@@ -59,8 +57,6 @@ const manifest = {
     "./routes/api/Friends/addFriend.js": $api_Friends_addFriend,
     "./routes/api/Friends/getFriendIcon.js": $api_Friends_getFriendIcon,
     "./routes/api/Friends/getFriendInfoById.ts": $api_Friends_getFriendInfoById,
-    "./routes/api/Friends/requestAddFriendByFriendKey.ts":
-      $api_Friends_requestAddFriendByFriendKey,
     "./routes/api/Friends/requestAddFriendById.ts":
       $api_Friends_requestAddFriendById,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
@@ -71,7 +67,6 @@ const manifest = {
     "./routes/api/csrfToken.js": $api_csrfToken,
     "./routes/api/logins/login.ts": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,
-    "./routes/api/logins/mainRgsiter.js": $api_logins_mainRgsiter,
     "./routes/api/logins/register.js": $api_logins_register,
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
@@ -100,6 +95,6 @@ const manifest = {
     "./islands/newLoginForm.tsx": $newLoginForm,
   },
   baseUrl: import.meta.url,
-} satisfies Manifest
+} satisfies Manifest;
 
-export default manifest
+export default manifest;
