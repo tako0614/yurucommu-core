@@ -1,12 +1,15 @@
 import TalkTimeLine from "./TalkTimeLine.jsx"
 import IsnotSelectUser from "./isnotSelectUser.jsx"
+import Profile from "../Settings/Profile.tsx"
 export default function ChatTalk(props) {
   if (props.isSetting) {
     return (
       <>
         <div class="p-talk-chat">
           <div class="p-talk-chat-container">
-            test
+            <Profile>
+              
+            </Profile>
           </div>
         </div>
       </>
