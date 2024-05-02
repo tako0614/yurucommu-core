@@ -8,7 +8,6 @@ export default function ChatTalk(props) {
         <div class="p-talk-chat">
           <div class="p-talk-chat-container">
             <Profile>
-              
             </Profile>
           </div>
         </div>

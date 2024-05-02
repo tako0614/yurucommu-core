@@ -4,6 +4,7 @@ import { h, render } from "preact"
 import User from "../../components/Chats/ChatUserList.jsx"
 import SettingList from "../SettingList.tsx"
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
+import { isWindows } from "https://deno.land/std@0.216.0/path/_os.ts";
 function ChatList(props) {
   if (props.isSetting) {
     return (
@@ -118,6 +119,7 @@ const AddFriendForm = (props) => {
               class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
               onClick={() => {
                 props.setShowAddFriendForm(false)
+                window.history.replaceState("", "", "/")
               }}
             >
               ×
@@ -137,6 +139,28 @@ const AddFriendForm = (props) => {
                   />
                 </div>
                 <button
+                  onClick={async () => {
+                    const origin = window.location.protocol + "//" + window.location.host
+                    const csrftoken = await fetch(`./api/csrfToken?origin=${origin}`)
+                    console.log(csrftoken)
+                    const result = await fetch(
+                      "./api/Friends/requestAddFriendById",
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          
+                        }),
+                      },
+                    )
+                    const res = await result.json()
+                    if(res.status == "success") {
+                      //
+                      alert("成功したで")
+                    }
+                  }}
                   type="submit"
                   class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
                 >

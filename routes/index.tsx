@@ -36,24 +36,37 @@ export default function Home({ data }: { data: any }) {
   console.log(data)
   return (
     <>
-      <head>
-        <title>tako's | takos.jp</title>
-        <meta
-          name="description"
-          content="日本産オープンソース分散型チャットアプリ「tako's」"
-        />
-        <link rel="stylesheet" href="/style.css"></link>
-        <script src={url}></script>
-      </head>
       {data.loggedIn
         ? (
-          <Chat
-            isChoiceUser={false}
-            isAddFriendForm={data.isAddFriendForm}
-            addFriendKey={data.key}
-          />
+          <>
+            <head>
+              <title>tako's | takos.jp</title>
+              <meta
+                name="description"
+                content="日本産オープンソース分散型チャットアプリ「tako's」"
+              />
+              <link rel="stylesheet" href="/style.css"></link>
+            </head>
+            <Chat
+              isChoiceUser={false}
+              isAddFriendForm={data.isAddFriendForm}
+              addFriendKey={data.key}
+            />
+          </>
         )
-        : <Welcom sitekey={sitekey} />}
+        : (
+          <>
+            <head>
+              <title>tako's | takos.jp</title>
+              <meta
+                name="description"
+                content="日本産オープンソース分散型チャットアプリ「tako's」"
+              />
+              <link rel="stylesheet" href="/style.css"></link>
+            </head>
+            <Welcom sitekey={sitekey} />
+          </>
+        )}
     </>
   )
 }

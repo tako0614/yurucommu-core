@@ -5,7 +5,7 @@ import Friends from "../../../models/friends.js"
 import requestAddFriend from "../../../models/reqestAddFriend.js"
 import { RequestAddFriendById } from "../../../util/ResponseTypes.ts"
 export const handler = {
-  async post(ctx: any, req: Request) {
+  async POST(req: Request,ctx: any) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -15,14 +15,23 @@ export const handler = {
     const cookies = getCookies(req.headers)
     const data = await req.json()
     if (typeof data.csrftoken !== "string") {
-      return { status: false }
+      return new Response(JSON.stringify({ status: "error" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 403,
+      })
     }
     const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })
     if (iscsrfToken === null || iscsrfToken === undefined) {
-      return false
+      return new Response(JSON.stringify({ status: "error" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 403,
+      })
     }
     if (iscsrfToken.sessionID !== cookies.sessionid) {
-      return { status: false }
+      return new Response(JSON.stringify({ status: "error" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 403,
+      })
     }
     await csrftoken.deleteOne({ token: data.csrftoken })
     const userName = ctx.state.data.userName
