@@ -11,8 +11,7 @@ import * as $addFriend from "./routes/addFriend.jsx";
 import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js";
 import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js";
 import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts";
-import * as $api_Friends_requestAddFriendByAddFriendKey from "./routes/api/Friends/requestAddFriendByAddFriendKey.ts";
-import * as $api_Friends_requestAddFriendByUserName from "./routes/api/Friends/requestAddFriendByUserName.ts";
+import * as $api_Friends_requestAddFriendById from "./routes/api/Friends/requestAddFriendByUserName.ts";
 import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
 import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js";
 import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
@@ -60,10 +59,8 @@ const manifest = {
     "./routes/api/Friends/addFriend.js": $api_Friends_addFriend,
     "./routes/api/Friends/getFriendIcon.js": $api_Friends_getFriendIcon,
     "./routes/api/Friends/getFriendInfoById.ts": $api_Friends_getFriendInfoById,
-    "./routes/api/Friends/requestAddFriendByAddFriendKey.ts":
-      $api_Friends_requestAddFriendByAddFriendKey,
-    "./routes/api/Friends/requestAddFriendByUserName.ts":
-      $api_Friends_requestAddFriendByUserName,
+    "./routes/api/Friends/requestAddFriendById.ts":
+      $api_Friends_requestAddFriendById,
     "./routes/api/chats/friendList.js": $api_chats_friendList,
     "./routes/api/chats/getAddFriendKey.js": $api_chats_getAddFriendKey,
     "./routes/api/chats/getTalkData.ts": $api_chats_getTalkData,
