@@ -54,7 +54,14 @@ const usersSchema = new mongoose.Schema({
     },
   },
   JoiningRoom: {
-    type: Array,
+    type: [{
+      name: {
+        type: String
+      },
+      id: {
+        type: String
+      }
+    }],
     default: [],
   },
   addFriendKey: {

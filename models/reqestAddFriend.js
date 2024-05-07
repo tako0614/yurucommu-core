@@ -4,13 +4,16 @@ export const requestAddFriendSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  Applicant: [{
-    username: {
-      type: String,
-      required: true,
-    },
-    timestamp: { type: Date, default: Date.now },
-  }],
+  Applicant: {
+    type: [{
+      username: {
+        type: String,
+        required: true,
+      },
+      timestamp: { type: Date, default: Date.now },
+    }],
+    default: []
+  },
   checked: {
     type: Boolean,
     required: true,
