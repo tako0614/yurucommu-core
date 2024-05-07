@@ -23,6 +23,14 @@ export const handler = {
       return ctx.render({ loggedIn: true, isAddFriendForm: false })
     }
     if (userInfo.userName === ctx.state.data.userName) {
+      if(ctx.state.data.userName === userInfo.userName) {
+        return ctx.render({
+          loggedIn: true,
+          key,
+          isAddFriendForm: false,
+          userName: ctx.state.data.userName,
+        })
+      }
       return ctx.render({
         loggedIn: true,
         key,
