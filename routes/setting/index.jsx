@@ -2,11 +2,11 @@ import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
-import PleaseLogin from "../islands/PleaseLogin.jsx"
+import PleaseLogin from "../../islands/PleaseLogin.jsx"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
-import users from "../models/users.js"
-import sessionID from "../models/sessionid.js"
-import LogoutButton from "../islands/LogoutButton.jsx"
+import users from "../../models/users.js"
+import sessionID from "../../models/sessionid.js"
+import LogoutButton from "../../islands/LogoutButton.jsx"
 export const handler = {
   GET(req, ctx) {
     if (ctx.state.data.loggedIn) {
@@ -35,11 +35,11 @@ export default function settingPage({ data }) {
     </>
   )
 }
-import Chat from "../components/Chats/Chat.jsx"
+import Chat from "../../components/Chats/Chat.jsx"
 function Setting() {
   return (
     <>
-      return <Chat isSetting={true}></Chat>
+      <Chat isSetting={true}></Chat>
     </>
   )
 }

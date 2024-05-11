@@ -1,8 +1,10 @@
-export default function User({ userName, latestMessage, icon }) {
+export default function User({ userName, latestMessage, icon,onClick }) {
   return (
     <>
-      <li class="c-talk-rooms">
-        <a href="">
+      <li class="c-talk-rooms"
+      onClick={isOnClickUndefind(onClick)}
+      >
+        <a>
           <div class="c-talk-rooms-icon">
             <img src={icon} />
           </div>
@@ -18,6 +20,11 @@ export default function User({ userName, latestMessage, icon }) {
       </li>
     </>
   )
+}
+const isOnClickUndefind = (fn) => {
+  if(fn === undefined || fn === null) {
+    return () => {}
+  } return fn
 }
 /*
 export default async function User({ userName, latestMessage }) {
