@@ -57,7 +57,7 @@ export const handler = {
         randomarray,
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
-      const result = await sessionID.create({ userName, sessionID: sessionid })
+      const result = await sessionID.create({ user: user._id, sessionID: sessionid })
       if (result !== null) {
         return new Response(JSON.stringify({ "status": true }), {
           headers: {

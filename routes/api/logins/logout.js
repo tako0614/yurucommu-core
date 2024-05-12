@@ -1,6 +1,5 @@
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 import sessionID from "../../../models/sessionid.js"
-import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
 export const handler = {
   async POST(req, ctx) {
     if (!ctx.state.data.loggedIn) {

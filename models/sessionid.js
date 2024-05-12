@@ -1,15 +1,9 @@
 import mongoose from "mongoose"
 
 export const sessionidSchema = new mongoose.Schema({
-  userName: {
+  user: {
     type: String,
     required: true,
-    validate: {
-      validator: function (v) {
-        return /^[a-zA-Z0-9-_]{4,16}$/.test(v)
-      },
-      message: (props) => `${props.value} is not a valid username!`,
-    },
   },
   sessionID: {
     type: String,

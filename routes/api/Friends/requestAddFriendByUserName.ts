@@ -1,9 +1,7 @@
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
-import sessionID from "../../../models/sessionid.js"
 import csrftoken from "../../../models/csrftoken.js"
 import Friends from "../../../models/friends.js"
 import requestAddFriend from "../../../models/reqestAddFriend.js"
-import { RequestAddFriendById } from "../../../util/ResponseTypes.ts"
 export const handler = {
   async POST(req: Request,ctx: any) {
     if (!ctx.state.data.loggedIn) {

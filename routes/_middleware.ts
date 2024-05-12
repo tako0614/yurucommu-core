@@ -36,8 +36,8 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
       return resp
     }
   }
-  const userName = sessions.userName
-  const user = await users.findOne({ userName: userName }, {
+  const userid = sessions.user
+  const user = await users.findOne({ id: userid }, {
     userName: 1,
     mail: 1,
   })
@@ -47,7 +47,7 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     return resp
   }
   const mail = user.mail
-  ctx.state.data = { userName, mail, loggedIn: true, sessionid }
+  ctx.state.data = { userid, mail, loggedIn: true, sessionid }
   const resp = await ctx.next()
   return resp
 }
