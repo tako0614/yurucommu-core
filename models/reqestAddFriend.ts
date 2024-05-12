@@ -1,4 +1,4 @@
-import { mongoose } from "mongoose"
+import mongoose from "mongoose"
 export const requestAddFriendSchema = new mongoose.Schema({
   userName: {
     type: String,
@@ -12,7 +12,7 @@ export const requestAddFriendSchema = new mongoose.Schema({
       },
       timestamp: { type: Date, default: Date.now },
     }],
-    default: []
+    default: [],
   },
   checked: {
     type: Boolean,

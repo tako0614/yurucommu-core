@@ -25,7 +25,9 @@ export default function privacy() {
       </head>
       <Header />
       <div class="p-16 lg:w-2/3 m-auto">
-        <h1 class="text-5xl text-center text-white">プライバシーポリシー</h1>
+        <h1 class="text-5xl text-center text-white">
+          プライバシーポリシー
+        </h1>
         <p class="text-white">
           takoserverは，ユーザーの個人情報について以下のとおりプライバシーポリシー（以下、「本ポリシー」という。）を定めます。本ポリシーは、当社がどのような個人情報を取得し、どのように利用・共有するか、ユーザーがどのようにご自身の個人情報を管理できるかをご説明するものです。
         </p>
@@ -33,7 +35,9 @@ export default function privacy() {
         <Value>
           <p class="text-white">事業者名：takoserver</p>
           <p class="text-white">運営責任者：冨山翔太</p>
-          <p class="text-white">メールアドレス：shoutatomiyama0614@gmail.com</p>
+          <p class="text-white">
+            メールアドレス：shoutatomiyama0614@gmail.com
+          </p>
         </Value>
         <Title>2.個人情報の取得</Title>
         <Value>
@@ -50,7 +54,9 @@ export default function privacy() {
           <p class="text-white">
             ・ユーザーが利用しているサービスの新機能や更新、利用規約改定などをメール送付によりご案内します
           </p>
-          <p class="text-white">・ユーザーからのお問い合わせに回答するため</p>
+          <p class="text-white">
+            ・ユーザーからのお問い合わせに回答するため
+          </p>
           <p class="text-white">
             ・利用規約に違反したユーザーの特定、その他不正不当な目的でサービスを利用したユーザーの特定をし利用をお断りするため
           </p>
@@ -88,8 +94,12 @@ export default function privacy() {
           <p class="text-white">
             当サイトは、匿名加工情報（特定の個人を識別できないよう加工した個人情報であって、復元ができないようにしたもの）を作成する場合、以下の対応を行う場合があります。
           </p>
-          <p class="text-white">法令で定める基準に従い適正な加工を施す</p>
-          <p class="text-white">法令で定める基準に従い安全管理措置を講じる</p>
+          <p class="text-white">
+            法令で定める基準に従い適正な加工を施す
+          </p>
+          <p class="text-white">
+            法令で定める基準に従い安全管理措置を講じる
+          </p>
           <p class="text-white">
             匿名加工情報に含まれる個人に関する情報の項目を公表する
           </p>

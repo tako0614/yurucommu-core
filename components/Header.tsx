@@ -24,7 +24,11 @@ export default function Header() {
             </HeaderMenu>
           </div>
           <a class="logo-area flex" href="/">
-            <img src="/logo.webp" alt="takoserver logo" class="w-full h-full" />
+            <img
+              src="/logo.webp"
+              alt="takoserver logo"
+              class="w-full h-full"
+            />
           </a>
           <div class="text-white items-centerhiddenlg:grid ">
             <div class="font0 lg:text-base lg:float-left lg:pr-8">

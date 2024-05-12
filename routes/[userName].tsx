@@ -7,7 +7,10 @@ import PleaseLogin from "../islands/PleaseLogin.jsx"
 export const handler = {
   GET(req: any, ctx: any) {
     if (ctx.state.data.loggedIn) {
-      return ctx.render({ loggedIn: true, userName: ctx.state.data.userName })
+      return ctx.render({
+        loggedIn: true,
+        userName: ctx.state.data.userName,
+      })
     } else {
       return ctx.render({ loggedIn: false })
     }

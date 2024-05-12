@@ -13,7 +13,9 @@ export const handler = {
       return response
     } else {
       return new Response(
-        JSON.stringify({ response: "the request is a normal HTTP request" }),
+        JSON.stringify({
+          response: "the request is a normal HTTP request",
+        }),
       )
     }
   },

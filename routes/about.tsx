@@ -70,8 +70,12 @@ export default function Home() {
       <Header />
       <div class="bg-[url('./main-bg.webp')] bg-center bg-cover relative w-full min-h-screen">
         <div class="lg:absolute lg:top-[calc(40%_-_0.5em)] lg:w-full lg:text-center lg:text-white lg:m-0 absolute top-[calc(40%_-_0.5em)] w-full text-center text-white m-0">
-          <h1 class="full-title text-[3.5rem] lg:text-[70px]">tako's</h1>
-          <p class="text-lg">Technology for All Knowledge & Octopus</p>
+          <h1 class="full-title text-[3.5rem] lg:text-[70px]">
+            tako's
+          </h1>
+          <p class="text-lg">
+            Technology for All Knowledge & Octopus
+          </p>
         </div>
       </div>
       <div class="w-2/3 flex flex-col h-screen m-auto text-white">
@@ -84,9 +88,11 @@ export default function Home() {
             <div class="border-t w-full"></div>
             <Developper developerss={developers.minai}></Developper>
             <div class="border-t w-full"></div>
-            <Developper developerss={developers.aranpect}></Developper>
+            <Developper developerss={developers.aranpect}>
+            </Developper>
             <div class="border-t w-full"></div>
-            <Developper developerss={developers.nasuki}></Developper>
+            <Developper developerss={developers.nasuki}>
+            </Developper>
           </div>
           <p>
             その他諸々<a
@@ -102,7 +108,11 @@ export default function Home() {
         <h1 class="text-5xl text-center text-white">takoserver</h1>
         <div class="m-auto w-3/4 text-white md:flex">
           <div class="md:w-1/2">
-            <img class="m-full" src="logo-mine.jpg" alt="キャラクター" />
+            <img
+              class="m-full"
+              src="logo-mine.jpg"
+              alt="キャラクター"
+            />
             <p class="text-l text-center text-white">
               takoserver公式マスコット
             </p>

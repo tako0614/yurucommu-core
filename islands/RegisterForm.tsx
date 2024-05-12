@@ -82,7 +82,9 @@ export default function RegisterForm(
     setShowModal(!showModal)
   }
   const [email, setEmail] = useState("")
-  const handleEmailChange = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
+  const handleEmailChange = (
+    event: h.JSX.TargetedEvent<HTMLInputElement>,
+  ) => {
     const value = event.currentTarget.value
     setEmail(value)
   }
@@ -215,7 +217,8 @@ export default function RegisterForm(
     if (
       data.userName === undefined || data.nickName === undefined ||
       data.password === undefined || data.age === undefined ||
-      data.userName === "" || data.nickName === "" || data.password === "" ||
+      data.userName === "" || data.nickName === "" ||
+      data.password === "" ||
       data.age === ""
     ) {
       setShowError(true)
@@ -234,7 +237,9 @@ export default function RegisterForm(
       return
     }
     //パスワード検証
-    if (/^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(data.password) === false) {
+    if (
+      /^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(data.password) === false
+    ) {
       setShowPasswordError(true)
       setPasswordErrorMessages("パスワードが不正です")
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
@@ -609,7 +614,9 @@ function MainRegisterForm({
               required
             />
             {showIsAgreementError && (
-              <div class="text-red-500 text-xs">{isAgreementErrorMessage}</div>
+              <div class="text-red-500 text-xs">
+                {isAgreementErrorMessage}
+              </div>
             )}
           </div>
           <label

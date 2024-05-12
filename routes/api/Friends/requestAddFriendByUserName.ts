@@ -3,7 +3,7 @@ import csrftoken from "../../../models/csrftoken.ts"
 import Friends from "../../../models/friends.ts"
 import requestAddFriend from "../../../models/reqestAddFriend.ts"
 export const handler = {
-  async POST(req: Request,ctx: any) {
+  async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -54,7 +54,8 @@ export const handler = {
       userName: friendName,
     })
     if (
-      isAlreadyFriendRequest === null || isAlreadyFriendRequest === undefined
+      isAlreadyFriendRequest === null ||
+      isAlreadyFriendRequest === undefined
     ) {
       return new Response(JSON.stringify({ status: "error" }), {
         headers: { "Content-Type": "application/json" },

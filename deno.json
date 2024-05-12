@@ -37,6 +37,10 @@
     "react-dom/test-utils": "preact/test-utils",
     "react-dom": "preact/compat"
   },
+  "fmt": {
+    "semiColons": false,
+    "exclude": ["fresh.gen.ts", "node_moduls"]
+  },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
   "exclude": ["**/_fresh/*"]
 }

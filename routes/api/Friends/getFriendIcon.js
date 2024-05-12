@@ -18,18 +18,24 @@ export const handler = {
     if (isuseAddFriendKey == "true") {
       const addFriendKey = url.searchParams.get("addFriendKey") || ""
       if (addFriendKey == "") {
-        return new Response(JSON.stringify({ "status": "No addFriendKey" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 400,
-        })
+        return new Response(
+          JSON.stringify({ "status": "No addFriendKey" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 400,
+          },
+        )
       }
       console.log(addFriendKey)
       const user = await users.findOne({ addFriendKey: addFriendKey })
       if (user == null) {
-        return new Response(JSON.stringify({ "status": "No such user" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 400,
-        })
+        return new Response(
+          JSON.stringify({ "status": "No such user" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 400,
+          },
+        )
       }
       try {
         const result = await Deno.readFile(
@@ -66,10 +72,13 @@ export const handler = {
     if (
       friend.find((friend) => friend.userName == friendName) == null
     ) {
-      return new Response(JSON.stringify({ "status": "No such friend" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 400,
-      })
+      return new Response(
+        JSON.stringify({ "status": "No such friend" }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        },
+      )
     }
     try {
       const result = await Deno.readFile(

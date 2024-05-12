@@ -7,7 +7,10 @@ export default function Talks(props) {
       <>
         <ChatHeader isChoiceUser={props.isChoiceUser} />
         <div class="wrapper">
-          <main class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"} id="chatmain">
+          <main
+            class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"}
+            id="chatmain"
+          >
             <ChatMain
               isAddFriendForm={props}
               addFriendKey={props.addFriendKey}
@@ -24,7 +27,10 @@ export default function Talks(props) {
       <>
         <ChatHeader isChoiceUser={props.isChoiceUser} />
         <div class="wrapper">
-          <main class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"} id="chatmain">
+          <main
+            class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"}
+            id="chatmain"
+          >
             <ChatMain
               isSetting={props.isSetting}
               roomid={props.roomid}
@@ -39,13 +45,25 @@ export default function Talks(props) {
     <>
       <ChatHeader isChoiceUser={props.isChoiceUser} />
       <div class="wrapper">
-        <main class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"}>
+        <main
+          class={props.isChoiceUser ? "p-talk is-inview" : "p-talk"}
+        >
           {props.isChoiceUser
             ? (
-              <ChatMain isChoiceUser={props.isChoiceUser} roomid={props.roomid} id="chatmain">
+              <ChatMain
+                isChoiceUser={props.isChoiceUser}
+                roomid={props.roomid}
+                id="chatmain"
+              >
               </ChatMain>
             )
-            : <ChatMain isChoiceUser={props.isChoiceUser} id="chatmain"></ChatMain>}
+            : (
+              <ChatMain
+                isChoiceUser={props.isChoiceUser}
+                id="chatmain"
+              >
+              </ChatMain>
+            )}
         </main>
       </div>
       <Footer></Footer>

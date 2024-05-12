@@ -2,9 +2,9 @@ import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 import csrftoken from "../../../models/csrftoken.ts"
 import Friends from "../../../models/friends.ts"
 import requestAddFriend from "../../../models/reqestAddFriend.ts"
-import Users from "../../../models/users.ts";
+import Users from "../../../models/users.ts"
 export const handler = {
-  async POST(req: Request,ctx: any) {
+  async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -35,34 +35,46 @@ export const handler = {
     await csrftoken.deleteOne({ token: data.csrftoken })
     const userName = ctx.state.data.userName
     // request add friend
-    const { addFriendKey } = data;
-    const addFriendUserInfo = await Users.findOne({addFriendKey: addFriendKey})
-    if(addFriendKey === null || addFriendUserInfo === null) {
+    const { addFriendKey } = data
+    const addFriendUserInfo = await Users.findOne({
+      addFriendKey: addFriendKey,
+    })
+    if (addFriendKey === null || addFriendUserInfo === null) {
       return
     }
     //すでに友達か
     const friendsInfo: any = await Friends.findOne({ user: userName })
     const friends = friendsInfo.friends
     interface FriendsType {
-      userName: string;
-      room: string;
-      lastMessage: string;
+      userName: string
+      room: string
+      lastMessage: string
     }
     interface SendReqType {
-      userName: string;
-      timestamp: Date;
+      userName: string
+      timestamp: Date
     }
-    const isAlredyFriend = friends.some((friend: FriendsType) => {friend.userName === addFriendUserInfo.userName })
-    if(isAlredyFriend) {
+    const isAlredyFriend = friends.some((friend: FriendsType) => {
+      friend.userName === addFriendUserInfo.userName
+    })
+    if (isAlredyFriend) {
       return
     }
     //すでにリクエストを送っているか
-    const requestAddFriendInfo = await requestAddFriend.findOne({userName: addFriendUserInfo.userName})
-    if(requestAddFriendInfo !== null) {
-      await requestAddFriend.create({userName: addFriendUserInfo.userName})
+    const requestAddFriendInfo = await requestAddFriend.findOne({
+      userName: addFriendUserInfo.userName,
+    })
+    if (requestAddFriendInfo !== null) {
+      await requestAddFriend.create({
+        userName: addFriendUserInfo.userName,
+      })
     } else {
-      const isAlredySendReq = requestAddFriendInfo.Applicant.some((friend: SendReqType) => {friend.userName === addFriendUserInfo.userName })
-      if(isAlredySendReq) {
+      const isAlredySendReq = requestAddFriendInfo.Applicant.some(
+        (friend: SendReqType) => {
+          friend.userName === addFriendUserInfo.userName
+        },
+      )
+      if (isAlredySendReq) {
         return
       }
     }

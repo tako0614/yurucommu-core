@@ -4,7 +4,7 @@ import { h, render } from "preact"
 import User from "../../components/Chats/ChatUserList.jsx"
 import SettingList from "../SettingList.tsx"
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
-import { isWindows } from "https://deno.land/std@0.216.0/path/_os.ts";
+import { isWindows } from "https://deno.land/std@0.216.0/path/_os.ts"
 function ChatList(props) {
   if (props.isSetting) {
     return (
@@ -13,8 +13,9 @@ function ChatList(props) {
         <div class="p-talk-list-rooms">
           <ul class="p-talk-list-rooms__ul" id="friendList">
             <SettingList
-            setSettingPage={props.setSettingPage}
-            ></SettingList>
+              setSettingPage={props.setSettingPage}
+            >
+            </SettingList>
           </ul>
         </div>
       </div>
@@ -45,11 +46,8 @@ function ChatList(props) {
           userName="友達がいません！！"
           latestMessage="ざぁこ♡ざぁこ♡"
           icon="./people.png"
-          onClick={
-            () => {
-              
-            }
-          }
+          onClick={() => {
+          }}
         />,
         ListElement,
       )
@@ -147,8 +145,11 @@ const AddFriendForm = (props) => {
                 </div>
                 <button
                   onClick={async () => {
-                    const origin = window.location.protocol + "//" + window.location.host
-                    const csrftoken = await fetch(`./api/csrfToken?origin=${origin}`)
+                    const origin = window.location.protocol + "//" +
+                      window.location.host
+                    const csrftoken = await fetch(
+                      `./api/csrfToken?origin=${origin}`,
+                    )
                     console.log(csrftoken)
                     const result = await fetch(
                       "./api/Friends/requestAddFriendById",
@@ -157,13 +158,11 @@ const AddFriendForm = (props) => {
                         headers: {
                           "Content-Type": "application/json",
                         },
-                        body: JSON.stringify({
-                          
-                        }),
+                        body: JSON.stringify({}),
                       },
                     )
                     const res = await result.json()
-                    if(res.status == "success") {
+                    if (res.status == "success") {
                       //
                       alert("成功したで")
                     }

@@ -35,7 +35,10 @@ export const handler = {
       const ismail = isMail(email)
       if (email === undefined || email === "" || email === null) {
         return new Response(JSON.stringify({ "status": false }), {
-          headers: { "Content-Type": "application/json", error: "input" },
+          headers: {
+            "Content-Type": "application/json",
+            error: "input",
+          },
           status: 403,
         })
       }
@@ -75,7 +78,10 @@ export const handler = {
           } catch (error) {
             console.log(error)
             return new Response(
-              JSON.stringify({ "status": false, error: "Unknown" }),
+              JSON.stringify({
+                "status": false,
+                error: "Unknown",
+              }),
               {
                 headers: { "Content-Type": "application/json" },
                 status: 500,
@@ -84,7 +90,10 @@ export const handler = {
           }
         } else {
           return new Response(
-            JSON.stringify({ "status": false, error: "mailDuplication" }),
+            JSON.stringify({
+              "status": false,
+              error: "mailDuplication",
+            }),
             {
               headers: { "Content-Type": "application/json" },
               status: 403,
@@ -102,7 +111,14 @@ export const handler = {
       }
       //めいん登録
     } else if (requirments === "mainRegister") {
-      const { userName, nickName, password, age, mailToken, isagreement } = data
+      const {
+        userName,
+        nickName,
+        password,
+        age,
+        mailToken,
+        isagreement,
+      } = data
       //const { nickName,userName, password, age, isagreement, token } = data;
       const variablesToCheck = [
         userName,
@@ -272,8 +288,10 @@ export const handler = {
         )
       }
       if (
-        mailToken === undefined || mailToken === "" || mailToken === null ||
-        checkCode === undefined || checkCode === "" || checkCode === null
+        mailToken === undefined || mailToken === "" ||
+        mailToken === null ||
+        checkCode === undefined || checkCode === "" ||
+        checkCode === null
       ) {
         return new Response(
           JSON.stringify({ "status": false, error: "input" }),
@@ -288,10 +306,13 @@ export const handler = {
         await tempUsers.updateOne({ key: mailToken }, {
           $inc: { missCheck: 1 },
         })
-        return new Response(JSON.stringify({ "status": false, error: "key" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 403,
-        })
+        return new Response(
+          JSON.stringify({ "status": false, error: "key" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          },
+        )
       }
       if (tempUserInfo.checkCode != checkCode) {
         await tempUsers.updateOne({ key: mailToken }, {
@@ -313,10 +334,13 @@ export const handler = {
         status: 200,
       })
     } else {
-      return new Response(JSON.stringify({ "status": false, error: "input" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 403,
-      })
+      return new Response(
+        JSON.stringify({ "status": false, error: "input" }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 403,
+        },
+      )
     }
   },
 }

@@ -1,7 +1,7 @@
 import TalkTimeLine from "./TalkTimeLine.jsx"
 import IsnotSelectUser from "./isnotSelectUser.jsx"
 import Profile from "../Settings/Profile.tsx"
-import Friends from "../Settings/Friends.tsx";
+import Friends from "../Settings/Friends.tsx"
 export default function ChatTalk(props) {
   if (props.isSetting) {
     return (
@@ -9,17 +9,15 @@ export default function ChatTalk(props) {
         <div class="p-talk-chat">
           <div class="p-talk-chat-container">
             {props.settingPage == "profile" &&
-            (
-              <Profile>
-              </Profile>
-            )
-            }
+              (
+                <Profile>
+                </Profile>
+              )}
             {props.settingPage == "friends" &&
-            (
-              <Friends>
-              </Friends>
-            )
-            }
+              (
+                <Friends>
+                </Friends>
+              )}
           </div>
         </div>
       </>
@@ -35,7 +33,10 @@ export default function ChatTalk(props) {
           <div class="p-talk-chat-send">
             <form class="p-talk-chat-send__form">
               <div class="p-talk-chat-send__msg">
-                <div class="p-talk-chat-send__dummy" aria-hidden="true">
+                <div
+                  class="p-talk-chat-send__dummy"
+                  aria-hidden="true"
+                >
                 </div>
                 <label>
                   <textarea

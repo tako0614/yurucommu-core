@@ -10,11 +10,11 @@ export default function Setting(props: any) {
         onClick={() => {
           props.setSettingPage("profile")
           const chatMainElement = document.getElementById("chatmain")
-          if(chatMainElement === null) {
+          if (chatMainElement === null) {
             return
           }
           const test = chatMainElement.className
-          if(test == "p-talk") {
+          if (test == "p-talk") {
             chatMainElement.className = "p-talk is-inview"
             return false
           }
@@ -27,11 +27,11 @@ export default function Setting(props: any) {
         onClick={() => {
           props.setSettingPage("friends")
           const chatMainElement = document.getElementById("chatmain")
-          if(chatMainElement === null) {
+          if (chatMainElement === null) {
             return
           }
           const test = chatMainElement.className
-          if(test == "p-talk") {
+          if (test == "p-talk") {
             chatMainElement.className = "p-talk is-inview"
             return false
           }

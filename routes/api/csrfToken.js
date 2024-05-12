@@ -7,11 +7,14 @@ export const handler = {
   async GET(req) {
     const cookies = getCookies(req.headers)
     if (cookies.sessionid === undefined) {
-      return new Response(JSON.stringify({ "csrftoken": "No sessionid" }), {
-        headers: {
-          "Content-Type": "application/json",
+      return new Response(
+        JSON.stringify({ "csrftoken": "No sessionid" }),
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
         },
-      })
+      )
     }
     const sessionid = cookies.sessionid
     const result = await sessionID.findOne({ sessionID: sessionid }, {

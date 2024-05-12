@@ -47,7 +47,8 @@ export const handler = {
         })
       }
       if (
-        userInfo.addFriendKey === null || userInfo.addFriendKey === undefined
+        userInfo.addFriendKey === null ||
+        userInfo.addFriendKey === undefined
       ) {
         const array = new Uint8Array(16)
         crypto.getRandomValues(array)
@@ -56,9 +57,12 @@ export const handler = {
           (byte) => byte.toString(16).padStart(2, "0"),
         ).join("")
         try {
-          await users.updateOne({ userName: ctx.state.data.userName }, {
-            $set: { addFriendKey: addFriendKey },
-          })
+          await users.updateOne(
+            { userName: ctx.state.data.userName },
+            {
+              $set: { addFriendKey: addFriendKey },
+            },
+          )
         } catch (error) {
           console.error(error)
           return new Response(JSON.stringify({ "status": false }), {
@@ -67,7 +71,10 @@ export const handler = {
           })
         }
         return new Response(
-          JSON.stringify({ "status": true, addFriendKey: addFriendKey }),
+          JSON.stringify({
+            "status": true,
+            addFriendKey: addFriendKey,
+          }),
           {
             headers: { "Content-Type": "application/json" },
             status: 200,

@@ -10,7 +10,11 @@ function ChatList(props) {
       <h1 class="p-talk-list-title">友達を追加</h1>
       <div class="p-talk-list-rooms">
         <ul class="p-talk-list-rooms__ul" id="friendList">
-        <User userName="idで追加" latestMessage="" icon="people.png" />
+          <User
+            userName="idで追加"
+            latestMessage=""
+            icon="people.png"
+          />
           <User userName="QRコードで追加" latestMessage="" />
           <GetAddFriendKey origin={props.origin}></GetAddFriendKey>
         </ul>

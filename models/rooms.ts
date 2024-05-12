@@ -7,7 +7,8 @@ export const roomsSchema = new mongoose.Schema({
       validator: function (v: string) {
         return /^[a-zA-Z0-9-_]{4,16}$/.test(v)
       },
-      message: (props: { value: any; }) => `${props.value} is not a valid room name!`,
+      message: (props: { value: any }) =>
+        `${props.value} is not a valid room name!`,
     },
   },
   types: {

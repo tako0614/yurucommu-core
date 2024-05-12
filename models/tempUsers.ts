@@ -9,7 +9,8 @@ export const tempUsersSchema = new mongoose.Schema({
       validator: function (v: string) {
         return /^[\w-]+@[\w-]+\.[a-z]{2,3}$/.test(v)
       },
-      message: (props: { value: any; }) => `${props.value} is not a valid mail address!`,
+      message: (props: { value: any }) =>
+        `${props.value} is not a valid mail address!`,
     },
   },
   key: {

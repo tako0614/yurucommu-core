@@ -14,27 +14,47 @@ export default function Header() {
       <ul class="">
         <li>
           <a href="#">
-            <img class="w-6 flex" src="./icons/talk.svg" alt="トーク" />
+            <img
+              class="w-6 flex"
+              src="./icons/talk.svg"
+              alt="トーク"
+            />
           </a>
         </li>
         <li>
           <a href="#">
-            <img class="w-6 m-auto" src="./icons/mail.svg" alt="DM" />
+            <img
+              class="w-6 m-auto"
+              src="./icons/mail.svg"
+              alt="DM"
+            />
           </a>
         </li>
         <li>
           <a href="#">
-            <img class="w-6 m-auto" src="./icons/home.svg" alt="ホーム" />
+            <img
+              class="w-6 m-auto"
+              src="./icons/home.svg"
+              alt="ホーム"
+            />
           </a>
         </li>
         <li>
           <a href="#">
-            <img class="w-6 m-auto" src="./icons/serach.svg" alt="検索" />
+            <img
+              class="w-6 m-auto"
+              src="./icons/serach.svg"
+              alt="検索"
+            />
           </a>
         </li>
         <li>
           <a href="#">
-            <img class="w-6 m-auto" src="./icons/bell.svg" alt="通知" />
+            <img
+              class="w-6 m-auto"
+              src="./icons/bell.svg"
+              alt="通知"
+            />
           </a>
         </li>
       </ul>

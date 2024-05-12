@@ -36,18 +36,24 @@ export const handler = {
         friends: 1,
       })
       if (friendsInfo === null || friendsInfo === undefined) {
-        return new Response(JSON.stringify({ "status": "You are alone" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 200,
-        })
+        return new Response(
+          JSON.stringify({ "status": "You are alone" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          },
+        )
       }
       if (
         chatRooms === null || chatRooms === undefined
       ) {
-        return new Response(JSON.stringify({ "status": "You are alone" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 200,
-        })
+        return new Response(
+          JSON.stringify({ "status": "You are alone" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          },
+        )
       }
       const result = chatRooms.map((room) => {
         if (room.types === "friend") {
