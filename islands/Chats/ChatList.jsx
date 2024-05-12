@@ -45,6 +45,11 @@ function ChatList(props) {
           userName="友達がいません！！"
           latestMessage="ざぁこ♡ざぁこ♡"
           icon="./people.png"
+          onClick={
+            () => {
+              
+            }
+          }
         />,
         ListElement,
       )

@@ -1,7 +1,7 @@
 export default function User({ userName, latestMessage }) {
   return (
     <>
-      <li class="c-talk-rooms is-active">
+      <li class="c-talk-rooms">
         <button>
           <span class="c-talk-rooms-icon">
             <img src="static/logo.png" alt="" />

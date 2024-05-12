@@ -29,7 +29,6 @@ export default function settingPage({ data }) {
         <script src={url}></script>
         <script src="./rechapcha.js"></script>
         <link rel="stylesheet" href="/style.css"></link>
-        <script src="https://cdn.tailwindcss.com"></script>
       </head>
       {data.loggedIn ? <Setting></Setting> : <PleaseLogin />}
     </>
