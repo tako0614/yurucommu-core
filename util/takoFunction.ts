@@ -3,7 +3,7 @@ import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts"
 import { escapeSql } from "https://deno.land/x/escape@1.4.2/mod.ts"
 import mongoose from "mongoose"
 import users from "../models/users.js"
-import csrfToken from "../models/csrftoken.js"
+import csrfToken from "../models/csrftoken.ts"
 import tempUsers from "../models/tempUsers.js"
 import * as nodemailer from "npm:nodemailer@6.9.5"
 const env = await load()

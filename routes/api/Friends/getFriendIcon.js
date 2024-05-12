@@ -1,7 +1,7 @@
-import csrftoken from "../../../models/csrftoken.js"
+import csrftoken from "../../../models/csrftoken.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 import users from "../../../models/users.js"
-import friends from "../../../models/friends.js"
+import friends from "../../../models/friends.ts"
 export const handler = {
   async GET(req, ctx) {
     if (!ctx.state.data.loggedIn) {

@@ -1,6 +1,6 @@
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
-import csrftoken from "../../../models/csrftoken.js"
-import Friends from "../../../models/friends.js"
+import csrftoken from "../../../models/csrftoken.ts"
+import Friends from "../../../models/friends.ts"
 import requestAddFriend from "../../../models/reqestAddFriend.js"
 export const handler = {
   async POST(req: Request,ctx: any) {

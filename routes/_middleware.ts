@@ -1,6 +1,6 @@
 import { MiddlewareHandlerContext } from "$fresh/server.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
-import csrfToken from "../models/csrftoken.js"
+import csrfToken from "../models/csrftoken.ts"
 import users from "../models/users.js"
 import sessionID from "../models/sessionid.js"
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"

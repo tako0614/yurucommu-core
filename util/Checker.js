@@ -1,5 +1,5 @@
 import sessionid from "../models/sessionid.js"
-import csrftoken from "../models/csrftoken.js"
+import csrftoken from "../models/csrftoken.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 export const checksesssionCSRF = async (req) => {
   if (req.body === null || req.body === undefined) {

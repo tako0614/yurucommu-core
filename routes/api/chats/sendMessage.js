@@ -1,6 +1,6 @@
 import rooms from "../../../models/rooms.js"
-import messages from "../../../models/messages.js"
-import csrftoken from "../../../models/csrftoken.js"
+import messages from "../../../models/messages.ts"
+import csrftoken from "../../../models/csrftoken.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 export const handler = {
   async POST(ctx, req) {
