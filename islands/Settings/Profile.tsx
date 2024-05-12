@@ -3,13 +3,13 @@ export default function Profile() {
     <>
       <div class="p-2 w-full h-full">
         <div class="w-full">
-          <div class="w-1/3 m-auto">
+          <div class="lg:w-1/3 w-2/3 m-auto">
           <h1 class="text-3xl font-medium pb-[8vh]">
           プロフィールを編集
         </h1>
             <div>
               <form onSubmit={()=> {}}>
-                <div class="pb-2">
+                <div class="pb-4">
                   <label>ユーザー名</label>
                   <input type="text" class="rounded-md border"/>
                 </div>

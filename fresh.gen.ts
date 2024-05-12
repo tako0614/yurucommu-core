@@ -44,6 +44,10 @@ import * as $LogoutButton from "./islands/LogoutButton.jsx";
 import * as $PleaseLogin from "./islands/PleaseLogin.jsx";
 import * as $RegisterForm from "./islands/RegisterForm.tsx";
 import * as $SettingList from "./islands/SettingList.tsx";
+import * as $Settings_Friends from "./islands/Settings/Friends.tsx";
+import * as $Settings_Infomation from "./islands/Settings/Infomation.tsx";
+import * as $Settings_Logout from "./islands/Settings/Logout.tsx";
+import * as $Settings_Privacy from "./islands/Settings/Privacy.tsx";
 import * as $Settings_Profile from "./islands/Settings/Profile.tsx";
 import * as $Welcome from "./islands/Welcome.tsx";
 import * as $newLoginForm from "./islands/newLoginForm.tsx";
@@ -97,6 +101,10 @@ const manifest = {
     "./islands/PleaseLogin.jsx": $PleaseLogin,
     "./islands/RegisterForm.tsx": $RegisterForm,
     "./islands/SettingList.tsx": $SettingList,
+    "./islands/Settings/Friends.tsx": $Settings_Friends,
+    "./islands/Settings/Infomation.tsx": $Settings_Infomation,
+    "./islands/Settings/Logout.tsx": $Settings_Logout,
+    "./islands/Settings/Privacy.tsx": $Settings_Privacy,
     "./islands/Settings/Profile.tsx": $Settings_Profile,
     "./islands/Welcome.tsx": $Welcome,
     "./islands/newLoginForm.tsx": $newLoginForm,

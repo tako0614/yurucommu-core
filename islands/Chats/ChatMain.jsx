@@ -19,15 +19,18 @@ export default function ChatMain(props) {
     )
   }
   if (props.isSetting) {
+    const [settingPage,setSettingPage] = useState("profile")
     return (
       <>
         <ChatList
           isSetting={props.isSetting}
           isChoiceUser={false}
+          setSettingPage={setSettingPage}
         >
         </ChatList>
         <ChatTalk
           isSetting={props.isSetting}
+          settingPage={settingPage}
         >
         </ChatTalk>
       </>

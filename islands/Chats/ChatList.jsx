@@ -12,7 +12,9 @@ function ChatList(props) {
         <h1 class="p-talk-list-title">設定</h1>
         <div class="p-talk-list-rooms">
           <ul class="p-talk-list-rooms__ul" id="friendList">
-            <SettingList></SettingList>
+            <SettingList
+            setSettingPage={props.setSettingPage}
+            ></SettingList>
           </ul>
         </div>
       </div>

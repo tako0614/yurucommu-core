@@ -1,14 +1,25 @@
 import TalkTimeLine from "./TalkTimeLine.jsx"
 import IsnotSelectUser from "./isnotSelectUser.jsx"
 import Profile from "../Settings/Profile.tsx"
+import Friends from "../Settings/Friends.tsx";
 export default function ChatTalk(props) {
   if (props.isSetting) {
     return (
       <>
         <div class="p-talk-chat">
           <div class="p-talk-chat-container">
-            <Profile>
-            </Profile>
+            {props.settingPage == "profile" &&
+            (
+              <Profile>
+              </Profile>
+            )
+            }
+            {props.settingPage == "friends" &&
+            (
+              <Friends>
+              </Friends>
+            )
+            }
           </div>
         </div>
       </>
