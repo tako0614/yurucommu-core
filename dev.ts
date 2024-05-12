@@ -8,7 +8,7 @@ import "$std/dotenv/load.ts"
 import { envRoader } from "./util/takoFunction.ts"
 /**connect mongoDB */
 import mongoose from "mongoose"
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
+import { load } from "$std/dotenv/mod.ts"
 /**connect mongoDB */
 const env = await load()
 const url = env["MONGO_URL"]

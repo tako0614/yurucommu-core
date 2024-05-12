@@ -1,4 +1,4 @@
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import sessionID from "../../../models/sessionid.ts"
 export const handler = {
   async POST(req, ctx) {

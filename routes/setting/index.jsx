@@ -1,9 +1,9 @@
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
+import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
 import PleaseLogin from "../../islands/PleaseLogin.jsx"
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import users from "../../models/users.ts"
 import sessionID from "../../models/sessionid.ts"
 import LogoutButton from "../../islands/LogoutButton.jsx"

@@ -1,8 +1,8 @@
 import Welcom from "../islands/Welcome.tsx"
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import users from "../models/users.ts"
 import sessionID from "../models/sessionid.ts"
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
+import { load } from "$std/dotenv/mod.ts"
 import Chat from "../components/Chats/Chat.jsx"
 import { useState } from "preact/hooks"
 const env = await load()

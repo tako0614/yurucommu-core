@@ -1,5 +1,5 @@
 import { AppProps } from "$fresh/server.ts"
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
+import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 import { createContext } from "preact/compat"
 export const Context = createContext(env)

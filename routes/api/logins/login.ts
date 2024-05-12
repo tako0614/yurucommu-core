@@ -1,6 +1,6 @@
 import users from "../../../models/users.ts"
 import sessionID from "../../../models/sessionid.ts"
-import { crypto } from "https://deno.land/std@0.220.1/crypto/mod.ts"
+import { crypto } from "$std/crypto/mod.ts"
 
 export const handler = {
   async POST(req: Request): Promise<any> {

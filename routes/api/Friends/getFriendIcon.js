@@ -1,5 +1,5 @@
 import csrftoken from "../../../models/csrftoken.ts"
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import users from "../../../models/users.ts"
 import friends from "../../../models/friends.ts"
 export const handler = {

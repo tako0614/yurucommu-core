@@ -2,56 +2,56 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
-import * as $_userName_ from "./routes/[userName].tsx";
-import * as $_404 from "./routes/_404.tsx";
-import * as $_app from "./routes/_app.tsx";
-import * as $_middleware from "./routes/_middleware.ts";
-import * as $about from "./routes/about.tsx";
-import * as $addFriend from "./routes/addFriend.jsx";
-import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js";
-import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js";
-import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts";
-import * as $api_Friends_requestAddFriendByAddFriendKey from "./routes/api/Friends/requestAddFriendByAddFriendKey.ts";
-import * as $api_Friends_requestAddFriendByUserName from "./routes/api/Friends/requestAddFriendByUserName.ts";
-import * as $api_chats_friendList from "./routes/api/chats/friendList.js";
-import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js";
-import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
-import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
-import * as $api_chats_talk from "./routes/api/chats/talk.js";
-import * as $api_csrfToken from "./routes/api/csrfToken.js";
-import * as $api_logins_login from "./routes/api/logins/login.ts";
-import * as $api_logins_logout from "./routes/api/logins/logout.js";
-import * as $api_logins_register from "./routes/api/logins/register.js";
-import * as $developper from "./routes/developper.tsx";
-import * as $greet_name_ from "./routes/greet/[name].tsx";
-import * as $index from "./routes/index.tsx";
-import * as $privacypolicy from "./routes/privacypolicy.tsx";
-import * as $setting_index from "./routes/setting/index.jsx";
-import * as $test from "./routes/test.jsx";
-import * as $test_post from "./routes/test_post.tsx";
-import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx";
-import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx";
-import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx";
-import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx";
-import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx";
-import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx";
-import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx";
-import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx";
-import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx";
-import * as $HeaderMenu from "./islands/HeaderMenu.tsx";
-import * as $LoginForm from "./islands/LoginForm.tsx";
-import * as $LogoutButton from "./islands/LogoutButton.jsx";
-import * as $PleaseLogin from "./islands/PleaseLogin.jsx";
-import * as $RegisterForm from "./islands/RegisterForm.tsx";
-import * as $SettingList from "./islands/SettingList.tsx";
-import * as $Settings_Friends from "./islands/Settings/Friends.tsx";
-import * as $Settings_Infomation from "./islands/Settings/Infomation.tsx";
-import * as $Settings_Logout from "./islands/Settings/Logout.tsx";
-import * as $Settings_Privacy from "./islands/Settings/Privacy.tsx";
-import * as $Settings_Profile from "./islands/Settings/Profile.tsx";
-import * as $Welcome from "./islands/Welcome.tsx";
-import * as $newLoginForm from "./islands/newLoginForm.tsx";
-import { type Manifest } from "$fresh/server.ts";
+import * as $_userName_ from "./routes/[userName].tsx"
+import * as $_404 from "./routes/_404.tsx"
+import * as $_app from "./routes/_app.tsx"
+import * as $_middleware from "./routes/_middleware.ts"
+import * as $about from "./routes/about.tsx"
+import * as $addFriend from "./routes/addFriend.jsx"
+import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js"
+import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js"
+import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts"
+import * as $api_Friends_requestAddFriendByAddFriendKey from "./routes/api/Friends/requestAddFriendByAddFriendKey.ts"
+import * as $api_Friends_requestAddFriendByUserName from "./routes/api/Friends/requestAddFriendByUserName.ts"
+import * as $api_chats_friendList from "./routes/api/chats/friendList.js"
+import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.js"
+import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts"
+import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js"
+import * as $api_chats_talk from "./routes/api/chats/talk.js"
+import * as $api_csrfToken from "./routes/api/csrfToken.js"
+import * as $api_logins_login from "./routes/api/logins/login.ts"
+import * as $api_logins_logout from "./routes/api/logins/logout.js"
+import * as $api_logins_register from "./routes/api/logins/register.js"
+import * as $developper from "./routes/developper.tsx"
+import * as $greet_name_ from "./routes/greet/[name].tsx"
+import * as $index from "./routes/index.tsx"
+import * as $privacypolicy from "./routes/privacypolicy.tsx"
+import * as $setting_index from "./routes/setting/index.jsx"
+import * as $test from "./routes/test.jsx"
+import * as $test_post from "./routes/test_post.tsx"
+import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx"
+import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx"
+import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
+import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx"
+import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx"
+import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
+import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx"
+import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx"
+import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx"
+import * as $HeaderMenu from "./islands/HeaderMenu.tsx"
+import * as $LoginForm from "./islands/LoginForm.tsx"
+import * as $LogoutButton from "./islands/LogoutButton.jsx"
+import * as $PleaseLogin from "./islands/PleaseLogin.jsx"
+import * as $RegisterForm from "./islands/RegisterForm.tsx"
+import * as $SettingList from "./islands/SettingList.tsx"
+import * as $Settings_Friends from "./islands/Settings/Friends.tsx"
+import * as $Settings_Infomation from "./islands/Settings/Infomation.tsx"
+import * as $Settings_Logout from "./islands/Settings/Logout.tsx"
+import * as $Settings_Privacy from "./islands/Settings/Privacy.tsx"
+import * as $Settings_Profile from "./islands/Settings/Profile.tsx"
+import * as $Welcome from "./islands/Welcome.tsx"
+import * as $newLoginForm from "./islands/newLoginForm.tsx"
+import { type Manifest } from "$fresh/server.ts"
 
 const manifest = {
   routes: {
@@ -110,6 +110,6 @@ const manifest = {
     "./islands/newLoginForm.tsx": $newLoginForm,
   },
   baseUrl: import.meta.url,
-} satisfies Manifest;
+} satisfies Manifest
 
-export default manifest;
+export default manifest

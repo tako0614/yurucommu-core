@@ -38,7 +38,7 @@
   },
   "fmt": {
     "semiColons": false,
-    "exclude": ["fresh.gen.ts", "node_moduls"]
+    "exclude": ["fresh.gen.ts", "node_moduls/"]
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
   "exclude": ["**/_fresh/*"]

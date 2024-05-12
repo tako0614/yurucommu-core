@@ -7,8 +7,8 @@ import {
 } from "../../../util/takoFunction.ts"
 import tempUsers from "../../../models/tempUsers.ts"
 import users from "../../../models/users.ts"
-import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
-import * as mod from "https://deno.land/std@0.220.1/crypto/mod.ts"
+import { load } from "$std/dotenv/mod.ts"
+import * as mod from "$std/crypto/mod.ts"
 const env = await load()
 const secretKey = env["rechapcha_seecret_key"]
 export const handler = {

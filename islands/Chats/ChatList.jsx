@@ -3,8 +3,6 @@ import { useEffect, useState } from "preact/hooks"
 import { h, render } from "preact"
 import User from "../../components/Chats/ChatUserList.jsx"
 import SettingList from "../SettingList.tsx"
-import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
-import { isWindows } from "https://deno.land/std@0.216.0/path/_os.ts"
 function ChatList(props) {
   if (props.isSetting) {
     return (

@@ -1,4 +1,4 @@
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import csrftoken from "../../../models/csrftoken.ts"
 import Friends from "../../../models/friends.ts"
 import requestAddFriend from "../../../models/reqestAddFriend.ts"

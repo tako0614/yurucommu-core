@@ -1,7 +1,7 @@
 import csrfToken from "../../models/csrftoken.ts"
 import { envRoader } from "../../util/takoFunction.ts"
-import { crypto } from "https://deno.land/std@0.220.1/crypto/crypto.ts"
-import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
+import { crypto } from "$std/crypto/crypto.ts"
+import { getCookies } from "$std/http/cookie.ts"
 import sessionID from "../../models/sessionid.ts"
 export const handler = {
   async GET(req) {

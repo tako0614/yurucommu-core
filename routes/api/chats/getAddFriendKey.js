@@ -1,5 +1,5 @@
 import users from "../../../models/users.ts"
-import { crypto } from "https://deno.land/std@0.220.1/crypto/crypto.ts"
+import { crypto } from "$std/crypto/crypto.ts"
 
 export const handler = {
   async GET(req, ctx) {
