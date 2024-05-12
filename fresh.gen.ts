@@ -18,7 +18,7 @@ import * as $api_chats_getAddFriendKey from "./routes/api/chats/getAddFriendKey.
 import * as $api_chats_getTalkData from "./routes/api/chats/getTalkData.ts";
 import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js";
 import * as $api_chats_talk from "./routes/api/chats/talk.js";
-import * as $api_csrfToken from "./routes/api/csrftoken.js";
+import * as $api_csrfToken from "./routes/api/csrfToken.js";
 import * as $api_logins_login from "./routes/api/logins/login.ts";
 import * as $api_logins_logout from "./routes/api/logins/logout.js";
 import * as $api_logins_register from "./routes/api/logins/register.js";
@@ -73,7 +73,7 @@ const manifest = {
     "./routes/api/chats/getTalkData.ts": $api_chats_getTalkData,
     "./routes/api/chats/sendMessage.js": $api_chats_sendMessage,
     "./routes/api/chats/talk.js": $api_chats_talk,
-    "./routes/api/csrftoken.js": $api_csrfToken,
+    "./routes/api/csrfToken.js": $api_csrfToken,
     "./routes/api/logins/login.ts": $api_logins_login,
     "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/register.js": $api_logins_register,

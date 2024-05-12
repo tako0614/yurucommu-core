@@ -5,8 +5,8 @@ import {
   isUserDuplication,
   sendMail,
 } from "../../../util/takoFunction.ts"
-import tempUsers from "../../../models/tempUsers.js"
-import users from "../../../models/users.js"
+import tempUsers from "../../../models/tempUsers.ts"
+import users from "../../../models/users.ts"
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
 import * as mod from "https://deno.land/std@0.220.1/crypto/mod.ts"
 const env = await load()

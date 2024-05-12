@@ -1,4 +1,4 @@
-import { mongoose } from "mongoose"
+import mongoose from "mongoose"
 export const roomsSchema = new mongoose.Schema({
   name: {
     type: String,

@@ -1,7 +1,7 @@
 import { Handlers, PageProps } from "$fresh/server.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
-import users from "../models/users.js"
-import sessionID from "../models/sessionid.js"
+import users from "../models/users.ts"
+import sessionID from "../models/sessionid.ts"
 import Chat from "../components/Chats/Chat.jsx"
 import PleaseLogin from "../islands/PleaseLogin.jsx"
 export const handler = {

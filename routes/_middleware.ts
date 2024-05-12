@@ -1,8 +1,8 @@
 import { MiddlewareHandlerContext } from "$fresh/server.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
 import csrfToken from "../models/csrftoken.ts"
-import users from "../models/users.js"
-import sessionID from "../models/sessionid.js"
+import users from "../models/users.ts"
+import sessionID from "../models/sessionid.ts"
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
 export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
   const cookies = getCookies(req.headers)

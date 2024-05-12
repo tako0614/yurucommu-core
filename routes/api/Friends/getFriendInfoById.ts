@@ -1,4 +1,4 @@
-import users from "../../../models/users.js"
+import users from "../../../models/users.ts"
 export const handler = {
   async GET(req: Request, ctx: any) {
     try {

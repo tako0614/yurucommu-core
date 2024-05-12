@@ -1,6 +1,6 @@
 import ChatAddFriend from "../components/Chats/ChatAddFriend.jsx"
 import { load } from "https://deno.land/std@0.204.0/dotenv/mod.ts"
-import users from "../models/users.js"
+import users from "../models/users.ts"
 import Chat from "../components/Chats/Chat.jsx"
 const env = await load()
 const origin = env["friendOrigin"]

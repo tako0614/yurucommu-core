@@ -1,4 +1,4 @@
-import rooms from "../../../models/rooms.js"
+import rooms from "../../../models/rooms.ts"
 import messages from "../../../models/messages.ts"
 import csrftoken from "../../../models/csrftoken.ts"
 import { getCookies } from "https://deno.land/std@0.220.1/http/cookie.ts"
