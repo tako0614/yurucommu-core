@@ -1,5 +1,5 @@
-for(let i = 1; i < 200; i++ ) {
-  const data = { prompt: "自己紹介をしてください" };
+for (let i = 1; i < 200; i++) {
+  const data = { prompt: "自己紹介をしてください" }
   const res = await fetch("http://api.natsukiproject.com/v3/s1/ai", {
     mode: "cors",
     method: "POST",
@@ -8,8 +8,8 @@ for(let i = 1; i < 200; i++ ) {
       "Content-Type": "application/json",
     },
   })
-  if(res.ok) {
+  if (res.ok) {
     const result = await res.json()
     console.log(result.text)
   }
-  }
+}

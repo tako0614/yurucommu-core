@@ -8,7 +8,7 @@ export const requestAddFriendSchema = new mongoose.Schema({
     type: [{
       userID: {
         type: String,
-        required: true
+        required: true,
       },
       timestamp: { type: Date, default: Date.now },
     }],

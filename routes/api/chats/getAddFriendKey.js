@@ -19,7 +19,7 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       try {
-        await users.updateOne({ userName: ctx.state.data.userName }, {
+        await users.updateOne({ id: ctx.state.data.userid }, {
           $set: { addFriendKey: addFriendKey },
         })
       } catch (error) {
@@ -38,7 +38,7 @@ export const handler = {
       )
     } else if (reload == "false") {
       const userInfo = await users.findOne({
-        userName: ctx.state.data.userName,
+        _id: ctx.state.data.userid,
       })
       if (userInfo === null || userInfo === undefined) {
         return new Response(JSON.stringify({ "status": false }), {
@@ -58,7 +58,7 @@ export const handler = {
         ).join("")
         try {
           await users.updateOne(
-            { userName: ctx.state.data.userName },
+            { id: ctx.state.data.userid },
             {
               $set: { addFriendKey: addFriendKey },
             },

@@ -2,7 +2,7 @@ import mongoose from "mongoose"
 
 export const friendsSchema = new mongoose.Schema({
   user: {
-    type: String,
+    type: mongoose.Schema.Types.UUID,
     required: true,
   },
   friends: [

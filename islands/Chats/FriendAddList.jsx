@@ -23,5 +23,3 @@ function ChatList(props) {
   )
 }
 export default ChatList
-const AddFriendId = () => {
-}

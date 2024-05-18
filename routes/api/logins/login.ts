@@ -58,7 +58,7 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       const result = await sessionID.create({
-        user: user._id,
+        userid: user._id,
         sessionID: sessionid,
       })
       if (result !== null) {

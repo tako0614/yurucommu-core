@@ -1,8 +1,8 @@
 import mongoose from "mongoose"
 
 export const sessionidSchema = new mongoose.Schema({
-  user: {
-    type: String,
+  userid: {
+    type: mongoose.Schema.ObjectId,
     required: true,
   },
   sessionID: {

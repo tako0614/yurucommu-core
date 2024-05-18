@@ -22,7 +22,9 @@ export const handler = {
     if (userInfo === null || userInfo === undefined) {
       return ctx.render({ loggedIn: true, isAddFriendForm: false })
     }
-    if (userInfo.userName !== ctx.state.data.userName) {
+    console.log(ctx.state.data)
+    console.log(userInfo._id + "   " + ctx.state.data.userid)
+    if (userInfo._id !== ctx.state.data.userid) {
       return ctx.render({
         loggedIn: true,
         key,

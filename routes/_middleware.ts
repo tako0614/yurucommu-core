@@ -12,10 +12,7 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     const resp = await ctx.next()
     return resp
   }
-  const sessions = await sessionID.findOne({ sessionID: sessionid }, {
-    createdAt: 1,
-    userName: 1,
-  })
+  const sessions = await sessionID.findOne({ sessionID: sessionid }, )
   if (sessions === null) {
     ctx.state.data = { loggedIn: false }
     const resp = await ctx.next()
@@ -36,11 +33,8 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
       return resp
     }
   }
-  const userid = sessions.user
-  const user = await users.findOne({ id: userid }, {
-    userName: 1,
-    mail: 1,
-  })
+  const userid = sessions.userid
+  const user = await users.findOne({ _id: userid })
   if (user === null) {
     ctx.state.data = { loggedIn: false }
     const resp = await ctx.next()

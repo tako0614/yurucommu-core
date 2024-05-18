@@ -44,21 +44,26 @@ export const handler = {
     }
     //すでに友達か
     const friendsInfo: any = await Friends.findOne({ user: userid })
-    const friends = friendsInfo.friends
-    interface FriendsType {
-      userid: string
-      room: string
-      lastMessage: string
-    }
-    interface SendReqType {
-      userName: string
-      timestamp: Date
-    }
-    const isAlredyFriend = friends.some((friend: FriendsType) => {
-      friend.userid === addFriendUserInfo._id
-    })
-    if (isAlredyFriend) {
-      return
+    if (friendsInfo !== null) {
+      const friends = friendsInfo.friends
+      interface FriendsType {
+        userid: string
+        room: string
+        lastMessage: string
+      }
+      interface SendReqType {
+        userName: string
+        timestamp: Date
+      }
+      const isAlredyFriend = friends.some((friend: FriendsType) => {
+        friend.userid === addFriendUserInfo._id
+      })
+      if (isAlredyFriend) {
+        return
+      }
+    } else {
+      console.log("aaa")
+      await Friends.create({ user: userid })
     }
     //すでにリクエストを送っているか
     const requestAddFriendInfo = await requestAddFriend.findOne({
@@ -70,7 +75,7 @@ export const handler = {
       })
     } else {
       const isAlredySendReq = requestAddFriendInfo.Applicant.some(
-        (friend: SendReqType) => {
+        (friend: any) => {
           friend.userName === addFriendUserInfo.userName
         },
       )
@@ -79,9 +84,13 @@ export const handler = {
       }
     }
     //await requestAddFriend.findOneAndUpdate({name: 'myname'}, {$set: {phone: '09011112222'}, $push: {reviews: [{rating: 2}]}, $unset: {isDeleted: true} }, {runValidator: true, new: true, projection: 'name phone reviews isDeleted'})
-    await requestAddFriend.updateOne({userID: addFriendUserInfo._id},{$push: {
-      userID: userid
-    }})
+    await requestAddFriend.updateOne({ userID: addFriendUserInfo._id }, {
+      $push: {
+        Applicant: {
+          userID: userid,
+        },
+      },
+    })
     return new Response(JSON.stringify({ status: true }), {
       headers: { "Content-Type": "application/json" },
       status: 200,

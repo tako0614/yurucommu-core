@@ -37,6 +37,7 @@ function ChatList(props) {
       }),
     })
     const res = await result.json()
+    console.log(res)
     if (res.status == "You are alone") {
       const ListElement = document.getElementById("friendList")
       render(
@@ -102,6 +103,7 @@ function ChatList(props) {
 }
 const AddFriendForm = (props) => {
   const [addFriendInfo, setAddFriendInfo] = useState([])
+  const [isRequested, setIsRequested] = useState(false)
   useEffect(async () => {
     const addFriendKey = props.addFriendKey
     const addFriendInfoTemp = await fetch(
@@ -130,46 +132,62 @@ const AddFriendForm = (props) => {
           </div>
           <div class="w-4/5 mx-auto my-0 text-white">
             <div class="w-full h-full text-center">
-              <h1 class="text-3xl mb-10">友達を追加</h1>
+              <h1 class="text-3xl mb-10">友達申請を送信する</h1>
               <div class="w-full bg-gray-700 h-screen">
-                <div class="text-lg">{addFriendInfo.data}</div>
-                <div class="w-2/3 m-auto mb-10">
-                  <img
-                    src={"./api/Friends/getFriendIcon?isuseAddFriendKey=true&addFriendKey=" +
-                      props.addFriendKey}
-                    alt=""
-                    class="rounded-full mx-auto my-5"
-                  />
-                </div>
-                <button
-                  onClick={async () => {
-                    const origin = window.location.protocol + "//" +
-                      window.location.host
-                    const csrftoken = await fetch(
-                      `./api/csrfToken?origin=${origin}`,
-                    )
-                    console.log(csrftoken)
-                    const result = await fetch(
-                      "./api/Friends/requestAddFriendById",
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({}),
-                      },
-                    )
-                    const res = await result.json()
-                    if (res.status == "success") {
-                      //
-                      alert("成功したで")
-                    }
-                  }}
-                  type="submit"
-                  class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-                >
-                  申請する
-                </button>
+                {!isRequested &&
+                  (
+                    <>
+                      <div class="text-lg">{addFriendInfo.data}</div>
+                      <div class="w-2/3 m-auto mb-10">
+                        <img
+                          src={"./api/Friends/getFriendIcon?isuseAddFriendKey=true&addFriendKey=" +
+                            props.addFriendKey}
+                          alt=""
+                          class="rounded-full mx-auto my-5"
+                        />
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const origin = window.location.protocol + "//" +
+                            window.location.host
+                          const csrftokenRes = await fetch(
+                            `./api/csrfToken?origin=${origin}`,
+                          )
+                          const csrftoken = await csrftokenRes.json()
+                          console.log(csrftoken)
+                          const result = await fetch(
+                            "./api/Friends/requestAddFriendByAddFriendKey",
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                csrftoken: csrftoken.csrftoken,
+                              }),
+                            },
+                          )
+                          const res = await result.json()
+                          if (res.status == true) {
+                            //
+                            setIsRequested(true)
+                          }
+                        }}
+                        type="submit"
+                        class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+                      >
+                        申請する
+                      </button>
+                    </>
+                  )}
+                {isRequested &&
+                  (
+                    <>
+                      <div>
+                        そうしんできたで
+                      </div>
+                    </>
+                  )}
               </div>
             </div>
           </div>
