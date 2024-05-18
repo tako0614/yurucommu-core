@@ -1,10 +1,8 @@
 import Welcom from "../islands/Welcome.tsx"
-import { getCookies } from "$std/http/cookie.ts"
 import users from "../models/users.ts"
-import sessionID from "../models/sessionid.ts"
 import { load } from "$std/dotenv/mod.ts"
 import Chat from "../components/Chats/Chat.jsx"
-import { useState } from "preact/hooks"
+import mongoose from "mongoose";
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
@@ -22,9 +20,9 @@ export const handler = {
     if (userInfo === null || userInfo === undefined) {
       return ctx.render({ loggedIn: true, isAddFriendForm: false })
     }
-    console.log(ctx.state.data)
-    console.log(userInfo._id + "   " + ctx.state.data.userid)
-    if (userInfo._id !== ctx.state.data.userid) {
+    const sessionUserId: string = ctx.state.data.userid
+    const userInfoId: string = userInfo._id.toString()
+    if (sessionUserId != userInfoId) {
       return ctx.render({
         loggedIn: true,
         key,
