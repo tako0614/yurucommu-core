@@ -40,6 +40,7 @@ export const handler = {
       const userInfo = await users.findOne({
         _id: ctx.state.data.userid,
       })
+      console.log(userInfo)
       if (userInfo === null || userInfo === undefined) {
         return new Response(JSON.stringify({ "status": false }), {
           headers: { "Content-Type": "application/json" },
@@ -58,7 +59,7 @@ export const handler = {
         ).join("")
         try {
           await users.updateOne(
-            { id: ctx.state.data.userid },
+            { _id: ctx.state.data.userid },
             {
               $set: { addFriendKey: addFriendKey },
             },

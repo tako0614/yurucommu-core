@@ -22,6 +22,8 @@ export const handler = {
     }
     const sessionUserId: string = ctx.state.data.userid
     const userInfoId: string = userInfo._id.toString()
+    console.log(sessionUserId)
+    console.log(userInfoId)
     if (sessionUserId != userInfoId) {
       return ctx.render({
         loggedIn: true,
