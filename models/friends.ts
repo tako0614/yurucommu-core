@@ -7,7 +7,7 @@ export const friendsSchema = new mongoose.Schema({
   },
   friends: [
     {
-      userName: {
+      userid: {
         type: String,
         required: true,
         unique: true,

@@ -4,8 +4,6 @@ import dev from "$fresh/dev.ts"
 import config from "./fresh.config.ts"
 
 import "$std/dotenv/load.ts"
-
-import { envRoader } from "./util/takoFunction.ts"
 /**connect mongoDB */
 import mongoose from "mongoose"
 import { load } from "$std/dotenv/mod.ts"

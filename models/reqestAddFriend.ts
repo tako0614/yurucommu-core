@@ -1,14 +1,14 @@
 import mongoose from "mongoose"
 export const requestAddFriendSchema = new mongoose.Schema({
-  userName: {
+  userID: {
     type: String,
     required: true,
   },
   Applicant: {
     type: [{
-      username: {
+      userID: {
         type: String,
-        required: true,
+        required: true
       },
       timestamp: { type: Date, default: Date.now },
     }],

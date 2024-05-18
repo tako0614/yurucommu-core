@@ -1,24 +1,15 @@
-const commands = Deno.args
-const command = []
-commands.forEach((commands) => {
-  const result = commands.indexOf("--")
-  if (result == -1) {
-    command.push(commands)
-  } else {
-    //
+for(let i = 1; i < 200; i++ ) {
+  const data = { prompt: "自己紹介をしてください" };
+  const res = await fetch("http://api.natsukiproject.com/v3/s1/ai", {
+    mode: "cors",
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+  if(res.ok) {
+    const result = await res.json()
+    console.log(result.text)
   }
-})
-switch (command[0]) {
-  case "dos":
-    for (let i = 0; i < command[2]; i++) {
-      const result = await fetch(command[1])
-      if (i % 100 == 0) {
-        console.log(i)
-        console.log(result)
-      }
-    }
-    break
-  default:
-    console.log("error")
-    break
-}
+  }

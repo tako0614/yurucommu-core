@@ -12,7 +12,7 @@
   "nodeModulesDir": true,
   "imports": {
     "$fresh/": "https://deno.land/x/fresh@1.6.8/",
-    "$std/": "https://deno.land/std@0.193.0/",
+    "$std/": "https://deno.land/std@0.224.0/",
     "@preact/signals": "https://esm.sh/*@preact/signals@1.2.2",
     "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.5.1",
     "@takoserver/takos-database": "jsr:@takoserver/takos-database@^0.1.0",

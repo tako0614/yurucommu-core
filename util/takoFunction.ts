@@ -1,5 +1,5 @@
 import { load } from "$std/dotenv/mod.ts"
-import { encode } from "$std/encoding/base64.ts"
+import { encode } from "https://deno.land/std@0.107.0/encoding/base64.ts"
 import { escapeSql } from "https://deno.land/x/escape@1.4.2/mod.ts"
 import mongoose from "mongoose"
 import users from "../models/users.ts"

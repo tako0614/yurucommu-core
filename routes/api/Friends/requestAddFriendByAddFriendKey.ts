@@ -33,7 +33,7 @@ export const handler = {
       })
     }
     await csrftoken.deleteOne({ token: data.csrftoken })
-    const userName = ctx.state.data.userName
+    const userid = ctx.state.data.userid
     // request add friend
     const { addFriendKey } = data
     const addFriendUserInfo = await Users.findOne({
@@ -43,10 +43,10 @@ export const handler = {
       return
     }
     //すでに友達か
-    const friendsInfo: any = await Friends.findOne({ user: userName })
+    const friendsInfo: any = await Friends.findOne({ user: userid })
     const friends = friendsInfo.friends
     interface FriendsType {
-      userName: string
+      userid: string
       room: string
       lastMessage: string
     }
@@ -55,18 +55,18 @@ export const handler = {
       timestamp: Date
     }
     const isAlredyFriend = friends.some((friend: FriendsType) => {
-      friend.userName === addFriendUserInfo.userName
+      friend.userid === addFriendUserInfo._id
     })
     if (isAlredyFriend) {
       return
     }
     //すでにリクエストを送っているか
     const requestAddFriendInfo = await requestAddFriend.findOne({
-      userName: addFriendUserInfo.userName,
+      userID: addFriendUserInfo._id,
     })
-    if (requestAddFriendInfo !== null) {
+    if (requestAddFriendInfo == null) {
       await requestAddFriend.create({
-        userName: addFriendUserInfo.userName,
+        userID: addFriendUserInfo._id,
       })
     } else {
       const isAlredySendReq = requestAddFriendInfo.Applicant.some(
@@ -78,6 +78,13 @@ export const handler = {
         return
       }
     }
-    //await requestAddFriend.findOneAndUpdate({name: 'myname'}, {$set: {phone: '09011112222'}, $push: {reviews: [{rating: 2}]}, $unset: {isDeleted: true} }, {runValidator: true, new: true, projection: 'name phone reviews isDeleted'}).lean()
+    //await requestAddFriend.findOneAndUpdate({name: 'myname'}, {$set: {phone: '09011112222'}, $push: {reviews: [{rating: 2}]}, $unset: {isDeleted: true} }, {runValidator: true, new: true, projection: 'name phone reviews isDeleted'})
+    await requestAddFriend.updateOne({userID: addFriendUserInfo._id},{$push: {
+      userID: userid
+    }})
+    return new Response(JSON.stringify({ status: true }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    })
   },
 }
