@@ -1,7 +1,7 @@
-import csrftoken from "../../../models/csrftoken.ts"
+import csrftoken from "../../../../models/csrftoken.ts"
 import { getCookies } from "$std/http/cookie.ts"
-import users from "../../../models/users.ts"
-import friends from "../../../models/friends.ts"
+import users from "../../../../models/users.ts"
+import friends from "../../../../models/friends.ts"
 export const handler = {
   async GET(req, ctx) {
     if (!ctx.state.data.loggedIn) {

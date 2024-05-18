@@ -1,4 +1,4 @@
-import room from "../../../models/rooms.ts"
+import room from "../../../../models/rooms.ts"
 export const handler = {
   async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {

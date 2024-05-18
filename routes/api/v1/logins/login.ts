@@ -1,5 +1,5 @@
-import users from "../../../models/users.ts"
-import sessionID from "../../../models/sessionid.ts"
+import users from "../../../../models/users.ts"
+import sessionID from "../../../../models/sessionid.ts"
 import { crypto } from "$std/crypto/mod.ts"
 
 export const handler = {

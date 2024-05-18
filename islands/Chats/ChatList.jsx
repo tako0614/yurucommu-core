@@ -30,7 +30,7 @@ function ChatList(props) {
       },
     )
     const csrftoken = await csrftokenres.json()
-    const result = await fetch("./api/chats/friendList", {
+    const result = await fetch("./api/v1/chats/friendList", {
       method: "POST",
       body: JSON.stringify({
         csrftoken: csrftoken.csrftoken,

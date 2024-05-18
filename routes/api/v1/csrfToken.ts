@@ -1,8 +1,8 @@
-import csrfToken from "../../models/csrftoken.ts"
-import { envRoader } from "../../util/takoFunction.ts"
+import csrfToken from "../../../models/csrftoken.ts"
+import { envRoader } from "../../../util/takoFunction.ts"
 import { crypto } from "$std/crypto/crypto.ts"
 import { getCookies } from "$std/http/cookie.ts"
-import sessionID from "../../models/sessionid.ts"
+import sessionID from "../../../models/sessionid.ts"
 export const handler = {
   async GET(req: Request) {
     const cookies = getCookies(req.headers)

@@ -4,9 +4,9 @@ import {
   isMailDuplicationTemp,
   isUserDuplication,
   sendMail,
-} from "../../../util/takoFunction.ts"
-import tempUsers from "../../../models/tempUsers.ts"
-import users from "../../../models/users.ts"
+} from "../../../../util/takoFunction.ts"
+import tempUsers from "../../../../models/tempUsers.ts"
+import users from "../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import * as mod from "$std/crypto/mod.ts"
 const env = await load()

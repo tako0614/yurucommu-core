@@ -1,4 +1,4 @@
-import users from "../../../models/users.ts"
+import users from "../../../../models/users.ts"
 import { crypto } from "$std/crypto/crypto.ts"
 
 export const handler = {

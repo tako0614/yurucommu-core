@@ -1,7 +1,7 @@
 import { getCookies } from "$std/http/cookie.ts"
-import csrftoken from "../../../models/csrftoken.ts"
-import Friends from "../../../models/friends.ts"
-import requestAddFriend from "../../../models/reqestAddFriend.ts"
+import csrftoken from "../../../../models/csrftoken.ts"
+import Friends from "../../../../models/friends.ts"
+import requestAddFriend from "../../../../models/reqestAddFriend.ts"
 export const handler = {
   async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {

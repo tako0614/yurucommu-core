@@ -1,5 +1,5 @@
 import { getCookies } from "$std/http/cookie.ts"
-import sessionID from "../../../models/sessionid.ts"
+import sessionID from "../../../../models/sessionid.ts"
 export const handler = {
   async POST(req, ctx) {
     if (!ctx.state.data.loggedIn) {

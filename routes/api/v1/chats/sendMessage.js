@@ -1,6 +1,6 @@
-import rooms from "../../../models/rooms.ts"
-import messages from "../../../models/messages.ts"
-import csrftoken from "../../../models/csrftoken.ts"
+import rooms from "../../../../models/rooms.ts"
+import messages from "../../../../models/messages.ts"
+import csrftoken from "../../../../models/csrftoken.ts"
 import { getCookies } from "$std/http/cookie.ts"
 export const handler = {
   async POST(ctx, req) {
