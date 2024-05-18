@@ -40,7 +40,6 @@ export const handler = {
       const userInfo = await users.findOne({
         _id: ctx.state.data.userid,
       })
-      console.log(userInfo)
       if (userInfo === null || userInfo === undefined) {
         return new Response(JSON.stringify({ "status": false }), {
           headers: { "Content-Type": "application/json" },

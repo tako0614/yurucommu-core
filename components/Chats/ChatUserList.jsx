@@ -32,7 +32,6 @@ export default async function User({ userName, latestMessage }) {
   } else {
     const iconData = Deno.readFile("../../static/people.png");
   }
-  console.log("aaa")
   return (
     <>
       <li class="c-talk-rooms">

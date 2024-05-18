@@ -13,7 +13,6 @@ export const handler = {
     const cookies = getCookies(req.headers)
     const data = await req.json()
     if (typeof data.csrftoken !== "string") {
-      console.log("aa")
       return { status: false }
     }
     const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })
@@ -37,7 +36,6 @@ export const handler = {
       }, {
         friends: 1,
       })
-      console.log(friendsInfo)
       if (friendsInfo === null || friendsInfo === undefined) {
         return new Response(
           JSON.stringify({ "status": "You are alone" }),

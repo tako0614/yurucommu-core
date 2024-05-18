@@ -100,7 +100,6 @@ export default function RegisterForm(
     if (!isMail(data.email)) {
       setShowEmailError(true)
       setEmailErrorMessages("メールアドレスが不正です")
-      console.log(data.email)
       window.grecaptcha.execute(sitekey, { action: "homepage" }).then(
         (token) => {
           setRecaptchaToken(token)

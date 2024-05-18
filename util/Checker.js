@@ -12,7 +12,6 @@ export const checksesssionCSRF = async (req) => {
   }
   // Check if the CSRF token is valid
   if (typeof data.csrftoken !== "string") {
-    console.log("aa")
     return { status: false }
   }
   const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })

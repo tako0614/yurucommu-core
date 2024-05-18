@@ -62,7 +62,6 @@ export const handler = {
         return
       }
     } else {
-      console.log("aaa")
       await Friends.create({ user: userid })
     }
     //すでにリクエストを送っているか

@@ -62,7 +62,6 @@ async function isUserDuplication(userid: string): Promise<boolean> {
 }
 async function isMailDuplication(mail: string): Promise<boolean> {
   const result = await users.findOne({ mail: mail }, { mail: 1 })
-  console.log(result)
   return result !== null
 }
 async function isCsrftoken(token: string): Promise<any> {

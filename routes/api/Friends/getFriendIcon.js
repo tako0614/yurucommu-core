@@ -26,7 +26,6 @@ export const handler = {
           },
         )
       }
-      console.log(addFriendKey)
       const user = await users.findOne({ addFriendKey: addFriendKey })
       if (user == null) {
         return new Response(

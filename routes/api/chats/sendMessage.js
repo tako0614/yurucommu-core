@@ -13,7 +13,6 @@ export const handler = {
     const cookies = getCookies(req.headers)
     const data = await req.json()
     if (typeof data.csrftoken !== "string") {
-      console.log("aa")
       return { status: false }
     }
     const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })
