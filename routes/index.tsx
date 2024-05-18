@@ -2,7 +2,7 @@ import Welcom from "../islands/Welcome.tsx"
 import users from "../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import Chat from "../components/Chats/Chat.jsx"
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`

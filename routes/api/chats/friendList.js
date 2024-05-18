@@ -32,7 +32,9 @@ export const handler = {
         types: 1,
         name: 1,
       })
-      const friendsInfo = await Friends.findOne({ userName: ctx.state.data.userid }, {
+      const friendsInfo = await Friends.findOne({
+        userName: ctx.state.data.userid,
+      }, {
         friends: 1,
       })
       console.log(friendsInfo)

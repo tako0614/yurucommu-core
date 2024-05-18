@@ -4,7 +4,7 @@ import { crypto } from "$std/crypto/crypto.ts"
 import { getCookies } from "$std/http/cookie.ts"
 import sessionID from "../../models/sessionid.ts"
 export const handler = {
-  async GET(req) {
+  async GET(req: Request) {
     const cookies = getCookies(req.headers)
     if (cookies.sessionid === undefined) {
       return new Response(

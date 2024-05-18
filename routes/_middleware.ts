@@ -12,7 +12,7 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     const resp = await ctx.next()
     return resp
   }
-  const sessions = await sessionID.findOne({ sessionID: sessionid }, )
+  const sessions = await sessionID.findOne({ sessionID: sessionid })
   if (sessions === null) {
     ctx.state.data = { loggedIn: false }
     const resp = await ctx.next()
