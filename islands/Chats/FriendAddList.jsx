@@ -1,7 +1,7 @@
 // deno-lint-ignore-file
 import { useEffect } from "preact/hooks"
 import { h, render } from "preact"
-import User from "./AddFriend.jsx"
+import User from "./AddFriend.tsx"
 import re from "https://esm.sh/v135/preact-render-to-string@6.3.1/X-ZS8q/denonext/preact-render-to-string.mjs"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 function ChatList(props) {

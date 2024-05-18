@@ -8,7 +8,6 @@ import * as $_app from "./routes/_app.tsx"
 import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
 import * as $addFriend from "./routes/addFriend.jsx"
-import * as $api_Friends_addFriend from "./routes/api/Friends/addFriend.js"
 import * as $api_Friends_getFriendIcon from "./routes/api/Friends/getFriendIcon.js"
 import * as $api_Friends_getFriendInfoById from "./routes/api/Friends/getFriendInfoById.ts"
 import * as $api_Friends_requestAddFriendByAddFriendKey from "./routes/api/Friends/requestAddFriendByAddFriendKey.ts"
@@ -20,7 +19,7 @@ import * as $api_chats_sendMessage from "./routes/api/chats/sendMessage.js"
 import * as $api_chats_talk from "./routes/api/chats/talk.js"
 import * as $api_csrfToken from "./routes/api/csrfToken.ts"
 import * as $api_logins_login from "./routes/api/logins/login.ts"
-import * as $api_logins_logout from "./routes/api/logins/logout.ts"
+import * as $api_logins_logout from "./routes/api/logins/logout.js"
 import * as $api_logins_register from "./routes/api/logins/register.js"
 import * as $developper from "./routes/developper.tsx"
 import * as $greet_name_ from "./routes/greet/[name].tsx"
@@ -29,11 +28,11 @@ import * as $privacypolicy from "./routes/privacypolicy.tsx"
 import * as $setting_index from "./routes/setting/index.jsx"
 import * as $test from "./routes/test.jsx"
 import * as $test_post from "./routes/test_post.tsx"
-import * as $Chats_AddFriend from "./islands/Chats/AddFriend.jsx"
-import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.jsx"
+import * as $Chats_AddFriend from "./islands/Chats/AddFriend.tsx"
+import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.tsx"
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
-import * as $Chats_ChatMain from "./islands/Chats/ChatMain.jsx"
-import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.jsx"
+import * as $Chats_ChatMain from "./islands/Chats/ChatMain.tsx"
+import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.tsx"
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
 import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx"
 import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx"
@@ -61,7 +60,6 @@ const manifest = {
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.jsx": $addFriend,
-    "./routes/api/Friends/addFriend.js": $api_Friends_addFriend,
     "./routes/api/Friends/getFriendIcon.js": $api_Friends_getFriendIcon,
     "./routes/api/Friends/getFriendInfoById.ts": $api_Friends_getFriendInfoById,
     "./routes/api/Friends/requestAddFriendByAddFriendKey.ts":
@@ -75,7 +73,7 @@ const manifest = {
     "./routes/api/chats/talk.js": $api_chats_talk,
     "./routes/api/csrfToken.ts": $api_csrfToken,
     "./routes/api/logins/login.ts": $api_logins_login,
-    "./routes/api/logins/logout.ts": $api_logins_logout,
+    "./routes/api/logins/logout.js": $api_logins_logout,
     "./routes/api/logins/register.js": $api_logins_register,
     "./routes/developper.tsx": $developper,
     "./routes/greet/[name].tsx": $greet_name_,
@@ -86,11 +84,11 @@ const manifest = {
     "./routes/test_post.tsx": $test_post,
   },
   islands: {
-    "./islands/Chats/AddFriend.jsx": $Chats_AddFriend,
-    "./islands/Chats/ChatHeader.jsx": $Chats_ChatHeader,
+    "./islands/Chats/AddFriend.tsx": $Chats_AddFriend,
+    "./islands/Chats/ChatHeader.tsx": $Chats_ChatHeader,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
-    "./islands/Chats/ChatMain.jsx": $Chats_ChatMain,
-    "./islands/Chats/ChatTalk.jsx": $Chats_ChatTalk,
+    "./islands/Chats/ChatMain.tsx": $Chats_ChatMain,
+    "./islands/Chats/ChatTalk.tsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/TalkTimeLine.jsx": $Chats_TalkTimeLine,
     "./islands/Chats/getAddFriendKey.tsx": $Chats_getAddFriendKey,

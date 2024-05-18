@@ -1,7 +1,15 @@
 import { useState } from "preact/hooks"
 import ChatList from "./ChatList.jsx"
-import ChatTalk from "./ChatTalk.jsx"
-export default function ChatMain(props) {
+import ChatTalk from "./ChatTalk.tsx"
+export default function ChatMain(
+  props: {
+    isAddFriendForm: any
+    addFriendKey: any
+    isSetting: any
+    isChoiceUser: any
+    roomid: any
+  },
+) {
   if (props.isAddFriendForm) {
     return (
       <>

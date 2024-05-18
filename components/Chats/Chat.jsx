@@ -1,6 +1,6 @@
 import Footer from "../Footer.tsx"
-import ChatMain from "../../islands/Chats/ChatMain.jsx"
-import ChatHeader from "../../islands/Chats/ChatHeader.jsx"
+import ChatMain from "../../islands/Chats/ChatMain.tsx"
+import ChatHeader from "../../islands/Chats/ChatHeader.tsx"
 export default function Talks(props) {
   if (props.isAddFriendForm) {
     return (

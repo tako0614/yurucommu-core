@@ -1,7 +1,7 @@
 import Footer from "../Footer.tsx"
 import ChatList from "../../islands/Chats/FriendAddList.jsx"
-import ChatTalk from "../../islands/Chats/ChatTalk.jsx"
-import ChatHeader from "../../islands/Chats/ChatHeader.jsx"
+import ChatTalk from "../../islands/Chats/ChatTalk.tsx"
+import ChatHeader from "../../islands/Chats/ChatHeader.tsx"
 export default function Talks(props) {
   return (
     <>
