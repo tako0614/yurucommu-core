@@ -51,6 +51,54 @@ function ChatList(props) {
         ListElement,
       )
       return
+    } else if(res.status == "csrftoken error") {
+      const csrftokenres = await fetch(
+        "./api/v1/csrfToken?origin=http://localhost:8000",
+        {
+          method: "GET",
+        },
+      )
+      const csrftoken = await csrftokenres.json()
+      const result = await fetch("./api/v1/chats/friendList", {
+        method: "POST",
+        body: JSON.stringify({
+          csrftoken: csrftoken.csrftoken,
+        }),
+      })
+      const res = await result.json()
+      console.log(res)
+      if (res.status == "You are alone") {
+        const ListElement = document.getElementById("friendList")
+        render(
+          <User
+            userName="友達がいません！！"
+            latestMessage="ざぁこ♡ざぁこ♡"
+            icon="./people.png"
+            onClick={() => {
+            }}
+          />,
+          ListElement,
+        )
+        return
+      }
+      let ListElement
+      result.sort((a, b) => {
+        a.latestMessageTime - b.latestMessageTime
+      })
+      let elements = []
+      result.map((friend) => {
+        const icon = `./api/v1/friends/${friend.userName}/icon`
+        const element = (
+          <User
+            userName={friend.userName}
+            latestMessage={friend.latestMessage}
+            icon={icon}
+          />
+        )
+        elements.push(element)
+      })
+      document.getElementById("friendList").appendChild(user)
+      render(elements, ListElement)
     }
     let ListElement
     result.sort((a, b) => {
