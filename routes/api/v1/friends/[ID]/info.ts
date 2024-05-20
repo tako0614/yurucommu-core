@@ -1,4 +1,4 @@
-import users from "../../../../models/users.ts"
+import users from "../../../../../models/users.ts"
 export const handler = {
   async GET(req: Request, ctx: any) {
     try {
@@ -11,9 +11,8 @@ export const handler = {
           },
         )
       }
-      const url = new URL(req.url)
-      const addFriendKey = url.searchParams.get("key") || ""
-      if (addFriendKey == "") {
+      const { ID } = ctx.params
+      if (ID == "") {
         return new Response(
           JSON.stringify({ "status": "No userName" }),
           {
@@ -23,7 +22,7 @@ export const handler = {
         )
       }
       const friendInfo = await users.findOne({
-        addFriendKey: addFriendKey,
+        addFriendKey: ID,
       })
       if (friendInfo == null) {
         return new Response(

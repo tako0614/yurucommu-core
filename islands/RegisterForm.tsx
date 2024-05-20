@@ -108,7 +108,7 @@ export default function RegisterForm(
       return
     }
     setShowError(false)
-    const res = await fetch("/api/logins/register", {
+    const res = await fetch("/api/v1/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -173,7 +173,7 @@ export default function RegisterForm(
       return
     }
     setShowError(false)
-    const res = await fetch("/api/logins/register", {
+    const res = await fetch("/api/v1/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -279,7 +279,7 @@ export default function RegisterForm(
       return
     }
     setShowError(false)
-    const res = await fetch("/api/logins/register", {
+    const res = await fetch("/api/v1/logins/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

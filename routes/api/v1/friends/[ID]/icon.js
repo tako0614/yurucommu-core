@@ -1,9 +1,10 @@
-import csrftoken from "../../../../models/csrftoken.ts"
+import csrftoken from "../../../../../models/csrftoken.ts"
 import { getCookies } from "$std/http/cookie.ts"
-import users from "../../../../models/users.ts"
-import friends from "../../../../models/friends.ts"
+import users from "../../../../../models/users.ts"
+import friends from "../../../../../models/friends.ts"
 export const handler = {
   async GET(req, ctx) {
+    const { ID } = ctx.params
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -12,11 +13,11 @@ export const handler = {
     }
     const url = new URL(req.url)
     const userName = ctx.state.data.userName
-    const friendName = url.searchParams.get("friendName") || ""
+    const friendName = ID
     const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") ||
       false
     if (isuseAddFriendKey == "true") {
-      const addFriendKey = url.searchParams.get("addFriendKey") || ""
+      const addFriendKey = ID
       if (addFriendKey == "") {
         return new Response(
           JSON.stringify({ "status": "No addFriendKey" }),

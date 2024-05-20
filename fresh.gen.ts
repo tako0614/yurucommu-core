@@ -8,16 +8,15 @@ import * as $_app from "./routes/_app.tsx"
 import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
 import * as $addFriend from "./routes/addFriend.tsx"
-import * as $api_v1_Friends_getFriendIcon from "./routes/api/v1/Friends/getFriendIcon.js"
-import * as $api_v1_Friends_getFriendInfoById from "./routes/api/v1/Friends/getFriendInfoById.ts"
-import * as $api_v1_Friends_requestAddFriendByAddFriendKey from "./routes/api/v1/Friends/requestAddFriendByAddFriendKey.ts"
-import * as $api_v1_Friends_requestAddFriendByUserName from "./routes/api/v1/Friends/requestAddFriendByUserName.ts"
 import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
-import * as $api_v1_chats_getAddFriendKey from "./routes/api/v1/chats/getAddFriendKey.js"
-import * as $api_v1_chats_getTalkData from "./routes/api/v1/chats/getTalkData.ts"
-import * as $api_v1_chats_sendMessage from "./routes/api/v1/chats/sendMessage.js"
+import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
+import * as $api_v1_chats_message from "./routes/api/v1/chats/message.js"
 import * as $api_v1_chats_talk from "./routes/api/v1/chats/talk.js"
+import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrfToken from "./routes/api/v1/csrfToken.ts"
+import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
+import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
+import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
 import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
@@ -58,19 +57,15 @@ const manifest = {
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.tsx": $addFriend,
-    "./routes/api/v1/Friends/getFriendIcon.js": $api_v1_Friends_getFriendIcon,
-    "./routes/api/v1/Friends/getFriendInfoById.ts":
-      $api_v1_Friends_getFriendInfoById,
-    "./routes/api/v1/Friends/requestAddFriendByAddFriendKey.ts":
-      $api_v1_Friends_requestAddFriendByAddFriendKey,
-    "./routes/api/v1/Friends/requestAddFriendByUserName.ts":
-      $api_v1_Friends_requestAddFriendByUserName,
     "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
-    "./routes/api/v1/chats/getAddFriendKey.js": $api_v1_chats_getAddFriendKey,
-    "./routes/api/v1/chats/getTalkData.ts": $api_v1_chats_getTalkData,
-    "./routes/api/v1/chats/sendMessage.js": $api_v1_chats_sendMessage,
+    "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
+    "./routes/api/v1/chats/message.js": $api_v1_chats_message,
     "./routes/api/v1/chats/talk.js": $api_v1_chats_talk,
+    "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
     "./routes/api/v1/csrfToken.ts": $api_v1_csrfToken,
+    "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
+    "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
+    "./routes/api/v1/friends/request.ts": $api_v1_friends_request,
     "./routes/api/v1/logins/login.ts": $api_v1_logins_login,
     "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,
     "./routes/api/v1/logins/register.js": $api_v1_logins_register,

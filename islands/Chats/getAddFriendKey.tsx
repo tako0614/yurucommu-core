@@ -13,7 +13,7 @@ export default function RegisterForm(props: any) {
   }
   useEffect(() => {
     const fetchData = async () => {
-      const resp = await fetch("./api/v1/chats/getAddFriendKey?reload=false")
+      const resp = await fetch("./api/v1/chats/friendkey?reload=false")
       const data = await resp.json()
       if (data.status === false) {
         console.log("error")
@@ -92,7 +92,7 @@ function Input({
   const handleChangeUrl = (event: any) => {
     event.preventDefault()
     const updateurl = async () => {
-      const resp = await fetch("./api/v1/chats/getAddFriendKey?reload=true")
+      const resp = await fetch("./api/v1/chats/friendkey?reload=true")
       const data = await resp.json()
       if (data.status === false) {
         console.log("error")

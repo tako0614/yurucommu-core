@@ -24,7 +24,7 @@ function ChatList(props) {
   )
   useEffect(async () => {
     const csrftokenres = await fetch(
-      "./api/csrfToken?origin=http://localhost:8000",
+      "./api/v1/csrfToken?origin=http://localhost:8000",
       {
         method: "GET",
       },
@@ -58,7 +58,7 @@ function ChatList(props) {
     })
     let elements = []
     result.map((friend) => {
-      const icon = `./api/friends/getFriendIcon?friendName=${friend.userName}`
+      const icon = `./api/v1/friends/${friend.userName}/icon`
       const element = (
         <User
           userName={friend.userName}
@@ -107,7 +107,7 @@ const AddFriendForm = (props) => {
   useEffect(async () => {
     const addFriendKey = props.addFriendKey
     const addFriendInfoTemp = await fetch(
-      "./api/Friends/getFriendInfoById?key=" + addFriendKey,
+      "./api/v1/friends/" + addFriendKey + "/info",
       {
         method: "GET",
       },
@@ -117,8 +117,8 @@ const AddFriendForm = (props) => {
   }, [])
   return (
     <>
-      <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
-        <div class="bg-[#010005] lg:w-1/3 w-full h-full lg:h-2/3 mx-auto lg:my-[7%] p-5 lg:rounded-xl">
+        <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0">
+          <div class="bg-[#f0f0f5] lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
           <div class="flex justify-end bg-blue-500">
             <span
               class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
@@ -130,7 +130,7 @@ const AddFriendForm = (props) => {
               ×
             </span>
           </div>
-          <div class="w-4/5 mx-auto my-0 text-white">
+          <div class="w-4/5 mx-auto my-0 text-black">
             <div class="w-full h-full text-center">
               <h1 class="text-3xl mb-10">友達申請を送信する</h1>
               <div class="w-full bg-gray-700 h-screen">
@@ -140,8 +140,7 @@ const AddFriendForm = (props) => {
                       <div class="text-lg">{addFriendInfo.data}</div>
                       <div class="w-2/3 m-auto mb-10">
                         <img
-                          src={"./api/Friends/getFriendIcon?isuseAddFriendKey=true&addFriendKey=" +
-                            props.addFriendKey}
+                          src={"./api/v1/friends/" + props.addFriendKey + "/icon?isuseAddFriendKey=true"}
                           alt=""
                           class="rounded-full mx-auto my-5"
                         />
@@ -151,12 +150,11 @@ const AddFriendForm = (props) => {
                           const origin = window.location.protocol + "//" +
                             window.location.host
                           const csrftokenRes = await fetch(
-                            `./api/csrfToken?origin=${origin}`,
+                            `./api/v1/csrfToken?origin=${origin}`,
                           )
                           const csrftoken = await csrftokenRes.json()
-                          console.log(csrftoken)
                           const result = await fetch(
-                            "./api/Friends/requestAddFriendByAddFriendKey",
+                            "./api/v1/friends/request",
                             {
                               method: "POST",
                               headers: {
@@ -164,6 +162,8 @@ const AddFriendForm = (props) => {
                               },
                               body: JSON.stringify({
                                 csrftoken: csrftoken.csrftoken,
+                                type: "AddFriendKey",
+                                addFriendKey: props.addFriendKey
                               }),
                             },
                           )

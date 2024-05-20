@@ -1,14 +1,14 @@
 import mongoose from "mongoose"
 
 export const friendsSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.UUID,
+  user :{
+    type: String,
     required: true,
   },
   friends: [
     {
       userid: {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId,
         required: true,
         unique: true,
       },
