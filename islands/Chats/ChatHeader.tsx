@@ -1,4 +1,5 @@
-export default function ChatHeader(props: { isChoiceUser: any }) {
+// deno-lint-ignore no-explicit-any
+export default function ChatHeader(props: { isChoiceUser?: any }) {
   return (
     <>
       <header

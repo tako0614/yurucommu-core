@@ -30,7 +30,7 @@ export default function talk(props: PageProps) {
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       {props.data.loggedIn
-        ? <Chat isChoiceUser={true} />
+        ? <Chat userName={userName} isChoiceUser={true} />
         : <PleaseLogin />}
     </>
   )
