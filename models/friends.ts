@@ -1,7 +1,7 @@
 import mongoose from "mongoose"
 
 export const friendsSchema = new mongoose.Schema({
-  user :{
+  user: {
     type: String,
     required: true,
   },

@@ -3,7 +3,7 @@ import csrftoken from "../../../../models/csrftoken.ts"
 import Friends from "../../../../models/friends.ts"
 import requestAddFriend from "../../../../models/reqestAddFriend.ts"
 import Users from "../../../../models/users.ts"
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 export const handler = {
   async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
@@ -36,7 +36,11 @@ export const handler = {
     await csrftoken.deleteOne({ token: data.csrftoken })
     const userid = ctx.state.data.userid
     // request add friend
-    if(data.type == "AddFriendKey") {
+    if(data.type == "acceptRequest") {
+      //
+      
+    }
+    if (data.type == "AddFriendKey") {
       const { addFriendKey } = data
       const addFriendUserInfo = await Users.findOne({
         addFriendKey: addFriendKey,
@@ -64,7 +68,6 @@ export const handler = {
           return
         }
       } else {
-
         await Friends.create({ user: userid })
       }
       //すでにリクエストを送っているか
@@ -97,11 +100,7 @@ export const handler = {
         headers: { "Content-Type": "application/json" },
         status: 200,
       })
-
-
-
-
-    } else if(data.type == "userName") {
+    } else if (data.type == "userName") {
       const userName = ctx.state.data.userName
       // request add friend
       const friendName = data.friendName

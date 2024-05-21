@@ -37,7 +37,7 @@ export default function RegisterForm(props: any) {
           </div>
           <div class="c-talk-rooms-box">
             <div class="c-talk-rooms-name">
-              <p>招待urlを作成</p>
+              <p>リクエスト</p>
             </div>
             <div class="c-talk-rooms-msg">
               <p></p>
@@ -58,8 +58,8 @@ export default function RegisterForm(props: any) {
             </div>
             <div class="w-4/5 mx-auto my-0">
               <div class="text-center text-sm">
-                <p class="text-black hover:underline font-medium text-3xl mt-8 mb-10">
-                  友達追加用URLを作成
+                <p class="text-black hover:underline font-medium text-3xl mt-4 mb-5">
+                  保留中
                 </p>
               </div>
               <div>
@@ -105,41 +105,90 @@ function Input({
   }
   return (
     <>
-      <label
-        for="email"
-        class="block mb-2 text-sm font-medium text-black"
-      >
-        友達登録用URL
-      </label>
-      <div class="w-full">
-        <input
-          value={value}
-          class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-          readonly
-        />
-      </div>
-      <div class="flex w-full">
-        <div class="1/2">
-          <button
-            onClick={handleChangeUrl}
-            type="submit"
-            class="text-white h-10 bg-blue-700 hover:bg-blue-800 focus:ring-4 p-2.5 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-          >
-            urlを変更
-          </button>
-        </div>
-        <div class="1/2">
-          <button
-            onClick={() => {
-              copyToClipboard(value)
-            }}
-            type="submit"
-            class="text-white h-10 bg-blue-700 hover:bg-blue-800 focus:ring-4 p-2.5 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-          >
-            コピー
-          </button>
-        </div>
+      <div class="w-full text-gray-900 text-sm rounded-lg h-16">
+        <VideoList></VideoList>
       </div>
     </>
+  )
+}
+function User(props: any) {
+  return (
+    <>
+      <li class="c-talk-rooms flex mb-2 bg-white border border-gray-300">
+        <a>
+          <div class="c-talk-rooms-icon">
+            <img src={props.icon} />
+          </div>
+          <div class="c-talk-rooms-box">
+            <div class="c-talk-rooms-name">
+              <p>{props.userName}</p>
+            </div>
+            <div class="c-talk-rooms-msg">
+              <p></p>
+            </div>
+          </div>
+        </a>
+        <div class="mt-auto mb-auto ml-auto flex">
+          <div class="ml-2">
+          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">＋</button>
+          </div>
+          <div>
+          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">－</button>
+          </div>
+        </div>
+      </li>
+      <hr />
+    </>
+  )
+}
+const VideoList = () => {
+  const videos = [
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+    { title: "たこ", icon: "people.png" },
+    { title: "たこ2", icon: "people.png" },
+  ]
+  useEffect(
+    () => {
+      async function getList() {
+        const res = await fetch("./api/v1/friends/reqLists")
+      }
+      getList()
+    },[]
+  )
+
+  return (
+    <div className="container mx-auto mt-8">
+      <div className="bg-white rounded-lg overflow-y-auto max-h-96 mx-auto">
+        <ul className="space-y-2 p-4">
+          {videos.map((video) => (
+            /*<li
+              key={video.id}
+              className={`flex items-center p-2 rounded cursor-pointer ${
+                selectedVideo === video.id ? 'bg-gray-600' : 'bg-gray-700 hover:bg-gray-600'
+              }`}
+              onClick={() => setSelectedVideo(video.id)}
+            >
+              <img src={video.thumbnail} alt={video.title} className="w-12 h-12 rounded" />
+              <span className="ml-4">{video.title}</span>
+            </li>*/
+            <User
+              icon={video.icon}
+              userName={video.title}
+            />
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }

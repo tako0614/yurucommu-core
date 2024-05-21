@@ -16,6 +16,7 @@ import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrfToken from "./routes/api/v1/csrfToken.ts"
 import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
 import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
+import * as $api_v1_friends_reqLists from "./routes/api/v1/friends/reqLists.ts"
 import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
 import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
@@ -65,6 +66,7 @@ const manifest = {
     "./routes/api/v1/csrfToken.ts": $api_v1_csrfToken,
     "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
     "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
+    "./routes/api/v1/friends/reqLists.ts": $api_v1_friends_reqLists,
     "./routes/api/v1/friends/request.ts": $api_v1_friends_request,
     "./routes/api/v1/logins/login.ts": $api_v1_logins_login,
     "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,

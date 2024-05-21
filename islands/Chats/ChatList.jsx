@@ -51,7 +51,7 @@ function ChatList(props) {
         ListElement,
       )
       return
-    } else if(res.status == "csrftoken error") {
+    } else if (res.status == "csrftoken error") {
       const csrftokenres = await fetch(
         "./api/v1/csrfToken?origin=http://localhost:8000",
         {
@@ -165,8 +165,8 @@ const AddFriendForm = (props) => {
   }, [])
   return (
     <>
-        <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0">
-          <div class="bg-[#f0f0f5] lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
+      <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0">
+        <div class="bg-[#f0f0f5] lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
           <div class="flex justify-end bg-blue-500">
             <span
               class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
@@ -188,7 +188,8 @@ const AddFriendForm = (props) => {
                       <div class="text-lg">{addFriendInfo.data}</div>
                       <div class="w-2/3 m-auto mb-10">
                         <img
-                          src={"./api/v1/friends/" + props.addFriendKey + "/icon?isuseAddFriendKey=true"}
+                          src={"./api/v1/friends/" + props.addFriendKey +
+                            "/icon?isuseAddFriendKey=true"}
                           alt=""
                           class="rounded-full mx-auto my-5"
                         />
@@ -211,7 +212,7 @@ const AddFriendForm = (props) => {
                               body: JSON.stringify({
                                 csrftoken: csrftoken.csrftoken,
                                 type: "AddFriendKey",
-                                addFriendKey: props.addFriendKey
+                                addFriendKey: props.addFriendKey,
                               }),
                             },
                           )
