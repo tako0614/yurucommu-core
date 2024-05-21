@@ -181,7 +181,7 @@ const AddFriendForm = (props) => {
           <div class="w-4/5 mx-auto my-0 text-black">
             <div class="w-full h-full text-center">
               <h1 class="text-3xl mb-10">友達申請を送信する</h1>
-              <div class="w-full bg-gray-700 h-screen">
+              <div class="w-full">
                 {!isRequested &&
                   (
                     <>

@@ -34,11 +34,11 @@ export const handler = {
       })
     }
     await csrftoken.deleteOne({ token: data.csrftoken })
-    const userid = ctx.state.data.userid
+    const userid = ctx.state.data.userid.toString()
     // request add friend
     if(data.type == "acceptRequest") {
       //
-      
+
     }
     if (data.type == "AddFriendKey") {
       const { addFriendKey } = data
@@ -48,8 +48,8 @@ export const handler = {
       if (addFriendKey === null || addFriendUserInfo === null) {
         return
       }
-      //すでに友達か
-      const friendsInfo: any = await Friends.findOne({ user: userid })
+      //
+      const friendsInfo: any = await Friends.findOne({ user: userid.toString })
       if (friendsInfo !== null) {
         const friends = friendsInfo.friends
         interface FriendsType {
@@ -68,15 +68,22 @@ export const handler = {
           return
         }
       } else {
-        await Friends.create({ user: userid })
+        if (userid) { // useridがnullまたはundefinedでないことを確認
+          console.log(userid.toString());
+          await Friends.create({ user: userid.toString() });
+          console.log("aaa");
+      } else {
+          console.error("userid is null or undefined");
+          return
+      }
       }
       //すでにリクエストを送っているか
       const requestAddFriendInfo = await requestAddFriend.findOne({
-        userID: addFriendUserInfo._id,
+        userID: addFriendUserInfo._id.toString,
       })
       if (requestAddFriendInfo == null) {
         await requestAddFriend.create({
-          userID: addFriendUserInfo._id,
+          userID: addFriendUserInfo._id.toString(),
         })
       } else {
         const isAlredySendReq = requestAddFriendInfo.Applicant.some(
@@ -100,6 +107,10 @@ export const handler = {
         headers: { "Content-Type": "application/json" },
         status: 200,
       })
+      //
+      //
+      //
+      //
     } else if (data.type == "userName") {
       const userName = ctx.state.data.userName
       // request add friend

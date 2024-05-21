@@ -14,7 +14,7 @@ export const handler = {
     const userName = ctx.state.data.userName
     const friendName = ID
     const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") ||false;
-    const isRequestList = usr.searchParams.get("isRequestList") || false;
+    const isRequestList = url.searchParams.get("isRequestList") || false;
     if(isRequestList == true) {
       const FriendInfo = await users.findOne({userName: friendName})
       const AddfriendInfo = await reqestAddFriend.findOne({userID: ctx.state.data.userid})
