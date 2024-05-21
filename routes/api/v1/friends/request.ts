@@ -49,7 +49,7 @@ export const handler = {
       }
       //
       const friendsInfo: any = await Friends.findOne({ user: userid.toString() })
-      console.log(friendsInfo)
+      console.log(friendsInfo, userid.toString())
       if (friendsInfo !== null) {
         const friends = friendsInfo.friends
         interface FriendsType {
@@ -69,9 +69,7 @@ export const handler = {
         }
       } else {
         if (userid) { // useridがnullまたはundefinedでないことを確認
-          console.log(userid.toString())
           await Friends.create({ user: userid.toString() })
-          console.log("aaa")
         } else {
           console.error("userid is null or undefined")
           return
@@ -86,16 +84,17 @@ export const handler = {
           userID: addFriendUserInfo._id.toString(),
         })
       } else {
-        const isAlredySendReq = requestAddFriendInfo.Applicant.some(
+        const isAlredySendReq = requestAddFriendInfo.Applicant.find(
           (friend: any) => {
-            friend.userName === addFriendUserInfo.userName
+            console.log(friend.userID+ "    " + addFriendUserInfo._id.toString())
+            return friend.userID === ctx.state.data.userid.toString()
           },
         )
+        console.log(isAlredySendReq)
         if (isAlredySendReq) {
           return
         }
       }
-      //await requestAddFriend.findOneAndUpdate({name: 'myname'}, {$set: {phone: '09011112222'}, $push: {reviews: [{rating: 2}]}, $unset: {isDeleted: true} }, {runValidator: true, new: true, projection: 'name phone reviews isDeleted'})
       await requestAddFriend.updateOne({ userID: addFriendUserInfo._id }, {
         $push: {
           Applicant: {

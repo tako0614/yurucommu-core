@@ -5,22 +5,25 @@ export const friendsSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  friends: [
-    {
-      userid: {
-        type: mongoose.Schema.Types.ObjectId,
-        required: true,
-        unique: true,
+  friends: {
+    type: [
+      {
+        userid: {
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
+          unique: true,
+        },
+        room: {
+          type: String,
+          required: true,
+        },
+        lastMessage: {
+          type: String,
+        },
       },
-      room: {
-        type: String,
-        required: true,
-      },
-      lastMessage: {
-        type: String,
-      },
-    },
-  ],
+    ],
+    default: []
+  },
   timestamp: { type: Date, default: Date.now },
 })
 const friends = mongoose.model("friends", friendsSchema)

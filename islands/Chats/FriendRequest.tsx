@@ -130,14 +130,10 @@ function User(props: any) {
         </a>
         <div class="mt-auto mb-auto ml-auto flex">
           <div class="ml-2">
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
-              ＋
-            </button>
+          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">＋</button>
           </div>
           <div>
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
-              －
-            </button>
+          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">－</button>
           </div>
         </div>
       </li>
@@ -146,6 +142,7 @@ function User(props: any) {
   )
 }
 const VideoList = () => {
+  const [items,setItems] = useState([])
   const videos = [
     { title: "たこ", icon: "people.png" },
     { title: "たこ2", icon: "people.png" },
@@ -162,38 +159,53 @@ const VideoList = () => {
     { title: "たこ", icon: "people.png" },
     { title: "たこ2", icon: "people.png" },
   ]
-  useEffect(
-    () => {
-      async function getList() {
-        const res = await fetch("./api/v1/friends/reqLists")
-      }
-      getList()
-    },
-    [],
-  )
-
+ useEffect(()=>{
+  async function name() {
+    const res = await fetch("./api/v1/friends/reqLists");
+    const response = await res.json();
+    const result = response.result;
+    setItems(result)
+  }
+  name()
+ },[])
   return (
     <div className="container mx-auto mt-8">
       <div className="bg-white rounded-lg overflow-y-auto max-h-96 mx-auto">
         <ul className="space-y-2 p-4">
-          {videos.map((video) => (
-            /*<li
-              key={video.id}
-              className={`flex items-center p-2 rounded cursor-pointer ${
-                selectedVideo === video.id ? 'bg-gray-600' : 'bg-gray-700 hover:bg-gray-600'
-              }`}
-              onClick={() => setSelectedVideo(video.id)}
-            >
-              <img src={video.thumbnail} alt={video.title} className="w-12 h-12 rounded" />
-              <span className="ml-4">{video.title}</span>
-            </li>*/
+          {
+          items.map((video) => (
             <User
               icon={video.icon}
-              userName={video.title}
+              userName={video.userName}
             />
-          ))}
+          ))
+          }
         </ul>
       </div>
     </div>
   )
 }
+/**
+ *
+ * const VideoList = async () => {
+  const res = await fetch("./api/v1/friends/reqLists");
+  const response = await res.json();
+  const result = response.result;
+  console.log(result);
+  interface tako {
+  userName: string;
+  icon: string;
+  timestamp: Date
+  }
+  const userList = result.map((obj: tako) => (
+    <User icon={obj.icon} userName={obj.userName} />
+  ));
+  console.log(userList)
+  return (
+    <div className="container mx-auto mt-8">
+      <div className="bg-white rounded-lg overflow-y-auto max-h-96 mx-auto">
+        <ul className="space-y-2 p-4">{userList}</ul>
+      </div>
+    </div>
+  );
+};*/

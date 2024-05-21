@@ -15,7 +15,7 @@ export const handler = {
     const friendName = ID
     const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || false
     const isRequestList = url.searchParams.get("isRequestList") || false
-    if (isRequestList == true) {
+    if (isRequestList == "true") {
       const FriendInfo = await users.findOne({ userName: friendName })
       const AddfriendInfo = await reqestAddFriend.findOne({
         userID: ctx.state.data.userid,
@@ -26,13 +26,13 @@ export const handler = {
       const result = AddfriendInfo.Applicant.find((element) => {
         return FriendInfo._id == element.userID
       })
-      if (result == undefind) {
+      if (result == undefined) {
         return
       }
       try {
         const result = await Deno.readFile(
           //"../../../../files/userIcons/" + user._id + ".webp"
-          "./files/userIcons/" + result.userID + ".webp",
+          "./files/userIcons/" + FriendInfo._id + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
