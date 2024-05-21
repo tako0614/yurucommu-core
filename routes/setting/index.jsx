@@ -37,7 +37,7 @@ export default function settingPage({ data }) {
     </>
   )
 }
-import Chat from "../../components/Chats/Chat.jsx"
+import Chat from "../../components/Chats/Chat.tsx"
 function Setting() {
   return (
     <>

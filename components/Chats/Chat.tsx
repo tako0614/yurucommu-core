@@ -1,7 +1,7 @@
 import Footer from "../Footer.tsx"
 import ChatMain from "../../islands/Chats/ChatMain.tsx"
 import ChatHeader from "../../islands/Chats/ChatHeader.tsx"
-export default function Talks(props) {
+export default function Talks(props: { isAddFriendForm: any; isChoiceUser: any; addFriendKey: any; roomid: any; isSetting: any }) {
   if (props.isAddFriendForm) {
     return (
       <>
@@ -53,14 +53,12 @@ export default function Talks(props) {
               <ChatMain
                 isChoiceUser={props.isChoiceUser}
                 roomid={props.roomid}
-                id="chatmain"
               >
               </ChatMain>
             )
             : (
               <ChatMain
                 isChoiceUser={props.isChoiceUser}
-                id="chatmain"
               >
               </ChatMain>
             )}

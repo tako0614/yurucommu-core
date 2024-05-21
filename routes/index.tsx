@@ -1,7 +1,7 @@
 import Welcom from "../islands/Welcome.tsx"
 import users from "../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
-import Chat from "../components/Chats/Chat.jsx"
+import Chat from "../components/Chats/Chat.tsx"
 import mongoose from "mongoose"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]

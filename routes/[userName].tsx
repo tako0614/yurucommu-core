@@ -2,7 +2,7 @@ import { Handlers, PageProps } from "$fresh/server.ts"
 import { getCookies } from "$std/http/cookie.ts"
 import users from "../models/users.ts"
 import sessionID from "../models/sessionid.ts"
-import Chat from "../components/Chats/Chat.jsx"
+import Chat from "../components/Chats/Chat.tsx"
 import PleaseLogin from "../islands/PleaseLogin.jsx"
 export const handler = {
   GET(req: any, ctx: any) {
@@ -30,7 +30,7 @@ export default function talk(props: PageProps) {
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       {props.data.loggedIn
-        ? <Chat userName={userName} isChoiceUser={true} />
+        ? <Chat isChoiceUser={true} />
         : <PleaseLogin />}
     </>
   )

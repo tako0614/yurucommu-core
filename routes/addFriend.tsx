@@ -1,4 +1,4 @@
-import ChatAddFriend from "../components/Chats/ChatAddFriend.jsx"
+import ChatAddFriend from "../components/Chats/ChatAddFriend.tsx"
 /*import { load } from "$std/dotenv/mod.ts"
 import users from "../models/users.ts"
 import Chat from "../components/Chats/Chat.jsx"
@@ -22,7 +22,6 @@ export default function Home(props) {
 import Welcom from "../islands/Welcome.tsx"
 import users from "../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
-import Chat from "../components/Chats/Chat.jsx"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
