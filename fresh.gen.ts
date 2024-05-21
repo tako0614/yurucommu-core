@@ -8,6 +8,9 @@ import * as $_app from "./routes/_app.tsx"
 import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
 import * as $addFriend from "./routes/addFriend.tsx"
+import * as $api_v1_Users_icon from "./routes/api/v1/Users/icon.ts"
+import * as $api_v1_Users_nickname from "./routes/api/v1/Users/nickname.ts"
+import * as $api_v1_Users_username from "./routes/api/v1/Users/username.ts"
 import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_message from "./routes/api/v1/chats/message.js"
@@ -58,6 +61,9 @@ const manifest = {
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
     "./routes/addFriend.tsx": $addFriend,
+    "./routes/api/v1/Users/icon.ts": $api_v1_Users_icon,
+    "./routes/api/v1/Users/nickname.ts": $api_v1_Users_nickname,
+    "./routes/api/v1/Users/username.ts": $api_v1_Users_username,
     "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
     "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
     "./routes/api/v1/chats/message.js": $api_v1_chats_message,

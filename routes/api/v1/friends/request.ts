@@ -3,7 +3,6 @@ import csrftoken from "../../../../models/csrftoken.ts"
 import Friends from "../../../../models/friends.ts"
 import requestAddFriend from "../../../../models/reqestAddFriend.ts"
 import Users from "../../../../models/users.ts"
-import mongoose from "mongoose"
 export const handler = {
   async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
