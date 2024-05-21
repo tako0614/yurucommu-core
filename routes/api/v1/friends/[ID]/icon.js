@@ -1,6 +1,6 @@
 import users from "../../../../../models/users.ts"
 import friends from "../../../../../models/friends.ts"
-import reqestAddFriend from "../../../../../models/reqestAddFriend.ts";
+import reqestAddFriend from "../../../../../models/reqestAddFriend.ts"
 export const handler = {
   async GET(req, ctx) {
     const { ID } = ctx.params
@@ -13,18 +13,20 @@ export const handler = {
     const url = new URL(req.url)
     const userName = ctx.state.data.userName
     const friendName = ID
-    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") ||false;
-    const isRequestList = url.searchParams.get("isRequestList") || false;
-    if(isRequestList == true) {
-      const FriendInfo = await users.findOne({userName: friendName})
-      const AddfriendInfo = await reqestAddFriend.findOne({userID: ctx.state.data.userid})
-      if(FriendInfo == null || AddfriendInfo == null) {
+    const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || false
+    const isRequestList = url.searchParams.get("isRequestList") || false
+    if (isRequestList == true) {
+      const FriendInfo = await users.findOne({ userName: friendName })
+      const AddfriendInfo = await reqestAddFriend.findOne({
+        userID: ctx.state.data.userid,
+      })
+      if (FriendInfo == null || AddfriendInfo == null) {
         return
       }
       const result = AddfriendInfo.Applicant.find((element) => {
         return FriendInfo._id == element.userID
       })
-      if(result == undefind) {
+      if (result == undefind) {
         return
       }
       try {

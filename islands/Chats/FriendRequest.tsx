@@ -130,10 +130,14 @@ function User(props: any) {
         </a>
         <div class="mt-auto mb-auto ml-auto flex">
           <div class="ml-2">
-          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">＋</button>
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+              ＋
+            </button>
           </div>
           <div>
-          <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">－</button>
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+              －
+            </button>
           </div>
         </div>
       </li>
@@ -164,7 +168,8 @@ const VideoList = () => {
         const res = await fetch("./api/v1/friends/reqLists")
       }
       getList()
-    },[]
+    },
+    [],
   )
 
   return (
