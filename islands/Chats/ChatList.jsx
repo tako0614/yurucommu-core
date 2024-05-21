@@ -217,7 +217,7 @@ const AddFriendForm = (props) => {
                             },
                           )
                           const res = await result.json()
-                          if (res.status == true) {
+                          if (res.status == "success") {
                             //
                             setIsRequested(true)
                           }

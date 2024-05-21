@@ -56,7 +56,7 @@ async function processImage(inputBuffer: Uint8Array): Promise<Uint8Array | null>
       console.error(`Failed to process the image: ${error.message}`);
       return null;
     }
-  }
+}
 /*
   // 使用例
   const inputImagePath = "./path/to/your/input/image.jpg";  // ここに入力画像のパスを指定
