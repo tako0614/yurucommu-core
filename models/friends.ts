@@ -22,7 +22,7 @@ export const friendsSchema = new mongoose.Schema({
         },
       },
     ],
-    default: []
+    default: [],
   },
   timestamp: { type: Date, default: Date.now },
 })

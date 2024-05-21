@@ -1,7 +1,15 @@
 import Footer from "../Footer.tsx"
 import ChatMain from "../../islands/Chats/ChatMain.tsx"
 import ChatHeader from "../../islands/Chats/ChatHeader.tsx"
-export default function Talks(props: { isAddFriendForm?: any; isChoiceUser?: any; addFriendKey?: any; roomid?: any; isSetting?: any }) {
+export default function Talks(
+  props: {
+    isAddFriendForm?: any
+    isChoiceUser?: any
+    addFriendKey?: any
+    roomid?: any
+    isSetting?: any
+  },
+) {
   if (props.isAddFriendForm) {
     return (
       <>

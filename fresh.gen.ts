@@ -16,7 +16,7 @@ import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_message from "./routes/api/v1/chats/message.js"
 import * as $api_v1_chats_talk from "./routes/api/v1/chats/talk.js"
 import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
-import * as $api_v1_csrfToken from "./routes/api/v1/csrfToken.ts"
+import * as $api_v1_csrfToken from "./routes/api/v1/csrftoken.ts"
 import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
 import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
 import * as $api_v1_friends_reqLists from "./routes/api/v1/friends/reqLists.ts"
@@ -69,7 +69,7 @@ const manifest = {
     "./routes/api/v1/chats/message.js": $api_v1_chats_message,
     "./routes/api/v1/chats/talk.js": $api_v1_chats_talk,
     "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
-    "./routes/api/v1/csrfToken.ts": $api_v1_csrfToken,
+    "./routes/api/v1/csrftoken.ts": $api_v1_csrfToken,
     "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
     "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
     "./routes/api/v1/friends/reqLists.ts": $api_v1_friends_reqLists,

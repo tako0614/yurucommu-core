@@ -24,7 +24,7 @@ function ChatList(props) {
   )
   useEffect(async () => {
     const csrftokenres = await fetch(
-      "./api/v1/csrfToken?origin=http://localhost:8000",
+      "./api/v1/csrftoken?origin=http://localhost:8000",
       {
         method: "GET",
       },
@@ -53,7 +53,7 @@ function ChatList(props) {
       return
     } else if (res.status == "csrftoken error") {
       const csrftokenres = await fetch(
-        "./api/v1/csrfToken?origin=http://localhost:8000",
+        "./api/v1/csrftoken?origin=http://localhost:8000",
         {
           method: "GET",
         },
@@ -199,7 +199,7 @@ const AddFriendForm = (props) => {
                           const origin = window.location.protocol + "//" +
                             window.location.host
                           const csrftokenRes = await fetch(
-                            `./api/v1/csrfToken?origin=${origin}`,
+                            `./api/v1/csrftoken?origin=${origin}`,
                           )
                           const csrftoken = await csrftokenRes.json()
                           const result = await fetch(

@@ -20,23 +20,26 @@ export const handler = {
         return
       }
       const result = await Promise.all(
-        userFriendInfo.Applicant.map(async (obj: { userID: any; timestamp: any }) => {
-          const userInfo = await users.findOne({ _id: obj.userID });
-          if (userInfo == null) {
-            return;
-          }
-          console.log(userInfo);
-          return {
-            userName: userInfo.userName,
-            icon: `./api/v1/friends/${userInfo.userName}/icon?isRequestList=true`,
-            timestamp: obj.timestamp,
-          };
-        })
-      );
+        userFriendInfo.Applicant.map(
+          async (obj: { userID: any; timestamp: any }) => {
+            const userInfo = await users.findOne({ _id: obj.userID })
+            if (userInfo == null) {
+              return
+            }
+            console.log(userInfo)
+            return {
+              userName: userInfo.userName,
+              icon:
+                `./api/v1/friends/${userInfo.userName}/icon?isRequestList=true`,
+              timestamp: obj.timestamp,
+            }
+          },
+        ),
+      )
       return new Response(JSON.stringify({ status: true, result: result }), {
         headers: { "Content-Type": "application/json" },
         status: 200,
-      });
+      })
     } catch (error) {
       console.error("Error in getFriendInfoByID: ", error)
       return new Response(JSON.stringify({ status: "error" }), {

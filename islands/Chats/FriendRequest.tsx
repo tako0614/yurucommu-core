@@ -1,38 +1,38 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks"
 
 // Define the InputProps interface for type-checking
 interface InputProps {
-  value: string;
-  setValue: (value: string) => void;
-  origin: string;
+  value: string
+  setValue: (value: string) => void
+  origin: string
 }
 
 // Define the RegisterForm component
 export default function RegisterForm(props: { origin: string }) {
-  const [showModal, setShowModal] = useState(false);
-  const [value, setValue] = useState("");
+  const [showModal, setShowModal] = useState(false)
+  const [value, setValue] = useState("")
 
   // Toggle the modal visibility
   const handleButtonClick = () => {
-    setShowModal(!showModal);
-  };
+    setShowModal(!showModal)
+  }
 
   // Fetch data whenever the modal is shown
   useEffect(() => {
     if (showModal) {
       const fetchData = async () => {
-        const resp = await fetch("./api/v1/chats/friendkey?reload=false");
-        const data = await resp.json();
+        const resp = await fetch("./api/v1/chats/friendkey?reload=false")
+        const data = await resp.json()
         if (data.status === false) {
-          console.log("error");
-          return;
+          console.log("error")
+          return
         }
-        const url = props.origin + data.addFriendKey;
-        setValue(url);
-      };
-      fetchData();
+        const url = props.origin + data.addFriendKey
+        setValue(url)
+      }
+      fetchData()
     }
-  }, [showModal, props.origin]);
+  }, [showModal, props.origin])
 
   return (
     <>
@@ -80,25 +80,25 @@ export default function RegisterForm(props: { origin: string }) {
         </div>
       )}
     </>
-  );
+  )
 }
 
 // Define the Input component
 function Input({ value, setValue, origin }: InputProps) {
   const handleChangeUrl = (event: any) => {
-    event.preventDefault();
+    event.preventDefault()
     const updateUrl = async () => {
-      const resp = await fetch("./api/v1/chats/friendkey?reload=true");
-      const data = await resp.json();
+      const resp = await fetch("./api/v1/chats/friendkey?reload=true")
+      const data = await resp.json()
       if (data.status === false) {
-        console.log("error");
-        return;
+        console.log("error")
+        return
       }
-      const url = origin + data.addFriendKey;
-      setValue(url);
-    };
-    updateUrl();
-  };
+      const url = origin + data.addFriendKey
+      setValue(url)
+    }
+    updateUrl()
+  }
 
   return (
     <>
@@ -106,11 +106,11 @@ function Input({ value, setValue, origin }: InputProps) {
         <VideoList />
       </div>
     </>
-  );
+  )
 }
 
 // Define the User component
-function User({ icon, userName }: { icon: string, userName: string }) {
+function User({ icon, userName }: { icon: string; userName: string }) {
   return (
     <>
       <li class="c-talk-rooms flex mb-2 bg-white border border-gray-300">
@@ -129,30 +129,34 @@ function User({ icon, userName }: { icon: string, userName: string }) {
         </a>
         <div class="mt-auto mb-auto ml-auto flex">
           <div class="ml-2">
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">＋</button>
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+              ＋
+            </button>
           </div>
           <div>
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">－</button>
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+              －
+            </button>
           </div>
         </div>
       </li>
       <hr />
     </>
-  );
+  )
 }
 
 // Define the VideoList component
 const VideoList = () => {
-  const [items, setItems] = useState<{ icon: string, userName: string }[]>([]);
+  const [items, setItems] = useState<{ icon: string; userName: string }[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
-      const res = await fetch("./api/v1/friends/reqLists");
-      const response = await res.json();
-      setItems(response.result);
-    };
-    fetchData();
-  }, []);
+      const res = await fetch("./api/v1/friends/reqLists")
+      const response = await res.json()
+      setItems(response.result)
+    }
+    fetchData()
+  }, [])
 
   return (
     <div className="container mx-auto mt-8">
@@ -168,15 +172,15 @@ const VideoList = () => {
         </ul>
       </div>
     </div>
-  );
-};
+  )
+}
 
 // Function to copy text to clipboard
 async function copyToClipboard(value: string) {
   try {
-    await navigator.clipboard.writeText(value);
-    alert("URLをコピーしました！");
+    await navigator.clipboard.writeText(value)
+    alert("URLをコピーしました！")
   } catch (err) {
-    alert("コピーに失敗しました！");
+    alert("コピーに失敗しました！")
   }
 }
