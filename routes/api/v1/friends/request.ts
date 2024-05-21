@@ -41,6 +41,7 @@ export const handler = {
     }
     if (data.type == "AddFriendKey") {
       const { addFriendKey } = data
+      //friendのデータ
       const addFriendUserInfo = await Users.findOne({
         addFriendKey: addFriendKey,
       })
@@ -49,24 +50,8 @@ export const handler = {
       }
       //
       const friendsInfo: any = await Friends.findOne({ user: userid.toString() })
-      console.log(friendsInfo, userid.toString())
       if (friendsInfo !== null) {
-        const friends = friendsInfo.friends
-        interface FriendsType {
-          userid: string
-          room: string
-          lastMessage: string
-        }
-        interface SendReqType {
-          userName: string
-          timestamp: Date
-        }
-        const isAlredyFriend = friends.some((friend: FriendsType) => {
-          friend.userid === addFriendUserInfo._id
-        })
-        if (isAlredyFriend) {
-          return
-        }
+        //
       } else {
         if (userid) { // useridがnullまたはundefinedでないことを確認
           await Friends.create({ user: userid.toString() })
@@ -86,12 +71,11 @@ export const handler = {
       } else {
         const isAlredySendReq = requestAddFriendInfo.Applicant.find(
           (friend: any) => {
-            console.log(friend.userID+ "    " + addFriendUserInfo._id.toString())
             return friend.userID === ctx.state.data.userid.toString()
           },
         )
         console.log(isAlredySendReq)
-        if (isAlredySendReq) {
+        if (isAlredySendReq == undefined) {
           return
         }
       }
