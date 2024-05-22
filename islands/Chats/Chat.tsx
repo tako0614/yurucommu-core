@@ -1,5 +1,5 @@
 import { useSignal } from "@preact/signals"
-import { useState,useEffect } from "preact/hooks"
+import { useEffect, useState } from "preact/hooks"
 import ChatHeader from "./ChatHeader.tsx"
 import ChatList from "./ChatList.jsx"
 import ChatTalk from "./ChatTalk.tsx"
@@ -9,10 +9,14 @@ import SettingList from "../SettingList.tsx"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
-export default function Home(props: { page: any; isAddFriendForm: any; AddFriendKey?: any }) {
+export default function Home(
+  props: { page: any; isAddFriendForm: any; AddFriendKey?: any },
+) {
   const [page, setPage] = useState(props.page)
   const [isChoiceUser, setIsChoiceUser] = useState(false)
-  const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(props.isAddFriendForm)
+  const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
+    props.isAddFriendForm,
+  )
   const reset = () => {
     setIsChoiceUser(false)
   }
@@ -35,9 +39,26 @@ export default function Home(props: { page: any; isAddFriendForm: any; AddFriend
       <ChatHeader page={page} setPage={setPage} reset={reset} />
 
       <div class="wrapper">
-        <main class={isChoiceUser ? "p-talk is-inview" : "p-talk"} id="chatmain">
-          {page === 1 ? <><ChatList /><ChatTalk /></> : null}
-          {page === 2 ? <><ChatAddFriendList /><ChatTalk /></> : null}
+        <main
+          class={isChoiceUser ? "p-talk is-inview" : "p-talk"}
+          id="chatmain"
+        >
+          {page === 1
+            ? (
+              <>
+                <ChatList />
+                <ChatTalk />
+              </>
+            )
+            : null}
+          {page === 2
+            ? (
+              <>
+                <ChatAddFriendList />
+                <ChatTalk />
+              </>
+            )
+            : null}
           {page === 3 ? <Setting setIsChoiceUser={setIsChoiceUser} /> : null}
         </main>
       </div>
@@ -64,8 +85,7 @@ const Setting = (props: any) => {
         <div class="p-talk-chat-container">
           {settingPage == "profile" &&
             (
-              <Profile
-              >
+              <Profile>
               </Profile>
             )}
           {settingPage == "friends" &&
@@ -96,14 +116,18 @@ function ChatAddFriendList(props: any) {
       <div class="p-talk-list-rooms">
         <h1 class="text-lg">リクエスト</h1>
         <ul class="p-talk-list-rooms__ul" id="friendList">
-          <FriendRequest
-          ></FriendRequest>
+          <FriendRequest></FriendRequest>
         </ul>
       </div>
     </div>
   )
 }
-const AddFriendForm = (props: { addFriendKey: string; setShowAddFriendForm: (arg0: boolean) => void }) => {
+const AddFriendForm = (
+  props: {
+    addFriendKey: string
+    setShowAddFriendForm: (arg0: boolean) => void
+  },
+) => {
   const [addFriendInfo, setAddFriendInfo] = useState({})
   const [isRequested, setIsRequested] = useState(false)
   useEffect(() => {

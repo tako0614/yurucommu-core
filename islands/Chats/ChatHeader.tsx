@@ -1,5 +1,5 @@
 export default function ChatHeader(
-  props: { isChoiceUser?: any; page: any; setPage: any,reset: any },
+  props: { isChoiceUser?: any; page: any; setPage: any; reset: any },
 ) {
   return (
     <>

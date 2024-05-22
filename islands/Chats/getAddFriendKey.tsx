@@ -20,7 +20,7 @@ export default function RegisterForm(props: any) {
         return
       }
       const origin = window.location.protocol + "//" + window.location.host
-      const url = origin +"/?key="+ data.addFriendKey
+      const url = origin + "/?key=" + data.addFriendKey
       setValue(url)
     }
     fetchData()
@@ -99,7 +99,8 @@ function Input({
         console.log("error")
         return
       }
-      const origin = window.location.protocol + "//" + window.location.host + "/?key="
+      const origin = window.location.protocol + "//" + window.location.host +
+        "/?key="
       const url = origin + data.addFriendKey
       setValue(url)
     }
