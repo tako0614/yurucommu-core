@@ -1,5 +1,4 @@
 import { ComponentChild, VNode } from "preact"
-
 export default function User(
   props: {
     userName:

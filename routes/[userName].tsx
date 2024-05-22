@@ -2,7 +2,7 @@ import { Handlers, PageProps } from "$fresh/server.ts"
 import { getCookies } from "$std/http/cookie.ts"
 import users from "../models/users.ts"
 import sessionID from "../models/sessionid.ts"
-import Chat from "../components/Chats/Chat.tsx"
+import Chat from "../islands/Chats/Chat.tsx"
 import PleaseLogin from "../islands/PleaseLogin.jsx"
 export const handler = {
   GET(req: any, ctx: any) {
