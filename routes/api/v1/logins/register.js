@@ -20,7 +20,7 @@ export const handler = {
     )
     const score = await isSecsusRechapcha.json()
     const requirments = data.requirments
-    if (score.score < 0.7 || score.success == false) {
+    if (score.score < 0.5 || score.success == false) {
       console.log(score)
       return new Response(
         JSON.stringify({ "status": false, error: "rechapcha" }),
