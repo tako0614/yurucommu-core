@@ -8,7 +8,7 @@ interface InputProps {
 }
 
 // Define the RegisterForm component
-export default function RegisterForm(props) {
+export default function RegisterForm() {
   const [showModal, setShowModal] = useState(false)
   const [value, setValue] = useState("")
 
@@ -16,24 +16,6 @@ export default function RegisterForm(props) {
   const handleButtonClick = () => {
     setShowModal(!showModal)
   }
-
-  // Fetch data whenever the modal is shown
-  useEffect(() => {
-    if (showModal) {
-      const fetchData = async () => {
-        const resp = await fetch("./api/v1/chats/friendkey?reload=false")
-        const data = await resp.json()
-        if (data.status === false) {
-          console.log("error")
-          return
-        }
-        const url = props.origin + data.addFriendKey
-        setValue(url)
-      }
-      fetchData()
-    }
-  }, [showModal, props.origin])
-
   return (
     <>
       <li class="c-talk-rooms">
@@ -72,7 +54,6 @@ export default function RegisterForm(props) {
                 <Input
                   value={value}
                   setValue={setValue}
-                  origin={props.origin}
                 />
               </div>
             </div>
@@ -84,7 +65,7 @@ export default function RegisterForm(props) {
 }
 
 // Define the Input component
-function Input({ value, setValue, origin }: InputProps) {
+function Input({ value, setValue }: InputProps) {
   const handleChangeUrl = (event: any) => {
     event.preventDefault()
     const updateUrl = async () => {

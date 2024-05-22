@@ -9,7 +9,7 @@ import SettingList from "../SettingList.tsx"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
-export default function Home(props: { page: any; isAddFriendForm: any; AddFriendKey: any }) {
+export default function Home(props: { page: any; isAddFriendForm: any; AddFriendKey?: any }) {
   const [page, setPage] = useState(props.page)
   const [isChoiceUser, setIsChoiceUser] = useState(false)
   const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(props.isAddFriendForm)
@@ -96,7 +96,8 @@ function ChatAddFriendList(props: any) {
       <div class="p-talk-list-rooms">
         <h1 class="text-lg">リクエスト</h1>
         <ul class="p-talk-list-rooms__ul" id="friendList">
-          <FriendRequest></FriendRequest>
+          <FriendRequest
+          ></FriendRequest>
         </ul>
       </div>
     </div>

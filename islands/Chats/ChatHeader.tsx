@@ -16,7 +16,7 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(0)
-              history.replaceState("", "", "/home")
+              history.pushState("", "", "/home")
               props.reset()
             }}
           >
@@ -44,7 +44,7 @@ export default function ChatHeader(
             class="l-header__ul-item is-active"
             onClick={() => {
               props.setPage(1)
-              history.replaceState("", "", "/")
+              history.pushState("", "", "/")
               props.reset()
             }}
           >
@@ -71,7 +71,7 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(2)
-              history.replaceState("", "", "/addFriend")
+              history.pushState("", "", "/addFriend")
               props.reset()
             }}
           >
@@ -99,7 +99,7 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(3)
-              history.replaceState("", "", "/setting")
+              history.pushState("", "", "/setting")
               props.reset()
             }}
           >
