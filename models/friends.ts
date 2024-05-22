@@ -10,12 +10,9 @@ export const friendsSchema = new mongoose.Schema({
       {
         userid: {
           type: mongoose.Schema.Types.ObjectId,
-          required: true,
-          unique: true,
         },
         room: {
           type: String,
-          required: true,
         },
         lastMessage: {
           type: String,
