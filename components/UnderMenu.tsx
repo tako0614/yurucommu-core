@@ -7,7 +7,6 @@ const Contents = () => (
     <div>SNS(開発中)</div>
   </>
 )
-
 export default function Header() {
   return (
     <div id="sp-fixed-menu" class="lg:hidden w-full border-t">

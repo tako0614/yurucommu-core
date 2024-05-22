@@ -1,5 +1,6 @@
-// deno-lint-ignore no-explicit-any
-export default function ChatHeader(props: { isChoiceUser?: any }) {
+export default function ChatHeader(
+  props: { isChoiceUser?: any; page: any; setPage: any,reset: any },
+) {
   return (
     <>
       <header
@@ -11,8 +12,15 @@ export default function ChatHeader(props: { isChoiceUser?: any }) {
           </a>
         </div>
         <ul class="l-header__ul">
-          <li class="l-header__ul-item">
-            <a href="/">
+          <li
+            class="l-header__ul-item"
+            onClick={() => {
+              props.setPage(0)
+              history.replaceState("", "", "/home")
+              props.reset()
+            }}
+          >
+            <a>
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -32,8 +40,15 @@ export default function ChatHeader(props: { isChoiceUser?: any }) {
               </svg>
             </a>
           </li>
-          <li class="l-header__ul-item is-active">
-            <a href="/">
+          <li
+            class="l-header__ul-item is-active"
+            onClick={() => {
+              props.setPage(1)
+              history.replaceState("", "", "/")
+              props.reset()
+            }}
+          >
+            <a>
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -52,8 +67,15 @@ export default function ChatHeader(props: { isChoiceUser?: any }) {
               </svg>
             </a>
           </li>
-          <li class="l-header__ul-item">
-            <a href="./addFriend">
+          <li
+            class="l-header__ul-item"
+            onClick={() => {
+              props.setPage(2)
+              history.replaceState("", "", "/addFriend")
+              props.reset()
+            }}
+          >
+            <a>
               <svg
                 width="100%"
                 height="100%"
@@ -73,8 +95,15 @@ export default function ChatHeader(props: { isChoiceUser?: any }) {
               </svg>
             </a>
           </li>
-          <li class="l-header__ul-item">
-            <a href="/setting">
+          <li
+            class="l-header__ul-item"
+            onClick={() => {
+              props.setPage(3)
+              history.replaceState("", "", "/setting")
+              props.reset()
+            }}
+          >
+            <a>
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"

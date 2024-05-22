@@ -1,4 +1,73 @@
-// deno-lint-ignore-file
+import { useEffect, useState } from "preact/hooks"
+import User from "../../components/Chats/ChatUserList.jsx"
+export default function ChatList() {
+  const [friendList, setFriendList] = useState([])
+  useEffect(async () => {
+    const origin = window.location.protocol + "//" + window.location.host
+    const csrftokenres = await fetch(
+      `./api/v1/csrftoken?origin=${origin}`,
+    )
+    const csrftoken = await csrftokenres.json()
+    const result = await fetch("./api/v1/chats/friendList", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        csrftoken: csrftoken.csrftoken,
+      }),
+    })
+    const res = await result.json()
+    if (res.status == "You are alone") {
+      setFriendList(
+        [
+          {
+            userName: "友達がいません！！",
+            latestMessage: "ざぁこ♡ざぁこ♡",
+            icon: "./people.png",
+          },
+        ],
+      )
+      return
+    }
+    alert("続きを書く")
+  }, [])
+  return (
+    <>
+      <div class="p-talk-list">
+        <h1 class="p-talk-list-title">トーク</h1>
+        <div class="p-talk-list-search">
+          <form name="talk-search">
+            <label>
+              <input
+                type="text"
+                placeholder="トークルーム・メッセージを検索"
+              />
+            </label>
+          </form>
+        </div>
+        <div class="p-talk-list-rooms">
+          <ul class="p-talk-list-rooms__ul">
+            {friendList.map((friend) => {
+              return (
+                <li>
+                  <User
+                    userName={friend.userName}
+                    latestMessage={friend.latestMessage}
+                    icon={friend.icon}
+                    onClick={() => {
+                    }}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      </div>
+    </>
+  )
+}
+/*
 import { useEffect, useState } from "preact/hooks"
 import { h, render } from "preact"
 import User from "../../components/Chats/ChatUserList.jsx"
@@ -22,13 +91,38 @@ function ChatList(props) {
   const [showAddFriendForm, setShowAddFriendForm] = useState(
     props.isAddFriendForm,
   )
+  const [friendList, setFriendList] = useState([])
   useEffect(async () => {
+    const origin = window.location.protocol + "//" + window.location.host
     const csrftokenres = await fetch(
-      "./api/v1/csrftoken?origin=http://localhost:8000",
-      {
-        method: "GET",
-      },
+      `./api/v1/csrftoken?origin=${origin}`,
     )
+    const csrftoken = await csrftokenres.json()
+    const result = await fetch("./api/v1/chats/friendList", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        csrftoken: csrftoken.csrftoken,
+      }),
+    })
+    const res = await result.json()
+    if (res.status == "You are alone") {
+      setFriendList(
+        [
+          {
+            userName: "友達がいません！！",
+            latestMessage: "ざぁこ♡ざぁこ♡",
+            icon: "./people.png",
+          }
+        ]
+      )
+    }
+    console.log(res)
+  },[])
+
+    /*
     const csrftoken = await csrftokenres.json()
     const result = await fetch("./api/v1/chats/friendList", {
       method: "POST",
@@ -142,13 +236,13 @@ function ChatList(props) {
         </div>
         <div class="p-talk-list-rooms">
           <ul class="p-talk-list-rooms__ul" id="friendList">
-            {/**ここにフレンドリストを表示 useEffectでレンダリング */}
+            {/**ここにフレンドリストを表示 useEffectでレンダリング
           </ul>
         </div>
       </div>
     </>
   )
-}
+}*/
 const AddFriendForm = (props) => {
   const [addFriendInfo, setAddFriendInfo] = useState([])
   const [isRequested, setIsRequested] = useState(false)
@@ -245,5 +339,3 @@ const AddFriendForm = (props) => {
     </>
   )
 }
-
-export default ChatList

@@ -9,15 +9,7 @@ export default function Setting(props: any) {
         icon="./people.webp"
         onClick={() => {
           props.setSettingPage("profile")
-          const chatMainElement = document.getElementById("chatmain")
-          if (chatMainElement === null) {
-            return
-          }
-          const test = chatMainElement.className
-          if (test == "p-talk") {
-            chatMainElement.className = "p-talk is-inview"
-            return false
-          }
+          props.setIsChoiceUser(true)
         }}
       />
       <User
@@ -26,15 +18,7 @@ export default function Setting(props: any) {
         icon="./people.webp"
         onClick={() => {
           props.setSettingPage("friends")
-          const chatMainElement = document.getElementById("chatmain")
-          if (chatMainElement === null) {
-            return
-          }
-          const test = chatMainElement.className
-          if (test == "p-talk") {
-            chatMainElement.className = "p-talk is-inview"
-            return false
-          }
+          props.setIsChoiceUser(true)
         }}
       />
     </>

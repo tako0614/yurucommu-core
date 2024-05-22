@@ -8,7 +8,7 @@ interface InputProps {
 }
 
 // Define the RegisterForm component
-export default function RegisterForm(props: { origin: string }) {
+export default function RegisterForm(props) {
   const [showModal, setShowModal] = useState(false)
   const [value, setValue] = useState("")
 

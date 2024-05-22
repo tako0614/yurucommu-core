@@ -16,7 +16,7 @@ import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_message from "./routes/api/v1/chats/message.js"
 import * as $api_v1_chats_talk from "./routes/api/v1/chats/talk.js"
 import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
-import * as $api_v1_csrfToken from "./routes/api/v1/csrftoken.ts"
+import * as $api_v1_csrftoken from "./routes/api/v1/csrftoken.ts"
 import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
 import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
 import * as $api_v1_friends_reqLists from "./routes/api/v1/friends/reqLists.ts"
@@ -25,13 +25,14 @@ import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
 import * as $greet_name_ from "./routes/greet/[name].tsx"
+import * as $home from "./routes/home.tsx"
 import * as $index from "./routes/index.tsx"
 import * as $privacypolicy from "./routes/privacypolicy.tsx"
-import * as $setting_index from "./routes/setting/index.jsx"
+import * as $setting_index from "./routes/setting/index.tsx"
 import * as $Chats_AddFriend from "./islands/Chats/AddFriend.tsx"
+import * as $Chats_Chat from "./islands/Chats/Chat.tsx"
 import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.tsx"
 import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
-import * as $Chats_ChatMain from "./islands/Chats/ChatMain.tsx"
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.tsx"
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
 import * as $Chats_FriendRequest from "./islands/Chats/FriendRequest.tsx"
@@ -69,7 +70,7 @@ const manifest = {
     "./routes/api/v1/chats/message.js": $api_v1_chats_message,
     "./routes/api/v1/chats/talk.js": $api_v1_chats_talk,
     "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
-    "./routes/api/v1/csrftoken.ts": $api_v1_csrfToken,
+    "./routes/api/v1/csrftoken.ts": $api_v1_csrftoken,
     "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
     "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
     "./routes/api/v1/friends/reqLists.ts": $api_v1_friends_reqLists,
@@ -78,15 +79,16 @@ const manifest = {
     "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,
     "./routes/api/v1/logins/register.js": $api_v1_logins_register,
     "./routes/greet/[name].tsx": $greet_name_,
+    "./routes/home.tsx": $home,
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
-    "./routes/setting/index.jsx": $setting_index,
+    "./routes/setting/index.tsx": $setting_index,
   },
   islands: {
     "./islands/Chats/AddFriend.tsx": $Chats_AddFriend,
+    "./islands/Chats/Chat.tsx": $Chats_Chat,
     "./islands/Chats/ChatHeader.tsx": $Chats_ChatHeader,
     "./islands/Chats/ChatList.jsx": $Chats_ChatList,
-    "./islands/Chats/ChatMain.tsx": $Chats_ChatMain,
     "./islands/Chats/ChatTalk.tsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/FriendRequest.tsx": $Chats_FriendRequest,
