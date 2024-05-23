@@ -41,7 +41,7 @@ export default function ChatList(props) {
       const friend = {
         userName: room.roomName,
         latestMessage: latestMessage,
-        icon: `./api/v1/friends/${room.roomName}/icon`,
+        icon: room.roomIcon,
       }
       friendListTemp.push(friend)
     })

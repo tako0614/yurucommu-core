@@ -76,6 +76,7 @@ export const handler = {
               lastMessage: room.latestmessage,
               roomID: room.name,
               latestMessageTime: room.latestMessageTime,
+              roomIcon: `./api/v1/friends/${friendName.userName}/icon`,
             }
             return result
           } else if (room.types === "group") {
