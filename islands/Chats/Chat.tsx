@@ -17,6 +17,7 @@ export default function Home(
   const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
     props.isAddFriendForm,
   )
+  const [friendList, setFriendList] = useState([])
   const reset = () => {
     setIsChoiceUser(false)
   }
@@ -46,7 +47,10 @@ export default function Home(
           {page === 1
             ? (
               <>
-                <ChatList />
+                <ChatList
+                friendList={friendList}
+                setFriendList={setFriendList}
+                />
                 <ChatTalk />
               </>
             )

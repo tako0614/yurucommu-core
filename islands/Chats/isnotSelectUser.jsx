@@ -1,5 +1,5 @@
 import ChatTitle from "../../components/Chats/ChatTitle.jsx"
-import ChatDate from "../../components/Chats/ChatDate.jsx"
+import ChatDate from "../../components/Chats/ChatDate.tsx"
 import ChatOtherMessages from "../../components/Chats/ChatOtherMessage.jsx"
 import ChatSendMessages from "../../components/Chats/ChatSendMessage.jsx"
 export default function TalkTimeLine(props) {

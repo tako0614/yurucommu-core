@@ -1,7 +1,8 @@
 import { useEffect, useState } from "preact/hooks"
 import User from "../../components/Chats/ChatUserList.jsx"
-export default function ChatList() {
-  const [friendList, setFriendList] = useState([])
+export default function ChatList(props) {
+  const friendList = props.friendList
+  const setFriendList = props.setFriendList
   useEffect(async () => {
     const origin = window.location.protocol + "//" + window.location.host
     const csrftokenres = await fetch(

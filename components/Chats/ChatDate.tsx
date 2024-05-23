@@ -1,4 +1,4 @@
-const ChatDate = ({ date }) => {
+const ChatDate = ({ date }: {date: Date}) => {
   const currentDate = new Date()
   const chatDate = new Date(date)
 
