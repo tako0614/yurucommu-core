@@ -1,8 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 .checkbox {
-    border-radius: 0.25rem; 
+    border-radius: 0.25rem;
     border-color: #D1D5DB;
     width: 1.5rem;
     height: 1.5rem;
@@ -752,4 +753,96 @@ html, body {
     .p-talk-chat-title {
         padding: 8px;
     }
+}
+@media (prefers-color-scheme: dark) {
+    html,body {
+        background-color: #1A202C;
+        color: #E2E8F0;
+    }
+    .l-header {
+        background-color: #2D3748;
+    }
+    .l-header-logo {
+        background-color: #2D3748;
+    }
+    .l-header-logo:hover {
+        background-color: #4A5568;
+    }
+    .l-header__ul-item {
+        background-color: #2D3748;
+    }
+    .l-header__ul-item:hover {
+        background-color: #4A5568;
+    }
+    .l-header__ul-item.is-active svg {
+        fill: #E2E8F0;
+    }
+    .l-header__ul-item a {
+        color: #E2E8F0;
+    }
+    .p-talk-list-search input {
+        background-color: #2D3748;
+        color: #E2E8F0;
+    }
+    .p-talk-list-rooms {
+        background-color: #1A202C;
+    }
+    .c-talk-rooms {
+        background-color: #1A202C;
+    }
+    .c-talk-rooms:hover {
+        background-color: #4A5568;
+    }
+    .c-talk-rooms.is-active {
+        background-color: #4A5568;
+    }
+    .c-talk-rooms button {
+        color: #E2E8F0;
+    }
+    .c-talk-rooms a {
+        color: #E2E8F0;
+    }
+    .c-talk-rooms-icon img {
+        background-color: #2D3748;
+    }
+    .c-talk-rooms-name {
+        color: #E2E8F0;
+    }
+    .c-talk-rooms-msg {
+        color: #E2E8F0;
+    }
+    .p-talk-chat-title {
+        background-color: #2D3748;
+        color: #E2E8F0;
+    }
+    .p-talk-chat-prev {
+        background-color: #2D3748;
+    }
+    .p-talk-chat-prev:hover {
+        background-color: #4A5568;
+    }
+    .p-talk-chat-prev svg {
+        fill: #E2E8F0;
+    }
+    .p-talk-chat-container {
+        background-color: #2D3748;
+    }
+    .c-talk-chat {
+        background-color: #2D3748;
+    }
+    .c-talk-chat-box {
+        background-color: #2D3748;
+    }
+    .c-talk-chat-msg {
+        background-color: #4A5568;
+        color: #E2E8F0;
+    }
+    .c-talk-chat-msg p {
+        color: #E2E8F0;
+    }
+    .c-talk-chat.other .c-talk-chat-msg {
+        background-color: #2D3748;
+        color: #E2E8F0;
+    }
+
 }

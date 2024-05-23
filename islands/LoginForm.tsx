@@ -109,8 +109,8 @@ export default function RegisterForm(
         {text}
       </button>
       {showModal && (
-        <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
-          <div class="bg-[#010005] lg:w-1/3 w-full h-full lg:h-2/3 mx-auto lg:my-[7%] p-5 lg:rounded-xl">
+        <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black dark:text-white">
+          <div class="bg-[#f0f0f5] dark:bg-black lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
             <div class="flex justify-end">
               <span
                 class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
@@ -121,7 +121,7 @@ export default function RegisterForm(
             </div>
             <div class="w-4/5 mx-auto my-0">
               <div class="text-center text-sm">
-                <p class="text-white hover:underline font-medium text-3xl mt-8 mb-10">
+                <p class="hover:underline font-medium text-3xl mt-8 mb-10">
                   ログイン
                 </p>
               </div>
@@ -158,7 +158,7 @@ function Input({
       <div class="mb-5">
         <label
           for="email"
-          class="block mb-2 text-sm font-medium text-white dark:text-white "
+          class="block mb-2 text-sm font-medium text-black dark:text-white"
         >
           {title}
         </label>
@@ -200,7 +200,7 @@ function LoginForm({
           errorMessage={userNameError}
         />
         <Input
-          placeholder=" "
+          placeholder="**********"
           onChange={onPasswordChange}
           value={passwordValue}
           title="パスワード"

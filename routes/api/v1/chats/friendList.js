@@ -32,7 +32,9 @@ export const handler = {
     await csrftoken.deleteOne({ token: data.csrftoken })
     /*                                                                          */
     try {
-      const chatRooms = await rooms.find({ users: ctx.state.data.userid.toString() })
+      const chatRooms = await rooms.find({
+        users: ctx.state.data.userid.toString(),
+      })
       const friendsInfo = await Friends.findOne({
         user: ctx.state.data.userid.toString(),
       }, {})
@@ -56,7 +58,7 @@ export const handler = {
           },
         )
       }
-      if(chatRooms.length === 0) {
+      if (chatRooms.length === 0) {
         return new Response(
           JSON.stringify({ "status": "You are alone" }),
           {
@@ -66,9 +68,11 @@ export const handler = {
         )
       }
       const result = await Promise.all(
-        chatRooms.map( async(room) => {
+        chatRooms.map(async (room) => {
           if (room.types === "friend") {
-            const friendID = room.users.filter((user) => user !== ctx.state.data.userid.toString())
+            const friendID = room.users.filter((user) =>
+              user !== ctx.state.data.userid.toString()
+            )
             //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
             const friendName = await users.findOne({ _id: friendID[0] })
             const result = {
@@ -89,7 +93,7 @@ export const handler = {
           } else {
             return
           }
-        })
+        }),
       )
       return new Response(
         JSON.stringify({ "status": "success", "chatRooms": result }),

@@ -34,7 +34,7 @@ export const handler = {
 
     await csrftoken.deleteOne({ token: data.csrftoken })
     const userid = ctx.state.data.userid.toString()
-    if(data.type === "rejectRequest") {
+    if (data.type === "rejectRequest") {
       const { friendName } = data
       const friendInfo = await Users.findOne({ userName: friendName }) // Assuming 'userName' is a valid field in the 'users' object
       if (!friendInfo) {
@@ -70,7 +70,7 @@ export const handler = {
         status: 200,
       })
     }
-    if(data.type === "acceptRequest") {
+    if (data.type === "acceptRequest") {
       const { friendName } = data
       const friendInfo = await Users.findOne({ userName: friendName })
       if (!friendInfo) {
@@ -103,11 +103,11 @@ export const handler = {
       }
       await Friends.updateOne(
         { user: userid },
-        { $push: { friends: { userid: friendInfo._id } } },  // Assuming 'name' is a valid field in the 'friends' object
+        { $push: { friends: { userid: friendInfo._id } } }, // Assuming 'name' is a valid field in the 'friends' object
       )
       await Friends.updateOne(
         { user: friendInfo._id.toString() },
-        { $push: { friends: {userid} } },
+        { $push: { friends: { userid } } },
       )
       await requestAddFriend.updateOne(
         { userID: userid },

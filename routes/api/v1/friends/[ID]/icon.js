@@ -97,7 +97,9 @@ export const handler = {
         status: 400,
       })
     }
-    const friend = await friends.findOne({ user: ctx.state.data.userid.toString() })
+    const friend = await friends.findOne({
+      user: ctx.state.data.userid.toString(),
+    })
     if (friend == null) {
       return new Response(JSON.stringify({ "status": "You are alone" }), {
         headers: { "Content-Type": "application/json" },
@@ -109,7 +111,7 @@ export const handler = {
       return new Response(JSON.stringify({ "status": "No such user" }), {
         headers: { "Content-Type": "application/json" },
         status: 400,
-    })
+      })
     }
     //友達かどうかの確認
     const friendid = friendNameInfo._id.toString()
@@ -139,4 +141,3 @@ export const handler = {
     }
   },
 }
-

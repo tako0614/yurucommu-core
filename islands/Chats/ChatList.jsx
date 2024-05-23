@@ -35,7 +35,10 @@ export default function ChatList(props) {
     console.log(res)
     res.chatRooms.map((room) => {
       let latestMessage = room.latestMessage
-      if(latestMessage === undefined || latestMessage === null || latestMessage === "") {
+      if (
+        latestMessage === undefined || latestMessage === null ||
+        latestMessage === ""
+      ) {
         latestMessage = "メッセージがありません"
       }
       const friend = {

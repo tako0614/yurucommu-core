@@ -23,14 +23,6 @@ export default function Home(
   }
   return (
     <>
-      <head>
-        <title>tako's | takos.jp</title>
-        <meta
-          name="description"
-          content="日本産オープンソース分散型チャットアプリ「tako's」"
-        />
-        <link rel="stylesheet" href="/style.css"></link>
-      </head>
       {isShowAddFriendForm && (
         <AddFriendForm
           addFriendKey={props.AddFriendKey}
@@ -48,8 +40,8 @@ export default function Home(
             ? (
               <>
                 <ChatList
-                friendList={friendList}
-                setFriendList={setFriendList}
+                  friendList={friendList}
+                  setFriendList={setFriendList}
                 />
                 <ChatTalk />
               </>

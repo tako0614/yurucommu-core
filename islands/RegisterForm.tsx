@@ -326,8 +326,8 @@ export default function RegisterForm(
         {text}
       </button>
       {showModal && (
-        <div className="fixed z-50 w-full h-screen overflow-hidden bg-[rgba(91,112,131,0.4)] left-0 top-0">
-          <div className="bg-[#010005] lg:w-1/3 w-full h-full lg:h-2/3 mx-auto lg:my-[7%] p-5 lg:rounded-xl">
+        <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black">
+        <div class="bg-[#f0f0f5] dark:bg-black lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
             <div class="flex float-right">
               <span
                 className="text-[#aaa] text-[28px] font-[bold] no-underline cursor-pointer"
@@ -339,7 +339,7 @@ export default function RegisterForm(
             <div class="w-4/5 mx-auto my-0">
               <div class="">
                 <div class="text-center text-sm">
-                  <p class="text-white hover:underline font-medium text-3xl mt-16 mb-10">
+                  <p class="dark:text-white text-black hover:underline font-medium text-3xl mt-16 mb-10">
                     アカウント作成
                   </p>
                 </div>
@@ -394,7 +394,7 @@ export default function RegisterForm(
                   </>
                 )}
                 {showForm == "finished" && (
-                  <div class="text-white text-3xl">
+                  <div class="dark:text-white text-black text-3xl">
                     本登録が完了しました。閉じてログインしてください
                   </div>
                 )}
@@ -428,7 +428,7 @@ function Input({
       <div class="mb-5">
         <label
           for="email"
-          class="block mb-2 text-sm font-medium text-white dark:text-white"
+          class="block mb-2 text-sm font-medium text-black dark:text-white"
         >
           {title}
         </label>
@@ -436,7 +436,7 @@ function Input({
           onChange={onChange}
           value={value}
           type={type}
-          class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+          class="bg-gray-50 border border-gray-300 text-gray-900 dark:text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:focus:ring-blue-500 dark:focus:border-blue-500"
           placeholder={placeholder}
           required
         />
@@ -472,7 +472,7 @@ function EmailForm({
         />
         <button
           type="submit"
-          class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+          class="text-white dark:text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
         >
           送信
         </button>
@@ -568,7 +568,7 @@ function MainRegisterForm({
     <>
       <form onSubmit={onSubmit} class="max-w-sm mx-auto">
         <Input
-          placeholder="tako@example.com"
+          placeholder="tako0614"
           onChange={userNameOnChange}
           value={userName}
           title="ユーザーネーム"
@@ -577,7 +577,7 @@ function MainRegisterForm({
           errorMessage={userNameErrorMessage}
         />
         <Input
-          placeholder="tako"
+          placeholder="たこ"
           onChange={nickNameOnChnage}
           value={nickName}
           title="ニックネーム"
@@ -586,7 +586,7 @@ function MainRegisterForm({
           errorMessage={nicknameErrorMessage}
         />
         <Input
-          placeholder="tako"
+          placeholder="************"
           onChange={passwordOnChange}
           value={password}
           title="パスワード"
@@ -595,7 +595,7 @@ function MainRegisterForm({
           errorMessage={passwordErrorMessage}
         />
         <Input
-          placeholder="tako"
+          placeholder="20"
           onChange={ageOnChange}
           value={age}
           title="年齢"

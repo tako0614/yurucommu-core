@@ -25,35 +25,7 @@
      font-size: 0px;
 }
  @media screen and (max-width:800px) {
-     .header-logo-menu{
-         display: flex;
-         display: -moz-flex;
-         display: -o-flex;
-         display: -webkit-flex;
-         display: -ms-flex;
-         flex-direction: row;
-         -moz-flex-direction: row;
-         -o-flex-direction: row;
-         -webkit-flex-direction: row;
-         -ms-flex-direction: row;
-    }
-     .logo-area{
-         height: 10px;
-         text-align:center;
-         margin:auto;
-         margin-top: 0px;
-    }
-     .logo-area img {
-         height: 30px;
-    }
-     #nav-content ul li {
-         font-size: 40px;
-    }
-    
-     .full-title h1 {
-         font-family: Roboto;
-         font-size: 3.5rem;
-    }
+
 }
 /*メニューをページ下部に固定*/
 #sp-fixed-menu{
