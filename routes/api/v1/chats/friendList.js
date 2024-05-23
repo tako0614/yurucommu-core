@@ -56,6 +56,15 @@ export const handler = {
           },
         )
       }
+      if(chatRooms.length === 0) {
+        return new Response(
+          JSON.stringify({ "status": "You are alone" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          },
+        )
+      }
       const result = await Promise.all(
         chatRooms.map( async(room) => {
           if (room.types === "friend") {

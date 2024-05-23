@@ -23,25 +23,29 @@ export default function ChatList(props) {
       setFriendList(
         [
           {
-            userName: "友達がいません！！",
-            latestMessage: "ざぁこ♡ざぁこ♡",
+            userName: "友達がいません",
+            latestMessage: "友達を追加してみましょう！",
             icon: "./people.png",
           },
         ],
       )
       return
     }
-    console.log(res.chatRooms[0])
-    let friendList = []
+    const friendListTemp = []
+    console.log(res)
     res.chatRooms.map((room) => {
+      let latestMessage = room.latestMessage
+      if(latestMessage === undefined || latestMessage === null || latestMessage === "") {
+        latestMessage = "メッセージがありません"
+      }
       const friend = {
         userName: room.roomName,
-        latestMessage: room.latestMessage,
+        latestMessage: latestMessage,
         icon: `./api/v1/friends/${room.roomName}/icon`,
       }
-      friendList.push(friend)
+      friendListTemp.push(friend)
     })
-    setFriendList(friendList)
+    setFriendList(friendListTemp)
   }, [])
   return (
     <>
@@ -78,182 +82,6 @@ export default function ChatList(props) {
     </>
   )
 }
-/*
-import { useEffect, useState } from "preact/hooks"
-import { h, render } from "preact"
-import User from "../../components/Chats/ChatUserList.jsx"
-import SettingList from "../SettingList.tsx"
-function ChatList(props) {
-  if (props.isSetting) {
-    return (
-      <div class="p-talk-list">
-        <h1 class="p-talk-list-title">設定</h1>
-        <div class="p-talk-list-rooms">
-          <ul class="p-talk-list-rooms__ul" id="friendList">
-            <SettingList
-              setSettingPage={props.setSettingPage}
-            >
-            </SettingList>
-          </ul>
-        </div>
-      </div>
-    )
-  }
-  const [showAddFriendForm, setShowAddFriendForm] = useState(
-    props.isAddFriendForm,
-  )
-  const [friendList, setFriendList] = useState([])
-  useEffect(async () => {
-    const origin = window.location.protocol + "//" + window.location.host
-    const csrftokenres = await fetch(
-      `./api/v1/csrftoken?origin=${origin}`,
-    )
-    const csrftoken = await csrftokenres.json()
-    const result = await fetch("./api/v1/chats/friendList", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        csrftoken: csrftoken.csrftoken,
-      }),
-    })
-    const res = await result.json()
-    if (res.status == "You are alone") {
-      setFriendList(
-        [
-          {
-            userName: "友達がいません！！",
-            latestMessage: "ざぁこ♡ざぁこ♡",
-            icon: "./people.png",
-          }
-        ]
-      )
-    }
-    console.log(res)
-  },[])
-
-    /*
-    const csrftoken = await csrftokenres.json()
-    const result = await fetch("./api/v1/chats/friendList", {
-      method: "POST",
-      body: JSON.stringify({
-        csrftoken: csrftoken.csrftoken,
-      }),
-    })
-    const res = await result.json()
-    console.log(res)
-    if (res.status == "You are alone") {
-      const ListElement = document.getElementById("friendList")
-      render(
-        <User
-          userName="友達がいません！！"
-          latestMessage="ざぁこ♡ざぁこ♡"
-          icon="./people.png"
-          onClick={() => {
-          }}
-        />,
-        ListElement,
-      )
-      return
-    } else if (res.status == "csrftoken error") {
-      const csrftokenres = await fetch(
-        "./api/v1/csrftoken?origin=http://localhost:8000",
-        {
-          method: "GET",
-        },
-      )
-      const csrftoken = await csrftokenres.json()
-      const result = await fetch("./api/v1/chats/friendList", {
-        method: "POST",
-        body: JSON.stringify({
-          csrftoken: csrftoken.csrftoken,
-        }),
-      })
-      const res = await result.json()
-      console.log(res)
-      if (res.status == "You are alone") {
-        const ListElement = document.getElementById("friendList")
-        render(
-          <User
-            userName="友達がいません！！"
-            latestMessage="ざぁこ♡ざぁこ♡"
-            icon="./people.png"
-            onClick={() => {
-            }}
-          />,
-          ListElement,
-        )
-        return
-      }
-      let ListElement
-      result.sort((a, b) => {
-        a.latestMessageTime - b.latestMessageTime
-      })
-      let elements = []
-      result.map((friend) => {
-        const icon = `./api/v1/friends/${friend.userName}/icon`
-        const element = (
-          <User
-            userName={friend.userName}
-            latestMessage={friend.latestMessage}
-            icon={icon}
-          />
-        )
-        elements.push(element)
-      })
-      document.getElementById("friendList").appendChild(user)
-      render(elements, ListElement)
-    }
-    let ListElement
-    result.sort((a, b) => {
-      a.latestMessageTime - b.latestMessageTime
-    })
-    let elements = []
-    result.map((friend) => {
-      const icon = `./api/v1/friends/${friend.userName}/icon`
-      const element = (
-        <User
-          userName={friend.userName}
-          latestMessage={friend.latestMessage}
-          icon={icon}
-        />
-      )
-      elements.push(element)
-    })
-    document.getElementById("friendList").appendChild(user)
-    render(elements, ListElement)
-  }, [])
-  return (
-    <>
-      {showAddFriendForm && (
-        <AddFriendForm
-          isAddFriendForm={showAddFriendForm}
-          setShowAddFriendForm={setShowAddFriendForm}
-          addFriendKey={props.addFriendKey}
-        />
-      )}
-      <div class="p-talk-list">
-        <h1 class="p-talk-list-title">トーク</h1>
-        <div class="p-talk-list-search">
-          <form name="talk-search">
-            <label>
-              <input
-                type="text"
-                placeholder="トークルーム・メッセージを検索"
-              />
-            </label>
-          </form>
-        </div>
-        <div class="p-talk-list-rooms">
-          <ul class="p-talk-list-rooms__ul" id="friendList">
-            {/**ここにフレンドリストを表示 useEffectでレンダリング
-          </ul>
-        </div>
-      </div>
-    </>
-  )
-}*/
 const AddFriendForm = (props) => {
   const [addFriendInfo, setAddFriendInfo] = useState([])
   const [isRequested, setIsRequested] = useState(false)
