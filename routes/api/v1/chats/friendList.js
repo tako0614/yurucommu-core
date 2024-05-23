@@ -72,7 +72,7 @@ export const handler = {
             //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
             const friendName = await users.findOne({ _id: friendID[0] })
             const result = {
-              roomName: friendName.userName,
+              roomName: friendName.nickName,
               lastMessage: room.latestmessage,
               roomID: room.name,
               latestMessageTime: room.latestMessageTime,
