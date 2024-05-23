@@ -31,7 +31,17 @@ export default function ChatList(props) {
       )
       return
     }
-    alert("続きを書く")
+    console.log(res.chatRooms[0])
+    let friendList = []
+    res.chatRooms.map((room) => {
+      const friend = {
+        userName: room.roomName,
+        latestMessage: room.latestMessage,
+        icon: `./api/v1/friends/${room.roomName}/icon`,
+      }
+      friendList.push(friend)
+    })
+    setFriendList(friendList)
   }, [])
   return (
     <>

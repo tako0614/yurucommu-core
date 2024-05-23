@@ -1,5 +1,6 @@
 import { getCookies } from "$std/http/cookie.ts"
 import sessionID from "../../../../models/sessionid.ts"
+import csrftoken from "../../../../models/csrftoken.ts"
 export const handler = {
   async POST(req, ctx) {
     if (!ctx.state.data.loggedIn) {
@@ -10,6 +11,21 @@ export const handler = {
     }
     try {
       const data = await req.json()
+      const cookies = getCookies(req.headers)
+      if (typeof data.csrftoken !== "string") {
+        return new Response(JSON.stringify({ status: "error" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 403,
+        })
+      }
+      const csrfTokenRecord = await csrftoken.findOne({ token: data.csrftoken })
+      if (!csrfTokenRecord || csrfTokenRecord.sessionID !== cookies.sessionid) {
+        return new Response(JSON.stringify({ status: "error" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 403,
+        })
+      }
+      await csrftoken.deleteOne({ token: data.csrftoken })
       const sessionid = ctx.state.data.sessionid
       if (data.reqirments !== "logout") {
         return new Response(JSON.stringify({ "status": "error" }), {

@@ -1,6 +1,7 @@
 import rooms from "../../../../models/rooms.ts"
 import Friends from "../../../../models/friends.ts"
 import csrftoken from "../../../../models/csrftoken.ts"
+import users from "../../../../models/users.ts"
 import { getCookies } from "$std/http/cookie.ts"
 export const handler = {
   async POST(req, ctx) {
@@ -29,19 +30,12 @@ export const handler = {
       return { status: false }
     }
     await csrftoken.deleteOne({ token: data.csrftoken })
-    const userName = ctx.state.data.userName
+    /*                                                                          */
     try {
-      const chatRooms = await rooms.find({ users: userName }, {
-        latestmessage: 1,
-        latestMessageTime: 1,
-        types: 1,
-        name: 1,
-      })
+      const chatRooms = await rooms.find({ users: ctx.state.data.userid.toString() })
       const friendsInfo = await Friends.findOne({
-        userName: ctx.state.data.userid,
-      }, {
-        friends: 1,
-      })
+        user: ctx.state.data.userid.toString(),
+      }, {})
       if (friendsInfo === null || friendsInfo === undefined) {
         return new Response(
           JSON.stringify({ "status": "You are alone" }),
@@ -62,30 +56,31 @@ export const handler = {
           },
         )
       }
-      const result = chatRooms.map((room) => {
-        if (room.types === "friend") {
-          const foundFriend = friendsInfo.friends.find((friend) => {
-            friend.room === room._id
-          })
-          const friendName = foundFriend.userName
-          const result = {
-            roomName: friendName,
-            lastMessage: room.latestmessage,
-            roomID: room._id,
-            latestMessageTime: room.latestMessageTime,
+      const result = await Promise.all(
+        chatRooms.map( async(room) => {
+          if (room.types === "friend") {
+            const friendID = room.users.filter((user) => user !== ctx.state.data.userid.toString())
+            //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
+            const friendName = await users.findOne({ _id: friendID[0] })
+            const result = {
+              roomName: friendName.userName,
+              lastMessage: room.latestmessage,
+              roomID: room.name,
+              latestMessageTime: room.latestMessageTime,
+            }
+            return result
+          } else if (room.types === "group") {
+            const result = {
+              roomName: room.name,
+              lastMessage: room.latestmessage,
+              roomID: room._id,
+            }
+            return result
+          } else {
+            return
           }
-          return result
-        } else if (room.types === "group") {
-          const result = {
-            roomName: room.name,
-            lastMessage: room.latestmessage,
-            roomID: room._id,
-          }
-          return result
-        } else {
-          return
-        }
-      })
+        })
+      )
       return new Response(
         JSON.stringify({ "status": "success", "chatRooms": result }),
         {

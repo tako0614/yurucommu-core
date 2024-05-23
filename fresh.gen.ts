@@ -36,7 +36,6 @@ import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.tsx"
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
 import * as $Chats_FriendRequest from "./islands/Chats/FriendRequest.tsx"
-import * as $Chats_TalkTimeLine from "./islands/Chats/TalkTimeLine.jsx"
 import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx"
 import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx"
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx"
@@ -47,7 +46,6 @@ import * as $RegisterForm from "./islands/RegisterForm.tsx"
 import * as $SettingList from "./islands/SettingList.tsx"
 import * as $Settings_Friends from "./islands/Settings/Friends.tsx"
 import * as $Settings_Infomation from "./islands/Settings/Infomation.tsx"
-import * as $Settings_Logout from "./islands/Settings/Logout.tsx"
 import * as $Settings_Privacy from "./islands/Settings/Privacy.tsx"
 import * as $Settings_Profile from "./islands/Settings/Profile.tsx"
 import * as $Welcome from "./islands/Welcome.tsx"
@@ -92,7 +90,6 @@ const manifest = {
     "./islands/Chats/ChatTalk.tsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/FriendRequest.tsx": $Chats_FriendRequest,
-    "./islands/Chats/TalkTimeLine.jsx": $Chats_TalkTimeLine,
     "./islands/Chats/getAddFriendKey.tsx": $Chats_getAddFriendKey,
     "./islands/Chats/isnotSelectUser.jsx": $Chats_isnotSelectUser,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
@@ -103,7 +100,6 @@ const manifest = {
     "./islands/SettingList.tsx": $SettingList,
     "./islands/Settings/Friends.tsx": $Settings_Friends,
     "./islands/Settings/Infomation.tsx": $Settings_Infomation,
-    "./islands/Settings/Logout.tsx": $Settings_Logout,
     "./islands/Settings/Privacy.tsx": $Settings_Privacy,
     "./islands/Settings/Profile.tsx": $Settings_Profile,
     "./islands/Welcome.tsx": $Welcome,

@@ -15,9 +15,14 @@ export const handler = {
       const userFriendInfo = await RequestAddFriend.findOne({
         userID: ctx.state.data.userid.toString(),
       })
-      console.log(ctx.state.data.userid.toString())
       if (userFriendInfo == null) {
-        return
+        await RequestAddFriend.create({
+          userID: ctx.state.data.userid.toString(),
+        })
+        return new Response(JSON.stringify({ status: true, result: null }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        })
       }
       const result = await Promise.all(
         userFriendInfo.Applicant.map(

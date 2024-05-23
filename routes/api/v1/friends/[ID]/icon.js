@@ -11,7 +11,6 @@ export const handler = {
       })
     }
     const url = new URL(req.url)
-    const userName = ctx.state.data.userName
     const friendName = ID
     const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") || false
     const isRequestList = url.searchParams.get("isRequestList") || false
@@ -98,27 +97,34 @@ export const handler = {
         status: 400,
       })
     }
-    const friend = await friends.find({ userName: userName })
+    const friend = await friends.findOne({ user: ctx.state.data.userid.toString() })
     if (friend == null) {
       return new Response(JSON.stringify({ "status": "You are alone" }), {
         headers: { "Content-Type": "application/json" },
         status: 200,
       })
     }
-    if (
-      friend.find((friend) => friend.userName == friendName) == null
-    ) {
-      return new Response(
-        JSON.stringify({ "status": "No such friend" }),
-        {
-          headers: { "Content-Type": "application/json" },
-          status: 400,
-        },
-      )
+    const friendNameInfo = await users.findOne({ userName: friendName })
+    if (friendNameInfo == null) {
+      return new Response(JSON.stringify({ "status": "No such user" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 400,
+    })
+    }
+    //友達かどうかの確認
+    const friendid = friendNameInfo._id.toString()
+    const result = friend.friends.find((element) => {
+      return friendid == element.userid
+    })
+    if (result == undefined) {
+      return new Response(JSON.stringify({ "status": "No such user" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 400,
+      })
     }
     try {
       const result = await Deno.readFile(
-        "../../files/userIcons/" + friendName + ".webp",
+        "./files/userIcons/" + friendid + ".webp",
       )
       return new Response(result, {
         headers: { "Content-Type": "image/webp" },
@@ -133,3 +139,4 @@ export const handler = {
     }
   },
 }
+

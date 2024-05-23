@@ -1,4 +1,3 @@
-import TalkTimeLine from "./TalkTimeLine.jsx"
 import IsnotSelectUser from "./isnotSelectUser.jsx"
 import Profile from "../Settings/Profile.tsx"
 import Friends from "../Settings/Friends.tsx"

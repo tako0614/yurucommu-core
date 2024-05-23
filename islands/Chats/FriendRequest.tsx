@@ -65,14 +65,14 @@ export default function RegisterForm() {
 }
 
 // Define the Input component
-function Input({ value, setValue }: InputProps) {
+function Input({ value, setValue }: any) {
   const handleChangeUrl = (event: any) => {
     event.preventDefault()
     const updateUrl = async () => {
       const resp = await fetch("./api/v1/chats/friendkey?reload=true")
       const data = await resp.json()
+      console.log(data)
       if (data.status === false) {
-        console.log("error")
         return
       }
       const url = origin + data.addFriendKey
@@ -91,7 +91,7 @@ function Input({ value, setValue }: InputProps) {
 }
 
 // Define the User component
-function User({ icon, userName }: { icon: string; userName: string }) {
+function User({ icon, userName,items,setItems }: { icon: string; userName: string;items:any;setItems:any }) {
   return (
     <>
       <li class="c-talk-rooms flex mb-2 bg-white border border-gray-300">
@@ -110,12 +110,60 @@ function User({ icon, userName }: { icon: string; userName: string }) {
         </a>
         <div class="mt-auto mb-auto ml-auto flex">
           <div class="ml-2">
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full"
+            onClick={async () => {
+              const csrftokenRes = await fetch("./api/v1/csrftoken" + "?origin=" + window.location.origin)
+              const csrftoken = await csrftokenRes.json()
+              const res = await fetch("./api/v1/friends/request", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  csrftoken: csrftoken.csrftoken,
+                  type: "acceptRequest",
+                  friendName: userName,
+                }),
+              })
+              const response = await res.json()
+              if (response.status === "success") {
+                setItems(items.filter((item:any) => item.userName !== userName))
+                alert("友達リクエストを承認しました！")
+              } else {
+                alert("友達リクエストの承認に失敗しました！")
+                console.log(response)
+              }
+            }}
+            >
               ＋
             </button>
           </div>
           <div>
-            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full">
+            <button class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full"
+            onClick={async () => {
+              const csrftokenRes = await fetch("./api/v1/csrftoken" + "?origin=" + window.location.origin)
+              const csrftoken = await csrftokenRes.json()
+              const res = await fetch("./api/v1/friends/request", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  csrftoken: csrftoken.csrftoken,
+                  type: "rejectRequest",
+                  friendName: userName,
+                }),
+              })
+              const response = await res.json()
+              if (response.status === "success") {
+                setItems(items.filter((item:any) => item.userName !== userName))
+              } else {
+                alert("リクエストの却下に失敗しました！")
+                console.log(response)
+              }
+            }
+            }
+            >
               －
             </button>
           </div>
@@ -148,6 +196,8 @@ const VideoList = () => {
               key={index}
               icon={video.icon}
               userName={video.userName}
+              items={items}
+              setItems={setItems}
             />
           ))}
         </ul>

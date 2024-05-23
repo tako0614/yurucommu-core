@@ -9,7 +9,7 @@ export const friendsSchema = new mongoose.Schema({
     type: [
       {
         userid: {
-          type: mongoose.Schema.Types.ObjectId,
+          type: String,
         },
         room: {
           type: String,

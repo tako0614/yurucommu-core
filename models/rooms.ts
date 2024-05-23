@@ -23,7 +23,6 @@ export const roomsSchema = new mongoose.Schema({
   },
   latestmessage: {
     type: String,
-    required: true,
     default: "",
   },
   latestMessageTime: {
@@ -35,11 +34,9 @@ export const roomsSchema = new mongoose.Schema({
     {
       sender: {
         type: String,
-        required: true,
       },
       message: {
         type: String,
-        required: true,
       },
       timestamp: { type: Date, default: Date.now },
     },
