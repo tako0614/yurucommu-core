@@ -14,6 +14,8 @@ export default function Home(
 ) {
   const [page, setPage] = useState(props.page)
   const [isChoiceUser, setIsChoiceUser] = useState(false)
+  const [roomid, setRoomid] = useState<string | null>(null)
+  const [roomName, setRoomName] = useState<string | null>(null)
   const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
     props.isAddFriendForm,
   )
@@ -29,7 +31,12 @@ export default function Home(
           setShowAddFriendForm={setIsShowAddFriendForm}
         />
       )}
-      <ChatHeader page={page} setPage={setPage} reset={reset} />
+      <ChatHeader
+        page={page}
+        setPage={setPage}
+        reset={reset}
+        isChoiceUser={isChoiceUser}
+      />
 
       <div class="wrapper">
         <main
@@ -42,8 +49,19 @@ export default function Home(
                 <ChatList
                   friendList={friendList}
                   setFriendList={setFriendList}
+                  setIsChoiceUser={setIsChoiceUser}
+                  setRoomid={setRoomid}
+                  setRoomName={setRoomName}
                 />
-                <ChatTalk />
+                <ChatTalk
+                  isSelectUser={isChoiceUser}
+                  roomid={roomid}
+                  roomName={roomName}
+                  setFriendList={setFriendList}
+                  setIsChoiceUser={setIsChoiceUser}
+                  setRoomid={setRoomid}
+                  setRoomName={setRoomName}
+                />
               </>
             )
             : null}
@@ -51,7 +69,10 @@ export default function Home(
             ? (
               <>
                 <ChatAddFriendList />
-                <ChatTalk />
+                <ChatTalk
+                  isSelectUser={isChoiceUser}
+                  roomid={roomid}
+                />
               </>
             )
             : null}

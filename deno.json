@@ -30,7 +30,8 @@
     "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime",
     "react-hook-form": "https://esm.sh/react-hook-form?external=react,react-dom,react%2Fjsx-runtime",
     "swr": "https://esm.sh/swr?external=react,react-dom,react%2Fjsx-runtime",
-    "sharp": "npm:sharp@0.33.4"
+    "sharp": "npm:sharp@0.33.4",
+    "redis": "npm:redis@4.6.14"
   },
   "alias": {
     "react": "preact/compat",

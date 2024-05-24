@@ -45,6 +45,7 @@ export default function ChatList(props) {
         userName: room.roomName,
         latestMessage: latestMessage,
         icon: room.roomIcon,
+        roomid: room.roomID,
       }
       friendListTemp.push(friend)
     })
@@ -74,6 +75,9 @@ export default function ChatList(props) {
                     latestMessage={friend.latestMessage}
                     icon={friend.icon}
                     onClick={() => {
+                      props.setIsChoiceUser(true)
+                      props.setRoomid(friend.roomid)
+                      props.setRoomName(friend.userName)
                     }}
                   />
                 </li>
