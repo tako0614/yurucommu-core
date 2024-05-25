@@ -1,12 +1,14 @@
 import redis from "redis";
 import rooms from "../../../../models/rooms.ts";
 import users from "../../../../models/users.ts";
-
+import { load} from "$std/dotenv/mod.ts";
+const env = await load();
+const redisURL = env["REDIS_URL"];
 const subClient = redis.createClient({
-  url: "redis://192.168.0.241:6379",
+  url: redisURL,
 });
 const pubClient = redis.createClient({
-  url: "redis://192.168.0.241:6379",
+  url: redisURL,
 });
 subClient.on("error", (err) => console.error("Sub Client Error", err));
 pubClient.on("error", (err) => console.error("Pub Client Error", err));
