@@ -33,13 +33,12 @@ async function subscribeMessage(channel) {
       return;
     }
     //senderをユーザー名に変換
-    console.log(data);
     const sender = sessions.get(data.sessionid);
     data.sender = sender.membersNameChash[data.sender];
     //roomidが一致するセッションがある場合は、そのセッションにメッセージを送信
     sessionsInRoom.forEach((session) => {
+      console.log("send")
       session.ws.send(JSON.stringify(data));
-      console.log("")
     });
   });
 }
@@ -68,10 +67,8 @@ export const handler = {
             name: roomid,
             users: ctx.state.data.userid.toString(),
           })
-          const userInfo = users.findOne({
-            _id: ctx.state.data.userid.toString(),
-          })
-          if (userInfo === null || userInfo === undefined) {
+          const userInfo = await users.findOne({_id: ctx.state.data.userid})
+          if (userInfo === null || userInfo === undefined || userInfo.userName == undefined) {
             socket.send(
               JSON.stringify({
                 status: false,
@@ -89,7 +86,6 @@ export const handler = {
             )
             return
           }
-          //console.log(isJoiningRoom)
           const sessionid = generateSessionId()
           sessions.set(sessionid, {
             ws: socket,

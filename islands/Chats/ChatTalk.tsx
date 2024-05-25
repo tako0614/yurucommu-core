@@ -43,18 +43,6 @@ export default function ChatTalk(props: any) {
         }
         websocket.send(JSON.stringify(data))
       }
-      /***
-       *                         const preTalkData = [...talkData] // 配列をコピーします
-                        console.log(props.sessionid)
-                        preTalkData.push({
-                          type: "message",
-                          message: Message,
-                          id: props.sessionid,
-                          time: new Date().toLocaleTimeString(),
-                          isRead: true,
-                        })
-                        setTalkData(preTalkData) // Add the sent message to talkData
-       */
       websocket.onmessage = (event) => {
         const data = JSON.parse(event.data)
         if(data.type == "joined") {
@@ -76,7 +64,6 @@ export default function ChatTalk(props: any) {
             ]
           })
         }
-        console.log(data)
       }
       props.setWs(websocket)
     }
