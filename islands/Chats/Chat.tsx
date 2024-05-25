@@ -24,6 +24,9 @@ export default function Home(
   const reset = () => {
     setIsChoiceUser(false)
   }
+  const [ws, setWs] = useState<WebSocket | null>(null)
+  //const [sessionid, setSessionid] = useState("")
+  let sessionid = ""
   return (
     <>
       {isShowAddFriendForm && (
@@ -78,6 +81,9 @@ export default function Home(
             setFriendList={setFriendList}
             setIsChoiceUser={setIsChoiceUser}
             setRoomid={setRoomid}
+            ws={ws}
+            setWs={setWs}
+            sessionid={sessionid}
           />
         </main>
       </div>

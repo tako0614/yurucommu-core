@@ -4,19 +4,37 @@ import ChatOtherMessage from "../../components/Chats/ChatOtherMessage.jsx"
 import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
   const [roomName, setRoomName] = useState("")
-  const [talkData, setTalkData] = useState("")
-  const [ws, setWs] = useState<WebSocket | null>(null)
+  const [talkData, setTalkData] = useState([])
   useEffect(() => {
     async function getRoom() {
-      console.log("aaaa")
+      props.ws?.close()
       const roomid = props.roomid
       const talkdata = await fetch(
         `/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`,
       )
       const talkdatajson = await talkdata.json()
-      console.log(talkdatajson.messages)
       setRoomName(talkdatajson.roomname)
-      //setWs(new WebSocket("/api/v1/chats/talk"))
+      const websocket = new WebSocket(
+        "/api/v1/chats/talk" + "?roomid=" + roomid,
+      )
+      websocket.onopen = () => {
+        const data = {
+          type: "join",
+          roomid: roomid,
+        }
+        websocket.send(JSON.stringify(data))
+      }
+      websocket.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        if (data.type == "message") {
+          setTalkData(data)
+        }
+        if (data.type == "joined") {
+          props.sessionid = data.sessionid
+          console.log(props.sessionid)
+        }
+      }
+      props.setWs(websocket)
     }
     if (props.roomid) {
       getRoom()
@@ -57,6 +75,40 @@ export default function ChatTalk(props: any) {
             <div class="p-talk-chat-main">
               <ul class="p-talk-chat-main__ul">
                 {
+                  () => {
+                    //ChatDataを日付け順に並び替える
+                    talkData.sort((a: any, b: any) => {
+                      if (a.date > b.date) {
+                        return 1
+                      } else {
+                        return -1
+                      }
+                    })
+                    return talkData.map((data: any) => {
+                      if (data.type == "message") {
+                        if (data.id == props.sessionid) {
+                          return (
+                            <ChatSendMessage
+                              message={data.message}
+                              time={data.time}
+                              isRead={true}
+                            />
+                          )
+                        } else {
+                          return (
+                            <ChatOtherMessage
+                              message={data.message}
+                              time={data.time}
+                              sender={true}
+                            />
+                          )
+                        }
+                      } else {
+                        return <ChatDate date={data.date} />
+                      }
+                    }
+                    )
+                  }
                 }
               </ul>
             </div>

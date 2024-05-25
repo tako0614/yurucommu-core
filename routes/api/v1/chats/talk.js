@@ -22,9 +22,9 @@ function broadcast(req) {
   })
 }
 subscribeMessage("takos")
-let sessions = []
+let sessions = new Map()
 export const handler = {
-  GET(req, ctx) {
+  async GET(req, ctx) {
     if (!ctx.state.data.loggedIn) {
       return new Response(JSON.stringify({ "status": "Please Login" }), {
         headers: { "Content-Type": "application/json" },
@@ -32,38 +32,71 @@ export const handler = {
       })
     }
     if (req.headers.get("upgrade") === "websocket") {
-      if (!socket) throw new Error("unreachable")
-      socket.onopen = async (ws, req) => {
-        const roomid = requrl.searchParams.get("roomid") || ""
-        const isJoiningRoom = await rooms.findOne({
-          name: roomid,
-          users: ctx.state.data.userid.toString(),
-        })
-        if (isJoiningRoom === null || isJoiningRoom === undefined) {
-          return new Response(
-            JSON.stringify({ "status": "You are not in this room" }),
-            {
-              headers: { "Content-Type": "application/json" },
-              status: 401,
-            },
-          )
-        }
-        const { socket, _response } = Deno.upgradeWebSocket(req)
+      console.log("socket opened")
+      const { socket, response } = Deno.upgradeWebSocket(req)
+      socket.onopen = async (socket, req) => {
         console.log("socket opened")
-        sessions.push({
-          ws: socket,
-          userid: ctx.state.data.userid,
-          roomid: roomid,
-        })
       }
-      socket.onmessage = async (e) => {
-        const message = e.data
-        redis.publish("newMessage", JSON.stringify(message))
+      socket.onmessage = async function (event) {
+        const data = JSON.parse(event.data)
+        if (data.type == "join") {
+          const roomid = data.roomid
+          const isJoiningRoom = await rooms.findOne({
+            name: roomid,
+            users: ctx.state.data.userid.toString(),
+          })
+          if (isJoiningRoom === null || isJoiningRoom === undefined) {
+            socket.send(
+              JSON.stringify({
+                status: false,
+                explain: "You are not in the room",
+              }),
+            )
+            return
+          }
+          //console.log(isJoiningRoom)
+          const sessionid = generateSessionId()
+          sessions.set(sessionid, {
+            ws: socket,
+            roomid: roomid,
+            id: ctx.state.data.userid.toString(),
+          })
+          socket.send(JSON.stringify({ sessionid: sessionid, type: "joined" }))
+        }
+        if (data.type == "message") {
+          const roomid = data.roomid
+          const session = sessions.get(data.sessionid)
+          if (session === undefined) {
+            socket.send(
+              JSON.stringify({
+                status: false,
+                explain: "You are not in the room",
+              }),
+            )
+            return
+          }
+          if (session.roomid !== roomid) {
+            socket.send(
+              JSON.stringify({
+                status: false,
+                explain: "You are not in the room",
+              }),
+            )
+            return
+          }
+          const result = {
+            sessionid: data.sessionid,
+            type: "message",
+            message: data.message,
+          }
+          redis.publish("takos", JSON.stringify(result))
+          socket.send(JSON.stringify({ status: true }))
+        }
       }
       socket.onclose = (ws) => {
         console.log("socket closed")
-        sessions = sessions.filter((session) => session.ws !== ws)
       }
+      if (!socket) throw new Error("unreachable")
       return response
     } else {
       return new Response(
@@ -71,4 +104,9 @@ export const handler = {
       )
     }
   },
+}
+function generateSessionId() {
+  const array = new Uint8Array(40)
+  window.crypto.getRandomValues(array)
+  return Array.from(array).map((b) => b.toString(16).padStart(2, "0")).join("")
 }
