@@ -11,13 +11,16 @@ export const roomsSchema = new mongoose.Schema({
         `${props.value} is not a valid room name!`,
     },
   },
+  showName: {
+    type: String,
+  },
   types: {
     type: String,
     required: true,
     enum: ["group", "friend", "public"],
   },
   users: {
-    type: Array,
+    type: [String],
     required: true,
     default: [],
   },

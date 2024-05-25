@@ -87,7 +87,7 @@ export default function Home({ data }: { data: any }) {
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       <Chat
-        page={0}
+        page={3}
         isAddFriendForm={false}
         roomid={data.roomid}
         settings={settings}

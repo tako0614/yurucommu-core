@@ -30,6 +30,7 @@ import * as $home_roomid_ from "./routes/home/[roomid].tsx"
 import * as $home_index from "./routes/home/index.tsx"
 import * as $index from "./routes/index.tsx"
 import * as $privacypolicy from "./routes/privacypolicy.tsx"
+import * as $setting_roomid_ from "./routes/setting/[roomid].tsx"
 import * as $setting_index from "./routes/setting/index.tsx"
 import * as $talk_roomid_ from "./routes/talk/[roomid].tsx"
 import * as $talk_index from "./routes/talk/index.tsx"
@@ -86,6 +87,7 @@ const manifest = {
     "./routes/home/index.tsx": $home_index,
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
+    "./routes/setting/[roomid].tsx": $setting_roomid_,
     "./routes/setting/index.tsx": $setting_index,
     "./routes/talk/[roomid].tsx": $talk_roomid_,
     "./routes/talk/index.tsx": $talk_index,

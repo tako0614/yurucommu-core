@@ -839,7 +839,7 @@ html, body {
         color: #E2E8F0;
     }
     .c-talk-chat-msg p {
-        color: #E2E8F0;
+        color: black;
     }
     .c-talk-chat.other .c-talk-chat-msg {
         color: #E2E8F0;

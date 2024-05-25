@@ -53,13 +53,6 @@ export default function Home(
                   setIsChoiceUser={setIsChoiceUser}
                   setRoomid={setRoomid}
                 />
-                <ChatTalk
-                  isSelectUser={isChoiceUser}
-                  roomid={roomid}
-                  setFriendList={setFriendList}
-                  setIsChoiceUser={setIsChoiceUser}
-                  setRoomid={setRoomid}
-                />
               </>
             )
             : null}
@@ -67,13 +60,6 @@ export default function Home(
             ? (
               <>
                 <ChatAddFriendList />
-                <ChatTalk
-                  isSelectUser={isChoiceUser}
-                  roomid={roomid}
-                  setFriendList={setFriendList}
-                  setIsChoiceUser={setIsChoiceUser}
-                  setRoomid={setRoomid}
-                />
               </>
             )
             : null}
@@ -83,16 +69,16 @@ export default function Home(
                 <Setting
                   setIsChoiceUser={setIsChoiceUser}
                 />
-                <ChatTalk
-                  isSelectUser={isChoiceUser}
-                  roomid={roomid}
-                  setFriendList={setFriendList}
-                  setIsChoiceUser={setIsChoiceUser}
-                  setRoomid={setRoomid}
-                />
               </>
             )
             : null}
+          <ChatTalk
+            isSelectUser={isChoiceUser}
+            roomid={roomid}
+            setFriendList={setFriendList}
+            setIsChoiceUser={setIsChoiceUser}
+            setRoomid={setRoomid}
+          />
         </main>
       </div>
     </>

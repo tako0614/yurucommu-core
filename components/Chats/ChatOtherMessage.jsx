@@ -3,7 +3,11 @@ const ChatOtherMessage = ({ sender, message, time }) => {
     <li class="c-talk-chat other primary">
       <div class="c-talk-chat-box">
         <div class="c-talk-chat-icon">
-          <img src="static/logo.png" alt="" />
+          <img
+            src={`/api/v1/friends/${sender}/icon/`}
+            alt=""
+            class="rounded-full text-white dark:text-black"
+          />
         </div>
         <div class="c-talk-chat-right">
           <div class="c-talk-chat-name">

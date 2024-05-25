@@ -1,12 +1,28 @@
-import IsnotSelectUser from "./isnotSelectUser.jsx"
-import Profile from "../Settings/Profile.tsx"
-import Friends from "../Settings/Friends.tsx"
+import ChatDate from "../../components/Chats/ChatDate.tsx"
+import ChatSendMessage from "../../components/Chats/ChatSendMessage.jsx"
+import ChatOtherMessage from "../../components/Chats/ChatOtherMessage.jsx"
 import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
+  const [roomName, setRoomName] = useState("")
+  const [talkData, setTalkData] = useState("")
+  const [ws, setWs] = useState<WebSocket | null>(null)
   useEffect(() => {
-    //
+    async function getRoom() {
+      console.log("aaaa")
+      const roomid = props.roomid
+      const talkdata = await fetch(
+        `/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`,
+      )
+      const talkdatajson = await talkdata.json()
+      console.log(talkdatajson.messages)
+      setRoomName(talkdatajson.roomname)
+      //setWs(new WebSocket("/api/v1/chats/talk"))
+    }
+    if (props.roomid) {
+      getRoom()
+    }
   }, [props.isSelectUser])
-  if (props.roomid ) {
+  if (props.roomid) {
     return (
       <>
         <div class="p-talk-chat">
@@ -36,11 +52,12 @@ export default function ChatTalk(props: any) {
                   <polyline points="14 18 8 12 14 6 14 6" />
                 </svg>
               </button>
-              <p>{props.roomName}</p>
+              <p>{roomName}</p>
             </div>
             <div class="p-talk-chat-main">
               <ul class="p-talk-chat-main__ul">
-                {/*メッセージ */}
+                {
+                }
               </ul>
             </div>
             <div class="p-talk-chat-send">

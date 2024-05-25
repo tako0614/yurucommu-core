@@ -28,7 +28,35 @@ export const handler = {
           status: 404,
         })
       }
-      return new Response(JSON.stringify(room.messages), {
+      let RoomName = ""
+      if (room.types === "friend") {
+        // ctx.state.data.userid.toString()以外のroom.usersの配列に存在するユーザーのIDを取得
+        const friendId = room.users.filter((id: string) =>
+          id !== ctx.state.data.userid.toString()
+        )
+        // friendIdのユーザー情報を取得
+        const friend = await user.findOne({
+          _id: friendId[0],
+        })
+        if (!friend) {
+          return new Response(
+            JSON.stringify({ "status": "Friend Not Found" }),
+            {
+              headers: { "Content-Type": "application/json" },
+              status: 404,
+            },
+          )
+        }
+        // friendのuserNameを取得
+        RoomName = friend.nickName
+      } else {
+        RoomName = room.showName || ""
+      }
+      const result = {
+        roomname: RoomName,
+        messages: room.messages,
+      }
+      return new Response(JSON.stringify(result), {
         headers: { "Content-Type": "application/json" },
         status: 200,
       })
