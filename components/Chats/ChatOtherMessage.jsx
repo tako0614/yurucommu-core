@@ -1,4 +1,4 @@
-const ChatOtherMessage = ({ sender, message, time, isPrimary }) => {
+const ChatOtherMessage = ({ sender, message, time, isPrimary,senderNickName }) => {
   const isPrimaryClass = isPrimary
     ? "c-talk-chat other primary"
     : "c-talk-chat other"
@@ -14,7 +14,7 @@ const ChatOtherMessage = ({ sender, message, time, isPrimary }) => {
         </div>
         <div class="c-talk-chat-right">
           <div class="c-talk-chat-name">
-            <p>{sender}</p>
+            <p>{senderNickName}</p>
           </div>
           <div class="c-talk-chat-msg">
             <p>

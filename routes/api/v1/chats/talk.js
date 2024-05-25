@@ -8,13 +8,6 @@ const subClient = redis.createClient({
 const pubClient = redis.createClient({
   url: "redis://192.168.0.241:6379",
 });
-/**?
- {
-            sessionid: data.sessionid,
-            type: "message",
-            message: data.message,
-            sender: ctx.state.data.userid.toString(),
- */
 subClient.on("error", (err) => console.error("Sub Client Error", err));
 pubClient.on("error", (err) => console.error("Pub Client Error", err));
 
@@ -35,6 +28,8 @@ async function subscribeMessage(channel) {
     //senderをユーザー名に変換
     const sender = sessions.get(data.sessionid);
     data.sender = sender.membersNameChash[data.sender];
+    //nickNameを追加
+    data.nickName = sender.membersNickNameChash[data.sender];
     //roomidが一致するセッションがある場合は、そのセッションにメッセージを送信
     sessionsInRoom.forEach((session) => {
       console.log("send")
@@ -62,6 +57,9 @@ export const handler = {
       socket.onmessage = async function (event) {
         const data = JSON.parse(event.data)
         if (data.type == "join") {
+          sessions.forEach((session, key) => {
+            if(session.ws.redyState === 3) sessions.delete(key)
+          })
           const roomid = data.roomid
           const isJoiningRoom = await rooms.findOne({
             name: roomid,
@@ -94,10 +92,16 @@ export const handler = {
             membersNameChash: {
               [ctx.state.data.userid.toString()]: userInfo.userName,
             },
+            membersNickNameChash: {
+              [ctx.state.data.userid.toString()]: userInfo.nickName,
+            }
           })
           socket.send(JSON.stringify({ sessionid: sessionid, type: "joined" }))
         }
         if (data.type == "message") {
+          sessions.forEach((session, key) => {
+            if(session.ws.redyState === 3) sessions.delete(key)
+          })
           const roomid = data.roomid
           const session = sessions.get(data.sessionid)
           if (session === undefined) {
@@ -118,20 +122,23 @@ export const handler = {
             )
             return
           }
+          const now = new Date()
           const result = {
             sessionid: data.sessionid,
             type: "message",
             message: data.message,
             sender: ctx.state.data.userid.toString(),
             roomid: roomid,
+            time: now,
           }
-          const res = await rooms.updateOne(
+          await rooms.updateOne(
             { name: roomid },
             {
               $push: {
                 messages: {
                   sender: ctx.state.data.userid.toString(),
                   message: data.message,
+                  timestamp: now,
                 },
               },
             },
@@ -140,6 +147,10 @@ export const handler = {
         }
       }
       socket.onclose = (ws) => {
+        console.log("close")
+        sessions.forEach((session, key) => {
+          if(session.ws.redyState !== 1) sessions.delete(key)
+        })
       }
       if (!socket) throw new Error("unreachable")
       return response

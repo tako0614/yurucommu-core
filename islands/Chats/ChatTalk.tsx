@@ -15,6 +15,14 @@ export default function ChatTalk(props: any) {
   const [talkData, setTalkData] = useState<TalkDataItem[]>([])
   const [Message, setMessage] = useState("")
   useEffect(() => {
+    setTimeout(() => {
+      const chatArea = document.getElementById("chat-area")
+      if(chatArea) {
+        chatArea.scrollTop = chatArea.scrollHeight
+      }
+    }, 100)
+  }, [talkData])
+  useEffect(() => {
     async function getRoom() {
       props.ws?.close()
       const roomid = props.roomid
@@ -30,6 +38,7 @@ export default function ChatTalk(props: any) {
           time: data.timestamp,
           isRead: true,
           sender: data.sender,
+          senderNickName: data.senderNickName,
         }
       })
       setTalkData(defaultTalkData)
@@ -50,7 +59,6 @@ export default function ChatTalk(props: any) {
           return
         }
         if(data.type == "message") {
-          console.log(data)
           setTalkData((prev) => {
             return [
               ...prev,
@@ -103,7 +111,7 @@ export default function ChatTalk(props: any) {
               </button>
               <p>{roomName}</p>
             </div>
-            <div class="p-talk-chat-main">
+            <div class="p-talk-chat-main" id="chat-area">
               <ul class="p-talk-chat-main__ul">
                 {talkData.map((data: any) => {
                   //連続するメッセージの2にはisPrimaryをつけない
@@ -122,7 +130,8 @@ export default function ChatTalk(props: any) {
                         <ChatOtherMessage
                           message={data.message}
                           time={data.time}
-                          sender={true}
+                          sender={data.sender}
+                          senderNickName={data.senderNickName}
                           isPrimary={talkData.indexOf(data) === 0} // Add isPrimary prop based on the index of the data
                         />
                       )
@@ -167,14 +176,13 @@ export default function ChatTalk(props: any) {
                           roomid: props.roomid,
                           sessionid: props.sessionid,
                         }
-                        console.log()
                         props.ws.send(JSON.stringify(data))
                         setMessage("")
                       }
                     }
                   }
                 >
-                  <img src="./ei-send.svg" alt="file" />
+                  <img src="/ei-send.svg" alt="file" />
                 </div>
               </form>
             </div>

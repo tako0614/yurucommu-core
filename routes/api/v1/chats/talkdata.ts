@@ -53,7 +53,7 @@ export const handler = {
         RoomName = room.showName || ""
       }
       let senderCache: {
-        [index: string]: { sendername: string; senderid: string }
+        [index: string]: { sendername: string; senderid: string, senderNickName: string}
       } = {}
       const result = {
         roomname: RoomName,
@@ -67,16 +67,19 @@ export const handler = {
                 senderCache[message.sender] = {
                   sendername: "Unknown",
                   senderid: message.sender,
+                  senderNickName: "Unknown",
                 }
               } else {
                 senderCache[message.sender] = {
                   sendername: preSenderName.userName,
                   senderid: message.sender,
+                  senderNickName: preSenderName.nickName,
                 }
               }
             }
             return {
               sender: senderCache[message.sender].sendername,
+              senderNickName: senderCache[message.sender].senderNickName,
               message: message.message,
               timestamp: message.timestamp,
             }

@@ -32,7 +32,7 @@ export const handler = {
         userNickName: ctx.state.data.nickName,
       })
     }
-    const sessionUserId: string = ctx.state.data.userid
+    const sessionUserId: string = ctx.state.data.userid.toString
     const userInfoId: string = userInfo._id.toString()
     if (sessionUserId != userInfoId) {
       return ctx.render({
