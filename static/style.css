@@ -845,7 +845,6 @@ html, body {
         color: #E2E8F0;
     }
     .c-talk-chat.self .c-talk-chat-msg {
-        background-color: #E53E3E;
         color: #E2E8F0;
     }
     .c-talk-chat-date {
@@ -898,9 +897,6 @@ html, body {
     }
     .p-talk-chat-send__msg label {
         color: #E2E8F0;
-    }
-    .c-talk-chat-msg::before {
-        background-image: url("static/icon_tale_white.svg");
     }
     .c-talk-chat-msg {
         background-color: #2D3748;

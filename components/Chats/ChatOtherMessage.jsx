@@ -1,6 +1,9 @@
-const ChatOtherMessage = ({ sender, message, time }) => {
+const ChatOtherMessage = ({ sender, message, time, isPrimary }) => {
+  const isPrimaryClass = isPrimary
+    ? "c-talk-chat other primary"
+    : "c-talk-chat other"
   return (
-    <li class="c-talk-chat other primary">
+    <li class={isPrimaryClass}>
       <div class="c-talk-chat-box">
         <div class="c-talk-chat-icon">
           <img
@@ -28,6 +31,7 @@ const ChatOtherMessage = ({ sender, message, time }) => {
 }
 //preactで動作する改行を反映させるために、改行コードをbrタグに変換する関数
 function convertLineBreak(message) {
+  if (message === null || message === undefined) return
   return message.split("\n").map((line, index) => (
     <span key={index}>
       {line}

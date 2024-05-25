@@ -26,11 +26,19 @@ export const handler = {
         isSetting,
         isAddFriend,
         ishome,
+        userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
       })
     }
     const userInfo = await users.findOne({ addFriendKey: key })
     if (userInfo === null || userInfo === undefined) {
-      return ctx.render({ loggedIn: true, isAddFriendForm: false, roomid })
+      return ctx.render({
+        loggedIn: true,
+        isAddFriendForm: false,
+        roomid,
+        userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
+      })
     }
     const sessionUserId: string = ctx.state.data.userid
     const userInfoId: string = userInfo._id.toString()
@@ -40,6 +48,7 @@ export const handler = {
         key,
         isAddFriendForm: true,
         userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
         roomid,
       })
     }
@@ -48,6 +57,7 @@ export const handler = {
       key,
       isAddFriendForm: false,
       userName: ctx.state.data.userName,
+      userNickName: ctx.state.data.nickName,
       roomid,
     })
   },
@@ -91,6 +101,8 @@ export default function Home({ data }: { data: any }) {
         isAddFriendForm={false}
         roomid={data.roomid}
         settings={settings}
+        userNickName={data.nickName}
+        userName={data.userName}
       >
       </Chat>
     </>

@@ -91,6 +91,8 @@ export default function Home({ data }: { data: any }) {
         isAddFriendForm={false}
         roomid={data.roomid}
         settings={settings}
+        userNickName={data.nickName}
+        userName={data.userName}
       >
       </Chat>
     </>

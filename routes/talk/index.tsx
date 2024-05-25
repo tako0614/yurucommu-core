@@ -70,8 +70,25 @@ export default function Home({ data }: { data: any }) {
         <link rel="stylesheet" href="/style.css"></link>
       </head>
       {data.isAddFriendForm
-        ? <Chat page={1} isAddFriendForm={true} AddFriendKey={data.key}></Chat>
-        : <Chat page={1} isAddFriendForm={false}></Chat>}
+        ? (
+          <Chat
+            page={1}
+            isAddFriendForm={true}
+            AddFriendKey={data.key}
+            userNickName={data.nickName}
+            userName={data.userName}
+          >
+          </Chat>
+        )
+        : (
+          <Chat
+            page={1}
+            isAddFriendForm={false}
+            userNickName={data.nickName}
+            userName={data.userName}
+          >
+          </Chat>
+        )}
     </>
   )
 }

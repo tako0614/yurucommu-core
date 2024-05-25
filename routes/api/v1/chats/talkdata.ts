@@ -52,9 +52,36 @@ export const handler = {
       } else {
         RoomName = room.showName || ""
       }
+      let senderCache: {
+        [index: string]: { sendername: string; senderid: string }
+      } = {}
       const result = {
         roomname: RoomName,
-        messages: room.messages,
+        messages: await Promise.all(
+          room.messages.slice(-100).map(async (message: any) => {
+            if (!senderCache[message.sender]) {
+              const preSenderName = await user.findOne({
+                _id: message.sender,
+              })
+              if (!preSenderName) {
+                senderCache[message.sender] = {
+                  sendername: "Unknown",
+                  senderid: message.sender,
+                }
+              } else {
+                senderCache[message.sender] = {
+                  sendername: preSenderName.userName,
+                  senderid: message.sender,
+                }
+              }
+            }
+            return {
+              sender: senderCache[message.sender].sendername,
+              message: message.message,
+              timestamp: message.timestamp,
+            }
+          }),
+        ),
       }
       return new Response(JSON.stringify(result), {
         headers: { "Content-Type": "application/json" },

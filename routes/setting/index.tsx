@@ -15,11 +15,21 @@ export const handler = {
     const requrl = new URL(req.url)
     const key = requrl.searchParams.get("key") || ""
     if (key === "" || key === null || key === undefined) {
-      return ctx.render({ loggedIn: true, isAddFriendForm: false })
+      return ctx.render({
+        loggedIn: true,
+        isAddFriendForm: false,
+        userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
+      })
     }
     const userInfo = await users.findOne({ addFriendKey: key })
     if (userInfo === null || userInfo === undefined) {
-      return ctx.render({ loggedIn: true, isAddFriendForm: false })
+      return ctx.render({
+        loggedIn: true,
+        isAddFriendForm: false,
+        userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
+      })
     }
     const sessionUserId: string = ctx.state.data.userid
     const userInfoId: string = userInfo._id.toString()
@@ -29,6 +39,7 @@ export const handler = {
         key,
         isAddFriendForm: true,
         userName: ctx.state.data.userName,
+        userNickName: ctx.state.data.nickName,
       })
     }
     return ctx.render({
@@ -36,6 +47,7 @@ export const handler = {
       key,
       isAddFriendForm: false,
       userName: ctx.state.data.userName,
+      userNickName: ctx.state.data.nickName,
     })
   },
 }
@@ -68,7 +80,13 @@ export default function Home({ data }: { data: any }) {
         />
         <link rel="stylesheet" href="/style.css"></link>
       </head>
-      <Chat page={3} isAddFriendForm={false}></Chat>
+      <Chat
+        page={3}
+        isAddFriendForm={false}
+        userNickName={data.nickName}
+        userName={data.userName}
+      >
+      </Chat>
     </>
   )
 }

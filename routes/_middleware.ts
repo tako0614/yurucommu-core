@@ -41,7 +41,14 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     return resp
   }
   const mail = user.mail
-  ctx.state.data = { userid, mail, loggedIn: true, sessionid }
+  ctx.state.data = {
+    userid,
+    mail,
+    loggedIn: true,
+    sessionid,
+    userNickName: user.nickName,
+    userName: user.userName,
+  }
   const resp = await ctx.next()
   return resp
 }

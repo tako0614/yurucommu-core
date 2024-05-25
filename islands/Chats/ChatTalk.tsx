@@ -1,10 +1,19 @@
+type TalkDataItem = {
+  type: string
+  message: string
+  id?: string // idが文字列であると仮定します。必要に応じて適切な型に変更してください。
+  time: string
+  isRead: boolean
+  sender?: string
+}
 import ChatDate from "../../components/Chats/ChatDate.tsx"
 import ChatSendMessage from "../../components/Chats/ChatSendMessage.jsx"
 import ChatOtherMessage from "../../components/Chats/ChatOtherMessage.jsx"
 import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
   const [roomName, setRoomName] = useState("")
-  const [talkData, setTalkData] = useState([])
+  const [talkData, setTalkData] = useState<TalkDataItem[]>([])
+  const [Message, setMessage] = useState("")
   useEffect(() => {
     async function getRoom() {
       props.ws?.close()
@@ -14,6 +23,16 @@ export default function ChatTalk(props: any) {
       )
       const talkdatajson = await talkdata.json()
       setRoomName(talkdatajson.roomname)
+      const defaultTalkData = talkdatajson.messages.map((data: any) => {
+        return {
+          type: "message",
+          message: data.message,
+          time: data.timestamp,
+          isRead: true,
+          sender: data.sender,
+        }
+      })
+      setTalkData(defaultTalkData)
       const websocket = new WebSocket(
         "/api/v1/chats/talk" + "?roomid=" + roomid,
       )
@@ -24,15 +43,40 @@ export default function ChatTalk(props: any) {
         }
         websocket.send(JSON.stringify(data))
       }
+      /***
+       *                         const preTalkData = [...talkData] // 配列をコピーします
+                        console.log(props.sessionid)
+                        preTalkData.push({
+                          type: "message",
+                          message: Message,
+                          id: props.sessionid,
+                          time: new Date().toLocaleTimeString(),
+                          isRead: true,
+                        })
+                        setTalkData(preTalkData) // Add the sent message to talkData
+       */
       websocket.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        if (data.type == "message") {
-          setTalkData(data)
+        if(data.type == "joined") {
+          props.setSessionid(data.sessionid)
+          return
         }
-        if (data.type == "joined") {
-          props.sessionid = data.sessionid
-          console.log(props.sessionid)
+        if(data.type == "message") {
+          console.log(data)
+          setTalkData((prev) => {
+            return [
+              ...prev,
+              {
+                type: "message",
+                message: data.message,
+                time: data.time,
+                isRead: false,
+                sender: data.sender,
+              },
+            ]
+          })
         }
+        console.log(data)
       }
       props.setWs(websocket)
     }
@@ -74,42 +118,32 @@ export default function ChatTalk(props: any) {
             </div>
             <div class="p-talk-chat-main">
               <ul class="p-talk-chat-main__ul">
-                {
-                  () => {
-                    //ChatDataを日付け順に並び替える
-                    talkData.sort((a: any, b: any) => {
-                      if (a.date > b.date) {
-                        return 1
-                      } else {
-                        return -1
-                      }
-                    })
-                    return talkData.map((data: any) => {
-                      if (data.type == "message") {
-                        if (data.id == props.sessionid) {
-                          return (
-                            <ChatSendMessage
-                              message={data.message}
-                              time={data.time}
-                              isRead={true}
-                            />
-                          )
-                        } else {
-                          return (
-                            <ChatOtherMessage
-                              message={data.message}
-                              time={data.time}
-                              sender={true}
-                            />
-                          )
-                        }
-                      } else {
-                        return <ChatDate date={data.date} />
-                      }
+                {talkData.map((data: any) => {
+                  //連続するメッセージの2にはisPrimaryをつけない
+                  if (data.type == "message") {
+                    if (data.sender == props.userName) {
+                      return (
+                        <ChatSendMessage
+                          message={data.message}
+                          time={data.time}
+                          isRead={true}
+                          isPrimary={talkData.indexOf(data) === 0} // Add isPrimary prop based on the index of the data
+                        />
+                      )
+                    } else {
+                      return (
+                        <ChatOtherMessage
+                          message={data.message}
+                          time={data.time}
+                          sender={true}
+                          isPrimary={talkData.indexOf(data) === 0} // Add isPrimary prop based on the index of the data
+                        />
+                      )
                     }
-                    )
+                  } else {
+                    return <ChatDate date={data.date} />
                   }
-                }
+                })}
               </ul>
             </div>
             <div class="p-talk-chat-send">
@@ -121,11 +155,38 @@ export default function ChatTalk(props: any) {
                     <textarea
                       class="p-talk-chat-send__textarea"
                       placeholder="メッセージを入力"
+                      value={Message}
+                      onChange={(e) => {
+                        if (e.target) {
+                          setMessage((e.target as HTMLTextAreaElement).value)
+                        }
+                      }}
                     >
                     </textarea>
                   </label>
                 </div>
-                <div class="p-talk-chat-send__file">
+                <div
+                  class="p-talk-chat-send__file"
+                  onClick={
+                    //ファイルではなくメッセージを送信する
+                    //メッセージを送信する
+                    //TalkDataに送信したメッセージを追加する
+                    //WebSocketでメッセージを送信する
+                    async () => {
+                      if (Message) {
+                        const data = {
+                          type: "message",
+                          message: Message,
+                          roomid: props.roomid,
+                          sessionid: props.sessionid,
+                        }
+                        console.log()
+                        props.ws.send(JSON.stringify(data))
+                        setMessage("")
+                      }
+                    }
+                  }
+                >
                   <img src="./ei-send.svg" alt="file" />
                 </div>
               </form>
