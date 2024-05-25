@@ -2,15 +2,12 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
-import * as $_userName_ from "./routes/[userName].tsx"
 import * as $_404 from "./routes/_404.tsx"
 import * as $_app from "./routes/_app.tsx"
 import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
-import * as $addFriend from "./routes/addFriend.tsx"
-import * as $api_v1_Users_icon from "./routes/api/v1/Users/icon.ts"
-import * as $api_v1_Users_nickname from "./routes/api/v1/Users/nickname.ts"
-import * as $api_v1_Users_username from "./routes/api/v1/Users/username.ts"
+import * as $addFriend_roomid_ from "./routes/addFriend/[roomid].tsx"
+import * as $addFriend_index from "./routes/addFriend/index.tsx"
 import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_message from "./routes/api/v1/chats/message.js"
@@ -24,11 +21,18 @@ import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
 import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
+import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
+import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
+import * as $api_v1_users_nickname from "./routes/api/v1/users/nickname.ts"
+import * as $api_v1_users_username from "./routes/api/v1/users/username.ts"
 import * as $greet_name_ from "./routes/greet/[name].tsx"
-import * as $home from "./routes/home.tsx"
+import * as $home_roomid_ from "./routes/home/[roomid].tsx"
+import * as $home_index from "./routes/home/index.tsx"
 import * as $index from "./routes/index.tsx"
 import * as $privacypolicy from "./routes/privacypolicy.tsx"
 import * as $setting_index from "./routes/setting/index.tsx"
+import * as $talk_roomid_ from "./routes/talk/[roomid].tsx"
+import * as $talk_index from "./routes/talk/index.tsx"
 import * as $Chats_AddFriend from "./islands/Chats/AddFriend.tsx"
 import * as $Chats_Chat from "./islands/Chats/Chat.tsx"
 import * as $Chats_ChatHeader from "./islands/Chats/ChatHeader.tsx"
@@ -54,15 +58,12 @@ import { type Manifest } from "$fresh/server.ts"
 
 const manifest = {
   routes: {
-    "./routes/[userName].tsx": $_userName_,
     "./routes/_404.tsx": $_404,
     "./routes/_app.tsx": $_app,
     "./routes/_middleware.ts": $_middleware,
     "./routes/about.tsx": $about,
-    "./routes/addFriend.tsx": $addFriend,
-    "./routes/api/v1/Users/icon.ts": $api_v1_Users_icon,
-    "./routes/api/v1/Users/nickname.ts": $api_v1_Users_nickname,
-    "./routes/api/v1/Users/username.ts": $api_v1_Users_username,
+    "./routes/addFriend/[roomid].tsx": $addFriend_roomid_,
+    "./routes/addFriend/index.tsx": $addFriend_index,
     "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
     "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
     "./routes/api/v1/chats/message.js": $api_v1_chats_message,
@@ -76,11 +77,18 @@ const manifest = {
     "./routes/api/v1/logins/login.ts": $api_v1_logins_login,
     "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,
     "./routes/api/v1/logins/register.js": $api_v1_logins_register,
+    "./routes/api/v1/users/icon.ts": $api_v1_users_icon,
+    "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,
+    "./routes/api/v1/users/nickname.ts": $api_v1_users_nickname,
+    "./routes/api/v1/users/username.ts": $api_v1_users_username,
     "./routes/greet/[name].tsx": $greet_name_,
-    "./routes/home.tsx": $home,
+    "./routes/home/[roomid].tsx": $home_roomid_,
+    "./routes/home/index.tsx": $home_index,
     "./routes/index.tsx": $index,
     "./routes/privacypolicy.tsx": $privacypolicy,
     "./routes/setting/index.tsx": $setting_index,
+    "./routes/talk/[roomid].tsx": $talk_roomid_,
+    "./routes/talk/index.tsx": $talk_index,
   },
   islands: {
     "./islands/Chats/AddFriend.tsx": $Chats_AddFriend,

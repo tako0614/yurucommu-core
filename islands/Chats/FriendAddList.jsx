@@ -2,6 +2,7 @@
 import User from "./AddFriend.tsx"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
+import { isWindows } from "https://deno.land/std@0.216.0/path/_os.ts"
 function ChatList(props) {
   return (
     <div class="p-talk-list">
@@ -12,7 +13,7 @@ function ChatList(props) {
           <User
             userName="idで追加"
             latestMessage=""
-            icon="people.png"
+            icon={`${props.origin}/people.png`}
           />
           <User userName="QRコードで追加" latestMessage="" />
           <GetAddFriendKey origin={props.origin}></GetAddFriendKey>

@@ -28,7 +28,7 @@ export default function User(
       <li class="c-talk-rooms">
         <button>
           <span class="c-talk-rooms-icon">
-            <img src="static/logo.png" alt="" />
+            <img src="/static/logo.png" alt="" />
           </span>
           <span class="c-talk-rooms-box">
             <span class="c-talk-rooms-name">

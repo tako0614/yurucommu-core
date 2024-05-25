@@ -16,7 +16,7 @@ export const handler = {
         status: 404,
       })
     }
-    const startChat = requrl.searchParams.get("startChat") === 'true'
+    const startChat = requrl.searchParams.get("startChat") === "true"
     //Start Chatがtrueの場合、roomidの部屋から最新のメッセージを100件取得
     if (startChat) {
       const room = await rooms.findOne({
@@ -42,7 +42,8 @@ export const handler = {
       })
     }
     const room = await rooms.findOne({
-      name: roomid,messages: { $elemMatch: { timestamp: { $gte: new Date(when) } } },
+      name: roomid,
+      messages: { $elemMatch: { timestamp: { $gte: new Date(when) } } },
     })
     if (!room) {
       return new Response(JSON.stringify({ "status": "Room Not Found" }), {
@@ -81,8 +82,7 @@ export const handler = {
         message: message.message,
         timestamp: message.timestamp,
       }
-    }
-    )
+    })
     return new Response(JSON.stringify(messages), {
       headers: { "Content-Type": "application/json" },
       status: 200,

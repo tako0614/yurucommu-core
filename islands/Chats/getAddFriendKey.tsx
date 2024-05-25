@@ -13,7 +13,7 @@ export default function RegisterForm(props: any) {
   }
   useEffect(() => {
     const fetchData = async () => {
-      const resp = await fetch("./api/v1/chats/friendkey?reload=false")
+      const resp = await fetch("/api/v1/chats/friendkey?reload=false")
       const data = await resp.json()
       if (data.status === false) {
         console.log("error")
@@ -34,7 +34,7 @@ export default function RegisterForm(props: any) {
           }}
         >
           <div class="c-talk-rooms-icon">
-            <img src="./people.png" alt="" />
+            <img src="/people.png" alt="" />
           </div>
           <div class="c-talk-rooms-box">
             <div class="c-talk-rooms-name">
@@ -93,7 +93,7 @@ function Input({
   const handleChangeUrl = (event: any) => {
     event.preventDefault()
     const updateurl = async () => {
-      const resp = await fetch("./api/v1/chats/friendkey?reload=true")
+      const resp = await fetch("/api/v1/chats/friendkey?reload=true")
       const data = await resp.json()
       if (data.status === false) {
         console.log("error")

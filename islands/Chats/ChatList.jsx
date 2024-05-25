@@ -6,10 +6,10 @@ export default function ChatList(props) {
   useEffect(async () => {
     const origin = window.location.protocol + "//" + window.location.host
     const csrftokenres = await fetch(
-      `./api/v1/csrftoken?origin=${origin}`,
+      `${origin}/api/v1/csrftoken?origin=${origin}`,
     )
     const csrftoken = await csrftokenres.json()
-    const result = await fetch("./api/v1/chats/friendList", {
+    const result = await fetch(origin + "/api/v1/chats/friendList", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -73,11 +73,16 @@ export default function ChatList(props) {
                   <User
                     userName={friend.userName}
                     latestMessage={friend.latestMessage}
-                    icon={friend.icon}
+                    icon={window.location.protocol + "//" +
+                      window.location.host + friend.icon}
                     onClick={() => {
+                      window.history.pushState(
+                        "",
+                        "",
+                        "/talk/" + friend.roomid,
+                      )
                       props.setIsChoiceUser(true)
                       props.setRoomid(friend.roomid)
-                      props.setRoomName(friend.userName)
                     }}
                   />
                 </li>
@@ -95,7 +100,7 @@ const AddFriendForm = (props) => {
   useEffect(async () => {
     const addFriendKey = props.addFriendKey
     const addFriendInfoTemp = await fetch(
-      "./api/v1/friends/" + addFriendKey + "/info",
+      "/api/v1/friends/" + addFriendKey + "/info",
       {
         method: "GET",
       },
@@ -128,7 +133,7 @@ const AddFriendForm = (props) => {
                       <div class="text-lg">{addFriendInfo.data}</div>
                       <div class="w-2/3 m-auto mb-10">
                         <img
-                          src={"./api/v1/friends/" + props.addFriendKey +
+                          src={"/api/v1/friends/" + props.addFriendKey +
                             "/icon?isuseAddFriendKey=true"}
                           alt=""
                           class="rounded-full mx-auto my-5"
@@ -139,11 +144,11 @@ const AddFriendForm = (props) => {
                           const origin = window.location.protocol + "//" +
                             window.location.host
                           const csrftokenRes = await fetch(
-                            `./api/v1/csrftoken?origin=${origin}`,
+                            `/api/v1/csrftoken?origin=${origin}`,
                           )
                           const csrftoken = await csrftokenRes.json()
                           const result = await fetch(
-                            "./api/v1/friends/request",
+                            "/api/v1/friends/request",
                             {
                               method: "POST",
                               headers: {

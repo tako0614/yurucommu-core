@@ -1,10 +1,10 @@
-import Welcom from "../islands/Welcome.tsx"
-import users from "../models/users.ts"
+import Welcom from "../../islands/Welcome.tsx"
+import users from "../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
-import Chat from "../islands/Chats/Chat.tsx"
+import Chat from "../../islands/Chats/Chat.tsx"
 import { useSignal } from "@preact/signals"
 
-import User from "../components/Chats/ChatUserList.jsx"
+import User from "../../components/Chats/ChatUserList.jsx"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`

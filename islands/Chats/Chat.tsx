@@ -10,12 +10,13 @@ import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
 export default function Home(
-  props: { page: any; isAddFriendForm: any; AddFriendKey?: any },
+  props: any,
 ) {
   const [page, setPage] = useState(props.page)
-  const [isChoiceUser, setIsChoiceUser] = useState(false)
-  const [roomid, setRoomid] = useState<string | null>(null)
-  const [roomName, setRoomName] = useState<string | null>(null)
+  const [isChoiceUser, setIsChoiceUser] = useState(
+    props.roomid !== undefined && props.roomid !== "",
+  )
+  const [roomid, setRoomid] = useState<string | null>(props.roomid)
   const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
     props.isAddFriendForm,
   )
@@ -51,16 +52,13 @@ export default function Home(
                   setFriendList={setFriendList}
                   setIsChoiceUser={setIsChoiceUser}
                   setRoomid={setRoomid}
-                  setRoomName={setRoomName}
                 />
                 <ChatTalk
                   isSelectUser={isChoiceUser}
                   roomid={roomid}
-                  roomName={roomName}
                   setFriendList={setFriendList}
                   setIsChoiceUser={setIsChoiceUser}
                   setRoomid={setRoomid}
-                  setRoomName={setRoomName}
                 />
               </>
             )
@@ -72,11 +70,29 @@ export default function Home(
                 <ChatTalk
                   isSelectUser={isChoiceUser}
                   roomid={roomid}
+                  setFriendList={setFriendList}
+                  setIsChoiceUser={setIsChoiceUser}
+                  setRoomid={setRoomid}
                 />
               </>
             )
             : null}
-          {page === 3 ? <Setting setIsChoiceUser={setIsChoiceUser} /> : null}
+          {page === 3
+            ? (
+              <>
+                <Setting
+                  setIsChoiceUser={setIsChoiceUser}
+                />
+                <ChatTalk
+                  isSelectUser={isChoiceUser}
+                  roomid={roomid}
+                  setFriendList={setFriendList}
+                  setIsChoiceUser={setIsChoiceUser}
+                  setRoomid={setRoomid}
+                />
+              </>
+            )
+            : null}
         </main>
       </div>
     </>
@@ -96,20 +112,6 @@ const Setting = (props: any) => {
             >
             </SettingList>
           </ul>
-        </div>
-      </div>
-      <div class="p-talk-chat">
-        <div class="p-talk-chat-container">
-          {settingPage == "profile" &&
-            (
-              <Profile>
-              </Profile>
-            )}
-          {settingPage == "friends" &&
-            (
-              <Friends>
-              </Friends>
-            )}
         </div>
       </div>
     </>
@@ -151,7 +153,7 @@ const AddFriendForm = (
     const fetchData = async () => {
       const addFriendKey = props.addFriendKey
       const addFriendInfoTemp = await fetch(
-        "./api/v1/friends/" + addFriendKey + "/info",
+        "/api/v1/friends/" + addFriendKey + "/info",
         {
           method: "GET",
         },
@@ -186,7 +188,7 @@ const AddFriendForm = (
                       <div class="text-lg">{addFriendInfo.data}</div>
                       <div class="w-2/3 m-auto mb-10">
                         <img
-                          src={"./api/v1/friends/" + props.addFriendKey +
+                          src={"/api/v1/friends/" + props.addFriendKey +
                             "/icon?isuseAddFriendKey=true"}
                           alt=""
                           class="rounded-full mx-auto my-5"
@@ -197,11 +199,11 @@ const AddFriendForm = (
                           const origin = window.location.protocol + "//" +
                             window.location.host
                           const csrftokenRes = await fetch(
-                            `./api/v1/csrftoken?origin=${origin}`,
+                            `/api/v1/csrftoken?origin=${origin}`,
                           )
                           const csrftoken = await csrftokenRes.json()
                           const result = await fetch(
-                            "./api/v1/friends/request",
+                            "/api/v1/friends/request",
                             {
                               method: "POST",
                               headers: {

@@ -7,8 +7,12 @@ export default function ChatHeader(
         class={props.isChoiceUser ? "l-header is-inview" : "l-header"}
       >
         <div class="l-header-logo">
-          <a href="/">
-            <img src="static/logo.png" alt="takos" />
+          <a href="/talk">
+            <img
+              src="/api/v1/users/info/icon"
+              alt="takos"
+              class="rounded-full"
+            />
           </a>
         </div>
         <ul class="l-header__ul">
@@ -16,8 +20,16 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(0)
-              history.pushState("", "", "/home")
               props.reset()
+              const url = window.location.href
+              const path = url.split("/")[3]
+              const roomid = url.split("/")[4]
+              if (roomid == undefined) {
+                history.pushState("", "", "/home/")
+                return
+              }
+              console.log(roomid)
+              history.pushState("", "", "/home/" + roomid)
             }}
           >
             <a>
@@ -44,8 +56,16 @@ export default function ChatHeader(
             class="l-header__ul-item is-active"
             onClick={() => {
               props.setPage(1)
-              history.pushState("", "", "/")
               props.reset()
+              const url = window.location.href
+              const path = url.split("/")[3]
+              const roomid = url.split("/")[4]
+              if (roomid == undefined) {
+                history.pushState("", "", "/talk/")
+                return
+              }
+              console.log(roomid)
+              history.pushState("", "", "/talk/" + roomid)
             }}
           >
             <a>
@@ -71,8 +91,16 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(2)
-              history.pushState("", "", "/addFriend")
               props.reset()
+              const url = window.location.href
+              const path = url.split("/")[3]
+              const roomid = url.split("/")[4]
+              if (roomid == undefined) {
+                history.pushState("", "", "/addFriend/")
+                return
+              }
+              console.log(roomid)
+              history.pushState("", "", "/addFriend/" + roomid)
             }}
           >
             <a>
@@ -99,8 +127,16 @@ export default function ChatHeader(
             class="l-header__ul-item"
             onClick={() => {
               props.setPage(3)
-              history.pushState("", "", "/setting")
               props.reset()
+              const url = window.location.href
+              const path = url.split("/")[3]
+              const roomid = url.split("/")[4]
+              if (roomid == undefined) {
+                history.pushState("", "", "/setting/")
+                return
+              }
+              console.log(roomid)
+              history.pushState("", "", "/setting/" + roomid)
             }}
           >
             <a>

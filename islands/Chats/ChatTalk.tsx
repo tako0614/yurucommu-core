@@ -1,8 +1,12 @@
 import IsnotSelectUser from "./isnotSelectUser.jsx"
 import Profile from "../Settings/Profile.tsx"
 import Friends from "../Settings/Friends.tsx"
+import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
-  if (props.isSelectUser) {
+  useEffect(() => {
+    //
+  }, [props.isSelectUser])
+  if (props.roomid ) {
     return (
       <>
         <div class="p-talk-chat">
@@ -13,7 +17,8 @@ export default function ChatTalk(props: any) {
                 onClick={() => {
                   props.setIsChoiceUser(false)
                   props.setRoomid("")
-                  props.setRoomName("")
+                  //urlを変更
+                  history.pushState("", "", "/talk")
                 }}
               >
                 <svg

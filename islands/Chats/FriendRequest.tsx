@@ -21,7 +21,7 @@ export default function RegisterForm() {
       <li class="c-talk-rooms">
         <a onClick={handleButtonClick}>
           <div class="c-talk-rooms-icon">
-            <img src="./people.png" alt="" />
+            <img src="/people.png" alt="" />
           </div>
           <div class="c-talk-rooms-box">
             <div class="c-talk-rooms-name">
@@ -69,7 +69,7 @@ function Input({ value, setValue }: any) {
   const handleChangeUrl = (event: any) => {
     event.preventDefault()
     const updateUrl = async () => {
-      const resp = await fetch("./api/v1/chats/friendkey?reload=true")
+      const resp = await fetch("/api/v1/chats/friendkey?reload=true")
       const data = await resp.json()
       console.log(data)
       if (data.status === false) {
@@ -121,10 +121,10 @@ function User(
               class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full"
               onClick={async () => {
                 const csrftokenRes = await fetch(
-                  "./api/v1/csrftoken" + "?origin=" + window.location.origin,
+                  "/api/v1/csrftoken" + "?origin=" + window.location.origin,
                 )
                 const csrftoken = await csrftokenRes.json()
-                const res = await fetch("./api/v1/friends/request", {
+                const res = await fetch("/api/v1/friends/request", {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -155,10 +155,10 @@ function User(
               class="w-1 h-1 bg-blue-400 text-lg text-white font-semibold rounded-full"
               onClick={async () => {
                 const csrftokenRes = await fetch(
-                  "./api/v1/csrftoken" + "?origin=" + window.location.origin,
+                  "/api/v1/csrftoken" + "?origin=" + window.location.origin,
                 )
                 const csrftoken = await csrftokenRes.json()
-                const res = await fetch("./api/v1/friends/request", {
+                const res = await fetch("/api/v1/friends/request", {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -196,7 +196,7 @@ const VideoList = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const res = await fetch("./api/v1/friends/reqLists")
+      const res = await fetch("/api/v1/friends/reqLists")
       const response = await res.json()
       setItems(response.result)
     }

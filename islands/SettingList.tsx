@@ -6,7 +6,7 @@ export default function Setting(props: any) {
       <User
         userName="プロフィール"
         latestMessage="プロフィールを編集します"
-        icon="./people.webp"
+        icon="/people.webp"
         onClick={() => {
           props.setSettingPage("profile")
           props.setIsChoiceUser(true)
@@ -15,7 +15,7 @@ export default function Setting(props: any) {
       <User
         userName="友達"
         latestMessage="ブロックしたりできます"
-        icon="./people.webp"
+        icon="/people.webp"
         onClick={() => {
           props.setSettingPage("friends")
           props.setIsChoiceUser(true)
@@ -24,7 +24,7 @@ export default function Setting(props: any) {
       <User
         userName="ログアウト"
         latestMessage="ログアウトします"
-        icon="./people.webp"
+        icon="/people.webp"
         onClick={() => {
           async function logout() {
             const origin = window.location.origin
