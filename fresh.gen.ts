@@ -22,6 +22,7 @@ import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
 import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
 import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
+import * as $api_v1_users_info_index from "./routes/api/v1/users/info/index.ts"
 import * as $api_v1_users_nickname from "./routes/api/v1/users/nickname.ts"
 import * as $api_v1_users_username from "./routes/api/v1/users/username.ts"
 import * as $greet_name_ from "./routes/greet/[name].tsx"
@@ -78,6 +79,7 @@ const manifest = {
     "./routes/api/v1/logins/register.js": $api_v1_logins_register,
     "./routes/api/v1/users/icon.ts": $api_v1_users_icon,
     "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,
+    "./routes/api/v1/users/info/index.ts": $api_v1_users_info_index,
     "./routes/api/v1/users/nickname.ts": $api_v1_users_nickname,
     "./routes/api/v1/users/username.ts": $api_v1_users_username,
     "./routes/greet/[name].tsx": $greet_name_,
