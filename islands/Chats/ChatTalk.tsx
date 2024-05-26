@@ -117,7 +117,7 @@ export default function ChatTalk(props: any) {
             <div class="p-talk-chat-main" id="chat-area">
               <ul class="p-talk-chat-main__ul">
                 {talkData.map((data: any) => {
-                  if(DateState == undefined){
+                  if (DateState == undefined) {
                     DateState = data.time.split("T")[0]
                     return <ChatDate date={DateState} />
                   }
@@ -128,7 +128,7 @@ export default function ChatTalk(props: any) {
                   }
                   if (data.type == "message") {
                     if (data.sender == props.userName) {
-                      if(SendPrimary){
+                      if (SendPrimary) {
                         SendPrimary = false
                         OtherPrimary = true
                         return (
@@ -140,14 +140,16 @@ export default function ChatTalk(props: any) {
                           />
                         )
                       }
-                      return  <ChatSendMessage
-                      message={data.message}
-                      time={data.time}
-                      isRead={data.isRead}
-                      isPrimary={false}
-                      />
+                      return (
+                        <ChatSendMessage
+                          message={data.message}
+                          time={data.time}
+                          isRead={data.isRead}
+                          isPrimary={false}
+                        />
+                      )
                     } else {
-                      if(OtherPrimary){
+                      if (OtherPrimary) {
                         OtherPrimary = false
                         SendPrimary = true
                         return (

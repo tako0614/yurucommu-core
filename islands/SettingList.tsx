@@ -1,5 +1,5 @@
 import User from "../components/Chats/ChatUserList.jsx"
-import Friends from "./Settings/Friends.tsx"
+import Friends from "./Settings/Profile.tsx"
 import { useState } from "preact/hooks"
 //"p-talk is-inview" : "p-talk"
 export default function Setting(props: any) {
@@ -15,9 +15,10 @@ export default function Setting(props: any) {
         }}
       />
       <Friends
-      isShow={settingPage === "profile"}
-      setSettingPage={setSettingPage}
-      ></Friends>
+        isShow={settingPage === "profile"}
+        setSettingPage={setSettingPage}
+      >
+      </Friends>
       <User
         userName="友達"
         latestMessage="ブロックしたりできます"

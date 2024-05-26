@@ -185,7 +185,7 @@ export const handler = {
                 },
               },
               latestmessage: data.message,
-              latestMessageTime: now
+              latestMessageTime: now,
             },
           )
           pubClient.publish("takos", JSON.stringify(result))
