@@ -23,6 +23,8 @@ async function subscribeMessage(channel) {
     const sessionsInRoom = Array.from(sessions.values()).filter(
       (session) => session.roomid === data.roomid,
     );
+    console.log(sessionsInRoom)
+    console.log(sessions)
     //roomidが一致するセッションがない場合は終了
     if (sessionsInRoom.length === 0) {
       return;
@@ -34,9 +36,9 @@ async function subscribeMessage(channel) {
     data.nickName = sender.membersNickNameChash[data.sender];
     //roomidが一致するセッションがある場合は、そのセッションにメッセージを送信
     sessionsInRoom.forEach((session) => {
-      console.log("send")
       session.ws.send(JSON.stringify(data));
     });
+    console.log("send")
   });
 }
 
@@ -60,8 +62,8 @@ export const handler = {
         const data = JSON.parse(event.data)
         if (data.type == "join") {
           sessions.forEach((session, key) => {
-            if(session.ws.redyState === 3) sessions.delete(key)
-          })
+            if (session.ws.readyState !== WebSocket.OPEN) sessions.delete(key);
+          });
           const roomid = data.roomid
           const isJoiningRoom = await rooms.findOne({
             name: roomid,
@@ -102,7 +104,6 @@ export const handler = {
         }
         if (data.type == "message") {
           sessions.forEach((session, key) => {
-            if(session.ws.redyState === 3) sessions.delete(key)
           })
           const roomid = data.roomid
           const session = sessions.get(data.sessionid)
@@ -151,8 +152,8 @@ export const handler = {
       socket.onclose = (ws) => {
         console.log("close")
         sessions.forEach((session, key) => {
-          if(session.ws.redyState !== 1) sessions.delete(key)
-        })
+          if (session.ws.readyState !== WebSocket.OPEN) sessions.delete(key);
+        });
       }
       if (!socket) throw new Error("unreachable")
       return response
