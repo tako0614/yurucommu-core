@@ -41,6 +41,9 @@ export const roomsSchema = new mongoose.Schema({
       message: {
         type: String,
       },
+      read: {
+        type: [String],
+      },
       timestamp: { type: Date, default: Date.now },
     },
   ],

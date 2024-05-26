@@ -25,7 +25,7 @@ export default function ChatList(props) {
           {
             userName: "友達がいません",
             latestMessage: "友達を追加してみましょう！",
-            icon: "./people.png",
+            icon: "/people.png",
           },
         ],
       )

@@ -1,5 +1,14 @@
+import redis from "redis"
 import rooms from "../../../../models/rooms.ts"
 import user from "../../../../models/users.ts"
+import { load } from "$std/dotenv/mod.ts"
+const env = await load()
+const redisURL = env["REDIS_URL"]
+const pubClient = redis.createClient({
+  url: redisURL,
+})
+pubClient.on("error", (err) => console.error("Pub Client Error", err))
+await pubClient.connect()
 export const handler = {
   async GET(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
@@ -21,7 +30,7 @@ export const handler = {
     if (startChat) {
       const room = await rooms.findOne({
         name: roomid,
-      })
+      }, { messages: { $slice: -100 } })
       if (!room) {
         return new Response(JSON.stringify({ "status": "Room Not Found" }), {
           headers: { "Content-Type": "application/json" },
@@ -53,8 +62,26 @@ export const handler = {
         RoomName = room.showName || ""
       }
       let senderCache: {
-        [index: string]: { sendername: string; senderid: string, senderNickName: string}
+        [index: string]: {
+          sendername: string
+          senderid: string
+          senderNickName: string
+        }
       } = {}
+      //取得したメッセージのreadを更新
+      const messageIds = room.messages.map((message: any) => message._id)
+
+      let newReadValue = true
+
+      // `updateMany`メソッドを使用して、指定したメッセージの`read`フィールドを更新します。
+      await rooms.updateMany(
+        { "messages._id": { $in: messageIds } }, // メッセージのIDを指定するクエリ
+        { "$set": { "messages.$.read": newReadValue } }, // 新しい値を指定する更新
+      )
+      pubClient.publish(
+        "takos",
+        JSON.stringify({ updateMessage: 100, type: "updateIsRead", roomid }),
+      )
       const result = {
         roomname: RoomName,
         messages: await Promise.all(

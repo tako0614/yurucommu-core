@@ -17,7 +17,7 @@ export default function ChatTalk(props: any) {
   useEffect(() => {
     setTimeout(() => {
       const chatArea = document.getElementById("chat-area")
-      if(chatArea) {
+      if (chatArea) {
         chatArea.scrollTop = chatArea.scrollHeight
       }
     }, 100)
@@ -41,6 +41,7 @@ export default function ChatTalk(props: any) {
           senderNickName: data.senderNickName,
         }
       })
+      console.log(talkData)
       setTalkData(defaultTalkData)
       const websocket = new WebSocket(
         "/api/v1/chats/talk" + "?roomid=" + roomid,
@@ -54,11 +55,11 @@ export default function ChatTalk(props: any) {
       }
       websocket.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        if(data.type == "joined") {
+        if (data.type == "joined") {
           props.setSessionid(data.sessionid)
           return
         }
-        if(data.type == "message") {
+        if (data.type == "message") {
           setTalkData((prev) => {
             return [
               ...prev,
@@ -79,6 +80,9 @@ export default function ChatTalk(props: any) {
       getRoom()
     }
   }, [props.isSelectUser])
+  let SendPrimary = true
+  let OtherPrimary = true
+  let DateState: Date
   if (props.roomid) {
     return (
       <>
@@ -114,25 +118,56 @@ export default function ChatTalk(props: any) {
             <div class="p-talk-chat-main" id="chat-area">
               <ul class="p-talk-chat-main__ul">
                 {talkData.map((data: any) => {
-                  //連続するメッセージの2にはisPrimaryをつけない
+                  if(DateState == undefined){
+                    DateState = data.time.split("T")[0]
+                    return <ChatDate date={DateState} />
+                  }
+                  // DateStateが日付を超えているかどうかを確認
+                  if (DateState != data.time.split("T")[0]) {
+                    DateState = data.time.split("T")[0]
+                    return <ChatDate date={DateState} />
+                  }
                   if (data.type == "message") {
                     if (data.sender == props.userName) {
-                      return (
-                        <ChatSendMessage
-                          message={data.message}
-                          time={data.time}
-                          isRead={true}
-                          isPrimary={talkData.indexOf(data) === 0} // Add isPrimary prop based on the index of the data
-                        />
-                      )
+                      if(SendPrimary){
+                        SendPrimary = false
+                        OtherPrimary = true
+                        return (
+                          <ChatSendMessage
+                            message={data.message}
+                            time={data.time}
+                            isRead={data.isRead}
+                            isPrimary={true}
+                          />
+                        )
+                      }
+                      <ChatSendMessage
+                      message={data.message}
+                      time={data.time}
+                      isRead={data.isRead}
+                      isPrimary={false}
+                      />
                     } else {
+                      if(OtherPrimary){
+                        OtherPrimary = false
+                        SendPrimary = true
+                        return (
+                          <ChatOtherMessage
+                            message={data.message}
+                            time={data.time}
+                            sender={data.sender}
+                            senderNickName={data.senderNickName}
+                            isPrimary={true}
+                          />
+                        )
+                      }
                       return (
                         <ChatOtherMessage
                           message={data.message}
                           time={data.time}
                           sender={data.sender}
                           senderNickName={data.senderNickName}
-                          isPrimary={talkData.indexOf(data) === 0} // Add isPrimary prop based on the index of the data
+                          isPrimary={false} // Add isPrimary prop based on the index of the data
                         />
                       )
                     }
