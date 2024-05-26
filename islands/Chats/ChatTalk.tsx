@@ -141,7 +141,7 @@ export default function ChatTalk(props: any) {
                           />
                         )
                       }
-                      <ChatSendMessage
+                      return  <ChatSendMessage
                       message={data.message}
                       time={data.time}
                       isRead={data.isRead}

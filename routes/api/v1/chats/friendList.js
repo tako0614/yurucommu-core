@@ -75,6 +75,7 @@ export const handler = {
             )
             //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
             const friendName = await users.findOne({ _id: friendID[0] })
+            console.log(room)
             const result = {
               roomName: friendName.nickName,
               lastMessage: room.latestmessage,

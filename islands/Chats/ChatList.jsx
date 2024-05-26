@@ -34,16 +34,16 @@ export default function ChatList(props) {
     const friendListTemp = []
     console.log(res)
     res.chatRooms.map((room) => {
-      let latestMessage = room.latestMessage
+      let lastMessage = room.lastMessage
       if (
-        latestMessage === undefined || latestMessage === null ||
-        latestMessage === ""
+        lastMessage === undefined || lastMessage === null ||
+        lastMessage === ""
       ) {
-        latestMessage = "メッセージがありません"
+        lastMessage = "メッセージがありません"
       }
       const friend = {
         userName: room.roomName,
-        latestMessage: latestMessage,
+        latestMessage: lastMessage,
         icon: room.roomIcon,
         roomid: room.roomID,
       }

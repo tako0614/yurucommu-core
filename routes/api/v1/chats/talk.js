@@ -184,6 +184,8 @@ export const handler = {
                   timestamp: now,
                 },
               },
+              latestmessage: data.message,
+              latestMessageTime: now
             },
           )
           pubClient.publish("takos", JSON.stringify(result))
