@@ -41,7 +41,6 @@ export default function ChatTalk(props: any) {
           senderNickName: data.senderNickName,
         }
       })
-      console.log(talkData)
       setTalkData(defaultTalkData)
       const websocket = new WebSocket(
         "/api/v1/chats/talk" + "?roomid=" + roomid,

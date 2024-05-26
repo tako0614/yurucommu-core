@@ -1,6 +1,9 @@
 import User from "../components/Chats/ChatUserList.jsx"
+import Friends from "./Settings/Friends.tsx"
+import { useState } from "preact/hooks"
 //"p-talk is-inview" : "p-talk"
 export default function Setting(props: any) {
+  const [settingPage, setSettingPage] = useState("")
   return (
     <>
       <User
@@ -8,10 +11,13 @@ export default function Setting(props: any) {
         latestMessage="プロフィールを編集します"
         icon="/people.webp"
         onClick={() => {
-          props.setSettingPage("profile")
-          props.setIsChoiceUser(true)
+          setSettingPage("profile")
         }}
       />
+      <Friends
+      isShow={settingPage === "profile"}
+      setSettingPage={setSettingPage}
+      ></Friends>
       <User
         userName="友達"
         latestMessage="ブロックしたりできます"
