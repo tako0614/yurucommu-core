@@ -1,6 +1,6 @@
 import mongoose from "mongoose"
 export const roomsSchema = new mongoose.Schema({
-  name: {
+  uuid: {
     type: String,
     required: true,
     validate: {
@@ -13,6 +13,7 @@ export const roomsSchema = new mongoose.Schema({
   },
   showName: {
     type: String,
+    default: "",
   },
   types: {
     type: String,
@@ -20,7 +21,26 @@ export const roomsSchema = new mongoose.Schema({
     enum: ["group", "friend", "public"],
   },
   users: {
-    type: [String],
+    type: [
+      {
+        username: {
+          type: String,
+        },
+        userid: {
+          type: String,
+        },
+        host: {
+          type: String,
+        },
+        type: {
+          type: String,
+          enum: ["local", "other"],
+        },
+        domain: {
+          type: String,
+        },
+      },
+    ],
     required: true,
     default: [],
   },

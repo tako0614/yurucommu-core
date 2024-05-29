@@ -31,7 +31,8 @@
     "react-hook-form": "https://esm.sh/react-hook-form?external=react,react-dom,react%2Fjsx-runtime",
     "swr": "https://esm.sh/swr?external=react,react-dom,react%2Fjsx-runtime",
     "sharp": "npm:sharp@0.33.4",
-    "redis": "npm:redis@4.6.14"
+    "redis": "npm:redis@4.6.14",
+    "file-type": "npm:file-type@19.0.0"
   },
   "alias": {
     "react": "preact/compat",

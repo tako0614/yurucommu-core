@@ -79,14 +79,14 @@ export const handler = {
             const result = {
               roomName: friendName.nickName,
               lastMessage: room.latestmessage,
-              roomID: room.name,
+              roomID: room.uuid,
               latestMessageTime: room.latestMessageTime,
               roomIcon: `/api/v1/friends/${friendName.userName}/icon`,
             }
             return result
           } else if (room.types === "group") {
             const result = {
-              roomName: room.name,
+              roomName: room.showName,
               lastMessage: room.latestmessage,
               roomID: room._id,
             }

@@ -3,54 +3,59 @@ import { h, JSX } from "preact"
 export default function RegisterForm(props: any) {
   const [value, setValue] = useState("")
   const [nickName, setNickName] = useState("")
-  const [icon, setIcon] = useState(`/api/v1/users/info/icon`)
+  const [icon, setIcon] = useState<File | null | Uint8Array>(null)
+
+  const handleChnageIcon = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      const file = event.target.files[0] // 最初のファイルを取得します
+      const fileReader = new FileReader()
+      fileReader.onload = function webViewerChangeFileReaderOnload(evt) {
+        if (evt.target) {
+          const buffer = evt.target.result
+          if (buffer instanceof ArrayBuffer) {
+            const uint8Array = new Uint8Array(buffer)
+            // 生成したUint8Arrayをコンソールに表示
+            console.log(uint8Array)
+            setIcon(uint8Array)
+          }
+        }
+      }
+      fileReader.readAsArrayBuffer(file)
+    }
+  }
   const handleChangeNickName = (
     event: h.JSX.TargetedEvent<HTMLInputElement>,
   ) => {
     setNickName(event.currentTarget.value)
   }
-  const handleChnageIcon = (event: h.JSX.TargetedEvent<HTMLInputElement>) => {
-    setIcon(event.currentTarget.value)
-  }
   const handleSubmit = async (event: h.JSX.TargetedEvent<any>) => {
-    const values = {
-      nickName,
-      icon,
+    event.preventDefault()
+    /* 画像ファイルをBase64に変更してNickNameと一緒に送信
+    {
+      nickName: nickName,
+      icon: icon,
     }
-    if (nickName === "" && icon === "") {
+    の形のjsonで送信する
+    */
+    const csrftoken = await fetch(
+      "/api/v1/csrftoken?origin=" + window.location.origin,
+    )
+    const token = await csrftoken.json()
+    const csrftokenValue = token.csrftoken
+    const formData = new FormData()
+    formData.append("icon", icon)
+    formData.append("csrftoken", csrftokenValue)
+    formData.append("nickName", nickName)
+    const resp = await fetch("/api/v1/setting", {
+      method: "POST",
+      body: formData,
+    })
+    const data = await resp.json()
+    console.log(data)
+    if (data.status === false) {
       return
     }
-    if (/^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(values.nickName) === false) {
-      values.nickName = ""
-    }
-    console.log(values.icon)
-    const origin = window.location.origin
-    const csrftokenRes = await fetch("/api/v1/csrftoken?origin=" +origin, {
-      method: "GET",
-    })
-    const csrftoken = await csrftokenRes.json()
-    const resp = await fetch("/api/v1/users/info", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        csrftoken: csrftoken.csrftoken,
-        nickName: values.nickName,
-        icon: values.icon,
-        updateItem: {
-          nickName: values.nickName == "" ? false : true,
-          icon: values.icon == "" ? false : true,
-        },
-      }),
-    })
-    const response = await resp.json()
-    if (response.status === true) {
-      alert("保存に成功しました")
-      props.setSettingPage("")
-    } else {
-      alert("保存に失敗しました")
-    }
+    props.setSettingPage("")
   }
   return (
     <>
@@ -91,6 +96,7 @@ export default function RegisterForm(props: any) {
                         placeholder="ニックネームを入力してください"
                         value={nickName}
                         onChange={handleChangeNickName}
+                        multiple
                       />
                     </div>
                     <div class="mb-4">
@@ -101,6 +107,7 @@ export default function RegisterForm(props: any) {
                         type="file"
                         class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                         onChange={handleChnageIcon}
+                        accept="image/*"
                       />
                     </div>
                   </div>

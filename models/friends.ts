@@ -17,6 +17,16 @@ export const friendsSchema = new mongoose.Schema({
         lastMessage: {
           type: String,
         },
+        type: {
+          type: String,
+          enum: ["local", "other"],
+        },
+        userName: {
+          type: String,
+        },
+        host: {
+          type: String,
+        },
       },
     ],
     default: [],

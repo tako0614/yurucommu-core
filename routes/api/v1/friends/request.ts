@@ -5,6 +5,8 @@ import requestAddFriend from "../../../../models/reqestAddFriend.ts"
 import Users from "../../../../models/users.ts"
 import rooms from "../../../../models/rooms.ts"
 import users from "../../../../models/users.ts"
+import { load } from "$std/dotenv/mod.ts"
+const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
     if (!ctx.state.data.loggedIn) {
@@ -118,11 +120,26 @@ export const handler = {
       let roomID = ""
       while (!isCreatedRoom) {
         roomID = Math.random().toString(32).substring(2)
-        const room = await rooms.findOne({ name: roomID })
+        const room = await rooms.findOne({ uuid: roomID })
         if (!room) {
           await rooms.create({
-            name: roomID,
-            users: [userid, friendInfo._id.toString()],
+            uuid: roomID,
+            users: [
+              {
+                username: userid,
+                userid: userid,
+                host: "local",
+                type: "local",
+                domain: env["serverOrigin"],
+              },
+              {
+                username: friendInfo.userName,
+                userid: friendInfo._id.toString(),
+                host: "local",
+                type: "local",
+                domain: "local",
+              },
+            ],
             messages: [],
             types: "friend",
             latestmessage: "",
@@ -147,13 +164,12 @@ export const handler = {
     if (data.type === "acceptRequest") {
       // Handle friend request acceptance
     }
-
+    // only local user can add friend by key
     if (data.type === "AddFriendKey") {
       const { addFriendKey } = data
       const addFriendUserInfo = await Users.findOne({
         addFriendKey: addFriendKey,
       })
-
       if (!addFriendKey || !addFriendUserInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
@@ -250,4 +266,12 @@ export const handler = {
       status: 400,
     })
   },
+}
+function splitUserName(name: string) {
+  const parts = name.split("@")
+  if (parts.length === 2) {
+    return { name: parts[0], domain: parts[1] }
+  } else {
+    return null
+  }
 }

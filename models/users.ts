@@ -59,10 +59,10 @@ const usersSchema = new mongoose.Schema({
   },
   JoiningRoom: {
     type: [{
-      name: {
+      uuid: {
         type: String,
       },
-      id: {
+      name: {
         type: String,
       },
     }],
@@ -70,6 +70,29 @@ const usersSchema = new mongoose.Schema({
   },
   addFriendKey: {
     type: String,
+  },
+  config: {
+    type: {
+      theme: {
+        type: String,
+        enum: ["light", "dark"],
+      },
+      language: {
+        type: String,
+        enum: ["ja", "en"],
+      },
+      notification: {
+        type: Boolean,
+      },
+      //外部サーバーのユーザーを許可するかどうか
+      allowOtherUser: {
+        type: Boolean,
+      },
+      //idによる友達追加を許可するかどうか
+      allowAddFriendByID: {
+        type: Boolean,
+      },
+    },
   },
   timestamp: { type: Date, default: Date.now },
 })

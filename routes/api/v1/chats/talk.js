@@ -47,7 +47,7 @@ async function subscribeMessage(channel) {
     sessionsInRoom.forEach(async (session) => {
       if (session.id === data.sender) {
         await rooms.updateOne(
-          { name: data.roomid },
+          { uuid: data.roomid },
           {
             $set: {
               "messages.$[elem].isRead": true,
@@ -102,7 +102,7 @@ export const handler = {
           })
           const roomid = data.roomid
           const isJoiningRoom = await rooms.findOne({
-            name: roomid,
+            uuid: roomid,
             users: ctx.state.data.userid.toString(),
           })
           const userInfo = await users.findOne({ _id: ctx.state.data.userid })

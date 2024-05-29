@@ -7,7 +7,6 @@ const redisURL = env["REDIS_URL"]
 const pubClient = redis.createClient({
   url: redisURL,
 })
-pubClient.on("error", (err) => console.error("Pub Client Error", err))
 await pubClient.connect()
 export const handler = {
   async GET(req: Request, ctx: any) {
@@ -29,7 +28,7 @@ export const handler = {
     //Start Chatがtrueの場合、roomidの部屋から最新のメッセージを100件取得
     if (startChat) {
       const room = await rooms.findOne({
-        name: roomid,
+        userid: roomid,
       }, { messages: { $slice: -100 } })
       if (!room) {
         return new Response(JSON.stringify({ "status": "Room Not Found" }), {
@@ -40,9 +39,11 @@ export const handler = {
       let RoomName = ""
       if (room.types === "friend") {
         // ctx.state.data.userid.toString()以外のroom.usersの配列に存在するユーザーのIDを取得
-        const friendId = room.users.filter((id: string) =>
-          id !== ctx.state.data.userid.toString()
-        )
+        const friendId = room.users
+          .filter((user: any) =>
+            user.userid !== ctx.state.data.userid.toString()
+          )
+          .map((user: any) => user.userid)
         // friendIdのユーザー情報を取得
         const friend = await user.findOne({
           _id: friendId[0],
@@ -59,7 +60,7 @@ export const handler = {
         // friendのuserNameを取得
         RoomName = friend.nickName
       } else {
-        RoomName = room.showName || ""
+        RoomName = "まだ実装してません"
       }
       let senderCache: {
         [index: string]: {
@@ -127,7 +128,7 @@ export const handler = {
       })
     }
     const room = await rooms.findOne({
-      name: roomid,
+      uuid: roomid,
       messages: { $elemMatch: { timestamp: { $gte: new Date(when) } } },
     })
     if (!room) {
