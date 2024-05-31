@@ -57,9 +57,15 @@ export const handler = {
           status: 200,
         })
       }
-      const userid = ctx.state.data.userid.toString()
-
+      const userid = ctx.state.data.userid
+      if (nickName) {
+        await Users.updateOne({ uuid: userid }, {
+          $set: { nickName: nickName },
+        })
+      }
       if (icon !== null) {
+        return
+        /*
         const result = await resizeImageToWebP(icon, 512, 512)
         if (result === null) {
           return new Response(JSON.stringify({ status: false }), {
@@ -68,10 +74,7 @@ export const handler = {
           })
         }
         await Deno.writeFile(`./files/userIcons/${userid}.webp`, result)
-      }
-
-      if (nickName) {
-        await Users.updateOne({ _id: userid }, { $set: { nickName: nickName } })
+        */
       }
 
       return new Response(JSON.stringify({ status: true }), {
@@ -83,19 +86,17 @@ export const handler = {
     }
   },
 }
+/*
 async function resizeImageToWebP(
   imageData: Uint8Array,
-  width: number,
-  height: number,
 ): Promise<Uint8Array> {
   // 画像をデコード
   const image = await decode(imageData)
 
   // 画像をリサイズ
-  const resizedImage = image.resize(width, height)
+  const resizedImage = image.resize(512, 512)
 
   // WebP形式でエンコード
-  const webpData = await resizedImage.encode(encode.types.webp, { quality: 80 })
-
-  return webpData
+  //const webpImageData = await image.encode
 }
+*/

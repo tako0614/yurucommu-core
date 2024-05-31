@@ -28,14 +28,14 @@ export const handler = {
         })
       }
       await csrftoken.deleteOne({ token: data.csrftoken })
-      const userid = ctx.state.data.userid.toString()
+      const userid = ctx.state.data.userid
       const icon = data.icon
       const result = await processImage(icon)
       if (result === null) {
         return
       }
       await Deno.writeFile(
-        `./files/userIcons/${ctx.state.data.userid.toString}.webp`,
+        `./files/userIcons/${ctx.state.data.userid}.webp`,
         result,
       )
       return new Response(JSON.stringify({ status: true }), {

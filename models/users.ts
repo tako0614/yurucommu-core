@@ -1,5 +1,10 @@
 import mongoose from "mongoose"
 const usersSchema = new mongoose.Schema({
+  uuid: {
+    type: String,
+    required: true,
+    unique: true,
+  },
   userName: {
     type: String,
     required: true,
@@ -76,22 +81,28 @@ const usersSchema = new mongoose.Schema({
       theme: {
         type: String,
         enum: ["light", "dark"],
+        default: "light",
       },
       language: {
         type: String,
         enum: ["ja", "en"],
+        default: "ja",
       },
       notification: {
         type: Boolean,
+        default: true,
       },
       //外部サーバーのユーザーを許可するかどうか
       allowOtherUser: {
         type: Boolean,
+        default: true,
       },
       //idによる友達追加を許可するかどうか
       allowAddFriendByID: {
         type: Boolean,
+        default: true,
       },
+      //
     },
   },
   timestamp: { type: Date, default: Date.now },

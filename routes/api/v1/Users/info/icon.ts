@@ -9,7 +9,7 @@ export const handler = {
           status: 401,
         })
       }
-      const userid = ctx.state.data.userid.toString()
+      const userid = ctx.state.data.userid
       const result = await Deno.readFile(`./files/userIcons/${userid}.webp`)
       return new Response(result, {
         headers: { "Content-Type": "image/webp" },

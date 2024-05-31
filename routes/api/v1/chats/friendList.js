@@ -32,11 +32,9 @@ export const handler = {
     await csrftoken.deleteOne({ token: data.csrftoken })
     /*                                                                          */
     try {
-      const chatRooms = await rooms.find({
-        users: ctx.state.data.userid.toString(),
-      })
+      const chatRooms = await rooms.find({ 'users.userid': ctx.state.data.userid });
       const friendsInfo = await Friends.findOne({
-        user: ctx.state.data.userid.toString(),
+        user: ctx.state.data.userid,
       }, {})
       if (friendsInfo === null || friendsInfo === undefined) {
         return new Response(
@@ -70,12 +68,14 @@ export const handler = {
       const result = await Promise.all(
         chatRooms.map(async (room) => {
           if (room.types === "friend") {
+            //データベースの構造を変更したため、修正が必要
+            //console.log(room.users)
             const friendID = room.users.filter((user) =>
-              user !== ctx.state.data.userid.toString()
+              user.userid !== ctx.state.data.userid
             )
+            //console.log(friendID)
             //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
-            const friendName = await users.findOne({ _id: friendID[0] })
-            console.log(room)
+            const friendName = await users.findOne({ uuid: friendID[0].userid })
             const result = {
               roomName: friendName.nickName,
               lastMessage: room.latestmessage,

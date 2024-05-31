@@ -41,7 +41,7 @@ export const handler = {
       })
     }
     const sessionUserId: string = ctx.state.data.userid
-    const userInfoId: string = userInfo._id.toString()
+    const userInfoId: string = userInfo.uuid
     if (sessionUserId != userInfoId) {
       return ctx.render({
         loggedIn: true,

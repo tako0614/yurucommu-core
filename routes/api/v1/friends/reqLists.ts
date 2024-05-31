@@ -13,11 +13,11 @@ export const handler = {
         )
       }
       const userFriendInfo = await RequestAddFriend.findOne({
-        userID: ctx.state.data.userid.toString(),
+        userID: ctx.state.data.userid,
       })
       if (userFriendInfo == null) {
         await RequestAddFriend.create({
-          userID: ctx.state.data.userid.toString(),
+          userID: ctx.state.data.userid,
         })
         return new Response(JSON.stringify({ status: true, result: null }), {
           headers: { "Content-Type": "application/json" },
@@ -27,7 +27,7 @@ export const handler = {
       const result = await Promise.all(
         userFriendInfo.Applicant.map(
           async (obj: { userID: any; timestamp: any }) => {
-            const userInfo = await users.findOne({ _id: obj.userID })
+            const userInfo = await users.findOne({ uuid: obj.userID })
             if (userInfo == null) {
               return
             }

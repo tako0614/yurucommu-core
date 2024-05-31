@@ -8,10 +8,12 @@ import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
 import * as $addFriend_roomid_ from "./routes/addFriend/[roomid].tsx"
 import * as $addFriend_index from "./routes/addFriend/index.tsx"
+import * as $api_v1_chats_talk from "./routes/api/v1/chats/_talk.js"
+import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/_talkdata.ts"
 import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
-import * as $api_v1_chats_talk from "./routes/api/v1/chats/talk.js"
-import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
+import * as $api_v1_chats_talk_1 from "./routes/api/v1/chats/talk.ts"
+import * as $api_v1_chats_talkdata_1 from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrftoken from "./routes/api/v1/csrftoken.ts"
 import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
 import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
@@ -20,12 +22,13 @@ import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
 import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
+import * as $api_v1_server_roomid_talkdata from "./routes/api/v1/server/[roomid]/talkdata.ts"
+import * as $api_v1_server_friends_request from "./routes/api/v1/server/friends/request.ts"
 import * as $api_v1_setting_index from "./routes/api/v1/setting/index.ts"
 import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
 import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
 import * as $api_v1_users_nickname from "./routes/api/v1/users/nickname.ts"
 import * as $api_v1_users_username from "./routes/api/v1/users/username.ts"
-import * as $greet_name_ from "./routes/greet/[name].tsx"
 import * as $home_roomid_ from "./routes/home/[roomid].tsx"
 import * as $home_index from "./routes/home/index.tsx"
 import * as $index from "./routes/index.tsx"
@@ -65,10 +68,12 @@ const manifest = {
     "./routes/about.tsx": $about,
     "./routes/addFriend/[roomid].tsx": $addFriend_roomid_,
     "./routes/addFriend/index.tsx": $addFriend_index,
+    "./routes/api/v1/chats/_talk.js": $api_v1_chats_talk,
+    "./routes/api/v1/chats/_talkdata.ts": $api_v1_chats_talkdata,
     "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
     "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
-    "./routes/api/v1/chats/talk.js": $api_v1_chats_talk,
-    "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
+    "./routes/api/v1/chats/talk.ts": $api_v1_chats_talk_1,
+    "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata_1,
     "./routes/api/v1/csrftoken.ts": $api_v1_csrftoken,
     "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
     "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
@@ -77,12 +82,14 @@ const manifest = {
     "./routes/api/v1/logins/login.ts": $api_v1_logins_login,
     "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,
     "./routes/api/v1/logins/register.js": $api_v1_logins_register,
+    "./routes/api/v1/server/[roomid]/talkdata.ts":
+      $api_v1_server_roomid_talkdata,
+    "./routes/api/v1/server/friends/request.ts": $api_v1_server_friends_request,
     "./routes/api/v1/setting/index.ts": $api_v1_setting_index,
     "./routes/api/v1/users/icon.ts": $api_v1_users_icon,
     "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,
     "./routes/api/v1/users/nickname.ts": $api_v1_users_nickname,
     "./routes/api/v1/users/username.ts": $api_v1_users_username,
-    "./routes/greet/[name].tsx": $greet_name_,
     "./routes/home/[roomid].tsx": $home_roomid_,
     "./routes/home/index.tsx": $home_index,
     "./routes/index.tsx": $index,

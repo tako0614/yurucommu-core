@@ -38,7 +38,7 @@ export const handler = {
       )
     } else if (reload == "false") {
       const userInfo = await users.findOne({
-        _id: ctx.state.data.userid,
+        uuid: ctx.state.data.userid,
       })
       if (userInfo === null || userInfo === undefined) {
         return new Response(JSON.stringify({ "status": false }), {
@@ -58,7 +58,7 @@ export const handler = {
         ).join("")
         try {
           await users.updateOne(
-            { _id: ctx.state.data.userid },
+            { uuid: ctx.state.data.userid },
             {
               $set: { addFriendKey: addFriendKey },
             },

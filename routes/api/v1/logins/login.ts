@@ -16,10 +16,7 @@ export const handler = {
           },
         )
       }
-      const user = await users.findOne({ userName: userName }, {
-        password: 1,
-        salt: 1,
-      })
+      const user = await users.findOne({ userName: userName })
       if (user == null) {
         return new Response(
           JSON.stringify({ "status": false, error: "userNotFound" }),
@@ -50,7 +47,6 @@ export const handler = {
           },
         )
       }
-      const toDay = new Date()
       const sessionIDarray = new Uint8Array(64)
       const randomarray = crypto.getRandomValues(sessionIDarray)
       const sessionid = Array.from(
@@ -58,9 +54,10 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       const result = await sessionID.create({
-        userid: user._id,
+        userid: user.uuid,
         sessionID: sessionid,
       })
+
       if (result !== null) {
         return new Response(JSON.stringify({ "status": true }), {
           headers: {

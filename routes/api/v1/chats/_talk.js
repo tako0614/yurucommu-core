@@ -103,9 +103,9 @@ export const handler = {
           const roomid = data.roomid
           const isJoiningRoom = await rooms.findOne({
             uuid: roomid,
-            users: ctx.state.data.userid.toString(),
+            users: ctx.state.data.userid,
           })
-          const userInfo = await users.findOne({ _id: ctx.state.data.userid })
+          const userInfo = await users.findOne({ uuid: ctx.state.data.userid })
           if (
             userInfo === null || userInfo === undefined ||
             userInfo.userName == undefined
@@ -131,12 +131,12 @@ export const handler = {
           sessions.set(sessionid, {
             ws: socket,
             roomid: roomid,
-            id: ctx.state.data.userid.toString(),
+            id: ctx.state.data.userid,
             membersNameChash: {
-              [ctx.state.data.userid.toString()]: userInfo.userName,
+              [ctx.state.data.userid]: userInfo.userName,
             },
             membersNickNameChash: {
-              [ctx.state.data.userid.toString()]: userInfo.nickName,
+              [ctx.state.data.userid]: userInfo.nickName,
             },
           })
           socket.send(JSON.stringify({ sessionid: sessionid, type: "joined" }))
@@ -169,7 +169,7 @@ export const handler = {
             sessionid: data.sessionid,
             type: "message",
             message: data.message,
-            sender: ctx.state.data.userid.toString(),
+            sender: ctx.state.data.userid,
             roomid: roomid,
             time: now,
             isRead: false,
@@ -179,7 +179,7 @@ export const handler = {
             {
               $push: {
                 messages: {
-                  sender: ctx.state.data.userid.toString(),
+                  sender: ctx.state.data.userid,
                   message: data.message,
                   timestamp: now,
                 },

@@ -29,9 +29,6 @@ export const roomsSchema = new mongoose.Schema({
         userid: {
           type: String,
         },
-        host: {
-          type: String,
-        },
         type: {
           type: String,
           enum: ["local", "other"],
@@ -53,20 +50,6 @@ export const roomsSchema = new mongoose.Schema({
     required: true,
     default: Date.now,
   },
-  messages: [
-    {
-      sender: {
-        type: String,
-      },
-      message: {
-        type: String,
-      },
-      read: {
-        type: [String],
-      },
-      timestamp: { type: Date, default: Date.now },
-    },
-  ],
   timestamp: { type: Date, default: Date.now },
 })
 const rooms = mongoose.model("rooms", roomsSchema)

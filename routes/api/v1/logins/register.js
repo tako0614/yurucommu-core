@@ -9,6 +9,7 @@ import tempUsers from "../../../../models/tempUsers.ts"
 import users from "../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import * as mod from "$std/crypto/mod.ts"
+import { v4 } from "$std/uuid/mod.ts"
 const env = await load()
 const secretKey = env["rechapcha_seecret_key"]
 export const handler = {
@@ -219,7 +220,9 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       //ユーザーを登録
+      const uuid = crypto.randomUUID()
       const result = await users.create({
+        uuid: uuid,
         userName,
         nickName,
         mail: mail,
@@ -232,7 +235,7 @@ export const handler = {
       )
       try {
         await Deno.writeFile(
-          `./files/userIcons/${result._id}.webp`,
+          `./files/userIcons/${result.uuid}.webp`,
           defaultIcon,
         )
       } catch (error) {
@@ -242,7 +245,7 @@ export const handler = {
           await Deno.mkdir("./files/userIcons")
           await Deno.mkdir("./files/pictures")
           await Deno.writeFile(
-            `./files/userIcons/${result._id}.webp`,
+            `./files/userIcons/${result.uuid}.webp`,
             defaultIcon,
           )
         } catch (error) {

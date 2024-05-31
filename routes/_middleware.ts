@@ -34,7 +34,7 @@ export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     }
   }
   const userid = sessions.userid
-  const user = await users.findOne({ _id: userid })
+  const user = await users.findOne({ uuid: userid })
   if (user === null) {
     ctx.state.data = { loggedIn: false }
     const resp = await ctx.next()

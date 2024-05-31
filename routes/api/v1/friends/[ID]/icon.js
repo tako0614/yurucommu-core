@@ -23,15 +23,15 @@ export const handler = {
         return
       }
       const result = AddfriendInfo.Applicant.find((element) => {
-        return FriendInfo._id == element.userID
+        return FriendInfo.uuid == element.userID
       })
       if (result == undefined) {
         return
       }
       try {
         const result = await Deno.readFile(
-          //"../../../../files/userIcons/" + user._id + ".webp"
-          "./files/userIcons/" + FriendInfo._id + ".webp",
+          //"../../../../files/userIcons/" + user.uuid + ".webp"
+          "./files/userIcons/" + FriendInfo.uuid + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
@@ -74,8 +74,8 @@ export const handler = {
       }
       try {
         const result = await Deno.readFile(
-          //"../../../../files/userIcons/" + user._id + ".webp"
-          "./files/userIcons/" + user._id + ".webp",
+          //"../../../../files/userIcons/" + user.uuid + ".webp"
+          "./files/userIcons/" + user.uuid + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
@@ -98,7 +98,7 @@ export const handler = {
       })
     }
     const friend = await friends.findOne({
-      user: ctx.state.data.userid.toString(),
+      user: ctx.state.data.userid,
     })
     if (friend == null) {
       return new Response(JSON.stringify({ "status": "You are alone" }), {
@@ -114,7 +114,7 @@ export const handler = {
       })
     }
     //友達かどうかの確認
-    const friendid = friendNameInfo._id.toString()
+    const friendid = friendNameInfo.uuid
     const result = friend.friends.find((element) => {
       return friendid == element.userid
     })

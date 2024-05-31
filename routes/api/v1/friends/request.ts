@@ -35,7 +35,7 @@ export const handler = {
     }
 
     await csrftoken.deleteOne({ token: data.csrftoken })
-    const userid = ctx.state.data.userid.toString()
+    const userid = ctx.state.data.userid
     if (data.type === "rejectRequest") {
       const { friendName } = data
       const friendInfo = await Users.findOne({ userName: friendName }) // Assuming 'userName' is a valid field in the 'users' object
@@ -55,7 +55,7 @@ export const handler = {
         })
       }
       const isRequestedFriend = isRequested.Applicant.some(
-        (applicant: any) => applicant.userID === friendInfo._id.toString(),
+        (applicant: any) => applicant.userID === friendInfo.uuid,
       )
       if (!isRequestedFriend) {
         return new Response(JSON.stringify({ status: "error" }), {
@@ -65,7 +65,7 @@ export const handler = {
       }
       await requestAddFriend.updateOne(
         { userID: userid },
-        { $pull: { Applicant: { userID: friendInfo._id.toString() } } },
+        { $pull: { Applicant: { userID: friendInfo.uuid } } },
       )
       return new Response(JSON.stringify({ status: "success" }), {
         headers: { "Content-Type": "application/json" },
@@ -91,7 +91,7 @@ export const handler = {
         })
       }
       const isRequestedFriend = isRequested.Applicant.some(
-        (applicant: any) => applicant.userID === friendInfo._id.toString(),
+        (applicant: any) => applicant.userID === friendInfo.uuid,
       )
       if (!isRequestedFriend) {
         return new Response(JSON.stringify({ status: "error" }), {
@@ -105,15 +105,15 @@ export const handler = {
       }
       await Friends.updateOne(
         { user: userid },
-        { $push: { friends: { userid: friendInfo._id } } }, // Assuming 'name' is a valid field in the 'friends' object
+        { $push: { friends: { userid: friendInfo.uuid } } }, // Assuming 'name' is a valid field in the 'friends' object
       )
       await Friends.updateOne(
-        { user: friendInfo._id.toString() },
+        { user: friendInfo.uuid },
         { $push: { friends: { userid } } },
       )
       await requestAddFriend.updateOne(
         { userID: userid },
-        { $pull: { Applicant: { userID: friendInfo._id.toString() } } },
+        { $pull: { Applicant: { userID: friendInfo.uuid } } },
       )
       //乱数でroomIDを生成
       let isCreatedRoom = false
@@ -134,7 +134,7 @@ export const handler = {
               },
               {
                 username: friendInfo.userName,
-                userid: friendInfo._id.toString(),
+                userid: friendInfo.uuid,
                 host: "local",
                 type: "local",
                 domain: "local",
@@ -149,11 +149,11 @@ export const handler = {
         }
       }
       await users.updateOne(
-        { _id: userid },
+        { uuid: userid },
         { $push: { rooms: roomID } },
       )
       await users.updateOne(
-        { _id: friendInfo._id.toString() },
+        { uuid: friendInfo.uuid },
         { $push: { rooms: roomID } },
       )
       return new Response(JSON.stringify({ status: "success" }), {
@@ -184,13 +184,19 @@ export const handler = {
       }
 
       const existingRequest = await requestAddFriend.findOne({
-        userID: addFriendUserInfo._id.toString(),
+        userID: addFriendUserInfo.uuid,
       })
-
+      const ApplcienterInfo = await Users.findOne({ uuid: userid })
+      if(!ApplcienterInfo){
+        return new Response(JSON.stringify({ status: "error" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 404,
+        })
+      }
       if (!existingRequest) {
         await requestAddFriend.create({
-          userID: addFriendUserInfo._id.toString(),
-          Applicant: [{ userID: userid }],
+          userID: addFriendUserInfo.uuid,
+          Applicant: [{ userID: userid, userName: ApplcienterInfo.userName, host: env["serverOrigin"], type: "local"}],
         })
       } else {
         const isAlreadySentReq = existingRequest.Applicant.some(
@@ -199,7 +205,7 @@ export const handler = {
 
         if (!isAlreadySentReq) {
           await requestAddFriend.updateOne(
-            { userID: addFriendUserInfo._id },
+            { userID: addFriendUserInfo.uuid },
             { $push: { Applicant: { userID: userid } } },
           )
         }
