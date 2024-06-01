@@ -38,6 +38,7 @@ export const handler = {
     const userid = ctx.state.data.userid
     if (data.type === "rejectRequest") {
       const { friendName } = data
+      console.log(friendName)
       const friendInfo = await Users.findOne({ userName: friendName }) // Assuming 'userName' is a valid field in the 'users' object
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
@@ -74,7 +75,14 @@ export const handler = {
     }
     if (data.type === "acceptRequest") {
       const { friendName } = data
-      const friendInfo = await Users.findOne({ userName: friendName })
+      console.log(friendName)
+      const splitFriendName = splitUserName(friendName)
+      if (!splitFriendName || splitFriendName.domain !== env["serverDomain"]) {
+        console.log("Not local user")
+        //Other server's user
+        return
+      }
+      const friendInfo = await Users.findOne({ userName: splitFriendName.name })
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
@@ -114,6 +122,10 @@ export const handler = {
       await requestAddFriend.updateOne(
         { userID: userid },
         { $pull: { Applicant: { userID: friendInfo.uuid } } },
+      )
+      await requestAddFriend.updateOne(
+        { userID: friendInfo.uuid },
+        { $pull: { AppliedUser: { userID: userid } } },
       )
       //乱数でroomIDを生成
       let isCreatedRoom = false
@@ -203,6 +215,16 @@ export const handler = {
             type: "local",
           }],
         })
+        await requestAddFriend.create({
+          userID: userid,
+          Applicant: [],
+          AppliedUser: [{
+            userID: addFriendUserInfo.uuid,
+            userName: addFriendUserInfo.userName,
+            host: env["serverDomain"],
+            type: "local",
+          }],
+        })
       } else {
         const isAlreadySentReq = existingRequest.Applicant.some(
           (applicant: any) => applicant.userID === userid,
@@ -211,7 +233,12 @@ export const handler = {
         if (!isAlreadySentReq) {
           await requestAddFriend.updateOne(
             { userID: addFriendUserInfo.uuid },
-            { $push: { Applicant: { userID: userid } } },
+            {
+              $push: {
+                Applicant: { userID: userid },
+                AppliedUser: { userID: addFriendUserInfo.uuid },
+              },
+            },
           )
         }
       }
@@ -223,7 +250,21 @@ export const handler = {
     } else if (data.type === "userName") {
       const userName = ctx.state.data.userName
       const friendName = data.friendName
-
+      const firendInfo = await Users.findOne({ userName: friendName })
+      if (!firendInfo) {
+        return new Response(JSON.stringify({ status: "error" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 404,
+        })
+      }
+      const friendNameSplit = splitUserName(friendName)
+      const serverDomain = env["serverDomain"]
+      if (!friendNameSplit || friendNameSplit.domain !== serverDomain) {
+        return new Response(JSON.stringify({ status: "error" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 403,
+        })
+      }
       const isAlreadyFriend = await Friends.findOne({ userName: userName })
       if (!isAlreadyFriend || isAlreadyFriend.friends.includes(friendName)) {
         return new Response(JSON.stringify({ status: "error" }), {
@@ -255,8 +296,30 @@ export const handler = {
 
       try {
         await requestAddFriend.updateOne(
-          { userName: friendName },
-          { $push: { Applicant: { userName: userName } } },
+          { userID: firendInfo.uuid},
+          {
+            $push: {
+              Applicant: {
+                userName: userName,
+                userid: userid,
+                type: "local",
+                host: env["serverDomain"],
+              },
+            },
+          },
+        )
+        await requestAddFriend.updateOne(
+          { userID: userid },
+          {
+            $push: {
+              AppliedUser: {
+                userName: friendName,
+                type: "local",
+                host: friendNameSplit.domain,
+                userid: firendInfo.uuid,
+              },
+            },
+          },
         )
 
         return new Response(JSON.stringify({ status: "success" }), {

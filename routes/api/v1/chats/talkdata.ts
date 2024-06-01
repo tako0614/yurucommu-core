@@ -71,24 +71,26 @@ export const handler = {
       } else {
         RoomName = "まだ実装してません"
       }
-      const messagesResult = await Promise.all(RoomMessages.map(async (message) => {
-        //console.log(message.userid)
-        const sender = await user.findOne({ uuid: message.userid })
-        if (!sender) {
+      const messagesResult = await Promise.all(
+        RoomMessages.map(async (message) => {
+          //console.log(message.userid)
+          const sender = await user.findOne({ uuid: message.userid })
+          if (!sender) {
+            return {
+              sender: "Unknown",
+              senderNickName: "Unknown",
+              message: message.message,
+              timestamp: message.timestamp,
+            }
+          }
           return {
-            sender: "Unknown",
-            senderNickName: "Unknown",
+            sender: sender.nickName,
+            senderNickName: sender.nickName,
             message: message.message,
             timestamp: message.timestamp,
           }
-        }
-        return {
-          sender: sender.nickName,
-          senderNickName: sender.nickName,
-          message: message.message,
-          timestamp: message.timestamp,
-        }
-      }))
+        }),
+      )
       const result = {
         roomname: RoomName,
         messages: messagesResult,

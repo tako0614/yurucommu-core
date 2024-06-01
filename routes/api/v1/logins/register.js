@@ -234,18 +234,20 @@ export const handler = {
         "./static/people.webp",
       )
       try {
+        const uuidBody = splitMail(result.uuid)
         await Deno.writeFile(
-          `./files/userIcons/${result.uuid}.webp`,
+          `./files/userIcons/${uuidBody}.webp`,
           defaultIcon,
         )
       } catch (error) {
         console.log("Icon Folder not found")
         try {
+          const uuidBody = splitMail(result.uuid)
           await Deno.mkdir("./files")
           await Deno.mkdir("./files/userIcons")
           await Deno.mkdir("./files/pictures")
           await Deno.writeFile(
-            `./files/userIcons/${result.uuid}.webp`,
+            `./files/userIcons/${uuidBody}.webp`,
             defaultIcon,
           )
         } catch (error) {
@@ -355,4 +357,8 @@ function ispassword(password) {
     return false
   }
   return true
+}
+function splitMail(mail) {
+  const mailSplit = mail.split("@")
+  return mailSplit[0]
 }

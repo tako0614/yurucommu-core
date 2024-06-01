@@ -31,7 +31,7 @@ export const handler = {
       try {
         const result = await Deno.readFile(
           //"../../../../files/userIcons/" + user.uuid + ".webp"
-          "./files/userIcons/" + FriendInfo.uuid + ".webp",
+          "./files/userIcons/" + mailSpilit(FriendInfo.uuid) + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
@@ -75,7 +75,7 @@ export const handler = {
       try {
         const result = await Deno.readFile(
           //"../../../../files/userIcons/" + user.uuid + ".webp"
-          "./files/userIcons/" + user.uuid + ".webp",
+          "./files/userIcons/" + mailSpilit(user.uuid) + ".webp",
         )
         return new Response(result, {
           headers: { "Content-Type": "image/webp" },
@@ -126,7 +126,7 @@ export const handler = {
     }
     try {
       const result = await Deno.readFile(
-        "./files/userIcons/" + friendid + ".webp",
+        "./files/userIcons/" + mailSpilit(friendid) + ".webp",
       )
       return new Response(result, {
         headers: { "Content-Type": "image/webp" },
@@ -140,4 +140,8 @@ export const handler = {
       })
     }
   },
+}
+function mailSpilit(mail) {
+  const mailSpilit = mail.split("@")
+  return mailSpilit[0]
 }

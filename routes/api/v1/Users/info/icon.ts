@@ -10,7 +10,9 @@ export const handler = {
         })
       }
       const userid = ctx.state.data.userid
-      const result = await Deno.readFile(`./files/userIcons/${userid}.webp`)
+      const result = await Deno.readFile(
+        `./files/userIcons/${mailSpilit(userid)}.webp`,
+      )
       return new Response(result, {
         headers: { "Content-Type": "image/webp" },
         status: 200,
@@ -19,4 +21,8 @@ export const handler = {
       console.log(error)
     }
   },
+}
+function mailSpilit(mail: string) {
+  const mailSpilit = mail.split("@")
+  return mailSpilit[0]
 }

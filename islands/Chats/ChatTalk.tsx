@@ -69,7 +69,6 @@ export default function ChatTalk(props: any) {
           return
         }
         if (data.type == "message") {
-          
           setTalkData((prev) => {
             return [
               ...prev,
@@ -127,7 +126,7 @@ export default function ChatTalk(props: any) {
             </div>
             <div class="p-talk-chat-main" id="chat-area">
               <ul class="p-talk-chat-main__ul">
-              {talkData.map((data: any) => {
+                {talkData.map((data: any) => {
                   if (DateState == undefined) {
                     DateState = data.time.split("T")[0]
                     return <ChatDate date={DateState} />

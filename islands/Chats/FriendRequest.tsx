@@ -198,6 +198,7 @@ const VideoList = () => {
     const fetchData = async () => {
       const res = await fetch("/api/v1/friends/reqLists")
       const response = await res.json()
+      console.log(response)
       setItems(response.result)
     }
     fetchData()

@@ -1,5 +1,7 @@
 import users from "../../../../models/users.ts"
 import RequestAddFriend from "../../../../models/reqestAddFriend.ts"
+import { load } from "$std/dotenv/mod.ts"
+const env = await load()
 export const handler = {
   async GET(req: Request, ctx: any) {
     try {
@@ -26,17 +28,20 @@ export const handler = {
       }
       const result = await Promise.all(
         userFriendInfo.Applicant.map(
-          async (obj: { userID: any; timestamp: any }) => {
-            const userInfo = await users.findOne({ uuid: obj.userID })
-            if (userInfo == null) {
-              return
-            }
-            console.log(userInfo)
-            return {
-              userName: userInfo.userName,
-              icon:
-                `/api/v1/friends/${userInfo.userName}/icon?isRequestList=true`,
-              timestamp: obj.timestamp,
+          async (obj) => {
+            console.log(obj)
+            if (obj.type == "local") {
+              const userInfo = await users.findOne({ uuid: obj.userID })
+              if (userInfo == null) {
+                return
+              }
+              console.log(userInfo)
+              return {
+                userName: userInfo.userName + "@" + env["serverDomain"],
+                icon:
+                  `/api/v1/friends/${userInfo.userName}/icon?isRequestList=true`,
+                timestamp: obj.timestamp,
+              }
             }
           },
         ),
