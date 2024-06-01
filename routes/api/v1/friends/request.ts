@@ -187,7 +187,7 @@ export const handler = {
         userID: addFriendUserInfo.uuid,
       })
       const ApplcienterInfo = await Users.findOne({ uuid: userid })
-      if(!ApplcienterInfo){
+      if (!ApplcienterInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
           status: 404,
@@ -196,7 +196,12 @@ export const handler = {
       if (!existingRequest) {
         await requestAddFriend.create({
           userID: addFriendUserInfo.uuid,
-          Applicant: [{ userID: userid, userName: ApplcienterInfo.userName, host: env["serverOrigin"], type: "local"}],
+          Applicant: [{
+            userID: userid,
+            userName: ApplcienterInfo.userName,
+            host: env["serverOrigin"],
+            type: "local",
+          }],
         })
       } else {
         const isAlreadySentReq = existingRequest.Applicant.some(

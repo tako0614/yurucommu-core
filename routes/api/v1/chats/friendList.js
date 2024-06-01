@@ -32,7 +32,9 @@ export const handler = {
     await csrftoken.deleteOne({ token: data.csrftoken })
     /*                                                                          */
     try {
-      const chatRooms = await rooms.find({ 'users.userid': ctx.state.data.userid });
+      const chatRooms = await rooms.find({
+        "users.userid": ctx.state.data.userid,
+      })
       const friendsInfo = await Friends.findOne({
         user: ctx.state.data.userid,
       }, {})

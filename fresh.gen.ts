@@ -24,6 +24,7 @@ import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
 import * as $api_v1_server_roomid_talkdata from "./routes/api/v1/server/[roomid]/talkdata.ts"
 import * as $api_v1_server_friends_request from "./routes/api/v1/server/friends/request.ts"
+import * as $api_v1_server_token from "./routes/api/v1/server/token.ts"
 import * as $api_v1_setting_index from "./routes/api/v1/setting/index.ts"
 import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
 import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
@@ -85,6 +86,7 @@ const manifest = {
     "./routes/api/v1/server/[roomid]/talkdata.ts":
       $api_v1_server_roomid_talkdata,
     "./routes/api/v1/server/friends/request.ts": $api_v1_server_friends_request,
+    "./routes/api/v1/server/token.ts": $api_v1_server_token,
     "./routes/api/v1/setting/index.ts": $api_v1_setting_index,
     "./routes/api/v1/users/icon.ts": $api_v1_users_icon,
     "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,

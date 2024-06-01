@@ -3,7 +3,7 @@ import rooms from "../../../../models/rooms.ts"
 import users from "../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { session } from "../../../../util/sessions.ts"
-import * as mod from "https://deno.land/std@0.224.0/crypto/mod.ts";
+import * as mod from "https://deno.land/std@0.224.0/crypto/mod.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
 const subClient = redis.createClient({
@@ -37,9 +37,9 @@ export const handler = {
     }
     if (req.headers.get("upgrade") === "websocket") {
       const { socket, response } = Deno.upgradeWebSocket(req)
-    socket.onopen = async (event) => {
+      socket.onopen = async (event) => {
         //
-    }
+      }
       socket.onmessage = async function (event) {
         const data = JSON.parse(event.data)
         if (data.type == "join") {

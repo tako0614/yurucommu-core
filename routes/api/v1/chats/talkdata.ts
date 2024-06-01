@@ -27,7 +27,6 @@ export const handler = {
     const startChat = requrl.searchParams.get("startChat") === "true"
     //Start Chatがtrueの場合、roomidの部屋から最新のメッセージを100件取得
     if (startChat) {
-
       const room = await rooms.findOne({
         userid: roomid,
       })
@@ -37,7 +36,6 @@ export const handler = {
           status: 404,
         })
       }
-      
     }
   },
 }
