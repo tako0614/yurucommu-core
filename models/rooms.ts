@@ -23,9 +23,6 @@ export const roomsSchema = new mongoose.Schema({
   users: {
     type: [
       {
-        username: {
-          type: String,
-        },
         userid: {
           type: String,
         },
@@ -33,13 +30,18 @@ export const roomsSchema = new mongoose.Schema({
           type: String,
           enum: ["local", "other"],
         },
-        domain: {
-          type: String,
+        readedMessageCount: {
+          type: Number,
+          default: 0,
         },
       },
     ],
     required: true,
     default: [],
+  },
+  messageCount: {
+    type: Number,
+    default: 0,
   },
   latestmessage: {
     type: String,

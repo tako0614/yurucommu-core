@@ -130,7 +130,7 @@ export const handler = {
                 userid: userid,
                 host: "local",
                 type: "local",
-                domain: env["serverOrigin"],
+                domain: env["serverDomain"],
               },
               {
                 username: friendInfo.userName,
@@ -199,7 +199,7 @@ export const handler = {
           Applicant: [{
             userID: userid,
             userName: ApplcienterInfo.userName,
-            host: env["serverOrigin"],
+            host: env["serverDomain"],
             type: "local",
           }],
         })

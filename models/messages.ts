@@ -3,10 +3,16 @@ export const messagesSchema = new mongoose.Schema({
   roomid: {
     type: String,
     required: true, // roomid is now required
+    index: true,
   },
-  sender: {
+  messageid: {
     type: String,
-    required: true, // sender is now required
+    required: true, // messageid is now required
+    index: true,
+  },
+  userid: {
+    type: String,
+    required: true, // uuid is now required
   },
   message: {
     type: String,

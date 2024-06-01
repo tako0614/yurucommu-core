@@ -41,6 +41,16 @@ export default function ChatTalk(props: any) {
           senderNickName: data.senderNickName,
         }
       })
+      //時間順に並び替え
+      defaultTalkData.sort((a: any, b: any) => {
+        if (a.time < b.time) {
+          return -1
+        }
+        if (a.time > b.time) {
+          return 1
+        }
+        return 0
+      })
       setTalkData(defaultTalkData)
       const websocket = new WebSocket(
         "/api/v1/chats/talk" + "?roomid=" + roomid,
@@ -59,6 +69,7 @@ export default function ChatTalk(props: any) {
           return
         }
         if (data.type == "message") {
+          
           setTalkData((prev) => {
             return [
               ...prev,
@@ -67,7 +78,7 @@ export default function ChatTalk(props: any) {
                 message: data.message,
                 time: data.time,
                 isRead: false,
-                sender: data.sender,
+                sender: data.userName,
               },
             ]
           })
@@ -116,7 +127,7 @@ export default function ChatTalk(props: any) {
             </div>
             <div class="p-talk-chat-main" id="chat-area">
               <ul class="p-talk-chat-main__ul">
-                {talkData.map((data: any) => {
+              {talkData.map((data: any) => {
                   if (DateState == undefined) {
                     DateState = data.time.split("T")[0]
                     return <ChatDate date={DateState} />

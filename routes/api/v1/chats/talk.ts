@@ -4,6 +4,7 @@ import users from "../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { session } from "../../../../util/sessions.ts"
 import * as mod from "https://deno.land/std@0.224.0/crypto/mod.ts"
+import messages from "../../../../models/messages.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
 const subClient = redis.createClient({
@@ -20,7 +21,38 @@ await pubClient.connect()
 
 async function subscribeMessage(channel: string | string[]) {
   await subClient.subscribe(channel, async (message) => {
-    //さぶすくらいぶからのメッセージを受け取る
+    const data = JSON.parse(message)
+    const roomid = data.roomid
+    const messageid = data.messageid
+    const sessionsInRoom = Array.from(sessions.values()).filter(
+      (session) => session.roomid === roomid,
+    )
+    //roomidが一致するセッションがない場合は終了
+    if (sessionsInRoom.length === 0) {
+      return
+    }
+    const reqMessage = await messages.findOne({ messageid: messageid })
+    if (reqMessage === null || reqMessage === undefined) {
+      return
+    }
+    const userInfo = await users.findOne({ uuid: reqMessage.userid })
+    if (userInfo === null || userInfo === undefined) {
+      return
+    }
+    const result = {
+      type: "message",
+      roomid: roomid,
+      messageid: messageid,
+      userName: userInfo.userName,
+      message: reqMessage.message,
+      time: reqMessage.timestamp,
+    }
+    //roomidが一致するセッションがある場合は、そのセッションにメッセージを送信
+    sessionsInRoom.forEach((session) => {
+      console.log("send")
+      session.ws.send(JSON.stringify(result))
+    })
+    return
   })
 }
 
@@ -49,7 +81,7 @@ export const handler = {
           const roomid = data.roomid
           const isJoiningRoom = await rooms.findOne({
             uuid: roomid,
-            users: ctx.state.data.userid,
+            "users.userid": ctx.state.data.userid,
           })
           const userInfo = await users.findOne({ uuid: ctx.state.data.userid })
           if (
@@ -86,6 +118,29 @@ export const handler = {
             },
           })
           socket.send(JSON.stringify({ sessionid: sessionid, type: "joined" }))
+        } else if (data.type == "message") {
+          const session = sessions.get(data.sessionid)
+          if (session === undefined) {
+            socket.send(
+              JSON.stringify({
+                status: false,
+                explain: "You are not in the room",
+              }),
+            )
+            return
+          }
+          const messageid = crypto.randomUUID()
+          await messages.create({
+            roomid: session.roomid,
+            userid: session.id,
+            message: data.message,
+            read: [],
+            messageid: messageid,
+          })
+          pubClient.publish(
+            "takos",
+            JSON.stringify({ roomid: session.roomid, messageid: messageid }),
+          )
         }
       }
       socket.onclose = () => {

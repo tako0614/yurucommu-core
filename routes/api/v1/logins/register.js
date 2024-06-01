@@ -220,7 +220,7 @@ export const handler = {
         (byte) => byte.toString(16).padStart(2, "0"),
       ).join("")
       //ユーザーを登録
-      const uuid = crypto.randomUUID()
+      const uuid = crypto.randomUUID() + "@" + env["serverDomain"]
       const result = await users.create({
         uuid: uuid,
         userName,

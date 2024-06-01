@@ -32,7 +32,6 @@ export default function ChatList(props) {
       return
     }
     const friendListTemp = []
-    console.log(res)
     res.chatRooms.map((room) => {
       let lastMessage = room.lastMessage
       if (
