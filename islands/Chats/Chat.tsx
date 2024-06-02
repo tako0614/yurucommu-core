@@ -9,6 +9,7 @@ import SettingList from "../SettingList.tsx"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
+import RequestFriendById from "./RequestFriendById.tsx"
 export default function Home(
   props: any,
 ) {
@@ -118,10 +119,7 @@ function ChatAddFriendList(props: any) {
       <div class="p-talk-list-rooms">
         <h1 class="text-lg">友達を追加</h1>
         <ul class="p-talk-list-rooms__ul" id="friendList">
-          <User
-            userName="idで追加"
-            latestMessage=""
-          />
+        <RequestFriendById />
           <User userName="QRコードで追加" latestMessage="" />
           <GetAddFriendKey></GetAddFriendKey>
         </ul>

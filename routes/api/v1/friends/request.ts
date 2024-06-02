@@ -251,6 +251,8 @@ export const handler = {
     } else if (data.type === "userName") {
       const userName = ctx.state.data.userName
       const friendName = data.friendName
+      console.log("aaaa")
+      console.log(friendName)
       if(!friendName) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
@@ -319,7 +321,7 @@ export const handler = {
           }
           const takosToken = crypto.randomUUID()
           await takostoken.create({ token: takosToken, userid: userid })
-          const requestResult = await fetch(`https://${serverDomain}/api/v1/server/friends/request`, {
+          const requestResult = await fetch(`http://${serverDomain}/api/v1/server/friends/request`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -332,6 +334,7 @@ export const handler = {
               token: takosToken,
             }),
           })
+          console.log(requestResult)
           if (requestResult.status === 200) {
             //ApplicantedUserに追加
             await requestAddFriend.updateOne(

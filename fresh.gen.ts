@@ -43,6 +43,7 @@ import * as $Chats_ChatList from "./islands/Chats/ChatList.jsx"
 import * as $Chats_ChatTalk from "./islands/Chats/ChatTalk.tsx"
 import * as $Chats_FriendAddList from "./islands/Chats/FriendAddList.jsx"
 import * as $Chats_FriendRequest from "./islands/Chats/FriendRequest.tsx"
+import * as $Chats_RequestFriendById from "./islands/Chats/RequestFriendById.tsx"
 import * as $Chats_getAddFriendKey from "./islands/Chats/getAddFriendKey.tsx"
 import * as $Chats_isnotSelectUser from "./islands/Chats/isnotSelectUser.jsx"
 import * as $HeaderMenu from "./islands/HeaderMenu.tsx"
@@ -104,6 +105,7 @@ const manifest = {
     "./islands/Chats/ChatTalk.tsx": $Chats_ChatTalk,
     "./islands/Chats/FriendAddList.jsx": $Chats_FriendAddList,
     "./islands/Chats/FriendRequest.tsx": $Chats_FriendRequest,
+    "./islands/Chats/RequestFriendById.tsx": $Chats_RequestFriendById,
     "./islands/Chats/getAddFriendKey.tsx": $Chats_getAddFriendKey,
     "./islands/Chats/isnotSelectUser.jsx": $Chats_isnotSelectUser,
     "./islands/HeaderMenu.tsx": $HeaderMenu,
