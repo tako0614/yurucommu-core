@@ -6,11 +6,11 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { userid, uuid, requirement } = data
+        const { _userid, uuid, requirement,token } = data
         console.log(uuid)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
-            `https://${domain}/api/v1/server/token?token=` + splitUserName(uuid).userName,
+            `https://${domain}/api/v1/server/token?token=` + token,
         )
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
