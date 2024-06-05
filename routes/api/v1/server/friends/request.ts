@@ -7,7 +7,7 @@ export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
         const { userName, uuid, requirement,token } = data
-        console.log(data)
+        console.log(userName, uuid, requirement,token)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
