@@ -10,7 +10,7 @@ export const handler = {
         console.log(uuid)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
-            `https://${domain}/api/v1/server/token?token=` + userid,
+            `https://${domain}/api/v1/server/token?token=` + splitUserName(uuid).userName,
         )
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
