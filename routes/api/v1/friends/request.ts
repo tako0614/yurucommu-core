@@ -327,7 +327,7 @@ export const handler = {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              userName: userName,
+              userName: ctx.state.data.userName,
               uuid: ctx.state.data.userid,
               requirement: "reqFriend",
               friendName: friendName,
