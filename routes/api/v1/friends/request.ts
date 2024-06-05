@@ -249,7 +249,7 @@ export const handler = {
         status: 200,
       })
     } else if (data.type === "userName") {
-      const userName = ctx.state.data.userName
+      //const userName = ctx.state.data.userName
       const friendName = data.friendName
       console.log("aaaa")
       console.log(friendName)
