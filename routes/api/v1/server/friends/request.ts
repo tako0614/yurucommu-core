@@ -8,7 +8,6 @@ export const handler = {
         const data = await req.json()
         const { userid, uuid, requirement,token } = data
         console.log(userid)
-        console.log(uuid)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
