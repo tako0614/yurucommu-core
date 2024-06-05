@@ -17,7 +17,7 @@ export const handler = {
     const data = await req.json()
     const rechapcha = data.rechapchaToken
     const isSecsusRechapcha = await fetch(
-      `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapcha}`,
+      `http://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${rechapcha}`,
     )
     const score = await isSecsusRechapcha.json()
     const requirments = data.requirments
