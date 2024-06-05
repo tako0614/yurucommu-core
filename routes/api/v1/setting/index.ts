@@ -1,9 +1,6 @@
 import { getCookies } from "$std/http/cookie.ts"
 import csrftoken from "../../../../models/csrftoken.ts"
 import Users from "../../../../models/users.ts"
-import sharp from "sharp"
-import { decode, Image } from "https://deno.land/x/imagescript@1.3.0/mod.ts"
-import { fileTypeFromFile } from "file-type"
 export const handler = {
   async POST(req: Request, ctx: any) {
     try {
