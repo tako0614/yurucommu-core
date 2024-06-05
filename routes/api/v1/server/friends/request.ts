@@ -6,8 +6,8 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { userid, uuid, requirement,token } = data
-        console.log(userid)
+        const { userName, uuid, requirement,token } = data
+        console.log(userName)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
@@ -17,7 +17,7 @@ export const handler = {
         }
         const isAlredyAuth = await externalUsers.findOne({ uuid })
         if (isAlredyAuth === null || isAlredyAuth === undefined) {
-            await externalUsers.create({ uuid: uuid, domain, userName: userid })
+            await externalUsers.create({ uuid: uuid, domain, userName })
         }
         if(requirement === "reqFriend") {
             const { friendName } = data
