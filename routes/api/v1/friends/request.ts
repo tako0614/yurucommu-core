@@ -332,6 +332,7 @@ export const handler = {
               requirement: "reqFriend",
               recipientUserName: friendName,
               token: takosToken,
+              serverDomain: env["serverDomain"],
             }),
           })
           console.log(requestResult)

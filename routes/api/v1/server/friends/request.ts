@@ -5,16 +5,21 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { userName, requesterUserUUID,recipientUserName, requirement,token } = data
+        const {requirement,token, serverDomain } = data
         //console.log(userName, uuid, requirement,token)
-        const domain = splitUserName(requesterUserUUID).domain
+        const domain = serverDomain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
         )
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
+        if(requirement === "AcceptReqFriend") {
+            //
+
+        }
         if(requirement === "reqFriend") {
+            const { userName, requesterUserUUID,recipientUserName, requirement,token } = data
             const friendDomain = splitUserName(recipientUserName).domain
             //申請先のユーザーがこのサーバーのユーザーか
             console.log(env["serverDomain"],friendDomain)
