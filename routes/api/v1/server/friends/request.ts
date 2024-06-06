@@ -1,4 +1,3 @@
-import externalUsers from "../../../../../models/externalUsers.ts"
 import users from "../../../../../models/users.ts"
 import requestAddFriend from "../../../../../models/reqestAddFriend.ts"
 import { load } from "$std/dotenv/mod.ts"
@@ -7,17 +6,13 @@ export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
         const { userName, uuid, requirement,token } = data
-        console.log(userName, uuid, requirement,token)
+        //console.log(userName, uuid, requirement,token)
         const domain = splitUserName(uuid).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
         )
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        const isAlredyAuth = await externalUsers.findOne({ uuid })
-        if (isAlredyAuth === null || isAlredyAuth === undefined) {
-            await externalUsers.create({ uuid: uuid, domain, userName })
         }
         if(requirement === "reqFriend") {
             const { friendName } = data

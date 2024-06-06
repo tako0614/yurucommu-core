@@ -1,6 +1,5 @@
 import rooms from "../../../../../models/rooms.ts"
 import messages from "../../../../../models/messages.ts"
-import externalUsers from "../../../../../models/externalUsers.ts"
 import redis from "redis"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
@@ -40,10 +39,6 @@ export const handler = {
     const uuidDomain = splitUserName(uuid).domain
     if (uuidDomain !== domain) {
       return new Response(JSON.stringify({ status: false }), { status: 400 })
-    }
-    const isAlredyAuth = await externalUsers.findOne({ uuid })
-    if (isAlredyAuth === null || isAlredyAuth === undefined) {
-      await externalUsers.create({ uuid: uuid, domain, userName })
     }
     await messages.create({
       userid: uuid,
