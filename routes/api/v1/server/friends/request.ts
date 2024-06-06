@@ -46,7 +46,7 @@ export const handler = {
                 })
             }
             const result = await requestAddFriend.updateOne(
-                { userid: friendInfo.uuid },
+                { userID: friendInfo.uuid },
                 { $push: { Applicant: { userID: requesterUserUUID, type: "other", timestamp: Date.now(), host: domain, userName } } },
             )
             if (result === null) {
