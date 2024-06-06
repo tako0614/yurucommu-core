@@ -328,9 +328,9 @@ export const handler = {
             },
             body: JSON.stringify({
               userName: ctx.state.data.userName,
-              uuid: ctx.state.data.userid,
+              requesterUserUUID: ctx.state.data.userid,
               requirement: "reqFriend",
-              friendName: friendName,
+              recipientUserName: friendName,
               token: takosToken,
             }),
           })

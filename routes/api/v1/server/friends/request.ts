@@ -5,9 +5,10 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { userName, uuid, requirement,token } = data
+        const { userName, requesterUserUUID,recipientUserName, requirement,token } = data
         //console.log(userName, uuid, requirement,token)
-        const domain = splitUserName(uuid).domain
+        console.log(requesterUserUUID)
+        const domain = splitUserName(requesterUserUUID).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
         )
@@ -15,21 +16,21 @@ export const handler = {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
         if(requirement === "reqFriend") {
-            const { friendName } = data
-            const friendDomain = splitUserName(friendName).domain
+            const friendDomain = splitUserName(recipientUserName).domain
             //申請先のユーザーがこのサーバーのユーザーか
             if(friendDomain !== env["serverDomain"]) {
                 console.log("friendDomain error")
                 return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
             //このサーバーに存在するのか
-            const friendInfo = await users.findOne({ userName: splitUserName(friendName).userName })
+            const friendInfo = await users.findOne({ userName: splitUserName(recipientUserName).userName })
             if (friendInfo === null) {
                 return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
+            console.log(friendInfo.uuid)
             //すでに友達か
             const userFriendInfo = await requestAddFriend.findOne({
-                userID: uuid,
+                userID: requesterUserUUID,
             })
             if (userFriendInfo !== null) {
                 const isFriend = userFriendInfo.Applicant.find((obj) => obj.userID === friendInfo.uuid)
@@ -48,7 +49,7 @@ export const handler = {
             }
             await requestAddFriend.updateOne(
                 { userid: friendInfo.uuid },
-                { $push: { Applicant: { userID: uuid, type: "external", timestamp: Date.now() } } },
+                { $push: { Applicant: { userID: requesterUserUUID, type: "external", timestamp: Date.now() } } },
             )
             return new Response(JSON.stringify({ status: true }), { status: 200 })
         }
