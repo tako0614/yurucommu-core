@@ -253,7 +253,7 @@ export const handler = {
       const friendName = data.friendName
       console.log("aaaa")
       console.log(friendName)
-      if(!friendName) {
+      if (!friendName) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
           status: 400,
@@ -267,8 +267,10 @@ export const handler = {
         })
       }
       try {
-        if(friendDomain == env["serverDomain"]) {
-          const friendInfo = await users.findOne({ userName: splitUserName(friendName)?.name })
+        if (friendDomain == env["serverDomain"]) {
+          const friendInfo = await users.findOne({
+            userName: splitUserName(friendName)?.name,
+          })
           if (!friendInfo) {
             return new Response(JSON.stringify({ status: "error" }), {
               headers: { "Content-Type": "application/json" },
@@ -285,11 +287,27 @@ export const handler = {
           }
           await requestAddFriend.updateOne(
             { userID: friendInfo.uuid },
-            { $push: { Applicant: { userID: userid, type: "local", timestamp: Date.now() } } },
+            {
+              $push: {
+                Applicant: {
+                  userID: userid,
+                  type: "local",
+                  timestamp: Date.now(),
+                },
+              },
+            },
           )
           await requestAddFriend.updateOne(
             { userID: userid },
-            { $push: { AppliedUser: { userID: friendInfo.uuid, type: "local", timestamp: Date.now() } } },
+            {
+              $push: {
+                AppliedUser: {
+                  userID: friendInfo.uuid,
+                  type: "local",
+                  timestamp: Date.now(),
+                },
+              },
+            },
           )
           return new Response(JSON.stringify({ status: "success" }), {
             headers: { "Content-Type": "application/json" },
@@ -301,18 +319,24 @@ export const handler = {
           if (myFriendInfo == null) {
             await Friends.create({ user: userid })
           }
-          const isAlredyFriend = myFriendInfo?.friends.some((friend: any) => friend.userid === friendName)
+          const isAlredyFriend = myFriendInfo?.friends.some((friend: any) =>
+            friend.userid === friendName
+          )
           if (isAlredyFriend) {
             return new Response(JSON.stringify({ status: "error" }), {
               headers: { "Content-Type": "application/json" },
               status: 400,
             })
           }
-          const isAlredyRequest = await requestAddFriend.findOne({ userID: userid })
+          const isAlredyRequest = await requestAddFriend.findOne({
+            userID: userid,
+          })
           if (isAlredyRequest == null) {
             await requestAddFriend.create({ userID: userid })
           }
-          const isAlredyRequested = isAlredyRequest?.Applicant.some((applicant: any) => applicant.userID === friendName)
+          const isAlredyRequested = isAlredyRequest?.Applicant.some((
+            applicant: any,
+          ) => applicant.userID === friendName)
           if (isAlredyRequested) {
             return new Response(JSON.stringify({ status: "error" }), {
               headers: { "Content-Type": "application/json" },
@@ -321,26 +345,37 @@ export const handler = {
           }
           const takosToken = crypto.randomUUID()
           await takostoken.create({ token: takosToken, userid: userid })
-          const requestResult = await fetch(`http://${serverDomain}/api/v1/server/friends/request`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+          const requestResult = await fetch(
+            `http://${serverDomain}/api/v1/server/friends/request`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                userName: ctx.state.data.userName,
+                requesterUserUUID: ctx.state.data.userid,
+                requirement: "reqFriend",
+                recipientUserName: friendName,
+                token: takosToken,
+                serverDomain: env["serverDomain"],
+              }),
             },
-            body: JSON.stringify({
-              userName: ctx.state.data.userName,
-              requesterUserUUID: ctx.state.data.userid,
-              requirement: "reqFriend",
-              recipientUserName: friendName,
-              token: takosToken,
-              serverDomain: env["serverDomain"],
-            }),
-          })
+          )
           console.log(requestResult)
           if (requestResult.status === 200) {
             //ApplicantedUserに追加
             await requestAddFriend.updateOne(
               { userID: userid },
-              { $push: { AppliedUser: { userID: friendName, type: "external", timestamp: Date.now() } } },
+              {
+                $push: {
+                  AppliedUser: {
+                    userID: friendName,
+                    type: "external",
+                    timestamp: Date.now(),
+                  },
+                },
+              },
             )
             return new Response(JSON.stringify({ status: "success" }), {
               headers: { "Content-Type": "application/json" },

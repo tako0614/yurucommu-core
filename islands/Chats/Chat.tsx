@@ -119,7 +119,7 @@ function ChatAddFriendList(props: any) {
       <div class="p-talk-list-rooms">
         <h1 class="text-lg">友達を追加</h1>
         <ul class="p-talk-list-rooms__ul" id="friendList">
-        <RequestFriendById />
+          <RequestFriendById />
           <User userName="QRコードで追加" latestMessage="" />
           <GetAddFriendKey></GetAddFriendKey>
         </ul>
