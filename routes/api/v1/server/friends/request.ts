@@ -7,7 +7,6 @@ export const handler = {
         const data = await req.json()
         const { userName, requesterUserUUID,recipientUserName, requirement,token } = data
         //console.log(userName, uuid, requirement,token)
-        console.log(requesterUserUUID)
         const domain = splitUserName(requesterUserUUID).domain
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
@@ -27,7 +26,6 @@ export const handler = {
             if (friendInfo === null) {
                 return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
-            console.log(friendInfo.uuid)
             //すでに友達か
             const userFriendInfo = await requestAddFriend.findOne({
                 userID: requesterUserUUID,
@@ -47,10 +45,14 @@ export const handler = {
                     userID: friendInfo.uuid,
                 })
             }
-            await requestAddFriend.updateOne(
+            const result = await requestAddFriend.updateOne(
                 { userid: friendInfo.uuid },
-                { $push: { Applicant: { userID: requesterUserUUID, type: "external", timestamp: Date.now() } } },
+                { $push: { Applicant: { userID: requesterUserUUID, type: "other", timestamp: Date.now(), host: domain, userName } } },
             )
+            if (result === null) {
+                return new Response(JSON.stringify({ status: false }), { status: 400 })
+            }
+            console.log(result)
             return new Response(JSON.stringify({ status: true }), { status: 200 })
         }
     }
