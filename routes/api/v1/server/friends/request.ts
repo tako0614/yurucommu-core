@@ -19,6 +19,7 @@ export const handler = {
             const friendDomain = splitUserName(friendName).domain
             //申請先のユーザーがこのサーバーのユーザーか
             if(friendDomain !== env["serverDomain"]) {
+                console.log("friendDomain error")
                 return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
             //このサーバーに存在するのか
