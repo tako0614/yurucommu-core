@@ -17,7 +17,8 @@ export const handler = {
         if(requirement === "reqFriend") {
             const friendDomain = splitUserName(recipientUserName).domain
             //申請先のユーザーがこのサーバーのユーザーか
-            if(friendDomain !== env["serverDomain"]) {
+            console.log(env["serverDomain"],friendDomain)
+            if(friendDomain === env["serverDomain"]) {
                 console.log("friendDomain error")
                 return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
