@@ -3,6 +3,7 @@ interface InputProps {
   value: string
   setValue: (value: string) => void
   origin: string
+  setShowModal: (value: boolean) => void
 }
 
 export default function RegisterForm(props: any) {
@@ -54,6 +55,7 @@ export default function RegisterForm(props: any) {
                   value={value}
                   setValue={setValue}
                   origin={props.origin}
+                  setShowModal={setShowModal}
                 />
               </div>
             </div>
@@ -66,6 +68,7 @@ export default function RegisterForm(props: any) {
 function Input({
   value,
   setValue,
+  setShowModal,
 }: InputProps) {
   return (
     <>
@@ -104,7 +107,10 @@ function Input({
                 }),
               })
               const res = await result.json()
-              console.log(res)
+              if(res.status == "success") {
+                alert("リクエストを送信しました")
+                setShowModal(false)
+              }
             }
             }
             type="submit"
