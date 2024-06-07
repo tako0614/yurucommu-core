@@ -370,7 +370,7 @@ export const handler = {
                 $push: {
                   AppliedUser: {
                     userID: friendName,
-                    type: "external",
+                    type: "other",
                     timestamp: Date.now(),
                   },
                 },
