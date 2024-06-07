@@ -353,12 +353,11 @@ export const handler = {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                userName: ctx.state.data.userName,
+                requesterUserName: ctx.state.data.userName,
                 requesterUserUUID: ctx.state.data.userid,
                 requirement: "reqFriend",
                 recipientUserName: friendName,
                 token: takosToken,
-                serverDomain: env["serverDomain"],
               }),
             },
           )

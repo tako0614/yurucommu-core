@@ -1,45 +1,39 @@
 import users from "../../../../../models/users.ts"
 import requestAddFriend from "../../../../../models/reqestAddFriend.ts"
+/*
+リクエスト元のユーザー名：requesterUsername
+リクエスト先のユーザー名：recipientUsername
+*/
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
     const data = await req.json()
-    const { requirement, token, serverDomain } = data
-    //console.log(userName, uuid, requirement,token)
-    const domain = serverDomain
-    const isTrueToken = await fetch(
-      `http://${domain}/api/v1/server/token?token=` + token,
-    )
-    if (isTrueToken.status !== 200) {
-      return new Response(JSON.stringify({ status: false }), { status: 400 })
-    }
-    if (requirement === "AcceptReqFriend") {
-      //
-    }
-    if (requirement === "reqFriend") {
-      const {
-        userName,
-        requesterUserUUID,
-        recipientUserName,
-        requirement,
-        token,
-      } = data
-      const friendDomain = splitUserName(recipientUserName).domain
-      //申請先のユーザーがこのサーバーのユーザーか
-      console.log(env["serverDomain"], friendDomain)
-      if (friendDomain !== env["serverDomain"]) {
-        console.log("friendDomain error")
-        return new Response(JSON.stringify({ status: false }), { status: 400 })
-      }
-      //このサーバーに存在するのか
-      const friendInfo = await users.findOne({
-        userName: splitUserName(recipientUserName).userName,
-      })
-      if (friendInfo === null) {
-        return new Response(JSON.stringify({ status: false }), { status: 400 })
-      }
-      //すでに友達か
+    const { requirement, token} = data
+    if(requirement === "reqFriend") {
+        const { requesterUserUUID, recipientUserName,requesterUserName } = data
+        if(requesterUserUUID === undefined || recipientUserName === undefined || requesterUserName === undefined){
+          return new Response(JSON.stringify({ status: false }), { status: 400 })
+        }
+        const friendDomain = splitUserName(recipientUserName).domain
+        const userDomain = splitUserName(requesterUserName).domain
+        if(friendDomain !== userDomain || userDomain !== env["serverDomain"]){
+          return new Response(JSON.stringify({ status: false }), { status: 400 })
+        }
+        const isTrueToken = await fetch(
+            `http://${userDomain}/api/v1/server/token?token=` + token,
+        )
+        const isTrueTokenJson = await isTrueToken.json()
+        if(isTrueTokenJson.status !== true){
+          return new Response(JSON.stringify({ status: false }), { status: 400 })
+        }
+        const friendInfo = await users.findOne({
+            userName: splitUserName(recipientUserName).userName,
+        })
+        if (friendInfo === null) {
+            return new Response(JSON.stringify({ status: false }), { status: 400 })
+        }
+              //すでに友達か
       const userFriendInfo = await requestAddFriend.findOne({
         userID: requesterUserUUID,
       })
@@ -70,8 +64,8 @@ export const handler = {
               userID: requesterUserUUID,
               type: "other",
               timestamp: Date.now(),
-              host: domain,
-              userName,
+              host: userDomain,
+              userName: requesterUserName,
             },
           },
         },
