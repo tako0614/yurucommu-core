@@ -14,7 +14,8 @@ export const sessionidSchema = new mongoose.Schema({
     type: Date,
     required: true,
     default: Date.now,
-    expires: 60 * 60 * 24 * 3,
+    //バグってるから後で直す
+    //expires: 60 * 60 * 24 * 3,
   },
   createdAt: {
     type: Date,

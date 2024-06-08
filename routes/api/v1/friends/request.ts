@@ -76,11 +76,9 @@ export const handler = {
     }
     if (data.type === "acceptRequest") {
       const { friendName } = data
-      console.log(friendName)
       const splitFriendName = splitUserName(friendName)
       if (!splitFriendName || splitFriendName.domain !== env["serverDomain"]) {
-        console.log("Not local user")
-        //Other server's user
+        console.log("にゃ！")
         return
       }
       const friendInfo = await Users.findOne({ userName: splitFriendName.name })
