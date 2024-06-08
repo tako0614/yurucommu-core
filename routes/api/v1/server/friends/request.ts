@@ -114,20 +114,17 @@ export const handler = {
       ) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-      console.log("false1")
       if (
         !isUserID(recipientUserName) ||
         !isUserID(requesterUserUUID)
       ) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-        console.log("false2")
       const friendDomain = splitUserName(recipientUserName).domain
       const userDomain = splitUserName(requesterUserUUID).domain
       if (userDomain == env["serverDomain"] || friendDomain == userDomain) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-        console.log("false3")
       const isTrueToken = await fetch(
         `http://${userDomain}/api/v1/server/token?token=` + token,
       )
@@ -135,7 +132,7 @@ export const handler = {
       if (isTrueTokenJson.status !== true) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-        console.log("false4")
+      console.log("acceptReqFriend")
       //リクエストを送っていたか
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
