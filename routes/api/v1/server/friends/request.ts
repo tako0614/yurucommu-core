@@ -42,11 +42,11 @@ export const handler = {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
       const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
-        host: userDomain,
+        serverDomain: userDomain,
       })
         if (isAlreadyCreateRemoteServerTable === null) {
             await remoteservers.create({
-            host: userDomain,
+            serverDomain: userDomain,
             friends: [
                 {
                 userid: requesterUserUUID,
@@ -63,7 +63,7 @@ export const handler = {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
             await remoteservers.updateOne(
-            { host: userDomain },
+            { serverDomain: userDomain },
             {
                 $push: {
                 friends: {
@@ -168,11 +168,11 @@ export const handler = {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
       const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
-        host: userDomain,
+        serverDomain: userDomain,
       })
         if (isAlreadyCreateRemoteServerTable === null) {
             await remoteservers.create({
-            host: userDomain,
+            serverDomain: userDomain,
             friends: [
                 {
                 userid: requesterUserUUID,
@@ -189,7 +189,7 @@ export const handler = {
             return new Response(JSON.stringify({ status: false }), { status: 400 })
             }
             await remoteservers.updateOne(
-            { host: userDomain },
+            { serverDomain: userDomain },
             {
                 $push: {
                 friends: {
