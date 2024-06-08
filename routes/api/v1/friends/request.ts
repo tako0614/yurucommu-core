@@ -7,6 +7,7 @@ import rooms from "../../../../models/rooms.ts"
 import users from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
+import { crypto } from "$std/crypto/mod.ts"
 const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
@@ -78,10 +79,49 @@ export const handler = {
       const { friendName } = data
       const splitFriendName = splitUserName(friendName)
       if (!splitFriendName || splitFriendName.domain !== env["serverDomain"]) {
-        console.log("にゃ！")
-        return
+        const ApplientedUserInfo = await requestAddFriend.findOne({
+          userID: ctx.state.data.userid,
+        })
+        if (!ApplientedUserInfo) {
+          return new Response(JSON.stringify({ status: "error" }), {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          })
+        }
+        const isRequested = ApplientedUserInfo.AppliedUser.some(
+          (applicant: any) => applicant.userID === friendName,
+        )
+        if (!isRequested) {
+          return new Response(JSON.stringify({ status: "error" }), {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          })
+        }
+        //ランダムな文字列を生成
+        const takosTokenArray = new Uint8Array(16)
+        const randomarray = crypto.getRandomValues(takosTokenArray)
+        const takosToken = Array.from(randomarray,(byte) => byte.toString(16).padStart(2, "0"),).join("")
+        await takostoken.create({ token: takosToken, userid: userid })
+        const requestResult = await fetch(
+          `http://${splitFriendName?.domain}/api/v1/server/friends/request`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              requesterUserName: ctx.state.data.userName + "@" +
+                env["serverDomain"],
+              requesterUserUUID: ctx.state.data.userid,
+              requirement: "acceptReqFriend",
+              recipientUserName: friendName,
+              token: takosToken,
+            }),
+          },
+        )
+        console.log(requestResult)
       }
-      const friendInfo = await Users.findOne({ userName: splitFriendName.name })
+      const friendInfo = await Users.findOne({ userName: splitFriendName?.name })
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
@@ -304,6 +344,7 @@ export const handler = {
               },
             },
           )
+
           return new Response(JSON.stringify({ status: "success" }), {
             headers: { "Content-Type": "application/json" },
             status: 200,
