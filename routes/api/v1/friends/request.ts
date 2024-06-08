@@ -348,7 +348,7 @@ export const handler = {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                requesterUserName: ctx.state.data.userName,
+                requesterUserName: ctx.state.data.userName + "@" + env["serverDomain"],
                 requesterUserUUID: ctx.state.data.userid,
                 requirement: "reqFriend",
                 recipientUserName: friendName,

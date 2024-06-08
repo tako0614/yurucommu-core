@@ -21,6 +21,7 @@ export const handler = {
       const friendDomain = splitUserName(recipientUserName).domain
       const userDomain = splitUserName(requesterUserName).domain
       if (friendDomain !== userDomain || userDomain !== env["serverDomain"]) {
+        console.log(friendDomain, userDomain, env["serverDomain"], requesterUserName)
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
       const isTrueToken = await fetch(
