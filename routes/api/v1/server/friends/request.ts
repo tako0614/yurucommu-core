@@ -190,6 +190,7 @@ export const handler = {
         timestamp: Date.now(),
       })
       //友達リストに追加
+      console.log(friendInfo.uuid)
       const result2 = await friends.findOneAndUpdate(
         { userID: friendInfo.uuid },
         {
