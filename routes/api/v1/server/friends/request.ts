@@ -204,6 +204,8 @@ export const handler = {
         },
       )
       if (result2 === null) {
+        console.log("5")
+        console.log(result2)
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
       //roomidと友達のuuidを返す
