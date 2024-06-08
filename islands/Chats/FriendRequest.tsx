@@ -183,7 +183,11 @@ const VideoList = () => {
     const fetchData = async () => {
       const res = await fetch("/api/v1/friends/reqLists")
       const response = await res.json()
-      console.log(response)
+      //response.resultが空の配列の場合、setItems([])を実行
+      if (response.result.length === 0) {
+        setItems([])
+        return
+      }
       setItems(response.result)
     }
     fetchData()
