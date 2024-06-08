@@ -9,6 +9,7 @@ import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { crypto } from "$std/crypto/mod.ts"
 import App from "../../../_app.tsx"
+import friends from "../../../../models/friends.ts"
 const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
@@ -125,8 +126,56 @@ export const handler = {
             }),
           },
         )
-        console.log("↓↓これレスポンス↓↓")
-        console.log(requestResult)
+        if(requestResult.status !== 200){
+          return new Response(JSON.stringify({ status: "error" }), {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          })
+        }
+        const requestResultJson = await requestResult.json()
+        if(requestResultJson.status !== true){
+          return new Response(JSON.stringify({ status: "error" }), {
+            headers: { "Content-Type": "application/json" },
+            status: 403,
+          })
+        }
+        const { roomID, friendUUID } = requestResultJson
+        await requestAddFriend.updateOne(
+          { userID: userid },
+          { $pull: { Applicant: { userName: splitFriendName?.name } } },
+        )
+        const result1 = await rooms.create({
+          uuid: roomID,
+          users: [
+            {
+              username: ctx.state.data.userName,
+              userid: userid,
+              host: env["serverDomain"],
+              type: "local",
+              domain: env["serverDomain"],
+            },
+            {
+              username: splitFriendName?.name,
+              userid: friendUUID,
+              host: splitFriendName?.domain,
+              type: "other",
+              domain: splitFriendName?.domain,
+            },
+          ],
+          messages: [],
+          types: "friend",
+          latestmessage: "",
+          latestMessageTime: Date.now(),
+        })
+        const isAlreadyCreateFriendTable = await Friends.findOne({ user: userid })
+        if (!isAlreadyCreateFriendTable) {
+          await Friends.create({ user: userid })
+        }
+        const result2 = await friends.updateOne(
+          { user: userid },
+          { $push: { friends: { userid: friendUUID,room: roomID,type: "other" } } },
+        )
+        console.log(result1)
         return new Response(JSON.stringify({ status: "success" }), {
           headers: { "Content-Type": "application/json" },
           status: 200,
@@ -412,7 +461,7 @@ export const handler = {
               }),
             },
           )
-          console.log(requestResult)
+          
           if (requestResult.status === 200) {
             //ApplicantedUserに追加
             await requestAddFriend.updateOne(

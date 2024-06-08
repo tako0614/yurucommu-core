@@ -2,6 +2,7 @@ import users from "../../../../../models/users.ts"
 import requestAddFriend from "../../../../../models/reqestAddFriend.ts"
 import friends from "../../../../../models/friends.ts"
 import rooms from "../../../../../models/rooms.ts"
+import remoteservers from "../../../../../models/remoteServers.ts"
 import { crypto } from "$std/crypto/crypto.ts"
 /*
 リクエスト元のユーザー名：requesterUsername
@@ -40,6 +41,40 @@ export const handler = {
       if (isTrueTokenJson.status !== true) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
+      const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
+        host: userDomain,
+      })
+        if (isAlreadyCreateRemoteServerTable === null) {
+            await remoteservers.create({
+            host: userDomain,
+            friends: [
+                {
+                userid: requesterUserUUID,
+                userName: splitUserName(requesterUserName).userName,
+                timestamp: Date.now(),
+                },
+            ]
+            })
+        } else {
+            const isAlreadyFriend = isAlreadyCreateRemoteServerTable.friends.find(
+            (obj) => obj.userid === requesterUserUUID
+            )
+            if (isAlreadyFriend !== undefined) {
+            return new Response(JSON.stringify({ status: false }), { status: 400 })
+            }
+            await remoteservers.updateOne(
+            { host: userDomain },
+            {
+                $push: {
+                friends: {
+                    userid: requesterUserUUID,
+                    userName: splitUserName(requesterUserName).userName,
+                    timestamp: Date.now(),
+                },
+                },
+            },
+            )
+        }
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
       })
