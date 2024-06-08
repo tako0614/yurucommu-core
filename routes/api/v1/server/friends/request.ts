@@ -132,24 +132,26 @@ export const handler = {
       if (isTrueTokenJson.status !== true) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-      console.log("acceptReqFriend")
-      //リクエストを送っていたか
+      //リクエストを送っていたか↓↓ここより下でエラー
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
       })
       if (friendInfo === null) {
+        console.log("1")
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
         const userFriendInfo = await requestAddFriend.findOne({
             userID: friendInfo.uuid,
         })
         if (userFriendInfo === null) {
+            console.log("2")
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
         const isFriend = userFriendInfo.Applicant.find((obj) =>
             obj.userID === requesterUserUUID
         )
         if (isFriend === undefined) {
+            console.log("3")
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
         //リクエストリストから削除
@@ -164,6 +166,7 @@ export const handler = {
             },
         )
         if (result === null) {
+            console.log("4")
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
         //roomを作成
