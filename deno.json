@@ -41,7 +41,9 @@
   },
   "fmt": {
     "semiColons": false,
-    "exclude": ["fresh.gen.ts", "node_moduls/"]
+    "exclude": ["fresh.gen.ts", "node_moduls/"],
+    "indentWidth": 2,
+    "lineWidth": 80
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
   "exclude": ["**/_fresh/*"]
