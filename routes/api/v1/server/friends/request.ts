@@ -103,6 +103,7 @@ export const handler = {
       console.log(result)
       return new Response(JSON.stringify({ status: true }), { status: 200 })
     } else if (requirement === "acceptReqFriend") {
+        console.log("acceptReqFriend")
       /*
         リクエスト元のユーザー名：requesterUserUUID
         リクエスト先のユーザー名：recipientUsername

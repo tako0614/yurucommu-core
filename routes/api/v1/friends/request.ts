@@ -8,6 +8,7 @@ import users from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { crypto } from "$std/crypto/mod.ts"
+import App from "../../../_app.tsx"
 const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
@@ -88,8 +89,8 @@ export const handler = {
             status: 403,
           })
         }
-        const isRequested = ApplientedUserInfo.AppliedUser.some(
-          (applicant: any) => applicant.userID === friendName,
+        const isRequested = ApplientedUserInfo.Applicant.some(
+          (applicant: any) => applicant.userName === splitUserName(friendName)?.name && applicant.host === splitUserName(friendName)?.domain,
         )
         if (!isRequested) {
           return new Response(JSON.stringify({ status: "error" }), {
@@ -121,7 +122,12 @@ export const handler = {
         )
         console.log("↓↓これレスポンス↓↓")
         console.log(requestResult)
+        return new Response(JSON.stringify({ status: "success" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        })
       }
+      console.log("local")
       const friendInfo = await Users.findOne({ userName: splitFriendName?.name })
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
