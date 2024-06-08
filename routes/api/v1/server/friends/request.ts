@@ -103,12 +103,12 @@ export const handler = {
       console.log(result)
       return new Response(JSON.stringify({ status: true }), { status: 200 })
     } else if (requirement === "acceptReqFriend") {
-        console.log("acceptReqFriend")
+      console.log("acceptReqFriend")
       /*
         リクエスト元のユーザー名：requesterUserUUID
         リクエスト先のユーザー名：recipientUsername
         */
-      const { requesterUserUUID, recipientUserName} = data
+      const { requesterUserUUID, recipientUserName, requesterUserName } = data
       if (
         requesterUserUUID === undefined || recipientUserName === undefined
       ) {
@@ -140,72 +140,81 @@ export const handler = {
         console.log("1")
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
-        const userFriendInfo = await requestAddFriend.findOne({
-            userID: friendInfo.uuid,
-        })
-        if (userFriendInfo === null) {
-            console.log("2")
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        const isFriend = userFriendInfo.AppliedUser.find((obj) => {
-            console.log(obj.userName === splitUserName(requesterUserUUID).userName,obj.host === splitUserName(requesterUserUUID).domain)
-            return obj.userName === splitUserName(requesterUserUUID).userName && obj.host === splitUserName(requesterUserUUID).domain
-            }
-        )
-        if (isFriend === undefined) {
-            console.log("3")
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        //リクエストリストから削除
-        const result = await requestAddFriend.updateOne(
-            { userID: friendInfo.uuid },
-            {
-                $pull: {
-                    AppliedUser: {
-                        userID: requesterUserUUID,
-                    },
-                },
+      const userFriendInfo = await requestAddFriend.findOne({
+        userID: friendInfo.uuid,
+      })
+      if (userFriendInfo === null) {
+        console.log("2")
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const isFriend = userFriendInfo.AppliedUser.find((obj) => {
+        return obj.userName === splitUserName(requesterUserName).userName &&
+          obj.host === splitUserName(requesterUserUUID).domain
+      })
+      if (isFriend === undefined) {
+        console.log("3")
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      //リクエストリストから削除
+      const result = await requestAddFriend.updateOne(
+        { userID: friendInfo.uuid },
+        {
+          $pull: {
+            AppliedUser: {
+              userID: requesterUserUUID,
             },
-        )
-        if (result === null) {
-            console.log("4")
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        //roomを作成
-        const roomIDarray = new Uint8Array(16)
-        const randomarray = crypto.getRandomValues(roomIDarray)
-        const roomid = Array.from(randomarray,(byte) => byte.toString(16).padStart(2, "0"),).join("")
-        await rooms.create({
-            uuid: roomid,
-            types: "friend",
-            users: [{
-                userid: requesterUserUUID,
-                type: "other"
-            }, {
-                userid: friendInfo.uuid,
-                type: "local"
-            }],
-            timestamp: Date.now(),
-        })
-        //友達リストに追加
-        const result2 = await friends.findOneAndUpdate(
-            { userID: friendInfo.uuid},
-            {
-                $push: {
-                    friends: {
-                        userid: requesterUserUUID,
-                        room: roomid,
-                        type: "other",
-                        timestamp: Date.now()
-                    }
-                }
-            }
-        )
-        if (result2 === null) {
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        //roomidと友達のuuidを返す
-        return new Response(JSON.stringify({ status: true, roomID: roomid, friendUUID: friendInfo.uuid }), { status: 200 })
+          },
+        },
+      )
+      if (result === null) {
+        console.log("4")
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      //roomを作成
+      const roomIDarray = new Uint8Array(16)
+      const randomarray = crypto.getRandomValues(roomIDarray)
+      const roomid = Array.from(
+        randomarray,
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("")
+      await rooms.create({
+        uuid: roomid,
+        types: "friend",
+        users: [{
+          userid: requesterUserUUID,
+          type: "other",
+        }, {
+          userid: friendInfo.uuid,
+          type: "local",
+        }],
+        timestamp: Date.now(),
+      })
+      //友達リストに追加
+      const result2 = await friends.findOneAndUpdate(
+        { userID: friendInfo.uuid },
+        {
+          $push: {
+            friends: {
+              userid: requesterUserUUID,
+              room: roomid,
+              type: "other",
+              timestamp: Date.now(),
+            },
+          },
+        },
+      )
+      if (result2 === null) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      //roomidと友達のuuidを返す
+      return new Response(
+        JSON.stringify({
+          status: true,
+          roomID: roomid,
+          friendUUID: friendInfo.uuid,
+        }),
+        { status: 200 },
+      )
     }
   },
 }

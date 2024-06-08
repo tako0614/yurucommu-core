@@ -90,7 +90,9 @@ export const handler = {
           })
         }
         const isRequested = ApplientedUserInfo.Applicant.some(
-          (applicant: any) => applicant.userName === splitUserName(friendName)?.name && applicant.host === splitUserName(friendName)?.domain,
+          (applicant: any) =>
+            applicant.userName === splitUserName(friendName)?.name &&
+            applicant.host === splitUserName(friendName)?.domain,
         )
         if (!isRequested) {
           return new Response(JSON.stringify({ status: "error" }), {
@@ -101,7 +103,10 @@ export const handler = {
         //ランダムな文字列を生成
         const takosTokenArray = new Uint8Array(16)
         const randomarray = crypto.getRandomValues(takosTokenArray)
-        const takosToken = Array.from(randomarray,(byte) => byte.toString(16).padStart(2, "0"),).join("")
+        const takosToken = Array.from(
+          randomarray,
+          (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("")
         await takostoken.create({ token: takosToken, userid: userid })
         const requestResult = await fetch(
           `http://${splitFriendName?.domain}/api/v1/server/friends/request`,
@@ -128,7 +133,9 @@ export const handler = {
         })
       }
       console.log("local")
-      const friendInfo = await Users.findOne({ userName: splitFriendName?.name })
+      const friendInfo = await Users.findOne({
+        userName: splitFriendName?.name,
+      })
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
