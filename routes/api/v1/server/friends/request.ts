@@ -147,8 +147,10 @@ export const handler = {
             console.log("2")
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
-        const isFriend = userFriendInfo.AppliedUser.find((obj) =>
-            obj.userName === splitUserName(requesterUserUUID).userName && obj.host === splitUserName(requesterUserUUID).domain
+        const isFriend = userFriendInfo.AppliedUser.find((obj) => {
+            console.log(obj.userName === splitUserName(requesterUserUUID).userName,obj.host === splitUserName(requesterUserUUID).domain)
+            return obj.userName === splitUserName(requesterUserUUID).userName && obj.host === splitUserName(requesterUserUUID).domain
+            }
         )
         if (isFriend === undefined) {
             console.log("3")
