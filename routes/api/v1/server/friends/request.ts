@@ -147,7 +147,7 @@ export const handler = {
             console.log("2")
             return new Response(JSON.stringify({ status: false }), { status: 400 })
         }
-        const isFriend = userFriendInfo.Applicant.find((obj) =>
+        const isFriend = userFriendInfo.AppliedUser.find((obj) =>
             obj.userID === requesterUserUUID
         )
         if (isFriend === undefined) {
@@ -159,7 +159,7 @@ export const handler = {
             { userID: friendInfo.uuid },
             {
                 $pull: {
-                    Applicant: {
+                    AppliedUser: {
                         userID: requesterUserUUID,
                     },
                 },
