@@ -413,7 +413,9 @@ export const handler = {
               {
                 $push: {
                   AppliedUser: {
-                    userID: friendName,
+                    userID: "unkonwn",
+                    userName: splitUserName(friendName)?.name,
+                    host: splitUserName(friendName)?.domain,
                     type: "other",
                     timestamp: Date.now(),
                   },
