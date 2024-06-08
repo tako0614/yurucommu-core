@@ -65,22 +65,7 @@ export default function RegisterForm() {
 }
 
 // Define the Input component
-function Input({ value, setValue }: any) {
-  const handleChangeUrl = (event: any) => {
-    event.preventDefault()
-    const updateUrl = async () => {
-      const resp = await fetch("/api/v1/chats/friendkey?reload=true")
-      const data = await resp.json()
-      console.log(data)
-      if (data.status === false) {
-        return
-      }
-      const url = origin + data.addFriendKey
-      setValue(url)
-    }
-    updateUrl()
-  }
-
+function Input() {
   return (
     <>
       <div class="w-full text-gray-900 text-sm rounded-lg h-16">

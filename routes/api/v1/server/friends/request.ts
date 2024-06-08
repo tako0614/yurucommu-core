@@ -9,31 +9,34 @@ const env = await load()
 export const handler = {
   async POST(req: Request, ctx: any) {
     const data = await req.json()
-    const { requirement, token} = data
-    if(requirement === "reqFriend") {
-        const { requesterUserUUID, recipientUserName,requesterUserName } = data
-        if(requesterUserUUID === undefined || recipientUserName === undefined || requesterUserName === undefined){
-          return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        const friendDomain = splitUserName(recipientUserName).domain
-        const userDomain = splitUserName(requesterUserName).domain
-        if(friendDomain !== userDomain || userDomain !== env["serverDomain"]){
-          return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        const isTrueToken = await fetch(
-            `http://${userDomain}/api/v1/server/token?token=` + token,
-        )
-        const isTrueTokenJson = await isTrueToken.json()
-        if(isTrueTokenJson.status !== true){
-          return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-        const friendInfo = await users.findOne({
-            userName: splitUserName(recipientUserName).userName,
-        })
-        if (friendInfo === null) {
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-        }
-              //すでに友達か
+    const { requirement, token } = data
+    if (requirement === "reqFriend") {
+      const { requesterUserUUID, recipientUserName, requesterUserName } = data
+      if (
+        requesterUserUUID === undefined || recipientUserName === undefined ||
+        requesterUserName === undefined
+      ) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const friendDomain = splitUserName(recipientUserName).domain
+      const userDomain = splitUserName(requesterUserName).domain
+      if (friendDomain !== userDomain || userDomain !== env["serverDomain"]) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const isTrueToken = await fetch(
+        `http://${userDomain}/api/v1/server/token?token=` + token,
+      )
+      const isTrueTokenJson = await isTrueToken.json()
+      if (isTrueTokenJson.status !== true) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const friendInfo = await users.findOne({
+        userName: splitUserName(recipientUserName).userName,
+      })
+      if (friendInfo === null) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      //すでに友達か
       const userFriendInfo = await requestAddFriend.findOne({
         userID: requesterUserUUID,
       })
@@ -75,6 +78,26 @@ export const handler = {
       }
       console.log(result)
       return new Response(JSON.stringify({ status: true }), { status: 200 })
+    } else if (requirement === "acceptReqFriend") {
+      const { requesterUserUUID, recipientUserName, requesterUserName } = data
+      if (
+        requesterUserUUID === undefined || recipientUserName === undefined ||
+        requesterUserName === undefined
+      ) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const friendDomain = splitUserName(recipientUserName).domain
+      const userDomain = splitUserName(requesterUserName).domain
+      if (friendDomain !== userDomain || userDomain !== env["serverDomain"]) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
+      const isTrueToken = await fetch(
+        `http://${userDomain}/api/v1/server/token?token=` + token,
+      )
+      const isTrueTokenJson = await isTrueToken.json()
+      if (isTrueTokenJson.status !== true) {
+        return new Response(JSON.stringify({ status: false }), { status: 400 })
+      }
     }
   },
 }

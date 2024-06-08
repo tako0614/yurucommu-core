@@ -174,9 +174,6 @@ export const handler = {
         status: 200,
       })
     }
-    if (data.type === "acceptRequest") {
-      // Handle friend request acceptance
-    }
     // only local user can add friend by key
     if (data.type === "AddFriendKey") {
       const { addFriendKey } = data

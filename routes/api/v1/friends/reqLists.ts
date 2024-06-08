@@ -43,6 +43,13 @@ export const handler = {
                 timestamp: obj.timestamp,
               }
             }
+            if (obj.type == "other") {
+              return {
+                userName: obj.userName + "@" + obj.host,
+                icon: `/people.png`,
+                timestamp: obj.timestamp,
+              }
+            }
           },
         ),
       )
