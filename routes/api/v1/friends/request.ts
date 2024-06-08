@@ -119,6 +119,7 @@ export const handler = {
             }),
           },
         )
+        console.log("↓↓これレスポンス↓↓")
         console.log(requestResult)
       }
       const friendInfo = await Users.findOne({ userName: splitFriendName?.name })
