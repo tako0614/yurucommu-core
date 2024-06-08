@@ -167,6 +167,40 @@ export const handler = {
       if (isTrueTokenJson.status !== true) {
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
+      const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
+        host: userDomain,
+      })
+        if (isAlreadyCreateRemoteServerTable === null) {
+            await remoteservers.create({
+            host: userDomain,
+            friends: [
+                {
+                userid: requesterUserUUID,
+                userName: splitUserName(requesterUserName).userName,
+                timestamp: Date.now(),
+                },
+            ]
+            })
+        } else {
+            const isAlreadyFriend = isAlreadyCreateRemoteServerTable.friends.find(
+            (obj) => obj.userid === requesterUserUUID
+            )
+            if (isAlreadyFriend !== undefined) {
+            return new Response(JSON.stringify({ status: false }), { status: 400 })
+            }
+            await remoteservers.updateOne(
+            { host: userDomain },
+            {
+                $push: {
+                friends: {
+                    userid: requesterUserUUID,
+                    userName: splitUserName(requesterUserName).userName,
+                    timestamp: Date.now(),
+                },
+                },
+            },
+            )
+        }
       //リクエストを送っていたか↓↓ここより下でエラー
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
