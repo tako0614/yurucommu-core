@@ -250,7 +250,7 @@ export const handler = {
       ).join("")
       await rooms.create({
         uuid: roomid,
-        types: "friend",
+        types: "remotefriend",
         users: [{
           userid: requesterUserUUID,
           type: "other",
