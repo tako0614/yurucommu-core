@@ -42,7 +42,6 @@ export const handler = {
     const userid = ctx.state.data.userid
     if (data.type === "rejectRequest") {
       const { friendName } = data
-      console.log(friendName)
       const friendInfo = await Users.findOne({ userName: friendName }) // Assuming 'userName' is a valid field in the 'users' object
       if (!friendInfo) {
         return new Response(JSON.stringify({ status: "error" }), {
@@ -126,6 +125,7 @@ export const handler = {
             }),
           },
         )
+        console.log(requestResult)
         if(requestResult.status !== 200){
           return new Response(JSON.stringify({ status: "error" }), {
             headers: { "Content-Type": "application/json" },
