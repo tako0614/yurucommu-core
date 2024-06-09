@@ -98,8 +98,18 @@ export const handler = {
                         const OtherServerUser = room.users.filter((user) =>
                             user.userid !== ctx.state.data.userid
                         )
+                        const OtherServerUserDomain = splitUserName(
+                            OtherServerUser[0].userid,
+                        ).domain
+                        const takosTokenArray = new Uint8Array(16)
+                        const randomarray = crypto.getRandomValues(takosTokenArray)
+                        const takosToken = Array.from(
+                            randomarray,
+                            (byte) => byte.toString(16).padStart(2, "0"),
+                        ).join("")
+                        const OtherServerUserInfo = await fetch(`https://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}`)
                         const result = {
-                            roomName: OtherServerUser[0].userid,
+                            roomName: OtherServerUserInfo.nickName,
                             lastMessage: room.latestmessage,
                             roomID: room.uuid,
                             type: "remote",
@@ -123,4 +133,11 @@ export const handler = {
             })
         }
     },
+}
+function splitUserName(userName) {
+    const split = userName.split("@")
+    return {
+        userName: split[0],
+        domain: split[1],
+    }
 }
