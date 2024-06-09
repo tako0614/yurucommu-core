@@ -11,7 +11,7 @@ export const roomsSchema = new mongoose.Schema({
   types: {
     type: String,
     required: true,
-    enum: ["group", "friend", "public","remotefriend"],
+    enum: ["group", "friend", "public", "remotefriend"],
   },
   users: {
     type: [

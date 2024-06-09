@@ -125,14 +125,14 @@ export const handler = {
             }),
           },
         )
-        if(requestResult.status !== 200){
+        if (requestResult.status !== 200) {
           return new Response(JSON.stringify({ status: "error" }), {
             headers: { "Content-Type": "application/json" },
             status: 403,
           })
         }
         const requestResultJson = await requestResult.json()
-        if(requestResultJson.status !== true){
+        if (requestResultJson.status !== true) {
           return new Response(JSON.stringify({ status: "error" }), {
             headers: { "Content-Type": "application/json" },
             status: 403,
@@ -166,13 +166,19 @@ export const handler = {
           latestmessage: "",
           latestMessageTime: Date.now(),
         })
-        const isAlreadyCreateFriendTable = await Friends.findOne({ user: userid })
+        const isAlreadyCreateFriendTable = await Friends.findOne({
+          user: userid,
+        })
         if (!isAlreadyCreateFriendTable) {
           await Friends.create({ user: userid })
         }
         const result2 = await friends.updateOne(
           { user: userid },
-          { $push: { friends: { userid: friendUUID,room: roomID,type: "other" } } },
+          {
+            $push: {
+              friends: { userid: friendUUID, room: roomID, type: "other" },
+            },
+          },
         )
         console.log(result1)
         return new Response(JSON.stringify({ status: "success" }), {

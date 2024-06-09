@@ -44,41 +44,42 @@ export const handler = {
       const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
         serverDomain: userDomain,
       })
-        if (isAlreadyCreateRemoteServerTable === null) {
-            await remoteservers.create({
-            serverDomain: userDomain,
-            friends: [
-                {
-                userid: requesterUserUUID,
-                userName: splitUserName(requesterUserName).userName,
-                timestamp: Date.now(),
-                },
-            ]
-            })
-        } else {
-            const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends.find(
+      if (isAlreadyCreateRemoteServerTable === null) {
+        await remoteservers.create({
+          serverDomain: userDomain,
+          friends: [
+            {
+              userid: requesterUserUUID,
+              userName: splitUserName(requesterUserName).userName,
+              timestamp: Date.now(),
+            },
+          ],
+        })
+      } else {
+        const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends
+          .find(
             (obj) => {
-                console.log(obj.userid, requesterUserUUID)
-                return obj.userid === requesterUserUUID
-            }
-            )
-            if (isAlreadyRegisterServer !== undefined) {
-                //
-            } else {
-                await remoteservers.updateOne(
-                    { serverDomain: userDomain },
-                    {
-                        $push: {
-                        friends: {
-                            userid: requesterUserUUID,
-                            userName: splitUserName(requesterUserName).userName,
-                            timestamp: Date.now(),
-                        },
-                        },
-                    },
-                    )
-            }
+              console.log(obj.userid, requesterUserUUID)
+              return obj.userid === requesterUserUUID
+            },
+          )
+        if (isAlreadyRegisterServer !== undefined) {
+          //
+        } else {
+          await remoteservers.updateOne(
+            { serverDomain: userDomain },
+            {
+              $push: {
+                friends: {
+                  userid: requesterUserUUID,
+                  userName: splitUserName(requesterUserName).userName,
+                  timestamp: Date.now(),
+                },
+              },
+            },
+          )
         }
+      }
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
       })
@@ -162,7 +163,7 @@ export const handler = {
       const friendDomain = splitUserName(recipientUserName).domain
       const userDomain = splitUserName(requesterUserUUID).domain
       if (userDomain == env["serverDomain"] || friendDomain == userDomain) {
-        console.log(userDomain, env["serverDomain"] , friendDomain)
+        console.log(userDomain, env["serverDomain"], friendDomain)
         console.log(requesterUserUUID, recipientUserName, requesterUserName)
         return new Response(JSON.stringify({ status: false }), { status: 400 })
       }
@@ -176,41 +177,42 @@ export const handler = {
       const isAlreadyCreateRemoteServerTable = await remoteservers.findOne({
         serverDomain: userDomain,
       })
-        if (isAlreadyCreateRemoteServerTable === null) {
-            await remoteservers.create({
-            serverDomain: userDomain,
-            friends: [
-                {
-                userid: requesterUserUUID,
-                userName: splitUserName(requesterUserName).userName,
-                timestamp: Date.now(),
-                },
-            ]
-            })
+      if (isAlreadyCreateRemoteServerTable === null) {
+        await remoteservers.create({
+          serverDomain: userDomain,
+          friends: [
+            {
+              userid: requesterUserUUID,
+              userName: splitUserName(requesterUserName).userName,
+              timestamp: Date.now(),
+            },
+          ],
+        })
+      } else {
+        const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends
+          .find(
+            (obj) => {
+              console.log(obj.userid, requesterUserUUID)
+              return obj.userid === requesterUserUUID
+            },
+          )
+        if (isAlreadyRegisterServer !== undefined) {
+          //
         } else {
-            const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends.find(
-                (obj) => {
-                    console.log(obj.userid, requesterUserUUID)
-                    return obj.userid === requesterUserUUID
-                }
-                )
-                if (isAlreadyRegisterServer !== undefined) {
-                    //
-                } else {
-                    await remoteservers.updateOne(
-                        { serverDomain: userDomain },
-                        {
-                            $push: {
-                            friends: {
-                                userid: requesterUserUUID,
-                                userName: splitUserName(requesterUserName).userName,
-                                timestamp: Date.now(),
-                            },
-                            },
-                        },
-                        )
-                }
+          await remoteservers.updateOne(
+            { serverDomain: userDomain },
+            {
+              $push: {
+                friends: {
+                  userid: requesterUserUUID,
+                  userName: splitUserName(requesterUserName).userName,
+                  timestamp: Date.now(),
+                },
+              },
+            },
+          )
         }
+      }
       //リクエストを送っていたか↓↓ここより下でエラー
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
