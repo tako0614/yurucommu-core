@@ -56,13 +56,13 @@ export const handler = {
             ]
             })
         } else {
-            const isAlreadyFriend = isAlreadyCreateRemoteServerTable.friends.find(
+            const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends.find(
             (obj) => {
                 console.log(obj.userid, requesterUserUUID)
                 return obj.userid === requesterUserUUID
             }
             )
-            if (isAlreadyFriend !== undefined) {
+            if (isAlreadyRegisterServer !== undefined) {
                 //
             } else {
                 await remoteservers.updateOne(
