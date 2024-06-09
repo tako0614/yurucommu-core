@@ -125,13 +125,6 @@ export const handler = {
             }),
           },
         )
-        console.log({
-          requesterUserName: ctx.state.data.userName + "@" + env["serverDomain"],
-          requesterUserUUID: ctx.state.data.userid,
-          requirement: "acceptReqFriend",
-          recipientUserName: friendName,
-          token: takosToken,
-        })
         if(requestResult.status !== 200){
           return new Response(JSON.stringify({ status: "error" }), {
             headers: { "Content-Type": "application/json" },
@@ -169,7 +162,7 @@ export const handler = {
             },
           ],
           messages: [],
-          types: "friend",
+          types: "remotefriend",
           latestmessage: "",
           latestMessageTime: Date.now(),
         })
@@ -355,8 +348,6 @@ export const handler = {
     } else if (data.type === "userName") {
       //const userName = ctx.state.data.userName
       const friendName = data.friendName
-      console.log("aaaa")
-      console.log(friendName)
       if (!friendName) {
         return new Response(JSON.stringify({ status: "error" }), {
           headers: { "Content-Type": "application/json" },
@@ -467,7 +458,7 @@ export const handler = {
               }),
             },
           )
-          
+          console.log(requestResult)
           if (requestResult.status === 200) {
             //ApplicantedUserに追加
             await requestAddFriend.updateOne(
