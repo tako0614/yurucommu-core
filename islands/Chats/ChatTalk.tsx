@@ -25,6 +25,7 @@ export default function ChatTalk(props: any) {
               setWs={props.setWs}
               setSessionid={props.setSessionid}
               setIsChoiceUser={props.setIsChoiceUser}
+              setRoomid={props.setRoomid}
             />
             <div class="p-talk-chat-send">
               <form class="p-talk-chat-send__form">
@@ -47,20 +48,18 @@ export default function ChatTalk(props: any) {
                 </div>
                 <div
                   class="p-talk-chat-send__file"
-                  onClick={
-                    async () => {
-                      if (Message) {
-                        const data = {
-                          type: "message",
-                          message: Message,
-                          roomid: props.roomid,
-                          sessionid: props.sessionid,
-                        }
-                        props.ws.send(JSON.stringify(data))
-                        setMessage("")
+                  onClick={async () => {
+                    if (Message) {
+                      const data = {
+                        type: "message",
+                        message: Message,
+                        roomid: props.roomid,
+                        sessionid: props.sessionid,
                       }
+                      props.ws.send(JSON.stringify(data))
+                      setMessage("")
                     }
-                  }
+                  }}
                 >
                   <img src="/ei-send.svg" alt="file" />
                 </div>
@@ -196,59 +195,73 @@ function TalkArea(props: any) {
       <div class="p-talk-chat-main" id="chat-area">
         <ul class="p-talk-chat-main__ul">
           {talkData.map((data: any) => {
-            if (DateState == undefined) {
-              DateState = data.time.split("T")[0]
-              return <ChatDate date={DateState} />
-            }
-            // DateStateが日付を超えているかどうかを確認
-            if (DateState != data.time.split("T")[0]) {
-              DateState = data.time.split("T")[0]
-              return <ChatDate date={DateState} />
-            }
+            //DateStateと日付が同じかどうか UTC+9で判定
+            const isEncodeDate = DateState != data.time.split("T")[0]
+            DateState = data.time.split("T")[0]
             if (data.type == "message") {
               if (data.sender == props.userName) {
                 if (SendPrimary) {
                   SendPrimary = false
                   OtherPrimary = true
                   return (
+                    <>
+                      {isEncodeDate && (
+                        <ChatDate date={data.time.split("T")[0]} />
+                      )}
+                      <ChatSendMessage
+                        message={data.message}
+                        time={data.time}
+                        isRead={data.isRead}
+                        isPrimary={true}
+                      />
+                    </>
+                  )
+                }
+                return (
+                  <>
+                    {isEncodeDate && (
+                      <ChatDate date={data.time.split("T")[0]} />
+                    )}
                     <ChatSendMessage
                       message={data.message}
                       time={data.time}
                       isRead={data.isRead}
-                      isPrimary={true}
+                      isPrimary={false}
                     />
-                  )
-                }
-                return (
-                  <ChatSendMessage
-                    message={data.message}
-                    time={data.time}
-                    isRead={data.isRead}
-                    isPrimary={false}
-                  />
+                  </>
                 )
               } else {
                 if (OtherPrimary) {
                   OtherPrimary = false
                   SendPrimary = true
                   return (
+                    <>
+                      {isEncodeDate && (
+                        <ChatDate date={data.time.split("T")[0]} />
+                      )}
+                      <ChatOtherMessage
+                        message={data.message}
+                        time={data.time}
+                        sender={data.sender}
+                        senderNickName={data.senderNickName}
+                        isPrimary={true}
+                      />
+                    </>
+                  )
+                }
+                return (
+                  <>
+                    {isEncodeDate && (
+                      <ChatDate date={data.time.split("T")[0]} />
+                    )}
                     <ChatOtherMessage
                       message={data.message}
                       time={data.time}
                       sender={data.sender}
                       senderNickName={data.senderNickName}
-                      isPrimary={true}
+                      isPrimary={false} // Add isPrimary prop based on the index of the data
                     />
-                  )
-                }
-                return (
-                  <ChatOtherMessage
-                    message={data.message}
-                    time={data.time}
-                    sender={data.sender}
-                    senderNickName={data.senderNickName}
-                    isPrimary={false} // Add isPrimary prop based on the index of the data
-                  />
+                  </>
                 )
               }
             } else {
@@ -259,4 +272,9 @@ function TalkArea(props: any) {
       </div>
     </>
   )
+}
+function isDifferentDate(date1, date2) {
+  return date1.getFullYear() !== date2.getFullYear() ||
+         date1.getMonth() !== date2.getMonth() ||
+         date1.getDate() !== date2.getDate();
 }

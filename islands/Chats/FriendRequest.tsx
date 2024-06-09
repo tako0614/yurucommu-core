@@ -211,13 +211,3 @@ const VideoList = () => {
     </div>
   )
 }
-
-// Function to copy text to clipboard
-async function copyToClipboard(value: string) {
-  try {
-    await navigator.clipboard.writeText(value)
-    alert("URLをコピーしました！")
-  } catch (err) {
-    alert("コピーに失敗しました！")
-  }
-}

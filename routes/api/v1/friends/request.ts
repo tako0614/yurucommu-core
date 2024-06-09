@@ -218,10 +218,21 @@ export const handler = {
       if (!isAlreadyCreateFriendTable) {
         await Friends.create({ user: userid })
       }
-      if((await Friends.updateOne({ user: userid },{ $push: { friends: { userid: friendInfo.uuid } } },)).matchedCount === 0){
-        await Friends.create({ user: userid, friends: [{ userid: friendInfo.uuid }] })
+      if (
+        (await Friends.updateOne({ user: userid }, {
+          $push: { friends: { userid: friendInfo.uuid } },
+        })).matchedCount === 0
+      ) {
+        await Friends.create({
+          user: userid,
+          friends: [{ userid: friendInfo.uuid }],
+        })
       }
-      if((await Friends.updateOne({ user: friendInfo.uuid },{ $push: { friends: { userid } } },)).matchedCount === 0){
+      if (
+        (await Friends.updateOne({ user: friendInfo.uuid }, {
+          $push: { friends: { userid } },
+        })).matchedCount === 0
+      ) {
         await Friends.create({ user: friendInfo.uuid, friends: [{ userid }] })
       }
       await requestAddFriend.updateOne(

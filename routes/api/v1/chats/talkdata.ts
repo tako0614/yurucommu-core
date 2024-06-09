@@ -84,7 +84,7 @@ export const handler = {
             }
           }
           return {
-            sender: sender.nickName,
+            sender: sender.userName,
             senderNickName: sender.nickName,
             message: message.message,
             timestamp: message.timestamp,
