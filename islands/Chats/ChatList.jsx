@@ -33,20 +33,38 @@ export default function ChatList(props) {
     }
     const friendListTemp = []
     res.chatRooms.map((room) => {
-      let lastMessage = room.lastMessage
-      if (
-        lastMessage === undefined || lastMessage === null ||
-        lastMessage === ""
-      ) {
-        lastMessage = "メッセージがありません"
+      if(room.type == "local") {
+        let lastMessage = room.lastMessage
+        if (
+          lastMessage === undefined || lastMessage === null ||
+          lastMessage === ""
+        ) {
+          lastMessage = "メッセージがありません"
+        }
+        const friend = {
+          userName: room.roomName,
+          latestMessage: lastMessage,
+          icon: room.roomIcon,
+          roomid: room.roomID,
+        }
+        friendListTemp.push(friend)
       }
-      const friend = {
-        userName: room.roomName,
-        latestMessage: lastMessage,
-        icon: room.roomIcon,
-        roomid: room.roomID,
+      if(room.type == "remote") {
+        let lastMessage = room.lastMessage
+        if (
+          lastMessage === undefined || lastMessage === null ||
+          lastMessage === ""
+        ) {
+          lastMessage = "メッセージがありません"
+        }
+        const friend = {
+          userName: room.roomName,
+          latestMessage: lastMessage,
+          icon: room.roomIcon,
+          roomid: room.roomID,
+        }
+        friendListTemp.push(friend)
       }
-      friendListTemp.push(friend)
     })
     setFriendList(friendListTemp)
   }, [])

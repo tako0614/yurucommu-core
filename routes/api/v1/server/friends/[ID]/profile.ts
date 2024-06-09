@@ -28,9 +28,7 @@ export const handler = {
         }
         const result = {
           userName: userInfo.userName + "@" + env["serverDomain"],
-          icon: `https://${
-            env["serverDomain"]
-          }/api/v1/server/friends/${userInfo.uuid}/icon`,
+          icon: `https://${env["serverDomain"]}/api/v1/server/friends/${userInfo.uuid}/icon`,
           nickName: userInfo.nickName,
         }
         return new Response(

@@ -70,7 +70,6 @@ export const handler = {
       const result = await Promise.all(
         chatRooms.map(async (room) => {
           if (room.types === "friend") {
-            console.log(room)
             const friendID = room.users.filter((user) =>
               user.userid !== ctx.state.data.userid
             )
@@ -81,6 +80,7 @@ export const handler = {
               roomID: room.uuid,
               latestMessageTime: room.latestMessageTime,
               roomIcon: `/api/v1/friends/${friendName.userName}/icon`,
+              type: "local"
             }
             return result
           } else if (room.types === "group") {
@@ -90,11 +90,22 @@ export const handler = {
               roomID: room._id,
             }
             return result
-          } else {
-            return
+          } else if (room.types === "remotefriend") {
+            console.log(room)
+            const OtherServerUser = room.users.filter((user) =>
+              user.userid !== ctx.state.data.userid
+            )
+            const result = {
+              roomName: OtherServerUser[0].userid,
+              lastMessage: room.latestmessage,
+              roomID: room.uuid,
+              type: "remote"
+            }
+            return result
           }
         }),
       )
+      console.log(result)
       return new Response(
         JSON.stringify({ "status": "success", "chatRooms": result }),
         {
