@@ -48,7 +48,7 @@ export default function ChatTalk(props: any) {
                 <div
                   class="p-talk-chat-send__file"
                   onClick={
-                    () => {
+                    async () => {
                       if (Message) {
                         const data = {
                           type: "message",
@@ -160,7 +160,7 @@ function TalkArea(props: any) {
     if (props.roomid) {
       getRoom()
     }
-  }, [props.isSelectUser])
+  }, [props.isSelectUser, props.roomid])
   let SendPrimary = true
   let OtherPrimary = true
   let DateState: Date
