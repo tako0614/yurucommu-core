@@ -188,24 +188,28 @@ export const handler = {
             ]
             })
         } else {
-            const isAlreadyFriend = isAlreadyCreateRemoteServerTable.friends.find(
-            (obj) => obj.userid === requesterUserUUID
-            )
-            if (isAlreadyFriend !== undefined) {
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
-            }
-            await remoteservers.updateOne(
-            { serverDomain: userDomain },
-            {
-                $push: {
-                friends: {
-                    userid: requesterUserUUID,
-                    userName: splitUserName(requesterUserName).userName,
-                    timestamp: Date.now(),
-                },
-                },
-            },
-            )
+            const isAlreadyRegisterServer = isAlreadyCreateRemoteServerTable.friends.find(
+                (obj) => {
+                    console.log(obj.userid, requesterUserUUID)
+                    return obj.userid === requesterUserUUID
+                }
+                )
+                if (isAlreadyRegisterServer !== undefined) {
+                    //
+                } else {
+                    await remoteservers.updateOne(
+                        { serverDomain: userDomain },
+                        {
+                            $push: {
+                            friends: {
+                                userid: requesterUserUUID,
+                                userName: splitUserName(requesterUserName).userName,
+                                timestamp: Date.now(),
+                            },
+                            },
+                        },
+                        )
+                }
         }
       //リクエストを送っていたか↓↓ここより下でエラー
       const friendInfo = await users.findOne({
