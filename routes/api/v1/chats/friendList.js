@@ -108,13 +108,25 @@ export const handler = {
                             (byte) => byte.toString(16).padStart(2, "0"),
                         ).join("")
                         const OtherServerUserInfo = await fetch(`http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}`)
-                        const result = {
-                            roomName: OtherServerUserInfo.nickName,
-                            lastMessage: room.latestmessage,
-                            roomID: room.uuid,
-                            type: "remote",
+                        const OtherServerUserInfoJson = await OtherServerUserInfo.json()
+                        console.log(OtherServerUserInfoJson, "OtherServerUserDomain")
+                        if(OtherServerUserInfoJson.status !== false) {
+                            const result = {
+                                roomName: OtherServerUserInfoJson.nickName,
+                                lastMessage: room.latestmessage,
+                                roomID: room.uuid,
+                                type: "remote",
+                            }
+                            return result
+                        } else {
+                            const result = {
+                                roomName: "unkown",
+                                lastMessage: room.latestmessage,
+                                roomID: room.uuid,
+                                type: "remote",
+                            }
+                            return result
                         }
-                        return result
                     }
                 }),
             )
