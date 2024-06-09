@@ -107,7 +107,7 @@ export const handler = {
                             randomarray,
                             (byte) => byte.toString(16).padStart(2, "0"),
                         ).join("")
-                        const OtherServerUserInfo = await fetch(`https://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}`)
+                        const OtherServerUserInfo = await fetch(`http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}`)
                         const result = {
                             roomName: OtherServerUserInfo.nickName,
                             lastMessage: room.latestmessage,
