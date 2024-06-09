@@ -1,50 +1,50 @@
 {
-  "version": "0.1-prealpha.1",
-  "lock": false,
-  "tasks": {
-    "check": "deno fmt --check && deno lint && deno check **/*.ts && deno check **/*.tsx",
-    "start": "deno run -A --watch=static/,routes/ dev.ts",
-    "build": "deno run -A dev.ts build",
-    "preview": "deno run -A main.ts",
-    "update": "deno run -A -r https://fresh.deno.dev/update ."
-  },
-  "lint": { "rules": { "tags": ["fresh", "recommended"] } },
-  "nodeModulesDir": true,
-  "imports": {
-    "$fresh/": "https://deno.land/x/fresh@1.6.8/",
-    "$std/": "https://deno.land/std@0.224.0/",
-    "@preact/signals": "https://esm.sh/*@preact/signals@1.2.2",
-    "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.5.1",
-    "@takoserver/takos-database": "jsr:@takoserver/takos-database@^0.1.0",
-    "preact": "https://esm.sh/preact@10.19.6",
-    "preact-render-to-string": "https://esm.sh/*preact-render-to-string@6.2.2",
-    "preact/": "https://esm.sh/preact@10.19.6/",
-    "tailwindcss": "npm:tailwindcss@3.4.1",
-    "tailwindcss/": "npm:/tailwindcss@3.4.1/",
-    "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js",
-    "ws": "npm:ws@8.16.0",
-    "mongoose": "npm:mongoose@8.2.0",
-    "react": "https://esm.sh/preact/compat",
-    "react-dom": "https://esm.sh/preact/compat",
-    "react/jsx-runtime": "https://esm.sh/preact/jsx-runtime",
-    "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime",
-    "react-hook-form": "https://esm.sh/react-hook-form?external=react,react-dom,react%2Fjsx-runtime",
-    "swr": "https://esm.sh/swr?external=react,react-dom,react%2Fjsx-runtime",
-    "sharp": "npm:sharp@0.33.4",
-    "redis": "npm:redis@4.6.14",
-    "file-type": "npm:file-type@19.0.0"
-  },
-  "alias": {
-    "react": "preact/compat",
-    "react-dom/test-utils": "preact/test-utils",
-    "react-dom": "preact/compat"
-  },
-  "fmt": {
-    "semiColons": false,
-    "exclude": ["fresh.gen.ts", "node_moduls/"],
-    "indentWidth": 2,
-    "lineWidth": 80
-  },
-  "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
-  "exclude": ["**/_fresh/*"]
+    "version": "0.1-prealpha.1",
+    "lock": false,
+    "tasks": {
+        "check": "deno fmt --check && deno lint && deno check **/*.ts && deno check **/*.tsx",
+        "start": "deno run -A --watch=static/,routes/ dev.ts",
+        "build": "deno run -A dev.ts build",
+        "preview": "deno run -A main.ts",
+        "update": "deno run -A -r https://fresh.deno.dev/update ."
+    },
+    "lint": { "rules": { "tags": ["fresh", "recommended"] } },
+    "nodeModulesDir": true,
+    "imports": {
+        "$fresh/": "https://deno.land/x/fresh@1.6.8/",
+        "$std/": "https://deno.land/std@0.224.0/",
+        "@preact/signals": "https://esm.sh/*@preact/signals@1.2.2",
+        "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.5.1",
+        "@takoserver/takos-database": "jsr:@takoserver/takos-database@^0.1.0",
+        "preact": "https://esm.sh/preact@10.19.6",
+        "preact-render-to-string": "https://esm.sh/*preact-render-to-string@6.2.2",
+        "preact/": "https://esm.sh/preact@10.19.6/",
+        "tailwindcss": "npm:tailwindcss@3.4.1",
+        "tailwindcss/": "npm:/tailwindcss@3.4.1/",
+        "tailwindcss/plugin": "npm:/tailwindcss@3.4.1/plugin.js",
+        "ws": "npm:ws@8.16.0",
+        "mongoose": "npm:mongoose@8.2.0",
+        "react": "https://esm.sh/preact/compat",
+        "react-dom": "https://esm.sh/preact/compat",
+        "react/jsx-runtime": "https://esm.sh/preact/jsx-runtime",
+        "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3?external=react,react-dom,react%2Fjsx-runtime",
+        "react-hook-form": "https://esm.sh/react-hook-form?external=react,react-dom,react%2Fjsx-runtime",
+        "swr": "https://esm.sh/swr?external=react,react-dom,react%2Fjsx-runtime",
+        "sharp": "npm:sharp@0.33.4",
+        "redis": "npm:redis@4.6.14",
+        "file-type": "npm:file-type@19.0.0"
+    },
+    "alias": {
+        "react": "preact/compat",
+        "react-dom/test-utils": "preact/test-utils",
+        "react-dom": "preact/compat"
+    },
+    "fmt": {
+        "semiColons": false,
+        "exclude": ["fresh.gen.ts", "node_moduls/"],
+        "indentWidth": 4,
+        "lineWidth": 80
+    },
+    "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
+    "exclude": ["**/_fresh/*"]
 }
