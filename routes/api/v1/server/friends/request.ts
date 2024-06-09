@@ -57,23 +57,27 @@ export const handler = {
             })
         } else {
             const isAlreadyFriend = isAlreadyCreateRemoteServerTable.friends.find(
-            (obj) => obj.userid === requesterUserUUID
+            (obj) => {
+                console.log(obj.userid, requesterUserUUID)
+                return obj.userid === requesterUserUUID
+            }
             )
             if (isAlreadyFriend !== undefined) {
-            return new Response(JSON.stringify({ status: false }), { status: 400 })
+                //
+            } else {
+                await remoteservers.updateOne(
+                    { serverDomain: userDomain },
+                    {
+                        $push: {
+                        friends: {
+                            userid: requesterUserUUID,
+                            userName: splitUserName(requesterUserName).userName,
+                            timestamp: Date.now(),
+                        },
+                        },
+                    },
+                    )
             }
-            await remoteservers.updateOne(
-            { serverDomain: userDomain },
-            {
-                $push: {
-                friends: {
-                    userid: requesterUserUUID,
-                    userName: splitUserName(requesterUserName).userName,
-                    timestamp: Date.now(),
-                },
-                },
-            },
-            )
         }
       const friendInfo = await users.findOne({
         userName: splitUserName(recipientUserName).userName,
