@@ -70,13 +70,10 @@ export const handler = {
       const result = await Promise.all(
         chatRooms.map(async (room) => {
           if (room.types === "friend") {
-            //データベースの構造を変更したため、修正が必要
-            //console.log(room.users)
+            console.log(room)
             const friendID = room.users.filter((user) =>
               user.userid !== ctx.state.data.userid
             )
-            //console.log(friendID)
-            //const friendNameInfo = await Friends.findOne({ user: friendID[0] })
             const friendName = await users.findOne({ uuid: friendID[0].userid })
             const result = {
               roomName: friendName.nickName,
