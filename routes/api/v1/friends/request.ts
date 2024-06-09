@@ -125,7 +125,13 @@ export const handler = {
             }),
           },
         )
-        console.log(requestResult)
+        console.log({
+          requesterUserName: ctx.state.data.userName + "@" + env["serverDomain"],
+          requesterUserUUID: ctx.state.data.userid,
+          requirement: "acceptReqFriend",
+          recipientUserName: friendName,
+          token: takosToken,
+        })
         if(requestResult.status !== 200){
           return new Response(JSON.stringify({ status: "error" }), {
             headers: { "Content-Type": "application/json" },
