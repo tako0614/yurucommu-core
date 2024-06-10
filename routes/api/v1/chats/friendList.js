@@ -95,7 +95,6 @@ export const handler = {
                         }
                         return result
                     } else if (room.types === "remotefriend") {
-                        console.log(room)
                         const OtherServerUser = room.users.filter((user) =>
                             user.userid !== ctx.state.data.userid
                         )
