@@ -25,7 +25,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const isTrueToken = await fetch(`https://${userServerDomain}/api/v1/server/token?token=${token}`)
+        const isTrueToken = await fetch(`http://${userServerDomain}/api/v1/server/token?token=${token}`)
         const serverInfo = await remoteservers.findOne({ serverDomain: userServerDomain, friends: { $elemMatch: { userid: ID } } })
         if (!serverInfo) {
             return new Response(JSON.stringify({ "status": false }), {

@@ -39,7 +39,7 @@ export const handler = {
                         status: 400,
                     })
                 }
-                const isTrueToken = await fetch(`https://${serverDomain}/api/v1/server/token?token=${token}`)
+                const isTrueToken = await fetch(`http://${serverDomain}/api/v1/server/token?token=${token}`)
                 if (!isTrueToken) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
