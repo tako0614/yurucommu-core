@@ -109,8 +109,8 @@ export const handler = {
                         ).join("")
                         const OtherServerUserInfo = await fetch(`http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&requser&reqUser=${ctx.state.data.userid}`)
                         const OtherServerUserInfoJson = await OtherServerUserInfo.json()
-                        console.log(OtherServerUserInfoJson)
-                        if(OtherServerUserInfoJson.status !== false) {
+                        console.log(OtherServerUser.status)
+                        if(OtherServerUser.status !== 200) {
                             const result = {
                                 roomName: OtherServerUserInfoJson.nickName,
                                 lastMessage: room.latestmessage,
