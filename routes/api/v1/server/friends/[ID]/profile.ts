@@ -17,6 +17,7 @@ export const handler = {
                 serverDomain === null ||
                 serverDomain === undefined
             ) {
+                console.log("ID:" + ID,"type:" + type,"serverDomain:" + serverDomain,"token:" + token)
                 return new Response(JSON.stringify({ "status": false }), {
                     status: 400,
                 })
