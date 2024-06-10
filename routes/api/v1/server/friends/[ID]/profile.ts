@@ -72,7 +72,6 @@ export const handler = {
                     userName: friendUserInfo.userName + "@" + serverDomain,
                     nickName: friendUserInfo.nickName,
                 }
-                console.log(result)
                 return new Response(
                     JSON.stringify({ "status": true, result: result }),
                     { status: 200 },

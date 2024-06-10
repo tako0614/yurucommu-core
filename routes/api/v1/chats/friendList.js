@@ -109,16 +109,16 @@ export const handler = {
                         ).join("")
                         const OtherServerUserInfo = await fetch(`http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&requser&reqUser=${ctx.state.data.userid}`)
                         const OtherServerUserInfoJson = await OtherServerUserInfo.json()
-                        console.log(OtherServerUser.status)
-                        if(OtherServerUser.status !== 200) {
+                        if(OtherServerUserInfoJson.status === true) {
                             const result = {
-                                roomName: OtherServerUserInfoJson.nickName,
+                                roomName: OtherServerUserInfoJson.result.nickName,
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
                                 type: "remote",
                             }
                             return result
                         } else {
+                            //console.log(OtherServerUserInfoJson)
                             const result = {
                                 roomName: "unkown",
                                 lastMessage: room.latestmessage,
@@ -130,7 +130,6 @@ export const handler = {
                     }
                 }),
             )
-            console.log(result)
             return new Response(
                 JSON.stringify({ "status": "success", "chatRooms": result }),
                 {
