@@ -28,6 +28,20 @@ export const handler = {
                 },
             )
         }
+        //ユーザーがroomidの部屋に参加しているか確認
+        const room = await rooms.findOne({
+            uuid: roomid,
+            users: { $elemMatch: { userid: ctx.state.data.userid } },
+        })
+        if (!room) {
+            return new Response(
+                JSON.stringify({ "status": "Room Not Found" }),
+                {
+                    headers: { "Content-Type": "application/json" },
+                    status: 404,
+                },
+            )
+        }
         const startChat = requrl.searchParams.get("startChat") === "true"
         //Start Chatがtrueの場合、roomidの部屋から最新のメッセージを100件取得
         if (startChat) {
