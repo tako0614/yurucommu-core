@@ -1,6 +1,8 @@
 import users from "../../../../../models/users.ts"
 import friends from "../../../../../models/friends.ts"
 import reqestAddFriend from "../../../../../models/reqestAddFriend.ts"
+import { load } from "$std/dotenv/mod.ts"
+const env = await load()
 export const handler = {
     async GET(req, ctx) {
         const { ID } = ctx.params
@@ -102,51 +104,68 @@ export const handler = {
                 status: 400,
             })
         }
-        const friend = await friends.findOne({
-            user: ctx.state.data.userid,
-        })
-        if (friend == null) {
-            return new Response(JSON.stringify({ "status": "You are alone" }), {
-                headers: { "Content-Type": "application/json" },
-                status: 200,
-            })
-        }
-        const friendNameInfo = await users.findOne({ userName: friendName })
-        if (friendNameInfo == null) {
+        const friendDomain = splitUserName(friendName).domain
+        const friendUserName = splitUserName(friendName).name
+        if(!friendDomain || !friendUserName) {
             return new Response(JSON.stringify({ "status": "No such user" }), {
                 headers: { "Content-Type": "application/json" },
                 status: 400,
             })
         }
-        //友達かどうかの確認
-        const friendid = friendNameInfo.uuid
-        const result = friend.friends.find((element) => {
-            return friendid == element.userid
-        })
-        if (result == undefined) {
-            return new Response(JSON.stringify({ "status": "No such user" }), {
-                headers: { "Content-Type": "application/json" },
-                status: 400,
+        if(friendDomain === env["serverDomain"]) {
+            const friend = await friends.findOne({
+                user: ctx.state.data.userid,
             })
-        }
-        try {
-            const result = await Deno.readFile(
-                "./files/userIcons/" + mailSpilit(friendid) + ".webp",
-            )
-            return new Response(result, {
-                headers: { "Content-Type": "image/webp" },
-                status: 200,
+            if (friend == null) {
+                return new Response(JSON.stringify({ "status": "You are alone" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 200,
+                })
+            }
+            const friendNameInfo = await users.findOne({ userName: friendName })
+            if (friendNameInfo == null) {
+                return new Response(JSON.stringify({ "status": "No such user" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 400,
+                })
+            }
+            //友達かどうかの確認
+            const friendid = friendNameInfo.uuid
+            const result = friend.friends.find((element) => {
+                return friendid == element.userid
             })
-        } catch (error) {
-            console.log(error)
-            return new Response("./people.png", {
-                headers: { "Content-Type": "application/json" },
-                status: 400,
-            })
+            if (result == undefined) {
+                return new Response(JSON.stringify({ "status": "No such user" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 400,
+                })
+            }
+            try {
+                const result = await Deno.readFile(
+                    "./files/userIcons/" + mailSpilit(friendid) + ".webp",
+                )
+                return new Response(result, {
+                    headers: { "Content-Type": "image/webp" },
+                    status: 200,
+                })
+            } catch (error) {
+                console.log(error)
+                return new Response("./people.png", {
+                    headers: { "Content-Type": "application/json" },
+                    status: 400,
+                })
+            }
+        } else {
+            //外部ドメインの場合
+            //未実装
         }
     },
 }
-function mailSpilit(mail) {
-    const mailSpilit = mail.split("@")
-    return mailSpilit[0]
+function splitUserName(name) {
+    const parts = name.split("@")
+    if (parts.length === 2) {
+        return { name: parts[0], domain: parts[1] }
+    } else {
+        return null
+    }
 }
