@@ -17,7 +17,6 @@ export const handler = {
                 serverDomain === null ||
                 serverDomain === undefined
             ) {
-                console.log("ID:" + ID,"type:" + type,"serverDomain:" + serverDomain,"token:" + token)
                 return new Response(JSON.stringify({ "status": false }), {
                     status: 400,
                 })
@@ -45,7 +44,7 @@ export const handler = {
                         status: 400,
                     })
                 }
-                const serverInfo = await remoteservers.findOne({ serverDomain: serverDomain, friends: { $elemMatch: { userid: ID } } })
+                const serverInfo = await remoteservers.findOne({ serverDomain: serverDomain, friends: { $elemMatch: { userid: reqUser } } })
                 if (!serverInfo) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
@@ -73,6 +72,7 @@ export const handler = {
                     userName: friendUserInfo.userName + "@" + serverDomain,
                     nickName: friendUserInfo.nickName,
                 }
+                console.log(result)
                 return new Response(
                     JSON.stringify({ "status": true, result: result }),
                     { status: 200 },

@@ -86,8 +86,6 @@ export const handler = {
                             $push: {
                                 friends: {
                                     userid: requesterUserUUID,
-                                    userName: splitUserName(requesterUserName)
-                                        .userName,
                                     timestamp: Date.now(),
                                 },
                             },
@@ -221,7 +219,6 @@ export const handler = {
                     friends: [
                         {
                             userid: requesterUserUUID,
-                            userName: splitUserName(requesterUserName).userName,
                             timestamp: Date.now(),
                         },
                     ],
@@ -244,8 +241,6 @@ export const handler = {
                             $push: {
                                 friends: {
                                     userid: requesterUserUUID,
-                                    userName: splitUserName(requesterUserName)
-                                        .userName,
                                     timestamp: Date.now(),
                                 },
                             },
