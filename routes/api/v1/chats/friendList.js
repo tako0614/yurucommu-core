@@ -3,6 +3,8 @@ import Friends from "../../../../models/friends.ts"
 import csrftoken from "../../../../models/csrftoken.ts"
 import users from "../../../../models/users.ts"
 import { getCookies } from "$std/http/cookie.ts"
+import { load } from "$std/dotenv/mod.ts"
+const env = await load()
 export const handler = {
     async POST(req, ctx) {
         if (!ctx.state.data.loggedIn) {
