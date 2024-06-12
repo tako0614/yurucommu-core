@@ -6,6 +6,7 @@ export const handler = {
     async GET(_req: Request,ctx: FreshContext) {
         const { ID } = ctx.params
         const user = await users.findOne({ uuid: ID })
+        console.log(ID)
         if (user === null) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,

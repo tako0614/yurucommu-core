@@ -178,7 +178,7 @@ export const handler = {
                 )
             }
             const resUserUUID = await fetch(
-                `https://${friendDomain}/api/v1/server/users/${friendUserName}/uuid`,
+                `http://${friendDomain}/api/v1/server/users/${friendUserName}/uuid`,
                 {
                     method: "GET",
                     headers: {
@@ -224,7 +224,7 @@ export const handler = {
             ).join("")
             //リクエストを送信
             const iconRes = await fetch(
-                `https://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
+                `http://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
                 {
                     method: "GET",
                     headers: {
