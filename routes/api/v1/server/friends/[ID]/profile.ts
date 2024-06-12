@@ -92,6 +92,7 @@ export const handler = {
                         status: 400,
                     })
                 }
+                console.log(env["serverDomain"])
                 const result = {
                     userName: userInfo.userName + "@" + env["serverDomain"],
                     nickName: userInfo.nickName,

@@ -124,6 +124,7 @@ export const handler = {
                                 status: false,
                             }
                         }
+                        console.log(OtherServerUserInfoJson,OtherServerUserDomain,OtherServerUser[0].userid)
                         if (OtherServerUserInfoJson.status === true) {
                             const result = {
                                 roomName:
