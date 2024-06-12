@@ -171,7 +171,52 @@ export const handler = {
         const reqUser = requrl.searchParams.get("reqUser") || false
             */
            //ユーザーが友達か
-           
+        const friend = await friends.findOne({
+            user: ctx.state.data.userid,
+        })
+        if(friend == null){
+            return new Response(JSON.stringify({ "status": "You are alone" }), {
+                headers: { "Content-Type": "application/json" },
+                status: 400,
+            })
+        }
+        const isFriend = friend.friends.find((element) => {
+            return splitUserName(friendName) == element.userName && splitUserName(friendName).domain == element.domain
+        })
+        if(isFriend == undefined){
+            return new Response(JSON.stringify({ "status": "No such user" }), {
+                headers: { "Content-Type": "application/json" },
+                status: 400,
+            })
+        }
+        //乱数を生成
+        const takosTokenArray = new Uint8Array(16)
+        const randomarray = crypto.getRandomValues(takosTokenArray)
+        const takosToken = Array.from(
+            randomarray,
+            (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("")
+        //リクエストを送信
+        const iconRes = await fetch(
+            `https://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
+            {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            },
+        )
+        if (iconRes.status !== 200) {
+            return new Response(JSON.stringify({ "status": "No such user" }), {
+                headers: { "Content-Type": "application/json" },
+                status: 400,
+            })
+        }
+        const icon = await iconRes.arrayBuffer()
+        return new Response(icon, {
+            headers: { "Content-Type": "image/webp" },
+            status: 200,
+        })
         }
     },
 }

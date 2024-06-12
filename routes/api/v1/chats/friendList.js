@@ -116,8 +116,14 @@ export const handler = {
                                 env["serverDomain"]
                             }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
-                        const OtherServerUserInfoJson =
-                            await OtherServerUserInfo.json()
+                        let OtherServerUserInfoJson
+                        try {
+                            OtherServerUserInfoJson =await OtherServerUserInfo.json()
+                        } catch (error) {
+                            OtherServerUserInfoJson = {
+                                status: false,
+                            }
+                        }
                         if (OtherServerUserInfoJson.status === true) {
                             const result = {
                                 roomName:
@@ -125,12 +131,13 @@ export const handler = {
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
                                 type: "remote",
+                                roomIcon:`/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
                             }
                             return result
                         } else {
                             //console.log(OtherServerUserInfoJson)
                             const result = {
-                                roomName: "unkown",
+                                roomName: "remote server error",
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
                                 type: "remote",
