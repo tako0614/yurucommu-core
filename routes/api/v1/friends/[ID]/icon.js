@@ -224,7 +224,7 @@ export const handler = {
             ).join("")
             //リクエストを送信
             const iconRes = await fetch(
-                `http://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
+                `http://${friendDomain}/api/v1/server/friends/${ID}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
                 {
                     method: "GET",
                     headers: {
