@@ -78,7 +78,7 @@ export const handler = {
                     })
                 }
                 const result = {
-                    userName: friendUserInfo.userName + "@" + serverDomain,
+                    userName: friendUserInfo.userName + "@" + env["serverDomain"],
                     nickName: friendUserInfo.nickName,
                 }
                 return new Response(
@@ -92,7 +92,6 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log(env["serverDomain"])
                 const result = {
                     userName: userInfo.userName + "@" + env["serverDomain"],
                     nickName: userInfo.nickName,
