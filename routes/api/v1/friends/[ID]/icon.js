@@ -178,7 +178,7 @@ export const handler = {
                 )
             }
             const resUserUUID = await fetch(
-                `http://${friendDomain}/api/v1/server/users/${friendUserName}/uuid`,
+                `http://${friendDomain}/api/v1/server/users/${friendName}/uuid`,
                 {
                     method: "GET",
                     headers: {
