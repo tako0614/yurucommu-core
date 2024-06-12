@@ -165,12 +165,6 @@ export const handler = {
                 })
             }
         } else {
-            /*
-        const requrl = new URL(req.url)
-        const token = requrl.searchParams.get("token") || false
-        const reqUser = requrl.searchParams.get("reqUser") || false
-            */
-           //ユーザーが友達か
         const friend = await friends.findOne({
             user: ctx.state.data.userid,
         })
@@ -189,6 +183,7 @@ export const handler = {
                 status: 400,
             })
         }
+        console.log("No such user")
         //乱数を生成
         const takosTokenArray = new Uint8Array(16)
         const randomarray = crypto.getRandomValues(takosTokenArray)

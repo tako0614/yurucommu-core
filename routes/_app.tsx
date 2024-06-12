@@ -6,6 +6,7 @@ export const Context = createContext(env)
 export default function App({ Component }: AppProps) {
     return (
         <>
+        <html lang="ja">
             <head>
                 <meta charset="utf-8" />
                 <meta
@@ -16,6 +17,7 @@ export default function App({ Component }: AppProps) {
             <body>
                 <Component />
             </body>
+            </html>
         </>
     )
 }
