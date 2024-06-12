@@ -30,8 +30,7 @@ export const handler = {
             `http://${userServerDomain}/api/v1/server/token?token=${token}`,
         )
         //userが存在するか確認
-        console.log(reqUser, userName,ID)
-        const user = await users.findOne({ userName })
+        const user = await users.findOne({ userName: splitUserName(ID).userName })
         if (!user) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
@@ -51,7 +50,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const friendInfo = await friends.findOne({ user: ID })
+        const friendInfo = await friends.findOne({ user: user.uuid })
         if (!friendInfo) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
@@ -68,7 +67,7 @@ export const handler = {
         try {
             const result = await Deno.readFile(
                 //"../../../../files/userIcons/" + user.uuid + ".webp"
-                "./files/userIcons/" + splitUserName(ID) +
+                "./files/userIcons/" + splitUserName(user.uuid).userName +
                     ".webp",
             )
             return new Response(result, {
