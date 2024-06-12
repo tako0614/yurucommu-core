@@ -1,7 +1,7 @@
-import { load } from "$std/dotenv/mod.ts";
-import remoteservers from "../../../../../../models/remoteServers.ts";
-import friends from "../../../../../../models/friends.ts";
-const env = await load();
+import { load } from "$std/dotenv/mod.ts"
+import remoteservers from "../../../../../../models/remoteServers.ts"
+import friends from "../../../../../../models/friends.ts"
+const env = await load()
 export const handler = {
     async GET(req: Request, ctx: any) {
         const { ID } = ctx.params
@@ -15,18 +15,23 @@ export const handler = {
         }
         const userServerDomain = splitUserName(reqUser).domain
         const userName = splitUserName(reqUser).userName
-        if(!userServerDomain || !userName) {
+        if (!userServerDomain || !userName) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
-        if(userServerDomain !== env["serverDomain"]) {
+        if (userServerDomain !== env["serverDomain"]) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
-        const isTrueToken = await fetch(`http://${userServerDomain}/api/v1/server/token?token=${token}`)
-        const serverInfo = await remoteservers.findOne({ serverDomain: userServerDomain, friends: { $elemMatch: { userid: ID } } })
+        const isTrueToken = await fetch(
+            `http://${userServerDomain}/api/v1/server/token?token=${token}`,
+        )
+        const serverInfo = await remoteservers.findOne({
+            serverDomain: userServerDomain,
+            friends: { $elemMatch: { userid: ID } },
+        })
         if (!serverInfo) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
@@ -43,7 +48,9 @@ export const handler = {
                 status: 400,
             })
         }
-        const friend = friendInfo.friends.find((friend) => friend.userid === reqUser)
+        const friend = friendInfo.friends.find((friend) =>
+            friend.userid === reqUser
+        )
         if (!friend) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,

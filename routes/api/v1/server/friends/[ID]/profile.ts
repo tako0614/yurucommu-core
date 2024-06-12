@@ -1,7 +1,7 @@
 import users from "../../../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
-import remoteservers from "../../../../../../models/remoteServers.ts";
-import friends from "../../../../../../models/friends.ts";
+import remoteservers from "../../../../../../models/remoteServers.ts"
+import friends from "../../../../../../models/friends.ts"
 const env = await load()
 export const handler = {
     async GET(req: Request, ctx: any) {
@@ -28,23 +28,28 @@ export const handler = {
                         status: 400,
                     })
                 }
-                if(serverDomain == env["serverDomain"]) {
+                if (serverDomain == env["serverDomain"]) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
-                if(splitUserName(reqUser).domain !== serverDomain) {
+                if (splitUserName(reqUser).domain !== serverDomain) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
-                const isTrueToken = await fetch(`http://${serverDomain}/api/v1/server/token?token=${token}`)
+                const isTrueToken = await fetch(
+                    `http://${serverDomain}/api/v1/server/token?token=${token}`,
+                )
                 if (!isTrueToken) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
-                const serverInfo = await remoteservers.findOne({ serverDomain: serverDomain, friends: { $elemMatch: { userid: reqUser } } })
+                const serverInfo = await remoteservers.findOne({
+                    serverDomain: serverDomain,
+                    friends: { $elemMatch: { userid: reqUser } },
+                })
                 if (!serverInfo) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
@@ -56,13 +61,17 @@ export const handler = {
                         status: 400,
                     })
                 }
-                const friend = friendInfo.friends.find((friend) => friend.userid === reqUser)
+                const friend = friendInfo.friends.find((friend) =>
+                    friend.userid === reqUser
+                )
                 if (!friend) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
-                const friendUserInfo = await users.findOne({ uuid: friendInfo.user })
+                const friendUserInfo = await users.findOne({
+                    uuid: friendInfo.user,
+                })
                 if (friendUserInfo == null) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,

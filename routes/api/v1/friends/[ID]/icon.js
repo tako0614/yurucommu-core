@@ -106,28 +106,34 @@ export const handler = {
         }
         const friendDomain = splitUserName(friendName).domain
         const friendUserName = splitUserName(friendName).name
-        if(!friendDomain || !friendUserName) {
+        if (!friendDomain || !friendUserName) {
             return new Response(JSON.stringify({ "status": "No such user" }), {
                 headers: { "Content-Type": "application/json" },
                 status: 400,
             })
         }
-        if(friendDomain === env["serverDomain"]) {
+        if (friendDomain === env["serverDomain"]) {
             const friend = await friends.findOne({
                 user: ctx.state.data.userid,
             })
             if (friend == null) {
-                return new Response(JSON.stringify({ "status": "You are alone" }), {
-                    headers: { "Content-Type": "application/json" },
-                    status: 200,
-                })
+                return new Response(
+                    JSON.stringify({ "status": "You are alone" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 200,
+                    },
+                )
             }
             const friendNameInfo = await users.findOne({ userName: friendName })
             if (friendNameInfo == null) {
-                return new Response(JSON.stringify({ "status": "No such user" }), {
-                    headers: { "Content-Type": "application/json" },
-                    status: 400,
-                })
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
             }
             //友達かどうかの確認
             const friendid = friendNameInfo.uuid
@@ -135,10 +141,13 @@ export const handler = {
                 return friendid == element.userid
             })
             if (result == undefined) {
-                return new Response(JSON.stringify({ "status": "No such user" }), {
-                    headers: { "Content-Type": "application/json" },
-                    status: 400,
-                })
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
             }
             try {
                 const result = await Deno.readFile(
@@ -156,8 +165,13 @@ export const handler = {
                 })
             }
         } else {
-            //外部ドメインの場合
-            //未実装
+            /*
+        const requrl = new URL(req.url)
+        const token = requrl.searchParams.get("token") || false
+        const reqUser = requrl.searchParams.get("reqUser") || false
+            */
+           //ユーザーが友達か
+           
         }
     },
 }

@@ -102,16 +102,26 @@ export const handler = {
                             OtherServerUser[0].userid,
                         ).domain
                         const takosTokenArray = new Uint8Array(16)
-                        const randomarray = crypto.getRandomValues(takosTokenArray)
+                        const randomarray = crypto.getRandomValues(
+                            takosTokenArray,
+                        )
                         const takosToken = Array.from(
                             randomarray,
                             (byte) => byte.toString(16).padStart(2, "0"),
                         ).join("")
-                        const OtherServerUserInfo = await fetch(`http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&requser&reqUser=${ctx.state.data.userid}`)
-                        const OtherServerUserInfoJson = await OtherServerUserInfo.json()
-                        if(OtherServerUserInfoJson.status === true) {
+                        const OtherServerUserInfo = await fetch(
+                            `http://${OtherServerUserDomain}/api/v1/server/friends/${
+                                OtherServerUser[0].userid
+                            }/profile?token=${takosToken}&serverDomain=${
+                                env["serverDomain"]
+                            }&type=id&requser&reqUser=${ctx.state.data.userid}`,
+                        )
+                        const OtherServerUserInfoJson =
+                            await OtherServerUserInfo.json()
+                        if (OtherServerUserInfoJson.status === true) {
                             const result = {
-                                roomName: OtherServerUserInfoJson.result.nickName,
+                                roomName:
+                                    OtherServerUserInfoJson.result.nickName,
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
                                 type: "remote",
