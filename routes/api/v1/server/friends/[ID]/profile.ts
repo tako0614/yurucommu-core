@@ -78,7 +78,8 @@ export const handler = {
                     })
                 }
                 const result = {
-                    userName: friendUserInfo.userName + "@" + env["serverDomain"],
+                    userName: friendUserInfo.userName + "@" +
+                        env["serverDomain"],
                     nickName: friendUserInfo.nickName,
                 }
                 return new Response(

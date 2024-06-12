@@ -118,13 +118,18 @@ export const handler = {
                         )
                         let OtherServerUserInfoJson
                         try {
-                            OtherServerUserInfoJson =await OtherServerUserInfo.json()
+                            OtherServerUserInfoJson = await OtherServerUserInfo
+                                .json()
                         } catch (error) {
                             OtherServerUserInfoJson = {
                                 status: false,
                             }
                         }
-                        console.log(OtherServerUserInfoJson,OtherServerUserDomain,OtherServerUser[0].userid)
+                        console.log(
+                            OtherServerUserInfoJson,
+                            OtherServerUserDomain,
+                            OtherServerUser[0].userid,
+                        )
                         if (OtherServerUserInfoJson.status === true) {
                             const result = {
                                 roomName:
@@ -132,7 +137,8 @@ export const handler = {
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
                                 type: "remote",
-                                roomIcon:`/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
+                                roomIcon:
+                                    `/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
                             }
                             return result
                         } else {

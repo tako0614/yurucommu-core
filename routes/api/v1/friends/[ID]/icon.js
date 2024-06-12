@@ -165,53 +165,87 @@ export const handler = {
                 })
             }
         } else {
-        const friend = await friends.findOne({
-            user: ctx.state.data.userid,
-        })
-        if(friend == null){
-            return new Response(JSON.stringify({ "status": "You are alone" }), {
-                headers: { "Content-Type": "application/json" },
-                status: 400,
+            const friend = await friends.findOne({
+                user: ctx.state.data.userid,
             })
-        }
-        const isFriend = friend.friends.find((element) => {
-            return splitUserName(friendName) == element.userName && splitUserName(friendName).domain == element.domain
-        })
-        if(isFriend == undefined){
-            return new Response(JSON.stringify({ "status": "No such user" }), {
-                headers: { "Content-Type": "application/json" },
-                status: 400,
-            })
-        }
-        console.log("No such user")
-        //乱数を生成
-        const takosTokenArray = new Uint8Array(16)
-        const randomarray = crypto.getRandomValues(takosTokenArray)
-        const takosToken = Array.from(
-            randomarray,
-            (byte) => byte.toString(16).padStart(2, "0"),
-        ).join("")
-        //リクエストを送信
-        const iconRes = await fetch(
-            `https://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
-            {
-                method: "GET",
-                headers: {
-                    "Content-Type": "application/json",
+            if (friend == null) {
+                return new Response(
+                    JSON.stringify({ "status": "You are alone" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
+            }
+            const resUserUUID = await fetch(
+                `https://${friendDomain}/api/v1/server/users/${friendUserName}/uuid`,
+                {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
                 },
-            },
-        )
-        if (iconRes.status !== 200) {
-            return new Response(JSON.stringify({ "status": "No such user" }), {
-                headers: { "Content-Type": "application/json" },
-                status: 400,
+            )
+            if (resUserUUID.status !== 200) {
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
+            }
+            const userUUID = await resUserUUID.json()
+            if(userUUID.status !== true) return new Response(
+                JSON.stringify({ "status": "No such user" }),
+                {
+                    headers: { "Content-Type": "application/json" },
+                    status: 400,
+                },
+            )
+            const isFriend = friend.friends.find((element) => {
+                return userUUID.uuid == element.userid
             })
-        }
-        const icon = await iconRes.arrayBuffer()
-        return new Response(icon, {
-            headers: { "Content-Type": "image/webp" },
-            status: 200,
-        })
+            if (isFriend == undefined) {
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
+            }
+            //乱数を生成
+            const takosTokenArray = new Uint8Array(16)
+            const randomarray = crypto.getRandomValues(takosTokenArray)
+            const takosToken = Array.from(
+                randomarray,
+                (byte) => byte.toString(16).padStart(2, "0"),
+            ).join("")
+            //リクエストを送信
+            const iconRes = await fetch(
+                `https://${friendDomain}/api/v1/server/friends/${friendUserName}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
+                {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                },
+            )
+            if (iconRes.status !== 200) {
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
+            }
+            const icon = await iconRes.arrayBuffer()
+            return new Response(icon, {
+                headers: { "Content-Type": "image/webp" },
+                status: 200,
+            })
         }
     },
 }
