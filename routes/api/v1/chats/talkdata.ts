@@ -93,6 +93,8 @@ export const handler = {
                 }
                 // friendのuserNameを取得
                 RoomName = friend.nickName
+            } else if(room.types === "remotefriend") {
+                RoomName = "もうすぐ実装する"
             } else {
                 RoomName = "まだ実装してません"
             }

@@ -20,6 +20,7 @@ import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
 import * as $api_v1_logins_login from "./routes/api/v1/logins/login.ts"
 import * as $api_v1_logins_logout from "./routes/api/v1/logins/logout.js"
 import * as $api_v1_logins_register from "./routes/api/v1/logins/register.js"
+import * as $api_v1_main from "./routes/api/v1/main.ts"
 import * as $api_v1_server_friends_ID_icon from "./routes/api/v1/server/friends/[ID]/icon.ts"
 import * as $api_v1_server_friends_ID_profile from "./routes/api/v1/server/friends/[ID]/profile.ts"
 import * as $api_v1_server_friends_request from "./routes/api/v1/server/friends/request.ts"
@@ -84,6 +85,7 @@ const manifest = {
         "./routes/api/v1/logins/login.ts": $api_v1_logins_login,
         "./routes/api/v1/logins/logout.js": $api_v1_logins_logout,
         "./routes/api/v1/logins/register.js": $api_v1_logins_register,
+        "./routes/api/v1/main.ts": $api_v1_main,
         "./routes/api/v1/server/friends/[ID]/icon.ts":
             $api_v1_server_friends_ID_icon,
         "./routes/api/v1/server/friends/[ID]/profile.ts":

@@ -84,7 +84,8 @@ export const handler = {
                             latestMessageTime: room.latestMessageTime,
                             roomIcon:
                                 `/api/v1/friends/${friendName.userName + "@" + env["serverDomain"]}/icon`,
-                            type: "local",
+                            type: "localfriend",
+                            userName: friendName.userName + "@" + env["serverDomain"],
                         }
                         return result
                     } else if (room.types === "group") {
@@ -136,9 +137,10 @@ export const handler = {
                                     OtherServerUserInfoJson.result.nickName,
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
-                                type: "remote",
+                                type: "remotefriend",
                                 roomIcon:
                                     `/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
+                                userName: OtherServerUserInfoJson.result.userName
                             }
                             return result
                         } else {
@@ -147,7 +149,7 @@ export const handler = {
                                 roomName: "remote server error",
                                 lastMessage: room.latestmessage,
                                 roomID: room.uuid,
-                                type: "remote",
+                                type: "remotefriend",
                             }
                             return result
                         }

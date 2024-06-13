@@ -33,7 +33,7 @@ export default function ChatList(props) {
         }
         const friendListTemp = []
         res.chatRooms.map((room) => {
-            if (room.type == "local") {
+            if (room.type == "localfriend") {
                 let lastMessage = room.lastMessage
                 if (
                     lastMessage === undefined || lastMessage === null ||
@@ -42,14 +42,15 @@ export default function ChatList(props) {
                     lastMessage = "メッセージがありません"
                 }
                 const friend = {
-                    userName: room.roomName,
+                    roomName: room.roomName,
                     latestMessage: lastMessage,
                     icon: room.roomIcon,
                     roomid: room.roomID,
+                    userName: room.userName,
                 }
                 friendListTemp.push(friend)
             }
-            if (room.type == "remote") {
+            if (room.type == "remotefriend") {
                 let lastMessage = room.lastMessage
                 if (
                     lastMessage === undefined || lastMessage === null ||
@@ -58,10 +59,11 @@ export default function ChatList(props) {
                     lastMessage = "メッセージがありません"
                 }
                 const friend = {
-                    userName: room.roomName,
+                    roomName: room.roomName,
                     latestMessage: lastMessage,
                     icon: room.roomIcon,
                     roomid: room.roomID,
+                    userName: room.userName,
                 }
                 friendListTemp.push(friend)
             }
@@ -88,8 +90,9 @@ export default function ChatList(props) {
                             return (
                                 <li>
                                     <User
-                                        userName={friend.userName}
+                                        userName={friend.roomName}
                                         latestMessage={friend.latestMessage}
+                                        userName2={friend.userName}
                                         icon={window.location.protocol + "//" +
                                             window.location.host + friend.icon}
                                         onClick={() => {
