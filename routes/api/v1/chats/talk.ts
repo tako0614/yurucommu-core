@@ -74,7 +74,7 @@ export const handler = {
             }
             socket.onmessage = async function (event) {
                 const data = JSON.parse(event.data)
-                if (data.type == "join") {
+                    if (data.type == "join") {
                     sessions.forEach((session, key) => {
                         if (session.ws.readyState !== WebSocket.OPEN) {
                             sessions.delete(key)
@@ -109,24 +109,28 @@ export const handler = {
                         )
                         return
                     }
-                    const sessionid = crypto.randomUUID()
-                    sessions.set(sessionid, {
-                        ws: socket,
-                        roomid: roomid,
-                        id: ctx.state.data.userid,
-                        membersNameChash: {
-                            [ctx.state.data.userid]: userInfo.userName,
-                        },
-                        membersNickNameChash: {
-                            [ctx.state.data.userid]: userInfo.nickName,
-                        },
-                    })
-                    socket.send(
-                        JSON.stringify({
-                            sessionid: sessionid,
-                            type: "joined",
-                        }),
-                    )
+                    if(isJoiningRoom.types === "remotefriend") {
+
+                    } else if(isJoiningRoom.types === "friend") {
+                        const sessionid = crypto.randomUUID()
+                        sessions.set(sessionid, {
+                            ws: socket,
+                            roomid: roomid,
+                            id: ctx.state.data.userid,
+                            membersNameChash: {
+                                [ctx.state.data.userid]: userInfo.userName,
+                            },
+                            membersNickNameChash: {
+                                [ctx.state.data.userid]: userInfo.nickName,
+                            },
+                        })
+                        socket.send(
+                            JSON.stringify({
+                                sessionid: sessionid,
+                                type: "joined",
+                            }),
+                        )
+                    }
                 } else if (data.type == "message") {
                     const session = sessions.get(data.sessionid)
                     if (session === undefined) {

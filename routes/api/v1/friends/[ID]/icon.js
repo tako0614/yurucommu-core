@@ -125,8 +125,9 @@ export const handler = {
                     },
                 )
             }
-            const friendNameInfo = await users.findOne({ userName: friendName })
+            const friendNameInfo = await users.findOne({ userName: friendUserName })
             if (friendNameInfo == null) {
+                console.log("No such user")
                 return new Response(
                     JSON.stringify({ "status": "No such user" }),
                     {
@@ -151,7 +152,7 @@ export const handler = {
             }
             try {
                 const result = await Deno.readFile(
-                    "./files/userIcons/" + mailSpilit(friendid) + ".webp",
+                    "./files/userIcons/" + splitUserName(friendid).name + ".webp",
                 )
                 return new Response(result, {
                     headers: { "Content-Type": "image/webp" },

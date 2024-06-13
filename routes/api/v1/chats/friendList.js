@@ -83,7 +83,7 @@ export const handler = {
                             roomID: room.uuid,
                             latestMessageTime: room.latestMessageTime,
                             roomIcon:
-                                `/api/v1/friends/${friendName.userName}/icon`,
+                                `/api/v1/friends/${friendName.userName + "@" + env["serverDomain"]}/icon`,
                             type: "local",
                         }
                         return result
