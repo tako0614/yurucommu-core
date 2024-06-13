@@ -1,18 +1,10 @@
-type TalkDataItem = {
-    type: string
-    message: string
-    id?: string // idが文字列であると仮定します。必要に応じて適切な型に変更してください。
-    time: string
-    isRead: boolean
-    sender?: string
-}
 import ChatDate from "../../components/Chats/ChatDate.tsx"
 import ChatSendMessage from "../../components/Chats/ChatSendMessage.jsx"
 import ChatOtherMessage from "../../components/Chats/ChatOtherMessage.jsx"
 import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
     const [Message, setMessage] = useState("")
-    if (props.roomid) {
+    if (props.isSelectUser) {
         return (
             <>
                 <div class="p-talk-chat">
@@ -26,6 +18,8 @@ export default function ChatTalk(props: any) {
                             setSessionid={props.setSessionid}
                             setIsChoiceUser={props.setIsChoiceUser}
                             setRoomid={props.setRoomid}
+                            roomName={props.roomName}
+                            talkData={props.talkData}
                         />
                         <div class="p-talk-chat-send">
                             <form class="p-talk-chat-send__form">
@@ -89,83 +83,6 @@ export default function ChatTalk(props: any) {
     )
 }
 function TalkArea(props: any) {
-    const [roomName, setRoomName] = useState("")
-    const [talkData, setTalkData] = useState<TalkDataItem[]>([])
-    useEffect(() => {
-        setTimeout(() => {
-            const chatArea = document.getElementById("chat-area")
-            if (chatArea) {
-                chatArea.scrollTop = chatArea.scrollHeight
-            }
-        }, 100)
-    }, [talkData])
-    useEffect(() => {
-        async function getRoom() {
-            props.ws?.close()
-            const roomid = props.roomid
-            const talkdata = await fetch(
-                `/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`,
-            )
-            const talkdatajson = await talkdata.json()
-            setRoomName(talkdatajson.roomname)
-            const defaultTalkData = talkdatajson.messages.map((data: any) => {
-                return {
-                    type: "message",
-                    message: data.message,
-                    time: data.timestamp,
-                    isRead: true,
-                    sender: data.sender,
-                    senderNickName: data.senderNickName,
-                }
-            })
-            //時間順に並び替え
-            defaultTalkData.sort((a: any, b: any) => {
-                if (a.time < b.time) {
-                    return -1
-                }
-                if (a.time > b.time) {
-                    return 1
-                }
-                return 0
-            })
-            setTalkData(defaultTalkData)
-            const websocket = new WebSocket(
-                "/api/v1/chats/talk" + "?roomid=" + roomid,
-            )
-            websocket.onopen = () => {
-                const data = {
-                    type: "join",
-                    roomid: roomid,
-                }
-                websocket.send(JSON.stringify(data))
-            }
-            websocket.onmessage = (event) => {
-                const data = JSON.parse(event.data)
-                if (data.type == "joined") {
-                    props.setSessionid(data.sessionid)
-                    return
-                }
-                if (data.type == "message") {
-                    setTalkData((prev) => {
-                        return [
-                            ...prev,
-                            {
-                                type: "message",
-                                message: data.message,
-                                time: data.time,
-                                isRead: false,
-                                sender: data.userName,
-                            },
-                        ]
-                    })
-                }
-            }
-            props.setWs(websocket)
-        }
-        if (props.roomid) {
-            getRoom()
-        }
-    }, [props.isSelectUser, props.roomid])
     let SendPrimary = true
     let OtherPrimary = true
     let DateState: Date
@@ -197,15 +114,14 @@ function TalkArea(props: any) {
                         <polyline points="14 18 8 12 14 6 14 6" />
                     </svg>
                 </button>
-                <p>{roomName}</p>
+                <p>{props.roomName}</p>
             </div>
             <div class="p-talk-chat-main" id="chat-area">
                 <ul class="p-talk-chat-main__ul">
-                    {talkData.map((data: any) => {
-                        //DateStateと日付が同じかどうか UTC+9で判定
-                        const isEncodeDate =
-                            DateState != data.time.split("T")[0]
-                        DateState = data.time.split("T")[0]
+                    {props.talkData.map((data: any) => {
+                        //Date型での比較
+                        const isEncodeDate = DateState != data.time.split("T")[0];
+                        DateState = data.time.split("T")[0];
                         if (data.type == "message") {
                             if (data.sender == props.userName) {
                                 if (SendPrimary) {

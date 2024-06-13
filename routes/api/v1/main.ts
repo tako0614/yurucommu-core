@@ -23,7 +23,7 @@ async function subscribeMessage(channel: string | string[]) {
         const data = JSON.parse(message)
         switch (data.type) {
             case "message":
-                sendConecctingUserMessage(data.roomid, data.message)
+                sendConecctingUserMessage(data.roomid, data.message, data.sender, data.time)
                 break;
             case "refreshFriedList":
                 break;
@@ -50,10 +50,10 @@ export const handler = {
                 const data = JSON.parse(event.data)
                 switch (data.type) {
                     case "joinRoom":
-                        joinRoom(data.sessionID, data.roomID, socket)
+                        joinRoom(data.sessionid, data.roomid, socket)
                         break;
                     case "message":
-                        sendMessage(data.sessionID, data.message, data.roomID, socket)
+                        sendMessage(data.sessionid, data.message, data.roomid, socket)
                         break;
                     case "login":
                         login(ctx.state.data.userid, socket)
@@ -102,12 +102,23 @@ async function login(userID: string, ws: WebSocket) {
     })
     ws.send(
         JSON.stringify({
+            type: "login",
             status: true,
             sessionID,
         }),
     )
 }
 async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
+    if(!sessionID || !roomID) {
+        console.log(sessionID,roomID)
+        ws.send(
+            JSON.stringify({
+                status: false,
+                explain: "SessionID or RoomID is not found",
+            }),
+        )
+        return
+    }
     const session = sessions.get(sessionID)
     if (!session) {
         ws.send(
@@ -120,7 +131,7 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
     }
     const room = await rooms.findOne
     ({
-        roomid: roomID,
+        uuid: roomID,
     })
     if (!room) {
         ws.send(
@@ -147,7 +158,10 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
     })
     ws.send(
         JSON.stringify({
+            type: "joinRoom",
             status: true,
+            roomID,
+            sender: session.uuid,
         }),
     )
 }
@@ -171,32 +185,52 @@ async function sendMessage(sessionid: string, message: string,roomID: string,ws:
         )
         return
     }
-    await messages.create({
+    const result = await messages.create({
         userid: session.uuid,
         roomid: roomID,
-        sender: session.uuid,
         message,
         read: [],
         messageid: crypto.randomUUID(),
     })
-    pubClient.publish("takos", JSON.stringify({ roomid: roomID, message,type:"message" }))
+    const time = result.timestamp
+    pubClient.publish("takos", JSON.stringify({ roomid: roomID, message,type:"message",sender:session.uuid,time }))
     ws.send(
         JSON.stringify({
             status: true,
         }),
     )
 }
-function sendConecctingUserMessage(roomid: string, message: string) {
+function sendConecctingUserMessage(roomid: string, message: string,sender: string,time: any) {
     //sessionsにroomidが同じユーザーを探す
-    const session = sessions.get(roomid)
-    if (!session) {
-        return
-    }
-    session.ws.send(
-        JSON.stringify({
-            roomid,
-            message,
-        }),
-    )
+    sessions.forEach(async (session, key) => {
+        if (session.talkingRoom === roomid) {
+            if(splitUserName(sender).domain !== env["serverDomain"]) {
+                console.log("domain is not same")
+                return
+            }
+                const userInfo = await users.findOne({
+                    uuid: sender,
+                })
+                if(!userInfo) {
+                    return
+                }
+                session.ws.send(
+                    JSON.stringify({
+                        type: "message",
+                        message,
+                        sender: userInfo?.userName + "@" + env["serverDomain"] || "unknown",
+                        senderNickName: userInfo?.nickName || "unknown",
+                        time: time
+                    }),
+                )
+        }
+    })
     return
+}
+function splitUserName(mail: string) {
+    const mailArray = mail.split("@")
+    return {
+        userName: mailArray[0],
+        domain: mailArray[1],
+    }
 }

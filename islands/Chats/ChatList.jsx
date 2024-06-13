@@ -96,13 +96,19 @@ export default function ChatList(props) {
                                         icon={window.location.protocol + "//" +
                                             window.location.host + friend.icon}
                                         onClick={() => {
+                                            props.ws.send(
+                                                JSON.stringify({
+                                                    type: "joinRoom",
+                                                    roomid: friend.roomid,
+                                                    sessionid: props.sessionid,
+                                                }),
+                                            )
                                             window.history.pushState(
                                                 "",
                                                 "",
                                                 "/talk/" + friend.roomid,
                                             )
                                             props.setIsChoiceUser(true)
-                                            props.setRoomid(friend.roomid)
                                         }}
                                     />
                                 </li>

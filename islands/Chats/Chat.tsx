@@ -10,6 +10,14 @@ import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
 import RequestFriendById from "./RequestFriendById.tsx"
+type TalkDataItem = {
+    type: string
+    message: string
+    id?: string // idが文字列であると仮定します。必要に応じて適切な型に変更してください。
+    time: string
+    isRead: boolean
+    sender?: string
+}
 export default function Home(
     props: any,
 ) {
@@ -27,6 +35,95 @@ export default function Home(
     }
     const [ws, setWs] = useState<WebSocket | null>(null)
     const [sessionid, setSessionid] = useState("")
+    const [roomName, setRoomName] = useState("")
+    const [talkData, setTalkData] = useState<TalkDataItem[]>([])
+    useEffect(() => {
+        if (roomid !== null && roomid !== undefined && roomid !== "") {
+            const fetchData = async () => {
+                const res = await fetch(`/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`, {
+                    method: "GET",
+                })
+                const data = await res.json()
+                setRoomName(data.roomname)
+                console.log(data)
+                const defaultTalkData = data.messages.map((data: any) => {
+                    return {
+                      type: "message",
+                      message: data.message,
+                      time: data.timestamp,
+                      isRead: true,
+                      sender: data.sender,
+                      senderNickName: data.senderNickName,
+                    }
+                  })
+                  //時間順に並び替え
+                  defaultTalkData.sort((a: any, b: any) => {
+                    if (a.time < b.time) {
+                      return -1
+                    }
+                    if (a.time > b.time) {
+                      return 1
+                    }
+                    return 0
+                  })
+                  setTalkData(defaultTalkData)
+            }
+            fetchData()
+        }
+    }, [roomid])
+    useEffect(() => {
+        setTimeout(() => {
+            const chatArea = document.getElementById("chat-area")
+            if (chatArea) {
+                chatArea.scrollTop = chatArea.scrollHeight
+            }
+        }, 100)
+    }, [talkData])
+    useEffect(() => {
+        const socket = new WebSocket("ws://"+ window.location.host + "/api/v1/main")
+        socket.onopen = () => {
+            socket.send(
+                JSON.stringify({
+                    type: "login",
+                }),
+            )
+        }
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data)
+            if (data.type == "login") {
+                setSessionid(data.sessionID)
+                if(props.roomid !== undefined && props.roomid !== "") {
+                    socket.send(JSON.stringify({
+                        type: "joinRoom",
+                        roomid: props.roomid,
+                        sessionid: data.sessionID,
+                    }))
+                }
+            } else if(data.type == "joinRoom") {
+                setRoomid(data.roomID)
+            } else if(data.type == "message") {
+                setTalkData((prev) => {
+                    return [
+                      ...prev,
+                      {
+                        type: "message",
+                        message: data.message,
+                        time: data.time,
+                        isRead: false,
+                        sender: data.sender,
+                        senderNickName: data.senderNickName,
+                      },
+                    ]
+                  })
+                  console.log(talkData)
+            } else {
+                if(data.status == false) {
+                    console.log(data.explain)
+                }
+            }
+        }
+        setWs(socket)
+    }, [])
     return (
         <>
             {isShowAddFriendForm && (
@@ -55,6 +152,8 @@ export default function Home(
                                     setFriendList={setFriendList}
                                     setIsChoiceUser={setIsChoiceUser}
                                     setRoomid={setRoomid}
+                                    ws={ws}
+                                    sessionid={sessionid}
                                 />
                             </>
                         )
@@ -82,11 +181,12 @@ export default function Home(
                         setIsChoiceUser={setIsChoiceUser}
                         setRoomid={setRoomid}
                         ws={ws}
-                        setWs={setWs}
                         sessionid={sessionid}
                         setSessionid={setSessionid}
                         userName={props.userName}
                         userNickName={props.userNickName}
+                        roomName={roomName}
+                        talkData={talkData}
                     />
                 </main>
             </div>

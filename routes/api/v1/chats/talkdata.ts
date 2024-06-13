@@ -128,10 +128,3 @@ export const handler = {
         }
     },
 }
-/**         return {
-              sender: senderCache[message.sender].sendername,
-              senderNickName: senderCache[message.sender].senderNickName,
-              message: message.message,
-              timestamp: message.timestamp,
-            }
- */
