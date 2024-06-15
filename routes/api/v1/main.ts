@@ -377,6 +377,23 @@ function sendConecctingUserMessage(
                         messageType,
                     }),
                 )
+                await fetch(
+                    `http://${
+                        splitUserName(sender).domain
+                    }/api/v1/server/talk/read`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            roomid,
+                            messageids: [messageid],
+                            reader: session.uuid,
+                            token: takosToken,
+                        }),
+                    },
+                )
                 return
             }
             const userInfo = await users.findOne({
