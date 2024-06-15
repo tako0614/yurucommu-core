@@ -73,11 +73,11 @@ export const handler = {
                     uuid: friendInfo.user,
                 })
                 if (friendUserInfo == null) {
-                    console.log("token: ", token)
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
+                console.log("token: ", token)
                 const result = {
                     userName: friendUserInfo.userName + "@" +
                         env["serverDomain"],
