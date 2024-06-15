@@ -61,7 +61,7 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log(result)
+                console.log("aaaaaa")
                 const friend = friendInfo.friends.find((friend) =>
                     friend.userid === reqUser
                 )
