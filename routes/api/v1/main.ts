@@ -32,7 +32,6 @@ async function subscribeMessage(channel: string | string[]) {
             case "refreshFriedList":
                 break
             case "read":
-                console.log("read222222222222222222")
                 readMessage(data.messageids, data.sender)
                 break
             default:

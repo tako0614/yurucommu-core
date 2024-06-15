@@ -70,7 +70,7 @@ export const handler = {
         pubClient.publish(
             "takos",
             JSON.stringify({
-                types: "read",
+                type: "read",
                 roomid,
                 messageids,
                 reader,
