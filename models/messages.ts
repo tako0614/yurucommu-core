@@ -28,7 +28,6 @@ export const messagesSchema = new mongoose.Schema({
             userid: {
                 type: String,
                 required: true, // userid is now required
-                unique: true,
             },
             readAt: {
                 type: Date,
