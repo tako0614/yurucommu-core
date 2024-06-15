@@ -191,7 +191,7 @@ export const handler = {
                         let sender
                         if (message.userid === ctx.state.data.userid) {
                             sender = {
-                                userName: userName.userName,
+                                userName: userName.userName + "@" + env["serverDomain"],
                                 nickName: userName.nickName,
                             }
                         } else {
