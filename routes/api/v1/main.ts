@@ -332,6 +332,32 @@ function sendConecctingUserMessage(
     //sessionsにroomidが同じユーザーを探す
     sessions.forEach(async (session, key) => {
         if (session.talkingRoom === roomid) {
+            if (splitUserName(sender).domain !== env["serverDomain"]) {
+                const takosTokenArray = new Uint8Array(16)
+                const randomarray = crypto.getRandomValues(takosTokenArray)
+                const takosToken = Array.from(
+                    randomarray,
+                    (byte) => byte.toString(16).padStart(2, "0"),
+                ).join("")
+                const remoteFriendInfo = await fetch(
+                    `http://${splitUserName(sender).domain}/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&reqUser=${session.uuid}`,
+                )
+                if (!remoteFriendInfo) {
+                    return
+                }
+                const remoteFriendInfoJson = await remoteFriendInfo.json()
+                session.ws.send(
+                    JSON.stringify({
+                        type: "message",
+                        message,
+                        sender: remoteFriendInfoJson?.userName + "@" + env["serverDomain"] ||
+                            "unknown",
+                        senderNickName: remoteFriendInfoJson?.nickName || "unknown",
+                        time: time,
+                    }),
+                )
+                return
+            }
             const userInfo = await users.findOne({
                 uuid: sender,
             })
