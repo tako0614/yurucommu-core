@@ -34,9 +34,6 @@ async function subscribeMessage(channel: string | string[]) {
             case "read":
                 readMessage(data.messageids, data.sender)
                 break
-            case "leave":
-                leaveRoom(data.sessionid)
-                break
             default:
                 break
         }
@@ -73,6 +70,9 @@ export const handler = {
                         break
                     case "login":
                         login(ctx.state.data.userid, socket)
+                        break
+                    case "leave":
+                        leaveRoom(data.sessionid)
                         break
                     default:
                         break

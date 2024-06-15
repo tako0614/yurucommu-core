@@ -20,6 +20,7 @@ export default function ChatTalk(props: any) {
                             setRoomid={props.setRoomid}
                             roomName={props.roomName}
                             talkData={props.talkData}
+                            sessionid={props.sessionid}
                         />
                         <div class="p-talk-chat-send">
                             <form class="p-talk-chat-send__form">
@@ -93,16 +94,12 @@ function TalkArea(props: any) {
                 <button
                     class="p-talk-chat-prev"
                     onClick={() => {
+                        //なぜか送れない
+                        props.ws.send(JSON.stringify({ type: "leave", sessionid: props.sessionid }))
                         props.setIsChoiceUser(false)
                         props.setRoomid("")
                         //urlを変更
                         history.pushState("", "", "/talk")
-                        props.ws.send(
-                            JSON.stringify({
-                                type: "leave",
-                                sessionid: props.sessionid,
-                            }),
-                        )
                     }}
                 >
                     <svg
