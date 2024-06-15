@@ -4,6 +4,7 @@ import users from "../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { crypto } from "$std/crypto/mod.ts"
 import messages from "../../../models/messages.ts"
+import takostoken from "../../../models/takostoken.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
 const subClient = redis.createClient({
@@ -12,8 +13,8 @@ const subClient = redis.createClient({
 const pubClient = redis.createClient({
     url: redisURL,
 })
-subClient.on("error", (err) => console.error("Sub Client Error", err))
-pubClient.on("error", (err) => console.error("Pub Client Error", err))
+subClient.on("error", (err: any) => console.error("Sub Client Error", err))
+pubClient.on("error", (err: any) => console.error("Pub Client Error", err))
 
 await subClient.connect()
 await pubClient.connect()
@@ -236,6 +237,9 @@ async function sendMessage(
             randomarray,
             (byte) => byte.toString(16).padStart(2, "0"),
         ).join("")
+        const result = await takostoken.create({
+            token: takosToken,
+        })
         const sendFriendServer = await fetch(
             `http://${env["serverDomain"]}/api/v1/server/talk/send`,
             {
