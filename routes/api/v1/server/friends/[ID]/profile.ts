@@ -61,6 +61,7 @@ export const handler = {
                         status: 400,
                     })
                 }
+                console.log("aaaaaa")
                 const friend = friendInfo.friends.find((friend) =>
                     friend.userid === reqUser
                 )
@@ -69,7 +70,6 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log("aaaaaa")
                 const friendUserInfo = await users.findOne({
                     uuid: friendInfo.user,
                 })
