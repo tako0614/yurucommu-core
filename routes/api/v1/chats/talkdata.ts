@@ -158,7 +158,7 @@ export const handler = {
                         OtherServerMessages[0].userid,
                     ).domain
                     const reuslt = await fetch(
-                        `https://${
+                        `http://${
                             env["serverDomain"]
                         }/api/v1/server/talk/read`,
                         {
