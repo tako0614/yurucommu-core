@@ -25,7 +25,7 @@ export const handler = {
             })
         }
         const { domain, userName } = splitUserName(reader)
-        if (domain !== env["serverDomain"]) {
+        if (domain == env["serverDomain"]) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })
@@ -57,6 +57,7 @@ export const handler = {
             })
         }
         const messageids2 = messagesArray.map((message) => message.messageid)
+        console.log(messageids2)
         await messages.updateMany(
             {
                 roomid,

@@ -158,9 +158,7 @@ export const handler = {
                         OtherServerMessages[0].userid,
                     ).domain
                     const reuslt = await fetch(
-                        `http://${
-                            env["serverDomain"]
-                        }/api/v1/server/talk/read`,
+                        `http://${friendDomain}/api/v1/server/talk/read`,
                         {
                             method: "POST",
                             headers: {
