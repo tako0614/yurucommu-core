@@ -119,6 +119,9 @@ export const handler = {
                             senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,
+                            isRead: isRead,
+                            messageType: message.messageType,
+                            messageid: message.messageid,
                         }
                     }),
                 )
@@ -285,6 +288,8 @@ export const handler = {
                             message: message.message,
                             timestamp: message.timestamp,
                             isRead: isRead,
+                            messageType: message.messageType,
+                            messageid: message.messageid,
                         }
                     }),
                 )

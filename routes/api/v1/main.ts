@@ -274,6 +274,14 @@ async function sendMessage(
         }
         const frienduuid = friend.userid
         const messageid = crypto.randomUUID()
+        await messages.create({
+            userid: session.uuid,
+            roomid: roomID,
+            message,
+            read: [],
+            messageType: MessageType,
+            messageid,
+        })
         const sendFriendServer = await fetch(
             `http://${
                 splitUserName(frienduuid).domain
@@ -295,8 +303,10 @@ async function sendMessage(
             },
         )
         if (sendFriendServer.status !== 200) {
-            const resJson = await sendFriendServer.json()
-            console.log(resJson, sendFriendServer.url)
+            //メッセージ削除
+            await messages.deleteOne({
+                messageid,
+            })
             ws.send(
                 JSON.stringify({
                     status: false,
@@ -305,14 +315,6 @@ async function sendMessage(
             )
             return
         }
-        await messages.create({
-            userid: session.uuid,
-            roomid: roomID,
-            message,
-            read: [],
-            messageType: MessageType,
-            messageid,
-        })
         ws.send(
             JSON.stringify({
                 status: true,
@@ -396,8 +398,13 @@ function splitUserName(mail: string) {
         domain: mailArray[1],
     }
 }
-function readMessage(messageids: [string], sender: string) {
+async function readMessage(messageids: [string], sender: string) {
     //引数が適した値か確認
+    sessions.forEach((session, key) => {
+        if (session.ws.readyState !== WebSocket.OPEN) {
+            sessions.delete(key)
+        }
+    })
     const session = sessions.get(sender)
     if (!session) {
         return
@@ -412,4 +419,31 @@ function readMessage(messageids: [string], sender: string) {
             messageids,
         }),
     )
+    //送信元サーバーにreadしたことを送信
+    if (splitUserName(sender).domain !== env["serverDomain"]) {
+        const takosTokenArray = new Uint8Array(16)
+        const randomarray = crypto.getRandomValues(takosTokenArray)
+        const takosToken = Array.from(
+            randomarray,
+            (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("")
+        await takostoken.create({
+            token: takosToken,
+        })
+        const result = await fetch(`http://${splitUserName(sender).domain}/api/v1/server/talk/read`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                roomid: session.talkingRoom,
+                messageids,
+                reader: session.uuid,
+                token: takosToken,
+            }),
+        })
+        if (result.status !== 200) {
+            return
+        }
+    }
 }
