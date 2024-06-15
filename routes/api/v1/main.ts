@@ -409,7 +409,6 @@ function splitUserName(mail: string) {
     }
 }
 async function readMessage(messageids: [string], sender: string) {
-    console.log("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",messageids, sender)
     //引数が適した値か確認
     sessions.forEach((session, key) => {
         if (session.ws.readyState !== WebSocket.OPEN) {
@@ -417,6 +416,7 @@ async function readMessage(messageids: [string], sender: string) {
         }
     })
     const session = sessions.get(sender)
+    console.log(session,messageids, sender)
     if (!session) {
         return
     }
@@ -424,7 +424,6 @@ async function readMessage(messageids: [string], sender: string) {
     if (messageids.some((messageid) => messageid.length !== 36)) {
         return
     }
-    console.log("sessioniddddddddddddddddddddd",session)
     session.ws.send(
         JSON.stringify({
             type: "read",
