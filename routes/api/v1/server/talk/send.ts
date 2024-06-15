@@ -12,7 +12,7 @@ export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
         const { roomid, sender, token, message, uuid, messageType } = data
-        console.log(roomid, sender, token, message, uuid, messageType)
+        //console.log(roomid, sender, token, message, uuid, messageType)
         if (
             roomid === "" || roomid === null || roomid === undefined ||
             sender === "" || sender === null || sender === undefined ||
@@ -35,7 +35,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const room = await rooms.findOne({ roomid })
+        const room = await rooms.findOne({ uuid: roomid })
         if (room === null || room === undefined) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
