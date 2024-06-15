@@ -72,6 +72,8 @@ export const handler = {
                 type: "message",
                 sender: uuid,
                 time: result.timestamp,
+                messageid,
+                messageType,
             }),
         )
         return new Response(JSON.stringify({ status: true }), { status: 200 })

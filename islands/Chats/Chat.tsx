@@ -123,7 +123,7 @@ export default function Home(
                         },
                     ]
                 })
-                console.log(talkData)
+                console.log(data)
             } else if(data.type == "read") {
                 console.log(data)
                 setTalkData((prev) => {

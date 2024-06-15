@@ -25,6 +25,8 @@ async function subscribeMessage(channel: string | string[]) {
                     data.message,
                     data.sender,
                     data.time,
+                    data.messageid,
+                    data.messageType,
                 )
                 break
             case "refreshFriedList":
@@ -222,6 +224,8 @@ async function sendMessage(
                 type: "message",
                 sender: session.uuid,
                 time,
+                messageid: result.messageid,
+                messageType: MessageType,
             }),
         )
         ws.send(
@@ -335,6 +339,8 @@ function sendConecctingUserMessage(
     message: string,
     sender: string,
     time: any,
+    messageid: string,
+    messageType: string,
 ) {
     //sessionsにroomidが同じユーザーを探す
     sessions.forEach(async (session, key) => {
@@ -367,6 +373,8 @@ function sendConecctingUserMessage(
                         senderNickName: remoteFriendInfoJson.result.nickName ||
                             "unknown",
                         time: time,
+                        messageid,
+                        messageType,
                     }),
                 )
                 return
@@ -385,6 +393,8 @@ function sendConecctingUserMessage(
                         "unknown",
                     senderNickName: userInfo?.nickName || "unknown",
                     time: time,
+                    messageid,
+                    messageType,
                 }),
             )
         }
