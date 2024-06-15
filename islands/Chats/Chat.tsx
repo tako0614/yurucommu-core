@@ -48,7 +48,6 @@ export default function Home(
                 )
                 const data = await res.json()
                 setRoomName(data.roomname)
-                console.log(data)
                 const defaultTalkData = data.messages.map((data: any) => {
                     return {
                         type: "message",
@@ -57,6 +56,8 @@ export default function Home(
                         isRead: data.isRead,
                         sender: data.sender,
                         senderNickName: data.senderNickName,
+                        messageid: data.messageid,
+                        messageType: data.messageType,
                     }
                 })
                 //時間順に並び替え
@@ -117,10 +118,25 @@ export default function Home(
                             isRead: false,
                             sender: data.sender,
                             senderNickName: data.senderNickName,
+                            messageid: data.messageid,
+                            messageType: data.messageType,
                         },
                     ]
                 })
                 console.log(talkData)
+            } else if(data.type == "read") {
+                console.log(data)
+                setTalkData((prev) => {
+                    return prev.map((item) => {
+                        if (data.messageids.includes(item.messageid)) {
+                            return {
+                                ...item,
+                                isRead: true,
+                            }
+                        }
+                        return item
+                    })
+                })
             } else {
                 if (data.status == false) {
                     console.log(data.explain)
