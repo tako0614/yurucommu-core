@@ -69,11 +69,11 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log("token: ", token)
                 const friendUserInfo = await users.findOne({
                     uuid: friendInfo.user,
                 })
                 if (friendUserInfo == null) {
+                    console.log("token: ", token)
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
