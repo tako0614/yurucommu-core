@@ -300,7 +300,30 @@ async function sendMessage(
             )
             return
         }
-        console.log("send message")
+        await messages.create({
+            userid: session.uuid,
+            roomid: roomID,
+            message,
+            read: [],
+            messageType: MessageType,
+            messageid: crypto.randomUUID(),
+        })
+        const time = new Date()
+        pubClient.publish(
+            "takos",
+            JSON.stringify({
+                roomid: roomID,
+                message,
+                type: "message",
+                sender: session.uuid,
+                time,
+            }),
+        )
+        ws.send(
+            JSON.stringify({
+                status: true,
+            }),
+        )
     } else {
         ws.send(
             JSON.stringify({

@@ -62,7 +62,16 @@ export const handler = {
             messageid: crypto.randomUUID(),
             messageType,
         })
-        pubClient.publish("takos", JSON.stringify({ roomid, message }))
+        pubClient.publish(
+            "takos",
+            JSON.stringify({
+                roomid: roomid,
+                message,
+                type: "message",
+                sender: uuid,
+                time: Date.now(),
+            }),
+        )
         return new Response(JSON.stringify({ status: true }), { status: 200 })
     },
 }
