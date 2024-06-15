@@ -110,6 +110,7 @@ async function login(userID: string, ws: WebSocket) {
         ws,
         uuid: userID,
         talkingRoom: "",
+        roomType: "",
     })
     ws.send(
         JSON.stringify({
@@ -165,12 +166,14 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
     sessions.set(sessionID, {
         ...session,
         talkingRoom: roomID,
+        roomType: room.types,
     })
     ws.send(
         JSON.stringify({
             type: "joinRoom",
             status: true,
             roomID,
+            roomType: room.types,
             sender: session.uuid,
         }),
     )
@@ -201,30 +204,75 @@ async function sendMessage(
         )
         return
     }
-    const result = await messages.create({
-        userid: session.uuid,
-        roomid: roomID,
-        message,
-        read: [],
-        messageType: MessageType,
-        messageid: crypto.randomUUID(),
-    })
-    const time = result.timestamp
-    pubClient.publish(
-        "takos",
-        JSON.stringify({
+    if(session.roomType === "friend"){
+        const result = await messages.create({
+            userid: session.uuid,
             roomid: roomID,
             message,
-            type: "message",
-            sender: session.uuid,
-            time,
-        }),
-    )
-    ws.send(
-        JSON.stringify({
-            status: true,
-        }),
-    )
+            read: [],
+            messageType: MessageType,
+            messageid: crypto.randomUUID(),
+        })
+        const time = result.timestamp
+        pubClient.publish(
+            "takos",
+            JSON.stringify({
+                roomid: roomID,
+                message,
+                type: "message",
+                sender: session.uuid,
+                time,
+            }),
+        )
+        ws.send(
+            JSON.stringify({
+                status: true,
+            }),
+        )
+    } else if(session.roomType === "remotefriend"){
+        const takosTokenArray = new Uint8Array(16)
+        const randomarray = crypto.getRandomValues(takosTokenArray)
+        const takosToken = Array.from(
+            randomarray,
+            (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("")
+        const sendFriendServer = await fetch(
+            `http://${env["serverDomain"]}/api/v1/server/talk/send`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    roomid: roomID,
+                    sender: session.uuid,
+                    token: takosToken,
+                    message,
+                    uuid: session.uuid,
+                    messageType: MessageType,
+                }),
+            },
+        )
+        if (sendFriendServer.status !== 200) {
+            const resJson = await sendFriendServer.json()
+            console.log(resJson)
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Failed to send message",
+                }),
+            )
+            return
+        }
+    } else {
+        ws.send(
+            JSON.stringify({
+                status: false,
+                explain: "Room Type is not found",
+            }),
+        )
+        return
+    }
 }
 function sendConecctingUserMessage(
     roomid: string,
