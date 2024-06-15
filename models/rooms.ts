@@ -18,6 +18,7 @@ export const roomsSchema = new mongoose.Schema({
             {
                 userid: {
                     type: String,
+                    required: true,
                 },
                 type: {
                     type: String,

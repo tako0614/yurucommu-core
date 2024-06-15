@@ -240,8 +240,40 @@ async function sendMessage(
         const result = await takostoken.create({
             token: takosToken,
         })
+        const roomMenber = await rooms.findOne({
+            uuid: roomID,
+        })
+        if (!roomMenber) {
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Room Not Found",
+                }),
+            )
+            return
+        }
+        const friend = roomMenber.users.find((user) => user.userid !== session.uuid)
+        if (!friend) {
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Friend Not Found",
+                }),
+            )
+            return
+        }
+        if(typeof friend.userid !== "string"){
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Friend Not Found",
+                }),
+            )
+            return
+        }
+        const frienduuid = friend.userid
         const sendFriendServer = await fetch(
-            `http://${env["serverDomain"]}/api/v1/server/talk/send`,
+            `http://${splitUserName(frienduuid).domain}/api/v1/server/talk/send`,
             {
                 method: "POST",
                 headers: {
@@ -259,7 +291,7 @@ async function sendMessage(
         )
         if (sendFriendServer.status !== 200) {
             const resJson = await sendFriendServer.json()
-            console.log(resJson)
+            console.log(resJson, sendFriendServer.url)
             ws.send(
                 JSON.stringify({
                     status: false,
