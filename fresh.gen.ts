@@ -12,7 +12,7 @@ import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrftoken from "./routes/api/v1/csrftoken.ts"
-import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
+import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.ts"
 import * as $api_v1_friends_ID_info from "./routes/api/v1/friends/[ID]/info.ts"
 import * as $api_v1_friends_reqLists from "./routes/api/v1/friends/reqLists.ts"
 import * as $api_v1_friends_request from "./routes/api/v1/friends/request.ts"
@@ -23,6 +23,7 @@ import * as $api_v1_main from "./routes/api/v1/main.ts"
 import * as $api_v1_server_friends_ID_icon from "./routes/api/v1/server/friends/[ID]/icon.ts"
 import * as $api_v1_server_friends_ID_profile from "./routes/api/v1/server/friends/[ID]/profile.ts"
 import * as $api_v1_server_friends_request from "./routes/api/v1/server/friends/request.ts"
+import * as $api_v1_server_talk_read from "./routes/api/v1/server/talk/read.ts"
 import * as $api_v1_server_talk_send from "./routes/api/v1/server/talk/send.ts"
 import * as $api_v1_server_token from "./routes/api/v1/server/token.ts"
 import * as $api_v1_server_users_ID_name from "./routes/api/v1/server/users/[ID]/name.ts"
@@ -76,7 +77,7 @@ const manifest = {
         "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
         "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
         "./routes/api/v1/csrftoken.ts": $api_v1_csrftoken,
-        "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,
+        "./routes/api/v1/friends/[ID]/icon.ts": $api_v1_friends_ID_icon,
         "./routes/api/v1/friends/[ID]/info.ts": $api_v1_friends_ID_info,
         "./routes/api/v1/friends/reqLists.ts": $api_v1_friends_reqLists,
         "./routes/api/v1/friends/request.ts": $api_v1_friends_request,
@@ -90,6 +91,7 @@ const manifest = {
             $api_v1_server_friends_ID_profile,
         "./routes/api/v1/server/friends/request.ts":
             $api_v1_server_friends_request,
+        "./routes/api/v1/server/talk/read.ts": $api_v1_server_talk_read,
         "./routes/api/v1/server/talk/send.ts": $api_v1_server_talk_send,
         "./routes/api/v1/server/token.ts": $api_v1_server_token,
         "./routes/api/v1/server/users/[ID]/name.ts":

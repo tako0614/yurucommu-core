@@ -5,19 +5,15 @@ import { load } from "$std/dotenv/mod.ts"
 import { crypto } from "$std/crypto/mod.ts"
 import messages from "../../../models/messages.ts"
 import takostoken from "../../../models/takostoken.ts"
+import pubClient from "../../../util/redisClient.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
 const subClient = redis.createClient({
     url: redisURL,
 })
-const pubClient = redis.createClient({
-    url: redisURL,
-})
 subClient.on("error", (err: any) => console.error("Sub Client Error", err))
-pubClient.on("error", (err: any) => console.error("Pub Client Error", err))
 
 await subClient.connect()
-await pubClient.connect()
 
 async function subscribeMessage(channel: string | string[]) {
     await subClient.subscribe(channel, async (message) => {
@@ -205,7 +201,7 @@ async function sendMessage(
         )
         return
     }
-    if(session.roomType === "friend"){
+    if (session.roomType === "friend") {
         const result = await messages.create({
             userid: session.uuid,
             roomid: roomID,
@@ -230,7 +226,7 @@ async function sendMessage(
                 status: true,
             }),
         )
-    } else if(session.roomType === "remotefriend"){
+    } else if (session.roomType === "remotefriend") {
         const takosTokenArray = new Uint8Array(16)
         const randomarray = crypto.getRandomValues(takosTokenArray)
         const takosToken = Array.from(
@@ -252,7 +248,9 @@ async function sendMessage(
             )
             return
         }
-        const friend = roomMenber.users.find((user) => user.userid !== session.uuid)
+        const friend = roomMenber.users.find((user) =>
+            user.userid !== session.uuid
+        )
         if (!friend) {
             ws.send(
                 JSON.stringify({
@@ -262,7 +260,7 @@ async function sendMessage(
             )
             return
         }
-        if(typeof friend.userid !== "string"){
+        if (typeof friend.userid !== "string") {
             ws.send(
                 JSON.stringify({
                     status: false,
@@ -272,8 +270,11 @@ async function sendMessage(
             return
         }
         const frienduuid = friend.userid
+        const messageid = crypto.randomUUID()
         const sendFriendServer = await fetch(
-            `http://${splitUserName(frienduuid).domain}/api/v1/server/talk/send`,
+            `http://${
+                splitUserName(frienduuid).domain
+            }/api/v1/server/talk/send`,
             {
                 method: "POST",
                 headers: {
@@ -286,6 +287,7 @@ async function sendMessage(
                     message,
                     uuid: session.uuid,
                     messageType: MessageType,
+                    messageid,
                 }),
             },
         )
@@ -306,7 +308,7 @@ async function sendMessage(
             message,
             read: [],
             messageType: MessageType,
-            messageid: crypto.randomUUID(),
+            messageid,
         })
         ws.send(
             JSON.stringify({
@@ -340,7 +342,11 @@ function sendConecctingUserMessage(
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
                 const remoteFriendInfo = await fetch(
-                    `http://${splitUserName(sender).domain}/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&reqUser=${session.uuid}`,
+                    `http://${
+                        splitUserName(sender).domain
+                    }/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${
+                        env["serverDomain"]
+                    }&type=id&reqUser=${session.uuid}`,
                 )
                 if (!remoteFriendInfo) {
                     return
@@ -353,7 +359,8 @@ function sendConecctingUserMessage(
                         message,
                         sender: remoteFriendInfoJson.result.userName ||
                             "unknown",
-                        senderNickName: remoteFriendInfoJson.result.nickName || "unknown",
+                        senderNickName: remoteFriendInfoJson.result.nickName ||
+                            "unknown",
                         time: time,
                     }),
                 )

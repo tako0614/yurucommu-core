@@ -1,15 +1,9 @@
-import redis from "redis"
 import rooms from "../../../../models/rooms.ts"
 import messages from "../../../../models/messages.ts"
 import user from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
-const redisURL = env["REDIS_URL"]
-const pubClient = redis.createClient({
-    url: redisURL,
-})
-await pubClient.connect()
 export const handler = {
     async GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
@@ -65,9 +59,7 @@ export const handler = {
             await messages.updateMany(
                 {
                     roomid: roomid,
-                    read: {
-                        $not: { $elemMatch: { userid: ctx.state.data.userid } },
-                    },
+                    read: { $not: { $elemMatch: { userid: ctx.state.data.userid } } },
                 },
                 {
                     $push: {
@@ -78,6 +70,7 @@ export const handler = {
                     },
                 },
             )
+            //自分のサーバーじゃないユーザーのmessageidを取得
             if (!RoomMessages) {
                 return new Response(
                     JSON.stringify({ "status": "Message Not Found" }),
@@ -114,7 +107,9 @@ export const handler = {
                 messagesResult = await Promise.all(
                     RoomMessages.map(async (message) => {
                         //console.log(message.userid)
-                        const sender = await user.findOne({ uuid: message.userid })
+                        const sender = await user.findOne({
+                            uuid: message.userid,
+                        })
                         if (!sender) {
                             return {
                                 sender: "Unknown",
@@ -149,9 +144,10 @@ export const handler = {
                 })
                 const OtherServerUser = splitUserName(friendId[0])
                 const OtherServerUserDomain = OtherServerUser.domain
-                console.log(friendId[0])
                 const OtherServerUserInfo = await fetch(
-                    `http://${OtherServerUserDomain}/api/v1/server/friends/${friendId[0]}/profile?token=${takosToken}&serverDomain=${
+                    `http://${OtherServerUserDomain}/api/v1/server/friends/${
+                        friendId[0]
+                    }/profile?token=${takosToken}&serverDomain=${
                         env["serverDomain"]
                     }&type=id&reqUser=${ctx.state.data.userid}`,
                 )
@@ -165,8 +161,14 @@ export const handler = {
                     )
                 }
                 const OtherServerUserInfoJson = await OtherServerUserInfo.json()
-                if(OtherServerUserInfoJson.status === false || !OtherServerUserInfoJson){
-                    console.log(JSON.stringify(OtherServerUserInfoJson) + " is not found")
+                if (
+                    OtherServerUserInfoJson.status === false ||
+                    !OtherServerUserInfoJson
+                ) {
+                    console.log(
+                        JSON.stringify(OtherServerUserInfoJson) +
+                            " is not found",
+                    )
                     return new Response(
                         JSON.stringify({ "status": "Friend Not Found" }),
                         {
@@ -176,8 +178,10 @@ export const handler = {
                     )
                 }
                 RoomName = OtherServerUserInfoJson.result.nickName
-                const userName = await user.findOne({ uuid: ctx.state.data.userid })
-                if(!userName){
+                const userName = await user.findOne({
+                    uuid: ctx.state.data.userid,
+                })
+                if (!userName) {
                     return new Response(
                         JSON.stringify({ "status": "User Not Found" }),
                         {
@@ -191,7 +195,8 @@ export const handler = {
                         let sender
                         if (message.userid === ctx.state.data.userid) {
                             sender = {
-                                userName: userName.userName + "@" + env["serverDomain"],
+                                userName: userName.userName + "@" +
+                                    env["serverDomain"],
                                 nickName: userName.nickName,
                             }
                         } else {

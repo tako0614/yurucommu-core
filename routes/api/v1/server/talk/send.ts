@@ -1,17 +1,11 @@
 import rooms from "../../../../../models/rooms.ts"
 import messages from "../../../../../models/messages.ts"
-import redis from "redis"
+import pubClient from "../../../../../util/redisClient.ts"
 import { load } from "$std/dotenv/mod.ts"
-const env = await load()
-const redisURL = env["REDIS_URL"]
-const pubClient = redis.createClient({
-    url: redisURL,
-})
-await pubClient.connect()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, sender, token, message, uuid, messageType } = data
+        const { roomid, sender, token, message, uuid, messageType, messageid } = data
         //console.log(roomid, sender, token, message, uuid, messageType)
         if (
             roomid === "" || roomid === null || roomid === undefined ||
@@ -20,7 +14,8 @@ export const handler = {
             message === "" || message === null || message === undefined ||
             uuid === "" || uuid === null || uuid === undefined ||
             messageType === "" || messageType === null ||
-            messageType === undefined
+            messageType === undefined ||
+            messageid === "" || messageid === null || messageid === undefined
         ) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
@@ -53,13 +48,19 @@ export const handler = {
                 status: 400,
             })
         }
+        //messageidがv4のuuidか確認
+        if (messageid.length !== 36) {
+            return new Response(JSON.stringify({ status: false }), {
+                status: 400,
+            })
+        }
         const result = await messages.create({
             userid: uuid,
             roomid,
             sender,
             message,
             read: [],
-            messageid: crypto.randomUUID(),
+            messageid,
             messageType,
         })
         pubClient.publish(
