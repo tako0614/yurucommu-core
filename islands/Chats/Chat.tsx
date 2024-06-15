@@ -93,8 +93,10 @@ export default function Home(
         }, 100)
     }, [talkData])
     useEffect(() => {
+        const isSSL = window.location.protocol === "https:"
+        const wsProtocol = isSSL ? "wss" : "ws"
         const socket = new WebSocket(
-            "ws://" + window.location.host + "/api/v1/main",
+            wsProtocol + window.location.host + "/api/v1/main",
         )
         socket.onopen = () => {
             socket.send(
