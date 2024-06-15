@@ -30,6 +30,7 @@ export const handler = {
                 status: 400,
             })
         }
+        console.log("error")
         const isTrueToken = await fetch(
             `http://${domain}/api/v1/server/token?token=` + token,
         )
@@ -38,6 +39,7 @@ export const handler = {
                 status: 400,
             })
         }
+        console.log("error2")
         const isRoomUser = await rooms.findOne({
             uuid: roomid,
             users: { $elemMatch: { userid: reader } },

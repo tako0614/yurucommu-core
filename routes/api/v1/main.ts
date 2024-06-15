@@ -387,6 +387,9 @@ function sendConecctingUserMessage(
                     randomarray2,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
+                await takostoken.create({
+                    token: takosToken2,
+                })
                 console.log(await fetch(
                     `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
