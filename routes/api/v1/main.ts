@@ -346,13 +346,14 @@ function sendConecctingUserMessage(
                     return
                 }
                 const remoteFriendInfoJson = await remoteFriendInfo.json()
+                console.log(remoteFriendInfoJson)
                 session.ws.send(
                     JSON.stringify({
                         type: "message",
                         message,
-                        sender: remoteFriendInfoJson?.userName + "@" + env["serverDomain"] ||
+                        sender: remoteFriendInfoJson.result.userName + "@" + env["serverDomain"] ||
                             "unknown",
-                        senderNickName: remoteFriendInfoJson?.nickName || "unknown",
+                        senderNickName: remoteFriendInfoJson.result.nickName || "unknown",
                         time: time,
                     }),
                 )
