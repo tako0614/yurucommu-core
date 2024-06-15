@@ -351,7 +351,7 @@ function sendConecctingUserMessage(
                     JSON.stringify({
                         type: "message",
                         message,
-                        sender: remoteFriendInfoJson.result.userName + "@" + env["serverDomain"] ||
+                        sender: remoteFriendInfoJson.result.userName ||
                             "unknown",
                         senderNickName: remoteFriendInfoJson.result.nickName || "unknown",
                         time: time,
