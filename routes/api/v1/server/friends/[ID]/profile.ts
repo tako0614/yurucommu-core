@@ -38,7 +38,6 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log("token: ", token)
                 const isTrueToken = await fetch(
                     `http://${serverDomain}/api/v1/server/token?token=${token}`,
                 )
@@ -51,6 +50,7 @@ export const handler = {
                     serverDomain: serverDomain,
                     friends: { $elemMatch: { userid: reqUser } },
                 })
+                console.log("token: ", token)
                 if (!serverInfo) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
