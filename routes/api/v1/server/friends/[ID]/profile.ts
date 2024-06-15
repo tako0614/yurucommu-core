@@ -61,6 +61,7 @@ export const handler = {
                         status: 400,
                     })
                 }
+                console.log(result)
                 const friend = friendInfo.friends.find((friend) =>
                     friend.userid === reqUser
                 )
@@ -77,7 +78,6 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log("token: ", token)
                 const result = {
                     userName: friendUserInfo.userName + "@" +
                         env["serverDomain"],
