@@ -380,7 +380,7 @@ function sendConecctingUserMessage(
                 if(session.uuid === sender){
                     return
                 }
-                await fetch(
+                console.log(await fetch(
                     `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
@@ -394,7 +394,7 @@ function sendConecctingUserMessage(
                             token: takosToken,
                         }),
                     },
-                )
+                ))
                 return
             }
             const userInfo = await users.findOne({
