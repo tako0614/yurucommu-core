@@ -32,6 +32,7 @@ async function subscribeMessage(channel: string | string[]) {
             case "refreshFriedList":
                 break
             case "read":
+                console.log("read222222222222222222")
                 readMessage(data.messageids, data.sender)
                 break
             default:
@@ -409,6 +410,7 @@ function splitUserName(mail: string) {
     }
 }
 async function readMessage(messageids: [string], sender: string) {
+    console.log("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",messageids, sender)
     //引数が適した値か確認
     sessions.forEach((session, key) => {
         if (session.ws.readyState !== WebSocket.OPEN) {
