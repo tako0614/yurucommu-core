@@ -535,7 +535,7 @@ async function readMessage(messageids: [string], sender: string) {
         await takostoken.create({
             token: takosToken,
         })
-        const result = await takosfetch(
+        await takosfetch(
             `${splitUserName(sender).domain}/api/v1/server/talk/read`,
             {
                 method: "POST",
@@ -550,9 +550,6 @@ async function readMessage(messageids: [string], sender: string) {
                 }),
             },
         )
-        if (result.status !== 200) {
-            return
-        }
     }
 }
 function leaveRoom(sessionid: string) {

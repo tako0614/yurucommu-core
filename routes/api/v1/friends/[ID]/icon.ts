@@ -3,7 +3,7 @@ import friends from "../../../../../models/friends.ts"
 import reqestAddFriend from "../../../../../models/reqestAddFriend.ts"
 import pubClient from "../../../../../util/redisClient.ts"
 import { load } from "$std/dotenv/mod.ts"
-
+import { takosfetch } from "../../../../../util/takosfetch.ts"
 const env = await load()
 
 interface User {
@@ -25,7 +25,7 @@ interface Context {
     params: { ID: string }
     state: { data: { loggedIn: boolean; userid: string } }
 }
-
+const PRIORITY_PROTOCOL = env["PRIORITY_PROTOCOL"]
 export const handler = {
     async GET(req: Request, ctx: Context): Promise<Response> {
         const { ID } = ctx.params
@@ -224,14 +224,18 @@ export const handler = {
                 )
             }
 
-            const resUserUUID = await fetch(
-                `http://${friendDomain}/api/v1/server/users/${friendName}/uuid`,
+            const resUserUUID = await takosfetch(
+                `${friendDomain}/api/v1/server/users/${friendName}/uuid`,
                 {
                     method: "GET",
                     headers: { "Content-Type": "application/json" },
                 },
             )
-
+            if(resUserUUID === null) {
+                return new Response(null, {
+                    status: 400,
+                })
+            }
             if (resUserUUID.status !== 200) {
                 return new Response(
                     JSON.stringify({ status: "No such user" }),
@@ -275,7 +279,7 @@ export const handler = {
             ).join("")
 
             const iconRes = await fetchWithSizeLimit(
-                `http://${friendDomain}/api/v1/server/friends/${ID}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
+                `${friendDomain}/api/v1/server/friends/${ID}/icon?token=${takosToken}&reqUser=${ctx.state.data.userid}`,
                 1024 * 1024 * 10,
             )
 
@@ -311,7 +315,31 @@ async function fetchWithSizeLimit(
     input: RequestInfo,
     limit: number,
 ): Promise<Response> {
-    const res = await fetch(input)
+    let res
+    try {
+        if(PRIORITY_PROTOCOL === "http") {
+            res = await fetch("http://" + input)
+        } else if(PRIORITY_PROTOCOL === "https") {
+            res = await fetch("https://" + input)
+        }
+    } catch (_error) {
+        try {
+            if(PRIORITY_PROTOCOL === "http") {
+                res = await fetch("https://" + input)
+            } else if(PRIORITY_PROTOCOL === "https") {
+                res = await fetch("http://" + input)
+            }
+        } catch (error) {
+            return new Response(null, {
+                status: 400,
+            })
+        }
+    }
+    if(res === undefined) {
+        return new Response(null, {
+            status: 400,
+        })
+    }
     const reader = res.body!.getReader()
     let total = 0
     const chunks: Uint8Array[] = []

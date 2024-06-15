@@ -3,6 +3,7 @@ import { load } from "$std/dotenv/mod.ts"
 import messages from "../../../../../models/messages.ts"
 import rooms from "../../../../../models/rooms.ts"
 import { types } from "https://deno.land/std@0.216.0/media_types/_db.ts"
+import { takosfetch } from "../../../../../util/takosfetch.ts"
 const env = await load()
 
 export const handler = {
@@ -30,9 +31,14 @@ export const handler = {
                 status: 400,
             })
         }
-        const isTrueToken = await fetch(
-            `http://${domain}/api/v1/server/token?token=` + token,
+        const isTrueToken = await takosfetch(
+            `${domain}/api/v1/server/token?token=` + token,
         )
+        if (isTrueToken === null || isTrueToken === undefined) {
+            return new Response(JSON.stringify({ status: false }), {
+                status: 400,
+            })
+        }
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,

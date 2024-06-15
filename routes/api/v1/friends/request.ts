@@ -8,6 +8,7 @@ import users from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { crypto } from "$std/crypto/mod.ts"
+import { takosfetch } from "../../../../util/takosfetch.ts"
 import App from "../../../_app.tsx"
 import friends from "../../../../models/friends.ts"
 const env = await load()
@@ -116,8 +117,8 @@ export const handler = {
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
                 await takostoken.create({ token: takosToken, userid: userid })
-                const requestResult = await fetch(
-                    `http://${splitFriendName?.domain}/api/v1/server/friends/request`,
+                const requestResult = await takosfetch(
+                    `${splitFriendName?.domain}/api/v1/server/friends/request`,
                     {
                         method: "POST",
                         headers: {
@@ -133,6 +134,12 @@ export const handler = {
                         }),
                     },
                 )
+                if(!requestResult) {
+                    return new Response(JSON.stringify({ status: "error" }), {
+                        headers: { "Content-Type": "application/json" },
+                        status: 403,
+                    })
+                }
                 if (requestResult.status !== 200) {
                     return new Response(JSON.stringify({ status: "error" }), {
                         headers: { "Content-Type": "application/json" },
@@ -487,8 +494,8 @@ export const handler = {
                         token: takosToken,
                         userid: userid,
                     })
-                    const requestResult = await fetch(
-                        `http://${serverDomain}/api/v1/server/friends/request`,
+                    const requestResult = await takosfetch(
+                        `${serverDomain}/api/v1/server/friends/request`,
                         {
                             method: "POST",
                             headers: {
@@ -505,6 +512,12 @@ export const handler = {
                             }),
                         },
                     )
+                    if(!requestResult) {
+                        return new Response(JSON.stringify({ status: "error" }), {
+                            headers: { "Content-Type": "application/json" },
+                            status: 400,
+                        })
+                    }
                     if (requestResult.status === 200) {
                         //ApplicantedUserに追加
                         await requestAddFriend.updateOne(

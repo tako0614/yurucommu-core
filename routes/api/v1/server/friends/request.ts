@@ -4,6 +4,7 @@ import friends from "../../../../../models/friends.ts"
 import rooms from "../../../../../models/rooms.ts"
 import remoteservers from "../../../../../models/remoteServers.ts"
 import { crypto } from "$std/crypto/crypto.ts"
+import { takosfetch } from "../../../../../util/takosfetch.ts"
 /*
 リクエスト元のユーザー名：requesterUsername
 リクエスト先のユーザー名：recipientUsername
@@ -44,9 +45,14 @@ export const handler = {
                     status: 400,
                 })
             }
-            const isTrueToken = await fetch(
-                `http://${userDomain}/api/v1/server/token?token=` + token,
+            const isTrueToken = await takosfetch(
+                `${userDomain}/api/v1/server/token?token=` + token,
             )
+            if(!isTrueToken) {
+                return new Response(JSON.stringify({ status: false }), {
+                    status: 400,
+                })
+            }
             const isTrueTokenJson = await isTrueToken.json()
             if (isTrueTokenJson.status !== true) {
                 return new Response(JSON.stringify({ status: false }), {
@@ -191,9 +197,14 @@ export const handler = {
                     status: 400,
                 })
             }
-            const isTrueToken = await fetch(
-                `http://${userDomain}/api/v1/server/token?token=` + token,
+            const isTrueToken = await takosfetch(
+                `${userDomain}/api/v1/server/token?token=` + token,
             )
+            if(!isTrueToken) {
+                return new Response(JSON.stringify({ status: false }), {
+                    status: 400,
+                })
+            }
             const isTrueTokenJson = await isTrueToken.json()
             if (isTrueTokenJson.status !== true) {
                 return new Response(JSON.stringify({ status: false }), {

@@ -2,6 +2,7 @@ import { load } from "$std/dotenv/mod.ts"
 import remoteservers from "../../../../../../models/remoteServers.ts"
 import friends from "../../../../../../models/friends.ts"
 import users from "../../../../../../models/users.ts"
+import { takosfetch } from "../../../../../../util/takosfetch.ts"
 const env = await load()
 export const handler = {
     async GET(req: Request, ctx: any) {
@@ -26,8 +27,8 @@ export const handler = {
                 status: 400,
             })
         }
-        const isTrueToken = await fetch(
-            `http://${userServerDomain}/api/v1/server/token?token=${token}`,
+        const isTrueToken = await takosfetch(
+            `${userServerDomain}/api/v1/server/token?token=${token}`,
         )
         //userが存在するか確認
         const user = await users.findOne({

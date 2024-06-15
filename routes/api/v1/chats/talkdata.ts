@@ -2,6 +2,7 @@ import rooms from "../../../../models/rooms.ts"
 import messages from "../../../../models/messages.ts"
 import user from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
+import { takosfetch } from "../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 export const handler = {
@@ -163,8 +164,8 @@ export const handler = {
                     const friendDomain = splitUserName(
                         OtherServerMessages[0].userid,
                     ).domain
-                    const reuslt = await fetch(
-                        `http://${friendDomain}/api/v1/server/talk/read`,
+                    const reuslt = await takosfetch(
+                        `${friendDomain}/api/v1/server/talk/read`,
                         {
                             method: "POST",
                             headers: {
@@ -178,6 +179,15 @@ export const handler = {
                             }),
                         },
                     )
+                    if(!reuslt) {
+                        return new Response(
+                            JSON.stringify({ "status": "Friend Not Found" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 404,
+                            },
+                        )
+                    }
                     if (reuslt.status !== 200) {
                         await messages.updateMany(
                             {
@@ -209,8 +219,8 @@ export const handler = {
                 })
                 const OtherServerUser = splitUserName(friendId[0])
                 const OtherServerUserDomain = OtherServerUser.domain
-                const OtherServerUserInfo = await fetch(
-                    `http://${OtherServerUserDomain}/api/v1/server/friends/${
+                const OtherServerUserInfo = await takosfetch(
+                    `${OtherServerUserDomain}/api/v1/server/friends/${
                         friendId[0]
                     }/profile?token=${takosToken}&serverDomain=${
                         env["serverDomain"]

@@ -6,6 +6,7 @@ import { getCookies } from "$std/http/cookie.ts"
 import { load } from "$std/dotenv/mod.ts"
 import messages from "../../../../models/messages.ts"
 const env = await load()
+import { takosfetch } from "../../../../util/takosfetch.ts"
 
 interface Context {
     state: {
@@ -150,14 +151,22 @@ export const handler = {
                             (byte) => byte.toString(16).padStart(2, "0"),
                         ).join("")
 
-                        const OtherServerUserInfo = await fetch(
-                            `http://${OtherServerUserDomain}/api/v1/server/friends/${
+                        const OtherServerUserInfo = await takosfetch(
+                            `${OtherServerUserDomain}/api/v1/server/friends/${
                                 OtherServerUser[0].userid
                             }/profile?token=${takosToken}&serverDomain=${
                                 env["serverDomain"]
                             }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
-
+                        if(!OtherServerUserInfo) {
+                            const remoteErrorResult = {
+                                roomName: "remote server error",
+                                lastMessage: room.latestmessage,
+                                roomID: room.uuid,
+                                type: "remotefriend",
+                            }
+                            return remoteErrorResult
+                        }
                         let OtherServerUserInfoJson
                         try {
                             OtherServerUserInfoJson = await OtherServerUserInfo
