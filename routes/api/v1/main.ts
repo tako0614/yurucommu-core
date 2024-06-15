@@ -397,6 +397,14 @@ function sendConecctingUserMessage(
                     messageType,
                 }),
             )
+            pubClient.publish(
+                "takos",
+                JSON.stringify({
+                    type: "read",
+                    messageids: [messageid],
+                    sender: session.uuid,
+                }),
+            )
         }
     })
     return
