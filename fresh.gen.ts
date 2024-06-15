@@ -8,7 +8,7 @@ import * as $_middleware from "./routes/_middleware.ts"
 import * as $about from "./routes/about.tsx"
 import * as $addFriend_roomid_ from "./routes/addFriend/[roomid].tsx"
 import * as $addFriend_index from "./routes/addFriend/index.tsx"
-import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
+import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.ts"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
 import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrftoken from "./routes/api/v1/csrftoken.ts"
@@ -73,7 +73,7 @@ const manifest = {
         "./routes/about.tsx": $about,
         "./routes/addFriend/[roomid].tsx": $addFriend_roomid_,
         "./routes/addFriend/index.tsx": $addFriend_index,
-        "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
+        "./routes/api/v1/chats/friendList.ts": $api_v1_chats_friendList,
         "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
         "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
         "./routes/api/v1/csrftoken.ts": $api_v1_csrftoken,

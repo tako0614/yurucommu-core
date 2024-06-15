@@ -231,7 +231,7 @@ export const handler = {
         }
     },
 }
-function splitUserName(userName) {
+function splitUserName(userName: string) {
     const split = userName.split("@")
     return {
         userName: split[0],
