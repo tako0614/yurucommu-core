@@ -29,6 +29,9 @@ async function subscribeMessage(channel: string | string[]) {
                 break
             case "refreshFriedList":
                 break
+            case "read":
+                readMessage(data.messageids, data.sender)
+                break
             default:
                 break
         }
@@ -392,4 +395,21 @@ function splitUserName(mail: string) {
         userName: mailArray[0],
         domain: mailArray[1],
     }
+}
+function readMessage(messageids: [string], sender: string) {
+    //引数が適した値か確認
+    const session = sessions.get(sender)
+    if (!session) {
+        return
+    }
+    //messageidsが全てuuidか確認
+    if (messageids.some((messageid) => messageid.length !== 36)) {
+        return
+    }
+    session.ws.send(
+        JSON.stringify({
+            type: "read",
+            messageids,
+        }),
+    )
 }

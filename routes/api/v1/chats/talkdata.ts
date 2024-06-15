@@ -99,6 +99,7 @@ export const handler = {
                 messagesResult = await Promise.all(
                     RoomMessages.map(async (message) => {
                         //console.log(message.userid)
+                        let isRead
                         const sender = await user.findOne({
                             uuid: message.userid,
                         })
@@ -110,6 +111,9 @@ export const handler = {
                                 timestamp: message.timestamp,
                             }
                         }
+                        isRead = message.read.findIndex(
+                            (read) => read.userid === friendId[0],
+                        ) !== -1
                         return {
                             sender: sender.userName + "@" + env["serverDomain"],
                             senderNickName: sender.nickName,
@@ -254,6 +258,7 @@ export const handler = {
                 messagesResult = await Promise.all(
                     RoomMessages.map((message) => {
                         let sender
+                        let isRead
                         if (message.userid === ctx.state.data.userid) {
                             sender = {
                                 userName: userName.userName + "@" +
@@ -263,6 +268,9 @@ export const handler = {
                         } else {
                             sender = OtherServerUserInfoJson.result
                         }
+                        isRead = message.read.findIndex(
+                            (read) => read.userid === friendId[0],
+                        ) !== -1
                         if (!sender) {
                             return {
                                 sender: "Unknown",
@@ -276,6 +284,7 @@ export const handler = {
                             senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,
+                            isRead: isRead,
                         }
                     }),
                 )

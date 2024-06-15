@@ -54,7 +54,7 @@ export default function Home(
                         type: "message",
                         message: data.message,
                         time: data.timestamp,
-                        isRead: true,
+                        isRead: data.isRead,
                         sender: data.sender,
                         senderNickName: data.senderNickName,
                     }
