@@ -28,7 +28,6 @@ export const friendsSchema = new mongoose.Schema({
         ],
         default: [],
     },
-    timestamp: { type: Date, default: Date.now },
 })
 const friends = mongoose.model("friends", friendsSchema)
 export default friends

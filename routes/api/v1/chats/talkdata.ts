@@ -2,6 +2,7 @@ import redis from "redis"
 import rooms from "../../../../models/rooms.ts"
 import messages from "../../../../models/messages.ts"
 import user from "../../../../models/users.ts"
+import takostoken from "../../../../models/takostoken.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
@@ -57,10 +58,26 @@ export const handler = {
                     },
                 )
             }
-            //最近送信されたメッセージを100件取得
+            //最近送信されたメッセージを100件取得してreadにuseridを追加
             const RoomMessages = await messages.find({
                 roomid: roomid,
             }).sort({ timestamp: -1 }).limit(100)
+            await messages.updateMany(
+                {
+                    roomid: roomid,
+                    read: {
+                        $not: { $elemMatch: { userid: ctx.state.data.userid } },
+                    },
+                },
+                {
+                    $push: {
+                        read: {
+                            userid: ctx.state.data.userid,
+                            readAt: new Date(),
+                        },
+                    },
+                },
+            )
             if (!RoomMessages) {
                 return new Response(
                     JSON.stringify({ "status": "Message Not Found" }),
@@ -71,6 +88,7 @@ export const handler = {
                 )
             }
             let RoomName = ""
+            let messagesResult
             if (room.types === "friend") {
                 // ctx.state.data.userid.toString()以外のroom.usersの配列に存在するユーザーのIDを取得
                 const friendId = room.users
@@ -93,31 +111,110 @@ export const handler = {
                 }
                 // friendのuserNameを取得
                 RoomName = friend.nickName
-            } else if(room.types === "remotefriend") {
-                RoomName = "もうすぐ実装する"
-            } else {
-                RoomName = "まだ実装してません"
-            }
-            const messagesResult = await Promise.all(
-                RoomMessages.map(async (message) => {
-                    //console.log(message.userid)
-                    const sender = await user.findOne({ uuid: message.userid })
-                    if (!sender) {
+                messagesResult = await Promise.all(
+                    RoomMessages.map(async (message) => {
+                        //console.log(message.userid)
+                        const sender = await user.findOne({ uuid: message.userid })
+                        if (!sender) {
+                            return {
+                                sender: "Unknown",
+                                senderNickName: "Unknown",
+                                message: message.message,
+                                timestamp: message.timestamp,
+                            }
+                        }
                         return {
-                            sender: "Unknown",
-                            senderNickName: "Unknown",
+                            sender: sender.userName + "@" + env["serverDomain"],
+                            senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,
                         }
-                    }
-                    return {
-                        sender: sender.userName + "@" + env["serverDomain"],
-                        senderNickName: sender.nickName,
-                        message: message.message,
-                        timestamp: message.timestamp,
-                    }
-                }),
-            )
+                    }),
+                )
+            } else if (room.types === "remotefriend") {
+                const friendId = room.users
+                    .filter((user: any) =>
+                        user.userid !== ctx.state.data.userid
+                    )
+                    .map((user: any) => user.userid)
+                const takosTokenArray = new Uint8Array(16)
+                const randomarray = crypto.getRandomValues(takosTokenArray)
+                const takosToken = Array.from(
+                    randomarray,
+                    (byte) => byte.toString(16).padStart(2, "0"),
+                ).join("")
+                await takostoken.create({
+                    token: takosToken,
+                    userid: ctx.state.data.userid,
+                })
+                const OtherServerUser = splitUserName(friendId[0])
+                const OtherServerUserDomain = OtherServerUser.domain
+                const OtherServerUserInfo = await fetch(
+                    `http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser}/profile?token=${takosToken}&serverDomain=${
+                        env["serverDomain"]
+                    }&type=id&reqUser=${ctx.state.data.userid}`,
+                )
+                if (!OtherServerUserInfo) {
+                    return new Response(
+                        JSON.stringify({ "status": "Friend Not Found" }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                            status: 404,
+                        },
+                    )
+                }
+                const OtherServerUserInfoJson = await OtherServerUserInfo.json()
+                if(OtherServerUserInfoJson.status === false || !OtherServerUserInfoJson){
+                    console.log(JSON.stringify(OtherServerUserInfoJson) + " is not found")
+                    return new Response(
+                        JSON.stringify({ "status": "Friend Not Found" }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                            status: 404,
+                        },
+                    )
+                }
+                RoomName = OtherServerUserInfoJson.result.nickName
+                const userName = await user.findOne({ uuid: ctx.state.data.userid })
+                if(!userName){
+                    return new Response(
+                        JSON.stringify({ "status": "User Not Found" }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                            status: 404,
+                        },
+                    )
+                }
+                messagesResult = await Promise.all(
+                    RoomMessages.map((message) => {
+                        let sender
+                        if (message.userid === ctx.state.data.userid) {
+                            sender = {
+                                userName: userName.userName,
+                                nickName: userName.nickName,
+                            }
+                        } else {
+                            sender = OtherServerUserInfoJson.result
+                        }
+                        if (!sender) {
+                            return {
+                                sender: "Unknown",
+                                senderNickName: "Unknown",
+                                message: message.message,
+                                timestamp: message.timestamp,
+                            }
+                        }
+                        return {
+                            sender: sender.userName + "@" + env["serverDomain"],
+                            senderNickName: sender.nickName,
+                            message: message.message,
+                            timestamp: message.timestamp,
+                        }
+                    }),
+                )
+            } else {
+                return
+            }
             const result = {
                 roomname: RoomName,
                 messages: messagesResult,
@@ -127,4 +224,11 @@ export const handler = {
             })
         }
     },
+}
+function splitUserName(userName) {
+    const split = userName.split("@")
+    return {
+        userName: split[0],
+        domain: split[1],
+    }
 }

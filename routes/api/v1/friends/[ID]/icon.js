@@ -125,7 +125,9 @@ export const handler = {
                     },
                 )
             }
-            const friendNameInfo = await users.findOne({ userName: friendUserName })
+            const friendNameInfo = await users.findOne({
+                userName: friendUserName,
+            })
             if (friendNameInfo == null) {
                 console.log("No such user")
                 return new Response(
@@ -152,7 +154,8 @@ export const handler = {
             }
             try {
                 const result = await Deno.readFile(
-                    "./files/userIcons/" + splitUserName(friendid).name + ".webp",
+                    "./files/userIcons/" + splitUserName(friendid).name +
+                        ".webp",
                 )
                 return new Response(result, {
                     headers: { "Content-Type": "image/webp" },
@@ -197,13 +200,15 @@ export const handler = {
                 )
             }
             const userUUID = await resUserUUID.json()
-            if(userUUID.status !== true) return new Response(
-                JSON.stringify({ "status": "No such user" }),
-                {
-                    headers: { "Content-Type": "application/json" },
-                    status: 400,
-                },
-            )
+            if (userUUID.status !== true) {
+                return new Response(
+                    JSON.stringify({ "status": "No such user" }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 400,
+                    },
+                )
+            }
             const isFriend = friend.friends.find((element) => {
                 return userUUID.uuid == element.userid
             })

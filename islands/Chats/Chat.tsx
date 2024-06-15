@@ -40,33 +40,36 @@ export default function Home(
     useEffect(() => {
         if (roomid !== null && roomid !== undefined && roomid !== "") {
             const fetchData = async () => {
-                const res = await fetch(`/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`, {
-                    method: "GET",
-                })
+                const res = await fetch(
+                    `/api/v1/chats/talkdata?roomid=${roomid}&startChat=true`,
+                    {
+                        method: "GET",
+                    },
+                )
                 const data = await res.json()
                 setRoomName(data.roomname)
                 console.log(data)
                 const defaultTalkData = data.messages.map((data: any) => {
                     return {
-                      type: "message",
-                      message: data.message,
-                      time: data.timestamp,
-                      isRead: true,
-                      sender: data.sender,
-                      senderNickName: data.senderNickName,
+                        type: "message",
+                        message: data.message,
+                        time: data.timestamp,
+                        isRead: true,
+                        sender: data.sender,
+                        senderNickName: data.senderNickName,
                     }
-                  })
-                  //時間順に並び替え
-                  defaultTalkData.sort((a: any, b: any) => {
+                })
+                //時間順に並び替え
+                defaultTalkData.sort((a: any, b: any) => {
                     if (a.time < b.time) {
-                      return -1
+                        return -1
                     }
                     if (a.time > b.time) {
-                      return 1
+                        return 1
                     }
                     return 0
-                  })
-                  setTalkData(defaultTalkData)
+                })
+                setTalkData(defaultTalkData)
             }
             fetchData()
         }
@@ -80,7 +83,9 @@ export default function Home(
         }, 100)
     }, [talkData])
     useEffect(() => {
-        const socket = new WebSocket("ws://"+ window.location.host + "/api/v1/main")
+        const socket = new WebSocket(
+            "ws://" + window.location.host + "/api/v1/main",
+        )
         socket.onopen = () => {
             socket.send(
                 JSON.stringify({
@@ -92,32 +97,32 @@ export default function Home(
             const data = JSON.parse(event.data)
             if (data.type == "login") {
                 setSessionid(data.sessionID)
-                if(props.roomid !== undefined && props.roomid !== "") {
+                if (props.roomid !== undefined && props.roomid !== "") {
                     socket.send(JSON.stringify({
                         type: "joinRoom",
                         roomid: props.roomid,
                         sessionid: data.sessionID,
                     }))
                 }
-            } else if(data.type == "joinRoom") {
+            } else if (data.type == "joinRoom") {
                 setRoomid(data.roomID)
-            } else if(data.type == "message") {
+            } else if (data.type == "message") {
                 setTalkData((prev) => {
                     return [
-                      ...prev,
-                      {
-                        type: "message",
-                        message: data.message,
-                        time: data.time,
-                        isRead: false,
-                        sender: data.sender,
-                        senderNickName: data.senderNickName,
-                      },
+                        ...prev,
+                        {
+                            type: "message",
+                            message: data.message,
+                            time: data.time,
+                            isRead: false,
+                            sender: data.sender,
+                            senderNickName: data.senderNickName,
+                        },
                     ]
-                  })
-                  console.log(talkData)
+                })
+                console.log(talkData)
             } else {
-                if(data.status == false) {
+                if (data.status == false) {
                     console.log(data.explain)
                 }
             }

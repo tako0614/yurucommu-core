@@ -30,7 +30,9 @@ export const handler = {
             `http://${userServerDomain}/api/v1/server/token?token=${token}`,
         )
         //userが存在するか確認
-        const user = await users.findOne({ userName: splitUserName(ID).userName })
+        const user = await users.findOne({
+            userName: splitUserName(ID).userName,
+        })
         if (!user) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,

@@ -3,7 +3,7 @@ import users from "../../../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 export const handler = {
-    async GET(_req: Request,ctx: FreshContext) {
+    async GET(_req: Request, ctx: FreshContext) {
         const { ID } = ctx.params
         const user = await users.findOne({ uuid: ID })
         if (user === null) {
@@ -11,8 +11,14 @@ export const handler = {
                 status: 400,
             })
         }
-        return new Response(JSON.stringify({ "status": true, "userName": user.userName + "@" + env["serverDomain"] }), {
-            status: 200,
-        })
-    }
+        return new Response(
+            JSON.stringify({
+                "status": true,
+                "userName": user.userName + "@" + env["serverDomain"],
+            }),
+            {
+                status: 200,
+            },
+        )
+    },
 }

@@ -48,13 +48,14 @@ export default function ChatTalk(props: any) {
                                 </div>
                                 <div
                                     class="p-talk-chat-send__file"
-                                    onClick={async () => {
+                                    onClick={() => {
                                         if (Message) {
                                             const data = {
                                                 type: "message",
                                                 message: Message,
                                                 roomid: props.roomid,
                                                 sessionid: props.sessionid,
+                                                messageType: "text",
                                             }
                                             props.ws.send(JSON.stringify(data))
                                             setMessage("")
@@ -120,8 +121,9 @@ function TalkArea(props: any) {
                 <ul class="p-talk-chat-main__ul">
                     {props.talkData.map((data: any) => {
                         //Date型での比較
-                        const isEncodeDate = DateState != data.time.split("T")[0];
-                        DateState = data.time.split("T")[0];
+                        const isEncodeDate =
+                            DateState != data.time.split("T")[0]
+                        DateState = data.time.split("T")[0]
                         if (data.type == "message") {
                             if (data.sender == props.userName) {
                                 if (SendPrimary) {

@@ -10,7 +10,6 @@ import * as $addFriend_roomid_ from "./routes/addFriend/[roomid].tsx"
 import * as $addFriend_index from "./routes/addFriend/index.tsx"
 import * as $api_v1_chats_friendList from "./routes/api/v1/chats/friendList.js"
 import * as $api_v1_chats_friendkey from "./routes/api/v1/chats/friendkey.js"
-import * as $api_v1_chats_talk from "./routes/api/v1/chats/talk.ts"
 import * as $api_v1_chats_talkdata from "./routes/api/v1/chats/talkdata.ts"
 import * as $api_v1_csrftoken from "./routes/api/v1/csrftoken.ts"
 import * as $api_v1_friends_ID_icon from "./routes/api/v1/friends/[ID]/icon.js"
@@ -75,7 +74,6 @@ const manifest = {
         "./routes/addFriend/index.tsx": $addFriend_index,
         "./routes/api/v1/chats/friendList.js": $api_v1_chats_friendList,
         "./routes/api/v1/chats/friendkey.js": $api_v1_chats_friendkey,
-        "./routes/api/v1/chats/talk.ts": $api_v1_chats_talk,
         "./routes/api/v1/chats/talkdata.ts": $api_v1_chats_talkdata,
         "./routes/api/v1/csrftoken.ts": $api_v1_csrftoken,
         "./routes/api/v1/friends/[ID]/icon.js": $api_v1_friends_ID_icon,

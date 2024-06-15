@@ -11,13 +11,15 @@ await pubClient.connect()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, sender, token, message, uuid } = data
+        const { roomid, sender, token, message, uuid, messageType } = data
         if (
             roomid === "" || roomid === null || roomid === undefined ||
             sender === "" || sender === null || sender === undefined ||
             token === "" || token === null || token === undefined ||
             message === "" || message === null || message === undefined ||
-            uuid === "" || uuid === null || uuid === undefined
+            uuid === "" || uuid === null || uuid === undefined ||
+            messageType === "" || messageType === null ||
+            messageType === undefined
         ) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
@@ -57,6 +59,7 @@ export const handler = {
             message,
             read: [],
             messageid: crypto.randomUUID(),
+            messageType,
         })
         pubClient.publish("takos", JSON.stringify({ roomid, message }))
         return new Response(JSON.stringify({ status: true }), { status: 200 })

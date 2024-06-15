@@ -18,6 +18,11 @@ export const messagesSchema = new mongoose.Schema({
         type: String,
         required: true, // message is now required
     },
+    messageType: {
+        type: String,
+        required: true,
+        enum: ["text", "image", "file", "video", "audio"],
+    },
     read: [
         {
             userid: {

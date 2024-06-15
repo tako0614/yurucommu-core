@@ -2,7 +2,7 @@ import redis from "redis"
 import rooms from "../../../models/rooms.ts"
 import users from "../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
-import {crypto} from "$std/crypto/mod.ts"
+import { crypto } from "$std/crypto/mod.ts"
 import messages from "../../../models/messages.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
@@ -23,12 +23,17 @@ async function subscribeMessage(channel: string | string[]) {
         const data = JSON.parse(message)
         switch (data.type) {
             case "message":
-                sendConecctingUserMessage(data.roomid, data.message, data.sender, data.time)
-                break;
+                sendConecctingUserMessage(
+                    data.roomid,
+                    data.message,
+                    data.sender,
+                    data.time,
+                )
+                break
             case "refreshFriedList":
-                break;
+                break
             default:
-                break;
+                break
         }
     })
 }
@@ -51,15 +56,21 @@ export const handler = {
                 switch (data.type) {
                     case "joinRoom":
                         joinRoom(data.sessionid, data.roomid, socket)
-                        break;
+                        break
                     case "message":
-                        sendMessage(data.sessionid, data.message, data.roomid, socket)
-                        break;
+                        sendMessage(
+                            data.sessionid,
+                            data.message,
+                            data.roomid,
+                            socket,
+                            data.messageType,
+                        )
+                        break
                     case "login":
                         login(ctx.state.data.userid, socket)
-                        break;
+                        break
                     default:
-                        break;
+                        break
                 }
             }
             socket.onclose = () => {
@@ -109,8 +120,8 @@ async function login(userID: string, ws: WebSocket) {
     )
 }
 async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
-    if(!sessionID || !roomID) {
-        console.log(sessionID,roomID)
+    if (!sessionID || !roomID) {
+        console.log(sessionID, roomID)
         ws.send(
             JSON.stringify({
                 status: false,
@@ -129,8 +140,7 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
         )
         return
     }
-    const room = await rooms.findOne
-    ({
+    const room = await rooms.findOne({
         uuid: roomID,
     })
     if (!room) {
@@ -165,7 +175,13 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
         }),
     )
 }
-async function sendMessage(sessionid: string, message: string,roomID: string,ws: WebSocket) {
+async function sendMessage(
+    sessionid: string,
+    message: string,
+    roomID: string,
+    ws: WebSocket,
+    MessageType: string,
+) {
     const session = sessions.get(sessionid)
     if (!session) {
         ws.send(
@@ -176,7 +192,7 @@ async function sendMessage(sessionid: string, message: string,roomID: string,ws:
         )
         return
     }
-    if(session.talkingRoom !== roomID) {
+    if (session.talkingRoom !== roomID) {
         ws.send(
             JSON.stringify({
                 status: false,
@@ -190,39 +206,55 @@ async function sendMessage(sessionid: string, message: string,roomID: string,ws:
         roomid: roomID,
         message,
         read: [],
+        messageType: MessageType,
         messageid: crypto.randomUUID(),
     })
     const time = result.timestamp
-    pubClient.publish("takos", JSON.stringify({ roomid: roomID, message,type:"message",sender:session.uuid,time }))
+    pubClient.publish(
+        "takos",
+        JSON.stringify({
+            roomid: roomID,
+            message,
+            type: "message",
+            sender: session.uuid,
+            time,
+        }),
+    )
     ws.send(
         JSON.stringify({
             status: true,
         }),
     )
 }
-function sendConecctingUserMessage(roomid: string, message: string,sender: string,time: any) {
+function sendConecctingUserMessage(
+    roomid: string,
+    message: string,
+    sender: string,
+    time: any,
+) {
     //sessionsにroomidが同じユーザーを探す
     sessions.forEach(async (session, key) => {
         if (session.talkingRoom === roomid) {
-            if(splitUserName(sender).domain !== env["serverDomain"]) {
+            if (splitUserName(sender).domain !== env["serverDomain"]) {
                 console.log("domain is not same")
                 return
             }
-                const userInfo = await users.findOne({
-                    uuid: sender,
-                })
-                if(!userInfo) {
-                    return
-                }
-                session.ws.send(
-                    JSON.stringify({
-                        type: "message",
-                        message,
-                        sender: userInfo?.userName + "@" + env["serverDomain"] || "unknown",
-                        senderNickName: userInfo?.nickName || "unknown",
-                        time: time
-                    }),
-                )
+            const userInfo = await users.findOne({
+                uuid: sender,
+            })
+            if (!userInfo) {
+                return
+            }
+            session.ws.send(
+                JSON.stringify({
+                    type: "message",
+                    message,
+                    sender: userInfo?.userName + "@" + env["serverDomain"] ||
+                        "unknown",
+                    senderNickName: userInfo?.nickName || "unknown",
+                    time: time,
+                }),
+            )
         }
     })
     return
