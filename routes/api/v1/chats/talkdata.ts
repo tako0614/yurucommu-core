@@ -71,6 +71,18 @@ export const handler = {
                 },
             )
             //自分のサーバーじゃないユーザーのmessageidを取得
+            const OtherServerMessages = RoomMessages.filter(
+                (message) => message.userid !== ctx.state.data.userid,
+            )
+            //自分のサーバーじゃないユーザーのmessageの中で自分が未読のものを取得
+            const UnreadMessages = OtherServerMessages.filter(
+                (message) =>
+                    message.read.findIndex(
+                        (read) => read.userid === ctx.state.data.userid,
+                    ) === -1,
+            )
+            //未読のメッセージのmessageidを配列にして返す
+            const UnreadMessageIds = UnreadMessages.map((message) => message.messageid)
             if (!RoomMessages) {
                 return new Response(
                     JSON.stringify({ "status": "Message Not Found" }),
@@ -79,6 +91,47 @@ export const handler = {
                         status: 404,
                     },
                 )
+            }
+            if (UnreadMessageIds.length !== 0) {
+                //takostoken
+                const takosTokenArray = new Uint8Array(16)
+                const randomarray = crypto.getRandomValues(takosTokenArray)
+                const takosToken = Array.from(
+                    randomarray,
+                    (byte) => byte.toString(16).padStart(2, "0"),
+                ).join("")
+                await takostoken.create({
+                    token: takosToken
+                })
+                const reuslt = await fetch(
+                    `${env["serverDomain"]}/api/v1/server/talk/read`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            roomid: roomid,
+                            messageids: UnreadMessageIds,
+                            sender: ctx.state.data.userid,
+                            token: takosToken,
+                        }),
+                    },
+                )
+                if (reuslt.status !== 200) {
+                    console.log("Failed to send read")
+                    await messages.updateMany(
+                        {
+                            roomid: roomid,
+                            messageid: { $in: UnreadMessageIds },
+                        },
+                        {
+                            $pull: {
+                                read: { userid: ctx.state.data.userid },
+                            },
+                        },
+                    )
+                }
             }
             let RoomName = ""
             let messagesResult
