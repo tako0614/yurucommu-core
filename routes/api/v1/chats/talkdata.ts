@@ -206,7 +206,7 @@ export const handler = {
                             }
                         }
                         return {
-                            sender: sender.userName + "@" + env["serverDomain"],
+                            sender: sender.userName,
                             senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,

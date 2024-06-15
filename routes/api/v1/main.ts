@@ -300,6 +300,7 @@ async function sendMessage(
             )
             return
         }
+        console.log("send message")
     } else {
         ws.send(
             JSON.stringify({
