@@ -244,7 +244,7 @@ async function sendMessage(
             randomarray,
             (byte) => byte.toString(16).padStart(2, "0"),
         ).join("")
-        const result = await takostoken.create({
+        takostoken.create({
             token: takosToken,
         })
         const roomMenber = await rooms.findOne({
@@ -405,7 +405,7 @@ async function sendConecctingUserMessage(
                     randomarray2,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                await takostoken.create({
+                takostoken.create({
                     token: takosToken2,
                 })
                 await takosfetch(
@@ -532,7 +532,7 @@ async function readMessage(messageids: [string], sender: string) {
             randomarray,
             (byte) => byte.toString(16).padStart(2, "0"),
         ).join("")
-        await takostoken.create({
+        takostoken.create({
             token: takosToken,
         })
         await takosfetch(

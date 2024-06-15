@@ -158,7 +158,7 @@ export const handler = {
                         randomarray,
                         (byte) => byte.toString(16).padStart(2, "0"),
                     ).join("")
-                    await takostoken.create({
+                    takostoken.create({
                         token: takosToken,
                     })
                     const friendDomain = splitUserName(
@@ -213,7 +213,7 @@ export const handler = {
                     randomarray,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                await takostoken.create({
+                takostoken.create({
                     token: takosToken,
                     userid: ctx.state.data.userid,
                 })

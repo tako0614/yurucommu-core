@@ -116,7 +116,7 @@ export const handler = {
                     randomarray,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                await takostoken.create({ token: takosToken, userid: userid })
+                takostoken.create({ token: takosToken, userid: userid })
                 const requestResult = await takosfetch(
                     `${splitFriendName?.domain}/api/v1/server/friends/request`,
                     {
@@ -490,7 +490,7 @@ export const handler = {
                         )
                     }
                     const takosToken = crypto.randomUUID()
-                    await takostoken.create({
+                    takostoken.create({
                         token: takosToken,
                         userid: userid,
                     })
