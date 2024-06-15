@@ -424,6 +424,7 @@ async function readMessage(messageids: [string], sender: string) {
     if (messageids.some((messageid) => messageid.length !== 36)) {
         return
     }
+    console.log("sessioniddddddddddddddddddddd",session)
     session.ws.send(
         JSON.stringify({
             type: "read",
