@@ -169,11 +169,12 @@ export const handler = {
                             body: JSON.stringify({
                                 roomid: roomid,
                                 messageids: UnreadMessageIds,
-                                sender: ctx.state.data.userid,
+                                reader: ctx.state.data.userid,
                                 token: takosToken,
                             }),
                         },
                     )
+                    console.log(UnreadMessageIds)
                     if (reuslt.status !== 200) {
                         console.log("Failed to send read")
                         await messages.updateMany(

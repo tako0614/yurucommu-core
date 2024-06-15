@@ -8,15 +8,15 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, messageids, sender, token }: {
+        const { roomid, messageids, reader, token }: {
             roomid: string
             messageids: [string]
-            sender: string
+            reader: string
             token: string
         } = data
         if (
             roomid === "" || roomid === null || roomid === undefined ||
-            sender === "" || sender === null || sender === undefined ||
+            reader === "" || reader === null || reader === undefined ||
             token === "" || token === null || token === undefined ||
             messageids === null || messageids === undefined
         ) {
@@ -24,7 +24,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const { domain, userName } = splitUserName(sender)
+        const { domain, userName } = splitUserName(reader)
         if (domain !== env["serverDomain"]) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
@@ -40,7 +40,7 @@ export const handler = {
         }
         const isRoomUser = await rooms.findOne({
             uuid: roomid,
-            users: { $elemMatch: { userid: sender } },
+            users: { $elemMatch: { userid: reader } },
         })
         if (isRoomUser === null || isRoomUser === undefined) {
             return new Response(JSON.stringify({ status: false }), {
@@ -56,13 +56,14 @@ export const handler = {
                 status: 400,
             })
         }
+        const messageids2 = messagesArray.map((message) => message.messageid)
         await messages.updateMany(
             {
                 roomid,
-                messageid: { $in: messageids },
+                messageid: { $in: messageids2 },
             },
             {
-                $addToSet: { read: { userid: sender } },
+                $addToSet: { read: { userid: reader } },
             },
         )
         pubClient.publish(
@@ -71,7 +72,7 @@ export const handler = {
                 types: "read",
                 roomid,
                 messageids,
-                sender,
+                reader,
             }),
         )
         return new Response(JSON.stringify({ status: true }), { status: 200 })
