@@ -18,6 +18,15 @@ type TalkDataItem = {
     isRead: boolean
     sender?: string
 }
+interface FriendList {
+    roomName: string,
+    latestMessage: string,
+    icon: string,
+    roomid: string,
+    userName: string,
+    isNewMessage: boolean,
+    latestMessageTime: string | Date,
+}
 export default function Home(
     props: any,
 ) {
@@ -29,9 +38,9 @@ export default function Home(
     const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
         props.isAddFriendForm,
     )
-    const [friendList, setFriendList] = useState([])
+    const [friendList, setFriendList] = useState<FriendList[]>([]);
     const reset = () => {
-        setIsChoiceUser(false)
+        //setIsChoiceUser(false)
     }
     const [ws, setWs] = useState<WebSocket | null>(null)
     const [sessionid, setSessionid] = useState("")
@@ -123,11 +132,11 @@ export default function Home(
                         },
                     ]
                 })
-            } else if(data.type == "read") {
+            } else if (data.type == "read") {
                 console.log(data)
                 setTalkData((prev) => {
                     return prev.map((item) => {
-                        if (data.messageids.includes(item.messageid)) {
+                        if (data.messageids.includes(item?.messageid)) {
                             return {
                                 ...item,
                                 isRead: true,
@@ -135,6 +144,33 @@ export default function Home(
                         }
                         return item
                     })
+                })
+            } else if(data.type == "notification") {
+                //friendListを更新
+                console.log(data)
+                setFriendList((prev) => {
+                    const newFriendList = prev.map((item) => {
+                        if(item.roomid == data.roomid) {
+                            console.log("update")
+                            return {
+                                ...item,
+                                latestMessage: data.message,
+                                latestMessageTime: data.time,
+                                isNewMessage: true,
+                            }
+                        }
+                        return item
+                    })
+                    newFriendList.sort((a, b) => {
+                        if (a.latestMessageTime < b.latestMessageTime) {
+                            return 1
+                        }
+                        if (a.latestMessageTime > b.latestMessageTime) {
+                            return -1
+                        }
+                        return 0
+                    })
+                    return newFriendList
                 })
             } else {
                 if (data.status == false) {

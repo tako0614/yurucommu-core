@@ -4,6 +4,7 @@ import csrftoken from "../../../../models/csrftoken.ts"
 import users from "../../../../models/users.ts"
 import { getCookies } from "$std/http/cookie.ts"
 import { load } from "$std/dotenv/mod.ts"
+import messages from "../../../../models/messages.ts"
 const env = await load()
 
 interface Context {
@@ -104,18 +105,24 @@ export const handler = {
                         const friendName = await users.findOne({
                             uuid: friendID[0].userid,
                         })
-
+                        const latestmessage = await messages.findOne({
+                            roomid: room.uuid,
+                        }).sort({ timestamp: -1 })
+                        const isNewMessage = latestmessage?.read.find(
+                            (read: User) => read.userid === ctx.state.data.userid,
+                        )
                         const friendResult = {
                             roomName: friendName?.nickName,
-                            lastMessage: room.latestmessage,
+                            lastMessage: latestmessage?.message,
                             roomID: room.uuid,
-                            latestMessageTime: room.latestMessageTime,
+                            latestMessageTime: latestmessage?.timestamp,
                             roomIcon: `/api/v1/friends/${
                                 friendName?.userName + "@" + env["serverDomain"]
                             }/icon`,
                             type: "localfriend",
                             userName: friendName?.userName + "@" +
                                 env["serverDomain"],
+                            isNewMessage: isNewMessage === undefined,
                         }
                         return friendResult
                     } else if (room.types === "group") {
@@ -160,18 +167,25 @@ export const handler = {
                                 status: false,
                             }
                         }
-
+                        const latestmessage = await messages.findOne({
+                            roomid: room.uuid,
+                        }).sort({ timestamp: -1 })
+                        const isNewMessage = latestmessage?.read.find(
+                            (read: User) => read.userid === ctx.state.data.userid,
+                        )
                         if (OtherServerUserInfoJson.status === true) {
                             const remoteFriendResult = {
                                 roomName:
                                     OtherServerUserInfoJson.result.nickName,
-                                lastMessage: room.latestmessage,
+                                lastMessage: latestmessage?.message,
                                 roomID: room.uuid,
                                 type: "remotefriend",
                                 roomIcon:
                                     `/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
                                 userName:
                                     OtherServerUserInfoJson.result.userName,
+                                isNewMessage: isNewMessage === undefined,
+                                latestMessageTime: latestmessage?.timestamp,
                             }
                             return remoteFriendResult
                         } else {

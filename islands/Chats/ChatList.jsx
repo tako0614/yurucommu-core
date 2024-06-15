@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks"
 import User from "../../components/Chats/ChatUserList.jsx"
+
 export default function ChatList(props) {
     const friendList = props.friendList
     const setFriendList = props.setFriendList
@@ -33,6 +34,7 @@ export default function ChatList(props) {
         }
         const friendListTemp = []
         res.chatRooms.map((room) => {
+            console.log(room)
             if (room.type == "localfriend") {
                 let lastMessage = room.lastMessage
                 if (
@@ -47,6 +49,8 @@ export default function ChatList(props) {
                     icon: room.roomIcon,
                     roomid: room.roomID,
                     userName: room.userName,
+                    isNewMessage: room.isNewMessage,
+                    latestMessageTime: room.latestMessageTime,
                 }
                 friendListTemp.push(friend)
             }
@@ -64,9 +68,21 @@ export default function ChatList(props) {
                     icon: room.roomIcon,
                     roomid: room.roomID,
                     userName: room.userName,
+                    isNewMessage: room.isNewMessage,
+                    latestMessageTime: room.latestMessageTime,
                 }
                 friendListTemp.push(friend)
             }
+        })
+        //latestMessageTimeが新しい順に並び替え
+        friendListTemp.sort((a, b) => {
+            if (a.latestMessageTime < b.latestMessageTime) {
+                return 1
+            }
+            if (a.latestMessageTime > b.latestMessageTime) {
+                return -1
+            }
+            return 0
         })
         setFriendList(friendListTemp)
     }, [])
@@ -93,6 +109,7 @@ export default function ChatList(props) {
                                         userName={friend.roomName}
                                         latestMessage={friend.latestMessage}
                                         userName2={friend.userName}
+                                        isNewMessage={friend.isNewMessage}
                                         icon={window.location.protocol + "//" +
                                             window.location.host + friend.icon}
                                         onClick={() => {
@@ -109,6 +126,7 @@ export default function ChatList(props) {
                                                 "/talk/" + friend.roomid,
                                             )
                                             props.setIsChoiceUser(true)
+                                            friend.isNewMessage = false
                                         }}
                                     />
                                 </li>

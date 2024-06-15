@@ -1,7 +1,3 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 .checkbox {
     border-radius: 0.25rem;
     border-color: #D1D5DB;
@@ -9,6 +5,23 @@
     height: 1.5rem;
     color: #2563EB;
     background-color: #F3F4F6;
+}
+.green {
+    /*球体にして*/
+    border-radius: 50%;
+    /*大きさを指定*/
+    height: 25px;
+    /*色を指定*/
+    background-color: #00FF00;
+
+    /*文字を中央に*/
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 12px;
+    color: #ffffff;
+    /*文字を太く*/
+    font-weight: bold;
 }
 .mb-6noyotei {
     margin-bottom: 30px;
@@ -903,3 +916,6 @@ html, body {
         color: #E2E8F0;
     }
 }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

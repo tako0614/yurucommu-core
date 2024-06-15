@@ -337,7 +337,7 @@ async function sendMessage(
         return
     }
 }
-function sendConecctingUserMessage(
+async function sendConecctingUserMessage(
     roomid: string,
     message: string,
     sender: string,
@@ -346,8 +346,10 @@ function sendConecctingUserMessage(
     messageType: string,
 ) {
     //sessionsにroomidが同じユーザーを探す
+    let isFindUser = false
     sessions.forEach(async (session, key) => {
         if (session.talkingRoom === roomid) {
+            isFindUser = true
             if (splitUserName(sender).domain !== env["serverDomain"]) {
                 const takosTokenArray = new Uint8Array(16)
                 const randomarray = crypto.getRandomValues(takosTokenArray)
@@ -380,7 +382,7 @@ function sendConecctingUserMessage(
                         messageType,
                     }),
                 )
-                if(session.uuid === sender){
+                if (session.uuid === sender) {
                     return
                 }
                 //takostokenを作成
@@ -394,7 +396,9 @@ function sendConecctingUserMessage(
                     token: takosToken2,
                 })
                 await fetch(
-                    `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
+                    `http://${
+                        splitUserName(sender).domain
+                    }/api/v1/server/talk/read`,
                     {
                         method: "POST",
                         headers: {
@@ -428,7 +432,7 @@ function sendConecctingUserMessage(
                     messageType,
                 }),
             )
-            if(session.uuid === sender){
+            if (session.uuid === sender) {
                 return
             }
             pubClient.publish(
@@ -442,6 +446,38 @@ function sendConecctingUserMessage(
             )
         }
     })
+    if(!isFindUser){
+        const roomInfo = await rooms.findOne({
+            uuid: roomid,
+        })
+        if (!roomInfo) {
+            return
+        }
+        const roomMenber = roomInfo.users
+        if (roomMenber.length === 0) {
+            return
+        }
+        const friend = roomMenber.find((user) => user.userid !== sender)
+        if (!friend) {
+            return
+        }
+        const frienduuid = friend.userid
+        //sessioonにuuidがfrienduuidのものがあるか確認
+        const session = Array.from(sessions.values()).find(
+            (session) => session.uuid === frienduuid,
+        )
+        if (!session) {
+            return
+        }
+        session.ws.send(
+            JSON.stringify({
+                type: "notification",
+                roomid,
+                message,
+                time
+            }),
+        )
+    }
     return
 }
 function splitUserName(mail: string) {
@@ -486,18 +522,21 @@ async function readMessage(messageids: [string], sender: string) {
         await takostoken.create({
             token: takosToken,
         })
-        const result = await fetch(`http://${splitUserName(sender).domain}/api/v1/server/talk/read`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
+        const result = await fetch(
+            `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    roomid: session.talkingRoom,
+                    messageids,
+                    reader: session.uuid,
+                    token: takosToken,
+                }),
             },
-            body: JSON.stringify({
-                roomid: session.talkingRoom,
-                messageids,
-                reader: session.uuid,
-                token: takosToken,
-            }),
-        })
+        )
         if (result.status !== 200) {
             return
         }

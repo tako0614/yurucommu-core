@@ -64,7 +64,6 @@ export default function ChatHeader(
                                 history.pushState("", "", "/talk/")
                                 return
                             }
-                            console.log(roomid)
                             history.pushState("", "", "/talk/" + roomid)
                         }}
                     >
