@@ -387,7 +387,7 @@ function sendConecctingUserMessage(
                     randomarray2,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                await fetch(
+                console.log(await fetch(
                     `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
@@ -401,7 +401,7 @@ function sendConecctingUserMessage(
                             token: takosToken2,
                         }),
                     },
-                )
+                ))
                 return
             }
             const userInfo = await users.findOne({
