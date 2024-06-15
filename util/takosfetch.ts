@@ -1,4 +1,4 @@
-export async function tako(url: string, options?: RequestInit) {
+export async function takosfetch(url: string, options?: RequestInit) {
     try {
         return await fetch("https://" + url,
             options

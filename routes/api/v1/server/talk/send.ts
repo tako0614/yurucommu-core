@@ -1,7 +1,7 @@
 import rooms from "../../../../../models/rooms.ts"
 import messages from "../../../../../models/messages.ts"
 import pubClient from "../../../../../util/redisClient.ts"
-import takosfetch from "../../../../../util/takosfetch.ts"
+import { takosfetch } from "../../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 export const handler = {
     async POST(req: Request, ctx: any) {
@@ -24,6 +24,11 @@ export const handler = {
         }
         const { domain, userName } = splitUserName(sender)
         const isTrueToken = await takosfetch(`${domain}/api/v1/server/token?token=` + token)
+        if(isTrueToken === null || isTrueToken === undefined) {
+            return new Response(JSON.stringify({ status: false }), {
+                status: 400,
+            })
+        }
         if (isTrueToken.status !== 200) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
