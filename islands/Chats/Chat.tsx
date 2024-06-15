@@ -95,7 +95,7 @@ export default function Home(
     useEffect(() => {
         const isSSL = window.location.protocol === "https:"
         const wsProtocol = isSSL ? "wss" : "ws"
-        console.log(wsProtocol + window.location.host + "/api/v1/main", wsProtocol, window.location.host)
+        console.log(wsProtocol + "://" + window.location.host + "/api/v1/main", wsProtocol, window.location.host)
         const socket = new WebSocket(
             wsProtocol + window.location.host + "/api/v1/main",
         )
