@@ -53,7 +53,7 @@ export const handler = {
                 status: 400,
             })
         }
-        await messages.create({
+        const result = await messages.create({
             userid: uuid,
             roomid,
             sender,
@@ -69,7 +69,7 @@ export const handler = {
                 message,
                 type: "message",
                 sender: uuid,
-                time: Date.now(),
+                time: result.timestamp,
             }),
         )
         return new Response(JSON.stringify({ status: true }), { status: 200 })
