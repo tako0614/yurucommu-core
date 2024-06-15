@@ -8,7 +8,12 @@ const env = await load()
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, messageids, sender, token }: {roomid: string, messageids: [string], sender: string, token: string} = data
+        const { roomid, messageids, sender, token }: {
+            roomid: string
+            messageids: [string]
+            sender: string
+            token: string
+        } = data
         if (
             roomid === "" || roomid === null || roomid === undefined ||
             sender === "" || sender === null || sender === undefined ||
@@ -20,7 +25,7 @@ export const handler = {
             })
         }
         const { domain, userName } = splitUserName(sender)
-        if(domain !== env["serverDomain"]) {
+        if (domain !== env["serverDomain"]) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })

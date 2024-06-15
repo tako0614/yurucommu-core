@@ -5,7 +5,8 @@ import { load } from "$std/dotenv/mod.ts"
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, sender, token, message, uuid, messageType, messageid } = data
+        const { roomid, sender, token, message, uuid, messageType, messageid } =
+            data
         //console.log(roomid, sender, token, message, uuid, messageType)
         if (
             roomid === "" || roomid === null || roomid === undefined ||

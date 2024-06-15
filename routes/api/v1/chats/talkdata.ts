@@ -59,7 +59,9 @@ export const handler = {
             await messages.updateMany(
                 {
                     roomid: roomid,
-                    read: { $not: { $elemMatch: { userid: ctx.state.data.userid } } },
+                    read: {
+                        $not: { $elemMatch: { userid: ctx.state.data.userid } },
+                    },
                 },
                 {
                     $push: {
@@ -70,69 +72,6 @@ export const handler = {
                     },
                 },
             )
-            //自分のサーバーじゃないユーザーのmessageidを取得
-            const OtherServerMessages = RoomMessages.filter(
-                (message) => message.userid !== ctx.state.data.userid,
-            )
-            //自分のサーバーじゃないユーザーのmessageの中で自分が未読のものを取得
-            const UnreadMessages = OtherServerMessages.filter(
-                (message) =>
-                    message.read.findIndex(
-                        (read) => read.userid === ctx.state.data.userid,
-                    ) === -1,
-            )
-            //未読のメッセージのmessageidを配列にして返す
-            const UnreadMessageIds = UnreadMessages.map((message) => message.messageid)
-            if (!RoomMessages) {
-                return new Response(
-                    JSON.stringify({ "status": "Message Not Found" }),
-                    {
-                        headers: { "Content-Type": "application/json" },
-                        status: 404,
-                    },
-                )
-            }
-            if (UnreadMessageIds.length !== 0) {
-                //takostoken
-                const takosTokenArray = new Uint8Array(16)
-                const randomarray = crypto.getRandomValues(takosTokenArray)
-                const takosToken = Array.from(
-                    randomarray,
-                    (byte) => byte.toString(16).padStart(2, "0"),
-                ).join("")
-                await takostoken.create({
-                    token: takosToken
-                })
-                const reuslt = await fetch(
-                    `${env["serverDomain"]}/api/v1/server/talk/read`,
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                            roomid: roomid,
-                            messageids: UnreadMessageIds,
-                            sender: ctx.state.data.userid,
-                            token: takosToken,
-                        }),
-                    },
-                )
-                if (reuslt.status !== 200) {
-                    console.log("Failed to send read")
-                    await messages.updateMany(
-                        {
-                            roomid: roomid,
-                            messageid: { $in: UnreadMessageIds },
-                        },
-                        {
-                            $pull: {
-                                read: { userid: ctx.state.data.userid },
-                            },
-                        },
-                    )
-                }
-            }
             let RoomName = ""
             let messagesResult
             if (room.types === "friend") {
@@ -180,6 +119,76 @@ export const handler = {
                     }),
                 )
             } else if (room.types === "remotefriend") {
+                //自分のサーバーじゃないユーザーのmessageidを取得
+                const OtherServerMessages = RoomMessages.filter(
+                    (message) => message.userid !== ctx.state.data.userid,
+                )
+                //自分のサーバーじゃないユーザーのmessageの中で自分が未読のものを取得
+                const UnreadMessages = OtherServerMessages.filter(
+                    (message) =>
+                        message.read.findIndex(
+                            (read) => read.userid === ctx.state.data.userid,
+                        ) === -1,
+                )
+                //未読のメッセージのmessageidを配列にして返す
+                const UnreadMessageIds = UnreadMessages.map((message) =>
+                    message.messageid
+                )
+                if (!RoomMessages) {
+                    return new Response(
+                        JSON.stringify({ "status": "Message Not Found" }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                            status: 404,
+                        },
+                    )
+                }
+                if (UnreadMessageIds.length !== 0) {
+                    //takostoken
+                    const takosTokenArray = new Uint8Array(16)
+                    const randomarray = crypto.getRandomValues(takosTokenArray)
+                    const takosToken = Array.from(
+                        randomarray,
+                        (byte) => byte.toString(16).padStart(2, "0"),
+                    ).join("")
+                    await takostoken.create({
+                        token: takosToken,
+                    })
+                    const friendDomain = splitUserName(
+                        OtherServerMessages[0].userid,
+                    ).domain
+                    const reuslt = await fetch(
+                        `https://${
+                            env["serverDomain"]
+                        }/api/v1/server/talk/read`,
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({
+                                roomid: roomid,
+                                messageids: UnreadMessageIds,
+                                sender: ctx.state.data.userid,
+                                token: takosToken,
+                            }),
+                        },
+                    )
+                    if (reuslt.status !== 200) {
+                        console.log("Failed to send read")
+                        await messages.updateMany(
+                            {
+                                roomid: roomid,
+                                messageid: { $in: UnreadMessageIds },
+                            },
+                            {
+                                $pull: {
+                                    read: { userid: ctx.state.data.userid },
+                                },
+                            },
+                        )
+                    }
+                }
                 const friendId = room.users
                     .filter((user: any) =>
                         user.userid !== ctx.state.data.userid
