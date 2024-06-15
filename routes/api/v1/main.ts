@@ -34,6 +34,9 @@ async function subscribeMessage(channel: string | string[]) {
             case "read":
                 readMessage(data.messageids, data.sender)
                 break
+            case "leave":
+                leaveRoom(data.sessionid)
+                break
             default:
                 break
         }
@@ -44,7 +47,7 @@ await subscribeMessage("takos")
 const sessions = new Map()
 
 export const handler = {
-    async GET(req: Request, ctx: any) {
+    GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
             return new Response(JSON.stringify({ "status": "Please Login" }), {
                 headers: { "Content-Type": "application/json" },
@@ -499,4 +502,16 @@ async function readMessage(messageids: [string], sender: string) {
             return
         }
     }
+}
+function leaveRoom(sessionid: string) {
+    sessions.forEach((session, key) => {
+        if (sessionid === key) {
+            //talkingRoomを空にする
+            sessions.set(key, {
+                ...session,
+                talkingRoom: "",
+                roomType: "",
+            })
+        }
+    })
 }

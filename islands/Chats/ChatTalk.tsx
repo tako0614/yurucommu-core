@@ -97,6 +97,12 @@ function TalkArea(props: any) {
                         props.setRoomid("")
                         //urlを変更
                         history.pushState("", "", "/talk")
+                        props.ws.send(
+                            JSON.stringify({
+                                type: "leave",
+                                sessionid: props.sessionid,
+                            }),
+                        )
                     }}
                 >
                     <svg
