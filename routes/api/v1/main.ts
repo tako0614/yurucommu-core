@@ -415,7 +415,10 @@ async function readMessage(messageids: [string], sender: string) {
             sessions.delete(key)
         }
     })
-    const session = sessions.get(sender)
+    //sessionの要素のuuidがsenderと一致するものを探す
+    const session = Array.from(sessions.values()).find(
+        (session) => session.uuid === sender,
+    )
     console.log(session,messageids, sender)
     if (!session) {
         return
