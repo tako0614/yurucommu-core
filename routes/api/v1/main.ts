@@ -308,17 +308,6 @@ async function sendMessage(
             messageType: MessageType,
             messageid: crypto.randomUUID(),
         })
-        const time = new Date()
-        pubClient.publish(
-            "takos",
-            JSON.stringify({
-                roomid: roomID,
-                message,
-                type: "message",
-                sender: session.uuid,
-                time,
-            }),
-        )
         ws.send(
             JSON.stringify({
                 status: true,
@@ -343,10 +332,6 @@ function sendConecctingUserMessage(
     //sessionsにroomidが同じユーザーを探す
     sessions.forEach(async (session, key) => {
         if (session.talkingRoom === roomid) {
-            if (splitUserName(sender).domain !== env["serverDomain"]) {
-                console.log("domain is not same")
-                return
-            }
             const userInfo = await users.findOne({
                 uuid: sender,
             })
