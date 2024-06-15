@@ -397,12 +397,16 @@ function sendConecctingUserMessage(
                     messageType,
                 }),
             )
+            if(session.uuid === sender){
+                return
+            }
             pubClient.publish(
                 "takos",
                 JSON.stringify({
                     type: "read",
+                    roomid,
                     messageids: [messageid],
-                    sender: session.uuid,
+                    reader: session.uuid,
                 }),
             )
         }
@@ -427,7 +431,6 @@ async function readMessage(messageids: [string], sender: string) {
     const session = Array.from(sessions.values()).find(
         (session) => session.uuid === sender,
     )
-    console.log(session,messageids, sender)
     if (!session) {
         return
     }
