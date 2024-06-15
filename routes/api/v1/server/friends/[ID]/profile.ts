@@ -38,6 +38,7 @@ export const handler = {
                         status: 400,
                     })
                 }
+                console.log("token: ", token)
                 const isTrueToken = await fetch(
                     `http://${serverDomain}/api/v1/server/token?token=${token}`,
                 )
