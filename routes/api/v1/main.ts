@@ -377,10 +377,11 @@ function sendConecctingUserMessage(
                         messageType,
                     }),
                 )
+                if(session.uuid === sender){
+                    return
+                }
                 await fetch(
-                    `http://${
-                        splitUserName(sender).domain
-                    }/api/v1/server/talk/read`,
+                    `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
                         headers: {
