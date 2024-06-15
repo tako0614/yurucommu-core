@@ -7,7 +7,6 @@ export const handler = {
         const data = await req.json()
         const { roomid, sender, token, message, uuid, messageType, messageid } =
             data
-        //console.log(roomid, sender, token, message, uuid, messageType)
         if (
             roomid === "" || roomid === null || roomid === undefined ||
             sender === "" || sender === null || sender === undefined ||

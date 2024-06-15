@@ -73,7 +73,6 @@ export const handler = {
                     .friends
                     .find(
                         (obj) => {
-                            console.log(obj.userid, requesterUserUUID)
                             return obj.userid === requesterUserUUID
                         },
                     )
@@ -157,12 +156,10 @@ export const handler = {
                     status: 400,
                 })
             }
-            console.log(result)
             return new Response(JSON.stringify({ status: true }), {
                 status: 200,
             })
         } else if (requirement === "acceptReqFriend") {
-            console.log("acceptReqFriend")
             /*
         リクエスト元のユーザー名：requesterUserUUID
         リクエスト先のユーザー名：recipientUsername
@@ -190,12 +187,6 @@ export const handler = {
             if (
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
-                console.log(userDomain, env["serverDomain"], friendDomain)
-                console.log(
-                    requesterUserUUID,
-                    recipientUserName,
-                    requesterUserName,
-                )
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -228,7 +219,6 @@ export const handler = {
                     .friends
                     .find(
                         (obj) => {
-                            console.log(obj.userid, requesterUserUUID)
                             return obj.userid === requesterUserUUID
                         },
                     )
@@ -253,7 +243,6 @@ export const handler = {
                 userName: splitUserName(recipientUserName).userName,
             })
             if (friendInfo === null) {
-                console.log("1")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -262,7 +251,6 @@ export const handler = {
                 userID: friendInfo.uuid,
             })
             if (userFriendInfo === null) {
-                console.log("2")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -273,7 +261,6 @@ export const handler = {
                     obj.host === splitUserName(requesterUserUUID).domain
             })
             if (isFriend === undefined) {
-                console.log("3")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -290,7 +277,6 @@ export const handler = {
                 },
             )
             if (result === null) {
-                console.log("4")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -329,8 +315,6 @@ export const handler = {
                 },
             )
             if (result2 === null) {
-                console.log("5")
-                console.log(result2)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })

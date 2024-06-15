@@ -196,13 +196,11 @@ export const handler = {
                         },
                     },
                 )
-                console.log(result1)
                 return new Response(JSON.stringify({ status: "success" }), {
                     headers: { "Content-Type": "application/json" },
                     status: 200,
                 })
             }
-            console.log("local")
             const friendInfo = await Users.findOne({
                 userName: splitFriendName?.name,
             })
@@ -507,7 +505,6 @@ export const handler = {
                             }),
                         },
                     )
-                    console.log(requestResult)
                     if (requestResult.status === 200) {
                         //ApplicantedUserに追加
                         await requestAddFriend.updateOne(

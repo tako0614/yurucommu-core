@@ -98,7 +98,6 @@ export const handler = {
                 RoomName = friend.nickName
                 messagesResult = await Promise.all(
                     RoomMessages.map(async (message) => {
-                        //console.log(message.userid)
                         let isRead
                         const sender = await user.findOne({
                             uuid: message.userid,
@@ -179,9 +178,7 @@ export const handler = {
                             }),
                         },
                     )
-                    console.log(UnreadMessageIds)
                     if (reuslt.status !== 200) {
-                        console.log("Failed to send read")
                         await messages.updateMany(
                             {
                                 roomid: roomid,
@@ -233,10 +230,6 @@ export const handler = {
                     OtherServerUserInfoJson.status === false ||
                     !OtherServerUserInfoJson
                 ) {
-                    console.log(
-                        JSON.stringify(OtherServerUserInfoJson) +
-                            " is not found",
-                    )
                     return new Response(
                         JSON.stringify({ "status": "Friend Not Found" }),
                         {

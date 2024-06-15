@@ -32,7 +32,6 @@ export const handler = {
             const result = await Promise.all(
                 userFriendInfo.Applicant.map(
                     async (obj) => {
-                        console.log(obj)
                         if (obj.type == "local") {
                             const userInfo = await users.findOne({
                                 uuid: obj.userID,
@@ -40,7 +39,6 @@ export const handler = {
                             if (userInfo == null) {
                                 return
                             }
-                            console.log(userInfo)
                             return {
                                 userName: userInfo.userName + "@" +
                                     env["serverDomain"],

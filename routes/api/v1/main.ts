@@ -390,7 +390,7 @@ function sendConecctingUserMessage(
                 await takostoken.create({
                     token: takosToken2,
                 })
-                console.log(await fetch(
+                await fetch(
                     `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
@@ -404,7 +404,7 @@ function sendConecctingUserMessage(
                             token: takosToken2,
                         }),
                     },
-                ))
+                )
                 return
             }
             const userInfo = await users.findOne({

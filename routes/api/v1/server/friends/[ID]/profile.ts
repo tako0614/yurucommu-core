@@ -55,7 +55,6 @@ export const handler = {
                         status: 400,
                     })
                 }
-                console.log(ID)
                 const friendInfo = await friends.findOne({ user: ID })
                 if (!friendInfo) {
                     return new Response(JSON.stringify({ "status": false }), {
