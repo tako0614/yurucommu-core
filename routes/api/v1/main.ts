@@ -11,6 +11,7 @@ const redisURL = env["REDIS_URL"]
 const subClient = redis.createClient({
     url: redisURL,
 })
+import { takosfetch } from "../../../util/takosfetch.ts"
 subClient.on("error", (err: any) => console.error("Sub Client Error", err))
 
 await subClient.connect()
@@ -289,8 +290,8 @@ async function sendMessage(
             messageType: MessageType,
             messageid,
         })
-        const sendFriendServer = await fetch(
-            `http://${
+        const sendFriendServer = await takosfetch(
+            `${
                 splitUserName(frienduuid).domain
             }/api/v1/server/talk/send`,
             {
@@ -309,6 +310,15 @@ async function sendMessage(
                 }),
             },
         )
+        if(!sendFriendServer){
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Failed to send message",
+                }),
+            )
+            return
+        }
         if (sendFriendServer.status !== 200) {
             //メッセージ削除
             await messages.deleteOne({
@@ -357,14 +367,17 @@ async function sendConecctingUserMessage(
                     randomarray,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                const remoteFriendInfo = await fetch(
-                    `http://${
+                const remoteFriendInfo = await takosfetch(
+                    `${
                         splitUserName(sender).domain
                     }/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${
                         env["serverDomain"]
                     }&type=id&reqUser=${session.uuid}`,
                 )
                 if (!remoteFriendInfo) {
+                    return
+                }
+                if(remoteFriendInfo.status !== 200){
                     return
                 }
                 const remoteFriendInfoJson = await remoteFriendInfo.json()
@@ -395,8 +408,8 @@ async function sendConecctingUserMessage(
                 await takostoken.create({
                     token: takosToken2,
                 })
-                await fetch(
-                    `http://${
+                await takosfetch(
+                    `${
                         splitUserName(sender).domain
                     }/api/v1/server/talk/read`,
                     {
@@ -522,8 +535,8 @@ async function readMessage(messageids: [string], sender: string) {
         await takostoken.create({
             token: takosToken,
         })
-        const result = await fetch(
-            `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
+        const result = await takosfetch(
+            `${splitUserName(sender).domain}/api/v1/server/talk/read`,
             {
                 method: "POST",
                 headers: {
