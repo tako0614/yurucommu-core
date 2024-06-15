@@ -50,7 +50,6 @@ export const handler = {
                     serverDomain: serverDomain,
                     friends: { $elemMatch: { userid: reqUser } },
                 })
-                console.log("token: ", token)
                 if (!serverInfo) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
@@ -70,6 +69,7 @@ export const handler = {
                         status: 400,
                     })
                 }
+                console.log("token: ", token)
                 const friendUserInfo = await users.findOne({
                     uuid: friendInfo.user,
                 })
