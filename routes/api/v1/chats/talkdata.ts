@@ -149,8 +149,9 @@ export const handler = {
                 })
                 const OtherServerUser = splitUserName(friendId[0])
                 const OtherServerUserDomain = OtherServerUser.domain
+                console.log(friendId[0])
                 const OtherServerUserInfo = await fetch(
-                    `http://${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser}/profile?token=${takosToken}&serverDomain=${
+                    `http://${OtherServerUserDomain}/api/v1/server/friends/${friendId[0]}/profile?token=${takosToken}&serverDomain=${
                         env["serverDomain"]
                     }&type=id&reqUser=${ctx.state.data.userid}`,
                 )
