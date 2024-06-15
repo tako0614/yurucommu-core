@@ -51,6 +51,7 @@ export const handler = {
             roomid,
             messageid: { $in: messageids },
         })
+        const sender = messagesArray[0].userid
         if (messagesArray.length === 0) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
@@ -73,7 +74,7 @@ export const handler = {
                 type: "read",
                 roomid,
                 messageids,
-                reader,
+                sender,
             }),
         )
         return new Response(JSON.stringify({ status: true }), { status: 200 })
