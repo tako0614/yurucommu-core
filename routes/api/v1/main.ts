@@ -380,7 +380,14 @@ function sendConecctingUserMessage(
                 if(session.uuid === sender){
                     return
                 }
-                console.log(await fetch(
+                //takostokenを作成
+                const takosTokenArray2 = new Uint8Array(16)
+                const randomarray2 = crypto.getRandomValues(takosTokenArray2)
+                const takosToken2 = Array.from(
+                    randomarray2,
+                    (byte) => byte.toString(16).padStart(2, "0"),
+                ).join("")
+                await fetch(
                     `http://${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
@@ -391,10 +398,10 @@ function sendConecctingUserMessage(
                             roomid,
                             messageids: [messageid],
                             reader: session.uuid,
-                            token: takosToken,
+                            token: takosToken2,
                         }),
                     },
-                ))
+                )
                 return
             }
             const userInfo = await users.findOne({
