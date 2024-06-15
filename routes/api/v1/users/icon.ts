@@ -4,74 +4,77 @@ import Users from "../../../../models/users.ts"
 import { ensureDir } from "$std/fs/ensure_dir.ts"
 import sharp from "sharp"
 export const handler = {
-  async POST(req: Request, ctx: any) {
-    try {
-      const data = await req.json()
-      const cookies = getCookies(req.headers)
-      if (typeof data.csrftoken !== "string") {
-        return new Response(JSON.stringify({ status: "error" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 403,
-        })
-      }
-      const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })
-      if (iscsrfToken === null || iscsrfToken === undefined) {
-        return new Response(JSON.stringify({ status: "error" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 403,
-        })
-      }
-      if (iscsrfToken.sessionID !== cookies.sessionid) {
-        return new Response(JSON.stringify({ status: "error" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 403,
-        })
-      }
-      await csrftoken.deleteOne({ token: data.csrftoken })
-      const userid = ctx.state.data.userid
-      const icon = data.icon
-      const result = await processImage(icon)
-      if (result === null) {
-        return
-      }
-      await Deno.writeFile(
-        `./files/userIcons/${ctx.state.data.userid}.webp`,
-        result,
-      )
-      return new Response(JSON.stringify({ status: true }), {
-        headers: { "Content-Type": "application/json" },
-        status: 200,
-      })
-    } catch (error) {
-      console.log(error)
-    }
-  },
+    async POST(req: Request, ctx: any) {
+        try {
+            const data = await req.json()
+            const cookies = getCookies(req.headers)
+            if (typeof data.csrftoken !== "string") {
+                return new Response(JSON.stringify({ status: "error" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 403,
+                })
+            }
+            const iscsrfToken = await csrftoken.findOne({
+                token: data.csrftoken,
+            })
+            if (iscsrfToken === null || iscsrfToken === undefined) {
+                return new Response(JSON.stringify({ status: "error" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 403,
+                })
+            }
+            if (iscsrfToken.sessionID !== cookies.sessionid) {
+                return new Response(JSON.stringify({ status: "error" }), {
+                    headers: { "Content-Type": "application/json" },
+                    status: 403,
+                })
+            }
+            await csrftoken.deleteOne({ token: data.csrftoken })
+            const userid = ctx.state.data.userid
+            const icon = data.icon
+            const result = await processImage(icon)
+            if (result === null) {
+                return
+            }
+            await Deno.writeFile(
+                `./files/userIcons/${ctx.state.data.userid}.webp`,
+                result,
+            )
+            return new Response(JSON.stringify({ status: true }), {
+                headers: { "Content-Type": "application/json" },
+                status: 200,
+            })
+        } catch (error) {
+            console.log(error)
+        }
+    },
 }
 
 async function processImage(
-  inputBuffer: Uint8Array,
+    inputBuffer: Uint8Array,
 ): Promise<Uint8Array | null> {
-  try {
-    const image = sharp(inputBuffer)
-    const metadata = await image.metadata()
-    if (
-      metadata.format &&
-      ["jpeg", "png", "gif", "webp", "tiff", "avif", "heif", "jpg"].includes(
-        metadata.format,
-      )
-    ) {
-      // 画像ファイルであると判断
-      const outputBuffer = await image.resize(512, 512).toFormat("webp")
-        .toBuffer()
-      return outputBuffer
-    } else {
-      console.log(`The provided data is not a recognized image format.`)
-      return null
+    try {
+        const image = sharp(inputBuffer)
+        const metadata = await image.metadata()
+        if (
+            metadata.format &&
+            ["jpeg", "png", "gif", "webp", "tiff", "avif", "heif", "jpg"]
+                .includes(
+                    metadata.format,
+                )
+        ) {
+            // 画像ファイルであると判断
+            const outputBuffer = await image.resize(512, 512).toFormat("webp")
+                .toBuffer()
+            return outputBuffer
+        } else {
+            console.log(`The provided data is not a recognized image format.`)
+            return null
+        }
+    } catch (error) {
+        console.error(`Failed to process the image: ${error.message}`)
+        return null
     }
-  } catch (error) {
-    console.error(`Failed to process the image: ${error.message}`)
-    return null
-  }
 }
 /*
   // 使用例
