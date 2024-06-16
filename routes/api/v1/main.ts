@@ -515,10 +515,12 @@ async function readMessage(messageids: [string], sender: string) {
         (session) => session.uuid === sender,
     )
     if (!session) {
+        console.log("session is not found")
         return
     }
     //messageidsが全てuuidか確認
     if (messageids.some((messageid) => messageid.length !== 36)) {
+        console.log("messageids is not uuid")
         return
     }
     session.ws.send(
