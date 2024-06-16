@@ -195,6 +195,7 @@ export const handler = {
             if (
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
+                console.log(userDomain, env["serverDomain"], friendDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
