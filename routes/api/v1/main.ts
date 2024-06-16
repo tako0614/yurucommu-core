@@ -398,7 +398,7 @@ async function sendConecctingUserMessage(
                     }),
                 )
                 if (session.uuid === sender) {
-                    
+                    console.log("session.uuid === sender")
                     return
                 }
                 //takostokenを作成
