@@ -598,6 +598,9 @@ html, body {
 
 .c-talk-chat-msg p {
     width: fit-content;
+    max-width: 100%; /* Ensure it doesn't exceed the container width */
+    word-wrap: break-word; /* Break long words */
+    word-break: break-all; /* Ensure long words are broken */
 }
 
 .c-talk-chat.other .c-talk-chat-msg {

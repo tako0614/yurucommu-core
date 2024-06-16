@@ -194,7 +194,7 @@ export default function Home(
                 isChoiceUser={isChoiceUser}
             />
 
-            <div class="wrapper">
+            <div class="wrapper w-full">
                 <main
                     class={isChoiceUser ? "p-talk is-inview" : "p-talk"}
                     id="chatmain"
