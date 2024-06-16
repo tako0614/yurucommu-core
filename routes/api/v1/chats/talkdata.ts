@@ -2,6 +2,7 @@ import rooms from "../../../../models/rooms.ts"
 import messages from "../../../../models/messages.ts"
 import user from "../../../../models/users.ts"
 import takostoken from "../../../../models/takostoken.ts"
+import pubClient from "../../../../util/redisClient.ts"
 import { takosfetch } from "../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
@@ -123,6 +124,41 @@ export const handler = {
                             messageType: message.messageType,
                             messageid: message.messageid,
                         }
+                    }),
+                )
+                //messagesResultの中から自分が未読のメッセージを取得
+                const UnreadMessages = RoomMessages.filter(
+                    (message) =>
+                        message.read.findIndex(
+                            (read) => read.userid === ctx.state.data.userid,
+                        ) === -1,
+                )
+                const UnreadMessageIds = UnreadMessages.map((message) =>
+                    message.messageid
+                )
+                if (UnreadMessageIds.length !== 0) {
+                    await messages.updateMany(
+                        {
+                            roomid: roomid,
+                            messageid: { $in: UnreadMessageIds },
+                        },
+                        {
+                            $push: {
+                                read: {
+                                    userid: ctx.state.data.userid,
+                                    readAt: new Date(),
+                                },
+                            },
+                        },
+                    )
+                }
+                pubClient.publish(
+                    "takos",
+                    JSON.stringify({
+                        type: "read",
+                        roomid,
+                        messageids: UnreadMessageIds,
+                        reader: ctx.state.data.userid,
                     }),
                 )
             } else if (room.types === "remotefriend") {
