@@ -84,7 +84,7 @@ export default function Home({ data }: { data: any }) {
                 page={3}
                 isAddFriendForm={false}
                 userNickName={data.nickName}
-                userName={data.userName + "@" + env["SERVER_DOMAIN"]}
+                userName={data.userName + "@" + env["serverDomain"]}
             >
             </Chat>
         </>

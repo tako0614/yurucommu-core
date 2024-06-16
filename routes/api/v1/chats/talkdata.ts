@@ -118,7 +118,7 @@ export const handler = {
                         ) !== -1
                         return {
                             sender: sender.userName + "@" +
-                                env["SERVER_DOMAIN"],
+                                env["serverDomain"],
                             senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,
@@ -264,8 +264,8 @@ export const handler = {
                 const OtherServerUserInfo = await takosfetch(
                     `${OtherServerUserDomain}/api/v1/server/friends/${
                         friendId[0]
-                    }/profile?token=${takosToken}&SERVER_DOMAIN=${
-                        env["SERVER_DOMAIN"]
+                    }/profile?token=${takosToken}&serverDomain=${
+                        env["serverDomain"]
                     }&type=id&reqUser=${ctx.state.data.userid}`,
                 )
                 if (!OtherServerUserInfo) {
@@ -310,7 +310,7 @@ export const handler = {
                         if (message.userid === ctx.state.data.userid) {
                             sender = {
                                 userName: userName.userName + "@" +
-                                    env["SERVER_DOMAIN"],
+                                    env["serverDomain"],
                                 nickName: userName.nickName,
                             }
                         } else {

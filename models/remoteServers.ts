@@ -1,7 +1,7 @@
 import mongoose from "mongoose"
 
 export const friendsSchema = new mongoose.Schema({
-    SERVER_DOMAIN: {
+    serverDomain: {
         type: String,
         required: true,
     },

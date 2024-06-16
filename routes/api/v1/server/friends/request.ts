@@ -39,7 +39,7 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserName).domain
             if (
-                userDomain == env["SERVER_DOMAIN"] || friendDomain == userDomain
+                userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
                 console.log("userDomain" + userDomain)
                 return new Response(JSON.stringify({ status: false }), {
@@ -48,7 +48,7 @@ export const handler = {
             }
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token +
-                    "&origin=" + env["SERVER_DOMAIN"],
+                    "&origin=" + env["serverDomain"],
             )
             if (!isTrueToken) {
                 console.log("isTrueToken")
@@ -82,11 +82,11 @@ export const handler = {
             }
             const isAlreadyCreateRemoteServerTable = await remoteservers
                 .findOne({
-                    SERVER_DOMAIN: userDomain,
+                    serverDomain: userDomain,
                 })
             if (isAlreadyCreateRemoteServerTable === null) {
                 await remoteservers.create({
-                    SERVER_DOMAIN: userDomain,
+                    serverDomain: userDomain,
                     friends: [
                         {
                             userid: requesterUserUUID,
@@ -107,7 +107,7 @@ export const handler = {
                     //
                 } else {
                     await remoteservers.updateOne(
-                        { SERVER_DOMAIN: userDomain },
+                        { serverDomain: userDomain },
                         {
                             $push: {
                                 friends: {
@@ -220,22 +220,22 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserUUID).domain
             if (
-                userDomain == env["SERVER_DOMAIN"] || friendDomain == userDomain
+                userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
                 console.log(
                     "reci" + recipientUserName,
                     "uuid" + requesterUserUUID,
                 )
-                console.log(userDomain, env["SERVER_DOMAIN"], friendDomain)
+                console.log(userDomain, env["serverDomain"], friendDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
             }
-            console.log(userDomain, env["SERVER_DOMAIN"], friendDomain)
+            console.log(userDomain, env["serverDomain"], friendDomain)
             console.log("3")
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token +
-                    "&origin=" + env["SERVER_DOMAIN"],
+                    "&origin=" + env["serverDomain"],
             )
             if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {
@@ -252,11 +252,11 @@ export const handler = {
             console.log("5")
             const isAlreadyCreateRemoteServerTable = await remoteservers
                 .findOne({
-                    SERVER_DOMAIN: userDomain,
+                    serverDomain: userDomain,
                 })
             if (isAlreadyCreateRemoteServerTable === null) {
                 await remoteservers.create({
-                    SERVER_DOMAIN: userDomain,
+                    serverDomain: userDomain,
                     friends: [
                         {
                             userid: requesterUserUUID,
@@ -276,7 +276,7 @@ export const handler = {
                     //
                 } else {
                     await remoteservers.updateOne(
-                        { SERVER_DOMAIN: userDomain },
+                        { serverDomain: userDomain },
                         {
                             $push: {
                                 friends: {
