@@ -11,8 +11,8 @@ const ChatSendMessage = ({ message, time, isRead, isPrimary }) => {
                 </div>
                 <div class="c-talk-chat-right">
                     <div class="c-talk-chat-msg">
-                        <p>
-                            {message}
+                        <p class="">
+                            {convertLineBreak(message)}
                         </p>
                     </div>
                 </div>
@@ -30,4 +30,14 @@ function convertTime(time) {
     const zeroPaddingHour = hour === 0 ? 12 : hour
     const zeroPaddingMinutes = String(minutes).padStart(2, "0")
     return `${ampm} ${zeroPaddingHour}:${zeroPaddingMinutes}`
+}
+//preactで動作する改行を反映させるために、改行コードをbrタグに変換する関数
+function convertLineBreak(message) {
+    if (message === null || message === undefined) return
+    return message.split("\n").map((line, index) => (
+        <span key={index}>
+            {line}
+            <br />
+        </span>
+    ))
 }

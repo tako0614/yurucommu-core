@@ -9,7 +9,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const tokenInfo = await takostoken.findOne({ token, origin})
+        const tokenInfo = await takostoken.findOne({ token, origin })
         if (tokenInfo === null || tokenInfo === undefined) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,

@@ -1,15 +1,13 @@
-import { useSignal } from "@preact/signals"
 import { useEffect, useState } from "preact/hooks"
 import ChatHeader from "./ChatHeader.tsx"
 import ChatList from "./ChatList.jsx"
 import ChatTalk from "./ChatTalk.tsx"
-import Profile from "../Settings/Friends.tsx"
-import Friends from "../Settings/Profile.tsx"
 import SettingList from "../SettingList.tsx"
 import GetAddFriendKey from "./getAddFriendKey.tsx"
 import FriendRequest from "./FriendRequest.tsx"
 import User from "./AddFriend.tsx"
 import RequestFriendById from "./RequestFriendById.tsx"
+import messages from "../../models/messages.ts"
 type TalkDataItem = {
     type: string
     message: string
@@ -30,6 +28,7 @@ interface FriendList {
 export default function Home(
     props: any,
 ) {
+    const [Message, setMessage] = useState("")
     const [page, setPage] = useState(props.page)
     const [isChoiceUser, setIsChoiceUser] = useState(
         props.roomid !== undefined && props.roomid !== "",
@@ -136,7 +135,7 @@ export default function Home(
                 console.log(data)
                 setTalkData((prev) => {
                     return prev.map((item) => {
-                        if (data.messageids.includes(item?.messageid)) {
+                        if (data.messageids.includes(item?.message)) {
                             return {
                                 ...item,
                                 isRead: true,
@@ -230,20 +229,123 @@ export default function Home(
                             </>
                         )
                         : null}
-                    <ChatTalk
-                        isSelectUser={isChoiceUser}
-                        roomid={roomid}
-                        setFriendList={setFriendList}
-                        setIsChoiceUser={setIsChoiceUser}
-                        setRoomid={setRoomid}
-                        ws={ws}
-                        sessionid={sessionid}
-                        setSessionid={setSessionid}
-                        userName={props.userName}
-                        userNickName={props.userNickName}
-                        roomName={roomName}
-                        talkData={talkData}
-                    />
+                    <div class="p-talk-chat">
+                        <div class="p-talk-chat-container">
+                            <ChatTalk
+                                isSelectUser={isChoiceUser}
+                                roomid={roomid}
+                                setFriendList={setFriendList}
+                                setIsChoiceUser={setIsChoiceUser}
+                                setRoomid={setRoomid}
+                                ws={ws}
+                                sessionid={sessionid}
+                                setSessionid={setSessionid}
+                                userName={props.userName}
+                                userNickName={props.userNickName}
+                                roomName={roomName}
+                                talkData={talkData}
+                            />
+                            {isChoiceUser && (<>
+                            <div class="p-talk-chat-send">
+                                <form class="p-talk-chat-send__form">
+                                    <div class="p-talk-chat-send__msg">
+                                        <div
+                                            class="p-talk-chat-send__dummy"
+                                            aria-hidden="true"
+                                        >
+                                        </div>
+                                        <label>
+                                            <textarea
+                                                class="p-talk-chat-send__textarea"
+                                                placeholder="メッセージを入力"
+                                                value={Message}
+                                                onChange={(e) => {
+                                                    if (e.target) {
+                                                        setMessage(
+                                                            (e.target as HTMLTextAreaElement)
+                                                                .value,
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                            </textarea>
+                                        </label>
+                                    </div>
+                                    <div
+                                        class="p-talk-chat-send__file"
+                                        onClick={() => {
+                                            if (Message) {
+                                                if (messages.length > 100) {
+                                                    
+                                                    return
+                                                }
+                                                const data = {
+                                                    type: "message",
+                                                    message: Message,
+                                                    roomid: roomid,
+                                                    sessionid: sessionid,
+                                                    messageType: "text",
+                                                }
+                                                ws?.send(JSON.stringify(data))
+                                                setMessage("")
+                                                // deno-lint-ignore no-explicit-any
+                                                setFriendList((prev: any) => {
+                                                    // deno-lint-ignore prefer-const
+                                                    let temp = prev
+                                                    // deno-lint-ignore no-explicit-any
+                                                    temp.map((data: any) => {
+                                                        if (
+                                                            data.roomid ==
+                                                                roomid
+                                                        ) {
+                                                            data.lastMessage =
+                                                                Message
+                                                            data.latestMessageTime =
+                                                                new Date()
+                                                                    .toString()
+                                                            data.isNewMessage =
+                                                                false
+                                                        }
+                                                    })
+                                                    temp.sort(
+                                                        (
+                                                            a: {
+                                                                latestMessageTime:
+                                                                    number
+                                                            },
+                                                            b: {
+                                                                latestMessageTime:
+                                                                    number
+                                                            },
+                                                        ) => {
+                                                            if (
+                                                                a.latestMessageTime <
+                                                                    b.latestMessageTime
+                                                            ) {
+                                                                return 1
+                                                            }
+                                                            if (
+                                                                a.latestMessageTime >
+                                                                    b.latestMessageTime
+                                                            ) {
+                                                                return -1
+                                                            }
+                                                            return 0
+                                                        },
+                                                    )
+                                                    return temp
+                                                })
+                                            }
+                                        }}
+                                    >
+                                        <img src="/ei-send.svg" alt="file" />
+                                    </div>
+                                </form>
+                            </div>
+
+                            </>)}
+                        </div>
+                    </div>
                 </main>
             </div>
         </>

@@ -16,7 +16,7 @@ import { takosfetch } from "../../../util/takosfetch.ts"
 subClient.on("error", (err: any) => console.error("Sub Client Error", err))
 
 await subClient.connect()
-
+const MESSAGE_MIMIT = Number(env["MESSAGE_MIMIT"])
 async function subscribeMessage(channel: string | string[]) {
     await subClient.subscribe(channel, async (message) => {
         const data = JSON.parse(message)
@@ -59,7 +59,7 @@ export const handler = {
             socket.onmessage = async function (event) {
                 const data = JSON.parse(event.data)
                 const { type } = data
-                if(!type) return
+                if (!type) return
                 switch (type) {
                     case "joinRoom":
                         joinRoom(data.sessionid, data.roomid, socket)
@@ -195,6 +195,15 @@ async function sendMessage(
     ws: WebSocket,
     MessageType: string,
 ) {
+    if(message.length > MESSAGE_MIMIT){
+        ws.send(
+            JSON.stringify({
+                status: false,
+                explain: "Message is too long",
+            }),
+        )
+        return
+    }
     const session = sessions.get(sessionid)
     if (!session) {
         ws.send(
@@ -215,6 +224,15 @@ async function sendMessage(
         return
     }
     if (session.roomType === "friend") {
+        if(message.length > MESSAGE_MIMIT){
+            ws.send(
+                JSON.stringify({
+                    status: false,
+                    explain: "Message is too long",
+                }),
+            )
+            return
+        }
         const result = await messages.create({
             userid: session.uuid,
             roomid: roomID,

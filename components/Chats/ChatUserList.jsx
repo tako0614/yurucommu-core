@@ -1,6 +1,12 @@
 export default function User(
     { userName, latestMessage, icon, onClick, userName2, isNewMessage },
 ) {
+    let resultLatestMessage
+    if (latestMessage.length > 17) {
+        resultLatestMessage = latestMessage.substr(0, 17) + "..."
+    } else {
+        resultLatestMessage = latestMessage
+    }
     return (
         <>
             <li class="c-talk-rooms" onClick={isOnClickUndefind(onClick)}>
@@ -17,7 +23,7 @@ export default function User(
                                 </p>
                             </div>
                             <div class="c-talk-rooms-msg">
-                                <p>{latestMessage}</p>
+                                <p>{resultLatestMessage}</p>
                             </div>
                         </div>
                     </div>

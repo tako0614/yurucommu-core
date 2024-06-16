@@ -1,118 +1,30 @@
 import ChatDate from "../../components/Chats/ChatDate.tsx"
 import ChatSendMessage from "../../components/Chats/ChatSendMessage.jsx"
 import ChatOtherMessage from "../../components/Chats/ChatOtherMessage.jsx"
-import { useEffect, useState } from "preact/hooks"
 export default function ChatTalk(props: any) {
-    const [Message, setMessage] = useState("")
     if (props.isSelectUser) {
         return (
             <>
-                <div class="p-talk-chat">
-                    <div class="p-talk-chat-container">
-                        <TalkArea
-                            roomid={props.roomid}
-                            ws={props.ws}
-                            isSelectUser={props.isSelectUser}
-                            userName={props.userName}
-                            setWs={props.setWs}
-                            setSessionid={props.setSessionid}
-                            setIsChoiceUser={props.setIsChoiceUser}
-                            setRoomid={props.setRoomid}
-                            roomName={props.roomName}
-                            talkData={props.talkData}
-                            sessionid={props.sessionid}
-                        />
-                        <div class="p-talk-chat-send">
-                            <form class="p-talk-chat-send__form">
-                                <div class="p-talk-chat-send__msg">
-                                    <div
-                                        class="p-talk-chat-send__dummy"
-                                        aria-hidden="true"
-                                    >
-                                    </div>
-                                    <label>
-                                        <textarea
-                                            class="p-talk-chat-send__textarea"
-                                            placeholder="メッセージを入力"
-                                            value={Message}
-                                            onChange={(e) => {
-                                                if (e.target) {
-                                                    setMessage(
-                                                        (e.target as HTMLTextAreaElement)
-                                                            .value,
-                                                    )
-                                                }
-                                            }}
-                                        >
-                                        </textarea>
-                                    </label>
-                                </div>
-                                <div
-                                    class="p-talk-chat-send__file"
-                                    onClick={() => {
-                                        if (Message) {
-                                            const data = {
-                                                type: "message",
-                                                message: Message,
-                                                roomid: props.roomid,
-                                                sessionid: props.sessionid,
-                                                messageType: "text",
-                                            }
-                                            props.ws.send(JSON.stringify(data))
-                                            setMessage("")
-                                            props.setFriendList((prev: any) => {
-                                                let temp = prev
-                                                temp.map((data: any) => {
-                                                    if (
-                                                        data.roomid ==
-                                                            props.roomid
-                                                    ) {
-                                                        data.lastMessage =
-                                                            Message
-                                                        data.latestMessageTime =
-                                                            new Date()
-                                                                .toString()
-                                                        data.isNewMessage =
-                                                            false
-                                                    }
-                                                })
-                                                temp.sort((a, b) => {
-                                                    if (
-                                                        a.latestMessageTime <
-                                                            b.latestMessageTime
-                                                    ) {
-                                                        return 1
-                                                    }
-                                                    if (
-                                                        a.latestMessageTime >
-                                                            b.latestMessageTime
-                                                    ) {
-                                                        return -1
-                                                    }
-                                                    return 0
-                                                })
-                                                return temp
-                                            })
-                                        }
-                                    }}
-                                >
-                                    <img src="/ei-send.svg" alt="file" />
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
+                <TalkArea
+                    roomid={props.roomid}
+                    ws={props.ws}
+                    isSelectUser={props.isSelectUser}
+                    userName={props.userName}
+                    setWs={props.setWs}
+                    setSessionid={props.setSessionid}
+                    setIsChoiceUser={props.setIsChoiceUser}
+                    setRoomid={props.setRoomid}
+                    roomName={props.roomName}
+                    talkData={props.talkData}
+                    sessionid={props.sessionid}
+                />
             </>
         )
     }
     return (
         <>
-            <div class="p-talk-chat">
-                <div class="p-talk-chat-container">
-                    <div class="text-center">
-                        トークを始めましょう！！
-                    </div>
-                </div>
+            <div class="text-center">
+                トークを始めましょう！！
             </div>
         </>
     )
@@ -120,7 +32,7 @@ export default function ChatTalk(props: any) {
 function TalkArea(props: any) {
     let SendPrimary = true
     let OtherPrimary = true
-    let DateState: Date
+    let DateState: any
     return (
         <>
             <div class="p-talk-chat-title">
@@ -161,10 +73,8 @@ function TalkArea(props: any) {
             <div class="p-talk-chat-main" id="chat-area">
                 <ul class="p-talk-chat-main__ul">
                     {props.talkData.map((data: any) => {
-                        //Date型での比較
-                        const isEncodeDate =
-                            DateState != data.time.split("T")[0]
-                        DateState = data.time.split("T")[0]
+                        const isEncodeDate = new Date(DateState).toLocaleDateString() !== new Date(data.time).toLocaleDateString();
+                        DateState = data.time;
                         if (data.type == "message") {
                             if (data.sender == props.userName) {
                                 if (SendPrimary) {
