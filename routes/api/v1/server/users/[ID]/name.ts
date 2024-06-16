@@ -14,7 +14,7 @@ export const handler = {
         return new Response(
             JSON.stringify({
                 "status": true,
-                "userName": user.userName + "@" + env["serverDomain"],
+                "userName": user.userName + "@" + env["SERVER_DOMAIN"],
             }),
             {
                 status: 200,

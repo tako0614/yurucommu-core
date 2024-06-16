@@ -39,7 +39,7 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserName).domain
             if (
-                userDomain == env["serverDomain"] || friendDomain == userDomain
+                userDomain == env["SERVER_DOMAIN"] || friendDomain == userDomain
             ) {
                 console.log("userDomain" + userDomain)
                 return new Response(JSON.stringify({ status: false }), {
@@ -48,7 +48,7 @@ export const handler = {
             }
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token +
-                    "&origin=" + env["serverDomain"],
+                    "&origin=" + env["SERVER_DOMAIN"],
             )
             if (!isTrueToken) {
                 console.log("isTrueToken")
@@ -220,22 +220,22 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserUUID).domain
             if (
-                userDomain == env["serverDomain"] || friendDomain == userDomain
+                userDomain == env["SERVER_DOMAIN"] || friendDomain == userDomain
             ) {
                 console.log(
                     "reci" + recipientUserName,
                     "uuid" + requesterUserUUID,
                 )
-                console.log(userDomain, env["serverDomain"], friendDomain)
+                console.log(userDomain, env["SERVER_DOMAIN"], friendDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
             }
-            console.log(userDomain, env["serverDomain"], friendDomain)
+            console.log(userDomain, env["SERVER_DOMAIN"], friendDomain)
             console.log("3")
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token +
-                    "&origin=" + env["serverDomain"],
+                    "&origin=" + env["SERVER_DOMAIN"],
             )
             if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {

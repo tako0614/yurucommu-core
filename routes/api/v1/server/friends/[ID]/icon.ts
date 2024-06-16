@@ -22,14 +22,14 @@ export const handler = {
                 status: 400,
             })
         }
-        if (userserverDomain == env["serverDomain"]) {
+        if (userserverDomain == env["SERVER_DOMAIN"]) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
         const isTrueToken = await takosfetch(
             `${userserverDomain}/api/v1/server/token?token=${token}&origin=${
-                env["serverDomain"]
+                env["SERVER_DOMAIN"]
             }`,
         )
         //userが存在するか確認

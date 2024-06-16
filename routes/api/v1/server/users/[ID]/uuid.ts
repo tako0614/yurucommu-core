@@ -10,7 +10,7 @@ export const handler = {
                 status: 400,
             })
         }
-        if (splitUserName(ID).domain !== env["serverDomain"]) {
+        if (splitUserName(ID).domain !== env["SERVER_DOMAIN"]) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
