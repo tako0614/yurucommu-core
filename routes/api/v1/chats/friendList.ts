@@ -120,11 +120,11 @@ export const handler = {
                             latestMessageTime: latestmessage?.timestamp,
                             roomIcon: `/api/v1/friends/${
                                 friendName?.userName + "@" +
-                                env["SERVER_DOMAIN"]
+                                env["serverDomain"]
                             }/icon`,
                             type: "localfriend",
                             userName: friendName?.userName + "@" +
-                                env["SERVER_DOMAIN"],
+                                env["serverDomain"],
                             isNewMessage: isNewMessage === undefined,
                         }
                         return friendResult
@@ -157,11 +157,9 @@ export const handler = {
                             `${OtherServerUserDomain}/api/v1/server/friends/${
                                 OtherServerUser[0].userid
                             }/profile?token=${takosToken}&serverDomain=${
-                                env["SERVER_DOMAIN"]
-                            }&type=id&reqUser=${ctx.state.data.userid}`,
+                                env["serverDomain"]
+                            }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
-                        console.log(OtherServerUserInfo.url)
-                        console.log("")
                         if (!OtherServerUserInfo) {
                             const remoteErrorResult = {
                                 roomName: "remote server error",

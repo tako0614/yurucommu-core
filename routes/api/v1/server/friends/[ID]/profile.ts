@@ -18,7 +18,6 @@ export const handler = {
                 serverDomain === null ||
                 serverDomain === undefined
             ) {
-                console.log("ID: ", ID)
                 return new Response(JSON.stringify({ "status": false }), {
                     status: 400,
                 })
@@ -30,7 +29,7 @@ export const handler = {
                         status: 400,
                     })
                 }
-                if (serverDomain == env["SERVER_DOMAIN"]) {
+                if (serverDomain == env["serverDomain"]) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
@@ -42,7 +41,7 @@ export const handler = {
                 }
                 const isTrueToken = await takosfetch(
                     `${serverDomain}/api/v1/server/token?token=${token}&origin=${
-                        env["SERVER_DOMAIN"]
+                        env["serverDomain"]
                     }`,
                 )
                 if (!isTrueToken) {
@@ -83,7 +82,7 @@ export const handler = {
                 }
                 const result = {
                     userName: friendUserInfo.userName + "@" +
-                        env["SERVER_DOMAIN"],
+                        env["serverDomain"],
                     nickName: friendUserInfo.nickName,
                 }
                 return new Response(
@@ -98,7 +97,7 @@ export const handler = {
                     })
                 }
                 const result = {
-                    userName: userInfo.userName + "@" + env["SERVER_DOMAIN"],
+                    userName: userInfo.userName + "@" + env["serverDomain"],
                     nickName: userInfo.nickName,
                 }
                 return new Response(

@@ -86,7 +86,7 @@ export const handler = {
             const splitFriendName = splitUserName(friendName)
             if (
                 !splitFriendName ||
-                splitFriendName.domain !== env["SERVER_DOMAIN"]
+                splitFriendName.domain !== env["serverDomain"]
             ) {
                 const ApplientedUserInfo = await requestAddFriend.findOne({
                     userID: ctx.state.data.userid,
@@ -129,7 +129,7 @@ export const handler = {
                         },
                         body: JSON.stringify({
                             requesterUserName: ctx.state.data.userName + "@" +
-                                env["SERVER_DOMAIN"],
+                                env["serverDomain"],
                             requesterUserUUID: ctx.state.data.userid,
                             requirement: "acceptReqFriend",
                             recipientUserName: friendName,
@@ -171,9 +171,9 @@ export const handler = {
                         {
                             username: ctx.state.data.userName,
                             userid: userid,
-                            host: env["SERVER_DOMAIN"],
+                            host: env["serverDomain"],
                             type: "local",
-                            domain: env["SERVER_DOMAIN"],
+                            domain: env["serverDomain"],
                         },
                         {
                             username: splitFriendName?.name,
@@ -287,7 +287,7 @@ export const handler = {
                                 userid: userid,
                                 host: "local",
                                 type: "local",
-                                domain: env["SERVER_DOMAIN"],
+                                domain: env["serverDomain"],
                             },
                             {
                                 username: friendInfo.userName,
@@ -353,7 +353,7 @@ export const handler = {
                     Applicant: [{
                         userID: userid,
                         userName: ApplcienterInfo.userName,
-                        host: env["SERVER_DOMAIN"],
+                        host: env["serverDomain"],
                         type: "local",
                     }],
                 })
@@ -363,7 +363,7 @@ export const handler = {
                     AppliedUser: [{
                         userID: addFriendUserInfo.uuid,
                         userName: addFriendUserInfo.userName,
-                        host: env["SERVER_DOMAIN"],
+                        host: env["serverDomain"],
                         type: "local",
                     }],
                 })
@@ -408,7 +408,7 @@ export const handler = {
                 })
             }
             try {
-                if (friendDomain == env["SERVER_DOMAIN"]) {
+                if (friendDomain == env["serverDomain"]) {
                     const friendInfo = await users.findOne({
                         userName: splitUserName(friendName)?.name,
                     })
@@ -582,7 +582,7 @@ export const handler = {
                             body: JSON.stringify({
                                 requesterUserName: ctx.state.data.userName +
                                     "@" +
-                                    env["SERVER_DOMAIN"],
+                                    env["serverDomain"],
                                 requesterUserUUID: ctx.state.data.userid,
                                 requirement: "reqFriend",
                                 recipientUserName: friendName,

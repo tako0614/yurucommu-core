@@ -275,7 +275,8 @@ export default function Home(
                                         class="p-talk-chat-send__file"
                                         onClick={() => {
                                             if (Message) {
-                                                if (Message.length > 100) {
+                                                if (messages.length > 100) {
+                                                    
                                                     return
                                                 }
                                                 const data = {

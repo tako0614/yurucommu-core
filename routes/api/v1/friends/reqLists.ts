@@ -41,7 +41,7 @@ export const handler = {
                             }
                             return {
                                 userName: userInfo.userName + "@" +
-                                    env["SERVER_DOMAIN"],
+                                    env["serverDomain"],
                                 icon:
                                     `/api/v1/friends/${userInfo.userName}/icon?isRequestList=true`,
                                 timestamp: obj.timestamp,

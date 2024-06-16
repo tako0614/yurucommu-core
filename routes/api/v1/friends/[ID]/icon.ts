@@ -151,7 +151,7 @@ export const handler = {
             })
         }
 
-        if (friendDomain === env["SERVER_DOMAIN"]) {
+        if (friendDomain === env["serverDomain"]) {
             const friend: Friend | null = await friends.findOne({
                 user: ctx.state.data.userid,
             })
