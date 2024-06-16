@@ -109,24 +109,6 @@ export const handler = {
                         status: 403,
                     })
                 }
-                const myFriendInfo = await Friends.findOne({ user: userid })
-                if (myFriendInfo == null) {
-                    await Friends.create({ user: userid })
-                }
-                const isAlredyFriend = myFriendInfo?.friends.some((
-                    friend: any,
-                ) => friend.userid === friendName)
-                const isSelfRequest = userid === friendName
-                if (isAlredyFriend || isSelfRequest) {
-                    console.log("isAlredyFriend or isSelfRequest")
-                    return new Response(
-                        JSON.stringify({ status: "error" }),
-                        {
-                            headers: { "Content-Type": "application/json" },
-                            status: 400,
-                        },
-                    )
-                }
                 //ランダムな文字列を生成
                 const takosTokenArray = new Uint8Array(16)
                 const randomarray = crypto.getRandomValues(takosTokenArray)
@@ -437,13 +419,33 @@ export const handler = {
                         )
                     }
                     const myFriendInfo = await Friends.findOne({ user: userid })
-                    if (myFriendInfo == null) {
+                    if(!myFriendInfo){
                         await Friends.create({ user: userid })
                     }
                     const isAlredyFriend = myFriendInfo?.friends.some((
                         friend: any,
                     ) => friend.userid === friendInfo.uuid)
-                    if (isAlredyFriend) {
+                    if(isAlredyFriend){
+                        console.log("isAlredyFriend")
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
+                            },
+                        )
+                    }
+                    const isAlredyRequest = await requestAddFriend.findOne({
+                        userID: userid,
+                    })
+                    if (isAlredyRequest == null) {
+                        await requestAddFriend.create({ userID: userid })
+                    }
+                    const isAlredyRequested = isAlredyRequest?.Applicant.some((
+                        applicant: any,
+                    ) => applicant.userID === friendInfo.uuid)
+                    if (isAlredyRequested) {
+                        console.log("isAlredyRequested")
                         return new Response(
                             JSON.stringify({ status: "error" }),
                             {
