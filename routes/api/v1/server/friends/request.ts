@@ -67,7 +67,7 @@ export const handler = {
                 user: requesterUserUUID,
                 "friends.userid": recipientUserName,
             })
-            if (!existingFriend) {
+            if (existingFriend) {
                 console.log("existingFriend")
                 return new Response(
                     JSON.stringify({
