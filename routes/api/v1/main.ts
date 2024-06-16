@@ -291,6 +291,18 @@ async function sendMessage(
             messageType: MessageType,
             messageid,
         })
+        pubClient.publish(
+            "takos",
+            JSON.stringify({
+                roomid: roomID,
+                message,
+                type: "message",
+                sender: session.uuid,
+                time: new Date().toISOString(),
+                messageid,
+                messageType: MessageType,
+            }),
+        )
         const sendFriendServer = await takosfetch(
             `${
                 splitUserName(frienduuid).domain
