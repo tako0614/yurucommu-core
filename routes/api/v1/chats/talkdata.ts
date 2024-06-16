@@ -219,7 +219,7 @@ export const handler = {
                             }),
                         },
                     )
-                    if(!reuslt) {
+                    if (!reuslt) {
                         return new Response(
                             JSON.stringify({ "status": "Friend Not Found" }),
                             {

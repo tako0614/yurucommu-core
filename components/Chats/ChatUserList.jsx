@@ -1,5 +1,5 @@
 export default function User(
-    { userName, latestMessage, icon, onClick, userName2,isNewMessage },
+    { userName, latestMessage, icon, onClick, userName2, isNewMessage },
 ) {
     return (
         <>
@@ -21,11 +21,13 @@ export default function User(
                             </div>
                         </div>
                     </div>
-                    {
-                      isNewMessage ? <p class="green ml-auto mt-auto mb-auto rounded-full w-2 h-2 p-2">
-                      new!
-                    </p> : ""
-                    }
+                    {isNewMessage
+                        ? (
+                            <p class="green ml-auto mt-auto mb-auto rounded-full w-2 h-2 p-2">
+                                new!
+                            </p>
+                        )
+                        : ""}
                 </a>
             </li>
         </>

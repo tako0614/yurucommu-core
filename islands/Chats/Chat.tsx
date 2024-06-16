@@ -19,13 +19,13 @@ type TalkDataItem = {
     sender?: string
 }
 interface FriendList {
-    roomName: string,
-    latestMessage: string,
-    icon: string,
-    roomid: string,
-    userName: string,
-    isNewMessage: boolean,
-    latestMessageTime: string | Date,
+    roomName: string
+    latestMessage: string
+    icon: string
+    roomid: string
+    userName: string
+    isNewMessage: boolean
+    latestMessageTime: string | Date
 }
 export default function Home(
     props: any,
@@ -38,7 +38,7 @@ export default function Home(
     const [isShowAddFriendForm, setIsShowAddFriendForm] = useState(
         props.isAddFriendForm,
     )
-    const [friendList, setFriendList] = useState<FriendList[]>([]);
+    const [friendList, setFriendList] = useState<FriendList[]>([])
     const reset = () => {
         //setIsChoiceUser(false)
     }
@@ -145,12 +145,12 @@ export default function Home(
                         return item
                     })
                 })
-            } else if(data.type == "notification") {
+            } else if (data.type == "notification") {
                 //friendListを更新
                 console.log(data)
                 setFriendList((prev) => {
                     const newFriendList = prev.map((item) => {
-                        if(item.roomid == data.roomid) {
+                        if (item.roomid == data.roomid) {
                             console.log("update")
                             return {
                                 ...item,

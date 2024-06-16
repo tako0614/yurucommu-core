@@ -48,7 +48,7 @@ export const handler = {
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token,
             )
-            if(!isTrueToken) {
+            if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -58,6 +58,21 @@ export const handler = {
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
+            }
+            const existingFriend = await friends.findOne({
+                user: requesterUserUUID,
+                "friends.userid": recipientUserName,
+            })
+            if (existingFriend) {
+                return new Response(
+                    JSON.stringify({
+                        status: false,
+                        message: "This user is already your friend",
+                    }),
+                    {
+                        status: 400,
+                    },
+                )
             }
             const isAlreadyCreateRemoteServerTable = await remoteservers
                 .findOne({
@@ -115,9 +130,15 @@ export const handler = {
                     obj.userid === friendInfo.uuid
                 )
                 if (isFriend !== undefined) {
-                    return new Response(JSON.stringify({ status: false, message: "Already friends" }), {
-                        status: 400,
-                    })
+                    return new Response(
+                        JSON.stringify({
+                            status: false,
+                            message: "Already friends",
+                        }),
+                        {
+                            status: 400,
+                        },
+                    )
                 }
             }
             //すでにリクエストを送っているか
@@ -195,7 +216,10 @@ export const handler = {
             if (
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
-                console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
+                console.log(
+                    "reci" + recipientUserName,
+                    "uuid" + requesterUserUUID,
+                )
                 console.log(userDomain, env["serverDomain"], friendDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
@@ -206,7 +230,7 @@ export const handler = {
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token,
             )
-            if(!isTrueToken) {
+            if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -286,21 +310,27 @@ export const handler = {
                 })
             }
             console.log("7")
-                        //すでに友達か
-                        const userFriends = await friends.findOne({
-                            userid: requesterUserUUID,
-                        })
-                        if (userFriends !== null) {
-                            const isFriend = userFriends.friends.find((obj) =>
-                                obj.userid === friendInfo.uuid
-                            )
-                            if (isFriend !== undefined) {
-                                return new Response(JSON.stringify({ status: false, message: "Already friends" }), {
-                                    status: 400,
-                                })
-                            }
-                        }
-                        console.log("8")
+            //すでに友達か
+            const userFriends = await friends.findOne({
+                userid: requesterUserUUID,
+            })
+            if (userFriends !== null) {
+                const isFriend = userFriends.friends.find((obj) =>
+                    obj.userid === friendInfo.uuid
+                )
+                if (isFriend !== undefined) {
+                    return new Response(
+                        JSON.stringify({
+                            status: false,
+                            message: "Already friends",
+                        }),
+                        {
+                            status: 400,
+                        },
+                    )
+                }
+            }
+            console.log("8")
             //リクエストリストから削除
             const result = await requestAddFriend.updateOne(
                 { userID: friendInfo.uuid },

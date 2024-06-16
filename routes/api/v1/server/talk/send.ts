@@ -25,8 +25,10 @@ export const handler = {
             })
         }
         const { domain, userName } = splitUserName(sender)
-        const isTrueToken = await takosfetch(`${domain}/api/v1/server/token?token=` + token)
-        if(isTrueToken === null || isTrueToken === undefined) {
+        const isTrueToken = await takosfetch(
+            `${domain}/api/v1/server/token?token=` + token,
+        )
+        if (isTrueToken === null || isTrueToken === undefined) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })

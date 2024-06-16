@@ -63,17 +63,30 @@ export default function ChatTalk(props: any) {
                                             props.setFriendList((prev: any) => {
                                                 let temp = prev
                                                 temp.map((data: any) => {
-                                                    if (data.roomid == props.roomid) {
-                                                        data.lastMessage = Message
-                                                        data.latestMessageTime = new Date().toString()
-                                                        data.isNewMessage = false
+                                                    if (
+                                                        data.roomid ==
+                                                            props.roomid
+                                                    ) {
+                                                        data.lastMessage =
+                                                            Message
+                                                        data.latestMessageTime =
+                                                            new Date()
+                                                                .toString()
+                                                        data.isNewMessage =
+                                                            false
                                                     }
                                                 })
                                                 temp.sort((a, b) => {
-                                                    if (a.latestMessageTime < b.latestMessageTime) {
+                                                    if (
+                                                        a.latestMessageTime <
+                                                            b.latestMessageTime
+                                                    ) {
                                                         return 1
                                                     }
-                                                    if (a.latestMessageTime > b.latestMessageTime) {
+                                                    if (
+                                                        a.latestMessageTime >
+                                                            b.latestMessageTime
+                                                    ) {
                                                         return -1
                                                     }
                                                     return 0

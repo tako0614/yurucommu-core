@@ -231,7 +231,7 @@ export const handler = {
                     headers: { "Content-Type": "application/json" },
                 },
             )
-            if(resUserUUID === null) {
+            if (resUserUUID === null) {
                 return new Response(null, {
                     status: 400,
                 })
@@ -317,16 +317,16 @@ async function fetchWithSizeLimit(
 ): Promise<Response> {
     let res
     try {
-        if(PRIORITY_PROTOCOL === "http") {
+        if (PRIORITY_PROTOCOL === "http") {
             res = await fetch("http://" + input)
-        } else if(PRIORITY_PROTOCOL === "https") {
+        } else if (PRIORITY_PROTOCOL === "https") {
             res = await fetch("https://" + input)
         }
     } catch (_error) {
         try {
-            if(PRIORITY_PROTOCOL === "http") {
+            if (PRIORITY_PROTOCOL === "http") {
                 res = await fetch("https://" + input)
-            } else if(PRIORITY_PROTOCOL === "https") {
+            } else if (PRIORITY_PROTOCOL === "https") {
                 res = await fetch("http://" + input)
             }
         } catch (error) {
@@ -335,7 +335,7 @@ async function fetchWithSizeLimit(
             })
         }
     }
-    if(res === undefined) {
+    if (res === undefined) {
         return new Response(null, {
             status: 400,
         })

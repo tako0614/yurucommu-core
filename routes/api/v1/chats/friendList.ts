@@ -110,7 +110,8 @@ export const handler = {
                             roomid: room.uuid,
                         }).sort({ timestamp: -1 })
                         const isNewMessage = latestmessage?.read.find(
-                            (read: User) => read.userid === ctx.state.data.userid,
+                            (read: User) =>
+                                read.userid === ctx.state.data.userid,
                         )
                         const friendResult = {
                             roomName: friendName?.nickName,
@@ -158,7 +159,7 @@ export const handler = {
                                 env["serverDomain"]
                             }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
-                        if(!OtherServerUserInfo) {
+                        if (!OtherServerUserInfo) {
                             const remoteErrorResult = {
                                 roomName: "remote server error",
                                 lastMessage: room.latestmessage,
@@ -180,7 +181,8 @@ export const handler = {
                             roomid: room.uuid,
                         }).sort({ timestamp: -1 })
                         const isNewMessage = latestmessage?.read.find(
-                            (read: User) => read.userid === ctx.state.data.userid,
+                            (read: User) =>
+                                read.userid === ctx.state.data.userid,
                         )
                         if (OtherServerUserInfoJson.status === true) {
                             const remoteFriendResult = {

@@ -109,6 +109,24 @@ export const handler = {
                         status: 403,
                     })
                 }
+                const myFriendInfo = await Friends.findOne({ user: userid })
+                if (myFriendInfo == null) {
+                    await Friends.create({ user: userid })
+                }
+                const isAlredyFriend = myFriendInfo?.friends.some((
+                    friend: any,
+                ) => friend.userid === friendName)
+                const isSelfRequest = userid === friendName
+                if (isAlredyFriend || isSelfRequest) {
+                    console.log("isAlredyFriend or isSelfRequest")
+                    return new Response(
+                        JSON.stringify({ status: "error" }),
+                        {
+                            headers: { "Content-Type": "application/json" },
+                            status: 400,
+                        },
+                    )
+                }
                 //ランダムな文字列を生成
                 const takosTokenArray = new Uint8Array(16)
                 const randomarray = crypto.getRandomValues(takosTokenArray)
@@ -134,7 +152,7 @@ export const handler = {
                         }),
                     },
                 )
-                if(!requestResult) {
+                if (!requestResult) {
                     return new Response(JSON.stringify({ status: "error" }), {
                         headers: { "Content-Type": "application/json" },
                         status: 403,
@@ -532,12 +550,15 @@ export const handler = {
                             }),
                         },
                     )
-                    if(!requestResult) {
+                    if (!requestResult) {
                         console.log("requestResult is null")
-                        return new Response(JSON.stringify({ status: "error" }), {
-                            headers: { "Content-Type": "application/json" },
-                            status: 400,
-                        })
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
+                            },
+                        )
                     }
                     if (requestResult.status === 200) {
                         //ApplicantedUserに追加

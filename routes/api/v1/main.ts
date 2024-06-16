@@ -305,9 +305,7 @@ async function sendMessage(
             }),
         )
         const sendFriendServer = await takosfetch(
-            `${
-                splitUserName(frienduuid).domain
-            }/api/v1/server/talk/send`,
+            `${splitUserName(frienduuid).domain}/api/v1/server/talk/send`,
             {
                 method: "POST",
                 headers: {
@@ -324,7 +322,7 @@ async function sendMessage(
                 }),
             },
         )
-        if(!sendFriendServer){
+        if (!sendFriendServer) {
             ws.send(
                 JSON.stringify({
                     status: false,
@@ -392,7 +390,7 @@ async function sendConecctingUserMessage(
                     console.log("remoteFriendInfo is not found")
                     return
                 }
-                if(remoteFriendInfo.status !== 200){
+                if (remoteFriendInfo.status !== 200) {
                     console.log("remoteFriendInfo is not found")
                     return
                 }
@@ -426,9 +424,7 @@ async function sendConecctingUserMessage(
                     token: takosToken2,
                 })
                 await takosfetch(
-                    `${
-                        splitUserName(sender).domain
-                    }/api/v1/server/talk/read`,
+                    `${splitUserName(sender).domain}/api/v1/server/talk/read`,
                     {
                         method: "POST",
                         headers: {
@@ -454,7 +450,7 @@ async function sendConecctingUserMessage(
             session.ws.send(
                 JSON.stringify({
                     type: "message",
-                    message : message,
+                    message: message,
                     sender: userInfo?.userName + "@" + env["serverDomain"] ||
                         "unknown",
                     senderNickName: userInfo?.nickName || "unknown",
@@ -474,7 +470,7 @@ async function sendConecctingUserMessage(
             )
         }
     })
-    if(!isFindUser){
+    if (!isFindUser) {
         const roomInfo = await rooms.findOne({
             uuid: roomid,
         })
@@ -502,13 +498,12 @@ async function sendConecctingUserMessage(
                 type: "notification",
                 roomid,
                 message,
-                time
+                time,
             }),
         )
     }
     return
 }
-
 
 function splitUserName(mail: string) {
     const mailArray = mail.split("@")
