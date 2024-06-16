@@ -180,6 +180,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("1")
             if (
                 !isUserID(recipientUserName) ||
                 !isUserID(requesterUserUUID)
@@ -188,6 +189,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("2")
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserUUID).domain
             if (
@@ -197,6 +199,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("3")
             const isTrueToken = await takosfetch(
                 `${userDomain}/api/v1/server/token?token=` + token,
             )
@@ -205,12 +208,14 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("4")
             const isTrueTokenJson = await isTrueToken.json()
             if (isTrueTokenJson.status !== true) {
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
             }
+            console.log("5")
             const isAlreadyCreateRemoteServerTable = await remoteservers
                 .findOne({
                     serverDomain: userDomain,
@@ -258,6 +263,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("6")
             const userFriendInfo = await requestAddFriend.findOne({
                 userID: friendInfo.uuid,
             })
@@ -276,6 +282,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("7")
                         //すでに友達か
                         const userFriends = await friends.findOne({
                             userid: requesterUserUUID,
@@ -290,6 +297,7 @@ export const handler = {
                                 })
                             }
                         }
+                        console.log("8")
             //リクエストリストから削除
             const result = await requestAddFriend.updateOne(
                 { userID: friendInfo.uuid },
@@ -306,6 +314,7 @@ export const handler = {
                     status: 400,
                 })
             }
+            console.log("9")
             //roomを作成
             const roomIDarray = new Uint8Array(16)
             const randomarray = crypto.getRandomValues(roomIDarray)
