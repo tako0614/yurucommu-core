@@ -126,6 +126,7 @@ export const handler = {
                         }
                     }),
                 )
+                console.log("fafafafafa")
                 //messagesResultの中から自分が未読のメッセージを取得
                 const UnreadMessages = RoomMessages.filter(
                     (message) =>
