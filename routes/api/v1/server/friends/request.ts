@@ -41,6 +41,7 @@ export const handler = {
             if (
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
+                console.log("userDomain" + userDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -49,12 +50,14 @@ export const handler = {
                 `${userDomain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
             )
             if (!isTrueToken) {
+                console.log("isTrueToken")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
             }
             const isTrueTokenJson = await isTrueToken.json()
             if (isTrueTokenJson.status !== true) {
+                console.log("isTrueToken")
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
                 })
@@ -65,6 +68,7 @@ export const handler = {
                 "friends.userid": recipientUserName,
             })
             if (!existingFriend) {
+                console.log("existingFriend")
                 return new Response(
                     JSON.stringify({
                         status: false,
