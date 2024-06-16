@@ -9,6 +9,7 @@ import pubClient from "../../../util/redisClient.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
 const redisch = env["REDIS_CH"]
+const maxMessage = Number(env["MAX_MESSAGE_LENGTH"])
 const subClient = redis.createClient({
     url: redisURL,
 })
@@ -215,6 +216,9 @@ async function sendMessage(
         return
     }
     if (session.roomType === "friend") {
+        if(message.length > maxMessage){
+            return
+        }
         const result = await messages.create({
             userid: session.uuid,
             roomid: roomID,
@@ -277,6 +281,9 @@ async function sendMessage(
         }
         const frienduuid = friend.userid
         const messageid = crypto.randomUUID()
+        if(message.length > maxMessage){
+            return
+        }
         await messages.create({
             userid: session.uuid,
             roomid: roomID,

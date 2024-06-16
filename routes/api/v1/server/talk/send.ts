@@ -5,6 +5,7 @@ import { takosfetch } from "../../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 const redisch = env["REDIS_CH"]
+const maxMessage = Number(env["MAX_MESSAGE_LENGTH"])
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
@@ -61,6 +62,9 @@ export const handler = {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })
+        }
+        if(message.length > maxMessage){
+            return
         }
         const result = await messages.create({
             userid: uuid,

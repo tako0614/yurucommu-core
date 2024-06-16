@@ -275,8 +275,10 @@ export default function Home(
                                         class="p-talk-chat-send__file"
                                         onClick={() => {
                                             if (Message) {
-                                                if (messages.length > 100) {
-                                                    
+                                                if (Message.length > 100) {
+                                                    alert(
+                                                        "100文字以内で入力してください",
+                                                    )
                                                     return
                                                 }
                                                 const data = {
