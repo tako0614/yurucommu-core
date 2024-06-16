@@ -462,10 +462,6 @@ async function sendConecctingUserMessage(
                     messageType,
                 }),
             )
-            if (session.uuid === sender) {
-                console.log("session.uuid === sender")
-                return
-            }
             pubClient.publish(
                 "takos",
                 JSON.stringify({
