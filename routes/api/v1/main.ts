@@ -19,6 +19,7 @@ await subClient.connect()
 async function subscribeMessage(channel: string | string[]) {
     await subClient.subscribe(channel, async (message) => {
         const data = JSON.parse(message)
+        console.log(data)
         switch (data.type) {
             case "message":
                 sendConecctingUserMessage(
