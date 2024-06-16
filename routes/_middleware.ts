@@ -4,14 +4,9 @@ import csrfToken from "../models/csrftoken.ts"
 import users from "../models/users.ts"
 import sessionID from "../models/sessionid.ts"
 import { load } from "$std/dotenv/mod.ts"
-const env = await load()
-
 export async function handler(req: Request, ctx: MiddlewareHandlerContext) {
     const cookies = getCookies(req.headers)
     const sessionid = cookies.sessionid
-    ctx.state.settings = {
-        maxMessageLength: env["MAX_MESSAGE_LENGTH"],
-    }
     if (sessionid === undefined) {
         ctx.state.data = { loggedIn: false }
         const resp = await ctx.next()

@@ -78,7 +78,7 @@ export const handler = {
           })
         }
         await Deno.writeFile(`./files/userIcons/${userid}.webp`, result)
-
+        
             }
 
             return new Response(JSON.stringify({ status: true }), {

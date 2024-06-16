@@ -116,10 +116,7 @@ export const handler = {
                     randomarray,
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
-                takostoken.create({
-                    token: takosToken,
-                    origin: splitFriendName?.domain,
-                })
+                takostoken.create({ token: takosToken, origin: splitFriendName?.domain })
                 const requestResult = await takosfetch(
                     `${splitFriendName?.domain}/api/v1/server/friends/request`,
                     {
@@ -421,7 +418,7 @@ export const handler = {
                             },
                         )
                     }
-                    if (friendInfo.uuid === userid) {
+                    if(friendInfo.uuid === userid){
                         console.log("friendInfo.uuid === userid")
                         return new Response(
                             JSON.stringify({ status: "error" }),
@@ -432,13 +429,13 @@ export const handler = {
                         )
                     }
                     const myFriendInfo = await Friends.findOne({ user: userid })
-                    if (!myFriendInfo) {
+                    if(!myFriendInfo){
                         await Friends.create({ user: userid })
                     }
                     const isAlredyFriend = myFriendInfo?.friends.some((
                         friend: any,
                     ) => friend.userid === friendInfo.uuid)
-                    if (isAlredyFriend) {
+                    if(isAlredyFriend){
                         console.log("isAlredyFriend")
                         return new Response(
                             JSON.stringify({ status: "error" }),
@@ -514,7 +511,7 @@ export const handler = {
                     const frienduuidres = await takosfetch(
                         `${serverDomain}/api/v1/server/users/${friendName}/uuid`,
                     )
-                    if (!frienduuidres) {
+                    if(!frienduuidres){
                         console.log("frienduuidres is null")
                         return new Response(
                             JSON.stringify({ status: "error" }),
@@ -524,7 +521,7 @@ export const handler = {
                             },
                         )
                     }
-                    if (frienduuidres.status !== 200) {
+                    if(frienduuidres.status !== 200){
                         console.log("frienduuidres is not 200")
                         return new Response(
                             JSON.stringify({ status: "error" }),

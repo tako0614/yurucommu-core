@@ -5,7 +5,6 @@ import { takosfetch } from "../../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
 const redisch = env["REDIS_CH"]
-const MESSAGE_MIMIT = Number(env["MESSAGE_MIMIT"])
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
@@ -27,8 +26,7 @@ export const handler = {
         }
         const { domain, userName } = splitUserName(sender)
         const isTrueToken = await takosfetch(
-            `${domain}/api/v1/server/token?token=` + token + "&origin=" +
-                env["serverDomain"],
+            `${domain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
         )
         if (isTrueToken === null || isTrueToken === undefined) {
             return new Response(JSON.stringify({ status: false }), {
@@ -60,11 +58,6 @@ export const handler = {
         }
         //messageidがv4のuuidか確認
         if (messageid.length !== 36) {
-            return new Response(JSON.stringify({ status: false }), {
-                status: 400,
-            })
-        }
-        if(message.length > MESSAGE_MIMIT){
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })

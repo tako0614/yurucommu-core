@@ -117,8 +117,7 @@ export const handler = {
                             (read) => read.userid === friendId[0],
                         ) !== -1
                         return {
-                            sender: sender.userName + "@" +
-                                env["serverDomain"],
+                            sender: sender.userName + "@" + env["serverDomain"],
                             senderNickName: sender.nickName,
                             message: message.message,
                             timestamp: message.timestamp,
@@ -204,7 +203,7 @@ export const handler = {
                     ).join("")
                     takostoken.create({
                         token: takosToken,
-                        origin: friendDomain,
+                        origin: friendDomain
                     })
                     const reuslt = await takosfetch(
                         `${friendDomain}/api/v1/server/talk/read`,
