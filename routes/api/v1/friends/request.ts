@@ -481,6 +481,7 @@ export const handler = {
                         friend: any,
                     ) => friend.userid === friendName)
                     if (isAlredyFriend) {
+                        console.log("isAlredyFriend")
                         return new Response(
                             JSON.stringify({ status: "error" }),
                             {
@@ -499,6 +500,7 @@ export const handler = {
                         applicant: any,
                     ) => applicant.userID === friendName)
                     if (isAlredyRequested) {
+                        console.log("isAlredyRequested")
                         return new Response(
                             JSON.stringify({ status: "error" }),
                             {
@@ -531,6 +533,7 @@ export const handler = {
                         },
                     )
                     if(!requestResult) {
+                        console.log("requestResult is null")
                         return new Response(JSON.stringify({ status: "error" }), {
                             headers: { "Content-Type": "application/json" },
                             status: 400,
@@ -561,6 +564,7 @@ export const handler = {
                             },
                         )
                     } else {
+                        console.log("saigo")
                         return new Response(
                             JSON.stringify({ status: "error" }),
                             {
