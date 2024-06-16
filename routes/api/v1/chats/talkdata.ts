@@ -136,6 +136,7 @@ export const handler = {
                 const UnreadMessageIds = UnreadMessages.map((message) =>
                     message.messageid
                 )
+                console.log("UnreadMessageIds", UnreadMessageIds)
                 if (UnreadMessageIds.length !== 0) {
                     await messages.updateMany(
                         {
