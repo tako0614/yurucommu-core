@@ -193,9 +193,9 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserUUID).domain
             if (
-                console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
+                console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
                 console.log(userDomain, env["serverDomain"], friendDomain)
                 return new Response(JSON.stringify({ status: false }), {
                     status: 400,
