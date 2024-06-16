@@ -79,7 +79,7 @@ export const handler = {
                 type: "read",
                 roomid,
                 messageids,
-                sender,
+                sender: ctx.data.userid,
             }),
         )
         return new Response(JSON.stringify({ status: true }), { status: 200 })
