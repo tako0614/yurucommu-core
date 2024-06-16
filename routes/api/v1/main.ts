@@ -375,9 +375,11 @@ async function sendConecctingUserMessage(
                     }&type=id&reqUser=${session.uuid}`,
                 )
                 if (!remoteFriendInfo) {
+                    console.log("remoteFriendInfo is not found")
                     return
                 }
                 if(remoteFriendInfo.status !== 200){
+                    console.log("remoteFriendInfo is not found")
                     return
                 }
                 const remoteFriendInfoJson = await remoteFriendInfo.json()
@@ -396,6 +398,7 @@ async function sendConecctingUserMessage(
                     }),
                 )
                 if (session.uuid === sender) {
+                    
                     return
                 }
                 //takostokenを作成
