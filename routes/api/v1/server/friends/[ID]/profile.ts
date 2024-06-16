@@ -10,13 +10,13 @@ export const handler = {
             const { ID } = ctx.params
             const requrl = new URL(req.url)
             const type = requrl.searchParams.get("type") || ""
-            const serverDomain = requrl.searchParams.get("serverDomain") || ""
+            const SERVER_DOMAIN = requrl.searchParams.get("SERVER_DOMAIN") || ""
             const token = requrl.searchParams.get("token") || false
             if (
                 ID === undefined || type === "" || type === null ||
-                type === undefined || serverDomain === "" ||
-                serverDomain === null ||
-                serverDomain === undefined
+                type === undefined || SERVER_DOMAIN === "" ||
+                SERVER_DOMAIN === null ||
+                SERVER_DOMAIN === undefined
             ) {
                 return new Response(JSON.stringify({ "status": false }), {
                     status: 400,
@@ -29,18 +29,18 @@ export const handler = {
                         status: 400,
                     })
                 }
-                if (serverDomain == env["serverDomain"]) {
+                if (SERVER_DOMAIN == env["SERVER_DOMAIN"]) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
-                if (splitUserName(reqUser).domain !== serverDomain) {
+                if (splitUserName(reqUser).domain !== SERVER_DOMAIN) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,
                     })
                 }
                 const isTrueToken = await takosfetch(
-                    `${serverDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
+                    `${SERVER_DOMAIN}/api/v1/server/token?token=${token}&origin=${env["SERVER_DOMAIN"]}`,
                 )
                 if (!isTrueToken) {
                     return new Response(JSON.stringify({ "status": false }), {
@@ -48,7 +48,7 @@ export const handler = {
                     })
                 }
                 const serverInfo = await remoteservers.findOne({
-                    serverDomain: serverDomain,
+                    SERVER_DOMAIN: SERVER_DOMAIN,
                     friends: { $elemMatch: { userid: reqUser } },
                 })
                 if (!serverInfo) {
@@ -80,7 +80,7 @@ export const handler = {
                 }
                 const result = {
                     userName: friendUserInfo.userName + "@" +
-                        env["serverDomain"],
+                        env["SERVER_DOMAIN"],
                     nickName: friendUserInfo.nickName,
                 }
                 return new Response(
@@ -95,7 +95,7 @@ export const handler = {
                     })
                 }
                 const result = {
-                    userName: userInfo.userName + "@" + env["serverDomain"],
+                    userName: userInfo.userName + "@" + env["SERVER_DOMAIN"],
                     nickName: userInfo.nickName,
                 }
                 return new Response(

@@ -86,7 +86,7 @@ export const handler = {
             const splitFriendName = splitUserName(friendName)
             if (
                 !splitFriendName ||
-                splitFriendName.domain !== env["serverDomain"]
+                splitFriendName.domain !== env["SERVER_DOMAIN"]
             ) {
                 const ApplientedUserInfo = await requestAddFriend.findOne({
                     userID: ctx.state.data.userid,
@@ -126,7 +126,7 @@ export const handler = {
                         },
                         body: JSON.stringify({
                             requesterUserName: ctx.state.data.userName + "@" +
-                                env["serverDomain"],
+                                env["SERVER_DOMAIN"],
                             requesterUserUUID: ctx.state.data.userid,
                             requirement: "acceptReqFriend",
                             recipientUserName: friendName,
@@ -168,9 +168,9 @@ export const handler = {
                         {
                             username: ctx.state.data.userName,
                             userid: userid,
-                            host: env["serverDomain"],
+                            host: env["SERVER_DOMAIN"],
                             type: "local",
-                            domain: env["serverDomain"],
+                            domain: env["SERVER_DOMAIN"],
                         },
                         {
                             username: splitFriendName?.name,
@@ -284,7 +284,7 @@ export const handler = {
                                 userid: userid,
                                 host: "local",
                                 type: "local",
-                                domain: env["serverDomain"],
+                                domain: env["SERVER_DOMAIN"],
                             },
                             {
                                 username: friendInfo.userName,
@@ -350,7 +350,7 @@ export const handler = {
                     Applicant: [{
                         userID: userid,
                         userName: ApplcienterInfo.userName,
-                        host: env["serverDomain"],
+                        host: env["SERVER_DOMAIN"],
                         type: "local",
                     }],
                 })
@@ -360,7 +360,7 @@ export const handler = {
                     AppliedUser: [{
                         userID: addFriendUserInfo.uuid,
                         userName: addFriendUserInfo.userName,
-                        host: env["serverDomain"],
+                        host: env["SERVER_DOMAIN"],
                         type: "local",
                     }],
                 })
@@ -405,7 +405,7 @@ export const handler = {
                 })
             }
             try {
-                if (friendDomain == env["serverDomain"]) {
+                if (friendDomain == env["SERVER_DOMAIN"]) {
                     const friendInfo = await users.findOne({
                         userName: splitUserName(friendName)?.name,
                     })
@@ -503,13 +503,13 @@ export const handler = {
                     })
                 } else {
                     //外部サーバーにリクエストを送る
-                    const serverDomain = splitUserName(friendName)?.domain
+                    const SERVER_DOMAIN = splitUserName(friendName)?.domain
                     const myFriendInfo = await Friends.findOne({ user: userid })
                     if (myFriendInfo == null) {
                         await Friends.create({ user: userid })
                     }
                     const frienduuidres = await takosfetch(
-                        `${serverDomain}/api/v1/server/users/${friendName}/uuid`,
+                        `${SERVER_DOMAIN}/api/v1/server/users/${friendName}/uuid`,
                     )
                     if(!frienduuidres){
                         console.log("frienduuidres is null")
@@ -567,10 +567,10 @@ export const handler = {
                     const takosToken = crypto.randomUUID()
                     takostoken.create({
                         token: takosToken,
-                        origin: serverDomain,
+                        origin: SERVER_DOMAIN,
                     })
                     const requestResult = await takosfetch(
-                        `${serverDomain}/api/v1/server/friends/request`,
+                        `${SERVER_DOMAIN}/api/v1/server/friends/request`,
                         {
                             method: "POST",
                             headers: {
@@ -579,7 +579,7 @@ export const handler = {
                             body: JSON.stringify({
                                 requesterUserName: ctx.state.data.userName +
                                     "@" +
-                                    env["serverDomain"],
+                                    env["SERVER_DOMAIN"],
                                 requesterUserUUID: ctx.state.data.userid,
                                 requirement: "reqFriend",
                                 recipientUserName: friendName,

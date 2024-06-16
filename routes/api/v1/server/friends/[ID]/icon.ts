@@ -15,20 +15,20 @@ export const handler = {
                 status: 400,
             })
         }
-        const userServerDomain = splitUserName(reqUser).domain
+        const userSERVER_DOMAIN = splitUserName(reqUser).domain
         const userName = splitUserName(reqUser).userName
-        if (!userServerDomain || !userName) {
+        if (!userSERVER_DOMAIN || !userName) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
-        if (userServerDomain == env["serverDomain"]) {
+        if (userSERVER_DOMAIN == env["SERVER_DOMAIN"]) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
         const isTrueToken = await takosfetch(
-            `${userServerDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
+            `${userSERVER_DOMAIN}/api/v1/server/token?token=${token}&origin=${env["SERVER_DOMAIN"]}`,
         )
         //userが存在するか確認
         const user = await users.findOne({
@@ -40,7 +40,7 @@ export const handler = {
             })
         }
         const serverInfo = await remoteservers.findOne({
-            serverDomain: userServerDomain,
+            SERVER_DOMAIN: userSERVER_DOMAIN,
             friends: { $elemMatch: { userid: reqUser } },
         })
         if (!serverInfo) {

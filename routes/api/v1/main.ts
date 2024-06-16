@@ -375,7 +375,7 @@ async function sendConecctingUserMessage(
     sessions.forEach(async (session, key) => {
         if (session.talkingRoom === roomid) {
             isFindUser = true
-            if (splitUserName(sender).domain !== env["serverDomain"]) {
+            if (splitUserName(sender).domain !== env["SERVER_DOMAIN"]) {
                 const takosTokenArray = new Uint8Array(16)
                 const randomarray = crypto.getRandomValues(takosTokenArray)
                 const takosToken = Array.from(
@@ -385,8 +385,8 @@ async function sendConecctingUserMessage(
                 const remoteFriendInfo = await takosfetch(
                     `${
                         splitUserName(sender).domain
-                    }/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${
-                        env["serverDomain"]
+                    }/api/v1/server/friends/${sender}/profile?token=${takosToken}&SERVER_DOMAIN=${
+                        env["SERVER_DOMAIN"]
                     }&type=id&reqUser=${session.uuid}`,
                 )
                 if (!remoteFriendInfo) {
@@ -455,7 +455,7 @@ async function sendConecctingUserMessage(
                 JSON.stringify({
                     type: "message",
                     message: message,
-                    sender: userInfo?.userName + "@" + env["serverDomain"] ||
+                    sender: userInfo?.userName + "@" + env["SERVER_DOMAIN"] ||
                         "unknown",
                     senderNickName: userInfo?.nickName || "unknown",
                     time: time,
@@ -544,7 +544,7 @@ async function readMessage(messageids: [string], sender: string) {
         }),
     )
     //送信元サーバーにreadしたことを送信
-    if (splitUserName(sender).domain !== env["serverDomain"]) {
+    if (splitUserName(sender).domain !== env["SERVER_DOMAIN"]) {
         const takosTokenArray = new Uint8Array(16)
         const randomarray = crypto.getRandomValues(takosTokenArray)
         const takosToken = Array.from(

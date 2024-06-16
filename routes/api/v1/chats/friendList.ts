@@ -119,11 +119,11 @@ export const handler = {
                             roomID: room.uuid,
                             latestMessageTime: latestmessage?.timestamp,
                             roomIcon: `/api/v1/friends/${
-                                friendName?.userName + "@" + env["serverDomain"]
+                                friendName?.userName + "@" + env["SERVER_DOMAIN"]
                             }/icon`,
                             type: "localfriend",
                             userName: friendName?.userName + "@" +
-                                env["serverDomain"],
+                                env["SERVER_DOMAIN"],
                             isNewMessage: isNewMessage === undefined,
                         }
                         return friendResult
@@ -155,8 +155,8 @@ export const handler = {
                         const OtherServerUserInfo = await takosfetch(
                             `${OtherServerUserDomain}/api/v1/server/friends/${
                                 OtherServerUser[0].userid
-                            }/profile?token=${takosToken}&serverDomain=${
-                                env["serverDomain"]
+                            }/profile?token=${takosToken}&SERVER_DOMAIN=${
+                                env["SERVER_DOMAIN"]
                             }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
                         if (!OtherServerUserInfo) {

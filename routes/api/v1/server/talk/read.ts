@@ -26,13 +26,13 @@ export const handler = {
             })
         }
         const { domain, userName } = splitUserName(reader)
-        if (domain == env["serverDomain"]) {
+        if (domain == env["SERVER_DOMAIN"]) {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })
         }
         const isTrueToken = await takosfetch(
-            `${domain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
+            `${domain}/api/v1/server/token?token=` + token + "&origin=" + env["SERVER_DOMAIN"],
         )
         if (isTrueToken === null || isTrueToken === undefined) {
             return new Response(JSON.stringify({ status: false }), {
