@@ -59,11 +59,12 @@ export const handler = {
                     status: 400,
                 })
             }
+            //↓↓
             const existingFriend = await friends.findOne({
                 user: requesterUserUUID,
                 "friends.userid": recipientUserName,
             })
-            if (existingFriend) {
+            if (!existingFriend) {
                 return new Response(
                     JSON.stringify({
                         status: false,

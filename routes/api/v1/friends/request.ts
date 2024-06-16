@@ -492,14 +492,39 @@ export const handler = {
                         status: 200,
                     })
                 } else {
+                    //外部サーバーにリクエストを送る
                     const serverDomain = splitUserName(friendName)?.domain
                     const myFriendInfo = await Friends.findOne({ user: userid })
                     if (myFriendInfo == null) {
                         await Friends.create({ user: userid })
                     }
+                    const frienduuidres = await takosfetch(
+                        `${serverDomain}/api/v1/server/users/${friendName}/uuid`,
+                    )
+                    if(!frienduuidres){
+                        console.log("frienduuidres is null")
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
+                            },
+                        )
+                    }
+                    if(frienduuidres.status !== 200){
+                        console.log("frienduuidres is not 200")
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
+                            },
+                        )
+                    }
+                    const frienduuid = (await frienduuidres.json()).uuid
                     const isAlredyFriend = myFriendInfo?.friends.some((
                         friend: any,
-                    ) => friend.userid === friendName)
+                    ) => friend.userid === frienduuid)
                     if (isAlredyFriend) {
                         console.log("isAlredyFriend")
                         return new Response(
