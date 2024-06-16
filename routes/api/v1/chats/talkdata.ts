@@ -6,6 +6,7 @@ import pubClient from "../../../../util/redisClient.ts"
 import { takosfetch } from "../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
 const env = await load()
+const redisch = env["REDIS_CH"]
 export const handler = {
     async GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
@@ -156,7 +157,7 @@ export const handler = {
                 }
                 console.log(UnreadMessageIds)
                 pubClient.publish(
-                    "takos",
+                    redisch,
                     JSON.stringify({
                         type: "read",
                         roomid,

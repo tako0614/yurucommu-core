@@ -5,7 +5,7 @@ import rooms from "../../../../../models/rooms.ts"
 import { types } from "https://deno.land/std@0.216.0/media_types/_db.ts"
 import { takosfetch } from "../../../../../util/takosfetch.ts"
 const env = await load()
-
+const redisch = env["REDIS_CH"]
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
@@ -74,7 +74,7 @@ export const handler = {
             },
         )
         pubClient.publish(
-            "takos",
+            redisch,
             JSON.stringify({
                 type: "read",
                 roomid,

@@ -8,6 +8,7 @@ import takostoken from "../../../models/takostoken.ts"
 import pubClient from "../../../util/redisClient.ts"
 const env = await load()
 const redisURL = env["REDIS_URL"]
+const redisch = env["REDIS_CH"]
 const subClient = redis.createClient({
     url: redisURL,
 })
@@ -42,7 +43,7 @@ async function subscribeMessage(channel: string | string[]) {
     })
 }
 
-await subscribeMessage("takos")
+await subscribeMessage(redisch)
 const sessions = new Map()
 
 export const handler = {
@@ -222,10 +223,10 @@ async function sendMessage(
         })
         const time = result.timestamp
         pubClient.publish(
-            "takos",
+            redisch,
             JSON.stringify({
                 roomid: roomID,
-                message,
+                message: message,
                 type: "message",
                 sender: session.uuid,
                 time,
@@ -292,10 +293,10 @@ async function sendMessage(
             messageid,
         })
         pubClient.publish(
-            "takos",
+            redisch,
             JSON.stringify({
                 roomid: roomID,
-                message,
+                message: message,
                 type: "message",
                 sender: session.uuid,
                 time: new Date().toISOString(),
@@ -400,7 +401,7 @@ async function sendConecctingUserMessage(
                 session.ws.send(
                     JSON.stringify({
                         type: "message",
-                        message,
+                        message: message,
                         sender: remoteFriendInfoJson.result.userName ||
                             "unknown",
                         senderNickName: remoteFriendInfoJson.result.nickName ||
@@ -453,7 +454,7 @@ async function sendConecctingUserMessage(
             session.ws.send(
                 JSON.stringify({
                     type: "message",
-                    message,
+                    message : message,
                     sender: userInfo?.userName + "@" + env["serverDomain"] ||
                         "unknown",
                     senderNickName: userInfo?.nickName || "unknown",
@@ -463,7 +464,7 @@ async function sendConecctingUserMessage(
                 }),
             )
             pubClient.publish(
-                "takos",
+                redisch,
                 JSON.stringify({
                     type: "read",
                     roomid,
@@ -507,6 +508,8 @@ async function sendConecctingUserMessage(
     }
     return
 }
+
+
 function splitUserName(mail: string) {
     const mailArray = mail.split("@")
     return {

@@ -3,6 +3,8 @@ import messages from "../../../../../models/messages.ts"
 import pubClient from "../../../../../util/redisClient.ts"
 import { takosfetch } from "../../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
+const env = await load()
+const redisch = env["REDIS_CH"]
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
@@ -68,10 +70,10 @@ export const handler = {
             messageType,
         })
         pubClient.publish(
-            "takos",
+            redisch,
             JSON.stringify({
                 roomid: roomid,
-                message,
+                message: message,
                 type: "message",
                 sender: uuid,
                 time: result.timestamp,
