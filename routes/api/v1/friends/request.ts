@@ -390,6 +390,7 @@ export const handler = {
             //const userName = ctx.state.data.userName
             const friendName = data.friendName
             if (!friendName) {
+                console.log("friendName is not defined")
                 return new Response(JSON.stringify({ status: "error" }), {
                     headers: { "Content-Type": "application/json" },
                     status: 400,
@@ -397,6 +398,7 @@ export const handler = {
             }
             const friendDomain = splitUserName(friendName)?.domain
             if (!friendDomain) {
+                console.log("friendDomain is not defined")
                 return new Response(JSON.stringify({ status: "error" }), {
                     headers: { "Content-Type": "application/json" },
                     status: 400,
@@ -413,6 +415,22 @@ export const handler = {
                             {
                                 headers: { "Content-Type": "application/json" },
                                 status: 404,
+                            },
+                        )
+                    }
+                    const myFriendInfo = await Friends.findOne({ user: userid })
+                    if (myFriendInfo == null) {
+                        await Friends.create({ user: userid })
+                    }
+                    const isAlredyFriend = myFriendInfo?.friends.some((
+                        friend: any,
+                    ) => friend.userid === friendInfo.uuid)
+                    if (isAlredyFriend) {
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
                             },
                         )
                     }

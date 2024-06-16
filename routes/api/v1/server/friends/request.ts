@@ -115,7 +115,7 @@ export const handler = {
                     obj.userid === friendInfo.uuid
                 )
                 if (isFriend !== undefined) {
-                    return new Response(JSON.stringify({ status: false }), {
+                    return new Response(JSON.stringify({ status: false, message: "Already friends" }), {
                         status: 400,
                     })
                 }
@@ -276,6 +276,20 @@ export const handler = {
                     status: 400,
                 })
             }
+                        //すでに友達か
+                        const userFriends = await friends.findOne({
+                            userID: requesterUserUUID,
+                        })
+                        if (userFriends !== null) {
+                            const isFriend = userFriends.friends.find((obj) =>
+                                obj.userid === friendInfo.uuid
+                            )
+                            if (isFriend !== undefined) {
+                                return new Response(JSON.stringify({ status: false, message: "Already friends" }), {
+                                    status: 400,
+                                })
+                            }
+                        }
             //リクエストリストから削除
             const result = await requestAddFriend.updateOne(
                 { userID: friendInfo.uuid },
