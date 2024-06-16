@@ -152,6 +152,7 @@ export const handler = {
                         },
                     )
                 }
+                console.log(UnreadMessageIds)
                 pubClient.publish(
                     "takos",
                     JSON.stringify({
