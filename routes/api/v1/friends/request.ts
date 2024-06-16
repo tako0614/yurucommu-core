@@ -564,7 +564,7 @@ export const handler = {
                             },
                         )
                     } else {
-                        console.log("saigo")
+                        console.log(console.log(requestResult))
                         return new Response(
                             JSON.stringify({ status: "error" }),
                             {
