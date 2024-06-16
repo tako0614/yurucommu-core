@@ -58,7 +58,9 @@ export const handler = {
             const { socket, response } = Deno.upgradeWebSocket(req)
             socket.onmessage = async function (event) {
                 const data = JSON.parse(event.data)
-                switch (data.type) {
+                const { type } = data
+                if(!type) return
+                switch (type) {
                     case "joinRoom":
                         joinRoom(data.sessionid, data.roomid, socket)
                         break

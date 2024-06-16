@@ -1,6 +1,7 @@
 import { getCookies } from "$std/http/cookie.ts"
 import csrftoken from "../../../../models/csrftoken.ts"
 import Users from "../../../../models/users.ts"
+/*
 export const handler = {
     async POST(req: Request, ctx: any) {
         try {
@@ -77,7 +78,7 @@ export const handler = {
           })
         }
         await Deno.writeFile(`./files/userIcons/${userid}.webp`, result)
-        */
+        
             }
 
             return new Response(JSON.stringify({ status: true }), {
