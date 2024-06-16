@@ -94,7 +94,7 @@ export default function Home(
     }, [talkData])
     useEffect(() => {
         const socket = new WebSocket(
-            window.location.host + "/api/v1/main",
+            "/api/v1/main",
         )
         socket.onopen = () => {
             socket.send(
