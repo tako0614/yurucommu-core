@@ -193,6 +193,7 @@ export const handler = {
             const friendDomain = splitUserName(recipientUserName).domain
             const userDomain = splitUserName(requesterUserUUID).domain
             if (
+                console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
                 userDomain == env["serverDomain"] || friendDomain == userDomain
             ) {
                 console.log(userDomain, env["serverDomain"], friendDomain)
@@ -200,7 +201,7 @@ export const handler = {
                     status: 400,
                 })
             }
-            console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
+            
             console.log(userDomain, env["serverDomain"], friendDomain)
             console.log("3")
             const isTrueToken = await takosfetch(
