@@ -108,7 +108,7 @@ export const handler = {
             }
             //すでに友達か
             const userFriends = await friends.findOne({
-                userID: requesterUserUUID,
+                userid: requesterUserUUID,
             })
             if (userFriends !== null) {
                 const isFriend = userFriends.friends.find((obj) =>
@@ -278,7 +278,7 @@ export const handler = {
             }
                         //すでに友達か
                         const userFriends = await friends.findOne({
-                            userID: requesterUserUUID,
+                            userid: requesterUserUUID,
                         })
                         if (userFriends !== null) {
                             const isFriend = userFriends.friends.find((obj) =>
