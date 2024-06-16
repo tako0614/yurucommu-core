@@ -240,15 +240,6 @@ async function sendMessage(
             }),
         )
     } else if (session.roomType === "remotefriend") {
-        const takosTokenArray = new Uint8Array(16)
-        const randomarray = crypto.getRandomValues(takosTokenArray)
-        const takosToken = Array.from(
-            randomarray,
-            (byte) => byte.toString(16).padStart(2, "0"),
-        ).join("")
-        takostoken.create({
-            token: takosToken,
-        })
         const roomMenber = await rooms.findOne({
             uuid: roomID,
         })
@@ -304,6 +295,16 @@ async function sendMessage(
                 messageType: MessageType,
             }),
         )
+        const takosTokenArray = new Uint8Array(16)
+        const randomarray = crypto.getRandomValues(takosTokenArray)
+        const takosToken = Array.from(
+            randomarray,
+            (byte) => byte.toString(16).padStart(2, "0"),
+        ).join("")
+        takostoken.create({
+            token: takosToken,
+            origin: splitUserName(frienduuid).domain,
+        })
         const sendFriendServer = await takosfetch(
             `${splitUserName(frienduuid).domain}/api/v1/server/talk/send`,
             {
@@ -422,6 +423,7 @@ async function sendConecctingUserMessage(
                 ).join("")
                 takostoken.create({
                     token: takosToken2,
+                    origin: splitUserName(sender).domain,
                 })
                 await takosfetch(
                     `${splitUserName(sender).domain}/api/v1/server/talk/read`,
@@ -549,6 +551,7 @@ async function readMessage(messageids: [string], sender: string) {
         ).join("")
         takostoken.create({
             token: takosToken,
+            origin: splitUserName(sender).domain,
         })
         await takosfetch(
             `${splitUserName(sender).domain}/api/v1/server/talk/read`,

@@ -46,7 +46,7 @@ export const handler = {
                 })
             }
             const isTrueToken = await takosfetch(
-                `${userDomain}/api/v1/server/token?token=` + token,
+                `${userDomain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
             )
             if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {
@@ -229,7 +229,7 @@ export const handler = {
             console.log(userDomain, env["serverDomain"], friendDomain)
             console.log("3")
             const isTrueToken = await takosfetch(
-                `${userDomain}/api/v1/server/token?token=` + token,
+                `${userDomain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
             )
             if (!isTrueToken) {
                 return new Response(JSON.stringify({ status: false }), {

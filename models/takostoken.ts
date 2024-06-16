@@ -6,6 +6,10 @@ export const csrfTokenSchama = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    origin: {
+        type: String,
+        required: true,
+    },
     timestamp: { type: Date, default: Date.now, expires: 60 * 2 },
 })
 const takostoken = mongoose.model("takostoken", csrfTokenSchama)

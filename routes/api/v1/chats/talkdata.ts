@@ -192,6 +192,9 @@ export const handler = {
                 }
                 if (UnreadMessageIds.length !== 0) {
                     //takostoken
+                    const friendDomain = splitUserName(
+                        OtherServerMessages[0].userid,
+                    ).domain
                     const takosTokenArray = new Uint8Array(16)
                     const randomarray = crypto.getRandomValues(takosTokenArray)
                     const takosToken = Array.from(
@@ -200,10 +203,8 @@ export const handler = {
                     ).join("")
                     takostoken.create({
                         token: takosToken,
+                        origin: friendDomain
                     })
-                    const friendDomain = splitUserName(
-                        OtherServerMessages[0].userid,
-                    ).domain
                     const reuslt = await takosfetch(
                         `${friendDomain}/api/v1/server/talk/read`,
                         {
@@ -255,7 +256,7 @@ export const handler = {
                 ).join("")
                 takostoken.create({
                     token: takosToken,
-                    userid: ctx.state.data.userid,
+                    origin: splitUserName(friendId[0]).domain,
                 })
                 const OtherServerUser = splitUserName(friendId[0])
                 const OtherServerUserDomain = OtherServerUser.domain

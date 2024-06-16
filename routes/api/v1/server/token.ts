@@ -3,12 +3,13 @@ export const handler = {
     async GET(req: Request, ctx: any) {
         const requrl = new URL(req.url)
         const token = requrl.searchParams.get("token") || ""
+        const origin = requrl.searchParams.get("origin") || ""
         if (token === "" || token === null || token === undefined) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
             })
         }
-        const tokenInfo = await takostoken.findOne({ token })
+        const tokenInfo = await takostoken.findOne({ token, origin})
         if (tokenInfo === null || tokenInfo === undefined) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,
