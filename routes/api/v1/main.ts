@@ -434,6 +434,7 @@ async function sendConecctingUserMessage(
                 uuid: sender,
             })
             if (!userInfo) {
+                console.log("userInfo is not found")
                 return
             }
             session.ws.send(
@@ -449,6 +450,7 @@ async function sendConecctingUserMessage(
                 }),
             )
             if (session.uuid === sender) {
+                console.log("session.uuid === sender")
                 return
             }
             pubClient.publish(
