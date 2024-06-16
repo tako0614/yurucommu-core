@@ -200,7 +200,7 @@ export const handler = {
                     status: 400,
                 })
             }
-            console.log(recipientUserName,requesterUserUUID)
+            console.log("reci"  + recipientUserName,"uuid" + requesterUserUUID)
             console.log(userDomain, env["serverDomain"], friendDomain)
             console.log("3")
             const isTrueToken = await takosfetch(
