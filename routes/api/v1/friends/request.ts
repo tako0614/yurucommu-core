@@ -418,6 +418,16 @@ export const handler = {
                             },
                         )
                     }
+                    if(friendInfo.uuid === userid){
+                        console.log("friendInfo.uuid === userid")
+                        return new Response(
+                            JSON.stringify({ status: "error" }),
+                            {
+                                headers: { "Content-Type": "application/json" },
+                                status: 400,
+                            },
+                        )
+                    }
                     const myFriendInfo = await Friends.findOne({ user: userid })
                     if(!myFriendInfo){
                         await Friends.create({ user: userid })
