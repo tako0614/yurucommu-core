@@ -40,7 +40,9 @@ export const handler = {
                     })
                 }
                 const isTrueToken = await takosfetch(
-                    `${serverDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
+                    `${serverDomain}/api/v1/server/token?token=${token}&origin=${
+                        env["serverDomain"]
+                    }`,
                 )
                 if (!isTrueToken) {
                     return new Response(JSON.stringify({ "status": false }), {

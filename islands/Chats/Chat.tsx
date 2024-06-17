@@ -245,107 +245,125 @@ export default function Home(
                                 roomName={roomName}
                                 talkData={talkData}
                             />
-                            {isChoiceUser && (<>
-                            <div class="p-talk-chat-send">
-                                <form class="p-talk-chat-send__form">
-                                    <div class="p-talk-chat-send__msg">
-                                        <div
-                                            class="p-talk-chat-send__dummy"
-                                            aria-hidden="true"
-                                        >
-                                        </div>
-                                        <label>
-                                            <textarea
-                                                class="p-talk-chat-send__textarea"
-                                                placeholder="メッセージを入力"
-                                                value={Message}
-                                                onChange={(e) => {
-                                                    if (e.target) {
-                                                        setMessage(
-                                                            (e.target as HTMLTextAreaElement)
-                                                                .value,
+                            {isChoiceUser && (
+                                <>
+                                    <div class="p-talk-chat-send">
+                                        <form class="p-talk-chat-send__form">
+                                            <div class="p-talk-chat-send__msg">
+                                                <div
+                                                    class="p-talk-chat-send__dummy"
+                                                    aria-hidden="true"
+                                                >
+                                                </div>
+                                                <label>
+                                                    <textarea
+                                                        class="p-talk-chat-send__textarea"
+                                                        placeholder="メッセージを入力"
+                                                        value={Message}
+                                                        onChange={(e) => {
+                                                            if (e.target) {
+                                                                setMessage(
+                                                                    (e.target as HTMLTextAreaElement)
+                                                                        .value,
+                                                                )
+                                                            }
+                                                        }}
+                                                    >
+                                                    </textarea>
+                                                </label>
+                                            </div>
+                                            <div
+                                                class="p-talk-chat-send__file"
+                                                onClick={() => {
+                                                    if (Message) {
+                                                        if (
+                                                            Message.length > 100
+                                                        ) {
+                                                            alert(
+                                                                "100文字以内で入力してください",
+                                                            )
+                                                            return
+                                                        }
+                                                        const data = {
+                                                            type: "message",
+                                                            message: Message,
+                                                            roomid: roomid,
+                                                            sessionid:
+                                                                sessionid,
+                                                            messageType: "text",
+                                                        }
+                                                        ws?.send(
+                                                            JSON.stringify(
+                                                                data,
+                                                            ),
+                                                        )
+                                                        setMessage("")
+                                                        // deno-lint-ignore no-explicit-any
+                                                        setFriendList(
+                                                            (prev: any) => {
+                                                                // deno-lint-ignore prefer-const
+                                                                let temp = prev
+                                                                // deno-lint-ignore no-explicit-any
+                                                                temp.map(
+                                                                    (
+                                                                        data:
+                                                                            any,
+                                                                    ) => {
+                                                                        if (
+                                                                            data.roomid ==
+                                                                                roomid
+                                                                        ) {
+                                                                            data.lastMessage =
+                                                                                Message
+                                                                            data.latestMessageTime =
+                                                                                new Date()
+                                                                                    .toString()
+                                                                            data.isNewMessage =
+                                                                                false
+                                                                        }
+                                                                    },
+                                                                )
+                                                                temp.sort(
+                                                                    (
+                                                                        a: {
+                                                                            latestMessageTime:
+                                                                                number
+                                                                        },
+                                                                        b: {
+                                                                            latestMessageTime:
+                                                                                number
+                                                                        },
+                                                                    ) => {
+                                                                        if (
+                                                                            a.latestMessageTime <
+                                                                                b.latestMessageTime
+                                                                        ) {
+                                                                            return 1
+                                                                        }
+                                                                        if (
+                                                                            a.latestMessageTime >
+                                                                                b.latestMessageTime
+                                                                        ) {
+                                                                            return -1
+                                                                        }
+                                                                        return 0
+                                                                    },
+                                                                )
+                                                                return temp
+                                                            },
                                                         )
                                                     }
                                                 }}
                                             >
-                                            </textarea>
-                                        </label>
+                                                <img
+                                                    src="/ei-send.svg"
+                                                    alt="file"
+                                                />
+                                            </div>
+                                        </form>
                                     </div>
-                                    <div
-                                        class="p-talk-chat-send__file"
-                                        onClick={() => {
-                                            if (Message) {
-                                                if (Message.length > 100) {
-                                                    alert(
-                                                        "100文字以内で入力してください",
-                                                    )
-                                                    return
-                                                }
-                                                const data = {
-                                                    type: "message",
-                                                    message: Message,
-                                                    roomid: roomid,
-                                                    sessionid: sessionid,
-                                                    messageType: "text",
-                                                }
-                                                ws?.send(JSON.stringify(data))
-                                                setMessage("")
-                                                // deno-lint-ignore no-explicit-any
-                                                setFriendList((prev: any) => {
-                                                    // deno-lint-ignore prefer-const
-                                                    let temp = prev
-                                                    // deno-lint-ignore no-explicit-any
-                                                    temp.map((data: any) => {
-                                                        if (
-                                                            data.roomid ==
-                                                                roomid
-                                                        ) {
-                                                            data.lastMessage =
-                                                                Message
-                                                            data.latestMessageTime =
-                                                                new Date()
-                                                                    .toString()
-                                                            data.isNewMessage =
-                                                                false
-                                                        }
-                                                    })
-                                                    temp.sort(
-                                                        (
-                                                            a: {
-                                                                latestMessageTime:
-                                                                    number
-                                                            },
-                                                            b: {
-                                                                latestMessageTime:
-                                                                    number
-                                                            },
-                                                        ) => {
-                                                            if (
-                                                                a.latestMessageTime <
-                                                                    b.latestMessageTime
-                                                            ) {
-                                                                return 1
-                                                            }
-                                                            if (
-                                                                a.latestMessageTime >
-                                                                    b.latestMessageTime
-                                                            ) {
-                                                                return -1
-                                                            }
-                                                            return 0
-                                                        },
-                                                    )
-                                                    return temp
-                                                })
-                                            }
-                                        }}
-                                    >
-                                        <img src="/ei-send.svg" alt="file" />
-                                    </div>
-                                </form>
-                            </div>
-
-                            </>)}
+                                </>
+                            )}
                         </div>
                     </div>
                 </main>

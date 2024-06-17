@@ -203,7 +203,7 @@ export const handler = {
                     ).join("")
                     takostoken.create({
                         token: takosToken,
-                        origin: friendDomain
+                        origin: friendDomain,
                     })
                     const reuslt = await takosfetch(
                         `${friendDomain}/api/v1/server/talk/read`,

@@ -3,8 +3,11 @@ import messages from "../../../../../models/messages.ts"
 import pubClient from "../../../../../util/redisClient.ts"
 import { takosfetch } from "../../../../../util/takosfetch.ts"
 import { load } from "$std/dotenv/mod.ts"
+import { v4 as uuidv4 } from "https://deno.land/std/uuid/mod.ts"
 const env = await load()
 const redisch = env["REDIS_CH"]
+const uuidRegex =
+    /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/
 const maxMessage = Number(env["MAX_MESSAGE_LENGTH"])
 export const handler = {
     async POST(req: Request, ctx: any) {
@@ -25,9 +28,30 @@ export const handler = {
                 status: 400,
             })
         }
+        if (!uuidRegex.test(messageid)) {
+            return new Response(
+                JSON.stringify({ status: false, error: "Invalid message ID" }),
+                {
+                    status: 400,
+                },
+            )
+        }
+        if (message.length > maxMessage) {
+            return new Response(
+                JSON.stringify({
+                    status: false,
+                    error: "Message exceeds maximum length",
+                }),
+                {
+                    status: 400,
+                },
+            )
+        }
+
         const { domain, userName } = splitUserName(sender)
         const isTrueToken = await takosfetch(
-            `${domain}/api/v1/server/token?token=` + token + "&origin=" + env["serverDomain"],
+            `${domain}/api/v1/server/token?token=` + token + "&origin=" +
+                env["serverDomain"],
         )
         if (isTrueToken === null || isTrueToken === undefined) {
             return new Response(JSON.stringify({ status: false }), {
@@ -62,9 +86,6 @@ export const handler = {
             return new Response(JSON.stringify({ status: false }), {
                 status: 400,
             })
-        }
-        if(message.length > maxMessage){
-            return
         }
         const result = await messages.create({
             userid: uuid,

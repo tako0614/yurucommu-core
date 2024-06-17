@@ -73,8 +73,10 @@ function TalkArea(props: any) {
             <div class="p-talk-chat-main" id="chat-area">
                 <ul class="p-talk-chat-main__ul">
                     {props.talkData.map((data: any) => {
-                        const isEncodeDate = new Date(DateState).toLocaleDateString() !== new Date(data.time).toLocaleDateString();
-                        DateState = data.time;
+                        const isEncodeDate =
+                            new Date(DateState).toLocaleDateString() !==
+                                new Date(data.time).toLocaleDateString()
+                        DateState = data.time
                         if (data.type == "message") {
                             if (data.sender == props.userName) {
                                 if (SendPrimary) {

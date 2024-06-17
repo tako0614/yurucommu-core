@@ -46,7 +46,30 @@ async function subscribeMessage(channel: string | string[]) {
 
 await subscribeMessage(redisch)
 const sessions = new Map()
+// セッションの最後の活動時間を保持するマップ
+let lastActivityTimes = new Map();
 
+// セッションの最後の活動時間を更新する関数
+function updateActivity(sessionId: string) {
+    lastActivityTimes.set(sessionId, Date.now());
+}
+
+// セッションをチェックし、古いセッションを無効にする関数
+function invalidateOldSessions() {
+    const now = Date.now();
+    for (let [sessionId, lastActivityTime] of lastActivityTimes.entries()) {
+        // 4時間20分をミリ秒で表現
+        const EXPIRATION_TIME = (4 * 60 + 20) * 60 * 1000;
+        if (now - lastActivityTime > EXPIRATION_TIME) {
+            // セッションを無効にする
+            sessions.delete(sessionId);
+            lastActivityTimes.delete(sessionId);
+        }
+    }
+}
+
+// 5分ごとに古いセッションを無効にする
+setInterval(invalidateOldSessions, 5 * 60 * 1000);
 export const handler = {
     GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
@@ -58,11 +81,10 @@ export const handler = {
         if (req.headers.get("upgrade") === "websocket") {
             const { socket, response } = Deno.upgradeWebSocket(req)
             socket.onmessage = async function (event) {
+                try {
                 const data = JSON.parse(event.data)
-                if(!data) return
-                const type = data.type
-                if(!type) return
-                switch (type) {
+                if(!data || !data.type) return
+                switch (data.type) {
                     case "joinRoom":
                         joinRoom(data.sessionid, data.roomid, socket)
                         break
@@ -84,6 +106,9 @@ export const handler = {
                     default:
                         break
                 }
+            } catch (error) {
+                    console.log(error)
+            }
             }
             socket.onclose = () => {
                 console.log("close")
@@ -124,6 +149,7 @@ async function login(userID: string, ws: WebSocket) {
         talkingRoom: "",
         roomType: "",
     })
+    updateActivity(sessionID);
     ws.send(
         JSON.stringify({
             type: "login",
@@ -180,6 +206,7 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
         talkingRoom: roomID,
         roomType: room.types,
     })
+    updateActivity(sessionID);
     ws.send(
         JSON.stringify({
             type: "joinRoom",
@@ -241,6 +268,7 @@ async function sendMessage(
                 messageType: MessageType,
             }),
         )
+        updateActivity(sessionid);
         ws.send(
             JSON.stringify({
                 status: true,
@@ -285,6 +313,7 @@ async function sendMessage(
         if(message.length > maxMessage){
             return
         }
+        updateActivity(sessionid);
         await messages.create({
             userid: session.uuid,
             roomid: roomID,
@@ -459,6 +488,12 @@ async function sendConecctingUserMessage(
                 console.log("userInfo is not found")
                 return
             }
+            //wsがopenか確認
+            if (session.ws.readyState !== WebSocket.OPEN) {
+                //sessionを削除
+                sessions.delete(key)
+                return
+            }
             session.ws.send(
                 JSON.stringify({
                     type: "message",
@@ -537,12 +572,17 @@ async function readMessage(messageids: [string], sender: string) {
         (session) => session.uuid === sender,
     )
     if (!session) {
-        console.log("session is not found")
         return
     }
     //messageidsが全てuuidか確認
     if (messageids.some((messageid) => messageid.length !== 36)) {
         console.log("messageids is not uuid")
+        return
+    }
+    //wsがopenか確認
+    if (session.ws.readyState !== WebSocket.OPEN) {
+        //sessionを削除
+        sessions.delete(session.uuid)
         return
     }
     session.ws.send(

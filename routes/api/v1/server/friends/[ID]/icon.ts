@@ -28,7 +28,9 @@ export const handler = {
             })
         }
         const isTrueToken = await takosfetch(
-            `${userServerDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
+            `${userServerDomain}/api/v1/server/token?token=${token}&origin=${
+                env["serverDomain"]
+            }`,
         )
         //userが存在するか確認
         const user = await users.findOne({
