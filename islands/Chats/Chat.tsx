@@ -92,92 +92,101 @@ export default function Home(
         }, 100)
     }, [talkData])
     useEffect(() => {
-        const socket = new WebSocket(
-            "/api/v1/main",
-        )
-        socket.onopen = () => {
-            socket.send(
-                JSON.stringify({
-                    type: "login",
-                }),
+        const createWebSocket = () => {
+            const socket = new WebSocket(
+                "/api/v1/main",
             )
-        }
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data)
-            if (data.type == "login") {
-                setSessionid(data.sessionID)
-                if (props.roomid !== undefined && props.roomid !== "") {
-                    socket.send(JSON.stringify({
-                        type: "joinRoom",
-                        roomid: props.roomid,
-                        sessionid: data.sessionID,
-                    }))
-                }
-            } else if (data.type == "joinRoom") {
-                setRoomid(data.roomID)
-            } else if (data.type == "message") {
-                setTalkData((prev) => {
-                    return [
-                        ...prev,
-                        {
-                            type: "message",
-                            message: data.message,
-                            time: data.time,
-                            isRead: false,
-                            sender: data.sender,
-                            senderNickName: data.senderNickName,
-                            messageid: data.messageid,
-                            messageType: data.messageType,
-                        },
-                    ]
-                })
-            } else if (data.type == "read") {
-                console.log(data)
-                setTalkData((prev) => {
-                    return prev.map((item) => {
-                        if (data.messageids.includes(item?.message)) {
-                            return {
-                                ...item,
-                                isRead: true,
+            socket.onopen = () => {
+                socket.send(
+                    JSON.stringify({
+                        type: "login",
+                    }),
+                )
+            }
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data)
+                if (data.type == "login") {
+                    setSessionid(data.sessionID)
+                    if (props.roomid !== undefined && props.roomid !== "") {
+                        socket.send(JSON.stringify({
+                            type: "joinRoom",
+                            roomid: props.roomid,
+                            sessionid: data.sessionID,
+                        }))
+                    }
+                } else if (data.type == "joinRoom") {
+                    setRoomid(data.roomID)
+                } else if (data.type == "message") {
+                    setTalkData((prev) => {
+                        return [
+                            ...prev,
+                            {
+                                type: "message",
+                                message: data.message,
+                                time: data.time,
+                                isRead: false,
+                                sender: data.sender,
+                                senderNickName: data.senderNickName,
+                                messageid: data.messageid,
+                                messageType: data.messageType,
+                            },
+                        ]
+                    })
+                } else if (data.type == "read") {
+                    console.log(data)
+                    setTalkData((prev) => {
+                        return prev.map((item) => {
+                            if (data.messageids.includes(item?.message)) {
+                                return {
+                                    ...item,
+                                    isRead: true,
+                                }
                             }
-                        }
-                        return item
+                            return item
+                        })
                     })
-                })
-            } else if (data.type == "notification") {
-                //friendListを更新
-                console.log(data)
-                setFriendList((prev) => {
-                    const newFriendList = prev.map((item) => {
-                        if (item.roomid == data.roomid) {
-                            console.log("update")
-                            return {
-                                ...item,
-                                latestMessage: data.message,
-                                latestMessageTime: data.time,
-                                isNewMessage: true,
+                } else if (data.type == "notification") {
+                    //friendListを更新
+                    console.log(data)
+                    setFriendList((prev) => {
+                        const newFriendList = prev.map((item) => {
+                            if (item.roomid == data.roomid) {
+                                console.log("update")
+                                return {
+                                    ...item,
+                                    latestMessage: data.message,
+                                    latestMessageTime: data.time,
+                                    isNewMessage: true,
+                                }
                             }
-                        }
-                        return item
+                            return item
+                        })
+                        newFriendList.sort((a, b) => {
+                            if (a.latestMessageTime < b.latestMessageTime) {
+                                return 1
+                            }
+                            if (a.latestMessageTime > b.latestMessageTime) {
+                                return -1
+                            }
+                            return 0
+                        })
+                        return newFriendList
                     })
-                    newFriendList.sort((a, b) => {
-                        if (a.latestMessageTime < b.latestMessageTime) {
-                            return 1
-                        }
-                        if (a.latestMessageTime > b.latestMessageTime) {
-                            return -1
-                        }
-                        return 0
-                    })
-                    return newFriendList
-                })
-            } else {
-                if (data.status == false) {
-                    console.log(data.explain)
+                } else {
+                    if (data.status == false) {
+                        console.log(data.explain)
+                    }
                 }
             }
+            socket.onclose = () => {
+                setTimeout(() => {
+                    const socket = createWebSocket()
+                    setWs(socket)
+                }, 1000);
+            }
+            return socket
         }
-        setWs(socket)
+        setWs(createWebSocket())
     }, [])
     return (
         <>
