@@ -93,7 +93,12 @@ export default function Home(
     }, [talkData])
     useEffect(() => {
         const createWebSocket = () => {
-            const wssprotocol = props.wsSSL ? "wss://" : "ws://"
+            let wssprotocol
+            if (window.location.protocol === 'https:') {
+                wssprotocol = "wss://"
+            } else {
+                wssprotocol = "ws://"
+            }
             const wsurl = wssprotocol + "/api/v1/main"
             const socket = new WebSocket(
                 wsurl
