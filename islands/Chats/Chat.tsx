@@ -99,7 +99,9 @@ export default function Home(
             } else {
                 wssprotocol = "ws://"
             }
-            const wsurl = wssprotocol + "/api/v1/main"
+            const origin = window.location.origin;
+            const domain = (new URL(origin)).hostname;
+            const wsurl = wssprotocol + domain + "/api/v1/main"
             const socket = new WebSocket(
                 wsurl
             )
