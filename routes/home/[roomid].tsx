@@ -7,6 +7,7 @@ import User from "../../components/Chats/ChatUserList.jsx"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
+const wsSSL = env["wsSSL"]
 export const handler = {
     async GET(req: any, ctx: any) {
         const { roomid } = ctx.params
@@ -103,6 +104,7 @@ export default function Home({ data }: { data: any }) {
                 settings={settings}
                 userNickName={data.nickName}
                 userName={data.userName + "@" + env["serverDomain"]}
+                wsSSL={wsSSL}
             >
             </Chat>
         </>

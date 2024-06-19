@@ -6,6 +6,7 @@ import { useSignal } from "@preact/signals"
 import User from "../../components/Chats/ChatUserList.jsx"
 const env = await load()
 const sitekey = env["recaptcha_site_key"]
+const wsSSL = env["wsSSL"]
 const url = `https://www.google.com/recaptcha/api.js?render=${sitekey}`
 export const handler = {
     async GET(req: any, ctx: any) {
@@ -103,6 +104,7 @@ export default function Home({ data }: { data: any }) {
                 settings={settings}
                 userNickName={data.nickName}
                 userName={data.userName + "@" + env["serverDomain"]}
+                wsSSL={wsSSL}
             >
             </Chat>
         </>
