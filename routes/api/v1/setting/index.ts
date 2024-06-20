@@ -100,7 +100,7 @@ export const handler = {
                 await icon.arrayBuffer(),
             )
             //resize image
-            const resized = image.resize(512, 512)
+            const resized = image.resize(256, 256)
             //encode image to jpeg
             const encoded = await resized.encodeJPEG(100) // 100 is the quality of the JPEG image
             //save image
