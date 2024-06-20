@@ -64,12 +64,6 @@ async function isMailDuplication(mail: string): Promise<boolean> {
     const result = await users.findOne({ mail: mail }, { mail: 1 })
     return result !== null
 }
-async function isCsrftoken(token: string): Promise<any> {
-    const result = await csrfToken.findOne({ csrftoken: token }, {
-        sessionID: 1,
-    })
-    return result !== null
-}
 async function isMailDuplicationTemp(mail: string): Promise<boolean> {
     const result = await tempUsers.findOne({ mail: mail }, { mail: 1 })
     return result !== null
@@ -100,7 +94,6 @@ export {
     envRoader,
     generateSalt,
     hashPassword,
-    isCsrftoken,
     isMail,
     isMailDuplication,
     isMailDuplicationTemp,

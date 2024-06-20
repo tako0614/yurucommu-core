@@ -47,29 +47,29 @@ async function subscribeMessage(channel: string | string[]) {
 await subscribeMessage(redisch)
 const sessions = new Map()
 // セッションの最後の活動時間を保持するマップ
-let lastActivityTimes = new Map();
+let lastActivityTimes = new Map()
 
 // セッションの最後の活動時間を更新する関数
 function updateActivity(sessionId: string) {
-    lastActivityTimes.set(sessionId, Date.now());
+    lastActivityTimes.set(sessionId, Date.now())
 }
 
 // セッションをチェックし、古いセッションを無効にする関数
 function invalidateOldSessions() {
-    const now = Date.now();
+    const now = Date.now()
     for (let [sessionId, lastActivityTime] of lastActivityTimes.entries()) {
         // 4時間20分をミリ秒で表現
-        const EXPIRATION_TIME = (4 * 60 + 20) * 60 * 1000;
+        const EXPIRATION_TIME = (4 * 60 + 20) * 60 * 1000
         if (now - lastActivityTime > EXPIRATION_TIME) {
             // セッションを無効にする
-            sessions.delete(sessionId);
-            lastActivityTimes.delete(sessionId);
+            sessions.delete(sessionId)
+            lastActivityTimes.delete(sessionId)
         }
     }
 }
 
 // 5分ごとに古いセッションを無効にする
-setInterval(invalidateOldSessions, 5 * 60 * 1000);
+setInterval(invalidateOldSessions, 5 * 60 * 1000)
 export const handler = {
     GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
@@ -82,33 +82,33 @@ export const handler = {
             const { socket, response } = Deno.upgradeWebSocket(req)
             socket.onmessage = async function (event) {
                 try {
-                const data = JSON.parse(event.data)
-                if(!data || !data.type) return
-                switch (data.type) {
-                    case "joinRoom":
-                        joinRoom(data.sessionid, data.roomid, socket)
-                        break
-                    case "message":
-                        sendMessage(
-                            data.sessionid,
-                            data.message,
-                            data.roomid,
-                            socket,
-                            data.messageType,
-                        )
-                        break
-                    case "login":
-                        login(ctx.state.data.userid, socket)
-                        break
-                    case "leave":
-                        leaveRoom(data.sessionid)
-                        break
-                    default:
-                        break
-                }
-            } catch (error) {
+                    const data = JSON.parse(event.data)
+                    if (!data || !data.type) return
+                    switch (data.type) {
+                        case "joinRoom":
+                            joinRoom(data.sessionid, data.roomid, socket)
+                            break
+                        case "message":
+                            sendMessage(
+                                data.sessionid,
+                                data.message,
+                                data.roomid,
+                                socket,
+                                data.messageType,
+                            )
+                            break
+                        case "login":
+                            login(ctx.state.data.userid, socket)
+                            break
+                        case "leave":
+                            leaveRoom(data.sessionid)
+                            break
+                        default:
+                            break
+                    }
+                } catch (error) {
                     console.log(error)
-            }
+                }
             }
             socket.onclose = () => {
                 console.log("close")
@@ -149,7 +149,7 @@ async function login(userID: string, ws: WebSocket) {
         talkingRoom: "",
         roomType: "",
     })
-    updateActivity(sessionID);
+    updateActivity(sessionID)
     ws.send(
         JSON.stringify({
             type: "login",
@@ -206,7 +206,7 @@ async function joinRoom(sessionID: string, roomID: string, ws: WebSocket) {
         talkingRoom: roomID,
         roomType: room.types,
     })
-    updateActivity(sessionID);
+    updateActivity(sessionID)
     ws.send(
         JSON.stringify({
             type: "joinRoom",
@@ -244,7 +244,7 @@ async function sendMessage(
         return
     }
     if (session.roomType === "friend") {
-        if(message.length > maxMessage){
+        if (message.length > maxMessage) {
             return
         }
         const result = await messages.create({
@@ -268,7 +268,7 @@ async function sendMessage(
                 messageType: MessageType,
             }),
         )
-        updateActivity(sessionid);
+        updateActivity(sessionid)
         ws.send(
             JSON.stringify({
                 status: true,
@@ -310,10 +310,10 @@ async function sendMessage(
         }
         const frienduuid = friend.userid
         const messageid = crypto.randomUUID()
-        if(message.length > maxMessage){
+        if (message.length > maxMessage) {
             return
         }
-        updateActivity(sessionid);
+        updateActivity(sessionid)
         await messages.create({
             userid: session.uuid,
             roomid: roomID,

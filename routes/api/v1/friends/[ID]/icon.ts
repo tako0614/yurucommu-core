@@ -70,16 +70,16 @@ export const handler = {
             try {
                 const filePath = `./files/userIcons/${
                     mailSpilit(FriendInfo.uuid)
-                }.webp`
+                }.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 200,
                 })
             } catch (error) {
                 console.error(error)
                 return new Response("./people.png", {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 400,
                 })
             }
@@ -120,16 +120,16 @@ export const handler = {
             try {
                 const filePath = `./files/userIcons/${
                     mailSpilit(user.uuid)
-                }.webp`
+                }.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 200,
                 })
             } catch (error) {
                 console.error(error)
                 return new Response("./people.png", {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 400,
                 })
             }
@@ -197,16 +197,16 @@ export const handler = {
             try {
                 const filePath = `./files/userIcons/${
                     splitUserName(friendid)?.name
-                }.webp`
+                }.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 200,
                 })
             } catch (error) {
                 console.error(error)
                 return new Response("./people.png", {
-                    headers: { "Content-Type": "image/webp" },
+                    headers: { "Content-Type": "image/jpeg" },
                     status: 400,
                 })
             }
@@ -295,7 +295,7 @@ export const handler = {
 
             const icon = await iconRes.arrayBuffer()
             return new Response(icon, {
-                headers: { "Content-Type": "image/webp" },
+                headers: { "Content-Type": "image/jpeg" },
                 status: 200,
             })
         }

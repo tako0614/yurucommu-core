@@ -71,12 +71,11 @@ export const handler = {
         }
         try {
             const result = await Deno.readFile(
-                //"../../../../files/userIcons/" + user.uuid + ".webp"
                 "./files/userIcons/" + splitUserName(user.uuid).userName +
-                    ".webp",
+                    ".jpeg",
             )
             return new Response(result, {
-                headers: { "Content-Type": "image/webp" },
+                headers: { "Content-Type": "image/jpeg" },
                 status: 200,
             })
         } catch (error) {

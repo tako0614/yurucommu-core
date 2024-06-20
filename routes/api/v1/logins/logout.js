@@ -20,6 +20,7 @@ export const handler = {
             }
             const csrfTokenRecord = await csrftoken.findOne({
                 token: data.csrftoken,
+                sessionID: cookies.sessionid,
             })
             if (
                 !csrfTokenRecord ||

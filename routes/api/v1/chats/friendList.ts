@@ -48,7 +48,10 @@ export const handler = {
             })
         }
 
-        const iscsrfToken = await csrftoken.findOne({ token: data.csrftoken })
+        const iscsrfToken = await csrftoken.findOne({
+            token: data.csrftoken,
+            sessionID: cookies.sessionid,
+        })
         if (iscsrfToken === null || iscsrfToken === undefined) {
             return new Response(JSON.stringify({ status: "csrftoken error" }), {
                 headers: { "Content-Type": "application/json" },

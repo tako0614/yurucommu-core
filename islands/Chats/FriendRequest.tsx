@@ -51,10 +51,7 @@ export default function RegisterForm() {
                                 </p>
                             </div>
                             <div>
-                                <Input
-                                    value={value}
-                                    setValue={setValue}
-                                />
+                                <Input />
                             </div>
                         </div>
                     </div>
@@ -211,15 +208,20 @@ const VideoList = () => {
         <div className="container mx-auto mt-8">
             <div className="bg-white rounded-lg overflow-y-auto max-h-96 mx-auto">
                 <ul className="space-y-2 p-4">
-                    {items.map((video, index) => (
-                        <User
-                            key={index}
-                            icon={video.icon}
-                            userName={video.userName}
-                            items={items}
-                            setItems={setItems}
-                        />
-                    ))}
+                    {items.map((video, index) => {
+                        if (!video || !video.icon) {
+                            return null
+                        }
+                        return (
+                            <User
+                                key={index}
+                                icon={video.icon}
+                                userName={video.userName}
+                                items={items}
+                                setItems={setItems}
+                            />
+                        )
+                    })}
                 </ul>
             </div>
         </div>

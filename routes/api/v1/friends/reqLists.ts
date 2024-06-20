@@ -57,6 +57,16 @@ export const handler = {
                     },
                 ),
             )
+            if (result == null) {
+                return new Response(
+                    JSON.stringify({ status: true, result: null }),
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        status: 200,
+                    },
+                )
+            }
+            console.log(result)
             return new Response(
                 JSON.stringify({ status: true, result: result }),
                 {

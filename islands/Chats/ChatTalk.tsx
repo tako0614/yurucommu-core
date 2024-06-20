@@ -74,7 +74,8 @@ function TalkArea(props: any) {
                 <ul class="p-talk-chat-main__ul">
                     {props.talkData.map((data: any) => {
                         const isEncodeDate =
-                            new Date(DateState).toLocaleDateString() !== new Date(data.time).toLocaleDateString()
+                            new Date(DateState).toLocaleDateString() !==
+                                new Date(data.time).toLocaleDateString()
                         DateState = data.time
                         if (data.type == "message") {
                             if (data.sender == props.userName) {
@@ -101,7 +102,7 @@ function TalkArea(props: any) {
                                     <>
                                         {isEncodeDate && (
                                             <ChatDate
-                                            date={new Date(data.time)}
+                                                date={new Date(data.time)}
                                             />
                                         )}
                                         <ChatSendMessage
@@ -120,7 +121,7 @@ function TalkArea(props: any) {
                                         <>
                                             {isEncodeDate && (
                                                 <ChatDate
-                                                date={new Date(data.time)}
+                                                    date={new Date(data.time)}
                                                 />
                                             )}
                                             <ChatOtherMessage
@@ -138,7 +139,7 @@ function TalkArea(props: any) {
                                     <>
                                         {isEncodeDate && (
                                             <ChatDate
-                                            date={new Date(data.time)}
+                                                date={new Date(data.time)}
                                             />
                                         )}
                                         <ChatOtherMessage

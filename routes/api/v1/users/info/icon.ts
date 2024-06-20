@@ -14,10 +14,10 @@ export const handler = {
             }
             const userid = ctx.state.data.userid
             const result = await Deno.readFile(
-                `./files/userIcons/${mailSpilit(userid)}.webp`,
+                `./files/userIcons/${mailSpilit(userid)}.jpeg`,
             )
             return new Response(result, {
-                headers: { "Content-Type": "image/webp" },
+                headers: { "Content-Type": "image/jpeg" },
                 status: 200,
             })
         } catch (error) {

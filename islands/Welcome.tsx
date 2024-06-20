@@ -84,6 +84,3 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
         </>
     )
 }
-function setRecaptcha(token: string) {
-    throw new Error("Function not implemented.")
-}

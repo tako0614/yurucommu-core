@@ -94,16 +94,16 @@ export default function Home(
     useEffect(() => {
         const createWebSocket = () => {
             let wssprotocol
-            if (window.location.protocol === 'https:') {
+            if (window.location.protocol === "https:") {
                 wssprotocol = "wss://"
             } else {
                 wssprotocol = "ws://"
             }
-            const origin = window.location.origin;
-            const domain = (new URL(origin)).hostname;
+            const origin = window.location.origin
+            const domain = (new URL(origin)).host
             const wsurl = wssprotocol + domain + "/api/v1/main"
             const socket = new WebSocket(
-                wsurl
+                wsurl,
             )
             socket.onopen = () => {
                 socket.send(
@@ -191,7 +191,7 @@ export default function Home(
                 setTimeout(() => {
                     const socket = createWebSocket()
                     setWs(socket)
-                }, 1000);
+                }, 1000)
             }
             return socket
         }

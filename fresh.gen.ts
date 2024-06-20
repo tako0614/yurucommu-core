@@ -28,6 +28,7 @@ import * as $api_v1_server_talk_send from "./routes/api/v1/server/talk/send.ts"
 import * as $api_v1_server_token from "./routes/api/v1/server/token.ts"
 import * as $api_v1_server_users_ID_name from "./routes/api/v1/server/users/[ID]/name.ts"
 import * as $api_v1_server_users_ID_uuid from "./routes/api/v1/server/users/[ID]/uuid.ts"
+import * as $api_v1_setting_icon from "./routes/api/v1/setting/icon.ts"
 import * as $api_v1_setting_index from "./routes/api/v1/setting/index.ts"
 import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
 import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
@@ -98,6 +99,7 @@ const manifest = {
             $api_v1_server_users_ID_name,
         "./routes/api/v1/server/users/[ID]/uuid.ts":
             $api_v1_server_users_ID_uuid,
+        "./routes/api/v1/setting/icon.ts": $api_v1_setting_icon,
         "./routes/api/v1/setting/index.ts": $api_v1_setting_index,
         "./routes/api/v1/users/icon.ts": $api_v1_users_icon,
         "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,

@@ -231,12 +231,12 @@ export const handler = {
                 age: age,
             })
             const defaultIcon = await Deno.readFile(
-                "./static/people.webp",
+                "./static/people.jpeg",
             )
             try {
                 const uuidBody = splitMail(result.uuid)
                 await Deno.writeFile(
-                    `./files/userIcons/${uuidBody}.webp`,
+                    `./files/userIcons/${uuidBody}.jpeg`,
                     defaultIcon,
                 )
             } catch (error) {
@@ -247,7 +247,7 @@ export const handler = {
                     await Deno.mkdir("./files/userIcons")
                     await Deno.mkdir("./files/pictures")
                     await Deno.writeFile(
-                        `./files/userIcons/${uuidBody}.webp`,
+                        `./files/userIcons/${uuidBody}.jpeg`,
                         defaultIcon,
                     )
                 } catch (error) {

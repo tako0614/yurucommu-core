@@ -6,21 +6,8 @@ export default function RegisterForm(props: any) {
     const [icon, setIcon] = useState<File | null | Uint8Array>(null)
 
     const handleChnageIcon = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (event.target.files && event.target.files.length > 0) {
-            const file = event.target.files[0] // 最初のファイルを取得します
-            const fileReader = new FileReader()
-            fileReader.onload = function webViewerChangeFileReaderOnload(evt) {
-                if (evt.target) {
-                    const buffer = evt.target.result
-                    if (buffer instanceof ArrayBuffer) {
-                        const uint8Array = new Uint8Array(buffer)
-                        // 生成したUint8Arrayをコンソールに表示
-                        console.log(uint8Array)
-                        setIcon(uint8Array)
-                    }
-                }
-            }
-            fileReader.readAsArrayBuffer(file)
+        if (event.currentTarget.files) {
+            setIcon(event.currentTarget.files[0])
         }
     }
     const handleChangeNickName = (
@@ -30,22 +17,37 @@ export default function RegisterForm(props: any) {
     }
     const handleSubmit = async (event: h.JSX.TargetedEvent<any>) => {
         event.preventDefault()
-        /* 画像ファイルをBase64に変更してNickNameと一緒に送信
-    {
-      nickName: nickName,
-      icon: icon,
-    }
-    の形のjsonで送信する
-    */
         const csrftoken = await fetch(
             "/api/v1/csrftoken?origin=" + window.location.origin,
         )
         const token = await csrftoken.json()
         const csrftokenValue = token.csrftoken
         const formData = new FormData()
-        formData.append("icon", icon)
+        let requirement: {
+            nickName: string | boolean | null
+            icon: string | boolean | null
+        } = {
+            nickName: null,
+            icon: null,
+        }
+        if (!icon) {
+            requirement = {
+                nickName: true,
+                icon: false,
+            }
+        } else {
+            requirement = {
+                icon: true,
+                nickName: true,
+            }
+            formData.append("icon", icon);
+        }
+        if(!nickName){
+            requirement.nickName = false
+        }
         formData.append("csrftoken", csrftokenValue)
         formData.append("nickName", nickName)
+        formData.append("requirement", JSON.stringify(requirement))
         const resp = await fetch("/api/v1/setting", {
             method: "POST",
             body: formData,
@@ -55,7 +57,7 @@ export default function RegisterForm(props: any) {
         if (data.status === false) {
             return
         }
-        props.setSettingPage("")
+        alert("保存しました")
     }
     return (
         <>
