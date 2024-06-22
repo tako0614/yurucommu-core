@@ -283,7 +283,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                         </div>
                         <div class="w-full bg-gray-200 text-center py-4 rounded-lg shadow-inner mb-6">
                             <p class="text-sm text-gray-700">version</p>
-                            <p class="text-lg font-semibold">{"takos " + serverInfo.version}</p>
+                            <p class="text-lg font-semibold">{"takos v" + serverInfo.version}</p>
                         </div>
                         <div>
                             <img
