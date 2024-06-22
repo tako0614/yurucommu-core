@@ -435,7 +435,14 @@ const AddFriendForm = (
         setShowAddFriendForm: (arg0: boolean) => void
     },
 ) => {
-    const [addFriendInfo, setAddFriendInfo] = useState({})
+    const [addFriendInfo, setAddFriendInfo] = useState<{
+        data: string
+        icon: string
+
+    }>({
+        data: "",
+        icon: "",
+    })
     const [isRequested, setIsRequested] = useState(false)
     useEffect(() => {
         const fetchData = async () => {
