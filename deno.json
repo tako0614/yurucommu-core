@@ -1,5 +1,5 @@
 {
-    "version": "0.1-prealpha.1",
+    "version": "0.1.2.1",
     "lock": false,
     "tasks": {
         "check": "deno fmt --check && deno lint && deno check **/*.ts && deno check **/*.tsx",

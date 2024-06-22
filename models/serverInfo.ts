@@ -1,27 +1,20 @@
 import mongoose from "mongoose"
 
-export const sessionidSchema = new mongoose.Schema({
-    userid: {
+export const serverInfoSchema = new mongoose.Schema({
+    serverDomain: {
         type: String,
         required: true,
     },
-    sessionID: {
-        type: String,
-        required: true,
-        unique: true,
+    users: {
+        type: Number,
     },
-    lastLogin: {
-        type: Date,
-        required: true,
-        default: Date.now,
-        //バグってるから後で直す
-        //expires: 60 * 60 * 24 * 3,
+    remoteServers: {
+        type: Number,
     },
-    createdAt: {
+    lastUpdate: {
         type: Date,
         default: Date.now,
-        required: true,
     },
 })
-const ssessionID = mongoose.model("sessionid", sessionidSchema)
+const ssessionID = mongoose.model("serverInfo", serverInfoSchema)
 export default ssessionID

@@ -195,6 +195,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
     const [recaptchaLoaded, setRecaptchaLoaded] = useState(false)
     const [ChatData, setChatData] = useState(ChatDataDefo)
     const [message, setMessage] = useState("")
+    const [serverInfo, setServerInfo] = useState({} as any)
     useEffect(() => {
         const script = document.createElement("script")
         script.src = "https://www.google.com/recaptcha/api.js?render=" + sitekey
@@ -216,6 +217,14 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
             })
         }
     }, [recaptchaLoaded, sitekey])
+    useEffect(() => {
+        async function fetchData() {
+            const serverInfo = await fetch("/api/v1/welcome")
+            const serverInfoJson = await serverInfo.json()
+            setServerInfo(serverInfoJson)
+        }
+        fetchData()
+    }, [])
     return (
         <>
             <div class="flex w-full h-screen">
@@ -263,18 +272,18 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                         <div class="flex w-full space-x-4 mb-6">
                             <div class="w-1/2 bg-gray-200 text-center py-4 rounded-lg shadow-inner">
                                 <p class="text-sm text-gray-700">ユーザー</p>
-                                <p class="text-xl font-semibold">10,001</p>
+                                <p class="text-xl font-semibold">{serverInfo.users}</p>
                             </div>
                             <div class="w-1/2 bg-gray-200 text-center py-4 rounded-lg shadow-inner">
                                 <p class="text-sm text-gray-700">
                                     接続サーバー
                                 </p>
-                                <p class="text-xl font-semibold">2</p>
+                                <p class="text-xl font-semibold">{serverInfo.remoteServers}</p>
                             </div>
                         </div>
                         <div class="w-full bg-gray-200 text-center py-4 rounded-lg shadow-inner mb-6">
                             <p class="text-sm text-gray-700">version</p>
-                            <p class="text-lg font-semibold">takos v0.1</p>
+                            <p class="text-lg font-semibold">{"takos " + serverInfo.version}</p>
                         </div>
                         <div>
                             <img

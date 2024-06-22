@@ -32,6 +32,7 @@ import * as $api_v1_users_icon from "./routes/api/v1/users/icon.ts"
 import * as $api_v1_users_info_icon from "./routes/api/v1/users/info/icon.ts"
 import * as $api_v1_users_nickname from "./routes/api/v1/users/nickname.ts"
 import * as $api_v1_users_username from "./routes/api/v1/users/username.ts"
+import * as $api_v1_welcome from "./routes/api/v1/welcome.ts"
 import * as $home_roomid_ from "./routes/home/[roomid].tsx"
 import * as $home_index from "./routes/home/index.tsx"
 import * as $index from "./routes/index.tsx"
@@ -101,6 +102,7 @@ const manifest = {
         "./routes/api/v1/users/info/icon.ts": $api_v1_users_info_icon,
         "./routes/api/v1/users/nickname.ts": $api_v1_users_nickname,
         "./routes/api/v1/users/username.ts": $api_v1_users_username,
+        "./routes/api/v1/welcome.ts": $api_v1_welcome,
         "./routes/home/[roomid].tsx": $home_roomid_,
         "./routes/home/index.tsx": $home_index,
         "./routes/index.tsx": $index,
