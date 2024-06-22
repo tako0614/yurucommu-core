@@ -143,8 +143,8 @@ const ChatDataDefo = [
         sender: "tako@takos.jp",
         senderNickName: "tako",
         isPrimary: true,
-    }
-];
+    },
+]
 const ChatResponse = [
     {
         isSend: false,
@@ -187,8 +187,6 @@ const ChatResponse = [
         isPrimary: true,
     },
 ]
-
-
 
 export default function Welcome({ sitekey }: { sitekey: string }) {
     const [recaptchaToken, setRecaptchaToken] = useState("")
@@ -255,22 +253,20 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                             <div class="lg:w-1/3">
                                 <div class="mb-6">
                                     <RegisterForm
-                                    token={recaptchaToken}
-                                    sitekey={sitekey}
+                                        token={recaptchaToken}
+                                        sitekey={sitekey}
                                     />
                                     <button
-                                    onClick={
-                                        () => {
+                                        onClick={() => {
                                             alert("まだ実装してない！！！")
-                                        }
-                                    }
-                                    class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-3">
+                                        }}
+                                        class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-3"
+                                    >
                                         他のサーバーを探す
                                     </button>
                                     <LoginForm
-                                    token={recaptchaToken}
+                                        token={recaptchaToken}
                                     >
-
                                     </LoginForm>
                                 </div>
                             </div>
@@ -305,12 +301,12 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                             </p>
 
                             <p class="text-sm text-gray-700">
-                            This site is protected by reCAPTCHA and the Google
+                                This site is protected by reCAPTCHA and the Google
                                 <a href="https://policies.google.com/privacy">Privacy Policy</a> and
                                 <a href="https://policies.google.com/terms">Terms of Service</a> apply.
                             </p>
                             <div class="flex justify-between w-2/3 mx-auto">
-                                <p >
+                                <p>
                                     <a href="https://www.takos.jp/privacypolicy">
                                         プライバシーポリシー
                                     </a>
@@ -336,31 +332,29 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                 </div>
                 {/*右側 */}
                 <div class="w-1/3 ml-auto h-full bg-[#00000031] rounded-lg my-2 hidden lg:block">
-                    <h1
-                    class="text-white text-3xl font-bold text-center mt-4"
-                    >チャット体験コーナー</h1>
+                    <h1 class="text-white text-3xl font-bold text-center mt-4">チャット体験コーナー</h1>
                     <div class="p-talk-chat-main p-2" id="chatarea">
-                    {ChatData.map((data) => {
-                        if (data.isSend) {
+                        {ChatData.map((data) => {
+                            if (data.isSend) {
+                                return (
+                                    <ChatSendMessage
+                                        message={data.message}
+                                        time={data.time}
+                                        isRead={data.isRead}
+                                        isPrimary={data.isPrimary}
+                                    />
+                                )
+                            }
                             return (
-                                <ChatSendMessage
+                                <ChatOtherMessage
                                     message={data.message}
                                     time={data.time}
-                                    isRead={data.isRead}
+                                    sender={data.sender}
+                                    senderNickName={data.senderNickName}
                                     isPrimary={data.isPrimary}
                                 />
                             )
-                        }
-                        return (
-                            <ChatOtherMessage
-                                message={data.message}
-                                time={data.time}
-                                sender={data.sender}
-                                senderNickName={data.senderNickName}
-                                isPrimary={data.isPrimary}
-                            />
-                        )
-                    })}
+                        })}
                     </div>
                     <div class="p-talk-chat-send">
                         <form class="p-talk-chat-send__form">
@@ -375,9 +369,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                                         class="p-talk-chat-send__textarea"
                                         placeholder="メッセージを入力"
                                         value={message}
-                                        onChange={(e) =>
-                                            setMessage((e.target as HTMLTextAreaElement)?.value)
-                                        }
+                                        onChange={(e) => setMessage((e.target as HTMLTextAreaElement)?.value)}
                                     >
                                     </textarea>
                                 </label>
@@ -385,7 +377,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                             <div
                                 class="p-talk-chat-send__file"
                                 onClick={() => {
-                                    if(!message) return
+                                    if (!message) return
                                     setChatData(
                                         ChatData.concat({
                                             isSend: true,

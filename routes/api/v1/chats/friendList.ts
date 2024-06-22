@@ -103,8 +103,7 @@ export const handler = {
                 chatRooms.map(async (room: any) => {
                     if (room.types === "friend") {
                         const friendID = room.users.filter(
-                            (user: { userid: string }) =>
-                                user.userid !== ctx.state.data.userid,
+                            (user: { userid: string }) => user.userid !== ctx.state.data.userid,
                         )
                         const friendName = await users.findOne({
                             uuid: friendID[0].userid,
@@ -113,17 +112,14 @@ export const handler = {
                             roomid: room.uuid,
                         }).sort({ timestamp: -1 })
                         const isNewMessage = latestmessage?.read.find(
-                            (read: User) =>
-                                read.userid === ctx.state.data.userid || latestmessage.userid == ctx.state.data.userid,
+                            (read: User) => read.userid === ctx.state.data.userid || latestmessage.userid == ctx.state.data.userid,
                         )
                         const friendResult = {
                             roomName: friendName?.nickName,
                             lastMessage: latestmessage?.message,
                             roomID: room.uuid,
                             latestMessageTime: latestmessage?.timestamp,
-                            roomIcon: `/api/v1/friends/${
-                                friendName?.userName + "@" + env["serverDomain"]
-                            }/icon`,
+                            roomIcon: `/api/v1/friends/${friendName?.userName + "@" + env["serverDomain"]}/icon`,
                             type: "localfriend",
                             userName: friendName?.userName + "@" +
                                 env["serverDomain"],
@@ -139,8 +135,7 @@ export const handler = {
                         return groupResult
                     } else if (room.types === "remotefriend") {
                         const OtherServerUser = room.users.filter(
-                            (user: { userid: string }) =>
-                                user.userid !== ctx.state.data.userid,
+                            (user: { userid: string }) => user.userid !== ctx.state.data.userid,
                         )
                         const OtherServerUserDomain = splitUserName(
                             OtherServerUser[0].userid,
@@ -156,9 +151,7 @@ export const handler = {
                         ).join("")
 
                         const OtherServerUserInfo = await takosfetch(
-                            `${OtherServerUserDomain}/api/v1/server/friends/${
-                                OtherServerUser[0].userid
-                            }/profile?token=${takosToken}&serverDomain=${
+                            `${OtherServerUserDomain}/api/v1/server/friends/${OtherServerUser[0].userid}/profile?token=${takosToken}&serverDomain=${
                                 env["serverDomain"]
                             }&type=id&requser&reqUser=${ctx.state.data.userid}`,
                         )
@@ -184,20 +177,16 @@ export const handler = {
                             roomid: room.uuid,
                         }).sort({ timestamp: -1 })
                         const isNewMessage = latestmessage?.read.find(
-                            (read: User) =>
-                                read.userid === ctx.state.data.userid || latestmessage.userid == ctx.state.data.userid
+                            (read: User) => read.userid === ctx.state.data.userid || latestmessage.userid == ctx.state.data.userid,
                         )
                         if (OtherServerUserInfoJson.status === true) {
                             const remoteFriendResult = {
-                                roomName:
-                                    OtherServerUserInfoJson.result.nickName,
+                                roomName: OtherServerUserInfoJson.result.nickName,
                                 lastMessage: latestmessage?.message,
                                 roomID: room.uuid,
                                 type: "remotefriend",
-                                roomIcon:
-                                    `/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
-                                userName:
-                                    OtherServerUserInfoJson.result.userName,
+                                roomIcon: `/api/v1/friends/${OtherServerUserInfoJson.result.userName}/icon`,
+                                userName: OtherServerUserInfoJson.result.userName,
                                 isNewMessage: isNewMessage === undefined,
                                 latestMessageTime: latestmessage?.timestamp,
                             }

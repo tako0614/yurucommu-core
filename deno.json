@@ -42,7 +42,7 @@
         "semiColons": false,
         "exclude": ["fresh.gen.ts", "node_moduls/"],
         "indentWidth": 4,
-        "lineWidth": 80
+        "lineWidth": 200
     },
     "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" },
     "exclude": ["**/_fresh/*"]

@@ -1,10 +1,4 @@
-import {
-    isMail,
-    isMailDuplication,
-    isMailDuplicationTemp,
-    isUserDuplication,
-    sendMail,
-} from "../../../../util/takoFunction.ts"
+import { isMail, isMailDuplication, isMailDuplicationTemp, isUserDuplication, sendMail } from "../../../../util/takoFunction.ts"
 import tempUsers from "../../../../models/tempUsers.ts"
 import users from "../../../../models/users.ts"
 import { load } from "$std/dotenv/mod.ts"
@@ -130,9 +124,7 @@ export const handler = {
                 isagreement,
             ]
             if (
-                variablesToCheck.some((variable) =>
-                    variable == null || variable == undefined
-                )
+                variablesToCheck.some((variable) => variable == null || variable == undefined)
             ) {
                 return new Response(
                     JSON.stringify({ "status": false, error: "input" }),

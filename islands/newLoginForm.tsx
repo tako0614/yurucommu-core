@@ -171,8 +171,7 @@ function Input({
                     required
                 />
             </div>
-            {showError && <div class="text-red-500 text-xs">{errorMessage}
-            </div>}
+            {showError && <div class="text-red-500 text-xs">{errorMessage}</div>}
         </>
     )
 }

@@ -306,8 +306,7 @@ export default function Home(
                                                             type: "message",
                                                             message: Message,
                                                             roomid: roomid,
-                                                            sessionid:
-                                                                sessionid,
+                                                            sessionid: sessionid,
                                                             messageType: "text",
                                                         }
                                                         ws?.send(
@@ -321,32 +320,26 @@ export default function Home(
                                                                 let temp = prev
                                                                 temp.map(
                                                                     (
-                                                                        data:
-                                                                            any,
+                                                                        data: any,
                                                                     ) => {
                                                                         if (
                                                                             data.roomid ==
                                                                                 roomid
                                                                         ) {
-                                                                            data.latestMessage =
-                                                                                Message
-                                                                            data.latestMessageTime =
-                                                                                new Date()
-                                                                                    .toString()
-                                                                            data.isNewMessage =
-                                                                                false
+                                                                            data.latestMessage = Message
+                                                                            data.latestMessageTime = new Date()
+                                                                                .toString()
+                                                                            data.isNewMessage = false
                                                                         }
                                                                     },
                                                                 )
                                                                 temp.sort(
                                                                     (
                                                                         a: {
-                                                                            latestMessageTime:
-                                                                                number
+                                                                            latestMessageTime: number
                                                                         },
                                                                         b: {
-                                                                            latestMessageTime:
-                                                                                number
+                                                                            latestMessageTime: number
                                                                         },
                                                                     ) => {
                                                                         if (
@@ -490,36 +483,29 @@ const AddFriendForm = (
                                             </div>
                                             <button
                                                 onClick={async () => {
-                                                    const origin =
-                                                        window.location
-                                                            .protocol +
+                                                    const origin = window.location
+                                                        .protocol +
                                                         "//" +
                                                         window.location.host
-                                                    const csrftokenRes =
-                                                        await fetch(
-                                                            `/api/v1/csrftoken?origin=${origin}`,
-                                                        )
-                                                    const csrftoken =
-                                                        await csrftokenRes
-                                                            .json()
+                                                    const csrftokenRes = await fetch(
+                                                        `/api/v1/csrftoken?origin=${origin}`,
+                                                    )
+                                                    const csrftoken = await csrftokenRes
+                                                        .json()
                                                     const result = await fetch(
                                                         "/api/v1/friends/request",
                                                         {
                                                             method: "POST",
                                                             headers: {
-                                                                "Content-Type":
-                                                                    "application/json",
+                                                                "Content-Type": "application/json",
                                                             },
                                                             body: JSON
                                                                 .stringify({
-                                                                    csrftoken:
-                                                                        csrftoken
-                                                                            .csrftoken,
-                                                                    type:
-                                                                        "AddFriendKey",
-                                                                    addFriendKey:
-                                                                        props
-                                                                            .addFriendKey,
+                                                                    csrftoken: csrftoken
+                                                                        .csrftoken,
+                                                                    type: "AddFriendKey",
+                                                                    addFriendKey: props
+                                                                        .addFriendKey,
                                                                 }),
                                                         },
                                                     )

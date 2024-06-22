@@ -17,8 +17,7 @@ export const handler = {
         const data = await req.json()
         const { requirement, token } = data
         if (requirement === "reqFriend") {
-            const { requesterUserUUID, recipientUserName, requesterUserName } =
-                data
+            const { requesterUserUUID, recipientUserName, requesterUserName } = data
             if (
                 requesterUserUUID === undefined ||
                 recipientUserName === undefined ||
@@ -132,9 +131,7 @@ export const handler = {
                 userid: requesterUserUUID,
             })
             if (userFriends !== null) {
-                const isFriend = userFriends.friends.find((obj) =>
-                    obj.userid === friendInfo.uuid
-                )
+                const isFriend = userFriends.friends.find((obj) => obj.userid === friendInfo.uuid)
                 if (isFriend !== undefined) {
                     return new Response(
                         JSON.stringify({
@@ -152,9 +149,7 @@ export const handler = {
                 userID: requesterUserUUID,
             })
             if (userFriendInfo !== null) {
-                const isFriend = userFriendInfo.Applicant.find((obj) =>
-                    obj.userID === friendInfo.uuid
-                )
+                const isFriend = userFriendInfo.Applicant.find((obj) => obj.userID === friendInfo.uuid)
                 if (isFriend !== undefined) {
                     return new Response(JSON.stringify({ status: false }), {
                         status: 400,
@@ -197,8 +192,7 @@ export const handler = {
         リクエスト元のユーザー名：requesterUserUUID
         リクエスト先のユーザー名：recipientUsername
         */
-            const { requesterUserUUID, recipientUserName, requesterUserName } =
-                data
+            const { requesterUserUUID, recipientUserName, requesterUserName } = data
             if (
                 requesterUserUUID === undefined ||
                 recipientUserName === undefined
@@ -322,9 +316,7 @@ export const handler = {
                 userid: requesterUserUUID,
             })
             if (userFriends !== null) {
-                const isFriend = userFriends.friends.find((obj) =>
-                    obj.userid === friendInfo.uuid
-                )
+                const isFriend = userFriends.friends.find((obj) => obj.userid === friendInfo.uuid)
                 if (isFriend !== undefined) {
                     return new Response(
                         JSON.stringify({

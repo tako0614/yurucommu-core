@@ -15,9 +15,7 @@ const ChatTitile = ({ title }) => {
                         fill="none"
                         color="#000000"
                     >
-                        <title id="chevronLeftIconTitle">Chevron Left</title>
-                        {" "}
-                        <polyline points="14 18 8 12 14 6 14 6" />
+                        <title id="chevronLeftIconTitle">Chevron Left</title> <polyline points="14 18 8 12 14 6 14 6" />
                     </svg>
                 </div>
                 <p>{title}</p>

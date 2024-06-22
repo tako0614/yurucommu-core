@@ -6,14 +6,12 @@ import { load } from "$std/dotenv/mod.ts"
 import { v4 as uuidv4 } from "https://deno.land/std/uuid/mod.ts"
 const env = await load()
 const redisch = env["REDIS_CH"]
-const uuidRegex =
-    /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/
+const uuidRegex = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/
 const maxMessage = Number(env["MAX_MESSAGE_LENGTH"])
 export const handler = {
     async POST(req: Request, ctx: any) {
         const data = await req.json()
-        const { roomid, sender, token, message, uuid, messageType, messageid } =
-            data
+        const { roomid, sender, token, message, uuid, messageType, messageid } = data
         if (
             roomid === "" || roomid === null || roomid === undefined ||
             sender === "" || sender === null || sender === undefined ||

@@ -65,9 +65,7 @@ export const handler = {
             }
 
             try {
-                const filePath = `./files/userIcons/${
-                    mailSpilit(FriendInfo.uuid)
-                }.jpeg`
+                const filePath = `./files/userIcons/${mailSpilit(FriendInfo.uuid)}.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
                     headers: { "Content-Type": "image/jpeg" },
@@ -113,9 +111,7 @@ export const handler = {
                 )
             }
             try {
-                const filePath = `./files/userIcons/${
-                    splitUserName(user.uuid)?.name
-                }.jpeg`
+                const filePath = `./files/userIcons/${splitUserName(user.uuid)?.name}.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
                     headers: { "Content-Type": "image/jpeg" },
@@ -137,8 +133,7 @@ export const handler = {
             })
         }
 
-        const { domain: friendDomain, name: friendUserName } =
-            splitUserName(friendName) || {}
+        const { domain: friendDomain, name: friendUserName } = splitUserName(friendName) || {}
         if (!friendDomain || !friendUserName) {
             return new Response(JSON.stringify({ status: "No such user" }), {
                 headers: { "Content-Type": "application/json" },
@@ -190,9 +185,7 @@ export const handler = {
             }
 
             try {
-                const filePath = `./files/userIcons/${
-                    splitUserName(friendid)?.name
-                }.jpeg`
+                const filePath = `./files/userIcons/${splitUserName(friendid)?.name}.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
                     headers: { "Content-Type": "image/jpeg" },

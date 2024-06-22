@@ -13,8 +13,7 @@ const usersSchema = new mongoose.Schema({
             validator: function (v: string) {
                 return /^[a-zA-Z0-9-_]{4,16}$/.test(v)
             },
-            message: (props: { value: any }) =>
-                `${props.value} is not a valid username!`,
+            message: (props: { value: any }) => `${props.value} is not a valid username!`,
         },
     },
     password: {
@@ -24,8 +23,7 @@ const usersSchema = new mongoose.Schema({
             validator: function (v: string) {
                 return /^(?=.*?[a-z])(?=.*?\d)[a-z\d]{8,}$/i.test(v)
             },
-            message: (props: { value: any }) =>
-                `${props.value} is not a valid password!`,
+            message: (props: { value: any }) => `${props.value} is not a valid password!`,
         },
     },
     mail: {
@@ -36,8 +34,7 @@ const usersSchema = new mongoose.Schema({
             validator: function (v: string) {
                 return /^[\w-]+@[\w-]+\.[a-z]{2,3}$/.test(v)
             },
-            message: (props: { value: any }) =>
-                `${props.value} is not a valid mail address!`,
+            message: (props: { value: any }) => `${props.value} is not a valid mail address!`,
         },
     },
     salt: {
@@ -58,8 +55,7 @@ const usersSchema = new mongoose.Schema({
             validator: function (v: string) {
                 return /^[ぁ-んァ-ン一-龥a-zA-Z0-9]{1,20}$/.test(v)
             },
-            message: (props: { value: any }) =>
-                `${props.value} is not a valid mail address!`,
+            message: (props: { value: any }) => `${props.value} is not a valid mail address!`,
         },
     },
     JoiningRoom: {

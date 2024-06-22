@@ -20,7 +20,7 @@ declare global {
 }
 
 export default function RegisterForm(
-    { token, sitekey }: {  token: string; sitekey: string },
+    { token, sitekey }: { token: string; sitekey: string },
 ) {
     const [showModal, setShowModal] = useState(false)
     const [showForm, setShowFrom] = useState("closed")
@@ -319,11 +319,12 @@ export default function RegisterForm(
     }
     return (
         <>
-                                                <button
-                                                onClick={handleButtonClick}
-                                                class="bg-[#00acee] text-white rounded-3xl py-2 px-4 hover:bg-[#00a0e9] w-full">
-                                        このサーバーに登録する
-                                    </button>
+            <button
+                onClick={handleButtonClick}
+                class="bg-[#00acee] text-white rounded-3xl py-2 px-4 hover:bg-[#00a0e9] w-full"
+            >
+                このサーバーに登録する
+            </button>
             {showModal && (
                 <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black">
                     <div class="bg-[#f0f0f5] lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
@@ -440,8 +441,7 @@ function Input({
                     required
                 />
             </div>
-            {showError && <div class="text-red-500 text-xs">{errorMessage}
-            </div>}
+            {showError && <div class="text-red-500 text-xs">{errorMessage}</div>}
         </>
     )
 }

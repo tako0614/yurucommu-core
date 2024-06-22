@@ -80,9 +80,7 @@ export const handler = {
             if (room.types === "friend") {
                 // ctx.state.data.userid.toString()以外のroom.usersの配列に存在するユーザーのIDを取得
                 const friendId = room.users
-                    .filter((user: any) =>
-                        user.userid !== ctx.state.data.userid
-                    )
+                    .filter((user: any) => user.userid !== ctx.state.data.userid)
                     .map((user: any) => user.userid)
                 // friendIdのユーザー情報を取得
                 const friend = await user.findOne({
@@ -135,9 +133,7 @@ export const handler = {
                             (read) => read.userid === ctx.state.data.userid,
                         ) === -1,
                 )
-                const UnreadMessageIds = UnreadMessages.map((message) =>
-                    message.messageid
-                )
+                const UnreadMessageIds = UnreadMessages.map((message) => message.messageid)
                 console.log("UnreadMessageIds", UnreadMessageIds)
                 if (UnreadMessageIds.length !== 0) {
                     await messages.updateMany(
@@ -178,9 +174,7 @@ export const handler = {
                         ) === -1,
                 )
                 //未読のメッセージのmessageidを配列にして返す
-                const UnreadMessageIds = UnreadMessages.map((message) =>
-                    message.messageid
-                )
+                const UnreadMessageIds = UnreadMessages.map((message) => message.messageid)
                 if (!RoomMessages) {
                     return new Response(
                         JSON.stringify({ "status": "Message Not Found" }),
@@ -244,9 +238,7 @@ export const handler = {
                     }
                 }
                 const friendId = room.users
-                    .filter((user: any) =>
-                        user.userid !== ctx.state.data.userid
-                    )
+                    .filter((user: any) => user.userid !== ctx.state.data.userid)
                     .map((user: any) => user.userid)
                 const takosTokenArray = new Uint8Array(16)
                 const randomarray = crypto.getRandomValues(takosTokenArray)
@@ -261,11 +253,7 @@ export const handler = {
                 const OtherServerUser = splitUserName(friendId[0])
                 const OtherServerUserDomain = OtherServerUser.domain
                 const OtherServerUserInfo = await takosfetch(
-                    `${OtherServerUserDomain}/api/v1/server/friends/${
-                        friendId[0]
-                    }/profile?token=${takosToken}&serverDomain=${
-                        env["serverDomain"]
-                    }&type=id&reqUser=${ctx.state.data.userid}`,
+                    `${OtherServerUserDomain}/api/v1/server/friends/${friendId[0]}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&reqUser=${ctx.state.data.userid}`,
                 )
                 if (!OtherServerUserInfo) {
                     return new Response(

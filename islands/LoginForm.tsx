@@ -24,7 +24,7 @@ interface InputProps {
 }
 
 export default function RegisterForm(
-    {  token }: { token: string },
+    { token }: { token: string },
 ) {
     const [showModal, setShowModal] = useState(false)
     const [showForm, setShowFrom] = useState(false)
@@ -103,9 +103,10 @@ export default function RegisterForm(
     return (
         <>
             <button
-            onClick={handleButtonClick}
-            class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-3">
-                                        ログイン
+                onClick={handleButtonClick}
+                class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-3"
+            >
+                ログイン
             </button>
             {showModal && (
                 <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black">
@@ -170,8 +171,7 @@ function Input({
                     required
                 />
             </div>
-            {showError && <div class="text-red-500 text-xs">{errorMessage}
-            </div>}
+            {showError && <div class="text-red-500 text-xs">{errorMessage}</div>}
         </>
     )
 }

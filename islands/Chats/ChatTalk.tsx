@@ -63,9 +63,7 @@ function TalkArea(props: any) {
                         stroke-linejoin="round"
                         fill="none"
                     >
-                        <title id="chevronLeftIconTitle">Chevron Left</title>
-                        {" "}
-                        <polyline points="14 18 8 12 14 6 14 6" />
+                        <title id="chevronLeftIconTitle">Chevron Left</title> <polyline points="14 18 8 12 14 6 14 6" />
                     </svg>
                 </button>
                 <p>{props.roomName}</p>
@@ -73,9 +71,8 @@ function TalkArea(props: any) {
             <div class="p-talk-chat-main" id="chat-area">
                 <ul class="p-talk-chat-main__ul">
                     {props.talkData.map((data: any) => {
-                        const isEncodeDate =
-                            new Date(DateState).toLocaleDateString() !==
-                                new Date(data.time).toLocaleDateString()
+                        const isEncodeDate = new Date(DateState).toLocaleDateString() !==
+                            new Date(data.time).toLocaleDateString()
                         DateState = data.time
                         if (data.type == "message") {
                             if (data.sender == props.userName) {

@@ -28,9 +28,7 @@ export const handler = {
             })
         }
         const isTrueToken = await takosfetch(
-            `${userServerDomain}/api/v1/server/token?token=${token}&origin=${
-                env["serverDomain"]
-            }`,
+            `${userServerDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
         )
         //userが存在するか確認
         const user = await users.findOne({
@@ -61,9 +59,7 @@ export const handler = {
                 status: 400,
             })
         }
-        const friend = friendInfo.friends.find((friend) =>
-            friend.userid === reqUser
-        )
+        const friend = friendInfo.friends.find((friend) => friend.userid === reqUser)
         if (!friend) {
             return new Response(JSON.stringify({ "status": false }), {
                 status: 400,

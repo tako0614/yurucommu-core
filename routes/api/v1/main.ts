@@ -290,9 +290,7 @@ async function sendMessage(
             )
             return
         }
-        const friend = roomMenber.users.find((user) =>
-            user.userid !== session.uuid
-        )
+        const friend = roomMenber.users.find((user) => user.userid !== session.uuid)
         if (!friend) {
             ws.send(
                 JSON.stringify({
@@ -423,11 +421,7 @@ async function sendConecctingUserMessage(
                     (byte) => byte.toString(16).padStart(2, "0"),
                 ).join("")
                 const remoteFriendInfo = await takosfetch(
-                    `${
-                        splitUserName(sender).domain
-                    }/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${
-                        env["serverDomain"]
-                    }&type=id&reqUser=${session.uuid}`,
+                    `${splitUserName(sender).domain}/api/v1/server/friends/${sender}/profile?token=${takosToken}&serverDomain=${env["serverDomain"]}&type=id&reqUser=${session.uuid}`,
                 )
                 if (!remoteFriendInfo) {
                     console.log("remoteFriendInfo is not found")

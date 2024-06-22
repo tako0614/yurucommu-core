@@ -124,9 +124,7 @@ function User(
                                 const response = await res.json()
                                 if (response.status === "success") {
                                     setItems(
-                                        items.filter((item: any) =>
-                                            item.userName !== userName
-                                        ),
+                                        items.filter((item: any) => item.userName !== userName),
                                     )
                                     alert("友達リクエストを承認しました！")
                                 } else {
@@ -166,9 +164,7 @@ function User(
                                 const response = await res.json()
                                 if (response.status === "success") {
                                     setItems(
-                                        items.filter((item: any) =>
-                                            item.userName !== userName
-                                        ),
+                                        items.filter((item: any) => item.userName !== userName),
                                     )
                                 } else {
                                     alert("リクエストの却下に失敗しました！")

@@ -1,7 +1,5 @@
 const ChatSendMessage = ({ message, time, isRead, isPrimary }) => {
-    const isPrimaryClass = isPrimary
-        ? "c-talk-chat self primary"
-        : "c-talk-chat self"
+    const isPrimaryClass = isPrimary ? "c-talk-chat self primary" : "c-talk-chat self"
     return (
         <li class={isPrimaryClass}>
             <div class="c-talk-chat-box">

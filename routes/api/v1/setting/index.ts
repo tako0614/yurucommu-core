@@ -31,9 +31,8 @@ export const handler = {
             }
             if (requirementjson.nickName) {
                 //nickNameが日本語英語数字で10文字以内か確認
-                const isNickNameValid =
-                    /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}\p{Script=Latin}\d]{1,10}$/u
-                        .test(nickName)
+                const isNickNameValid = /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}\p{Script=Latin}\d]{1,10}$/u
+                    .test(nickName)
                 if (!isNickNameValid) {
                     return result
                 }

@@ -4,8 +4,7 @@ import { useState } from "preact/hooks"
 export interface Props {
     children: JSX.Element
 }
-const class1 =
-    "block w-full text-base box-border text-color-white no-underline pt-2.5 pr-4 text-center pb-0 pl-4 font-bold"
+const class1 = "block w-full text-base box-border text-color-white no-underline pt-2.5 pr-4 text-center pb-0 pl-4 font-bold"
 const Menu1 = (
     <div class="ml-5 divide-y border-gray-500 text-center">
         <p>

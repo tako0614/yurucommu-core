@@ -40,9 +40,7 @@ export const handler = {
                     })
                 }
                 const isTrueToken = await takosfetch(
-                    `${serverDomain}/api/v1/server/token?token=${token}&origin=${
-                        env["serverDomain"]
-                    }`,
+                    `${serverDomain}/api/v1/server/token?token=${token}&origin=${env["serverDomain"]}`,
                 )
                 if (!isTrueToken) {
                     return new Response(JSON.stringify({ "status": false }), {
@@ -64,9 +62,7 @@ export const handler = {
                         status: 400,
                     })
                 }
-                const friend = friendInfo.friends.find((friend) =>
-                    friend.userid === reqUser
-                )
+                const friend = friendInfo.friends.find((friend) => friend.userid === reqUser)
                 if (!friend) {
                     return new Response(JSON.stringify({ "status": false }), {
                         status: 400,

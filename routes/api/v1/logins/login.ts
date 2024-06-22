@@ -62,8 +62,7 @@ export const handler = {
                 return new Response(JSON.stringify({ "status": true }), {
                     headers: {
                         "Content-Type": "application/json",
-                        "Set-Cookie":
-                            `sessionid=${sessionid}; Path=/; Max-Age=2592000;`,
+                        "Set-Cookie": `sessionid=${sessionid}; Path=/; Max-Age=2592000;`,
                     },
                     status: 200,
                 })

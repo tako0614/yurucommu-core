@@ -46,9 +46,7 @@ export default function ChatHeader(
                                 stroke-linejoin="round"
                                 fill="none"
                             >
-                                <title id="homeAltIconTitle">Home</title>{" "}
-                                <path d="M3 10.182V22h18V10.182L12 2z" />{" "}
-                                <rect width="6" height="8" x="9" y="14" />
+                                <title id="homeAltIconTitle">Home</title> <path d="M3 10.182V22h18V10.182L12 2z" /> <rect width="6" height="8" x="9" y="14" />
                             </svg>
                         </a>
                     </li>
@@ -115,8 +113,7 @@ export default function ChatHeader(
                                 stroke-linejoin="round"
                                 fill="none"
                             >
-                                <title id="personAddIconTitle">Add user</title>
-                                {" "}
+                                <title id="personAddIconTitle">Add user</title>{" "}
                                 <path d="M1 18C1 15.75 4 15.75 5.5 14.25C6.25 13.5 4 13.5 4 9.75C4 7.25025 4.99975 6 7 6C9.00025 6 10 7.25025 10 9.75C10 13.5 7.75 13.5 8.5 14.25C10 15.75 13 15.75 13 18" />
                                 {" "}
                                 <path d="M22 11H14" /> <path d="M18 7V15" />
@@ -153,8 +150,7 @@ export default function ChatHeader(
                                 stroke-linejoin="round"
                                 fill="none"
                             >
-                                <title id="settingsIconTitle">Settings</title>
-                                {" "}
+                                <title id="settingsIconTitle">Settings</title>{" "}
                                 <path d="M5.03506429,12.7050339 C5.01187484,12.4731696 5,12.2379716 5,12 C5,11.7620284 5.01187484,11.5268304 5.03506429,11.2949661 L3.20577137,9.23205081 L5.20577137,5.76794919 L7.9069713,6.32070904 C8.28729123,6.0461342 8.69629298,5.80882212 9.12862533,5.61412402 L10,3 L14,3 L14.8713747,5.61412402 C15.303707,5.80882212 15.7127088,6.0461342 16.0930287,6.32070904 L18.7942286,5.76794919 L20.7942286,9.23205081 L18.9649357,11.2949661 C18.9881252,11.5268304 19,11.7620284 19,12 C19,12.2379716 18.9881252,12.4731696 18.9649357,12.7050339 L20.7942286,14.7679492 L18.7942286,18.2320508 L16.0930287,17.679291 C15.7127088,17.9538658 15.303707,18.1911779 14.8713747,18.385876 L14,21 L10,21 L9.12862533,18.385876 C8.69629298,18.1911779 8.28729123,17.9538658 7.9069713,17.679291 L5.20577137,18.2320508 L3.20577137,14.7679492 L5.03506429,12.7050339 Z" />
                                 {" "}
                                 <circle cx="12" cy="12" r="1" />
