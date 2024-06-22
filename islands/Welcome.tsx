@@ -218,7 +218,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
     }, [recaptchaLoaded, sitekey])
     return (
         <>
-            <div class="flex w-full h-screen overflow-hidden">
+            <div class="flex w-full h-screen">
                 <div class="relative lg:w-1/3 w-full ml-16 mr-16 px-0 py-[50px]">
                     <div class="w-full bg-white text-black rounded-lg shadow-[0_12px_32px_#00000040] p-5">
                         <div class="lg:flex">

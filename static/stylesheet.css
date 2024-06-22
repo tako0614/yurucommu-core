@@ -575,3 +575,10 @@ html,body {
     }
 }
 .grecaptcha-badge { visibility: hidden; }
+::-webkit-scrollbar {
+    background: #000;
+    width:0px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: black;
+  }
