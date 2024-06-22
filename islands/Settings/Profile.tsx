@@ -40,9 +40,9 @@ export default function RegisterForm(props: any) {
                 icon: true,
                 nickName: true,
             }
-            formData.append("icon", icon);
+            formData.append("icon", icon)
         }
-        if(!nickName){
+        if (!nickName) {
             requirement.nickName = false
         }
         formData.append("csrftoken", csrftokenValue)

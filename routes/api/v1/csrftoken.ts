@@ -9,9 +9,10 @@ export const handler = {
         if (cookies.sessionid === undefined) {
             return new Response(
                 JSON.stringify({
-                    status : false,
-                    message : "No sessionid",
-                    "csrftoken": "" }),
+                    status: false,
+                    message: "No sessionid",
+                    "csrftoken": "",
+                }),
                 {
                     headers: {
                         "Content-Type": "application/json",
@@ -24,15 +25,16 @@ export const handler = {
         const result = await sessionID.findOne({ sessionID: sessionid })
         if (result === null || result === undefined) {
             return new Response(
-                JSON.stringify({ "csrftoken": ""
-                    ,tatus : false,
-                    message : "No sessionid"
-                 }),
+                JSON.stringify({
+                    "csrftoken": "",
+                    tatus: false,
+                    message: "No sessionid",
+                }),
                 {
                     headers: {
                         "Content-Type": "application/json",
                     },
-                status: 403,
+                    status: 403,
                 },
             )
         }
@@ -48,15 +50,19 @@ export const handler = {
                 (byte) => byte.toString(16).padStart(2, "0"),
             ).join("")
             await csrfToken.create({ token: csrftoken, sessionID: sessionid })
-            return new Response(JSON.stringify({ "csrftoken": csrftoken,
-                status : true,
-                message : "Success"
-             }), {
-                headers: {
-                    "Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": origin,
+            return new Response(
+                JSON.stringify({
+                    "csrftoken": csrftoken,
+                    status: true,
+                    message: "Success",
+                }),
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": origin,
+                    },
                 },
-            })
+            )
         } else {
             return new Response(
                 JSON.stringify({ "csrftoken": "This origin is not allowed" }),

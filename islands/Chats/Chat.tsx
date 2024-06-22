@@ -438,7 +438,6 @@ const AddFriendForm = (
     const [addFriendInfo, setAddFriendInfo] = useState<{
         data: string
         icon: string
-
     }>({
         data: "",
         icon: "",

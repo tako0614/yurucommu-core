@@ -15,8 +15,13 @@ export default {
                 "fade-in":
                     "fade-in 0.2s cubic-bezier(0.390, 0.575, 0.565, 1.000)   both",
                 "fadeInScaleIn": "fadeInScaleIn 2s ease-in-out",
+                "marquee": "marquee 10s linear infinite",
             },
             keyframes: {
+                "marquee": {
+                    "0%": { transform: "translateX(100%)" },
+                    "100%": { transform: "translateX(-100%)" },
+                },
                 "scale-in-center": {
                     "0%": {
                         transform: "scale(0)",

@@ -73,12 +73,13 @@ setInterval(invalidateOldSessions, 5 * 60 * 1000)
 export const handler = {
     GET(req: Request, ctx: any) {
         if (!ctx.state.data.loggedIn) {
-            return new Response(JSON.stringify({ "status": false,
-                "message": "No sessionid",
-             }), {
-                headers: { "Content-Type": "application/json" },
-                status: 401,
-            })
+            return new Response(
+                JSON.stringify({ "status": false, "message": "No sessionid" }),
+                {
+                    headers: { "Content-Type": "application/json" },
+                    status: 401,
+                },
+            )
         }
         if (req.headers.get("upgrade") === "websocket") {
             const { socket, response } = Deno.upgradeWebSocket(req)
