@@ -237,7 +237,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                                     takos.jpは、次世代の分散型チャットサービスを提供する日本発のプロジェクトです。このサービスは、ユーザーの意見を反映したサーバーに登録や移行が可能で、無駄な機能を排除し、本当に必要な機能のみを実装することを目指しています。
                                 </div>
                             </div>
-                            <div class="w-1/3">
+                            <div class="lg:w-1/3">
                                 <div class="space-y-3 mb-6">
                                     <RegisterForm
                                     token={recaptchaToken}
