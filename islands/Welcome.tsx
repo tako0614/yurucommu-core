@@ -238,18 +238,18 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                                 </div>
                             </div>
                             <div class="lg:w-1/3">
-                                <div class="space-y-3 mb-6">
+                                <div class="mb-6">
                                     <RegisterForm
                                     token={recaptchaToken}
                                     sitekey={sitekey}
                                     />
-                                    <button 
+                                    <button
                                     onClick={
                                         () => {
                                             alert("まだ実装してない！！！")
                                         }
                                     }
-                                    class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-5">
+                                    class="bg-[#192320] text-white rounded-3xl py-2 px-4 hover:bg-[#192320] border w-full mt-3">
                                         他のサーバーを探す
                                     </button>
                                     <LoginForm
