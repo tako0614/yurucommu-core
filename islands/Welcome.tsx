@@ -221,7 +221,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
             <div class="flex w-full h-screen overflow-hidden">
                 <div class="relative lg:w-1/3 w-full ml-16 mr-16 px-0 py-[50px]">
                     <div class="w-full bg-white text-black rounded-lg shadow-[0_12px_32px_#00000040] p-5">
-                        <div class="flex">
+                        <div class="lg:flex">
                             <div class="w-2/3">
                                 <div class="flex items-center mb-4">
                                     <img
