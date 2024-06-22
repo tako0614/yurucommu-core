@@ -316,12 +316,9 @@ export default function Home(
                                                             ),
                                                         )
                                                         setMessage("")
-                                                        // deno-lint-ignore no-explicit-any
                                                         setFriendList(
                                                             (prev: any) => {
-                                                                // deno-lint-ignore prefer-const
                                                                 let temp = prev
-                                                                // deno-lint-ignore no-explicit-any
                                                                 temp.map(
                                                                     (
                                                                         data:
@@ -331,7 +328,7 @@ export default function Home(
                                                                             data.roomid ==
                                                                                 roomid
                                                                         ) {
-                                                                            data.lastMessage =
+                                                                            data.latestMessage =
                                                                                 Message
                                                                             data.latestMessageTime =
                                                                                 new Date()
