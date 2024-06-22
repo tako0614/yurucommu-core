@@ -225,6 +225,12 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
         }
         fetchData()
     }, [])
+    useEffect(() => {
+        const chatarea = document.getElementById("chatarea")
+        if (chatarea) {
+            chatarea.scrollTop = chatarea.scrollHeight
+        }
+    }, [ChatData])
     return (
         <>
             <div class="flex w-full h-screen">
@@ -333,7 +339,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                     <h1
                     class="text-white text-3xl font-bold text-center mt-4"
                     >チャット体験コーナー</h1>
-                    <div class="p-talk-chat-main p-2">
+                    <div class="p-talk-chat-main p-2" id="chatarea">
                     {ChatData.map((data) => {
                         if (data.isSend) {
                             return (
