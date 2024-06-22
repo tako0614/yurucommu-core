@@ -319,7 +319,9 @@ export default function RegisterForm(
     }
     return (
         <>
-                                                <button class="bg-[#00acee] text-white rounded-3xl py-2 px-4 hover:bg-[#00a0e9] w-full">
+                                                <button
+                                                onClick={handleButtonClick}
+                                                class="bg-[#00acee] text-white rounded-3xl py-2 px-4 hover:bg-[#00a0e9] w-full">
                                         このサーバーに登録する
                                     </button>
             {showModal && (
