@@ -219,7 +219,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
     return (
         <>
             <div class="flex w-full h-screen overflow-hidden">
-                <div class="relative w-1/3 ml-16 mr-16 px-0 py-[50px]">
+                <div class="relative lg:w-1/3 w-full ml-16 mr-16 px-0 py-[50px]">
                     <div class="w-full bg-white text-black rounded-lg shadow-[0_12px_32px_#00000040] p-5">
                         <div class="flex">
                             <div class="w-2/3">
@@ -320,7 +320,7 @@ export default function Welcome({ sitekey }: { sitekey: string }) {
                     </div>
                 </div>
                 {/*右側 */}
-                <div class="w-1/3 ml-auto h-full bg-[#00000031] rounded-lg my-2">
+                <div class="w-1/3 ml-auto h-full bg-[#00000031] rounded-lg my-2 hidden lg:block">
                     <h1
                     class="text-white text-3xl font-bold text-center mt-4"
                     >チャット体験コーナー</h1>
