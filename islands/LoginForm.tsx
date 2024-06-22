@@ -108,8 +108,8 @@ export default function RegisterForm(
                                         ログイン
             </button>
             {showModal && (
-                <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black dark:text-white">
-                    <div class="bg-[#f0f0f5] dark:bg-black lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
+                <div class="fixed z-50 w-full h-full overflow-hidden bg-[rgba(75,92,108,0.4)] left-0 top-0 text-black">
+                    <div class="bg-[#f0f0f5] lg:w-1/3 w-full h-full lg:h-4/6 mx-auto lg:my-[6.5%] p-5 lg:rounded-xl">
                         <div class="flex justify-end">
                             <span
                                 class="ml-0 text-3xl text-gray-400 font-[bold] no-underline cursor-pointer"
@@ -157,7 +157,7 @@ function Input({
             <div class="mb-5">
                 <label
                     for="email"
-                    class="block mb-2 text-sm font-medium text-black dark:text-white"
+                    class="block mb-2 text-sm font-medium text-black"
                 >
                     {title}
                 </label>
@@ -165,7 +165,7 @@ function Input({
                     onChange={onChange}
                     value={value}
                     type={type}
-                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
                     placeholder={placeholder}
                     required
                 />
@@ -210,7 +210,7 @@ function LoginForm({
                 />
                 <button
                     type="submit"
-                    class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+                    class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center"
                 >
                     送信
                 </button>
