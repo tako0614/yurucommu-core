@@ -26,7 +26,7 @@ export const handler = {
                 nickName: null,
                 icon: null,
             }
-            if (!requirementjson || !requirementjson.icon) {
+            if (!requirementjson && !requirementjson.icon) {
                 return result
             }
             if (requirementjson.nickName) {

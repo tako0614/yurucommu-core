@@ -8,11 +8,15 @@ export const handler = {
         const cookies = getCookies(req.headers)
         if (cookies.sessionid === undefined) {
             return new Response(
-                JSON.stringify({ "csrftoken": "No sessionid" }),
+                JSON.stringify({
+                    status : false,
+                    message : "No sessionid",
+                    "csrftoken": "" }),
                 {
                     headers: {
                         "Content-Type": "application/json",
                     },
+                    status: 403,
                 },
             )
         }
@@ -20,11 +24,15 @@ export const handler = {
         const result = await sessionID.findOne({ sessionID: sessionid })
         if (result === null || result === undefined) {
             return new Response(
-                JSON.stringify({ "csrftoken": "Invalid sessionid" }),
+                JSON.stringify({ "csrftoken": ""
+                    ,tatus : false,
+                    message : "No sessionid"
+                 }),
                 {
                     headers: {
                         "Content-Type": "application/json",
                     },
+                status: 403,
                 },
             )
         }
@@ -40,7 +48,10 @@ export const handler = {
                 (byte) => byte.toString(16).padStart(2, "0"),
             ).join("")
             await csrfToken.create({ token: csrftoken, sessionID: sessionid })
-            return new Response(JSON.stringify({ "csrftoken": csrftoken }), {
+            return new Response(JSON.stringify({ "csrftoken": csrftoken,
+                status : true,
+                message : "Success"
+             }), {
                 headers: {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": origin,
@@ -54,6 +65,7 @@ export const handler = {
                         "Content-Type": "application/json",
                         "Access-Control-Allow-Origin": origin,
                     },
+                    status: 200,
                 },
             )
         }
