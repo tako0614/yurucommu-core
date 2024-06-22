@@ -35,7 +35,6 @@ export const handler = {
                 status: 401,
             })
         }
-
         const url = new URL(req.url)
         const friendName = ID
         const isuseAddFriendKey = url.searchParams.get("isuseAddFriendKey") ||
@@ -103,7 +102,6 @@ export const handler = {
                     },
                 )
             }
-
             const user: User | null = await users.findOne({
                 addFriendKey: addFriendKey,
             })
@@ -116,10 +114,9 @@ export const handler = {
                     },
                 )
             }
-
             try {
                 const filePath = `./files/userIcons/${
-                    mailSpilit(user.uuid)
+                    splitUserName(user.uuid)?.name
                 }.jpeg`
                 const result = await Deno.readFile(filePath)
                 return new Response(result, {
@@ -127,7 +124,7 @@ export const handler = {
                     status: 200,
                 })
             } catch (error) {
-                console.error(error)
+                //console.error(error)
                 return new Response("./people.png", {
                     headers: { "Content-Type": "image/jpeg" },
                     status: 400,

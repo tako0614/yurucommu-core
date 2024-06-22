@@ -18,7 +18,7 @@ export default function User(
                         <div class="c-talk-rooms-box">
                             <div class="c-talk-rooms-name flex">
                                 <p>{userName}</p>
-                                <p class="text-gray-500 ml-2">
+                                <p class="ml-2" style={{ color: "gray"}}>
                                     {userName2 == undefined ? ("") : userName2}
                                 </p>
                             </div>
