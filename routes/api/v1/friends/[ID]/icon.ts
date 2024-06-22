@@ -1,7 +1,6 @@
 import users from "../../../../../models/users.ts"
 import friends from "../../../../../models/friends.ts"
 import reqestAddFriend from "../../../../../models/reqestAddFriend.ts"
-import pubClient from "../../../../../util/redisClient.ts"
 import { load } from "$std/dotenv/mod.ts"
 import { takosfetch } from "../../../../../util/takosfetch.ts"
 const env = await load()
@@ -55,7 +54,6 @@ export const handler = {
                     status: 400,
                 })
             }
-
             const result = AddfriendInfo.Applicant.find((element) => {
                 return FriendInfo.uuid === element.userID
             })
