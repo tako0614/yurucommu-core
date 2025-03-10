@@ -1,9 +1,0 @@
-# takoserver(Fresh版)
-
-SNS作ることを目標
-### 動かし方ー
-Deno突っ込んでこのコマンド打つ
-```
-deno task start
-```
-

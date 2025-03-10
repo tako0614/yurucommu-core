@@ -1,41 +1,19 @@
 {
-  "lock": false,
-  "tasks": {
-    "check": "deno fmt --check && deno lint && deno check **/*.ts && deno check **/*.tsx",
-    "start": "deno run -A --watch=static/,routes/ dev.ts",
-    "build": "deno run -A dev.ts build",
-    "preview": "deno run -A main.ts",
-    "update": "deno run -A -r https://fresh.deno.dev/update ."
-  },
-  "lint": {
-    "rules": {
-      "tags": [
-        "fresh",
-        "recommended"
-      ]
-    },
-    "exclude": [
-      "_fresh"
-    ]
-  },
-  "fmt": {
-    "exclude": [
-      "_fresh"
-    ]
-  },
   "imports": {
-    "$fresh/": "https://deno.land/x/fresh@1.4.3/",
-    "preact": "https://esm.sh/preact@10.15.1",
-    "preact/": "https://esm.sh/preact@10.15.1/",
-    "preact-render-to-string": "https://esm.sh/*preact-render-to-string@6.2.1",
-    "@preact/signals": "https://esm.sh/*@preact/signals@1.1.3",
-    "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.2.3",
-    "twind": "https://esm.sh/twind@0.16.19",
-    "twind/": "https://esm.sh/twind@0.16.19/",
-    "$std/": "https://deno.land/std@0.193.0/"
+    "@hono/zod-validator": "npm:@hono/zod-validator@^0.4.2",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.3",
+    "@takos/takos-encrypt-ink": "jsr:@takos/takos-encrypt-ink@^6.0.2",
+    "hono": "npm:hono@^4.7.0",
+    "imagescript": "npm:imagescript@^1.3.0",
+    "mongoose": "npm:mongoose@^8.9.2",
+    "nodemailer": "npm:nodemailer@^6.9.16",
+    "redis": "npm:redis@^4.7.0",
+    "zod": "npm:zod@^3.24.1"
   },
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact"
-  }
+  "tasks": {
+    "dev": "deno run -A dev/dev.ts --watch main.ts",
+    "dev2": "deno run -A dev2/dev.ts --watch main.ts",
+    "dev3": "deno run -A index.ts --watch main.ts"
+  },
+  "nodeModulesDir": "auto"
 }
