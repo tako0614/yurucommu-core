@@ -99,7 +99,7 @@ app.post(
       }
       let groupData: Response | undefined;
       if (!group) {
-        groupData = await fetch(
+        groupData = await TakosFetch(
           `https://${groupDomain}/_takos/v1/group/all/${groupId}`,
         );
         if (groupData.status !== 200) {

@@ -125,7 +125,7 @@ export async function handleReCreateGroup(groupId: string, eventId: string) {
   //groupのデータを再作成
   await createRemoteGroup(
     groupId,
-    await fetch(`https://${groupDomain}/_takos/v1/group/all/${groupId}`).then((
+    await TakosFetch(`https://${groupDomain}/_takos/v1/group/all/${groupId}`).then((
       res,
     ) => res.json()),
     members,

@@ -2,6 +2,7 @@ import {
   isValidAccountKeyPublic,
   isValidMasterKeyPublic,
   isValidShareKeyPublic,
+  keyHash,
   verifyMasterKey,
 } from "@takos/takos-encrypt-ink";
 import {
@@ -80,7 +81,7 @@ app.post(
     });
     await accountKeyData.create({
       userName: session.userName,
-      hash: accountKey,
+      hash: await keyHash(accountKey),
       key: accountKey,
       sign: accountKeySign,
     });

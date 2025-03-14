@@ -72,7 +72,7 @@ app.get("/:roomId", async (c) => {
 
     return c.json({ messages });
   } catch (error) {
-    console.error("Error fetching messages:", error);
+    console.error("Error TakosFetching messages:", error);
     return c.json({ error: "Failed to retrieve messages" }, 500);
   }
 });

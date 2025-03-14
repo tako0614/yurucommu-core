@@ -50,7 +50,6 @@ app.post(
         [domain],
       );
       if (!Array.isArray(result) || result[0].status !== 200) {
-        console.log(result);
         return c.json({ message: "Invalid userName3" }, 400);
       }
       const res = await result[0].json();

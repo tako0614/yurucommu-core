@@ -1,13 +1,13 @@
 import { upgradeWebSocket } from "hono/deno";
-import { authorizationMiddleware, MyEnv } from "../userInfo.ts";
 import { Hono } from "hono";
-const app = new Hono<MyEnv>();
-app.use("*", authorizationMiddleware);
+const app = new Hono();
 import { WSContext } from "hono/ws";
 import redis from "redis";
 import { load } from "@std/dotenv";
 import Session from "../models/users/sessions.ts";
 import MigrateData from "../models/crypto/migrateData.ts";
+import User from "../models/users/users.ts";
+import { getCookie } from "hono/cookie";
 const env = await load();
 const redisURL = env["REDIS_URL"];
 const redisch = env["REDIS_CH"];
@@ -160,16 +160,38 @@ await subscribeMessage(redisch);
 
 app.get(
   "/",
-  upgradeWebSocket((c) => {
+  upgradeWebSocket(async (c) => {
+    // クエリパラメータまたはクッキーからセッションIDを取得
+    let sessionid = c.req.query("sessionid");
+    if (!sessionid) {
+      sessionid = getCookie(c , "sessionid");
+    }
+    console.log("sessionid", sessionid);
+    if (sessionid) {
+      const sessionData = await Session.findOne({ sessionid });
+      if (sessionData) {
+        c.set("session", sessionData);
+        const userName = sessionData.userName;
+        c.set("user", { userName });
+      }
+    }
+
     return {
       onClose: () => {
         const user = c.get("user");
-        sessions.delete(user.userName);
+        if (user) {
+          sessions.delete(user.userName);
+        }
       },
-      onOpen: (_evt, ws) => {
-        const user = c.get("user");
+      onOpen: async (_evt, ws) => {
         const session = c.get("session");
-        if (!user || !session) {
+        if (!session) {
+          ws.close();
+          return;
+        }
+        const user = await User.findOne({ userName: session.userName });
+        c.set("user", user);
+        if (!user) {
           ws.close();
           return;
         }
