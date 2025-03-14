@@ -16,6 +16,70 @@ const env = await load();
 const app = new Hono<MyEnv>();
 app.use("*", authorizationMiddleware);
 
+// メッセージ作成の共通関数
+async function createMessage(
+  userId: string,
+  roomId: string,
+  message: string,
+  sign: string | undefined,
+  isLarge: boolean,
+  isEncrypted: boolean,
+  channelId?: string,
+): Promise<string> {
+  const messageid = uuidv7() + "@" + env["domain"];
+  const timestamp = new Date();
+
+  const messageData: any = {
+    userName: userId,
+    timestamp,
+    roomId,
+    messageid,
+    isEncrypted,
+    isSigned: isEncrypted,
+    sign,
+    isLarge,
+  };
+
+  if (channelId) {
+    messageData.channelId = channelId;
+  }
+
+  if (isLarge) {
+    await Message.create(messageData);
+    await uploadFile(messageid, message);
+  } else {
+    messageData.message = message;
+    await Message.create(messageData);
+  }
+
+  return messageid;
+}
+
+function notifyExternalDomains(
+  event: string,
+  userId: string,
+  messageId: string,
+  roomId: string,
+  roomType: string,
+  domains: string[],
+  channelId?: string,
+) {
+  return fff(
+    JSON.stringify({
+      event,
+      eventId: uuidv7(),
+      payload: {
+        userId,
+        messageId,
+        roomId,
+        roomType,
+        channelId,
+      },
+    }),
+    domains,
+  );
+}
+
 app.post(
   "/",
   zValidator(
@@ -23,9 +87,10 @@ app.post(
     z.object({
       roomId: z.string(),
       message: z.string(),
-      sign: z.string(),
+      sign: z.string().optional(),
       type: z.string(),
       channelId: z.string().optional(),
+      isEncrypted: z.boolean(),
     }),
   ),
   async (c) => {
@@ -33,194 +98,169 @@ app.post(
     if (!user) {
       return c.json({ message: "Unauthorized" }, 401);
     }
-    const { roomId, message, sign, type, channelId } = c.req.valid("json");
-    const presedMessage = JSON.parse(message);
-    const isLarge = presedMessage.isLarge;
+
+    const { roomId, message, sign, type, channelId, isEncrypted } = c.req.valid(
+      "json",
+    );
+    const parsedMessage = JSON.parse(message);
+    const isLarge = parsedMessage.isLarge;
+    const userId = user.userName + "@" + env["domain"];
+    if (isEncrypted) {
+      if (!sign) {
+        return c.json(
+          { message: "Cannot sign and encrypt at the same time" },
+          400,
+        );
+      }
+    }
+
+    // メッセージの検証
+    if (!isValidMessage(message)) {
+      return c.json({ message: "Invalid message format" }, 400);
+    }
+
     if (type === "friend") {
-      if (
-        !friends.findOne({
-          userName: user.userName + "@" + env["domain"],
-          friendId: roomId,
-        })
-      ) {
-        return c.json({ message: "Unauthorized" }, 401);
+      // フレンドタイプのメッセージ処理
+      if (!friends.findOne({ userName: userId, friendId: roomId })) {
+        return c.json({ message: "Not a friend with this user" }, 401);
       }
-      if (!isValidMessage(message)) {
-        return c.json({ message: "Invalid message" }, 400);
-      }
-      const messageid = uuidv7() + "@" + env["domain"];
-      const timestamp = new Date();
-      if (isLarge) {
-        await Message.create({
-          userName: user.userName + "@" + env["domain"],
-          timestamp,
-          roomId,
-          messageid,
-          isEncrypted: true,
-          isSigned: true,
-          sign,
-          isLarge: true,
-        });
-        await uploadFile(messageid, message);
-      } else {
-        await Message.create({
-          userName: user.userName + "@" + env["domain"],
-          timestamp,
-          roomId,
-          messageid,
-          isEncrypted: true,
-          isSigned: true,
-          message,
-          sign,
-          isLarge: false,
-        });
-      }
+      const messageid = await createMessage(
+        userId,
+        roomId,
+        message,
+        sign,
+        isLarge,
+        isEncrypted,
+      );
+
+      // 大きなメッセージでない場合は通知を送信
       if (!isLarge) {
         publish({
           type: "message",
-          users: [user.userName + "@" + env["domain"], roomId],
+          users: [userId, roomId],
           data: JSON.stringify({
             messageid,
-            timestamp,
-            userName: user.userName + "@" + env["domain"],
+            timestamp: new Date(),
+            userName: userId,
             roomid: roomId,
           }),
         });
+
+        // 外部ドメインへの通知
         if (roomId.split("@")[1] !== env["domain"]) {
-          const res = await fff(
-            JSON.stringify({
-              event: "t.message.send",
-              eventId: uuidv7(),
-              payload: {
-                userId: user.userName + "@" + env["domain"],
-                messageId: messageid,
-                roomId: roomId,
-                roomType: "friend",
-              },
-            }),
+          const res = await notifyExternalDomains(
+            "t.message.send",
+            userId,
+            messageid,
+            roomId,
+            "friend",
             [roomId.split("@")[1]],
-          ) as [Response] | { error: string };
+          );
+
           if ("error" in res) {
             return c.json({ message: res.error }, 500);
           }
           if (res[0].status !== 200) {
-            return c.json({ message: "Failed to send message" }, 500);
+            return c.json({
+              message: "Failed to send message to external domain",
+            }, 500);
           }
         }
       }
+
       return c.json({ messageId: messageid }, 200);
     }
+
     if (type === "group") {
+      // グループタイプのメッセージ処理
       const match = roomId.match(/^g\{([^}]+)\}@(.+)$/);
       if (!match) {
-        return c.json({ error: "Invalid roomId format" }, 400);
-      }
-      const friendUserName = match[1];
-      const domainFromRoom = match[2];
-      if (!channelId) return;
-      console.log(channelId);
-      if (
-        !await Member.findOne({
-          groupId: friendUserName + "@" + domainFromRoom,
-          userId: user.userName + "@" + env["domain"],
-        })
-      ) {
-        return c.json({ message: "Unauthorized2" }, 401);
-      }
-      if (!isValidMessage(message)) {
-        return c.json({ message: "Invalid message" }, 400);
-      }
-      if (!isValidMessage(message)) {
-        return c.json({ message: "Invalid message" }, 400);
+        return c.json({ error: "Invalid group roomId format" }, 400);
       }
 
-      if (!await Channels.findOne({ id: channelId })) {
-        return c.json({ message: "Unauthorized" }, 401);
+      const groupName = match[1];
+      const domainFromRoom = match[2];
+      const groupId = groupName + "@" + domainFromRoom;
+
+      if (!channelId) {
+        return c.json(
+          { message: "Channel ID is required for group messages" },
+          400,
+        );
       }
-      const permission = await getUserPermission(
-        user.userName + "@" + env["domain"],
-        friendUserName + "@" + domainFromRoom,
-        channelId,
-      );
+
+      // グループメンバーシップの確認
+      if (!await Member.findOne({ groupId, userId })) {
+        return c.json({ message: "Not a member of this group" }, 401);
+      }
+
+      // チャンネルの存在確認
+      if (!await Channels.findOne({ id: channelId })) {
+        return c.json({ message: "Channel not found" }, 404);
+      }
+
+      // 権限チェック
+      const permission = await getUserPermission(userId, groupId, channelId);
       if (
         !permission.includes("SEND_MESSAGE") && !permission.includes("ADMIN")
       ) {
-        return c.json({ message: "Unauthorized" }, 401);
+        return c.json({
+          message: "No permission to send messages in this channel",
+        }, 403);
       }
-      const messageid = uuidv7() + "@" + env["domain"];
-      const timestamp = new Date();
-      if (isLarge) {
-        await Message.create({
-          userName: user.userName + "@" + env["domain"],
-          timestamp,
-          roomId,
-          messageid,
-          isEncrypted: true,
-          isSigned: true,
-          sign,
-          channelId: channelId,
-          isLarge: true,
-        });
-        await uploadFile(messageid, message);
-      } else {
-        await Message.create({
-          userName: user.userName + "@" + env["domain"],
-          timestamp,
-          roomId,
-          messageid,
-          isEncrypted: true,
-          isSigned: true,
-          message,
-          sign,
-          channelId: channelId,
-          isLarge: false,
-        });
-      }
-      const Members =
-        (await Member.find({ groupId: friendUserName + "@" + domainFromRoom }))
-          .map((member) => member.userId);
-      const MembersDomain = Members.map((member) => member.split("@")[1]);
-      const MembersSet = new Set(MembersDomain);
-      const MembersArray = Array.from(MembersSet);
-      const findMember = MembersArray.findIndex((member) =>
-        member === env["domain"]
+
+      const messageid = await createMessage(
+        userId,
+        roomId,
+        message,
+        sign,
+        isLarge,
+        isEncrypted,
+        channelId,
       );
-      if (findMember !== -1) {
-        MembersArray.splice(findMember, 1);
-      }
-      const members = Members.filter((member) =>
-        member.split("@")[1] == env["domain"]
+
+      // メンバーリストの取得とフィルタリング
+      const members = await Member.find({ groupId });
+      const memberIds = members.map((member) => member.userId);
+
+      // ドメイン別のメンバー処理
+      const membersByDomain = memberIds.filter((id) =>
+        id.split("@")[1] === env["domain"]
       );
-      console.log(members);
+      const externalDomains = [
+        ...new Set(memberIds.map((id) => id.split("@")[1])),
+      ].filter(
+        (domain) => domain !== env["domain"],
+      );
+
+      // 同じドメインのメンバーへ通知
       publish({
         type: "message",
-        users: members,
+        users: membersByDomain,
         data: JSON.stringify({
           messageid,
-          timestamp,
-          userName: user.userName + "@" + env["domain"],
+          timestamp: new Date(),
+          userName: userId,
           roomid: roomId,
-          channelId: channelId,
+          channelId,
         }),
       });
-      if (!isLarge) {
-        await fff(
-          JSON.stringify({
-            event: "t.message.send",
-            eventId: uuidv7(),
-            payload: {
-              userId: user.userName + "@" + env["domain"],
-              messageId: messageid,
-              roomId: roomId,
-              roomType: "group",
-              channelId: channelId,
-            },
-          }),
-          MembersArray,
+
+      // 他のドメインにも通知
+      if (!isLarge && externalDomains.length > 0) {
+        await notifyExternalDomains(
+          "t.message.send",
+          userId,
+          messageid,
+          roomId,
+          "group",
+          externalDomains,
+          channelId,
         );
       }
       return c.json({ messageId: messageid }, 200);
     }
+    return c.json({ message: "Invalid message type" }, 400);
   },
 );
 

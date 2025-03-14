@@ -205,7 +205,7 @@ app.get("/group/search", async (c) => {
   if (limit > 100) {
     return c.json({ error: "Invalid limit" }, 400);
   }
-  
+
   const safeQuery = escapeRegex(query);
   const groups = await Group.find({
     $or: [

@@ -6,8 +6,8 @@ import users from "../../models/users/users.ts";
 import shareAccountKey from "../../models/crypto/shareAccountKey.ts";
 import accountKeyData from "../../models/crypto/accountKey.ts";
 import {
-  isValidMasterKeyPublic,
   isValidAccountKeyPublic,
+  isValidMasterKeyPublic,
   isValidShareKeyPublic,
   verifyMasterKey,
 } from "@takos/takos-encrypt-ink";

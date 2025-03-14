@@ -11,8 +11,8 @@
     "zod": "npm:zod@^3.24.1"
   },
   "tasks": {
-    "dev": "deno run -A dev/dev.ts --watch main.ts",
-    "dev2": "deno run -A dev2/dev.ts --watch main.ts",
+    "dev": "deno run -A --watch dev/dev.ts",
+    "dev2": "deno run -A --watch dev2/dev.ts",
     "dev3": "deno run -A index.ts --watch main.ts"
   },
   "nodeModulesDir": "auto"
