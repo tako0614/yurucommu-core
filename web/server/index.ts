@@ -11,4 +11,12 @@ app.get("/background", (c) => {
   return c.body(background);
 });
 
+app.get("name", (c) => {
+  return c.json({ name: "takos" });
+});
+
+app.get("/explain", (c) => {
+  return c.json({ explain: "takos is a chat app" });
+});
+
 export default app;
