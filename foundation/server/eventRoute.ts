@@ -34,21 +34,21 @@ import "./group/join/request.ts";
 import "./group/join/accept.ts";
 import "./group/leave.ts";
 export default app.post(
-  "/",
-  zValidator(
-    "json",
-    z.object({
-      event: z.string(),
-      eventId: z.string(),
-      payload: z.object({}).passthrough(),
-    }),
-  ),
-  async (c) => {
-    try {
-      return await eventManager.dispatch(c);
-    } catch (err) {
-      console.error(err);
-      return c.json({ error: "Internal server error" }, 500);
-    }
-  },
+    "/",
+    zValidator(
+        "json",
+        z.object({
+            event: z.string(),
+            eventId: z.string(),
+            payload: z.object({}).passthrough(),
+        }),
+    ),
+    async (c) => {
+        try {
+            return await eventManager.dispatch(c);
+        } catch (err) {
+            console.error(err);
+            return c.json({ error: "Internal server error" }, 500);
+        }
+    },
 );

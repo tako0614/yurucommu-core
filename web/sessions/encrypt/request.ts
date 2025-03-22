@@ -12,47 +12,48 @@ const env = await load();
 const app = new Hono();
 
 app.post(
-  "/",
-  zValidator(
-    "json",
-    z.object({
-      migrateKey: z.string(),
-    }).strict(),
-  ),
-  zValidator(
-    "cookie",
-    z.object({
-      sessionid: z.string(),
-    }),
-  ),
-  async (c) => {
-    const { migrateKey } = c.req.valid("json");
-    const sessionid = c.req.valid("cookie").sessionid;
-    const session = await Session.findOne({ sessionid });
-    if (!session || session.encrypted) {
-      return c.json({ status: "error", message: "Invalid session" }, 400);
-    }
-    const user = await users.findOne({ userName: session.userName });
-    if (!user) {
-      return c.json({ status: "error", message: "Invalid user" }, 400);
-    }
-    const migrateid = uuidv7();
-    await MigrateData.create({
-      userName: user.userName,
-      migrateKey,
-      migrateid,
-      requesterSessionid: session.sessionid,
-    });
-    publish({
-      type: "migrateRequest",
-      users: [user.userName + "@" + env["domain"]],
-      data: JSON.stringify({
-        migrateid,
-        requesterSessionid: session.sessionid,
-      }),
-    });
-    return c.json({ migrateid });
-  },
+    "/",
+    zValidator(
+        "json",
+        z.object({
+            migrateKey: z.string(),
+        }).strict(),
+    ),
+    zValidator(
+        "cookie",
+        z.object({
+            sessionid: z.string(),
+        }),
+    ),
+    async (c) => {
+        const { migrateKey } = c.req.valid("json");
+        const sessionid = c.req.valid("cookie").sessionid;
+        const session = await Session.findOne({ sessionid });
+        if (!session || session.encrypted) {
+            return c.json({ status: "error", message: "Invalid session" }, 400);
+        }
+        const user = await users.findOne({ userName: session.userName });
+        if (!user) {
+            return c.json({ status: "error", message: "Invalid user" }, 400);
+        }
+        const migrateid = uuidv7();
+        await MigrateData.create({
+            userName: user.userName,
+            migrateKey,
+            migrateid,
+            requesterSessionid: session.sessionid,
+        });
+        publish({
+            type: "migrateRequest",
+            users: [user.userName + "@" + env["domain"]],
+            data: JSON.stringify({
+                migrateid,
+                requesterSessionid: session.sessionid,
+            }),
+            subPubType: "client",
+        });
+        return c.json({ migrateid });
+    },
 );
 
 export default app;

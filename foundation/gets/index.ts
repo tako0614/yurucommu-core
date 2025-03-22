@@ -14,7 +14,7 @@ const app = new Hono();
 
 // CORSミドルウェアを適用
 app.use(cors({
-  origin: "*",
+    origin: "*",
 }));
 
 // 各モジュールをマウント

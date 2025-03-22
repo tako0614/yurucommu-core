@@ -1,7 +1,7 @@
 import { authorizationMiddleware, MyEnv } from "../../userInfo.ts";
 import { Hono } from "hono";
 const app = new Hono<MyEnv>();
-export default app;
+
 app.use("*", authorizationMiddleware);
 import create from "./create.ts";
 import invite from "./invite.ts";
@@ -55,3 +55,4 @@ app.route("/channel/order", channelOrder);
 app.route("/icon", icon);
 app.route("/description", description);
 app.route("/name", name);
+export default app;

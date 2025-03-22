@@ -7,14 +7,14 @@ export const env = await load();
 
 // ユーティリティ関数
 export function escapeRegex(text: string) {
-  return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
 }
 
 // ベースアプリケーション
 export function createBaseApp() {
-  const app = new Hono();
-  app.use(cors({
-    origin: "*",
-  }));
-  return app;
+    const app = new Hono();
+    app.use(cors({
+        origin: "*",
+    }));
+    return app;
 }

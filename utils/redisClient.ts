@@ -4,16 +4,17 @@ const env = await load();
 const redisURL = env["REDIS_URL"];
 const redisChannel = env["REDIS_CH"];
 const pubClient = redis.createClient({
-  url: redisURL,
+    url: redisURL,
 });
 await pubClient.connect();
 
 function publish(data: {
-  type: string;
-  users: string[];
-  data: string;
+    type: string;
+    users?: string[];
+    data: string;
+    subPubType: string;
 }) {
-  pubClient.publish(redisChannel, JSON.stringify(data));
+    pubClient.publish(redisChannel, JSON.stringify(data));
 }
 
 export default publish;
