@@ -6,729 +6,899 @@ import PubSub from "pubsub-js";
 import { z } from "zod";
 import publish from "../../utils/redisClient.ts";
 import { CallToken, callToken } from "../../models/call/token.ts";
+import { uuidv4 } from "npm:uuidv7@^1.0.2";
 
 // Zodスキーマ定義
 // クライアントから送信されるメッセージの形式を定義
 const connectSchema = z.object({
-    type: z.literal("connect"),
-    dtlsParameters: z.record(z.unknown()).or(z.string()),
+  type: z.literal("connect"),
+  transportType: z.enum(["send", "recv"]), // transportTypeフィールドを追加
+  dtlsParameters: z.record(z.unknown()).or(z.string()),
 });
 
 const produceSchema = z.object({
-    type: z.literal("produce"),
-    kind: z.enum(["audio", "video"]),
-    rtpParameters: z.record(z.unknown()).or(z.array(z.unknown())),
+  type: z.literal("produce"),
+  kind: z.enum(["audio", "video"]),
+  rtpParameters: z.record(z.unknown()).or(z.array(z.unknown())),
 });
 
 const consumeSchema = z.object({
-    type: z.literal("consume"),
-    producerId: z.string(),
-    rtpCapabilities: z.record(z.unknown()).or(z.array(z.unknown())),
+  type: z.literal("consume"),
+  producerId: z.string(),
+  rtpCapabilities: z.record(z.unknown()).or(z.array(z.unknown())),
+  peerId: z.string(),
 });
 
 const textMessageSchema = z.object({
-    type: z.literal("message"),
-    message: z.string(),
-    sign: z.string(),
+  type: z.literal("message"),
+  message: z.string(),
+  sign: z.string(),
 });
 
 const byeSchema = z.object({
-    type: z.literal("bye"),
+  type: z.literal("bye"),
 });
 
 const closeProducerSchema = z.object({
-    type: z.literal("closeProducer"),
-    producerId: z.string(),
+  type: z.literal("closeProducer"),
+  producerId: z.string(),
 });
 
 const closeConsumerSchema = z.object({
-    type: z.literal("closeConsumer"),
-    consumerId: z.string(),
+  type: z.literal("closeConsumer"),
+  consumerId: z.string(),
 });
 
 // すべてのメッセージタイプを含むスキーマを作成
 const messageSchema = z.discriminatedUnion("type", [
-    connectSchema,
-    produceSchema,
-    consumeSchema,
-    textMessageSchema,
-    byeSchema,
-    closeProducerSchema,
-    closeConsumerSchema,
+  connectSchema,
+  produceSchema,
+  consumeSchema,
+  textMessageSchema,
+  byeSchema,
+  closeProducerSchema,
+  closeConsumerSchema,
 ]);
 
 // 型定義を追加
 type ConnectMessage = z.infer<typeof connectSchema>;
 type ProduceMessage = z.infer<typeof produceSchema>;
 type ConsumeMessage = z.infer<typeof consumeSchema>;
-type TextMessage = z.infer<typeof textMessageSchema>;
 type CloseProducerMessage = z.infer<typeof closeProducerSchema>;
 type CloseConsumerMessage = z.infer<typeof closeConsumerSchema>;
-type WebSocketMessage = z.infer<typeof messageSchema>;
 
 const client = new TakosCallClient({
-    url: "ws://localhost:3000/takos-api",
-    apiKey: "tako",
+  url: "ws://localhost:3000/takos-api",
+  apiKey: "tako",
 });
 
+
+//client.closeProducer
+
 PubSub.subscribe("webRTC", async (_subpubType: string, message: string) => {
-    const data = JSON.parse(message);
-    switch (data.type) {
-        case "join": {
-            const { roomId, userId } = data;
-            await handleNoticeJoin(roomId, userId);
-            break;
-        }
-        case "leave": {
-            const { roomId, userId } = data;
-            await handleNoticeLeave(roomId, userId);
-            break;
-        }
-        default:
-            break;
+  const data = JSON.parse(message);
+  switch (data.type) {
+    case "join": {
+      const { roomId, userId } = data;
+      await handleNoticeJoin(roomId, userId);
+      break;
     }
+    case "leave": {
+      const { roomId, userId } = JSON.parse(data.data);
+      handleNoticeLeave(roomId, userId);
+      break;
+    }
+    default:
+      break;
+  }
 });
 
 client.on("producerCreated", async (data) => {
-    const {
-        roomId,
-        peerId,
-        producerId,
-        kind,
-    } = data;
-    await handleNoticeProduce(roomId, peerId, kind, producerId);
+  const {
+    roomId,
+    peerId,
+    producerId,
+    kind,
+  } = data;
+  handleNoticeProduce(roomId, peerId, kind, producerId);
 });
+
+client.on("producerClosed", ({ roomId, peerId, producerId }) => {
+    console.log(
+      `プロデューサー切断: ルーム=${roomId}, ピア=${peerId}, プロデューサー=${producerId}`,
+    );
+});
+  
 
 client.on("transportClosed", (data) => {
-    const { roomId, peerId, transportId } = data;
-    
-    // セッションを検索してトランスポート切断されたユーザーを見つける
-    for (const [sessionsKey, session] of sessions.entries()) {
-        const [userId, sessionRoomId] = sessionsKey.split("@");
-        
-        // 該当するセッションを見つけたら切断処理
-        if (sessionRoomId === roomId && userId === peerId && 
-            (session.transportId.send === transportId || session.transportId.recv === transportId)) {
-            
-            // セッションを削除
-            sessions.delete(sessionsKey);
-            
-            // 他の参加者に退出通知
-            publish({
-                type: "leave",
-                data: JSON.stringify({
-                    roomId,
-                    userId,
-                }),
-                subPubType: "webRTC",
-            });
-            
-            // WebSocketも閉じる
-            try {
-                session.ws.close();
-            } catch (error) {
-                console.log("Error closing WebSocket:", error);
-            }
-            
-            break;
-        }
+  const { roomId, peerId, transportId } = data;
+
+  // セッションを検索してトランスポート切断されたユーザーを見つける
+  for (const [sessionsKey, session] of sessions.entries()) {
+    const [userId, sessionRoomId] = sessionsKey.split("@");
+
+    // 該当するセッションを見つけたら切断処理
+    if (
+      sessionRoomId === roomId && userId === peerId &&
+      (session.transportId.send === transportId ||
+        session.transportId.recv === transportId)
+    ) {
+      // セッションを削除
+      sessions.delete(sessionsKey);
+
+      // 他の参加者に退出通知
+      publish({
+        type: "leave",
+        data: JSON.stringify({
+          roomId,
+          userId,
+        }),
+        subPubType: "webRTC",
+      });
+
+      session.ws.close();
+      break;
     }
+  }
 });
 
-
 const sessions = new Map<string, {
-    ws: WSContext<WebSocket>;
-    transportId: {
-        send: string;
-        recv: string;
-    };
+  ws: WSContext<WebSocket>;
+  transportId: {
+    send: string;
+    recv: string;
+  };
+  userId: string;
+  roomId: string;
+  type: "friend" | "group";
+  callType: string;
 }>();
 
 const app = new Hono();
 
 app.get(
-    "/",
-    upgradeWebSocket(async (c) => {
-        let session: callToken | null = null;
-        // クエリパラメータまたはクッキーからセッションIDを取得
-        let isKill = false;
-        const token = c.req.query("token");
-        let sessionsKey: string | null = null;
-        if (!token) {
-            isKill = true;
-        } else {
-            session = await CallToken.findOne({ token });
-
-            if (!session) {
-                isKill = true;
-            } else {
-                sessionsKey = `${session.userId}@${session.roomId}`;
-                await CallToken.deleteOne({ token });
-            }
-        }
-        return {
-            onOpen: async (e, ws) => {
-                if (isKill || !session) {
-                    ws.close();
-                    return;
-                }
-                const { roomId, userId, callType } = session;
-                if (!roomId || !userId || !sessionsKey) {
-                    ws.close();
-                    return;
-                }
-
-                if (sessions.get(sessionsKey)) {
-                    ws.close();
-                    return;
-                }
-                try {
-                    let roomInfo = await client.getRoomInfo(roomId);
-                    if (!roomInfo) {
-                        roomInfo = await client.createRoom(roomId);
-                    }
-                    const peerInfo = await client.getPeerInfo(roomId, userId);
-                    if (peerInfo) {
-                        ws.close();
-                        return;
-                    }
-                    await client.addPeer(roomId, userId);
-
-                    // Initialize response object based on call type
-                    const responseData: any = {
-                        roomId,
-                        peers: [],
-                        callType,
-                    };
-
-                    // Set up WebRTC only for audio/video calls
-                    if (callType === 'audio' || callType === 'video') {
-                        const routerRtpCapabilities = await client
-                            .getRouterRtpCapabilities(roomId);
-                        const sendTransport = await client.createTransport(
-                            roomId,
-                            userId,
-                            "send",
-                        );
-                        const recvTransport = await client.createTransport(
-                            roomId,
-                            userId,
-                            "recv",
-                        );
-
-                        const { producers } = await collectRoomData(
-                            roomId,
-                            userId,
-                            roomInfo,
-                        );
-                        
-                        sessions.set(sessionsKey, {
-                            ws,
-                            transportId: {
-                                send: sendTransport.id,
-                                recv: recvTransport.id,
-                            },
-                        });
-
-                        responseData.routerRtpCapabilities = routerRtpCapabilities;
-                        responseData.transport = {
-                            send: sendTransport,
-                            recv: recvTransport,
-                        };
-                        responseData.producers = producers;
-                        responseData.peers = producers.map((producer) => producer.peerId);
-                    } else {
-                        // For text calls, no transport needed
-                        sessions.set(sessionsKey, {
-                            ws,
-                            transportId: { send: '', recv: '' }
-                        });
-                        
-                        // Get peers for text call
-                        if (roomInfo && roomInfo.peers) {
-                            responseData.peers = Object.keys(roomInfo.peers).filter(
-                                peerId => peerId !== userId
-                            );
-                        }
-                    }
-
-                    ws.send(
-                        JSON.stringify({
-                            type: "init",
-                            data: responseData
-                        }),
-                    );
-                    
-                    publish({
-                        type: "join",
-                        data: JSON.stringify({
-                            roomId,
-                            userId,
-                        }),
-                        subPubType: "webRTC",
-                    });
-                } catch (error) {
-                    console.log(error);
-                    ws.close();
-                }
-            },
-            onMessage: async (e, ws) => {
-                try {
-                    const rawData = JSON.parse(e.data as string);
-                    
-                    // Zodを使用したバリデーション
-                    const result = messageSchema.safeParse(rawData);
-                    
-                    if (!result.success) {
-                        console.log("メッセージバリデーションエラー:", result.error);
-                        ws.send(
-                            JSON.stringify({
-                                type: "error",
-                                message: "Invalid message format",
-                                details: result.error.format()
-                            })
-                        );
-                        return;
-                    }
-                    
-                    const message = result.data;
-                    
-                    if (!sessionsKey) {
-                        ws.close();
-                        return;
-                    }
-                    
-                    const [userId, roomId] = sessionsKey.split("@");
-                    
-                    switch (message.type) {
-                        case "connect": {
-                            await handleConnectTransport(ws, message, sessionsKey);
-                            break;
-                        }
-                        case "produce": {
-                            await handleProduce(ws, message, sessionsKey);
-                            break;
-                        }
-                        case "consume": {
-                            await handleConsume(ws, message, sessionsKey);
-                            break;
-                        }
-                        case "message": {
-                            // セッション情報を確認してテキスト通話の場合のみメッセージ処理
-                            const sessionInfo = await CallToken.findOne({ userId, roomId });
-                            if (sessionInfo?.callType === "text") {
-                                await handleTextMessage(message, userId, roomId);
-                            } else {
-                                ws.send(
-                                    JSON.stringify({
-                                        type: "error",
-                                        message: "Text messages are only allowed in text calls"
-                                    })
-                                );
-                            }
-                            break;
-                        }
-                        case "bye": {
-                            // 明示的な通話終了
-                            ws.close();
-                            break;
-                        }
-                        case "closeProducer": {
-                            await handleCloseProducer(ws, message, sessionsKey);
-                            break;
-                        }
-                        case "closeConsumer": {
-                            await handleCloseConsumer(ws, message, sessionsKey);
-                            break;
-                        }
-                    }
-                } catch (error) {
-                    console.log("メッセージ処理エラー:", error);
-                    ws.send(
-                        JSON.stringify({
-                            type: "error",
-                            message: "Failed to process message"
-                        })
-                    );
-                }
-            },
-            onClose: async (e, ws) => {
-                if (sessionsKey) {
-                    sessions.delete(sessionsKey);
-                    const [userId, roomId] = sessionsKey.split("@");
-                    publish({
-                        type: "leave",
-                        data: JSON.stringify({
-                            roomId,
-                            userId,
-                        }),
-                        subPubType: "webRTC",
-                    });
-                }
-            },
+  "/",
+  upgradeWebSocket(async (c) => {
+    console.log("WebSocket接続要求を受信");
+    let session: callToken | null = null;
+    // クエリパラメータまたはクッキーからセッションIDを取得
+    let isKill = false;
+    const token = c.req.query("token");
+    let sessionsInfo: {
+      userId: string;
+      roomId: string;
+      uuid: string;
+      type: "friend" | "group";
+      callType: string;
+    } | null = null;
+    if (!token) {
+      console.log("No token provided");
+      isKill = true;
+    } else {
+      session = await CallToken.findOne({ token });
+      if (!session) {
+        console.log("Invalid token");
+        isKill = true;
+      } else {
+        sessionsInfo = {
+          userId: session.userId,
+          roomId: session.roomId,
+          uuid: uuidv4(),
+          type: session.type,
+          callType: session.callType!,
         };
-    }),
+      }
+    }
+
+    return {
+      onOpen: async (e, ws) => {
+        if (isKill || !session) {
+          console.log("Invalid session");
+          ws.close();
+          return;
+        }
+        const { roomId, userId, callType } = session;
+        if (!roomId || !userId || !sessionsInfo) {
+          console.log("Invalid session data");
+          ws.close();
+          return;
+        }
+
+        console.log(
+          `WebSocket接続成功: ルーム=${roomId}, ユーザー=${userId}, 種類=${callType}`,
+        );
+
+        let roomInfo = await client.getRoomInfo(roomId);
+        if (!roomInfo) {
+          roomInfo = await client.createRoom(roomId);
+        }
+
+        // ピア情報の確認と既存ピアのクリーンアップ
+        const peerInfo = await client.getPeerInfo(roomId, userId);
+        if (peerInfo) {
+          console.log(`ピアが既に存在します: ${userId}、クリーンアップを実行`);
+
+          // 古いセッションをチェックして削除
+          for (const [sessionsKey, session] of sessions) {
+            const [oldUserId, oldRoomId] = sessionsKey.split("@");
+            if (oldRoomId === roomId && oldUserId === userId) {
+              console.log(`古いセッションを削除: ${sessionsKey}`);
+              sessions.delete(sessionsKey);
+              try {
+                session.ws.close();
+              } catch (error) {
+                console.log("WebSocket閉じるエラー:", error);
+              }
+            }
+          }
+
+          // SFUサーバーから古いピアを強制的に削除
+          try {
+            await client.removePeer(roomId, userId);
+            console.log(`SFUサーバーから古いピアを削除: ${userId}`);
+          } catch (error) {
+            console.log(
+              `古いピア削除エラー (無視して継続): ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            // 削除に失敗しても続行
+          }
+        }
+
+        // 新しいピアを追加
+        await client.addPeer(roomId, userId);
+
+        // Initialize response object based on call type
+        const responseData: any = {
+          roomId,
+          peers: [],
+          callType,
+          myPeerId: userId, // 自分自身のピアIDを明示的に送信
+        };
+        // Set up WebRTC only for audio/video calls
+        if (callType === "audio" || callType === "video") {
+          const routerRtpCapabilities = await client
+            .getRouterRtpCapabilities(roomId);
+          const sendTransport = await client.createTransport(
+            roomId,
+            userId,
+            "send",
+          );
+          const recvTransport = await client.createTransport(
+            roomId,
+            userId,
+            "recv",
+          );
+
+          const { producers } = await collectRoomData(
+            roomId,
+            userId,
+            roomInfo,
+          );
+
+          sessions.set(sessionsInfo.uuid, {
+            ws,
+            transportId: {
+              send: sendTransport.id,
+              recv: recvTransport.id,
+            },
+            userId,
+            roomId,
+            type: sessionsInfo.type,
+            callType,
+          });
+
+          responseData.routerRtpCapabilities = routerRtpCapabilities;
+          responseData.transport = {
+            send: sendTransport,
+            recv: recvTransport,
+          };
+          responseData.producers = producers;
+          responseData.peers = producers.map((producer) => producer.peerId);
+        } else {
+          sessions.set(sessionsInfo.uuid, {
+            ws,
+            transportId: { send: "", recv: "" },
+            userId,
+            roomId,
+            type: sessionsInfo.type,
+            callType,
+          });
+
+          // Get peers for text call
+          if (roomInfo && roomInfo.peers) {
+            responseData.peers = Object.keys(roomInfo.peers).filter(
+              (peerId) => peerId !== userId,
+            );
+          }
+        }
+
+        ws.send(
+          JSON.stringify({
+            type: "init",
+            data: responseData,
+          }),
+        );
+
+        publish({
+          type: "join",
+          data: JSON.stringify({
+            roomId,
+            userId,
+          }),
+          subPubType: "webRTC",
+        });
+      },
+      onMessage: async (e, ws) => {
+        try {
+          const rawData = JSON.parse(e.data as string);
+
+          // Zodを使用したバリデーション
+          const result = messageSchema.safeParse(rawData);
+
+          if (!result.success) {
+            console.log("メッセージバリデーションエラー:", result.error);
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Invalid message format",
+                details: result.error.format(),
+              }),
+            );
+            return;
+          }
+
+          const message = result.data;
+
+          if (!sessionsInfo) {
+            ws.close();
+            return;
+          }
+          switch (message.type) {
+            case "connect": {
+              await handleConnectTransport(ws, message, sessionsInfo);
+              break;
+            }
+            case "produce": {
+              await handleProduce(ws, message, sessionsInfo);
+              break;
+            }
+            case "consume": {
+              await handleConsume(ws, message, sessionsInfo);
+              break;
+            }
+            case "closeProducer": {
+              await handleCloseProducer(ws, message, sessionsInfo);
+              break;
+            }
+            case "closeConsumer": {
+              await handleCloseConsumer(ws, message, sessionsInfo);
+              break;
+            }
+          }
+        } catch (error) {
+          console.log("メッセージ処理エラー:", error);
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Failed to process message",
+            }),
+          );
+        }
+      },
+      onClose: async (e, ws) => {
+        if (sessionsInfo) {
+          const { roomId, userId, uuid } = sessionsInfo;
+          sessions.delete(uuid);
+          publish({
+            type: "leave",
+            data: JSON.stringify({
+              roomId,
+              userId,
+            }),
+            subPubType: "webRTC",
+          });
+
+          try {
+            // ピアを削除
+            const peerInfo = await client.getPeerInfo(roomId, userId);
+            if (peerInfo) {
+              await client.removePeer(roomId, userId);
+            }
+
+            // ルーム情報を取得して、ピアが残っていなければルームを削除
+            const roomInfo = await client.getRoomInfo(roomId);
+            if (
+              roomInfo &&
+              (!roomInfo.peers || Object.keys(roomInfo.peers).length === 0)
+            ) {
+              await client.closeRoom(roomId);
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error
+              ? error.message
+              : JSON.stringify(error);
+            console.log(`Error cleaning up resources: ${errorMessage}`);
+          }
+        }
+      },
+    };
+  }),
 );
 
-// 型付きハンドラ関数
-async function handleTextMessage(
-    data: TextMessage,
-    senderId: string,
-    roomId: string
-) {
-    const { message, sign } = data;
-    
-    // 他のユーザーにメッセージを転送
-    for (const [sessionsKey, session] of sessions) {
-        const [userId, userRoomId] = sessionsKey.split("@");
-        if (userRoomId === roomId && userId !== senderId) {
-            session.ws.send(
-                JSON.stringify({
-                    type: "message",
-                    message,
-                    sign,
-                    peerId: senderId
-                })
-            );
-        }
-    }
-}
-
 async function handleCloseProducer(
-    ws: WSContext<WebSocket>,
-    data: CloseProducerMessage,
-    sessionsKey: string
+  ws: WSContext<WebSocket>,
+  data: CloseProducerMessage,
+  sessionsKey: {
+    userId: string;
+    roomId: string;
+    uuid: string;
+  },
 ) {
-    const { producerId } = data;
-    const [userId, roomId] = sessionsKey.split("@");
-    const session = sessions.get(sessionsKey);
+  const { producerId } = data;
+  const { userId, roomId } = sessionsKey;
+  const session = sessions.get(sessionsKey.uuid);
+
+  if (!session) {
+    ws.close();
+    return;
+  }
+
+  try {
+    // producerを閉じる処理
+    await client.closeProducer(roomId, userId, producerId);
     
-    if (!session) {
-        ws.close();
-        return;
-    }
-    
-    try {
-        // producerを閉じる処理
-        await client.closeProducer(roomId, userId, producerId);
-        
-        ws.send(
-            JSON.stringify({
+    // 他のクライアントにプロデューサーが閉じられたことを通知
+    for (const [uuid, value] of sessions.entries()) {
+      const [sessionUserId, sessionRoomId] = [value.userId, value.roomId];
+      if (sessionRoomId === roomId && sessionUserId !== userId) {
+        const targetSession = sessions.get(uuid);
+        if (targetSession) {
+          try {
+            targetSession.ws.send(
+              JSON.stringify({
                 type: "producerClosed",
-                producerId
-            })
-        );
-    } catch (error) {
-        console.log(error);
-        ws.send(
-            JSON.stringify({
-                type: "error",
-                message: "Failed to close producer"
-            })
-        );
+                producerId,
+                peerId: userId,
+              }),
+            );
+          } catch (error) {
+            console.log(
+              `プロデューサー終了通知送信エラー to ${sessionUserId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+      }
     }
+  } catch (error) {
+    console.log(error);
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: "Failed to close producer",
+      }),
+    );
+  }
 }
 
 async function handleCloseConsumer(
-    ws: WSContext<WebSocket>,
-    data: CloseConsumerMessage,
-    sessionsKey: string
+  ws: WSContext<WebSocket>,
+  data: CloseConsumerMessage,
+  sessionsKey: {
+    userId: string;
+    roomId: string;
+    uuid: string;
+  },
 ) {
-    const { consumerId } = data;
-    const [userId, roomId] = sessionsKey.split("@");
-    const session = sessions.get(sessionsKey);
-    
-    if (!session) {
-        ws.close();
-        return;
-    }
-    
-    try {
-        // consumerを閉じる処理
-        await client.closeConsumer(roomId, userId, consumerId);
-        
-        ws.send(
-            JSON.stringify({
-                type: "consumerClosed",
-                consumerId
-            })
-        );
-    } catch (error) {
-        console.log(error);
-        ws.send(
-            JSON.stringify({
-                type: "error",
-                message: "Failed to close consumer"
-            })
-        );
-    }
+  const { consumerId } = data;
+  const { userId, roomId } = sessionsKey;
+  const session = sessions.get(sessionsKey.uuid);
+
+  if (!session) {
+    ws.close();
+    return;
+  }
+
+  try {
+    // consumerを閉じる処理
+    await client.closeConsumer(roomId, userId, consumerId);
+  } catch (error) {
+    console.log(error);
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: "Failed to close consumer",
+      }),
+    );
+  }
 }
 
 async function handleNoticeJoin(roomId: string, userId: string) {
-    for(const [sessionsKey, session] of sessions) {
-        const [currentUserId, currentRoomId] = sessionsKey.split("@");
-        if(currentRoomId === roomId && currentUserId !== userId) {
-            const roomInfo = await client.getRoomInfo(roomId);
-            if(!roomInfo) {
-                return;
-            }
-            
-            // Get call type for this session
-            const sessionInfo = await CallToken.findOne({ userId: currentUserId, roomId: currentRoomId });
-            const callType = sessionInfo?.callType || "audio"; // default to audio if not found
-            
-            if (callType === "audio" || callType === "video") {
-                const { producers } = await collectRoomData(
-                    roomId,
-                    userId,
-                    roomInfo,
-                );
-                session.ws.send(
-                    JSON.stringify({
-                        type: "join",
-                        peerId: userId,
-                        producers,
-                    }),
-                );
-            } else {
-                // For text calls, only send the peerId
-                session.ws.send(
-                    JSON.stringify({
-                        type: "join",
-                        peerId: userId,
-                    }),
-                );
-            }
-        }
+  for (const [sessionsKey, session] of sessions) {
+    const [currentUserId, currentRoomId] = sessionsKey.split("@");
+    if (currentRoomId === roomId && currentUserId !== userId) {
+      const roomInfo = await client.getRoomInfo(roomId);
+      if (!roomInfo) {
+        return;
+      }
+      const { producers } = await collectRoomData(
+        roomId,
+        userId,
+        roomInfo,
+      );
+      session.ws.send(
+        JSON.stringify({
+          type: "join",
+          peerId: userId,
+          producers,
+        }),
+      );
     }
+  }
 }
 
-async function handleNoticeLeave(roomId: string, userId: string) {
-    for(const [sessionsKey, session] of sessions) {
-        const [currentUserId, currentRoomId] = sessionsKey.split("@");
-        if(currentRoomId === roomId && currentUserId !== userId) {
-            session.ws.send(
-                JSON.stringify({
-                    type: "leave",
-                    peerId: userId,
-                }),
-            );
-        }
+function handleNoticeLeave(roomId: string, userId: string) {
+  for (const [key, session] of sessions) {
+    const [currentUserId, currentRoomId] = [session.userId, session.roomId];
+    console.log(currentRoomId, roomId, currentUserId, userId);
+    console.log(currentRoomId === roomId && currentUserId !== userId);
+    if (currentRoomId === roomId && currentUserId !== userId) {
+      if (session.type === "friend") {
+        session.ws.close();
+        return;
+      }
+      session.ws.send(
+        JSON.stringify({
+          type: "leave",
+          peerId: userId,
+        }),
+      );
     }
+  }
 }
 
-async function handleNoticeProduce(
-    roomId: string,
-    userId: string,
-    kind: string,
-    producerId: string,
+function handleNoticeProduce(
+  roomId: string,
+  userId: string,
+  kind: string,
+  producerId: string,
 ) {
-    for(const [sessionsKey, session] of sessions) {
-        const [currentUserId, currentRoomId] = sessionsKey.split("@");
-        if(currentRoomId === roomId && currentUserId !== userId) {
-            session.ws.send(
-                JSON.stringify({
-                    type: "newProduce",
-                    producerId,
-                    kind,
-                    peerId: userId,
-                }),
-            );
+  for (const [uuid, value] of sessions.entries()) {
+    const [sessionUserId, sessionRoomId] = [value.userId, value.roomId];
+    if (sessionRoomId === roomId && sessionUserId !== userId) {
+      const session = sessions.get(uuid);
+      if (session) {
+        try {
+          session.ws.send(
+            JSON.stringify({
+              type: "produce",
+              producerId,
+              kind,
+              peerId: userId,
+            }),
+          );
+        } catch (error) {
+          console.log(
+            `通知送信エラー to ${sessionUserId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
         }
+      }
     }
+  }
 }
 
 async function handleConsume(
-    ws: WSContext<WebSocket>,
-    data: ConsumeMessage,
-    sessionsKey: string,
+  ws: WSContext<WebSocket>,
+  data: ConsumeMessage,
+  sessionsInfo: {
+    userId: string;
+    roomId: string;
+    uuid: string;
+  },
 ) {
-    const { producerId, rtpCapabilities } = data;
-    const [userId, roomId] = sessionsKey.split("@");
-    const session = sessions.get(sessionsKey);
-    if (!session) {
-        ws.close();
-        return;
+  const { producerId, rtpCapabilities, peerId: clientProvidedPeerId } = data;
+  const { userId, roomId } = sessionsInfo;
+
+  const peerInfo = await client.getPeerInfo(roomId, userId);
+  if (
+    peerInfo && peerInfo.producers &&
+    Object.keys(peerInfo.producers).includes(producerId)
+  ) {
+    ws.send(
+      JSON.stringify({
+        type: "selfProducer",
+        message: "Cannot consume your own producer",
+        producerId,
+      }),
+    );
+    return;
+  }
+
+  const session = sessions.get(sessionsInfo.uuid);
+  if (!session) {
+    console.log(`セッションが見つかりません: ${sessionsInfo.uuid}`);
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: "Session not found",
+      }),
+    );
+    return;
+  }
+
+  try {
+    const producerPeerId = clientProvidedPeerId;
+    const roomInfo = await client.getRoomInfo(roomId);
+    if (!roomInfo) {
+      throw new Error(`Room ${roomId} not found`);
     }
-    try {
-        const consumer = await client.createConsumer(
-            roomId,
-            userId,
-            session.transportId.recv,
-            producerId,
-            rtpCapabilities,
-        );
-        if (!consumer) {
-            ws.send(
-                JSON.stringify({
-                    type: "producerNotFound",
-                }),
-            );
-            return;
-        }
-        ws.send(
-            JSON.stringify({
-                type: "consumed",
-                consumerId: consumer.id,
-                producerId,
-                kind: consumer.kind,
-                rtpParameters: consumer.rtpParameters,
-            }),
-        );
-    } catch (error) {
-        console.log(error);
-        ws.send(
-            JSON.stringify({
-                type: "producerNotFound",
-            }),
-        );
+    if (!producerPeerId) {
+      ws.send(
+        JSON.stringify({
+          type: "producerNotFound",
+          producerId,
+        }),
+      );
+      return;
     }
+
+    if (!Object.keys(roomInfo.peers || {}).includes(producerPeerId)) {
+      ws.send(
+        JSON.stringify({
+          type: "producerNotFound",
+          producerId,
+          message: `Producer ${producerId} not found in room ${roomId}`,
+        }),
+      );
+      return;
+    }
+
+    const consumer = await client.createConsumer(
+      roomId,
+      userId,
+      session.transportId.recv,
+      producerId,
+      rtpCapabilities,
+    );
+
+    if (!consumer) {
+      console.log(`プロデューサー ${producerId} が見つかりません`);
+      ws.send(
+        JSON.stringify({
+          type: "producerNotFound",
+          producerId,
+        }),
+      );
+      return;
+    }
+
+    ws.send(
+      JSON.stringify({
+        type: "consumed",
+        consumerId: consumer.id,
+        producerId,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+        peerId: producerPeerId,
+      }),
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log(`コンシューマー作成エラー: ${errorMessage}`);
+    ws.send(
+      JSON.stringify({
+        type: "producerNotFound",
+        error: errorMessage,
+        producerId,
+      }),
+    );
+  }
 }
 
 async function handleProduce(
-    ws: WSContext<WebSocket>,
-    data: ProduceMessage,
-    sessionsKey: string,
+  ws: WSContext<WebSocket>,
+  data: ProduceMessage,
+  sessionsInfo: {
+    userId: string;
+    roomId: string;
+    uuid: string;
+  },
 ) {
-    const { kind, rtpParameters } = data;
-    const [userId, roomId] = sessionsKey.split("@");
-    const session = sessions.get(sessionsKey);
-    if (!session) {
-        ws.close();
-        return;
+  const { kind, rtpParameters } = data;
+  const { userId, roomId } = sessionsInfo;
+  console.log(`プロデュース要求: ユーザー=${userId}, 種類=${kind}`);
+
+  const session = sessions.get(sessionsInfo.uuid);
+  if (!session) {
+    console.log("セッションが見つかりません、WebSocketを閉じます");
+    ws.close();
+    return;
+  }
+
+  try {
+    const peerInfo = await client.getPeerInfo(roomId, userId);
+    if (!peerInfo) {
+      console.log(`ピア情報が見つかりません: ${userId}`);
+      ws.close();
+      return;
     }
+
+    // 同じ種類のプロデューサーがすでに存在するかチェック
+    let existingProducerFound = false;
+    for (const key in peerInfo.producers) {
+      const value = peerInfo.producers[key];
+      if (value.kind === kind) {
+        console.log(
+          `既存プロデューサーが見つかりました: ${key}, 種類=${value.kind}`,
+        );
+        existingProducerFound = true;
+
+        ws.send(
+          JSON.stringify({
+            type: "producerAlreadyExists",
+            producerId: key,
+          }),
+        );
+        break;
+      }
+    }
+
+    if (existingProducerFound) {
+      return;
+    }
+
+    const producer = await client.createProducer(
+      roomId,
+      userId,
+      session.transportId.send,
+      kind,
+      rtpParameters,
+    );
+
+    // クライアントに応答
+    ws.send(
+      JSON.stringify({
+        type: "produced",
+        producerId: producer.id,
+        kind,
+      }),
+    );
+    // 他の参加者への通知を確実に行う
     try {
-        const peerInfo = await client.getPeerInfo(roomId, userId);
-        if (!peerInfo) {
-            ws.close();
-            return;
-        }
-        for (const key in peerInfo.producers) {
-            const value = peerInfo.producers[key];
-            if (value.kind === kind) {
-                ws.send(
-                    JSON.stringify({
-                        type: "producerAlreadyExists",
-                    }),
-                );
-                return;
-            }
-        }
-        const producer = await client.createProducer(
-            roomId,
-            userId,
-            session.transportId.send,
-            kind,
-            rtpParameters,
-        );
-        ws.send(
-            JSON.stringify({
-                type: "produced",
-                producerId: producer.id,
-                kind,
-            }),
-        );
+      // 作成されたプロデューサーが実際に存在するか再確認
+      const refreshedPeerInfo = await client.getPeerInfo(roomId, userId);
+      if (
+        refreshedPeerInfo &&
+        refreshedPeerInfo.producers &&
+        Object.keys(refreshedPeerInfo.producers).includes(producer.id)
+      ) {
+        console.log(`プロデューサー ${producer.id} の通知送信`);
+
+        // 他のクライアントに再通知
+        handleNoticeProduce(roomId, userId, kind, producer.id);
+      }
     } catch (error) {
-        console.log(error);
-        ws.send(
-            JSON.stringify({
-                type: "producerNotFound",
-            }),
-        );
+      console.log(
+        `通知再送信エラー: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
+  } catch (error) {
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        context: "produce",
+        message: error instanceof Error
+          ? error.message
+          : "Failed to create producer",
+      }),
+    );
+  }
 }
 
 async function handleConnectTransport(
-    ws: WSContext<WebSocket>,
-    data: ConnectMessage,
-    sessionsKey: string,
+  ws: WSContext<WebSocket>,
+  data: ConnectMessage,
+  sessionsKey: {
+    userId: string;
+    roomId: string;
+    uuid: string;
+  },
 ) {
-    const { dtlsParameters } = data;
-    const session = sessions.get(sessionsKey);
-    
-    if (!session) {
-        ws.close();
-        return;
+  const { dtlsParameters, transportType } = data; // transportTypeを取得
+  const session = sessions.get(sessionsKey.uuid);
+
+  if (!session) {
+    console.log(`セッションが見つかりません: ${sessionsKey.uuid}`);
+    ws.close();
+    return;
+  }
+
+  const { userId, roomId } = sessionsKey;
+
+  if (!userId || !roomId) {
+    ws.close();
+    return;
+  }
+
+  try {
+    // 明示的に指定されたtransportTypeを使用
+    if (transportType === "send") {
+      await client.connectTransport(
+        roomId,
+        userId,
+        session.transportId.send,
+        dtlsParameters,
+      );
+    } else if (transportType === "recv") {
+      await client.connectTransport(
+        roomId,
+        userId,
+        session.transportId.recv,
+        dtlsParameters,
+      );
+    } else {
+      throw new Error(`不明なトランスポートタイプ: ${transportType}`);
     }
-    
-    const [userId, roomId] = sessionsKey.split("@");
-    
-    if (!userId || !roomId) {
-        ws.close();
-        return;
-    }
-    
-    let transportType: "send" | "recv" | null = null;
-    
-    try {
-        transportType = data.type === "connect" ? "send" : "recv";
-        
-        if (transportType === "send") {
-            await client.connectTransport(
-                roomId,
-                userId,
-                session.transportId.send,
-                dtlsParameters,
-            );
-        } else {
-            await client.connectTransport(
-                roomId,
-                userId,
-                session.transportId.recv,
-                dtlsParameters,
-            );
-        }
-        
-        ws.send(
-            JSON.stringify({
-                type: "connected",
-                transportType,
-            }),
-        );
-    } catch (error) {
-        console.log(error);
-        ws.send(
-            JSON.stringify({
-                type: "error",
-                message: `Failed to connect ${transportType} transport`
-            })
-        );
-    }
+
+    ws.send(
+      JSON.stringify({
+        type: "connected",
+        transportType, // 応答にもtransportTypeを含める
+      }),
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        transportType, // エラー応答にもtransportTypeを含める
+        message:
+          `Failed to connect ${transportType} transport: ${errorMessage}`,
+      }),
+    );
+  }
 }
 
 async function collectRoomData(
-    roomId: string,
-    currentPeerId: string,
-    roomInfo: any,
+  roomId: string,
+  currentPeerId: string,
+  roomInfo: any,
 ): Promise<{
-    producers: Array<{ id: string; peerId: string; kind: string }>;
+  producers: Array<{ id: string; peerId: string; kind: string }>;
 }> {
-    const producers: Array<{ id: string; peerId: string; kind: string }> = [];
+  const producers: Array<{ id: string; peerId: string; kind: string }> = [];
 
-    for (const [existingPeerId, peer] of Object.entries(roomInfo.peers)) {
-        if (existingPeerId !== currentPeerId) {
-            const peerInfo = await client.getPeerInfo(roomId, existingPeerId);
-            if (peerInfo) {
-                if (peerInfo.producers) {
-                    for (const producerId of Object.keys(peerInfo.producers)) {
-                        const producerInfo = await client.getProducerInfo(
-                            roomId,
-                            existingPeerId,
-                            producerId,
-                        );
-                        if (producerInfo) {
-                            producers.push({
-                                id: producerId,
-                                peerId: existingPeerId,
-                                kind: producerInfo.kind,
-                            });
-                        }
-                    }
-                }
+  for (const [existingPeerId, peer] of Object.entries(roomInfo.peers)) {
+    if (existingPeerId !== currentPeerId) {
+      const peerInfo = await client.getPeerInfo(roomId, existingPeerId);
+      if (peerInfo) {
+        if (peerInfo.producers) {
+          for (const producerId of Object.keys(peerInfo.producers)) {
+            const producerInfo = await client.getProducerInfo(
+              roomId,
+              existingPeerId,
+              producerId,
+            );
+            if (producerInfo) {
+              producers.push({
+                id: producerId,
+                peerId: existingPeerId,
+                kind: producerInfo.kind,
+              });
             }
+          }
         }
+      }
     }
-    return { producers };
+  }
+  return { producers };
 }
 
 export default app;

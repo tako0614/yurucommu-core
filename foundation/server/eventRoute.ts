@@ -8,6 +8,9 @@ import "./friend/cannsel.ts";
 import "./friend/group/accept.ts";
 import "./friend/group/invite.ts";
 import "./friend/request.ts";
+import "./friend/call/request.ts";
+import "./friend/call/accept.ts";
+import "./friend/call/reject.ts";
 import "./group/ban.ts";
 import "./group/kick.ts";
 import "./group/unban.ts";
@@ -34,21 +37,21 @@ import "./group/join/request.ts";
 import "./group/join/accept.ts";
 import "./group/leave.ts";
 export default app.post(
-    "/",
-    zValidator(
-        "json",
-        z.object({
-            event: z.string(),
-            eventId: z.string(),
-            payload: z.object({}).passthrough(),
-        }),
-    ),
-    async (c) => {
-        try {
-            return await eventManager.dispatch(c);
-        } catch (err) {
-            console.error(err);
-            return c.json({ error: "Internal server error" }, 500);
-        }
-    },
+  "/",
+  zValidator(
+    "json",
+    z.object({
+      event: z.string(),
+      eventId: z.string(),
+      payload: z.object({}).passthrough(),
+    }),
+  ),
+  async (c) => {
+    try {
+      return await eventManager.dispatch(c);
+    } catch (err) {
+      console.error(err);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  },
 );

@@ -3,6 +3,7 @@
 ## 1. 概要
 
 **takos protocol** での標準通話機能は以下の技術を使用します：
+
 - **WebRTC SFU**: 「mediasoup」またはその互換サーバー
 - **シグナリング**: WebSocketプロトコル
 
@@ -18,22 +19,21 @@
 
 > foundation apiの通信の詳細は他のドキュメントを参照
 
-### 3.1 友達間の通話制御
+### 3.1 友達の通話制御(サーバー間通信)
 
-| メッセージ | 説明 | パラメータ | レスポンス |
-|------------|------|------------| -----------|
-| `t.friend.call.request` | 通話リクエスト送信 | `{ roomKeyhash?: string, isEncrypt: boomlan, friendId: string, userId: string }` | - |
-| `t.friend.call.accept` | 通話リクエスト受け入れ | `{ userId: string, friendId: string }` | `{ token: string }` |
-| `t.friend.call.reject` | 通話リクエスト拒否 | `{ userId: string, friendId: string }` | - |
-| `t.friend.call.cancel` | 通話リクエストキャンセル | `{ userId: string, friendId: string }` | - |
+| メッセージ              | 説明                     | パラメータ                                                                       | レスポンス          |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------------------- | ------------------- |
+| `t.friend.call.request` | 通話リクエスト送信       | `{ roomKeyhash?: string, isEncrypt: boomlan, friendId: string, userId: string }` | -                   |
+| `t.friend.call.accept`  | 通話リクエスト受け入れ   | `{ userId: string, friendId: string }`                                           | `{ token: string }` |
+| `t.friend.call.reject`  | 通話リクエスト拒否       | `{ userId: string, friendId: string }`                                           | -                   |
+| `t.friend.call.cancel`  | 通話リクエストキャンセル | `{ userId: string, friendId: string }`                                           | -                   |
 
-# 3.2 グループの通話制御
+# 3.2 グループの通話制御(サーバー間通信)
 
-| メッセージ | 説明 | パラメータ | レスポンス |
-|------------|------|------------| -----------|
+| メッセージ             | 説明                   | パラメータ                                                                     | レスポンス                       |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------ | -------------------------------- |
 | `t.group.call.request` | 通話開始リクエスト送信 | `{ roomKeyhash?: string, isEncrypt: boomlan, roomId: string, userId: string }` | `{ ok: boomlan, token: string }` |
-| `t.group.call.join` | 通話参加リクエスト送信 | `{ userId: string, roomId: string }` | `{ ok: boolean, token: string }` |
-
+| `t.group.call.join`    | 通話参加リクエスト送信 | `{ userId: string, roomId: string }`                                           | `{ ok: boolean, token: string }` |
 
 ### 3.3 サーバー接続
 
@@ -43,19 +43,15 @@
 
 接続時にサーバーから送信されるメッセージ:
 
-text通話の場合は webRTC関連の情報は不要
-?がついているやつはtext通話の場合は不要
-それ以外は必要
-
 ```typescript
 {
   type: "init",
   data: {
     roomId: string,
     peers: string[],
-    callType: "audio" | "video" | "text",
-    routerRtpCapabilities?: any,
-    transport?: {
+    callType: "audio" | "video"
+    routerRtpCapabilities: any,
+    transport: {
         send: {
             id: string,
             iceParameters: string,
@@ -71,7 +67,7 @@ text通話の場合は webRTC関連の情報は不要
             sctpParameters: string,
         }
     },
-    producers?: {
+    producers: {
         id: string;
         peerId: string;
         kind: string;
@@ -88,7 +84,7 @@ text通話の場合は webRTC関連の情報は不要
 {
   type: "join",
   peerId: string,
-  producers?: {
+  producers: {
     id: string;
     kind: string;
   }[],
@@ -105,30 +101,6 @@ text通話の場合は webRTC関連の情報は不要
   peerId: string,
 }
 ```
-
-### text通話専用api
-
-メッセージ送信
-
-```typescript
-{
-    type: "message",
-    message: string,
-    sign: string,
-}
-```
-
-メッセージ受信
-
-```typescript
-{
-    type: "message",
-    message: string,
-    sign: string,
-}
-```
-
-以下text通話の場合は不要
 
 #### トランスポート確立
 
@@ -165,13 +137,15 @@ text通話の場合は webRTC関連の情報は不要
 }
 ```
 
+produceを切断するときは clientがproducerを切断する websocketは何もしない
+
 ### 4.2 プロデューサー通知
 
 他クライアントへのプロデューサー作成通知:
 
 ```typescript
 {
-    type: "newProducer",
+    type: "produced",
     producerId: string,
     peerId: string,
     kind: "audio" | "video",
@@ -191,36 +165,26 @@ text通話の場合は webRTC関連の情報は不要
 }
 ```
 
-## 5. リソース終了
+consumeを切断するときは clientがconsumerを切断する websocketは何もしない
+また、相手のproducerが切断された場合は、 自動的に切断される
 
-### 5.1 プロデューサー終了
+### 4.4 コンシューマー通知
 
-```typescript
-{
-    type: "closeProducer",
-    producerId: string,
-}
-```
-
-### 5.2 コンシューマー終了
+他クライアントへのコンシューマー作成通知:
 
 ```typescript
 {
-    type: "closeConsumer",
+    type: "consumed",
     consumerId: string,
+    producerId: string,
+    kind: "audio" | "video",
+    rtpParameters: RtpParameters,
+    peerId: string,
 }
 ```
-
-> または、`producer.close()`や`consumer.close()`メソッドで終了可能
 
 ## 6. 通話終了
 
 通話終了方法:
-1. WebSocketの切断
-2. または以下のメッセージ送信:
 
-```typescript
-{
-    type: "bye",
-}
-```
+1. WebSocketの切断

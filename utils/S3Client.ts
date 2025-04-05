@@ -7,19 +7,19 @@ import { Buffer } from "node:buffer";
 const env = await load();
 
 console.log(
-    env["MINIO_ENDPOINT"],
-    env["AWS_ACCESS_KEY_ID"],
-    env["AWS_SECRET_ACCESS_KEY"],
-    env["BUCKET_NAME"],
+  env["MINIO_ENDPOINT"],
+  env["AWS_ACCESS_KEY_ID"],
+  env["AWS_SECRET_ACCESS_KEY"],
+  env["BUCKET_NAME"],
 );
 
 // Initialize the MinIO client with your configuration
 const minioClient = new Minio.Client({
-    endPoint: env["MINIO_ENDPOINT"], // e.g., "localhost" or your MinIO server address
-    port: 9000, // Default MinIO port; adjust if different
-    useSSL: false, // Set to true if using HTTPS
-    accessKey: env["AWS_ACCESS_KEY_ID"],
-    secretKey: env["AWS_SECRET_ACCESS_KEY"],
+  endPoint: env["MINIO_ENDPOINT"], // e.g., "localhost" or your MinIO server address
+  port: 9000, // Default MinIO port; adjust if different
+  useSSL: false, // Set to true if using HTTPS
+  accessKey: env["AWS_ACCESS_KEY_ID"],
+  secretKey: env["AWS_SECRET_ACCESS_KEY"],
 });
 
 /**
@@ -28,11 +28,11 @@ const minioClient = new Minio.Client({
  * @param fileContent - The content to upload as a string
  */
 async function uploadFile(key: string, fileContent: string) {
-    try {
-        await minioClient.putObject(env["BUCKET_NAME"], key, fileContent);
-    } catch (err) {
-        console.error(`アップロードエラー: ${err}`);
-    }
+  try {
+    await minioClient.putObject(env["BUCKET_NAME"], key, fileContent);
+  } catch (err) {
+    console.error(`アップロードエラー: ${err}`);
+  }
 }
 
 /**
@@ -41,28 +41,28 @@ async function uploadFile(key: string, fileContent: string) {
  * @returns The file content as a string
  */
 async function downloadFile(key: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        minioClient.getObject(
-            env["BUCKET_NAME"] as string,
-            key,
-            (err: Error | null, dataStream: any) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-                let data = "";
-                dataStream.on("data", (chunk: Buffer) => {
-                    data += chunk.toString();
-                });
-                dataStream.on("end", () => {
-                    resolve(data);
-                });
-                dataStream.on("error", (streamErr: Error) => {
-                    reject(streamErr);
-                });
-            },
-        );
-    });
+  return new Promise((resolve, reject) => {
+    minioClient.getObject(
+      env["BUCKET_NAME"] as string,
+      key,
+      (err: Error | null, dataStream: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        let data = "";
+        dataStream.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        dataStream.on("end", () => {
+          resolve(data);
+        });
+        dataStream.on("error", (streamErr: Error) => {
+          reject(streamErr);
+        });
+      },
+    );
+  });
 }
 
 // Export the functions for use in other modules

@@ -17,6 +17,7 @@ import media from "./web/sns/media.ts";
 import sns from "./web/sns/index.ts";
 import activityPub from "./activityPub/index.ts";
 import call from "./foundation/call/index.ts";
+import callFriend from "./web/call/friend.ts";
 import "./utils/ReidsSubPub.ts";
 const env = await load();
 const app = new Hono();
@@ -30,6 +31,7 @@ appClient.route("/server", server);
 appClient.route("/message", message);
 appClient.route("/group", groups);
 appClient.route("/ws", ws);
+appClient.route("/call/friend", callFriend);
 appClient.route("/sns", sns);
 appServer.route("/v1", gets);
 appServer.route("/v1/event", foundationApi);
@@ -37,14 +39,14 @@ app.route("/_takos", appServer);
 app.route("/api/v2", appClient);
 app.route("/media", media);
 app.route("/", activityPub);
-app.route("/_takos/call", call);
+app.route("/_takos/v2/call", call);
 
 await mongoose.connect(String(env["MONGO_URI"]));
 
 if (!await serverKey.findOne({}).sort({ expires: -1 })) {
-    const key = generateServerKey();
-    console.log("newKey");
-    await serverKey.create(key);
+  const key = generateServerKey();
+  console.log("newKey");
+  await serverKey.create(key);
 }
 
 export default app;
