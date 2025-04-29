@@ -2,13 +2,10 @@
 
 **Trustworthy Alternative Knowledge-sharing Open-source System**
 
----
 
 ## 概要
 `tako's` は、分散型SNS「Takos Protocol」をベースに開発されたオープンソースプロジェクトです。  
 中央集権的なサービスとは異なり、各サーバーが相互に競争・協調することで、ユーザーにとって安全かつ高機能なコミュニケーション環境を提供します。
-
----
 
 ## 主な特徴
 - **非中央集権アーキテクチャ**  
