@@ -1,4 +1,2 @@
 node_modules
-dev/.env
-dev2/.env
-utils/.env
+dist

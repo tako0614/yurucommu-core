@@ -1,0 +1,736 @@
+@charset "UTF-8";
+.animation-marquee {
+  /* アニメーションの速度や他の設定はそのまま */
+  animation: marquee 10s linear infinite;
+}
+
+.scroll-animation {
+  animation: scroll 25s linear infinite;
+}
+
+.loop {
+  animation: loop 10s linear infinite;
+  width: 100%;
+}
+
+.loop2 {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  animation: loop 10s linear infinite;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+@keyframes scroll {
+  0% {
+    transform: translateY(15%);
+  }
+  5% {
+    transform: translateY(15%);
+  }
+  90% {
+    transform: translateY(-70%);
+  }
+  95% {
+    transform: translateY(-70%);
+  }
+  100% {
+    transform: translateY(15%);
+  }
+}
+@keyframes loop {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* 右クリックメニューのアニメーション */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+html, body {
+  position: relative;
+  background-size: cover;
+  background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
+  color: #ffffff; /* ホワイトモード廃止: 基本文字色変更 */
+}
+
+::-webkit-scrollbar {
+  background: #1e1e1e; /* 背景に合わせて調整 */
+  width: 0px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #555; /* スクロールバーサムの色調整 */
+}
+
+input {
+  display: block;
+  background-color: #252526; /* ホワイトモード廃止: 入力欄背景色変更 */
+  color: #ffffff; /* ホワイトモード廃止: 入力欄文字色変更 */
+  border: 1px solid #333333; /* ホワイトモード廃止: 入力欄ボーダー色変更 */
+}
+
+.l-header {
+  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
+  display: block;
+  position: fixed;
+  z-index: 2;
+  transition: transform 0.3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
+}
+@media screen and (max-width: 768px) {
+  .l-header.is-inview {
+    transform: translateY(100%);
+  }
+}
+
+.l-header {
+  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
+  display: block;
+  position: fixed;
+  z-index: 4;
+  transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
+}
+.l-header-logo {
+  margin-bottom: 25px;
+  position: relative;
+  transition: 0.2s background-color ease;
+  border-radius: 6px;
+}
+.l-header-logo:hover {
+  background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
+}
+.l-header__ul {
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 12px; /* 最小間隔を8pxから12pxに変更 */
+  /* スクロールバー非表示 (Firefox) */
+  scrollbar-width: none;
+  /* スクロールバー非表示 (IE/Edge) */
+  -ms-overflow-style: none;
+}
+/* スクロールバー非表示 (WebKit系) - 正しい構文に修正 */
+.l-header__ul::-webkit-scrollbar {
+  display: none;
+}
+.l-header__ul-item {
+  border-radius: 6px;
+  position: relative;
+  transition: 0.2s background-color ease;
+}
+.l-header__ul-item svg {
+  stroke: #ffffff; /* ホワイトモード廃止: アイコン色変更 */
+}
+.l-header__ul-item.is-active svg {
+  fill: #ff6060;
+}
+.l-header__ul-item:hover {
+  background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
+}
+.l-header__ul-item a {
+  height: 100%;
+  width: 100%;
+  padding: 12px;
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+@media screen and (min-width: 769px) {
+  .l-header .is-inview {
+    transform: translateY(100%);
+  }
+}
+
+@media (min-width: 769px) {
+  .wrapper {
+    padding-left: 78px;
+    height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
+    overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
+  }
+  .l-header {
+    width: 78px;
+    height: 100%;
+    padding: 50px 14px;
+    top: 0;
+    left: 0;
+    right: 0;
+  }
+  .l-header__ul {
+    flex-direction: column;
+    overflow-y: auto; /* スクロールを有効化 */
+    /* ヘッダーの上下padding (50px * 2) + ロゴの高さ (仮に40px) + ロゴのmargin-bottom (25px) を引いた値を最大高さとする */
+    /* ロゴ画像の実際の高さや、ul自体のpadding/marginによって調整が必要 */
+    max-height: calc(100vh - 100px - 40px - 25px);
+  }
+  .l-header__ul-item {
+    width: 100%;
+    padding-top: 100%;
+  }
+}
+@media (max-width: 768px) {
+  .wrapper {
+    padding: 0; /* 既存のpadding:0を維持しつつ、必要なpaddingを追加 */
+    padding-bottom: 64px; /* スマホ版ヘッダーの高さ分 */
+    height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
+    overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
+  }
+  .l-header {
+    width: 100%;
+    height: 64px;
+    padding: 8px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+  }
+  .l-header__ul {
+    width: 100%;
+    justify-content: space-evenly;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .l-header__ul-item {
+    height: 100%;
+    aspect-ratio: 1/1;
+  }
+}
+.p-talk {
+  height: 100%;
+  display: flex;
+}
+@media screen and (min-width: 1053px) {
+  .p-talk {
+    width: 100%;
+  }
+}
+@media screen and (max-width: 768px) {
+  .p-talk {
+    overflow-x: hidden;
+    width: fit-content;
+    transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
+  }
+}
+@media screen and (max-width: 768px) {
+  .p-talk.is-inview {
+    transform: translateX(-50%);
+  }
+}
+.p-talk-list {
+  padding: 12px 12px 76px;
+  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
+  z-index: 3;
+}
+@media screen and (min-width: 1053px) {
+  .p-talk-list {
+    width: 360px;
+    flex-grow: 0;
+    flex-shrink: 0;
+    border-right: 1px solid #333333; /* ホワイトモード廃止: ボーダー色変更 */
+  }
+}
+@media screen and (max-width: 768px) {
+  .p-talk-list {
+    width: 100vw;
+  }
+}
+.p-talk-list-title {
+  font-size: 32px;
+  margin: 6px 3px 12px;
+  font-weight: 700;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+.p-talk-list-search, .p-talk-list-search form {
+  display: block;
+}
+.p-talk-list-search input {
+  width: 100%;
+  outline: none;
+  border: none;
+  font-weight: 400;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: #3c3c3c; /* ホワイトモード廃止: 背景色変更 */
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+.p-talk-list-search input::placeholder {
+  color: #aaaaaa; /* ホワイトモード廃止: プレースホルダー色変更 */
+}
+.p-talk-list-rooms {
+  margin: 10px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+}
+.p-talk-list-rooms__ul {
+  width: 100%;
+}
+.p-talk-chat {
+  height: 100%;
+  display: block;
+}
+@media screen and (min-width: 1053px) {
+  .p-talk-chat {
+    flex-grow: 1;
+    width: 100%;
+  }
+}
+@media screen and (max-width: 768px) {
+  .p-talk-chat {
+    width: 100vw;
+    padding: 0;
+  }
+}
+.p-talk-chat-container {
+  display: flex;
+  flex-direction: column;
+  background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
+  height: 100%;
+  position: relative;
+}
+@media screen and (min-width: 1053px) {
+  .p-talk-chat-container {
+    border-radius: 8px;
+  }
+}
+.p-talk-chat-title {
+  font-weight: 700;
+  font-size: 20px;
+  border-bottom: #333333 1px solid; /* ホワイトモード廃止: ボーダー色変更 */
+  display: flex;
+  align-items: center;
+  height: 48px;
+  width: 100%;
+  position: absolute;
+  background: rgba(30, 30, 30, 0.85); /* ホワイトモード廃止: 背景色変更 */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid
+    rgba(51, 51, 51, 0.18); /* ホワイトモード廃止: ボーダー色変更 */
+  box-shadow: 0 3px 18px 0
+    rgba(0, 0, 0, 0.2); /* ホワイトモード廃止: シャドウ調整 */
+  z-index: 2;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+@media screen and (min-width: 769px) {
+  .p-talk-chat-title {
+    padding: 8px 18px;
+  }
+}
+.p-talk-chat-prev {
+  height: 100%;
+  aspect-ratio: 1/1;
+  border-radius: 100px;
+  padding: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border: none;
+  background-color: transparent; /* 背景色を透明に */
+  outline: none;
+}
+@media screen and (min-width: 769px) {
+  .p-talk-chat-prev {
+    display: none;
+  }
+}
+.p-talk-chat-prev:hover svg {
+  stroke: rgba(255, 96, 96, 0.7); /* ホバー時の色調整 */
+}
+.p-talk-chat-prev svg {
+  width: 100%;
+  height: 100%;
+  stroke: #ff6060; /* アイコン色調整 */
+  transition: 0.3s ease stroke;
+}
+.p-talk-chat-main {
+  overflow-y: auto;
+  flex-grow: 1;
+  scroll-padding-block-start: 200px;
+}
+@media screen and (min-width: 769px) {
+  .p-talk-chat-main__ul {
+    padding: 16px;
+  }
+}
+@media screen and (max-width: 768px) {
+  .p-talk-chat-main__ul {
+    padding: 8px;
+  }
+}
+.p-talk-chat-send {
+  padding: 0 18px 12px;
+}
+.p-talk-chat-send__form {
+  height: 100%;
+  border-radius: 12px;
+  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
+  display: flex;
+  align-items: end;
+  gap: 6px;
+}
+.p-talk-chat-send__msg {
+  flex-grow: 1;
+  position: relative;
+  box-shadow: 1px 1px 10px
+    rgba(0, 0, 0, 0.2); /* ホワイトモード廃止: シャドウ調整 */
+  border: 1px solid #333333; /* ホワイトモード廃止: ボーダー色変更 */
+  border-radius: 16px;
+  background-color: #3c3c3c; /* ホワイトモード廃止: 背景色変更 */
+}
+.p-talk-chat-send__msg label {
+  height: 100%;
+  width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.p-talk-chat-send__button {
+  height: 44px;
+  width: 44px;
+  padding: 6px;
+  flex-grow: 0;
+  flex-shrink: 0;
+  background-color: transparent;
+  border-radius: 100px;
+  cursor: default;
+}
+.p-talk-chat-send__button.is-active {
+  background-color: #ff3b3b;
+  cursor: pointer;
+}
+.p-talk-chat-send__button.is-active svg g {
+  fill: #ffffff;
+}
+.p-talk-chat-send__button.is-active:hover {
+  background-color: #db3232;
+}
+.p-talk-chat-send__button svg {
+  padding: 4px;
+  width: 100%;
+  height: 100%;
+}
+.p-talk-chat-send__button svg g {
+  fill: #888888; /* ホワイトモード廃止: 非アクティブ時のアイコン色変更 */
+}
+.p-talk-chat-send__dummy {
+  width: 100%;
+  height: 100%;
+  outline: none;
+  border: none;
+  font-size: 15px;
+  padding: 10px 0 10px 16px;
+  margin: 0;
+  overflow: hidden;
+  background-color: transparent;
+  white-space: break-spaces;
+  overflow-wrap: break-word;
+  visibility: hidden;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+.p-talk-chat-send__textarea {
+  width: 100%;
+  height: 100%;
+  outline: none;
+  border: none;
+  font-size: 15px;
+  padding: 10px 0 10px 16px;
+  margin: 0;
+  overflow: hidden;
+  resize: none;
+  background-color: transparent;
+  white-space: break-spaces;
+  overflow-wrap: break-word;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+.p-talk-chat-send__textarea:focus {
+  outline: none;
+}
+
+@media (max-width: 1052px) and (min-width: 769px) {
+  .p-talk {
+    width: 100%;
+  }
+  .p-talk-list {
+    width: 300px;
+    flex-shrink: 0;
+    border-right: 1px solid #333333; /* ホワイトモード廃止: ボーダー色変更 */
+  }
+  .p-talk-chat {
+    flex-shrink: 2;
+    width: 100%;
+  }
+  .p-talk-chat-container {
+    border-radius: 8px;
+  }
+}
+.c-talk-rooms {
+  height: 64px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+.c-talk-rooms:hover {
+  background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
+}
+.c-talk-rooms.is-active {
+  background-color: #4a4a4a; /* ホワイトモード廃止: アクティブ背景色変更 */
+}
+.c-talk-rooms button {
+  height: 100%;
+  width: 100%;
+  padding: 10px 8px;
+  display: flex;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+}
+.c-talk-rooms a {
+  height: 100%;
+  width: 100%;
+  padding: 10px 8px;
+  display: flex;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+  cursor: pointer;
+}
+.c-talk-rooms-icon {
+  height: 100%;
+  aspect-ratio: 1/1;
+  display: block;
+  position: relative;
+}
+.c-talk-rooms-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: #3c3c3c; /* ホワイトモード廃止: アイコン背景色変更 */
+}
+.c-talk-rooms-box {
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.c-talk-rooms-name {
+  font-size: 14px;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+}
+.c-talk-rooms-nickname {
+  font-weight: 700;
+}
+.c-talk-rooms-locate {
+  color: #aaaaaa; /* ホワイトモード廃止: 文字色変更 */
+  margin-left: 8px;
+}
+.c-talk-rooms-msg {
+  font-weight: 400;
+  font-size: 12px;
+  color: #aaaaaa; /* ホワイトモード廃止: 文字色変更 */
+}
+.c-talk-rooms-msg p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.c-talk-chat {
+  display: flex;
+  margin-top: 3px;
+  position: relative;
+  z-index: 0;
+}
+.c-talk-chat.self {
+  justify-content: right;
+  margin-right: 12px;
+}
+.c-talk-chat-box {
+  max-width: 80%;
+  display: flex;
+}
+.c-talk-chat-icon {
+  height: 36px;
+  aspect-ratio: 1/1;
+}
+.c-talk-chat-name {
+  font-size: 10px;
+  font-weight: 700;
+  margin: 2px 0 2px 10px;
+  color: #bbbbbb; /* ホワイトモード廃止: 名前文字色変更 */
+}
+.c-talk-chat-right {
+  flex-grow: 1;
+}
+.c-talk-chat-msg {
+  position: relative;
+  padding: 6px 12px;
+  border-radius: 12px;
+  z-index: 2;
+  font-size: 15px;
+  line-height: 20px;
+  width: fit-content;
+}
+.c-talk-chat-msg p {
+  width: fit-content;
+  max-width: 100%;
+  word-wrap: break-word;
+  word-break: break-all;
+}
+.c-talk-chat.primary {
+  margin-top: 10px;
+}
+.c-talk-chat.other .c-talk-chat-msg {
+  /* 相手のメッセージ */
+  background-color: #3c3c3c; /* ホワイトモード廃止: 背景色変更 */
+  color: #ffffff; /* ホワイトモード廃止: 文字色変更 */
+  box-shadow: 1px 1px 10px
+    rgba(0, 0, 0, 0.2); /* ホワイトモード廃止: シャドウ調整 */
+}
+.c-talk-chat.self .c-talk-chat-msg {
+  /* 自分のメッセージ */
+  background-color: #ff3b3b;
+  color: #ffffff;
+  box-shadow: 1px 1px 10px
+    rgba(0, 0, 0, 0.2); /* ホワイトモード廃止: シャドウ調整 */
+}
+.c-talk-chat.other.primary .c-talk-chat-msg {
+  margin-left: 10px;
+  border-radius: 2px 12px 12px;
+}
+.c-talk-chat.other.subsequent .c-talk-chat-msg {
+  /* .c-talk-chat-msg の重複を修正 */
+  margin-left: 46px;
+}
+.c-talk-chat.self.primary .c-talk-chat-msg {
+  /* .c-talk-chat-msg の重複を修正 */
+  border-radius: 12px 2px 12px 12px;
+}
+.c-talk-chat-date {
+  font-size: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  color: #888888; /* ホワイトモード廃止: 日付文字色変更 */
+  white-space: nowrap;
+  margin-bottom: 4px;
+  width: 100%;
+  margin: 20px 0 8px;
+}
+.c-talk-chat-date-box {
+  padding: 3px 12px;
+  background-color: rgba(50, 50, 50, 0.6); /* ホワイトモード廃止: 背景色変更 */
+  width: fit-content;
+  margin: 0 auto;
+  border-radius: 100px;
+  font-size: 11px;
+  color: #cccccc; /* ホワイトモード廃止: 文字色変更 */
+}
+.c-talk-chat-date, .c-talk-chat.other {
+  margin-left: 6px;
+  text-align: left;
+}
+.c-talk-chat.self, .c-talk-chat-date {
+  margin-right: 6px;
+  text-align: right;
+}
+
+.g-recaptcha {
+  margin-right: auto;
+  margin-left: auto;
+  text-align: center;
+  width: 300px;
+  margin-top: 20px;
+}
+
+.g-recaptcha-badge {
+  visibility: hidden;
+}
+
+/* メッセージのコンテキストメニュー用のスタイル追加 */
+.message-context-menu {
+  position: fixed;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 99999 !important;
+  isolation: isolate;
+  min-width: 150px;
+  overflow: visible;
+  pointer-events: auto;
+  contain: layout; /* パフォーマンス最適化 */
+}
+
+/* ポップアップの表示を改善するためのスタイル追加 */
+@media screen and (max-width: 768px) {
+  .permissions-container {
+    max-height: 30vh !important;
+  }
+}
+
+/* モバイルでのモーダル表示を改善 */
+@media (max-width: 768px) {
+  .bg-gray-800.rounded-lg {
+    width: 90% !important;
+    max-width: 90% !important;
+  }
+}
+
+/* 設定サイドバー用のスタイル追加 */
+@media screen and (min-width: 769px) {
+  .p-talk {
+    display: flex;
+    width: 100%;
+  }
+
+  .p-talk-chat {
+    flex-shrink: 1;
+    flex-grow: 1;
+    width: auto;
+  }
+}
+
+/* モバイルでの表示調整 */
+@media screen and (max-width: 768px) {
+  .p-talk {
+    width: 100vw;
+    flex-direction: column;
+  }
+}
+
+/* アニメーションのスムーズ化 */
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/*# sourceMappingURL=stylesheet.css.map
+ */

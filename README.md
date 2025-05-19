@@ -1,22 +1,24 @@
-# tako's
+# takosとは
 
-**Trustworthy Alternative Knowledge-sharing Open-source System**
+takosはActivityPubでweb自主するためのソフトウェアです。
+takosは、ActivityPubに追加で、以下の機能を提供します。
 
+このソフトウェアは、1人のユーザが、他のユーザとコミュニケーションを取るためのものです。
+基本的に同一ドメインのユーザーは同一人物です。(サブアカウントなど)
 
-## 概要
-`tako's` は、分散型SNS「Takos Protocol」をベースに開発されたオープンソースプロジェクトです。  
-中央集権的なサービスとは異なり、各サーバーが相互に競争・協調することで、ユーザーにとって安全かつ高機能なコミュニケーション環境を提供します。
-また、一人一鯖での運用も想定しており、自らのデータを自らが管理できるようになります。
+## 技術スタック
 
-## 主な特徴
-- **非中央集権アーキテクチャ**  
-  ユーザーのデータは各サーバーが管理。プライバシーと可用性を両立します。
-- **耐量子暗号によるE2EE**  
-  Quantum-safe アルゴリズムでメッセージ暗号化と署名を実装。
-- **豊富なグループ機能**  
-  プライベート／パブリックグループ、チャンネル、カテゴリー、ロール管理など柔軟な設定が可能。
-- **拡張可能なFoundation API**  
-  サーバー間通信やイベント駆動型メッセージ共有を標準化。
+言語/ランタイム: TypeScript/Deno バックエンドフレームワーク: Hono
+フロントエンドフレームワーク: Solid.js/tauri データベース:
+Prisma(prisma対応ならなんでも)
 
-## ライセンス
-AGPL v3
+# GET started(backend)
+
+env記述後
+
+```bash
+deno task run
+```
+
+- [takos web](./docs/takos-web/index.md)
+- [ActivityPub (Addional object)](./docs/ActivityPub/index.md)

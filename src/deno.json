@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"],
+    "lib": ["dom", "es2024", "deno.ns"]
+  },
+  "tasks": {
+    "dev": "deno run -A --node-modules-dir npm:vite dev",
+    "build": "deno run -A --node-modules-dir npm:vite build",
+    "preview": "deno run -A --node-modules-dir npm:vite preview",
+    "serve": "deno run --allow-net --allow-read https://deno.land/std@0.157.0/http/file_server.ts dist/"
+  },
+  "imports": {
+    "@hono/vite-dev-server": "npm:@hono/vite-dev-server@^0.19.0",
+    "@hono/zod-validator": "npm:@hono/zod-validator@^0.5.0",
+    "@prisma/client": "npm:@prisma/client@^6.8.2",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.4",
+    "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.7",
+    "hono": "npm:hono@^4.7.9",
+    "jotai": "npm:jotai@^2.12.4",
+    "mongoose": "npm:mongoose@^8.15.0",
+    "solid-jotai": "npm:solid-jotai@^0.3.1",
+    "solid-js": "npm:solid-js@^1.9.6",
+    "tailwindcss": "npm:tailwindcss@^4.1.7",
+    "vite": "npm:vite@^5.4.19",
+    "vite-plugin-solid": "npm:vite-plugin-solid@^2.11.6",
+    "zod": "npm:zod@^3.24.4"
+  },
+  "nodeModulesDir": "auto"
+}
