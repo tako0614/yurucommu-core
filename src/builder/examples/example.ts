@@ -2,7 +2,7 @@
 
 /**
  * 🐙 新しい統一API での Takopack 拡張機能の例
- * 
+ *
  * この例では、改訂された Takopack builder API を使用します：
  * - 統一されたイベント定義フォーマット (source/target)
  * - 権限の一括記述
@@ -42,8 +42,15 @@ const PostSchema = z.object({
   content: z.string()
     .min(1, "コンテンツは必須です")
     .max(2000, "コンテンツは2000文字以内である必要があります"),
-  hashtags: z.array(z.string().regex(/^[a-zA-Z0-9_]+$/, "ハッシュタグは英数字とアンダースコアのみ")).optional(),
-  visibility: z.enum(["public", "unlisted", "followers", "private"]).default("public"),
+  hashtags: z.array(
+    z.string().regex(
+      /^[a-zA-Z0-9_]+$/,
+      "ハッシュタグは英数字とアンダースコアのみ",
+    ),
+  ).optional(),
+  visibility: z.enum(["public", "unlisted", "followers", "private"]).default(
+    "public",
+  ),
 });
 
 // UserSettingsSchemaは将来の機能拡張用に定義（現在は未使用）
@@ -406,39 +413,40 @@ const modernUI = `<!DOCTYPE html>
 // ========================================
 
 console.log("🏗️  新しい統一API での Takopack 拡張機能をビルド中...");
-console.log("=" .repeat(60));
+console.log("=".repeat(60));
 
 const extension = new FunctionBasedTakopack()
   .output("dist")
   .package("new-api-takos-extension")
-  
   // === マニフェスト設定（権限は一括で記述） ===
   .config({
     name: "🐙 新 Takopack 拡張機能",
-    description: "統一されたイベント定義、権限の一括管理、ActivityPub統一APIのデモンストレーション",
+    description:
+      "統一されたイベント定義、権限の一括管理、ActivityPub統一APIのデモンストレーション",
     version: "3.0.0",
     identifier: "com.takos.new.api.extension",
     apiVersion: "2.0",
     // 権限を一括で記述
     permissions: [
       "kv:read",
-      "kv:write", 
+      "kv:write",
       "activitypub:send",
       "activitypub:receive:hook",
       "events:publish",
-      "events:subscribe"
-    ]
+      "events:subscribe",
+    ],
   })
-  
   // === サーバー関数（権限引数なし） ===
-  
+
   .serverFunction("createPost", async (postData: unknown) => {
     try {
       const validatedData = PostSchema.parse(postData);
       const startTime = performance.now();
-      
-      const postId = `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
+
+      const postId = `post_${Date.now()}_${
+        Math.random().toString(36).substr(2, 9)
+      }`;
+
       // KVストレージに保存
       await globalThis.takos?.kv?.set(`posts:${postId}`, {
         ...validatedData,
@@ -446,21 +454,26 @@ const extension = new FunctionBasedTakopack()
         createdAt: new Date().toISOString(),
         author: "current_user",
       });
-      
+
       const duration = performance.now() - startTime;
       console.log(`投稿作成完了: ${duration}ms`);
-      
-      return [200, { 
-        id: postId, 
-        message: "投稿が正常に作成されました", 
-        content: validatedData.content 
+
+      return [200, {
+        id: postId,
+        message: "投稿が正常に作成されました",
+        content: validatedData.content,
       }];
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "不明なエラー";
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "不明なエラー";
       if (error instanceof z.ZodError) {
         return [400, { error: "入力データが無効です", details: error.errors }];
       }
-      return [500, { error: "投稿の作成に失敗しました", details: errorMessage }];
+      return [500, {
+        error: "投稿の作成に失敗しました",
+        details: errorMessage,
+      }];
     }
   })
   .serverFunction("getPerformanceMetrics", async () => {
@@ -469,33 +482,40 @@ const extension = new FunctionBasedTakopack()
         totalPosts: 5,
         avgResponseTime: 45,
         successRate: 98,
-        activeConnections: 3
+        activeConnections: 3,
       };
-      
+
       return [200, metrics];
     } catch (_error) {
       return [500, { error: "メトリクスの取得に失敗しました" }];
     }
   })
-
   .serverFunction("testActivityPubConnection", () => {
     try {
-      return [200, { 
+      return [200, {
         message: "ActivityPub接続テスト成功",
         timestamp: new Date().toISOString(),
-        supportedTypes: ["Note", "Create", "Update", "Delete", "Follow", "Like", "Announce"]
+        supportedTypes: [
+          "Note",
+          "Create",
+          "Update",
+          "Delete",
+          "Follow",
+          "Like",
+          "Announce",
+        ],
       }];
     } catch (_error) {
       return [500, { error: "ActivityPub接続テストに失敗しました" }];
     }
   })
   // === 新しい ActivityPub API（単一メソッド） ===
-  
+
   .activityPub(
-    { 
-      context: "https://www.w3.org/ns/activitystreams", 
+    {
+      context: "https://www.w3.org/ns/activitystreams",
       object: "Note",
-      priority: 1
+      priority: 1,
     },
     // canAccept関数（第2引数）
     (context: string, object: ActivityPubObject) => {
@@ -505,54 +525,53 @@ const extension = new FunctionBasedTakopack()
     // hook関数（第3引数）
     async (_context: string, object: ActivityPubObject) => {
       console.log(`ActivityPub hook: 受信したNote: ${object.object?.content}`);
-      
+
       const noteId = `incoming_${Date.now()}`;
       await globalThis.takos?.kv?.set(`notes:${noteId}`, {
         ...object.object,
         id: noteId,
-        receivedAt: new Date().toISOString()
+        receivedAt: new Date().toISOString(),
       });
-      
+
       z.object({
         id: z.string(),
         content: z.string().optional(),
-        receivedAt: z.string()
+        receivedAt: z.string(),
       }).parse({
         id: noteId,
         content: object.object?.content,
-        receivedAt: new Date().toISOString()
+        receivedAt: new Date().toISOString(),
       });
-      
-      return { processed: true, noteId };
-    }
-  )
 
+      return { processed: true, noteId };
+    },
+  )
   // === クライアント関数 ===
-  
+
   .clientFunction("notifyUser", (message: string, type: string = "info") => {
     console.log(`[通知 ${type}] ${message}`);
-    
+
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("Takos 拡張機能", {
         body: message,
-        icon: "/icon.png"
+        icon: "/icon.png",
       });
     }
   })
-
   // === 新しいイベント定義方式（source/target形式） ===
-  
+
   // Client → Server イベント（便利メソッド使用）
   .addClientToServerEvent("testMessage", (payload: EventPayload) => {
     console.log("Client → Server イベント受信:", payload);
-    return [200, { message: "イベントを処理しました", receivedAt: new Date().toISOString() }];
+    return [200, {
+      message: "イベントを処理しました",
+      receivedAt: new Date().toISOString(),
+    }];
   })
-
   // Server → Client イベント（便利メソッド使用）
   .addServerToClientEvent("metricsUpdated", (metrics: MetricsData) => {
     console.log("Server → Client: メトリクスが更新されました:", metrics);
   })
-
   // UI → Background イベント（便利メソッド使用）
   .addUIToBackgroundEvent("uiNotification", (notification: EventPayload) => {
     console.log("UI → Background: 通知を受信:", notification);
@@ -561,20 +580,18 @@ const extension = new FunctionBasedTakopack()
   .addEvent("customBidirectional", {
     source: "client",
     target: "server",
-    handler: "handleCustomEvent"
+    handler: "handleCustomEvent",
   }, (payload: unknown) => {
     console.log("カスタムイベント処理:", payload);
     return [200, { processed: true, timestamp: Date.now() }];
   })
-  
   // === UI設定 ===
   .ui(modernUI)
-  
   // === ビルド設定 ===
   .bundle({
     target: "es2020",
     development: false,
-    analytics: true
+    analytics: true,
   });
 
 // ビルド実行

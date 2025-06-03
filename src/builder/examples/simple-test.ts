@@ -18,7 +18,7 @@ const builder = new FunctionBasedTakopack()
     description: "新しいAPIの基本テスト",
     version: "1.0.0",
     identifier: "test.simple",
-    permissions: ["kv:read", "kv:write"]
+    permissions: ["kv:read", "kv:write"],
   })
   .serverFunction("hello", (name: string) => {
     const schema = z.string().min(1);
@@ -44,17 +44,15 @@ const builder = new FunctionBasedTakopack()
     priority: 100,
     serial: true,
   }, (activity) => {
-    return !!activity
-  },
-  (activity) => {
+    return !!activity;
+  }, (activity) => {
     console.log("Received Activity:", activity);
     return activity;
   })
   .clientFunction("greet", (name: string) => {
     console.log(`Hello from the client, ${name}!`);
-  })
+  });
 
 await builder.build();
 
 console.log("✅ 簡単なテストが完了しました！");
-

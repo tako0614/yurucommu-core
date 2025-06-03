@@ -42,7 +42,11 @@ export interface KVStore {
 
 export interface AssetsManager {
   read(path: string): Promise<string>;
-  write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>;
+  write(
+    path: string,
+    data: string | Uint8Array,
+    options?: { cacheTTL?: number },
+  ): Promise<string>;
   delete(path: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
 }
@@ -51,12 +55,15 @@ export interface EventManager {
   // Server-side (server.js)
   publish(eventName: string, payload: unknown): Promise<[number, unknown]>;
   publishToClient(eventName: string, payload: unknown): Promise<void>;
-  publishToClientPushNotification(eventName: string, payload: unknown): Promise<void>;
-  
+  publishToClientPushNotification(
+    eventName: string,
+    payload: unknown,
+  ): Promise<void>;
+
   // Client-side (client.js)
   publishToUI(eventName: string, payload: unknown): Promise<void>;
   publishToBackground(eventName: string, payload: unknown): Promise<void>;
-  
+
   // Common API
   subscribe(eventName: string, handler: (payload: unknown) => void): () => void;
 }
@@ -75,20 +82,20 @@ export interface ActivityPubManager {
   read(id: string): Promise<ActivityPubObject>;
   delete(id: string): Promise<void>;
   list(userId?: string): Promise<string[]>;
-  
+
   // Actor operations
   actor: {
     read(userId: string): Promise<ActivityPubActor>;
     update(userId: string, key: string, value: string): Promise<void>;
     delete(userId: string, key: string): Promise<void>;
   };
-  
+
   // Follow operations
   follow(followerId: string, followeeId: string): Promise<void>;
   unfollow(followerId: string, followeeId: string): Promise<void>;
   listFollowers(actorId: string): Promise<string[]>;
   listFollowing(actorId: string): Promise<string[]>;
-  
+
   // Plugin actor operations
   pluginActor: PluginActorManager;
 }
@@ -106,21 +113,27 @@ declare global {
   interface Window {
     takos: TakosAPI;
   }
-  
+
   // For globalThis access
   namespace globalThis {
     var takos: TakosAPI;
   }
-  
+
   // For const declaration
   var takos: TakosAPI;
 }
 
 // Extension hook function types
-export type CanAcceptActivityHook = (activity: ActivityPubObject) => boolean | Promise<boolean>;
-export type OnReceiveActivityHook = (activity: ActivityPubObject) => ActivityPubObject | Promise<ActivityPubObject>;
+export type CanAcceptActivityHook = (
+  activity: ActivityPubObject,
+) => boolean | Promise<boolean>;
+export type OnReceiveActivityHook = (
+  activity: ActivityPubObject,
+) => ActivityPubObject | Promise<ActivityPubObject>;
 export type EventHandler<T = unknown> = (payload: T) => void | Promise<void>;
-export type ServerEventHandler<T = unknown> = (payload: T) => Promise<[number, unknown]>;
+export type ServerEventHandler<T = unknown> = (
+  payload: T,
+) => Promise<[number, unknown]>;
 
 // Extension Manifest interface for takopack configuration
 export interface ExtensionManifest {
@@ -129,7 +142,8 @@ export interface ExtensionManifest {
   version: string;
   identifier: string;
   apiVersion?: string;
-  permissions?: string[];  activityPub?: {
+  permissions?: string[];
+  activityPub?: {
     objects?: Array<{
       accepts: string[];
       context?: string;
@@ -140,7 +154,8 @@ export interface ExtensionManifest {
         serial?: boolean;
       };
     }>;
-  };eventDefinitions?: Record<string, {
+  };
+  eventDefinitions?: Record<string, {
     source: "client" | "server" | "background" | "ui";
     target: "server" | "client" | "client:*" | "ui" | "background";
     handler: string;

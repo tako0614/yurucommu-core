@@ -26,9 +26,9 @@ eventManager.add(
         publicKeyPem: "dummy_public_key",
         privateKeyPem: "dummy_private_key",
       });
-      
+
       await account.save();
-      
+
       return {
         id: account._id.toString(),
         userName: account.name,
@@ -37,7 +37,10 @@ eventManager.add(
       };
     } catch (error) {
       console.error("Account creation error:", error);
-      if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+      if (
+        error && typeof error === "object" && "code" in error &&
+        error.code === 11000
+      ) {
         throw new Error("このユーザー名は既に使用されています");
       }
       throw error;
@@ -78,48 +81,55 @@ eventManager.add(
   async (_c, payload) => {
     try {
       const updateData: Record<string, unknown> = {};
-      
+
       // 新しいユーザー名が指定されている場合の重複チェック
       if (payload.newUsername) {
-        const existingAccount = await Account.findOne({ 
+        const existingAccount = await Account.findOne({
           $and: [
             { name: payload.newUsername },
-            { name: { $ne: payload.username } } // 現在のアカウント以外
-          ]
+            { name: { $ne: payload.username } }, // 現在のアカウント以外
+          ],
         });
         if (existingAccount) {
           throw new Error("このユーザー名は既に使用されています");
         }
         updateData.name = payload.newUsername;
       }
-      
-      if (payload.newDisplayName) updateData.displayName = payload.newDisplayName;
+
+      if (payload.newDisplayName) {
+        updateData.displayName = payload.newDisplayName;
+      }
       // icon が提供されていれば、それをそのまま使用 (データURLまたは文字列)
       if (payload.icon !== undefined) updateData.icon = payload.icon;
-      
+
       // IDまたは名前で検索するように変更
-      const query = payload.username.length === 24 && /^[0-9a-fA-F]{24}$/.test(payload.username)
-        ? { _id: payload.username }  // ObjectIdの場合
+      const query = payload.username.length === 24 &&
+          /^[0-9a-fA-F]{24}$/.test(payload.username)
+        ? { _id: payload.username } // ObjectIdの場合
         : { name: payload.username }; // 名前の場合
-      
+
       const account = await Account.findOneAndUpdate(
         query,
         updateData,
-        { new: true }
+        { new: true },
       );
-      
+
       if (!account) {
         throw new Error("アカウントが見つかりません");
       }
-      
+
       return {
         id: account._id.toString(),
         userName: account.name,
         displayName: account.displayName,
         avatarInitial: account.icon, // 更新されたアイコンを返す
-      };    } catch (error) {
+      };
+    } catch (error) {
       console.error("Account update error:", error);
-      if (error instanceof Error && 'code' in error && (error as { code: number }).code === 11000) {
+      if (
+        error instanceof Error && "code" in error &&
+        (error as { code: number }).code === 11000
+      ) {
         throw new Error("このユーザー名は既に使用されています");
       }
       throw error;
@@ -134,7 +144,7 @@ eventManager.add(
   async (_c, _payload) => {
     try {
       const accounts = await Account.find({});
-      return accounts.map(account => ({
+      return accounts.map((account) => ({
         id: account._id.toString(),
         userName: account.name,
         displayName: account.displayName,

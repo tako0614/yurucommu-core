@@ -19,7 +19,8 @@
 
 ## 1. 概要
 
-Takopack Builderは、関数ベースでtakos拡張機能を開発するためのビルドツールです。TypeScriptで開発し、自動的にバンドル・最小化してtakopackファイルを生成します。
+Takopack
+Builderは、関数ベースでtakos拡張機能を開発するためのビルドツールです。TypeScriptで開発し、自動的にバンドル・最小化してtakopackファイルを生成します。
 
 ### 特徴
 
@@ -84,7 +85,7 @@ const extension = new FunctionBasedTakopack()
     description: "A simple extension",
     version: "1.0.0",
     identifier: "com.example.myext",
-    permissions: ["kv:read", "kv:write"]
+    permissions: ["kv:read", "kv:write"],
   });
 
 await extension.build();
@@ -98,29 +99,25 @@ import FunctionBasedTakopack from "./builder/main.ts";
 const extension = new FunctionBasedTakopack()
   .output("dist")
   .package("my-extension")
-  
   // サーバー関数
   .serverFunction("getData", async (key: string) => {
     // KVから データを取得
     const data = await globalThis.takos.kv.read(key);
     return [200, { data }];
   })
-  
   // クライアント関数
   .clientFunction("showAlert", async (message: string) => {
     console.log(`Alert: ${message}`);
   })
-  
   // UI設定
   .ui(htmlContent)
-  
   // 権限とマニフェスト設定
   .config({
     name: "My Extension",
     description: "Extension with server and client functions",
     version: "1.0.0",
     identifier: "com.example.myext",
-    permissions: ["kv:read", "kv:write", "events:publish"]
+    permissions: ["kv:read", "kv:write", "events:publish"],
   });
 
 await extension.build();
@@ -133,6 +130,7 @@ await extension.build();
 ### 基本設定メソッド
 
 #### `output(dir: string): this`
+
 ビルド出力ディレクトリを設定します。
 
 ```typescript
@@ -141,6 +139,7 @@ await extension.build();
 ```
 
 #### `package(name: string): this`
+
 パッケージ名を設定します（.takopackファイル名になります）。
 
 ```typescript
@@ -148,6 +147,7 @@ await extension.build();
 ```
 
 #### `config(config: ManifestConfig): this`
+
 マニフェスト設定を行います。
 
 ```typescript
@@ -162,6 +162,7 @@ await extension.build();
 ```
 
 #### `ui(htmlContent: string): this`
+
 UI HTMLコンテンツを設定します。
 
 ```typescript
@@ -182,6 +183,7 @@ UI HTMLコンテンツを設定します。
 ### 関数登録メソッド
 
 #### `serverFunction<TArgs, TReturn>(name: string, fn: Function): this`
+
 サーバー側で実行される関数を登録します。
 
 ```typescript
@@ -193,6 +195,7 @@ UI HTMLコンテンツを設定します。
 ```
 
 #### `clientFunction<TArgs>(name: string, fn: Function): this`
+
 クライアント側（バックグラウンド）で実行される関数を登録します。
 
 ```typescript
@@ -205,6 +208,7 @@ UI HTMLコンテンツを設定します。
 ### イベント関連メソッド
 
 #### `addEvent(eventName: string, definition: EventDefinition, handler: Function): this`
+
 カスタムイベントを定義します。
 
 ```typescript
@@ -244,6 +248,7 @@ UI HTMLコンテンツを設定します。
 ### ActivityPub メソッド
 
 #### `activityPub(config, canAccept?, hook?): this`
+
 ActivityPubフック処理を設定します。
 
 ```typescript
@@ -286,11 +291,11 @@ ActivityPubフック処理を設定します。
 
 ```typescript
 interface ManifestConfig {
-  name: string;              // 拡張機能名
-  description: string;       // 説明
-  version: string;          // バージョン（SemVer形式）
-  identifier: string;       // 識別子（逆FQDN形式）
-  apiVersion?: string;      // API バージョン（デフォルト: "2.0"）
+  name: string; // 拡張機能名
+  description: string; // 説明
+  version: string; // バージョン（SemVer形式）
+  identifier: string; // 識別子（逆FQDN形式）
+  apiVersion?: string; // API バージョン（デフォルト: "2.0"）
   permissions?: Permission[]; // 権限配列
 }
 ```
@@ -298,7 +303,7 @@ interface ManifestConfig {
 ### Permission 型
 
 ```typescript
-type Permission = 
+type Permission =
   | "fetch:net"
   | "activitypub:send"
   | "activitypub:read"
@@ -315,13 +320,13 @@ type Permission =
   | "assets:write"
   | "events:publish"
   | "events:subscribe"
-  | "deno:read"    // 特権権限
-  | "deno:write"   // 特権権限
-  | "deno:net"     // 特権権限
-  | "deno:env"     // 特権権限
-  | "deno:run"     // 特権権限
-  | "deno:sys"     // 特権権限
-  | "deno:ffi";    // 特権権限
+  | "deno:read" // 特権権限
+  | "deno:write" // 特権権限
+  | "deno:net" // 特権権限
+  | "deno:env" // 特権権限
+  | "deno:run" // 特権権限
+  | "deno:sys" // 特権権限
+  | "deno:ffi"; // 特権権限
 ```
 
 ---
@@ -403,12 +408,12 @@ Builder は自動的に以下を行います：
 ```typescript
 const extension = new FunctionBasedTakopack()
   .bundle({
-    development: true,     // ソースマップ有効、最小化無効
-    analytics: true,       // ビルド分析表示
-    target: "es2020"      // ターゲット指定
-  })
-  // ...その他設定
-  
+    development: true, // ソースマップ有効、最小化無効
+    analytics: true, // ビルド分析表示
+    target: "es2020", // ターゲット指定
+  });
+// ...その他設定
+
 await extension.build();
 ```
 
@@ -417,12 +422,12 @@ await extension.build();
 ```typescript
 const extension = new FunctionBasedTakopack()
   .bundle({
-    development: false,    // 最小化有効
-    analytics: false,      // 分析無効
-    target: "es2018"      // 古いブラウザサポート
-  })
-  // ...その他設定
-  
+    development: false, // 最小化有効
+    analytics: false, // 分析無効
+    target: "es2018", // 古いブラウザサポート
+  });
+// ...その他設定
+
 await extension.build();
 ```
 
@@ -481,25 +486,22 @@ import FunctionBasedTakopack from "./builder/main.ts";
 const memoExtension = new FunctionBasedTakopack()
   .output("dist")
   .package("simple-memo")
-  
   // メモ保存
   .serverFunction("saveMemo", async (memo: string) => {
     const id = `memo_${Date.now()}`;
     await globalThis.takos.kv.write(id, memo);
     return [200, { id, saved: true }];
   })
-  
   // メモ一覧取得
   .serverFunction("getMemos", async () => {
     const keys = await globalThis.takos.kv.list();
     const memos = [];
-    for (const key of keys.filter(k => k.startsWith("memo_"))) {
+    for (const key of keys.filter((k) => k.startsWith("memo_"))) {
       const memo = await globalThis.takos.kv.read(key);
       memos.push({ id: key, content: memo });
     }
     return [200, { memos }];
   })
-  
   // UI
   .ui(`
     <!DOCTYPE html>
@@ -521,13 +523,12 @@ const memoExtension = new FunctionBasedTakopack()
       </body>
     </html>
   `)
-  
   .config({
     name: "Simple Memo",
     description: "A simple memo-taking extension",
     version: "1.0.0",
     identifier: "com.example.simplememo",
-    permissions: ["kv:read", "kv:write", "events:publish", "events:subscribe"]
+    permissions: ["kv:read", "kv:write", "events:publish", "events:subscribe"],
   });
 
 await memoExtension.build();
@@ -539,51 +540,48 @@ await memoExtension.build();
 const activityPubExtension = new FunctionBasedTakopack()
   .output("dist")
   .package("note-processor")
-  
   // ActivityPub Note処理
   .activityPub(
     {
       context: "https://www.w3.org/ns/activitystreams",
       object: "Note",
-      priority: 1
+      priority: 1,
     },
     // canAccept: Noteの受信可否判定
     (context: string, object: any) => {
-      return object.type === "Create" && 
-             object.object?.type === "Note" &&
-             object.object?.content;
+      return object.type === "Create" &&
+        object.object?.type === "Note" &&
+        object.object?.content;
     },
     // hook: Note処理
     async (context: string, object: any) => {
       const note = object.object;
-      
+
       // キーワード抽出
       const keywords = extractKeywords(note.content);
-      
+
       // 統計保存
       await globalThis.takos.kv.write(
-        `note_stats_${Date.now()}`, 
-        { keywords, timestamp: new Date().toISOString() }
+        `note_stats_${Date.now()}`,
+        { keywords, timestamp: new Date().toISOString() },
       );
-      
+
       console.log("Note processed:", keywords);
       return { processed: true, keywords };
-    }
+    },
   )
-  
   .serverFunction("getStats", async () => {
     const keys = await globalThis.takos.kv.list();
-    const statsKeys = keys.filter(k => k.startsWith("note_stats_"));
+    const statsKeys = keys.filter((k) => k.startsWith("note_stats_"));
     const stats = [];
-    
+
     for (const key of statsKeys) {
       const stat = await globalThis.takos.kv.read(key);
       stats.push(stat);
     }
-    
+
     return [200, { stats }];
   })
-  
   .config({
     name: "Note Processor",
     description: "Processes ActivityPub Notes and extracts keywords",
@@ -592,8 +590,8 @@ const activityPubExtension = new FunctionBasedTakopack()
     permissions: [
       "activitypub:receive:hook",
       "kv:read",
-      "kv:write"
-    ]
+      "kv:write",
+    ],
   });
 
 // キーワード抽出関数
@@ -601,7 +599,7 @@ function extractKeywords(content: string): string[] {
   return content
     .toLowerCase()
     .split(/\s+/)
-    .filter(word => word.length > 3)
+    .filter((word) => word.length > 3)
     .slice(0, 5);
 }
 
@@ -615,6 +613,7 @@ await activityPubExtension.build();
 ### よくある問題
 
 #### ❌ ビルドエラー: "Manifest configuration is required"
+
 ```typescript
 // 解決方法: .config() の呼び出しが必要
 .config({
@@ -626,12 +625,14 @@ await activityPubExtension.build();
 ```
 
 #### ❌ 型エラー: Cannot find name 'globalThis'
+
 ```typescript
 // 解決方法: 型定義ファイルをインポート
 /// <reference path="./types/takos-api.d.ts" />
 ```
 
 #### ❌ 権限エラー: "Permission denied"
+
 ```typescript
 // 解決方法: 必要な権限を追加
 .config({
@@ -644,6 +645,7 @@ await activityPubExtension.build();
 ```
 
 #### ❌ バンドルエラー: "Could not resolve"
+
 ```typescript
 // 解決方法: 依存関係の確認
 // package.json または deno.json で依存関係を確認

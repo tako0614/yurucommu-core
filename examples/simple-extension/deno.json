@@ -1,9 +1,10 @@
 {
   "tasks": {
-    "dev": "deno run --watch main.ts"
+    "dev": "deno run --watch main.ts",
+    "build": "deno run -A -r jsr:@takopack/builder build"
   },
   "nodeModulesDir": "auto",
-  "imports": {
-    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62"
+  "imports ": {
+    "@takopack/builder": "jsr:@takopack/builder@^3.0.0"
   }
 }

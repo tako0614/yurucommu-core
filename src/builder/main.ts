@@ -2,19 +2,24 @@
 
 /**
  * Takopack Builder API v2.0
- * 
+ *
  * takopack仕様に準拠した拡張機能のビルドツール
  * 関数ベース開発とesbuildバンドルをサポート
  */
 
-import { join, resolve, dirname, toFileUrl } from "https://deno.land/std@0.208.0/path/mod.ts";
+import {
+  dirname,
+  join,
+  resolve,
+  toFileUrl,
+} from "https://deno.land/std@0.208.0/path/mod.ts";
 import { existsSync } from "https://deno.land/std@0.208.0/fs/mod.ts";
-import { ZipWriter, BlobWriter, TextReader } from "@zip-js/zip-js";
+import { BlobWriter, TextReader, ZipWriter } from "@zip-js/zip-js";
 import * as esbuild from "esbuild";
 import type { ExtensionManifest } from "./types/takos-api.ts";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 // Permission types based on the specification
-export type Permission = 
+export type Permission =
   | "fetch:net"
   | "activitypub:send"
   | "activitypub:read"
@@ -40,15 +45,32 @@ export type Permission =
   | "deno:ffi";
 
 // Function types
-export type ServerFunction<TArgs extends unknown[] = unknown[], TReturn = unknown> = (...args: TArgs) => TReturn | Promise<TReturn>;
-export type ClientFunction<TArgs extends unknown[] = unknown[]> = (...args: TArgs) => void | Promise<void>;
-export type EventHandlerFunction<T = unknown> = (payload: T) => [number, unknown] | Promise<[number, unknown]>;
-export type ClientEventHandlerFunction<T = unknown> = (payload: T) => void | Promise<void>;
-export type UIEventHandlerFunction<T = unknown> = (payload: T) => void | Promise<void>;
+export type ServerFunction<
+  TArgs extends unknown[] = unknown[],
+  TReturn = unknown,
+> = (...args: TArgs) => TReturn | Promise<TReturn>;
+export type ClientFunction<TArgs extends unknown[] = unknown[]> = (
+  ...args: TArgs
+) => void | Promise<void>;
+export type EventHandlerFunction<T = unknown> = (
+  payload: T,
+) => [number, unknown] | Promise<[number, unknown]>;
+export type ClientEventHandlerFunction<T = unknown> = (
+  payload: T,
+) => void | Promise<void>;
+export type UIEventHandlerFunction<T = unknown> = (
+  payload: T,
+) => void | Promise<void>;
 
 // ActivityPub types
-export type ActivityPubCanAcceptFunction<T = unknown> = (context: string, object: T) => boolean | Promise<boolean>;
-export type ActivityPubHookFunction<T = unknown> = (context: string, object: T) => unknown | Promise<unknown>;
+export type ActivityPubCanAcceptFunction<T = unknown> = (
+  context: string,
+  object: T,
+) => boolean | Promise<boolean>;
+export type ActivityPubHookFunction<T = unknown> = (
+  context: string,
+  object: T,
+) => unknown | Promise<unknown>;
 
 // Build interfaces
 export interface BuildMetrics {
@@ -117,13 +139,13 @@ export interface ManifestConfig {
 export interface ServerFunctionRegistration {
   name: string;
   fn: ServerFunction<unknown[], unknown>;
-  type?: 'hook' | 'event' | 'general';
+  type?: "hook" | "event" | "general";
 }
 
 export interface ClientFunctionRegistration {
   name: string;
   fn: ClientFunction<unknown[]>;
-  type?: 'event' | 'general';
+  type?: "event" | "general";
 }
 
 /**
@@ -140,7 +162,7 @@ export default class FunctionBasedTakopack {
     target: "es2020",
     development: false,
     analytics: false,
-    strictValidation: true
+    strictValidation: true,
   };
 
   /**
@@ -187,12 +209,12 @@ export default class FunctionBasedTakopack {
    */
   serverFunction<TArgs extends unknown[], TReturn>(
     name: string,
-    fn: (...args: TArgs) => TReturn | Promise<TReturn>
+    fn: (...args: TArgs) => TReturn | Promise<TReturn>,
   ): this {
     this.serverFunctions.set(name, {
       name,
       fn: fn as ServerFunction<unknown[], unknown>,
-      type: 'general'
+      type: "general",
     });
     return this;
   }
@@ -202,12 +224,12 @@ export default class FunctionBasedTakopack {
    */
   clientFunction<TArgs extends unknown[]>(
     name: string,
-    fn: (...args: TArgs) => void | Promise<void>
+    fn: (...args: TArgs) => void | Promise<void>,
   ): this {
     this.clientFunctions.set(name, {
       name,
       fn: fn as ClientFunction<unknown[]>,
-      type: 'general'
+      type: "general",
     });
     return this;
   }
@@ -219,9 +241,14 @@ export default class FunctionBasedTakopack {
    * @param hook - hook関数 (第3引数)
    */
   activityPub<T>(
-    config: { context: string; object: string; priority?: number; serial?: boolean },
+    config: {
+      context: string;
+      object: string;
+      priority?: number;
+      serial?: boolean;
+    },
     canAccept?: ActivityPubCanAcceptFunction<T>,
-    hook?: ActivityPubHookFunction<T>
+    hook?: ActivityPubHookFunction<T>,
   ): this {
     // canAccept関数を登録
     if (canAccept) {
@@ -229,7 +256,7 @@ export default class FunctionBasedTakopack {
       this.serverFunctions.set(canAcceptName, {
         name: canAcceptName,
         fn: canAccept as ServerFunction<unknown[], unknown>,
-        type: 'hook'
+        type: "hook",
       });
     }
 
@@ -239,7 +266,7 @@ export default class FunctionBasedTakopack {
       this.serverFunctions.set(hookName, {
         name: hookName,
         fn: hook as ServerFunction<unknown[], unknown>,
-        type: 'hook'
+        type: "hook",
       });
     }
 
@@ -250,7 +277,7 @@ export default class FunctionBasedTakopack {
         description: "",
         version: "1.0.0",
         identifier: "",
-        activityPub: []
+        activityPub: [],
       };
     }
     if (!this.manifestConfig.activityPub) {
@@ -260,10 +287,12 @@ export default class FunctionBasedTakopack {
     this.manifestConfig.activityPub.push({
       context: config.context,
       object: config.object,
-      canAccept: canAccept ? `canAccept_${config.object.toLowerCase()}` : undefined,
+      canAccept: canAccept
+        ? `canAccept_${config.object.toLowerCase()}`
+        : undefined,
       hook: hook ? `hook_${config.object.toLowerCase()}` : undefined,
       priority: config.priority,
-      serial: config.serial
+      serial: config.serial,
     });
 
     return this;
@@ -274,20 +303,23 @@ export default class FunctionBasedTakopack {
   addEvent<T = unknown>(
     eventName: string,
     definition: EventDefinition,
-    handler: EventHandlerFunction<T> | ClientEventHandlerFunction<T> | UIEventHandlerFunction<T>
+    handler:
+      | EventHandlerFunction<T>
+      | ClientEventHandlerFunction<T>
+      | UIEventHandlerFunction<T>,
   ): this {
     // ハンドラーを適切な場所に登録
     if (definition.target === "server") {
       this.serverFunctions.set(definition.handler, {
         name: definition.handler,
         fn: handler as ServerFunction<unknown[], unknown>,
-        type: 'event'
+        type: "event",
       });
     } else {
       this.clientFunctions.set(definition.handler, {
         name: definition.handler,
         fn: handler as ClientFunction<unknown[]>,
-        type: 'event'
+        type: "event",
       });
     }
 
@@ -298,7 +330,7 @@ export default class FunctionBasedTakopack {
         description: "",
         version: "1.0.0",
         identifier: "",
-        eventDefinitions: {}
+        eventDefinitions: {},
       };
     }
     if (!this.manifestConfig.eventDefinitions) {
@@ -315,12 +347,12 @@ export default class FunctionBasedTakopack {
    */
   addClientToServerEvent<T>(
     eventName: string,
-    handler: EventHandlerFunction<T>
+    handler: EventHandlerFunction<T>,
   ): this {
     return this.addEvent(eventName, {
       source: "client",
       target: "server",
-      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`
+      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`,
     }, handler);
   }
 
@@ -329,12 +361,12 @@ export default class FunctionBasedTakopack {
    */
   addServerToClientEvent<T>(
     eventName: string,
-    handler: ClientEventHandlerFunction<T>
+    handler: ClientEventHandlerFunction<T>,
   ): this {
     return this.addEvent(eventName, {
       source: "server",
       target: "client",
-      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`
+      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`,
     }, handler);
   }
 
@@ -343,12 +375,12 @@ export default class FunctionBasedTakopack {
    */
   addBackgroundToUIEvent<T>(
     eventName: string,
-    handler: UIEventHandlerFunction<T>
+    handler: UIEventHandlerFunction<T>,
   ): this {
     return this.addEvent(eventName, {
       source: "background",
       target: "ui",
-      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`
+      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`,
     }, handler);
   }
 
@@ -357,164 +389,181 @@ export default class FunctionBasedTakopack {
    */
   addUIToBackgroundEvent<T>(
     eventName: string,
-    handler: ClientEventHandlerFunction<T>
+    handler: ClientEventHandlerFunction<T>,
   ): this {
     return this.addEvent(eventName, {
       source: "ui",
       target: "background",
-      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`
+      handler: `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`,
     }, handler);
-  }  /**
+  } /**
    * Generate server.js from registered functions
    */
+
   private generateServerJS(): string {
     const functions: string[] = [];
     const exports: string[] = [];
     const usedImports = new Set<string>();
-    
+
     for (const [name, registration] of this.serverFunctions) {
       const fnString = registration.fn.toString();
-      
 
       // Add type comment for event handlers
-      const typeComment = registration.type === 'event' 
+      const typeComment = registration.type === "event"
         ? `// @type event-handler\n// @returns [status: number, body: object]`
-        : `// @type ${registration.type || 'general'}`;
-        // Handle arrow functions properly
+        : `// @type ${registration.type || "general"}`;
+      // Handle arrow functions properly
       let functionDeclaration: string;
-      if (fnString.includes('=>')) {
+      if (fnString.includes("=>")) {
         // Arrow function - extract parameters and body
-        const arrowIndex = fnString.indexOf('=>');
+        const arrowIndex = fnString.indexOf("=>");
         let beforeArrow = fnString.substring(0, arrowIndex).trim();
         let body = fnString.substring(arrowIndex + 2).trim();
-        
+
         // Handle async arrow functions
-        const isAsync = beforeArrow.startsWith('async');
+        const isAsync = beforeArrow.startsWith("async");
         if (isAsync) {
           beforeArrow = beforeArrow.substring(5).trim();
         }
-        
+
         // Clean up parameter parentheses
         let cleanParams = beforeArrow;
-        if (cleanParams.startsWith('(') && cleanParams.endsWith(')')) {
+        if (cleanParams.startsWith("(") && cleanParams.endsWith(")")) {
           cleanParams = cleanParams.slice(1, -1);
         }
-        
+
         // Handle block vs expression body
-        if (!body.startsWith('{')) {
+        if (!body.startsWith("{")) {
           body = `{ return ${body}; }`;
         }
-        
-        const asyncKeyword = isAsync ? 'async ' : '';
-        functionDeclaration = `${asyncKeyword}function ${name}(${cleanParams}) ${body}`;
+
+        const asyncKeyword = isAsync ? "async " : "";
+        functionDeclaration =
+          `${asyncKeyword}function ${name}(${cleanParams}) ${body}`;
       } else {
         // Regular function - handle anonymous functions
-        if (fnString.startsWith('function')) {
-          const parenIndex = fnString.indexOf('(');
-          functionDeclaration = `function ${name}${fnString.substring(parenIndex)}`;
-        } else if (fnString.startsWith('async function')) {
-          const parenIndex = fnString.indexOf('(');
-          functionDeclaration = `async function ${name}${fnString.substring(parenIndex)}`;
+        if (fnString.startsWith("function")) {
+          const parenIndex = fnString.indexOf("(");
+          functionDeclaration = `function ${name}${
+            fnString.substring(parenIndex)
+          }`;
+        } else if (fnString.startsWith("async function")) {
+          const parenIndex = fnString.indexOf("(");
+          functionDeclaration = `async function ${name}${
+            fnString.substring(parenIndex)
+          }`;
         } else {
           // Fallback: wrap as function
           functionDeclaration = `function ${name}() { return (${fnString}); }`;
         }
       }
-      
+
       functions.push(`${typeComment}
 ${functionDeclaration}`);
-      
+
       exports.push(name);
     }
-    
-    const importsString = Array.from(usedImports).join('\n');
-    const exportsString = exports.length > 0 
-      ? `export { ${exports.join(', ')} };` 
-      : '';
-    
-    return `${importsString ? importsString + '\n\n' : ''}${functions.join('\n\n')}
+
+    const importsString = Array.from(usedImports).join("\n");
+    const exportsString = exports.length > 0
+      ? `export { ${exports.join(", ")} };`
+      : "";
+
+    return `${importsString ? importsString + "\n\n" : ""}${
+      functions.join("\n\n")
+    }
 
 ${exportsString}`;
-  }  /**
+  } /**
    * Generate client.js from registered functions
    */
+
   private generateClientJS(): string {
     const functions: string[] = [];
     const exports: string[] = [];
     const usedImports = new Set<string>();
-    
+
     for (const [name, registration] of this.clientFunctions) {
       const fnString = registration.fn.toString();
       // Add type comment
-      const typeComment = registration.type === 'event' 
+      const typeComment = registration.type === "event"
         ? `// @type event-handler`
-        : `// @type ${registration.type || 'general'}`;
-      
+        : `// @type ${registration.type || "general"}`;
+
       // Handle arrow functions properly (same logic as server)
       let functionDeclaration: string;
-      if (fnString.includes('=>')) {
+      if (fnString.includes("=>")) {
         // Arrow function - extract parameters and body
-        const arrowIndex = fnString.indexOf('=>');
+        const arrowIndex = fnString.indexOf("=>");
         let beforeArrow = fnString.substring(0, arrowIndex).trim();
         let body = fnString.substring(arrowIndex + 2).trim();
-        
+
         // Handle async arrow functions
-        const isAsync = beforeArrow.startsWith('async');
+        const isAsync = beforeArrow.startsWith("async");
         if (isAsync) {
           beforeArrow = beforeArrow.substring(5).trim();
         }
-        
+
         // Clean up parameter parentheses
         let cleanParams = beforeArrow;
-        if (cleanParams.startsWith('(') && cleanParams.endsWith(')')) {
+        if (cleanParams.startsWith("(") && cleanParams.endsWith(")")) {
           cleanParams = cleanParams.slice(1, -1);
         }
-        
+
         // Handle block vs expression body
-        if (!body.startsWith('{')) {
+        if (!body.startsWith("{")) {
           body = `{ return ${body}; }`;
         }
-        
-        const asyncKeyword = isAsync ? 'async ' : '';
-        functionDeclaration = `${asyncKeyword}function ${name}(${cleanParams}) ${body}`;
+
+        const asyncKeyword = isAsync ? "async " : "";
+        functionDeclaration =
+          `${asyncKeyword}function ${name}(${cleanParams}) ${body}`;
       } else {
         // Regular function - handle anonymous functions
-        if (fnString.startsWith('function')) {
-          const parenIndex = fnString.indexOf('(');
-          functionDeclaration = `function ${name}${fnString.substring(parenIndex)}`;
-        } else if (fnString.startsWith('async function')) {
-          const parenIndex = fnString.indexOf('(');
-          functionDeclaration = `async function ${name}${fnString.substring(parenIndex)}`;
+        if (fnString.startsWith("function")) {
+          const parenIndex = fnString.indexOf("(");
+          functionDeclaration = `function ${name}${
+            fnString.substring(parenIndex)
+          }`;
+        } else if (fnString.startsWith("async function")) {
+          const parenIndex = fnString.indexOf("(");
+          functionDeclaration = `async function ${name}${
+            fnString.substring(parenIndex)
+          }`;
         } else {
           // Fallback: wrap as function
           functionDeclaration = `function ${name}() { return (${fnString}); }`;
         }
       }
-      
+
       functions.push(`${typeComment}
 ${functionDeclaration}`);
-      
+
       exports.push(name);
     }
-    
-    const importsString = Array.from(usedImports).join('\n');
-    const exportsString = exports.length > 0 
-      ? `export { ${exports.join(', ')} };` 
-      : '';
-    
-    return `${importsString ? importsString + '\n\n' : ''}${functions.join('\n\n')}
+
+    const importsString = Array.from(usedImports).join("\n");
+    const exportsString = exports.length > 0
+      ? `export { ${exports.join(", ")} };`
+      : "";
+
+    return `${importsString ? importsString + "\n\n" : ""}${
+      functions.join("\n\n")
+    }
 
 ${exportsString}`;
   }
 
   /**
    * takopack manifest.json 生成
-   * 
+   *
    * takopack仕様v2.0に準拠したmanifest.jsonを生成
    */
   private generateManifest(): ExtensionManifest {
     if (!this.manifestConfig) {
-      throw new Error("Manifest configuration is required. Call .config() to set manifest configuration.");
+      throw new Error(
+        "Manifest configuration is required. Call .config() to set manifest configuration.",
+      );
     }
 
     // 基本的なmanifest構造（takopack仕様準拠）
@@ -526,32 +575,38 @@ ${exportsString}`;
       apiVersion: this.manifestConfig.apiVersion || "2.0",
       permissions: this.manifestConfig.permissions || [],
       server: {
-        entry: "./server.js"
+        entry: "./server.js",
       },
       client: {
         entryUI: "./index.html",
-        entryBackground: "./client.js"
-      }
+        entryBackground: "./client.js",
+      },
     };
 
     // eventDefinitions の追加（takopack仕様のsource/target形式）
-    if (this.manifestConfig.eventDefinitions && Object.keys(this.manifestConfig.eventDefinitions).length > 0) {
+    if (
+      this.manifestConfig.eventDefinitions &&
+      Object.keys(this.manifestConfig.eventDefinitions).length > 0
+    ) {
       manifest.eventDefinitions = this.manifestConfig.eventDefinitions;
     }
 
     // activityPub設定の追加（takopack仕様準拠）
-    if (this.manifestConfig.activityPub && this.manifestConfig.activityPub.length > 0) {
+    if (
+      this.manifestConfig.activityPub &&
+      this.manifestConfig.activityPub.length > 0
+    ) {
       manifest.activityPub = {
-        objects: this.manifestConfig.activityPub.map(config => ({
+        objects: this.manifestConfig.activityPub.map((config) => ({
           accepts: [config.object],
           context: config.context,
           hooks: {
             canAccept: config.canAccept,
             onReceive: config.hook,
             priority: config.priority || 0,
-            serial: config.serial || false
-          }
-        }))
+            serial: config.serial || false,
+          },
+        })),
       };
     }
 
@@ -559,18 +614,18 @@ ${exportsString}`;
   }
   /**
    * Bundles a single file with esbuild
-   */  private async bundleWithEsbuild(
+   */ private async bundleWithEsbuild(
     entryPoint: string,
     outputPath: string,
-    platform: "node" | "browser"
+    platform: "node" | "browser",
   ): Promise<void> {
     try {
       // ★ Windows でも POSIX でも安全に解決できるよう file URL へ変換
       const absoluteEntry = resolve(entryPoint);
-      const entryURL      = toFileUrl(absoluteEntry).href;
+      const entryURL = toFileUrl(absoluteEntry).href;
       const result = await esbuild.build({
-        absWorkingDir: dirname(absoluteEntry),   // ← resolveDir 相当を明示
-        entryPoints : [entryURL],
+        absWorkingDir: dirname(absoluteEntry), // ← resolveDir 相当を明示
+        entryPoints: [entryURL],
         outfile: outputPath,
         bundle: true,
         platform,
@@ -586,7 +641,10 @@ ${exportsString}`;
       });
 
       if (this.bundleOptions.analytics && result.metafile) {
-        console.log("📊 Bundle analysis:", await esbuild.analyzeMetafile(result.metafile));
+        console.log(
+          "📊 Bundle analysis:",
+          await esbuild.analyzeMetafile(result.metafile),
+        );
       }
     } catch (error) {
       console.error(`❌ Bundling failed for ${outputPath}:`, error);
@@ -620,12 +678,12 @@ ${exportsString}`;
         const tempServerFile = join(sauceDir, "_temp_server.ts");
         const serverCode = this.generateServerJS();
         await Deno.writeTextFile(tempServerFile, serverCode);
-        
+
         try {
           await this.bundleWithEsbuild(
             tempServerFile,
             join(sauceDir, "server.js"),
-            "node"
+            "node",
           );
           console.log("✅ Generated and bundled server.js");
         } finally {
@@ -643,12 +701,12 @@ ${exportsString}`;
         const tempClientFile = join(sauceDir, "_temp_client.ts");
         const clientCode = this.generateClientJS();
         await Deno.writeTextFile(tempClientFile, clientCode);
-        
+
         try {
           await this.bundleWithEsbuild(
             tempClientFile,
             join(sauceDir, "client.js"),
-            "browser"
+            "browser",
           );
           console.log("✅ Generated and bundled client.js");
         } finally {
@@ -671,7 +729,7 @@ ${exportsString}`;
       const manifest = this.generateManifest();
       await Deno.writeTextFile(
         join(sauceDir, "manifest.json"),
-        JSON.stringify(manifest, null, 2)
+        JSON.stringify(manifest, null, 2),
       );
       console.log("✅ Generated manifest.json (takopack v2.0 format)");
 
@@ -691,7 +749,6 @@ ${exportsString}`;
       if (this.bundleOptions.analytics) {
         this.displayBuildMetrics(buildStartTime, buildEndTime);
       }
-
     } catch (error) {
       console.error("❌ Build failed:", error);
       throw error;
@@ -700,16 +757,19 @@ ${exportsString}`;
 
   /**
    * takopackファイル生成
-   * 
+   *
    * takopack仕様に準拠したzipファイルを生成:
    * - takos/ ディレクトリ構造
    * - manifest.json（必須）
    * - server.js, client.js, index.html
-   * 
+   *
    * @param sourceDir - ソースファイルがあるディレクトリ (dist/sauce)
    * @param outputDir - .takopackファイルの出力先ディレクトリ (dist)
    */
-  private async createTakopackFile(sourceDir: string, outputDir: string): Promise<void> {
+  private async createTakopackFile(
+    sourceDir: string,
+    outputDir: string,
+  ): Promise<void> {
     const zipFile = new BlobWriter("application/zip");
     const zipWriter = new ZipWriter(zipFile);
 
@@ -726,7 +786,7 @@ ${exportsString}`;
     // takopack仕様: takos/ ディレクトリ下にファイルを配置
     const requiredFiles = ["manifest.json"];
     const optionalFiles = ["server.js", "client.js", "index.html"];
-    
+
     // 必須ファイルの追加
     for (const file of requiredFiles) {
       const filePath = join(sourceDir, file);
@@ -736,7 +796,7 @@ ${exportsString}`;
         throw new Error(`Required file ${file} is missing`);
       }
     }
-    
+
     // オプションファイルの追加
     for (const file of optionalFiles) {
       const filePath = join(sourceDir, file);
@@ -746,15 +806,15 @@ ${exportsString}`;
     }
 
     await zipWriter.close();
-    
+
     // ZIP ファイルの書き込み（distディレクトリに出力）
     const zipBlob = await zipFile.getData();
     const arrayBuffer = await zipBlob.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    
+
     const outputPath = join(outputDir, `${this.packageName}.takopack`);
     await Deno.writeFile(outputPath, uint8Array);
-    
+
     console.log(`📦 Created ${outputPath}`);
   }
 
@@ -763,13 +823,25 @@ ${exportsString}`;
    */
   private displayBuildMetrics(startTime: number, endTime: number): void {
     console.log("\n📊 Build Metrics:");
-    console.log(`  ⏱️  Total build time: ${(endTime - startTime).toFixed(2)}ms`);
+    console.log(
+      `  ⏱️  Total build time: ${(endTime - startTime).toFixed(2)}ms`,
+    );
     console.log(`  🔧 Server functions: ${this.serverFunctions.size}`);
     console.log(`  💻 Client functions: ${this.clientFunctions.size}`);
-    console.log(`  📨 Event definitions: ${Object.keys(this.manifestConfig?.eventDefinitions || {}).length}`);
-    console.log(`  🌐 ActivityPub configs: ${this.manifestConfig?.activityPub?.length || 0}`);
-    console.log(`  🔐 Permissions: ${this.manifestConfig?.permissions?.length || 0}`);
-    
+    console.log(
+      `  📨 Event definitions: ${
+        Object.keys(this.manifestConfig?.eventDefinitions || {}).length
+      }`,
+    );
+    console.log(
+      `  🌐 ActivityPub configs: ${
+        this.manifestConfig?.activityPub?.length || 0
+      }`,
+    );
+    console.log(
+      `  🔐 Permissions: ${this.manifestConfig?.permissions?.length || 0}`,
+    );
+
     if (this.bundleOptions.development) {
       console.log(`  🚧 Development mode: enabled (with source maps)`);
     } else {

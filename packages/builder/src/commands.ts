@@ -1,4 +1,10 @@
-import type { TakopackConfig, BuildResult, CommandArgs, TypeGenerationOptions, TypeGenerationResult } from "./types.ts";
+import type {
+  BuildResult,
+  CommandArgs,
+  TakopackConfig,
+  TypeGenerationOptions,
+  TypeGenerationResult,
+} from "./types.ts";
 import { TakopackBuilder } from "./builder.ts";
 
 /**
@@ -14,37 +20,40 @@ export async function build(config: TakopackConfig): Promise<BuildResult> {
  */
 export async function watch(config: TakopackConfig): Promise<void> {
   console.log("👀 Watching files for changes...");
-  
+
   // 最初のビルド
   await build(config);
-  
+
   // ファイル監視設定
   const watchPaths = [
     ...(config.entries.server || []),
     ...(config.entries.client || []),
     ...(config.entries.ui || []),
   ];
-  
+
   if (watchPaths.length === 0) {
     console.warn("⚠️  No files to watch");
     return;
   }
 
   const watcher = Deno.watchFs(watchPaths);
-  
+
   let isBuilding = false;
   let pendingRebuild = false;
-  
+
   for await (const event of watcher) {
-    if (event.kind === "modify" || event.kind === "create" || event.kind === "remove") {
+    if (
+      event.kind === "modify" || event.kind === "create" ||
+      event.kind === "remove"
+    ) {
       if (isBuilding) {
         pendingRebuild = true;
         continue;
       }
-      
+
       console.log(`\n🔄 File changed: ${event.paths.join(", ")}`);
       console.log("📦 Rebuilding...");
-      
+
       isBuilding = true;
       try {
         await build(config);
@@ -57,7 +66,7 @@ export async function watch(config: TakopackConfig): Promise<void> {
         }
       } finally {
         isBuilding = false;
-        
+
         if (pendingRebuild) {
           pendingRebuild = false;
           // 少し待ってから再ビルド
@@ -85,7 +94,7 @@ export async function dev(config: TakopackConfig): Promise<void> {
       minify: false,
     },
   };
-  
+
   console.log("🚧 Development mode");
   await watch(devConfig);
 }
@@ -95,18 +104,18 @@ export async function dev(config: TakopackConfig): Promise<void> {
  */
 export async function init(projectName: string): Promise<void> {
   console.log(`🎯 Initializing new Takopack project: ${projectName}`);
-  
+
   // プロジェクトディレクトリ作成
   if (!await exists(projectName)) {
     await Deno.mkdir(projectName, { recursive: true });
   }
-  
+
   // サブディレクトリ作成
   const dirs = ["src/server", "src/client", "src/ui"];
   for (const dir of dirs) {
     await Deno.mkdir(`${projectName}/${dir}`, { recursive: true });
   }
-  
+
   // 設定ファイル生成
   const configContent = `import { defineConfig } from "@takopack/builder";
 
@@ -131,9 +140,9 @@ export default defineConfig({
     analysis: true,
   },
 });`;
-  
+
   await Deno.writeTextFile(`${projectName}/takopack.config.ts`, configContent);
-  
+
   // サンプルファイル生成
   const serverContent = `// Server-side function
 export function hello(name: string): string {
@@ -193,7 +202,7 @@ export function onUserClick(data: any): void {
   await Deno.writeTextFile(`${projectName}/src/server/hello.ts`, serverContent);
   await Deno.writeTextFile(`${projectName}/src/client/greet.ts`, clientContent);
   await Deno.writeTextFile(`${projectName}/src/ui/index.html`, uiContent);
-  
+
   // README.md生成
   const readmeContent = `# ${projectName}
 
@@ -229,7 +238,7 @@ deno run -A https://deno.land/x/takopack/cli.ts build --prod
 `;
 
   await Deno.writeTextFile(`${projectName}/README.md`, readmeContent);
-  
+
   console.log(`✅ Project initialized successfully!`);
   console.log(`\nNext steps:`);
   console.log(`  cd ${projectName}`);
@@ -240,25 +249,27 @@ deno run -A https://deno.land/x/takopack/cli.ts build --prod
  * 型定義生成コマンド
  */
 export async function generateTypes(config: TakopackConfig, options?: {
-  context?: 'server' | 'client' | 'ui' | 'all';
+  context?: "server" | "client" | "ui" | "all";
   outputDir?: string;
   includeCustomTypes?: boolean;
 }): Promise<TypeGenerationResult[]> {
   console.log("🔧 Generating TypeScript definitions...");
-  
+
   const builder = new TakopackBuilder(config);
-  
-  if (options?.context === 'all' || !options?.context) {
+
+  if (options?.context === "all" || !options?.context) {
     // 全コンテキストの型定義を生成
     return await builder.generateAllTypeDefinitions(options?.outputDir);
   } else {
     // 指定されたコンテキストの型定義を生成
     const typeOptions: TypeGenerationOptions = {
       context: options.context,
-      outputPath: `${options?.outputDir || './types'}/takos-${options.context}.d.ts`,
-      includeCustomTypes: options?.includeCustomTypes ?? true
+      outputPath: `${
+        options?.outputDir || "./types"
+      }/takos-${options.context}.d.ts`,
+      includeCustomTypes: options?.includeCustomTypes ?? true,
     };
-    
+
     const result = await builder.generateTypeDefinitions(typeOptions);
     return [result];
   }

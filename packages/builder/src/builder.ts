@@ -1,20 +1,20 @@
 import { join, resolve } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
-import { ZipWriter, BlobWriter, TextReader } from "jsr:@zip-js/zip-js@^2.7.62";
+import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
 import * as esbuild from "esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
-import type { 
-  TakopackConfig, 
-  BuildResult, 
-  BuildMetrics,
-  ExtensionManifest,
-  EventDefinition,
+import type {
   ActivityPubConfig,
+  BuildMetrics,
+  BuildResult,
+  EventDefinition,
+  ExtensionManifest,
   ModuleAnalysis,
-  VirtualEntry,
+  TakopackConfig,
   TypeGenerationOptions,
-  TypeGenerationResult
+  TypeGenerationResult,
+  VirtualEntry,
 } from "./types.ts";
 import { ASTAnalyzer } from "./analyzer.ts";
 import { VirtualEntryGenerator } from "./generator.ts";
@@ -22,7 +22,7 @@ import { defaultConfig } from "./config.ts";
 
 /**
  * Takopack Builder 3.0 メインクラス
- * 
+ *
  * toString依存をゼロにした新世代ビルドシステム
  * - AST解析による静的分析
  * - Virtual entrypoint生成
@@ -36,7 +36,7 @@ export class TakopackBuilder {
 
   constructor(config: TakopackConfig) {
     this.config = { ...defaultConfig, ...config };
-    
+
     // 設定の検証
     this.validateConfig();
   }
@@ -46,40 +46,44 @@ export class TakopackBuilder {
    */
   async build(): Promise<BuildResult> {
     const buildStartTime = performance.now();
-    
+
     console.log(`🚀 Building Takopack 3.0: ${this.config.manifest.name}...`);
-    
+
     try {
       // 1. テンポラリディレクトリ準備
       await this.prepareTempDir();
 
       // 2. エントリポイント解析
       const analyses = await this.analyzeEntries();
-      
+
       // 3. Virtual entrypoint生成
       const virtualEntries = await this.generateVirtualEntries(analyses);
-      
+
       // 4. esbuildでバンドル
       const bundleResult = await this.bundleWithEsbuild(virtualEntries);
-      
+
       // 5. マニフェスト生成
       const manifest = this.generateManifest(analyses);
-      
+
       // 6. UIファイルコピー
       await this.copyUIFiles();
-      
+
       // 7. .takopackファイル生成
       await this.createTakopackFile();
-      
+
       // 8. クリーンアップ
       await this.cleanup();
-      
+
       const buildEndTime = performance.now();
-      
+
       // 9. 結果レポート
-      const metrics = this.buildMetrics(buildStartTime, buildEndTime, bundleResult);
+      const metrics = this.buildMetrics(
+        buildStartTime,
+        buildEndTime,
+        bundleResult,
+      );
       this.displayBuildReport(metrics);
-      
+
       return {
         success: true,
         manifest,
@@ -88,10 +92,12 @@ export class TakopackBuilder {
         errors: [],
         warnings: [],
       };
-        } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+    } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.error("❌ Build failed:", errorMessage);
-      
+
       return {
         success: false,
         manifest: {} as ExtensionManifest,
@@ -145,7 +151,7 @@ export class TakopackBuilder {
           console.warn(`⚠️ Server entry not found: ${entryPath}`);
           continue;
         }
-        
+
         const analysis = await this.analyzer.analyze(entryPath);
         serverAnalyses.push(analysis);
       }
@@ -158,13 +164,15 @@ export class TakopackBuilder {
           console.warn(`⚠️ Client entry not found: ${entryPath}`);
           continue;
         }
-        
+
         const analysis = await this.analyzer.analyze(entryPath);
         clientAnalyses.push(analysis);
       }
     }
 
-    console.log(`📊 Analyzed ${serverAnalyses.length} server entries, ${clientAnalyses.length} client entries`);
+    console.log(
+      `📊 Analyzed ${serverAnalyses.length} server entries, ${clientAnalyses.length} client entries`,
+    );
 
     return { server: serverAnalyses, client: clientAnalyses };
   }
@@ -184,7 +192,7 @@ export class TakopackBuilder {
     // サーバーエントリ生成
     if (analyses.server.length > 0) {
       result.server = this.generator.generateServerEntry(analyses.server);
-      
+
       // ファイルに書き出し
       const serverPath = join(this.tempDir, "_entry_server.ts");
       await Deno.writeTextFile(serverPath, result.server.content);
@@ -194,7 +202,7 @@ export class TakopackBuilder {
     // クライアントエントリ生成
     if (analyses.client.length > 0) {
       result.client = this.generator.generateClientEntry(analyses.client);
-      
+
       // ファイルに書き出し
       const clientPath = join(this.tempDir, "_entry_client.ts");
       await Deno.writeTextFile(clientPath, result.client.content);
@@ -217,7 +225,7 @@ export class TakopackBuilder {
     const result: { server?: string; client?: string } = {};
     const outDir = this.config.build?.outDir || "dist";
     const sauceDir = join(outDir, "sauce");
-    
+
     // sauceディレクトリ作成
     if (!existsSync(sauceDir)) {
       await Deno.mkdir(sauceDir, { recursive: true });
@@ -229,18 +237,18 @@ export class TakopackBuilder {
       await this.bundleFile(
         join(this.tempDir, "_entry_server.ts"),
         join(sauceDir, "server.js"),
-        "node"
+        "node",
       );
       result.server = join(sauceDir, "server.js");
     }
 
-    // クライアントバンドル  
+    // クライアントバンドル
     if (virtualEntries.client) {
       console.log("🔧 Bundling client...");
       await this.bundleFile(
         join(this.tempDir, "_entry_client.ts"),
         join(sauceDir, "client.js"),
-        "browser"
+        "browser",
       );
       result.client = join(sauceDir, "client.js");
     }
@@ -254,7 +262,7 @@ export class TakopackBuilder {
   private async bundleFile(
     entryPoint: string,
     outputPath: string,
-    platform: "node" | "browser"
+    platform: "node" | "browser",
   ): Promise<void> {
     try {
       const buildOptions: esbuild.BuildOptions = {
@@ -275,14 +283,18 @@ export class TakopackBuilder {
       };
 
       const result = await esbuild.build(buildOptions);
-      
+
       if (result.errors.length > 0) {
-        throw new Error(`Build errors: ${result.errors.map(e => e.text).join(", ")}`);
+        throw new Error(
+          `Build errors: ${result.errors.map((e) => e.text).join(", ")}`,
+        );
       }
-      
+
       console.log(`✅ Bundled: ${entryPoint} → ${outputPath}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       throw new Error(`Failed to bundle ${entryPoint}: ${errorMessage}`);
     }
   }
@@ -302,29 +314,35 @@ export class TakopackBuilder {
       apiVersion: "2.0",
       permissions: this.config.manifest.permissions || [],
       server: {
-        entry: "./server.js"
+        entry: "./server.js",
       },
       client: {
         entryUI: "./index.html",
-        entryBackground: "./client.js"
-      }
+        entryBackground: "./client.js",
+      },
     };
 
     // イベント定義とActivityPub設定をAST解析結果から抽出
     const eventDefinitions: Record<string, EventDefinition> = {};
     const activityPubConfigs: ActivityPubConfig[] = [];
 
-    [...analyses.server, ...analyses.client].forEach(analysis => {
+    [...analyses.server, ...analyses.client].forEach((analysis) => {
       // JSDocタグから抽出
-      analysis.jsDocTags.forEach(tag => {
+      analysis.jsDocTags.forEach((tag) => {
         if (tag.tag === "event") {
           const eventName = this.extractEventNameFromTag(tag.value);
-          const eventConfig = this.parseEventConfig(tag.value, tag.targetFunction);
+          const eventConfig = this.parseEventConfig(
+            tag.value,
+            tag.targetFunction,
+          );
           if (eventName && eventConfig) {
             eventDefinitions[eventName] = eventConfig;
           }
         } else if (tag.tag === "activity") {
-          const activityConfig = this.parseActivityConfig(tag.value, tag.targetFunction);
+          const activityConfig = this.parseActivityConfig(
+            tag.value,
+            tag.targetFunction,
+          );
           if (activityConfig) {
             activityPubConfigs.push(activityConfig);
           }
@@ -332,25 +350,35 @@ export class TakopackBuilder {
       });
 
       // デコレータから抽出
-      analysis.decorators.forEach(decorator => {        if (decorator.name === "event" && decorator.args.length > 0) {
-          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
-          const options = (typeof decorator.args[1] === "object" && decorator.args[1] !== null) 
-            ? decorator.args[1] as Record<string, unknown> 
+      analysis.decorators.forEach((decorator) => {
+        if (decorator.name === "event" && decorator.args.length > 0) {
+          const eventName = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
+          const options = (typeof decorator.args[1] === "object" &&
+              decorator.args[1] !== null)
+            ? decorator.args[1] as Record<string, unknown>
             : {};
           eventDefinitions[eventName] = {
             source: (options.source as any) || "client",
             target: (options.target as any) || "server",
             handler: decorator.targetFunction,
-          };        } else if (decorator.name === "activity" && decorator.args.length > 0) {
-          const object = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
-          const options = (typeof decorator.args[1] === "object" && decorator.args[1] !== null) 
-            ? decorator.args[1] as Record<string, unknown> 
+          };
+        } else if (decorator.name === "activity" && decorator.args.length > 0) {
+          const object = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
+          const options = (typeof decorator.args[1] === "object" &&
+              decorator.args[1] !== null)
+            ? decorator.args[1] as Record<string, unknown>
             : {};
           activityPubConfigs.push({
             context: "https://www.w3.org/ns/activitystreams",
             object,
             hook: decorator.targetFunction,
-            canAccept: decorator.targetFunction.startsWith("canAccept") ? decorator.targetFunction : undefined,
+            canAccept: decorator.targetFunction.startsWith("canAccept")
+              ? decorator.targetFunction
+              : undefined,
             priority: options.priority as number,
             serial: options.serial as boolean,
           });
@@ -379,7 +407,7 @@ export class TakopackBuilder {
     if (this.config.entries.ui) {
       for (const uiPath of this.config.entries.ui) {
         if (existsSync(uiPath)) {
-          const filename = uiPath.split('/').pop() || 'index.html';
+          const filename = uiPath.split("/").pop() || "index.html";
           const destPath = join(sauceDir, filename);
           await Deno.copyFile(uiPath, destPath);
           console.log(`📋 Copied UI: ${uiPath} → ${destPath}`);
@@ -394,12 +422,12 @@ export class TakopackBuilder {
   private async createTakopackFile(): Promise<void> {
     const outDir = this.config.build?.outDir || "dist";
     const sauceDir = join(outDir, "sauce");
-    
+
     // マニフェスト保存
     const manifest = this.generateManifest(await this.analyzeEntries());
     await Deno.writeTextFile(
       join(sauceDir, "manifest.json"),
-      JSON.stringify(manifest, null, 2)
+      JSON.stringify(manifest, null, 2),
     );
 
     // ZIP作成
@@ -416,12 +444,12 @@ export class TakopackBuilder {
     // takopack仕様: takos/ ディレクトリ下にファイルを配置
     const requiredFiles = ["manifest.json"];
     const optionalFiles = ["server.js", "client.js", "index.html"];
-    
+
     // 必須ファイルの追加
     for (const file of requiredFiles) {
       await addFileToZip(join(sauceDir, file), `takos/${file}`);
     }
-    
+
     // オプションファイルの追加
     for (const file of optionalFiles) {
       const filePath = join(sauceDir, file);
@@ -431,16 +459,17 @@ export class TakopackBuilder {
     }
 
     await zipWriter.close();
-    
+
     // ZIP ファイルの書き込み
     const zipBlob = await zipFile.getData();
     const arrayBuffer = await zipBlob.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    
-    const packageName = this.config.manifest.identifier.split('.').pop() || 'extension';
+
+    const packageName = this.config.manifest.identifier.split(".").pop() ||
+      "extension";
     const outputPath = join(outDir, `${packageName}.takopack`);
     await Deno.writeFile(outputPath, uint8Array);
-    
+
     console.log(`📦 Created ${outputPath}`);
   }
 
@@ -457,9 +486,9 @@ export class TakopackBuilder {
    * ビルドメトリクス生成
    */
   private buildMetrics(
-    startTime: number, 
+    startTime: number,
     endTime: number,
-    bundleResult: { server?: string; client?: string }
+    bundleResult: { server?: string; client?: string },
   ): BuildMetrics {
     return {
       buildStartTime: startTime,
@@ -489,10 +518,16 @@ export class TakopackBuilder {
    */
   private displayBuildReport(metrics: BuildMetrics): void {
     console.log("\n📊 Build Report:");
-    console.log(`  ⏱️  Total build time: ${metrics.totalDuration.toFixed(2)}ms`);
-    console.log(`  📦 Package: ${this.config.manifest.name} v${this.config.manifest.version}`);
-    console.log(`  🔐 Permissions: ${this.config.manifest.permissions?.length || 0}`);
-    
+    console.log(
+      `  ⏱️  Total build time: ${metrics.totalDuration.toFixed(2)}ms`,
+    );
+    console.log(
+      `  📦 Package: ${this.config.manifest.name} v${this.config.manifest.version}`,
+    );
+    console.log(
+      `  🔐 Permissions: ${this.config.manifest.permissions?.length || 0}`,
+    );
+
     if (this.config.build?.dev) {
       console.log("  🚧 Development mode enabled");
     } else {
@@ -523,7 +558,10 @@ export class TakopackBuilder {
   /**
    * イベント設定をパース
    */
-  private parseEventConfig(value: string, targetFunction: string): EventDefinition | null {
+  private parseEventConfig(
+    value: string,
+    targetFunction: string,
+  ): EventDefinition | null {
     try {
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
       if (!match) return null;
@@ -543,7 +581,10 @@ export class TakopackBuilder {
   /**
    * ActivityPub設定をパース
    */
-  private parseActivityConfig(value: string, targetFunction: string): ActivityPubConfig | null {
+  private parseActivityConfig(
+    value: string,
+    targetFunction: string,
+  ): ActivityPubConfig | null {
     try {
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
       if (!match) return null;
@@ -555,7 +596,9 @@ export class TakopackBuilder {
         context: "https://www.w3.org/ns/activitystreams",
         object,
         hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+        canAccept: targetFunction.startsWith("canAccept")
+          ? targetFunction
+          : undefined,
         priority: options.priority,
         serial: options.serial,
       };
@@ -566,23 +609,31 @@ export class TakopackBuilder {
   /**
    * TypeScript型定義ファイルを生成
    */
-  async generateTypeDefinitions(options: TypeGenerationOptions): Promise<TypeGenerationResult> {
-    console.log(`🔧 Generating TypeScript definitions for ${options.context} context...`);
-    
+  async generateTypeDefinitions(
+    options: TypeGenerationOptions,
+  ): Promise<TypeGenerationResult> {
+    console.log(
+      `🔧 Generating TypeScript definitions for ${options.context} context...`,
+    );
+
     try {
       // 型定義を生成
       const result = this.generator.generateTypeDefinitions(options);
-      
+
       // ファイルに書き出し
       const encoder = new TextEncoder();
       const data = encoder.encode(result.content);
       await Deno.writeFile(result.filePath, data);
-      
-      console.log(`✅ Generated ${result.typeCount} types to ${result.filePath}`);
-      
+
+      console.log(
+        `✅ Generated ${result.typeCount} types to ${result.filePath}`,
+      );
+
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.error("❌ Type definition generation failed:", errorMessage);
       throw error;
     }
@@ -591,9 +642,11 @@ export class TakopackBuilder {
   /**
    * 全コンテキストの型定義を生成
    */
-  async generateAllTypeDefinitions(outputDir = "./types"): Promise<TypeGenerationResult[]> {
+  async generateAllTypeDefinitions(
+    outputDir = "./types",
+  ): Promise<TypeGenerationResult[]> {
     console.log("🔧 Generating TypeScript definitions for all contexts...");
-    
+
     // 出力ディレクトリを作成
     try {
       await Deno.mkdir(outputDir, { recursive: true });
@@ -602,62 +655,73 @@ export class TakopackBuilder {
         throw error;
       }
     }
-    
-    const contexts: Array<'server' | 'client' | 'ui'> = ['server', 'client', 'ui'];
+
+    const contexts: Array<"server" | "client" | "ui"> = [
+      "server",
+      "client",
+      "ui",
+    ];
     const results: TypeGenerationResult[] = [];
-    
+
     for (const context of contexts) {
       const options: TypeGenerationOptions = {
         context,
         outputPath: `${outputDir}/takos-${context}.d.ts`,
-        includeCustomTypes: true
+        includeCustomTypes: true,
       };
-      
+
       const result = await this.generateTypeDefinitions(options);
       results.push(result);
     }
-    
+
     // 統合型定義ファイルも生成
     await this.generateUnifiedTypeDefinitions(outputDir, results);
-    
-    console.log(`✅ Generated type definitions for all contexts in ${outputDir}/`);
+
+    console.log(
+      `✅ Generated type definitions for all contexts in ${outputDir}/`,
+    );
     return results;
   }
 
   /**
    * 統合型定義ファイルを生成
    */
-  private async generateUnifiedTypeDefinitions(outputDir: string, results: TypeGenerationResult[]): Promise<void> {
+  private async generateUnifiedTypeDefinitions(
+    outputDir: string,
+    results: TypeGenerationResult[],
+  ): Promise<void> {
     const lines: string[] = [];
-    
+
     lines.push("// Unified TypeScript definitions for Takos Extension");
     lines.push("// This file exports all context-specific types");
     lines.push("// Generated at: " + new Date().toISOString());
     lines.push("");
-    
+
     // 各コンテキストの型定義をエクスポート
     lines.push("// Export context-specific types");
     lines.push("export * from './takos-server.d.ts';");
     lines.push("export * from './takos-client.d.ts';");
     lines.push("export * from './takos-ui.d.ts';");
     lines.push("");
-    
+
     // 型選択ヘルパー
     lines.push("// Type selection helpers");
-    lines.push("export type TakosContextAPI<T extends 'server' | 'client' | 'ui'> = ");
+    lines.push(
+      "export type TakosContextAPI<T extends 'server' | 'client' | 'ui'> = ",
+    );
     lines.push("  T extends 'server' ? typeof globalThis.takos :");
     lines.push("  T extends 'client' ? GlobalThisWithClientTakos['takos'] :");
     lines.push("  T extends 'ui' ? GlobalThisWithUITakos['takos'] :");
     lines.push("  never;");
     lines.push("");
-    
+
     const content = lines.join("\n");
     const filePath = `${outputDir}/index.d.ts`;
-    
+
     const encoder = new TextEncoder();
     const data = encoder.encode(content);
     await Deno.writeFile(filePath, data);
-    
+
     console.log(`📋 Generated unified type definitions: ${filePath}`);
   }
 }

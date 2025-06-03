@@ -23,14 +23,16 @@ export class WebSocketEventClient {
   private url: string;
   private userId: string | null = null;
 
-  constructor(url: string = 'ws://localhost:3002') {
+  constructor(url: string = "ws://localhost:3002") {
     this.url = url;
   }
   /**
    * WebSocket接続を開始
    */
   async connect(userId?: string): Promise<void> {
-    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
+    if (
+      this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)
+    ) {
       return;
     }
 
@@ -42,12 +44,12 @@ export class WebSocketEventClient {
 
     try {
       this.ws = new WebSocket(this.url);
-      
+
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log("WebSocket connected");
         this.isConnecting = false;
         this.reconnectAttempts = 0;
-        
+
         // 認証メッセージを送信
         if (this.userId) {
           this.authenticate(this.userId);
@@ -59,24 +61,23 @@ export class WebSocketEventClient {
           const data = JSON.parse(event.data);
           this.handleEvent(data);
         } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
+          console.error("Failed to parse WebSocket message:", error);
         }
       };
 
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+        console.log("WebSocket disconnected");
         this.isConnecting = false;
         this.ws = null;
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error("WebSocket error:", error);
         this.isConnecting = false;
       };
-
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
+      console.error("Failed to connect WebSocket:", error);
       this.isConnecting = false;
       this.scheduleReconnect();
     }
@@ -98,9 +99,9 @@ export class WebSocketEventClient {
    */
   private authenticate(userId: string): void {
     this.send({
-      type: 'auth',
+      type: "auth",
       userId: userId,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
   /**
@@ -110,7 +111,7 @@ export class WebSocketEventClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     } else {
-      console.warn('WebSocket is not connected');
+      console.warn("WebSocket is not connected");
     }
   }
 
@@ -156,9 +157,9 @@ export class WebSocketEventClient {
    */
   subscribe(eventType: string): void {
     this.send({
-      type: 'subscribe',
+      type: "subscribe",
       eventType: eventType,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -167,9 +168,9 @@ export class WebSocketEventClient {
    */
   unsubscribe(eventType: string): void {
     this.send({
-      type: 'unsubscribe',
+      type: "unsubscribe",
       eventType: eventType,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -185,18 +186,18 @@ export class WebSocketEventClient {
    */
   private handleEvent(event: WebSocketEvent): void {
     // グローバルリスナーに配信
-    this.globalListeners.forEach(handler => {
+    this.globalListeners.forEach((handler) => {
       try {
         handler(event);
       } catch (error) {
-        console.error('Error in global event handler:', error);
+        console.error("Error in global event handler:", error);
       }
     });
 
     // 特定のイベントタイプのリスナーに配信
     const handlers = this.listeners.get(event.type);
     if (handlers) {
-      handlers.forEach(handler => {
+      handlers.forEach((handler) => {
         try {
           handler(event);
         } catch (error) {
@@ -211,12 +212,14 @@ export class WebSocketEventClient {
    */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnect attempts reached');
+      console.error("Max reconnect attempts reached");
       return;
     }
 
     this.reconnectAttempts++;
-    console.log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms`);
+    console.log(
+      `Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms`,
+    );
 
     setTimeout(() => {
       if (!this.isConnected && !this.isConnecting) {

@@ -5,29 +5,32 @@
 
 // Import common types
 import type {
-  SerializableValue,
-  SerializableObject,
-  SerializableArray,
-  TakosEvent,
   EventHandler,
-  EventUnsubscribe
-} from './common.d.ts';
+  EventUnsubscribe,
+  SerializableArray,
+  SerializableObject,
+  SerializableValue,
+  TakosEvent,
+} from "./common.d.ts";
 
 // Re-export common types for backward compatibility
 export type {
-  SerializableValue,
-  SerializableObject,
-  SerializableArray,
-  TakosEvent,
   EventHandler,
-  EventUnsubscribe
+  EventUnsubscribe,
+  SerializableArray,
+  SerializableObject,
+  SerializableValue,
+  TakosEvent,
 };
 
 // UI-specific types
 export interface TakosUIAPI {
   events: {
     publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-    subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
+    subscribe<T = SerializableValue>(
+      name: string,
+      handler: EventHandler<T>,
+    ): EventUnsubscribe;
     unsubscribe(name: string, handler: EventHandler): void;
   };
 }

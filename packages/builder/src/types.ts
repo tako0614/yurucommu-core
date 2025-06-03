@@ -1,5 +1,5 @@
 // Permission types based on the specification
-export type Permission = 
+export type Permission =
   | "fetch:net"
   | "activitypub:send"
   | "activitypub:read"
@@ -157,7 +157,7 @@ export interface CommandArgs {
   outDir?: string;
   dev?: boolean;
   verbose?: boolean;
-  context?: 'server' | 'client' | 'ui' | 'all';
+  context?: "server" | "client" | "ui" | "all";
   includeCustomTypes?: boolean;
 }
 
@@ -219,7 +219,11 @@ export interface TakopackPlugin {
 }
 
 export interface PluginContext {
-  onTransform?: (callback: (args: TransformArgs) => TransformResult | Promise<TransformResult>) => void;
+  onTransform?: (
+    callback: (
+      args: TransformArgs,
+    ) => TransformResult | Promise<TransformResult>,
+  ) => void;
   onGenerate?: (callback: (args: GenerateArgs) => void | Promise<void>) => void;
 }
 
@@ -245,7 +249,14 @@ export interface GenerateArgs {
  */
 
 // Common types
-export type SerializableValue = string | number | boolean | null | undefined | SerializableObject | SerializableArray;
+export type SerializableValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | SerializableObject
+  | SerializableArray;
 export interface SerializableObject {
   [key: string]: SerializableValue;
 }
@@ -275,10 +286,12 @@ export interface TakosEvent<T = SerializableValue> {
   name: string;
   payload: T;
   timestamp: number;
-  source: 'server' | 'client' | 'ui' | 'background';
+  source: "server" | "client" | "ui" | "background";
 }
 
-export type EventHandler<T = SerializableValue> = (payload: T) => void | Promise<void>;
+export type EventHandler<T = SerializableValue> = (
+  payload: T,
+) => void | Promise<void>;
 export type EventUnsubscribe = () => void;
 
 // Assets 関連型
@@ -323,28 +336,53 @@ export interface TakosActivityPubAPI {
 
 export interface TakosAssetsAPI {
   read(path: string): Promise<string>;
-  write(path: string, data: string | Uint8Array, options?: AssetWriteOptions): Promise<string>;
+  write(
+    path: string,
+    data: string | Uint8Array,
+    options?: AssetWriteOptions,
+  ): Promise<string>;
   delete(path: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
 }
 
 // Context-aware Events API
 export interface TakosServerEventsAPI {
-  publish(eventName: string, payload: SerializableValue): Promise<[200 | 400 | 500, SerializableObject]>;
+  publish(
+    eventName: string,
+    payload: SerializableValue,
+  ): Promise<[200 | 400 | 500, SerializableObject]>;
   publishToClient(eventName: string, payload: SerializableValue): Promise<void>;
-  publishToClientPushNotification(eventName: string, payload: SerializableValue): Promise<void>;
-  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+  publishToClientPushNotification(
+    eventName: string,
+    payload: SerializableValue,
+  ): Promise<void>;
+  subscribe<T = SerializableValue>(
+    eventName: string,
+    handler: EventHandler<T>,
+  ): EventUnsubscribe;
 }
 
 export interface TakosClientEventsAPI {
   publishToUI(eventName: string, payload: SerializableValue): Promise<void>;
-  publishToBackground(eventName: string, payload: SerializableValue): Promise<void>;
-  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+  publishToBackground(
+    eventName: string,
+    payload: SerializableValue,
+  ): Promise<void>;
+  subscribe<T = SerializableValue>(
+    eventName: string,
+    handler: EventHandler<T>,
+  ): EventUnsubscribe;
 }
 
 export interface TakosUIEventsAPI {
-  publishToBackground(eventName: string, payload: SerializableValue): Promise<void>;
-  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+  publishToBackground(
+    eventName: string,
+    payload: SerializableValue,
+  ): Promise<void>;
+  subscribe<T = SerializableValue>(
+    eventName: string,
+    handler: EventHandler<T>,
+  ): EventUnsubscribe;
 }
 
 // Main Takos API Interface
@@ -372,7 +410,7 @@ export interface TakosUIAPI {
  * GlobalThis 型拡張インターフェース
  * 各実行コンテキストに応じた適切なTakos APIを提供
  */
-// Server Context用の型 (server.js)  
+// Server Context用の型 (server.js)
 export interface GlobalThisWithServerTakos {
   takos: TakosServerAPI | undefined;
 }
@@ -392,7 +430,7 @@ export interface GlobalThisWithUITakos {
  */
 export interface TypeGenerationOptions {
   /** 生成する型定義のスコープ */
-  context: 'server' | 'client' | 'ui';
+  context: "server" | "client" | "ui";
   /** 出力ファイルパス */
   outputPath: string;
   /** カスタム型定義を含めるか */

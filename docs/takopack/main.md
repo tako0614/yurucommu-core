@@ -28,18 +28,18 @@
 
 ## 1. 目的
 
-takosをVSCodeのように安全かつ柔軟に拡張可能にすること。  
-最小構成は **サーバー・バックグラウンド・UI** の3レイヤーで成り立ち、  
+takosをVSCodeのように安全かつ柔軟に拡張可能にすること。\
+最小構成は **サーバー・バックグラウンド・UI** の3レイヤーで成り立ち、\
 `server.js`・`client.js`・`index.html` の **3 ファイル** に集約される。
 
 ---
 
 ## 2. 用語
 
-| 用語             | 説明                                                          |
-| ---------------- | ------------------------------------------------------------- |
-| Pack (.takopack) | 拡張機能パッケージ（zip形式）。内部トップフォルダが`takos/`。 |
-| Identifier       | `com.example.foo`形式。`takos` は公式予約。                     |
+| 用語             | 説明                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| Pack (.takopack) | 拡張機能パッケージ（zip形式）。内部トップフォルダが`takos/`。     |
+| Identifier       | `com.example.foo`形式。`takos` は公式予約。                       |
 | Permission       | Packが利用する権限文字列。v2.0では`resource:action(:scope)`形式。 |
 
 ---
@@ -47,6 +47,7 @@ takosをVSCodeのように安全かつ柔軟に拡張可能にすること。
 ## 3. パッケージ構造
 
 ### 基本構造
+
 ```text
 awesome-pack.takopack (ZIP形式)
 └─ takos/
@@ -57,8 +58,9 @@ awesome-pack.takopack (ZIP形式)
 ```
 
 ### ファイル要件:
+
 - `server.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
-- `client.js`: Denoで動作する、依存関係のない単一JavaScriptファイル  
+- `client.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
 - `index.html`: ブラウザで動作する、依存関係のない単一HTMLファイル
 
 <!-- 注意: `server.js` と `client.js` は、原則として関数宣言のみを記述し、トップレベルでの即時実行コードは避けてください。 -->
@@ -98,7 +100,7 @@ awesome-pack.takopack (ZIP形式)
     "deno:net",
     "deno:env",
     "deno:run",
-    "deno:sys", 
+    "deno:sys",
     "deno:ffi"
   ],
   "server": {
@@ -155,7 +157,9 @@ awesome-pack.takopack (ZIP形式)
 ### 6.1 ActivityPub
 
 #### オブジェクト操作
-- **send**: `takos.activitypub.send(userId: string, activity: object): Promise<void>`
+
+- **send**:
+  `takos.activitypub.send(userId: string, activity: object): Promise<void>`
   - **必要権限**: `activitypub:send`
 - **read**: `takos.activitypub.read(id: string): Promise<object>`
   - **必要権限**: `activitypub:read`
@@ -165,34 +169,45 @@ awesome-pack.takopack (ZIP形式)
   - **必要権限**: `activitypub:read`
 
 #### フック処理
+
 - ActivityPubオブジェクト受信時のフック処理
   - **必要権限**: `activitypub:receive:hook`
 
 #### アクター操作
+
 - **read**: `takos.activitypub.actor.read(userId: string): Promise<object>`
-- **update**: `takos.activitypub.actor.update(userId: string, key: string, value: string): Promise<void>`
-- **delete**: `takos.activitypub.actor.delete(userId: string, key: string): Promise<void>`
-- **follow**: `takos.activitypub.follow(followerId: string, followeeId: string): Promise<void>`
-- **unfollow**: `takos.activitypub.unfollow(followerId: string, followeeId: string): Promise<void>`
-- **listFollowers**: `takos.activitypub.listFollowers(actorId: string): Promise<string[]>`
-- **listFollowing**: `takos.activitypub.listFollowing(actorId: string): Promise<string[]>`
+- **update**:
+  `takos.activitypub.actor.update(userId: string, key: string, value: string): Promise<void>`
+- **delete**:
+  `takos.activitypub.actor.delete(userId: string, key: string): Promise<void>`
+- **follow**:
+  `takos.activitypub.follow(followerId: string, followeeId: string): Promise<void>`
+- **unfollow**:
+  `takos.activitypub.unfollow(followerId: string, followeeId: string): Promise<void>`
+- **listFollowers**:
+  `takos.activitypub.listFollowers(actorId: string): Promise<string[]>`
+- **listFollowing**:
+  `takos.activitypub.listFollowing(actorId: string): Promise<string[]>`
 
 **必要権限**: `activitypub:actor:read` / `activitypub:actor:write`
 
 ### 6.2 プラグインアクター操作
 
-プラグインが独自に管理するActivityPubアクターの操作。
-作成されるアクターのIRIは `https://{domain}/plugins/{identifier}/{localName}` 形式。
+プラグインが独自に管理するActivityPubアクターの操作。 作成されるアクターのIRIは
+`https://{domain}/plugins/{identifier}/{localName}` 形式。
 
-- **create**: `takos.activitypub.pluginActor.create(localName: string, profile: object): Promise<string>`
+- **create**:
+  `takos.activitypub.pluginActor.create(localName: string, profile: object): Promise<string>`
   - 戻り値は作成されたアクターのIRI
 - **read**: `takos.activitypub.pluginActor.read(iri: string): Promise<object>`
-- **update**: `takos.activitypub.pluginActor.update(iri: string, partial: object): Promise<void>`
+- **update**:
+  `takos.activitypub.pluginActor.update(iri: string, partial: object): Promise<void>`
 - **delete**: `takos.activitypub.pluginActor.delete(iri: string): Promise<void>`
 - **list**: `takos.activitypub.pluginActor.list(): Promise<string[]>`
   - このプラグインが作成したアクターのIRI一覧を返却
 
-**必要権限**: `plugin-actor:create` / `plugin-actor:read` / `plugin-actor:write` / `plugin-actor:delete`
+**必要権限**: `plugin-actor:create` / `plugin-actor:read` / `plugin-actor:write`
+/ `plugin-actor:delete`
 
 ### 6.3 kv
 
@@ -203,45 +218,53 @@ awesome-pack.takopack (ZIP形式)
 
 **必要権限**: `kv:read` / `kv:write`
 
-※ `kv:write` は `kv:read` を包含しません。読み取りが必要な場合は両方の権限が必要です。
+※ `kv:write` は `kv:read`
+を包含しません。読み取りが必要な場合は両方の権限が必要です。
 
 ### 6.4 fetch
 
 - **fetch**: `takos.fetch(url: string, options?: object): Promise<Response>`
   - タイムアウトは `options.signal` で制御
 
-**必要権限**: `fetch:net`
-*(クライアント側では `client.allowedConnectSrc` 設定が必要)*
+**必要権限**: `fetch:net` _(クライアント側では `client.allowedConnectSrc`
+設定が必要)_
 
 ### 6.5 assets
 
 - **read**: `takos.assets.read(path: string): Promise<string>`
-- **write**: `takos.assets.write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>`
+- **write**:
+  `takos.assets.write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>`
 - **delete**: `takos.assets.delete(path: string): Promise<void>`
 - **list**: `takos.assets.list(prefix?: string): Promise<string[]>`
 
 **必要権限**: `assets:read` / `assets:write`
+
 - **制限**: 合計20MBまで
 - **CDN エンドポイント**: `/cdn/<identifier>/<path>`
 
 ### 6.6 events
 
 #### サーバー側 (server.js)
+
 - `takos.events.publish(eventName: string, payload: any): Promise<[200|400|500, object]>`
 - `takos.events.publishToClient(eventName: string, payload: any): Promise<void>`
 - `takos.events.publishToClientPushNotification(eventName: string, payload: any): Promise<void>`
 
 #### バックグラウンド (client.js)
+
 - `takos.events.publishToUI(eventName: string, payload: any): Promise<void>`
 - `takos.events.publishToBackground(eventName: string, payload: any): Promise<void>`
 
 #### UI (index.html)
+
 - `takos.events.publishToBackground(eventName: string, payload: any): Promise<void>`
 
 **共通API**:
+
 - `takos.events.subscribe(eventName: string, handler: (payload: any) => void): () => void`
 
 **必要権限**: `events:publish` / `events:subscribe`
+
 - **レート制限**: 10件/秒
 
 ---
@@ -252,20 +275,20 @@ awesome-pack.takopack (ZIP形式)
 const { takos } = globalThis;
 
 // Promise方式
-takos.kv.read("key").then(value => console.log(value));
+takos.kv.read("key").then((value) => console.log(value));
 
 // async/await 方式
 async function example() {
   const value = await takos.kv.read("key");
   console.log(value);
-  
+
   // ActivityPub アクター取得例
   const actor = await takos.activitypub.actor.read("user123");
-  
+
   // プラグインアクター作成例
   const actorIri = await takos.activitypub.pluginActor.create("bot1", {
     name: "My Bot",
-    summary: "A helpful bot"
+    summary: "A helpful bot",
   });
 }
 ```
@@ -281,13 +304,14 @@ async function example() {
 
 ### フック制御
 
-- **並列実行** (`serial: false`): デフォルト。全フックを同時実行、タイムアウト競合
+- **並列実行** (`serial: false`):
+  デフォルト。全フックを同時実行、タイムアウト競合
 - **順次実行** (`serial: true`): 優先度の高いものから順に実行
 
 ### 衝突解決
 
 - **canAccept**: 1つでも`false`を返すと拒否
-- **onReceive**: 
+- **onReceive**:
   - **並列実行時**: 各Pack処理を同時実行、最初に完了した結果を採用
   - **順次実行時**: 各Pack処理を順次適用（Reduce-like）
 
@@ -301,7 +325,8 @@ const finalObject = await PackC.onReceive(afterB);
 ### 実装規定 (ActivityPubフック)
 
 - `canAccept`: `boolean|Promise<boolean>`、タイムアウト時は`false`扱い
-- `onReceive`: `object|Promise<object>`、変更なしは受取オブジェクトをそのまま返す
+- `onReceive`:
+  `object|Promise<object>`、変更なしは受取オブジェクトをそのまま返す
 
 ## 9. イベント定義と利用法
 
@@ -318,15 +343,16 @@ const finalObject = await PackC.onReceive(afterB);
 {
   "eventDefinitions": {
     "myEvent": {
-      "source": "client",           // 送信元：client, server, background, ui
-      "target": "server",           // 送信先：server, client, client:*, ui, background
-      "handler": "onMyEvent"        // ハンドラー関数名
+      "source": "client", // 送信元：client, server, background, ui
+      "target": "server", // 送信先：server, client, client:*, ui, background
+      "handler": "onMyEvent" // ハンドラー関数名
     }
   }
 }
 ```
 
 **対応する方向性**:
+
 - `client` → `server`
 - `server` → `client` または `client:*` (ブロードキャスト)
 - `background` → `ui`
@@ -335,12 +361,16 @@ const finalObject = await PackC.onReceive(afterB);
 ### 実装規定 (イベント)
 
 **server.js でのイベントハンドラー**:
+
 - 戻り値: `[200|400|500, { /* body */ }]` または `Promise<[number, object]>`
 - タイムアウト時は`[500, { error: "Timeout" }]`を返却
 
 **client.js および index.html でのイベントハンドラー**:
+
 - 戻り値: `void` または `Promise<void>`
-- UI とバックグラウンド間のイベントは同一オリジン・同一拡張機能内のみ流れるため、追加の CSRF トークンや外部セキュリティチェックは不要
+- UI
+  とバックグラウンド間のイベントは同一オリジン・同一拡張機能内のみ流れるため、追加の
+  CSRF トークンや外部セキュリティチェックは不要
 
 ---
 
@@ -349,7 +379,9 @@ const finalObject = await PackC.onReceive(afterB);
 ### 🔄 主要な変更点
 
 #### 1. イベント定義フォーマットの統一
+
 **v1.3 (旧形式)**:
+
 ```json
 {
   "eventDefinitions": {
@@ -362,12 +394,13 @@ const finalObject = await PackC.onReceive(afterB);
 ```
 
 **v2.0 (新形式)**:
+
 ```json
 {
   "eventDefinitions": {
     "myEvent": {
       "source": "client",
-      "target": "server", 
+      "target": "server",
       "handler": "onMyEvent"
     }
   }
@@ -375,9 +408,11 @@ const finalObject = await PackC.onReceive(afterB);
 ```
 
 #### 2. 権限管理の一元化
+
 権限は`manifest.json`の`permissions`配列で一括管理されます。
 
 #### 3. ActivityPub APIの統一
+
 ActivityPub設定はmanifest.jsonの`activityPub`セクションで設定されます。
 
 ### 📋 移行チェックリスト

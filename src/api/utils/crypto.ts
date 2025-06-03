@@ -166,7 +166,8 @@ export function buildSignatureString(
   signedHeaders: string[],
 ): string {
   const parsedUrl = new URL(url);
-  const requestTarget = `${method.toLowerCase()} ${parsedUrl.pathname}${parsedUrl.search}`;
+  const requestTarget =
+    `${method.toLowerCase()} ${parsedUrl.pathname}${parsedUrl.search}`;
 
   const lines = [`(request-target): ${requestTarget}`];
 
@@ -192,16 +193,29 @@ export async function createHttpSignature(
   keyId: string,
   signedHeaders: string[] = ["(request-target)", "host", "date", "digest"],
 ): Promise<string> {
-  const signatureString = buildSignatureString(method, url, headers, signedHeaders);
+  const signatureString = buildSignatureString(
+    method,
+    url,
+    headers,
+    signedHeaders,
+  );
 
   const privateKey = await importPrivateKeyFromPem(privateKeyPem);
   const encoder = new TextEncoder();
   const data = encoder.encode(signatureString);
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", privateKey, data);
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    privateKey,
+    data,
+  );
 
-  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  const signatureBase64 = btoa(
+    String.fromCharCode(...new Uint8Array(signature)),
+  );
 
-  return `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders.join(" ")}",signature="${signatureBase64}"`;
+  return `keyId="${keyId}",algorithm="rsa-sha256",headers="${
+    signedHeaders.join(" ")
+  }",signature="${signatureBase64}"`;
 }
 
 /**
@@ -225,18 +239,31 @@ export async function verifyHttpSignature(
     if (algorithm !== "rsa-sha256") return false;
 
     // 署名文字列を生成
-    const signatureString = buildSignatureString(method, url, headers, signedHeaders);
+    const signatureString = buildSignatureString(
+      method,
+      url,
+      headers,
+      signedHeaders,
+    );
 
     // 公開鍵をインポート
     const publicKey = await importPublicKeyFromPem(publicKeyPem);
 
     // 署名をデコード
-    const signatureBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
+    const signatureBytes = Uint8Array.from(
+      atob(signature),
+      (c) => c.charCodeAt(0),
+    );
 
     // 署名を検証
     const encoder = new TextEncoder();
     const data = encoder.encode(signatureString);
-    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, signatureBytes, data);
+    return await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      publicKey,
+      signatureBytes,
+      data,
+    );
   } catch (error) {
     console.error("Signature verification error:", error);
     return false;
@@ -262,7 +289,9 @@ function parseSignatureHeader(signatureHeader: string): {
       params[match[1]] = match[2];
     }
 
-    if (!params.keyId || !params.algorithm || !params.headers || !params.signature) {
+    if (
+      !params.keyId || !params.algorithm || !params.headers || !params.signature
+    ) {
       return null;
     }
 

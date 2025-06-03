@@ -3,12 +3,12 @@
 // Generated at: 2025-06-04T00:00:00.000Z
 
 // Serializable value types for safe communication
-export type SerializableValue = 
-  | string 
-  | number 
-  | boolean 
-  | null 
-  | SerializableObject 
+export type SerializableValue =
+  | string
+  | number
+  | boolean
+  | null
+  | SerializableObject
   | SerializableArray;
 
 export interface SerializableObject {
@@ -22,10 +22,12 @@ export interface TakosEvent<T = SerializableValue> {
   name: string;
   payload: T;
   timestamp: number;
-  source: 'server' | 'client' | 'ui' | 'background';
+  source: "server" | "client" | "ui" | "background";
 }
 
-export type EventHandler<T = SerializableValue> = (payload: T) => void | Promise<void>;
+export type EventHandler<T = SerializableValue> = (
+  payload: T,
+) => void | Promise<void>;
 export type EventUnsubscribe = () => void;
 
 // KV API
@@ -39,7 +41,11 @@ export interface TakosKVAPI {
 // Assets API
 export interface TakosAssetsAPI {
   read(assetId: string): Promise<Uint8Array>;
-  write(assetId: string, data: Uint8Array, options?: { cacheTTL?: number }): Promise<void>;
+  write(
+    assetId: string,
+    data: Uint8Array,
+    options?: { cacheTTL?: number },
+  ): Promise<void>;
   delete(assetId: string): Promise<void>;
   list(): Promise<string[]>;
 }

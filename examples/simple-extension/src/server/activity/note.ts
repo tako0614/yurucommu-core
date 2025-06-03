@@ -13,21 +13,21 @@ export const canAcceptNote = (ctx: string, obj: unknown): boolean => {
 /** @activity("Note", { priority: 100, serial: true }) */
 export function onReceiveNote(ctx: string, note: Note) {
   console.log("Processing ActivityPub Note:", note);
-  
+
   // Store the note in KV
   if (note.id) {
     globalThis.takos?.kv.write(`note:${note.id}`, note as any);
   }
-  
+
   // Process mentions or hashtags if needed
   if (note.content?.includes("#takopack")) {
     console.log("Found #takopack mention in note!");
   }
-  
-  return { 
-    status: "processed", 
+
+  return {
+    status: "processed",
     timestamp: Date.now(),
-    processed_by: "simple-extension"
+    processed_by: "simple-extension",
   };
 }
 

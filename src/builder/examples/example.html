@@ -1,909 +1,993 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🐙 包括的な Takopack 拡張機能</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-        :root {
-            --primary: #6366f1;
-            --secondary: #f59e0b;
-            --success: #10b981;
-            --error: #ef4444;
-            --warning: #f59e0b;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
-            --bg-primary: #ffffff;
-            --bg-secondary: #f9fafb;
-            --border: #e5e7eb;
-            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-            --radius: 0.75rem;
-            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+      :root {
+        --primary: #6366f1;
+        --secondary: #f59e0b;
+        --success: #10b981;
+        --error: #ef4444;
+        --warning: #f59e0b;
+        --text-primary: #1f2937;
+        --text-secondary: #6b7280;
+        --bg-primary: #ffffff;
+        --bg-secondary: #f9fafb;
+        --border: #e5e7eb;
+        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        --radius: 0.75rem;
+        --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
 
-        [data-theme="dark"] {
-            --text-primary: #f9fafb;
-            --text-secondary: #d1d5db;
-            --bg-primary: #111827;
-            --bg-secondary: #1f2937;
-            --border: #374151;
-        }
+      [data-theme="dark"] {
+        --text-primary: #f9fafb;
+        --text-secondary: #d1d5db;
+        --bg-primary: #111827;
+        --bg-secondary: #1f2937;
+        --border: #374151;
+      }
 
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-            color: var(--text-primary);
-            min-height: 100vh;
-            line-height: 1.6;
-        }
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background: linear-gradient(
+          135deg,
+          var(--bg-primary) 0%,
+          var(--bg-secondary) 100%
+        );
+        color: var(--text-primary);
+        min-height: 100vh;
+        line-height: 1.6;
+      }
 
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+
+      .header {
+        background: var(--bg-primary);
+        border-radius: var(--radius);
+        padding: 3rem 2rem;
+        margin-bottom: 3rem;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--border);
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--primary), var(--secondary));
+      }
+
+      .header h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .header p {
+        color: var(--text-secondary);
+        font-size: 1.25rem;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 2rem;
+        margin-bottom: 3rem;
+      }
+
+      .card {
+        background: var(--bg-primary);
+        border-radius: var(--radius);
+        padding: 2rem;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border);
+        transition: var(--transition);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--primary), var(--secondary));
+        transform: scaleX(0);
+        transition: var(--transition);
+      }
+
+      .card:hover {
+        transform: translateY(-8px);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .card:hover::before {
+        transform: scaleX(1);
+      }
+
+      .card-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .card-icon {
+        font-size: 1.75rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .form-group {
+        margin-bottom: 1.5rem;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .form-control {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 1rem;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        transition: var(--transition);
+      }
+
+      .form-control:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+      }
+
+      .form-control.error {
+        border-color: var(--error);
+      }
+
+      .error-message {
+        color: var(--error);
+        font-size: 0.875rem;
+        margin-top: 0.5rem;
+        display: none;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.5rem;
+        border: none;
+        border-radius: var(--radius);
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+        text-decoration: none;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--primary), #8b5cf6);
+        color: white;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .btn-secondary {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border: 2px solid var(--border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--primary);
+        color: white;
+        border-color: var(--primary);
+      }
+
+      .btn-success {
+        background: var(--success);
+        color: white;
+      }
+
+      .btn-danger {
+        background: var(--error);
+        color: white;
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        border-radius: 2rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+
+      .status-success {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--success);
+        border: 2px solid rgba(16, 185, 129, 0.2);
+      }
+
+      .status-error {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--error);
+        border: 2px solid rgba(239, 68, 68, 0.2);
+      }
+
+      .status-warning {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--warning);
+        border: 2px solid rgba(245, 158, 11, 0.2);
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+      }
+
+      .metric-card {
+        background: linear-gradient(
+          135deg,
+          var(--bg-secondary),
+          var(--bg-primary)
+        );
+        padding: 1.5rem;
+        border-radius: var(--radius);
+        text-align: center;
+        border: 2px solid var(--border);
+        transition: var(--transition);
+      }
+
+      .metric-card:hover {
+        transform: scale(1.05);
+      }
+
+      .metric-value {
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: var(--primary);
+        display: block;
+      }
+
+      .metric-label {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-top: 0.5rem;
+      }
+
+      .progress-bar {
+        width: 100%;
+        height: 12px;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        overflow: hidden;
+        margin: 1.5rem 0;
+        border: 1px solid var(--border);
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary), var(--secondary));
+        width: 0%;
+        transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: white;
+        animation: spin 1s ease-in-out infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        border-radius: var(--radius);
+        color: white;
+        font-weight: 600;
+        z-index: 1000;
+        transform: translateX(100%);
+        transition: var(--transition);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .toast.show {
+        transform: translateX(0);
+      }
+
+      .toast.success {
+        background: var(--success);
+      }
+
+      .toast.error {
+        background: var(--error);
+      }
+
+      .dark-mode-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        cursor: pointer;
+        font-size: 1.5rem;
+        box-shadow: var(--shadow-lg);
+        transition: var(--transition);
+        z-index: 100;
+      }
+
+      .dark-mode-toggle:hover {
+        transform: scale(1.1) rotate(15deg);
+      }
+
+      .tabs {
+        display: flex;
+        border-bottom: 2px solid var(--border);
+        margin-bottom: 2rem;
+      }
+
+      .tab {
+        padding: 1rem 2rem;
+        background: none;
+        border: none;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: var(--transition);
+        border-bottom: 3px solid transparent;
+      }
+
+      .tab.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+      }
+
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      @media (max-width: 768px) {
         .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        .header {
-            background: var(--bg-primary);
-            border-radius: var(--radius);
-            padding: 3rem 2rem;
-            margin-bottom: 3rem;
-            box-shadow: var(--shadow-lg);
-            border: 1px solid var(--border);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-        }
-
-        .header h1 {
-            font-size: 3rem;
-            font-weight: 800;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .header p {
-            color: var(--text-secondary);
-            font-size: 1.25rem;
-            max-width: 600px;
-            margin: 0 auto;
+          padding: 1rem;
         }
 
         .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 2rem;
-            margin-bottom: 3rem;
+          grid-template-columns: 1fr;
+          gap: 1rem;
         }
 
-        .card {
-            background: var(--bg-primary);
-            border-radius: var(--radius);
-            padding: 2rem;
-            box-shadow: var(--shadow-md);
-            border: 1px solid var(--border);
-            transition: var(--transition);
-            position: relative;
-            overflow: hidden;
+        .header h1 {
+          font-size: 2rem;
         }
 
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            transform: scaleX(0);
-            transition: var(--transition);
+        .header {
+          padding: 2rem 1rem;
         }
+      }
 
-        .card:hover {
-            transform: translateY(-8px);
-            box-shadow: var(--shadow-lg);
+      /* 追加のアニメーション */
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
         }
-
-        .card:hover::before {
-            transform: scaleX(1);
+        to {
+          opacity: 1;
+          transform: translateY(0);
         }
+      }
 
-        .card-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .card-icon {
-            font-size: 1.75rem;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            border: 2px solid var(--border);
-            border-radius: var(--radius);
-            font-size: 1rem;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            transition: var(--transition);
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        }
-
-        .form-control.error {
-            border-color: var(--error);
-        }
-
-        .error-message {
-            color: var(--error);
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-            display: none;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.875rem 1.5rem;
-            border: none;
-            border-radius: var(--radius);
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            text-decoration: none;
-            justify-content: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), #8b5cf6);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .btn-secondary {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 2px solid var(--border);
-        }
-
-        .btn-secondary:hover {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-
-        .btn-success {
-            background: var(--success);
-            color: white;
-        }
-
-        .btn-danger {
-            background: var(--error);
-            color: white;
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            border-radius: 2rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-
-        .status-success {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            border: 2px solid rgba(16, 185, 129, 0.2);
-        }
-
-        .status-error {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--error);
-            border: 2px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .status-warning {
-            background: rgba(245, 158, 11, 0.1);
-            color: var(--warning);
-            border: 2px solid rgba(245, 158, 11, 0.2);
-        }
-
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin: 1.5rem 0;
-        }
-
-        .metric-card {
-            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-primary));
-            padding: 1.5rem;
-            border-radius: var(--radius);
-            text-align: center;
-            border: 2px solid var(--border);
-            transition: var(--transition);
-        }
-
-        .metric-card:hover {
-            transform: scale(1.05);
-        }
-
-        .metric-value {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--primary);
-            display: block;
-        }
-
-        .metric-label {
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            font-weight: 500;
-            margin-top: 0.5rem;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 12px;
-            background: var(--bg-secondary);
-            border-radius: 6px;
-            overflow: hidden;
-            margin: 1.5rem 0;
-            border: 1px solid var(--border);
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            width: 0%;
-            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 1rem 1.5rem;
-            border-radius: var(--radius);
-            color: white;
-            font-weight: 600;
-            z-index: 1000;
-            transform: translateX(100%);
-            transition: var(--transition);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .toast.show {
-            transform: translateX(0);
-        }
-
-        .toast.success {
-            background: var(--success);
-        }
-
-        .toast.error {
-            background: var(--error);
-        }
-
-        .dark-mode-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            cursor: pointer;
-            font-size: 1.5rem;
-            box-shadow: var(--shadow-lg);
-            transition: var(--transition);
-            z-index: 100;
-        }
-
-        .dark-mode-toggle:hover {
-            transform: scale(1.1) rotate(15deg);
-        }
-
-        .tabs {
-            display: flex;
-            border-bottom: 2px solid var(--border);
-            margin-bottom: 2rem;
-        }
-
-        .tab {
-            padding: 1rem 2rem;
-            background: none;
-            border: none;
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: var(--transition);
-            border-bottom: 3px solid transparent;
-        }
-
-        .tab.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 1rem;
-            }
-            
-            .grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-            
-            .header h1 {
-                font-size: 2rem;
-            }
-
-            .header {
-                padding: 2rem 1rem;
-            }
-        }
-
-        /* 追加のアニメーション */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .fade-in-up {
-            animation: fadeInUp 0.6s ease-out;
-        }
+      .fade-in-up {
+        animation: fadeInUp 0.6s ease-out;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <button class="dark-mode-toggle" onclick="toggleDarkMode()">🌙</button>
-    
+
     <div class="container">
-        <div class="header fade-in-up">
-            <h1>🐙 包括的な Takopack 拡張機能</h1>
-            <p>高度な機能、パフォーマンス監視、ActivityPub統合を備えた次世代拡張機能</p>
-            <div class="status-indicator status-success" id="connectionStatus" style="margin-top: 1rem;">
-                ⚡ システム稼働中
+      <div class="header fade-in-up">
+        <h1>🐙 包括的な Takopack 拡張機能</h1>
+        <p>
+          高度な機能、パフォーマンス監視、ActivityPub統合を備えた次世代拡張機能
+        </p>
+        <div
+          class="status-indicator status-success"
+          id="connectionStatus"
+          style="margin-top: 1rem"
+        >
+          ⚡ システム稼働中
+        </div>
+      </div>
+
+      <!-- タブナビゲーション -->
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('posts')">
+          📝 投稿管理
+        </button>
+        <button class="tab" onclick="switchTab('settings')">⚙️ 設定</button>
+        <button class="tab" onclick="switchTab('analytics')">📊 分析</button>
+        <button class="tab" onclick="switchTab('activitypub')">
+          🌐 ActivityPub
+        </button>
+      </div>
+
+      <!-- 投稿管理タブ -->
+      <div id="posts-tab" class="tab-content active">
+        <div class="grid">
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">📝</span>
+              新しい投稿を作成
+            </h2>
+            <form id="postForm">
+              <div class="form-group">
+                <label for="postContent">投稿内容</label>
+                <textarea
+                  id="postContent"
+                  class="form-control"
+                  rows="4"
+                  placeholder="今何を考えていますか？素晴らしいアイデアを共有しましょう！"
+                  maxlength="2000"
+                ></textarea>
+                <div class="error-message" id="contentError"></div>
+                <small
+                  style="color: var(--text-secondary); margin-top: 0.5rem; display: block"
+                >
+                  <span id="charCount">0</span>/2000文字
+                </small>
+              </div>
+
+              <div class="form-group">
+                <label for="hashtags">ハッシュタグ (カンマ区切り)</label>
+                <input
+                  type="text"
+                  id="hashtags"
+                  class="form-control"
+                  placeholder="技術, ActivityPub, Takos, ソーシャル"
+                >
+              </div>
+
+              <div class="form-group">
+                <label for="visibility">公開範囲</label>
+                <select id="visibility" class="form-control">
+                  <option value="public">
+                    🌍 パブリック - 誰でも見ることができます
+                  </option>
+                  <option value="unlisted">
+                    🔗 未収載 - リンクを知っている人のみ
+                  </option>
+                  <option value="followers">👥 フォロワーのみ</option>
+                  <option value="private">🔒 プライベート - 自分のみ</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 0.5rem">
+                  <input type="checkbox" id="sensitive">
+                  センシティブな内容を含む
+                </label>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="submitPost">
+                <span class="loading" style="display: none"></span>
+                📤 投稿する
+              </button>
+            </form>
+          </div>
+
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">📋</span>
+              最近の投稿
+            </h2>
+            <div id="recentPosts">
+              <p style="color: var(--text-secondary); text-align: center; padding: 2rem">
+                投稿がまだありません。最初の投稿を作成しましょう！
+              </p>
             </div>
+          </div>
         </div>
+      </div>
 
-        <!-- タブナビゲーション -->
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('posts')">📝 投稿管理</button>
-            <button class="tab" onclick="switchTab('settings')">⚙️ 設定</button>
-            <button class="tab" onclick="switchTab('analytics')">📊 分析</button>
-            <button class="tab" onclick="switchTab('activitypub')">🌐 ActivityPub</button>
-        </div>
+      <!-- 設定タブ -->
+      <div id="settings-tab" class="tab-content">
+        <div class="grid">
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">👤</span>
+              プロフィール設定
+            </h2>
+            <form id="settingsForm">
+              <div class="form-group">
+                <label for="displayName">表示名</label>
+                <input
+                  type="text"
+                  id="displayName"
+                  class="form-control"
+                  placeholder="表示名を入力"
+                  maxlength="100"
+                >
+              </div>
 
-        <!-- 投稿管理タブ -->
-        <div id="posts-tab" class="tab-content active">
-            <div class="grid">
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">📝</span>
-                        新しい投稿を作成
-                    </h2>
-                    <form id="postForm">
-                        <div class="form-group">
-                            <label for="postContent">投稿内容</label>
-                            <textarea 
-                                id="postContent" 
-                                class="form-control" 
-                                rows="4" 
-                                placeholder="今何を考えていますか？素晴らしいアイデアを共有しましょう！"
-                                maxlength="2000"
-                            ></textarea>
-                            <div class="error-message" id="contentError"></div>
-                            <small style="color: var(--text-secondary); margin-top: 0.5rem; display: block;">
-                                <span id="charCount">0</span>/2000文字
-                            </small>
-                        </div>
+              <div class="form-group">
+                <label for="bio">自己紹介</label>
+                <textarea
+                  id="bio"
+                  class="form-control"
+                  rows="3"
+                  placeholder="自分について教えてください（任意）"
+                  maxlength="500"
+                ></textarea>
+              </div>
 
-                        <div class="form-group">
-                            <label for="hashtags">ハッシュタグ (カンマ区切り)</label>
-                            <input 
-                                type="text" 
-                                id="hashtags" 
-                                class="form-control" 
-                                placeholder="技術, ActivityPub, Takos, ソーシャル"
-                            >
-                        </div>
+              <div class="form-group">
+                <label for="theme">テーマ</label>
+                <select id="theme" class="form-control">
+                  <option value="auto">🌗 自動 - システム設定に従う</option>
+                  <option value="light">☀️ ライト</option>
+                  <option value="dark">🌙 ダーク</option>
+                </select>
+              </div>
 
-                        <div class="form-group">
-                            <label for="visibility">公開範囲</label>
-                            <select id="visibility" class="form-control">
-                                <option value="public">🌍 パブリック - 誰でも見ることができます</option>
-                                <option value="unlisted">🔗 未収載 - リンクを知っている人のみ</option>
-                                <option value="followers">👥 フォロワーのみ</option>
-                                <option value="private">🔒 プライベート - 自分のみ</option>
-                            </select>
-                        </div>
+              <button type="submit" class="btn btn-secondary" id="saveSettings">
+                💾 設定を保存
+              </button>
+            </form>
+          </div>
 
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; gap: 0.5rem;">
-                                <input type="checkbox" id="sensitive"> 
-                                センシティブな内容を含む
-                            </label>
-                        </div>
-
-                        <button type="submit" class="btn btn-primary" id="submitPost">
-                            <span class="loading" style="display: none;"></span>
-                            📤 投稿する
-                        </button>
-                    </form>
-                </div>
-
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">📋</span>
-                        最近の投稿
-                    </h2>
-                    <div id="recentPosts">
-                        <p style="color: var(--text-secondary); text-align: center; padding: 2rem;">
-                            投稿がまだありません。最初の投稿を作成しましょう！
-                        </p>
-                    </div>
-                </div>
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">🔔</span>
+              通知設定
+            </h2>
+            <div class="form-group">
+              <label style="display: flex; align-items: center; gap: 0.5rem">
+                <input type="checkbox" id="notifyMentions" checked>
+                メンション通知
+              </label>
             </div>
-        </div>
-
-        <!-- 設定タブ -->
-        <div id="settings-tab" class="tab-content">
-            <div class="grid">
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">👤</span>
-                        プロフィール設定
-                    </h2>
-                    <form id="settingsForm">
-                        <div class="form-group">
-                            <label for="displayName">表示名</label>
-                            <input 
-                                type="text" 
-                                id="displayName" 
-                                class="form-control" 
-                                placeholder="表示名を入力"
-                                maxlength="100"
-                            >
-                        </div>
-
-                        <div class="form-group">
-                            <label for="bio">自己紹介</label>
-                            <textarea 
-                                id="bio" 
-                                class="form-control" 
-                                rows="3" 
-                                placeholder="自分について教えてください（任意）"
-                                maxlength="500"
-                            ></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="theme">テーマ</label>
-                            <select id="theme" class="form-control">
-                                <option value="auto">🌗 自動 - システム設定に従う</option>
-                                <option value="light">☀️ ライト</option>
-                                <option value="dark">🌙 ダーク</option>
-                            </select>
-                        </div>
-
-                        <button type="submit" class="btn btn-secondary" id="saveSettings">
-                            💾 設定を保存
-                        </button>
-                    </form>
-                </div>
-
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">🔔</span>
-                        通知設定
-                    </h2>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" id="notifyMentions" checked> 
-                            メンション通知
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" id="notifyFollows" checked> 
-                            フォロー通知
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" id="notifyBoosts" checked> 
-                            ブースト通知
-                        </label>
-                    </div>
-                    <button class="btn btn-secondary" onclick="saveNotificationSettings()">
-                        🔔 通知設定を保存
-                    </button>
-                </div>
+            <div class="form-group">
+              <label style="display: flex; align-items: center; gap: 0.5rem">
+                <input type="checkbox" id="notifyFollows" checked>
+                フォロー通知
+              </label>
             </div>
-        </div>
-
-        <!-- 分析タブ -->
-        <div id="analytics-tab" class="tab-content">
-            <div class="card fade-in-up">
-                <h2 class="card-title">
-                    <span class="card-icon">📊</span>
-                    パフォーマンス分析
-                </h2>
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <span class="metric-value" id="totalPosts">0</span>
-                        <div class="metric-label">総投稿数</div>
-                    </div>
-                    <div class="metric-card">
-                        <span class="metric-value" id="avgResponseTime">0ms</span>
-                        <div class="metric-label">平均応答時間</div>
-                    </div>
-                    <div class="metric-card">
-                        <span class="metric-value" id="successRate">100%</span>
-                        <div class="metric-label">成功率</div>
-                    </div>
-                    <div class="metric-card">
-                        <span class="metric-value" id="activeConnections">1</span>
-                        <div class="metric-label">アクティブ接続</div>
-                    </div>
-                </div>
-
-                <div class="progress-bar">
-                    <div class="progress-fill" id="performanceProgress"></div>
-                </div>
-
-                <div style="text-align: center; margin-top: 2rem;">
-                    <button class="btn btn-primary" onclick="refreshMetrics()">
-                        🔄 メトリクスを更新
-                    </button>
-                    <button class="btn btn-secondary" onclick="exportMetrics()">
-                        📊 データをエクスポート
-                    </button>
-                </div>
+            <div class="form-group">
+              <label style="display: flex; align-items: center; gap: 0.5rem">
+                <input type="checkbox" id="notifyBoosts" checked>
+                ブースト通知
+              </label>
             </div>
+            <button
+              class="btn btn-secondary"
+              onclick="saveNotificationSettings()"
+            >
+              🔔 通知設定を保存
+            </button>
+          </div>
         </div>
+      </div>
 
-        <!-- ActivityPub タブ -->
-        <div id="activitypub-tab" class="tab-content">
-            <div class="grid">
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">🌐</span>
-                        ActivityPub 統合
-                    </h2>
-                    <p style="margin-bottom: 2rem;">他のActivityPubネットワークとの連携状況</p>
-                    
-                    <div class="status-indicator status-success" id="activityPubStatus" style="margin-bottom: 2rem;">
-                        ✅ ActivityPub 対応済み
-                    </div>
-
-                    <div style="margin: 2rem 0;">
-                        <h4 style="margin-bottom: 1rem;">サポートされている活動:</h4>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>📝 Create</strong><br>
-                                <small>投稿作成</small>
-                            </div>
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>✏️ Update</strong><br>
-                                <small>投稿更新</small>
-                            </div>
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>🗑️ Delete</strong><br>
-                                <small>投稿削除</small>
-                            </div>
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>👥 Follow</strong><br>
-                                <small>フォロー</small>
-                            </div>
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>❤️ Like</strong><br>
-                                <small>いいね</small>
-                            </div>
-                            <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border);">
-                                <strong>🔄 Announce</strong><br>
-                                <small>ブースト</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary" onclick="testActivityPubConnection()">
-                        🔗 接続をテスト
-                    </button>
-                </div>
-
-                <div class="card fade-in-up">
-                    <h2 class="card-title">
-                        <span class="card-icon">🧪</span>
-                        テスト結果
-                    </h2>
-                    <div id="testResults">
-                        <p style="color: var(--text-secondary); text-align: center; padding: 2rem;">
-                            テストを実行するには上記のボタンをクリックしてください。
-                        </p>
-                    </div>
-                </div>
+      <!-- 分析タブ -->
+      <div id="analytics-tab" class="tab-content">
+        <div class="card fade-in-up">
+          <h2 class="card-title">
+            <span class="card-icon">📊</span>
+            パフォーマンス分析
+          </h2>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-value" id="totalPosts">0</span>
+              <div class="metric-label">総投稿数</div>
             </div>
+            <div class="metric-card">
+              <span class="metric-value" id="avgResponseTime">0ms</span>
+              <div class="metric-label">平均応答時間</div>
+            </div>
+            <div class="metric-card">
+              <span class="metric-value" id="successRate">100%</span>
+              <div class="metric-label">成功率</div>
+            </div>
+            <div class="metric-card">
+              <span class="metric-value" id="activeConnections">1</span>
+              <div class="metric-label">アクティブ接続</div>
+            </div>
+          </div>
+
+          <div class="progress-bar">
+            <div class="progress-fill" id="performanceProgress"></div>
+          </div>
+
+          <div style="text-align: center; margin-top: 2rem">
+            <button class="btn btn-primary" onclick="refreshMetrics()">
+              🔄 メトリクスを更新
+            </button>
+            <button class="btn btn-secondary" onclick="exportMetrics()">
+              📊 データをエクスポート
+            </button>
+          </div>
         </div>
+      </div>
+
+      <!-- ActivityPub タブ -->
+      <div id="activitypub-tab" class="tab-content">
+        <div class="grid">
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">🌐</span>
+              ActivityPub 統合
+            </h2>
+            <p style="margin-bottom: 2rem">
+              他のActivityPubネットワークとの連携状況
+            </p>
+
+            <div
+              class="status-indicator status-success"
+              id="activityPubStatus"
+              style="margin-bottom: 2rem"
+            >
+              ✅ ActivityPub 対応済み
+            </div>
+
+            <div style="margin: 2rem 0">
+              <h4 style="margin-bottom: 1rem">サポートされている活動:</h4>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem">
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>📝 Create</strong>
+                  <br>
+                  <small>投稿作成</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>✏️ Update</strong>
+                  <br>
+                  <small>投稿更新</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>🗑️ Delete</strong>
+                  <br>
+                  <small>投稿削除</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>👥 Follow</strong>
+                  <br>
+                  <small>フォロー</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>❤️ Like</strong>
+                  <br>
+                  <small>いいね</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius); border: 1px solid var(--border)">
+                  <strong>🔄 Announce</strong>
+                  <br>
+                  <small>ブースト</small>
+                </div>
+              </div>
+            </div>
+
+            <button
+              class="btn btn-primary"
+              onclick="testActivityPubConnection()"
+            >
+              🔗 接続をテスト
+            </button>
+          </div>
+
+          <div class="card fade-in-up">
+            <h2 class="card-title">
+              <span class="card-icon">🧪</span>
+              テスト結果
+            </h2>
+            <div id="testResults">
+              <p style="color: var(--text-secondary); text-align: center; padding: 2rem">
+                テストを実行するには上記のボタンをクリックしてください。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-        // 拡張グローバル状態管理
-        const AppState = {
-            metrics: {
-                totalPosts: 0,
-                avgResponseTime: 45,
-                successRate: 98,
-                activeConnections: 3
-            },
-            isLoading: false,
-            darkMode: localStorage.getItem('darkMode') === 'true',
-            activeTab: 'posts'
-        };
+      // 拡張グローバル状態管理
+      const AppState = {
+        metrics: {
+          totalPosts: 0,
+          avgResponseTime: 45,
+          successRate: 98,
+          activeConnections: 3,
+        },
+        isLoading: false,
+        darkMode: localStorage.getItem("darkMode") === "true",
+        activeTab: "posts",
+      };
 
-        // アプリケーション初期化
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeApp();
-            loadUserSettings();
-            refreshMetrics();
-            updateUIAnimations();
+      // アプリケーション初期化
+      document.addEventListener("DOMContentLoaded", function () {
+        initializeApp();
+        loadUserSettings();
+        refreshMetrics();
+        updateUIAnimations();
+      });
+
+      function initializeApp() {
+        // 保存されたテーマを適用
+        if (AppState.darkMode) {
+          document.documentElement.setAttribute("data-theme", "dark");
+          document.querySelector(".dark-mode-toggle").textContent =
+            "☀️";
+        }
+
+        // 文字カウンター
+        const postContent = document.getElementById("postContent");
+        const charCount = document.getElementById("charCount");
+
+        postContent.addEventListener("input", function () {
+          const count = this.value.length;
+          charCount.textContent = count;
+
+          if (count > 2000) {
+            this.classList.add("error");
+            document.getElementById("contentError").textContent =
+              "文字数制限を超えています";
+            document.getElementById("contentError").style.display =
+              "block";
+          } else {
+            this.classList.remove("error");
+            document.getElementById("contentError").style.display =
+              "none";
+          }
         });
 
-        function initializeApp() {
-            // 保存されたテーマを適用
-            if (AppState.darkMode) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                document.querySelector('.dark-mode-toggle').textContent = '☀️';
+        // フォーム送信
+        document.getElementById("postForm").addEventListener(
+          "submit",
+          handlePostSubmission,
+        );
+        document.getElementById("settingsForm").addEventListener(
+          "submit",
+          handleSettingsSubmission,
+        );
+      }
+
+      // タブ切り替え
+      function switchTab(tabName) {
+        // すべてのタブとコンテンツを非アクティブに
+        document.querySelectorAll(".tab").forEach((tab) =>
+          tab.classList.remove("active")
+        );
+        document.querySelectorAll(".tab-content").forEach((content) =>
+          content.classList.remove("active")
+        );
+
+        // 選択されたタブをアクティブに
+        document.querySelector(`[onclick="switchTab('\${tabName}')"]`)
+          .classList.add("active");
+        document.getElementById(`${tabName}-tab`).classList.add(
+          "active",
+        );
+
+        AppState.activeTab = tabName;
+
+        // タブ切り替え時のアニメーション
+        const activeContent = document.getElementById(
+          `\${tabName}-tab`,
+        );
+        activeContent.style.opacity = "0";
+        activeContent.style.transform = "translateY(20px)";
+
+        setTimeout(() => {
+          activeContent.style.transition = "all 0.3s ease";
+          activeContent.style.opacity = "1";
+          activeContent.style.transform = "translateY(0)";
+        }, 50);
+      }
+
+      // 投稿送信処理
+      async function handlePostSubmission(e) {
+        e.preventDefault();
+
+        const submitBtn = document.getElementById("submitPost");
+        const loading = submitBtn.querySelector(".loading");
+
+        setLoading(true);
+        loading.style.display = "inline-block";
+        submitBtn.disabled = true;
+
+        try {
+          const formData = {
+            content: document.getElementById("postContent").value,
+            hashtags: document.getElementById("hashtags").value
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+            visibility: document.getElementById("visibility").value,
+            sensitive: document.getElementById("sensitive").checked,
+            language: "ja",
+          };
+
+          // サーバー関数を呼び出し
+          const result = await globalThis.takos?.serverCall?.(
+            "createPost",
+            formData,
+          );
+
+          if (result && result[0] === 200) {
+            showToast("投稿が正常に作成されました！", "success");
+            document.getElementById("postForm").reset();
+            document.getElementById("charCount").textContent = "0";
+
+            // メトリクス更新
+            AppState.metrics.totalPosts++;
+            updateMetricsDisplay();
+
+            // 最近の投稿を更新
+            addRecentPost(result[1]);
+          } else {
+            throw new Error(result?.[1] || "投稿の作成に失敗しました");
+          }
+        } catch (error) {
+          console.error("Post creation error:", error);
+          showToast(
+            error.message || "投稿の作成中にエラーが発生しました",
+            "error",
+          );
+        } finally {
+          setLoading(false);
+          loading.style.display = "none";
+          submitBtn.disabled = false;
+        }
+      }
+
+      // 設定保存処理
+      async function handleSettingsSubmission(e) {
+        e.preventDefault();
+
+        setLoading(true);
+
+        try {
+          const settings = {
+            displayName: document.getElementById("displayName").value,
+            bio: document.getElementById("bio").value,
+            theme: document.getElementById("theme").value,
+            notifications: {
+              mentions:
+                document.getElementById("notifyMentions").checked,
+              follows: document.getElementById("notifyFollows").checked,
+              boosts: document.getElementById("notifyBoosts").checked,
+              favorites: true,
+            },
+            privacy: {
+              discoverability: true,
+              indexable: true,
+              requireFollowApproval: false,
+            },
+          };
+
+          const result = await globalThis.takos?.serverCall?.(
+            "updateUserSettings",
+            settings,
+          );
+
+          if (result && result[0] === 200) {
+            showToast("設定が正常に保存されました！", "success");
+
+            // テーマ変更を即座に適用
+            if (settings.theme !== "auto") {
+              AppState.darkMode = settings.theme === "dark";
+              localStorage.setItem("darkMode", AppState.darkMode);
+              updateTheme();
             }
+          } else {
+            throw new Error(result?.[1] || "設定の保存に失敗しました");
+          }
+        } catch (error) {
+          console.error("Settings save error:", error);
+          showToast(
+            error.message || "設定の保存中にエラーが発生しました",
+            "error",
+          );
+        } finally {
+          setLoading(false);
+        }
+      }
 
-            // 文字カウンター
-            const postContent = document.getElementById('postContent');
-            const charCount = document.getElementById('charCount');
-            
-            postContent.addEventListener('input', function() {
-                const count = this.value.length;
-                charCount.textContent = count;
-                
-                if (count > 2000) {
-                    this.classList.add('error');
-                    document.getElementById('contentError').textContent = '文字数制限を超えています';
-                    document.getElementById('contentError').style.display = 'block';
-                } else {
-                    this.classList.remove('error');
-                    document.getElementById('contentError').style.display = 'none';
-                }
-            });
+      // 最近の投稿を追加
+      function addRecentPost(postData) {
+        const recentPosts = document.getElementById("recentPosts");
 
-            // フォーム送信
-            document.getElementById('postForm').addEventListener('submit', handlePostSubmission);
-            document.getElementById('settingsForm').addEventListener('submit', handleSettingsSubmission);
+        // 初回投稿の場合、プレースホルダーを削除
+        if (
+          recentPosts.children.length === 1 &&
+          recentPosts.children[0].tagName === "P"
+        ) {
+          recentPosts.innerHTML = "";
         }
 
-        // タブ切り替え
-        function switchTab(tabName) {
-            // すべてのタブとコンテンツを非アクティブに
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            // 選択されたタブをアクティブに
-            document.querySelector(`[onclick="switchTab('\${tabName}')"]`).classList.add('active');
-            document.getElementById(`${tabName}-tab`).classList.add('active');
-            
-            AppState.activeTab = tabName;
-            
-            // タブ切り替え時のアニメーション
-            const activeContent = document.getElementById(`\${tabName}-tab`);
-            activeContent.style.opacity = '0';
-            activeContent.style.transform = 'translateY(20px)';
-            
-            setTimeout(() => {
-                activeContent.style.transition = 'all 0.3s ease';
-                activeContent.style.opacity = '1';
-                activeContent.style.transform = 'translateY(0)';
-            }, 50);
-        }
-
-        // 投稿送信処理
-        async function handlePostSubmission(e) {
-            e.preventDefault();
-            
-            const submitBtn = document.getElementById('submitPost');
-            const loading = submitBtn.querySelector('.loading');
-            
-            setLoading(true);
-            loading.style.display = 'inline-block';
-            submitBtn.disabled = true;
-
-            try {
-                const formData = {
-                    content: document.getElementById('postContent').value,
-                    hashtags: document.getElementById('hashtags').value
-                        .split(',')
-                        .map(tag => tag.trim())
-                        .filter(Boolean),
-                    visibility: document.getElementById('visibility').value,
-                    sensitive: document.getElementById('sensitive').checked,
-                    language: 'ja'
-                };
-
-                // サーバー関数を呼び出し
-                const result = await globalThis.takos?.serverCall?.('createPost', formData);
-                
-                if (result && result[0] === 200) {
-                    showToast('投稿が正常に作成されました！', 'success');
-                    document.getElementById('postForm').reset();
-                    document.getElementById('charCount').textContent = '0';
-                    
-                    // メトリクス更新
-                    AppState.metrics.totalPosts++;
-                    updateMetricsDisplay();
-                    
-                    // 最近の投稿を更新
-                    addRecentPost(result[1]);
-                } else {
-                    throw new Error(result?.[1] || '投稿の作成に失敗しました');
-                }
-            } catch (error) {
-                console.error('Post creation error:', error);
-                showToast(error.message || '投稿の作成中にエラーが発生しました', 'error');
-            } finally {
-                setLoading(false);
-                loading.style.display = 'none';
-                submitBtn.disabled = false;
-            }
-        }
-
-        // 設定保存処理
-        async function handleSettingsSubmission(e) {
-            e.preventDefault();
-            
-            setLoading(true);
-
-            try {
-                const settings = {
-                    displayName: document.getElementById('displayName').value,
-                    bio: document.getElementById('bio').value,
-                    theme: document.getElementById('theme').value,
-                    notifications: {
-                        mentions: document.getElementById('notifyMentions').checked,
-                        follows: document.getElementById('notifyFollows').checked,
-                        boosts: document.getElementById('notifyBoosts').checked,
-                        favorites: true
-                    },
-                    privacy: {
-                        discoverability: true,
-                        indexable: true,
-                        requireFollowApproval: false
-                    }
-                };
-
-                const result = await globalThis.takos?.serverCall?.('updateUserSettings', settings);
-                
-                if (result && result[0] === 200) {
-                    showToast('設定が正常に保存されました！', 'success');
-                    
-                    // テーマ変更を即座に適用
-                    if (settings.theme !== 'auto') {
-                        AppState.darkMode = settings.theme === 'dark';
-                        localStorage.setItem('darkMode', AppState.darkMode);
-                        updateTheme();
-                    }
-                } else {
-                    throw new Error(result?.[1] || '設定の保存に失敗しました');
-                }
-            } catch (error) {
-                console.error('Settings save error:', error);
-                showToast(error.message || '設定の保存中にエラーが発生しました', 'error');
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        // 最近の投稿を追加
-        function addRecentPost(postData) {
-            const recentPosts = document.getElementById('recentPosts');
-            
-            // 初回投稿の場合、プレースホルダーを削除
-            if (recentPosts.children.length === 1 && recentPosts.children[0].tagName === 'P') {
-                recentPosts.innerHTML = '';
-            }
-            
-            const postElement = document.createElement('div');
-            postElement.style.cssText = `
+        const postElement = document.createElement("div");
+        postElement.style.cssText = `
                 padding: 1rem;
                 margin-bottom: 1rem;
                 background: var(--bg-secondary);
@@ -911,8 +995,8 @@
                 border: 1px solid var(--border);
                 animation: fadeInUp 0.5s ease;
             `;
-            
-            postElement.innerHTML = `
+
+        postElement.innerHTML = `
                 <div style="font-weight: 600; margin-bottom: 0.5rem;">
                     📝 \${new Date().toLocaleString('ja-JP')}
                 </div>
@@ -921,69 +1005,86 @@
                     ID: \${postData.id}
                 </div>
             `;
-            
-            recentPosts.insertBefore(postElement, recentPosts.firstChild);
-        }
 
-        // ユーザー設定読み込み
-        async function loadUserSettings() {
-            try {
-                const result = await globalThis.takos?.serverCall?.('getUserSettings');
-                if (result && result[0] === 200 && result[1]) {
-                    const settings = result[1];
-                    
-                    document.getElementById('displayName').value = settings.displayName || '';
-                    document.getElementById('bio').value = settings.bio || '';
-                    document.getElementById('theme').value = settings.theme || 'auto';
-                    
-                    if (settings.notifications) {
-                        document.getElementById('notifyMentions').checked = settings.notifications.mentions !== false;
-                        document.getElementById('notifyFollows').checked = settings.notifications.follows !== false;
-                        document.getElementById('notifyBoosts').checked = settings.notifications.boosts !== false;
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to load user settings:', error);
+        recentPosts.insertBefore(postElement, recentPosts.firstChild);
+      }
+
+      // ユーザー設定読み込み
+      async function loadUserSettings() {
+        try {
+          const result = await globalThis.takos?.serverCall?.(
+            "getUserSettings",
+          );
+          if (result && result[0] === 200 && result[1]) {
+            const settings = result[1];
+
+            document.getElementById("displayName").value =
+              settings.displayName || "";
+            document.getElementById("bio").value = settings.bio || "";
+            document.getElementById("theme").value = settings.theme ||
+              "auto";
+
+            if (settings.notifications) {
+              document.getElementById("notifyMentions").checked =
+                settings.notifications.mentions !== false;
+              document.getElementById("notifyFollows").checked =
+                settings.notifications.follows !== false;
+              document.getElementById("notifyBoosts").checked =
+                settings.notifications.boosts !== false;
             }
+          }
+        } catch (error) {
+          console.error("Failed to load user settings:", error);
         }
+      }
 
-        // メトリクス更新
-        async function refreshMetrics() {
-            try {
-                const result = await globalThis.takos?.serverCall?.('getPerformanceMetrics');
-                if (result && result[0] === 200 && result[1]) {
-                    AppState.metrics = { ...AppState.metrics, ...result[1] };
-                    updateMetricsDisplay();
-                }
-                
-                // プログレスバー更新
-                const progress = Math.min(AppState.metrics.successRate, 100);
-                document.getElementById('performanceProgress').style.width = progress + '%';
-            } catch (error) {
-                console.error('Failed to refresh metrics:', error);
-                // オフラインの場合はモックデータを表示
-                updateMetricsDisplay();
-            }
+      // メトリクス更新
+      async function refreshMetrics() {
+        try {
+          const result = await globalThis.takos?.serverCall?.(
+            "getPerformanceMetrics",
+          );
+          if (result && result[0] === 200 && result[1]) {
+            AppState.metrics = { ...AppState.metrics, ...result[1] };
+            updateMetricsDisplay();
+          }
+
+          // プログレスバー更新
+          const progress = Math.min(AppState.metrics.successRate, 100);
+          document.getElementById("performanceProgress").style.width =
+            progress + "%";
+        } catch (error) {
+          console.error("Failed to refresh metrics:", error);
+          // オフラインの場合はモックデータを表示
+          updateMetricsDisplay();
         }
+      }
 
-        // メトリクス表示更新
-        function updateMetricsDisplay() {
-            document.getElementById('totalPosts').textContent = AppState.metrics.totalPosts;
-            document.getElementById('avgResponseTime').textContent = AppState.metrics.avgResponseTime + 'ms';
-            document.getElementById('successRate').textContent = AppState.metrics.successRate + '%';
-            document.getElementById('activeConnections').textContent = AppState.metrics.activeConnections;
-        }
+      // メトリクス表示更新
+      function updateMetricsDisplay() {
+        document.getElementById("totalPosts").textContent =
+          AppState.metrics.totalPosts;
+        document.getElementById("avgResponseTime").textContent =
+          AppState.metrics.avgResponseTime + "ms";
+        document.getElementById("successRate").textContent =
+          AppState.metrics.successRate + "%";
+        document.getElementById("activeConnections").textContent =
+          AppState.metrics.activeConnections;
+      }
 
-        // ActivityPub接続テスト
-        async function testActivityPubConnection() {
-            const testResults = document.getElementById('testResults');
-            testResults.innerHTML = '<p style="text-align: center;">🔄 接続テストを実行中...</p>';
+      // ActivityPub接続テスト
+      async function testActivityPubConnection() {
+        const testResults = document.getElementById("testResults");
+        testResults.innerHTML =
+          '<p style="text-align: center;">🔄 接続テストを実行中...</p>';
 
-            try {
-                const result = await globalThis.takos?.serverCall?.('testActivityPubConnection');
-                
-                if (result && result[0] === 200) {
-                    testResults.innerHTML = `
+        try {
+          const result = await globalThis.takos?.serverCall?.(
+            "testActivityPubConnection",
+          );
+
+          if (result && result[0] === 200) {
+            testResults.innerHTML = `
                         <div class="status-indicator status-success" style="margin-bottom: 1rem;">
                             ✅ ActivityPub接続テスト成功
                         </div>
@@ -992,11 +1093,11 @@
                             テスト実行時刻: \${new Date().toLocaleString('ja-JP')}
                         </p>
                     `;
-                } else {
-                    throw new Error(result?.[1] || 'テストに失敗しました');
-                }
-            } catch (error) {
-                testResults.innerHTML = `
+          } else {
+            throw new Error(result?.[1] || "テストに失敗しました");
+          }
+        } catch (error) {
+          testResults.innerHTML = `
                     <div class="status-indicator status-error" style="margin-bottom: 1rem;">
                         ❌ ActivityPub接続テスト失敗
                     </div>
@@ -1005,103 +1106,109 @@
                         ネットワーク接続を確認してください
                     </p>
                 `;
-            }
         }
+      }
 
-        // 通知設定保存
-        function saveNotificationSettings() {
-            const settings = {
-                mentions: document.getElementById('notifyMentions').checked,
-                follows: document.getElementById('notifyFollows').checked,
-                boosts: document.getElementById('notifyBoosts').checked
-            };
-            
-            localStorage.setItem('notificationSettings', JSON.stringify(settings));
-            showToast('通知設定を保存しました', 'success');
-        }
+      // 通知設定保存
+      function saveNotificationSettings() {
+        const settings = {
+          mentions: document.getElementById("notifyMentions").checked,
+          follows: document.getElementById("notifyFollows").checked,
+          boosts: document.getElementById("notifyBoosts").checked,
+        };
 
-        // メトリクスエクスポート
-        function exportMetrics() {
-            const data = {
-                timestamp: new Date().toISOString(),
-                metrics: AppState.metrics,
-                version: '2.0.0'
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `takos-metrics-\${new Date().toISOString().split('T')[0]}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-            
-            showToast('メトリクスデータをエクスポートしました', 'success');
-        }
+        localStorage.setItem(
+          "notificationSettings",
+          JSON.stringify(settings),
+        );
+        showToast("通知設定を保存しました", "success");
+      }
 
-        // ダークモード切り替え
-        function toggleDarkMode() {
-            AppState.darkMode = !AppState.darkMode;
-            localStorage.setItem('darkMode', AppState.darkMode);
-            updateTheme();
-        }
+      // メトリクスエクスポート
+      function exportMetrics() {
+        const data = {
+          timestamp: new Date().toISOString(),
+          metrics: AppState.metrics,
+          version: "2.0.0",
+        };
 
-        // テーマ更新
-        function updateTheme() {
-            const toggle = document.querySelector('.dark-mode-toggle');
-            if (AppState.darkMode) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                toggle.textContent = '☀️';
-            } else {
-                document.documentElement.removeAttribute('data-theme');
-                toggle.textContent = '🌙';
-            }
-        }
-
-        // ローディング状態設定
-        function setLoading(loading) {
-            AppState.isLoading = loading;
-        }
-
-        // トースト通知
-        function showToast(message, type = 'success') {
-            const toast = document.createElement('div');
-            toast.className = `toast \${type}`;
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            
-            setTimeout(() => toast.classList.add('show'), 100);
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => document.body.removeChild(toast), 300);
-            }, 3000);
-        }
-
-        // UIアニメーション更新
-        function updateUIAnimations() {
-            // カードのホバーエフェクトを強化
-            document.querySelectorAll('.card').forEach((card, index) => {
-                card.style.animationDelay = `${index * 0.1}s`;
-                card.classList.add('fade-in-up');
-            });
-        }
-
-        // エラーハンドリング
-        window.addEventListener('error', function(e) {
-            console.error('Global error:', e.error);
-            showToast('予期しないエラーが発生しました', 'error');
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
         });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download =
+          `takos-metrics-\${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
 
-        window.addEventListener('unhandledrejection', function(e) {
-            console.error('Unhandled promise rejection:', e.reason);
-            showToast('非同期処理でエラーが発生しました', 'error');
-        });
+        showToast("メトリクスデータをエクスポートしました", "success");
+      }
 
-        // パフォーマンス監視
-        window.addEventListener('load', function() {
-            const loadTime = performance.now();
-            console.log(`App loaded in \${loadTime.toFixed(2)}ms`);
+      // ダークモード切り替え
+      function toggleDarkMode() {
+        AppState.darkMode = !AppState.darkMode;
+        localStorage.setItem("darkMode", AppState.darkMode);
+        updateTheme();
+      }
+
+      // テーマ更新
+      function updateTheme() {
+        const toggle = document.querySelector(".dark-mode-toggle");
+        if (AppState.darkMode) {
+          document.documentElement.setAttribute("data-theme", "dark");
+          toggle.textContent = "☀️";
+        } else {
+          document.documentElement.removeAttribute("data-theme");
+          toggle.textContent = "🌙";
+        }
+      }
+
+      // ローディング状態設定
+      function setLoading(loading) {
+        AppState.isLoading = loading;
+      }
+
+      // トースト通知
+      function showToast(message, type = "success") {
+        const toast = document.createElement("div");
+        toast.className = `toast \${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.classList.add("show"), 100);
+        setTimeout(() => {
+          toast.classList.remove("show");
+          setTimeout(() => document.body.removeChild(toast), 300);
+        }, 3000);
+      }
+
+      // UIアニメーション更新
+      function updateUIAnimations() {
+        // カードのホバーエフェクトを強化
+        document.querySelectorAll(".card").forEach((card, index) => {
+          card.style.animationDelay = `${index * 0.1}s`;
+          card.classList.add("fade-in-up");
         });
+      }
+
+      // エラーハンドリング
+      window.addEventListener("error", function (e) {
+        console.error("Global error:", e.error);
+        showToast("予期しないエラーが発生しました", "error");
+      });
+
+      window.addEventListener("unhandledrejection", function (e) {
+        console.error("Unhandled promise rejection:", e.reason);
+        showToast("非同期処理でエラーが発生しました", "error");
+      });
+
+      // パフォーマンス監視
+      window.addEventListener("load", function () {
+        const loadTime = performance.now();
+        console.log(`App loaded in \${loadTime.toFixed(2)}ms`);
+      });
     </script>
-</body>
+  </body>
 </html>

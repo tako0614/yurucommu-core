@@ -1,4 +1,11 @@
-import { Component, createEffect, createSignal, For, onMount, Show } from "solid-js";
+import {
+  Component,
+  createEffect,
+  createSignal,
+  For,
+  onMount,
+  Show,
+} from "solid-js";
 
 // アカウントデータの型定義
 type Account = {
@@ -66,7 +73,7 @@ const AccountSettingsContent: Component<{
   const handleDelete = () => {
     const account = selectedAccount();
     if (!account) return;
-    
+
     props.deleteAccount(props.selectedAccountId);
     setShowDeleteConfirm(false);
   };
@@ -74,7 +81,7 @@ const AccountSettingsContent: Component<{
   const checkForChanges = () => {
     const account = selectedAccount();
     if (!account) return;
-    
+
     const hasDisplayNameChange = editingDisplayName() !== account.displayName;
     const hasUserNameChange = editingUserName() !== account.userName;
     const hasIconChange = editingIcon() !== account.avatarInitial;
@@ -82,11 +89,19 @@ const AccountSettingsContent: Component<{
   };
 
   // アイコンプレビュー用の関数
-  const IconPreview: Component<{ iconValue: string; displayNameValue: string; class?: string }> = (p) => {
+  const IconPreview: Component<
+    { iconValue: string; displayNameValue: string; class?: string }
+  > = (p) => {
     const displayIcon = () => {
       const icon = p.iconValue?.trim();
       if (icon && isDataUrl(icon)) {
-        return <img src={icon} alt="icon" class="h-full w-full object-cover rounded-full" />;
+        return (
+          <img
+            src={icon}
+            alt="icon"
+            class="h-full w-full object-cover rounded-full"
+          />
+        );
       }
       // データURLでない場合は、表示名からイニシャルを生成
       const initials = p.displayNameValue?.charAt(0).toUpperCase() || "?";
@@ -94,7 +109,7 @@ const AccountSettingsContent: Component<{
     };
     return <div class={p.class}>{displayIcon()}</div>;
   };
-  
+
   const handleFileChange = (e: Event) => {
     const files = (e.target as HTMLInputElement).files;
     if (files && files[0]) {
@@ -106,7 +121,6 @@ const AccountSettingsContent: Component<{
       reader.readAsDataURL(files[0]);
     }
   };
-
 
   return (
     <div class={`${props.isMobileView ? "space-y-6" : "space-y-5"}`}>
@@ -141,8 +155,8 @@ const AccountSettingsContent: Component<{
                 `}
                 onClick={() => props.setSelectedAccountId(account.id)}
               >
-                <IconPreview 
-                  iconValue={account.avatarInitial} 
+                <IconPreview
+                  iconValue={account.avatarInitial}
                   displayNameValue={account.displayName}
                   class="h-12 w-12 rounded-full bg-teal-600/80 text-white flex items-center justify-center text-xl font-normal"
                 />
@@ -183,14 +197,14 @@ const AccountSettingsContent: Component<{
       <Show when={selectedAccount()}>
         <form class="bg-[#181918] rounded-lg shadow-md p-5 space-y-5 m-auto">
           <div class="flex items-center space-x-5">
-            <IconPreview 
+            <IconPreview
               iconValue={editingIcon()} // editingIcon はデータURLか、元の avatarInitial (イニシャル文字列)
               displayNameValue={editingDisplayName()}
               class="h-16 w-16 rounded-full bg-teal-600/80 text-white flex items-center justify-center text-2xl"
             />
             <div>
               <h3 class="text-lg font-normal text-gray-100">
-                {editingDisplayName()} 
+                {editingDisplayName()}
               </h3>
               <p class="text-sm text-gray-400">@{editingUserName()}</p>
             </div>
@@ -299,7 +313,9 @@ const AccountSettingsContent: Component<{
 };
 
 // 拡張機能コンテンツコンポーネント
-const ExtensionsContent: Component<{ isMobileView: boolean; onShowExtensions?: () => void }> = (props) => {
+const ExtensionsContent: Component<
+  { isMobileView: boolean; onShowExtensions?: () => void }
+> = (props) => {
   // ダミーの拡張機能データ
   const initialExtensionsData = [
     {
@@ -350,7 +366,7 @@ const ExtensionsContent: Component<{ isMobileView: boolean; onShowExtensions?: (
     <div class={`${props.isMobileView ? "space-y-4" : ""}`}>
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-lg font-medium text-gray-100">拡張機能管理</h2>
-        <button 
+        <button
           type="button"
           class="text-teal-400 hover:bg-teal-500/10 px-3 py-1 rounded-md transition-colors text-sm"
           onClick={props.onShowExtensions}
@@ -388,7 +404,7 @@ const ExtensionsContent: Component<{ isMobileView: boolean; onShowExtensions?: (
 
               {/* アクションボタン */}
               <div class="flex items-center space-x-2 flex-shrink-0">
-                <button 
+                <button
                   type="button"
                   class="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-600/70 rounded"
                 >
@@ -505,7 +521,7 @@ const NotificationsContent: Component<{ isMobileView: boolean }> = (props) => {
         </div>
       </div>
 
-      <button 
+      <button
         type="button"
         class="w-full mt-4 bg-transparent hover:bg-gray-700/70 text-gray-400 hover:text-gray-200 py-2 px-4 border border-gray-600/50 rounded transition-colors duration-200"
       >
@@ -553,18 +569,20 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           events: [{
             eventId: "accounts:list",
             identifier: "takos",
-            payload: {}
-          }]
-        })
+            payload: {},
+          }],
+        }),
       });
       const results = await response.json();
       if (results[0]?.success) {
         setAccounts(results[0].result || []);
-        
+
         // 選択中のIDを保持するか、初期選択を行う
         if (preserveSelectedId) {
           // 指定されたIDのアカウントが存在するかチェック
-          const accountExists = results[0].result?.some((acc: Account) => acc.id === preserveSelectedId);
+          const accountExists = results[0].result?.some((acc: Account) =>
+            acc.id === preserveSelectedId
+          );
           if (accountExists) {
             setSelectedAccountId(preserveSelectedId);
           } else if (results[0].result?.length > 0) {
@@ -593,9 +611,9 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           events: [{
             eventId: "accounts:create",
             identifier: "takos",
-            payload: { username }
-          }]
-        })
+            payload: { username },
+          }],
+        }),
       });
       const results = await response.json();
       if (results[0]?.success) {
@@ -604,7 +622,10 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
         setSelectedAccountId(newAccountId);
         showMessage("アカウントを作成しました");
       } else {
-        showMessage(results[0]?.error || "アカウントの作成に失敗しました", true);
+        showMessage(
+          results[0]?.error || "アカウントの作成に失敗しました",
+          true,
+        );
       }
     } catch (error) {
       console.error("Failed to create account:", error);
@@ -615,19 +636,19 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
   // アカウント更新機能
   const updateAccount = async (id: string, updates: Partial<Account>) => {
     try {
-      setErrorMessage(""); 
+      setErrorMessage("");
       setSuccessMessage("");
-      const currentAccount = accounts().find(acc => acc.id === id);
+      const currentAccount = accounts().find((acc) => acc.id === id);
       if (!currentAccount) return;
 
       const payload: Record<string, unknown> = {
-        username: currentAccount.userName, 
+        username: currentAccount.userName,
       };
 
       if (updates.userName) {
         payload.newUsername = updates.userName;
       }
-      
+
       if (updates.displayName) {
         payload.newDisplayName = updates.displayName;
       }
@@ -637,19 +658,21 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
         if (isDataUrl(updates.avatarInitial)) {
           payload.icon = updates.avatarInitial;
         } else { // データURLでない場合、または画像がクリアされた場合を想定し、表示名からイニシャルを生成
-          const baseDisplayName = updates.displayName || currentAccount.displayName;
-          payload.icon = (baseDisplayName.charAt(0).toUpperCase() || "?").substring(0, 2);
+          const baseDisplayName = updates.displayName ||
+            currentAccount.displayName;
+          payload.icon = (baseDisplayName.charAt(0).toUpperCase() || "?")
+            .substring(0, 2);
         }
-      } else if (updates.displayName) { 
+      } else if (updates.displayName) {
         // アイコンはファイルアップロード等で明示的に変更されなかったが、表示名が変更された場合
         // かつ、現在のアイコンがデータURLでない（つまりイニシャルである）場合のみ、イニシャルを更新
         if (!isDataUrl(currentAccount.avatarInitial)) {
-          payload.icon = (updates.displayName.charAt(0).toUpperCase() || "?").substring(0, 2);
+          payload.icon = (updates.displayName.charAt(0).toUpperCase() || "?")
+            .substring(0, 2);
         }
         // 現在のアイコンが画像の場合は、表示名変更だけではアイコンは変更しない
       }
       // payload.icon が未定義の場合、サーバー側はアイコンを変更しない
-
 
       const response = await fetch("/api/event", {
         method: "POST",
@@ -658,9 +681,9 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           events: [{
             eventId: "accounts:edit",
             identifier: "takos",
-            payload
-          }]
-        })
+            payload,
+          }],
+        }),
       });
       const results = await response.json();
       if (results[0]?.success) {
@@ -668,7 +691,10 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
         await loadAccounts(updatedAccountId); // 更新されたアカウントを選択状態で保持
         showMessage("アカウントを更新しました");
       } else {
-        showMessage(results[0]?.error || "アカウントの更新に失敗しました", true);
+        showMessage(
+          results[0]?.error || "アカウントの更新に失敗しました",
+          true,
+        );
         console.error("Update failed:", results[0]);
       }
     } catch (error) {
@@ -682,8 +708,8 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
     try {
       setErrorMessage("");
       setSuccessMessage("");
-      
-      const currentAccount = accounts().find(acc => acc.id === id);
+
+      const currentAccount = accounts().find((acc) => acc.id === id);
       if (!currentAccount) return;
 
       const response = await fetch("/api/event", {
@@ -693,17 +719,17 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           events: [{
             eventId: "accounts:delete",
             identifier: "takos",
-            payload: { username: currentAccount.userName }
-          }]
-        })
+            payload: { username: currentAccount.userName },
+          }],
+        }),
       });
-      
+
       const results = await response.json();
       if (results[0]?.success) {
         // アカウント一覧を再読み込み
         await loadAccounts();
         showMessage("アカウントを削除しました");
-        
+
         // 削除されたアカウントが選択されていた場合、別のアカウントを選択
         const remainingAccounts = accounts();
         if (remainingAccounts.length > 0) {
@@ -712,7 +738,10 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           setSelectedAccountId("");
         }
       } else {
-        showMessage(results[0]?.error || "アカウントの削除に失敗しました", true);
+        showMessage(
+          results[0]?.error || "アカウントの削除に失敗しました",
+          true,
+        );
       }
     } catch (error) {
       console.error("Failed to delete account:", error);
@@ -763,10 +792,14 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
         <div class="fixed top-4 right-4 bg-red-600/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
           <div class="flex items-center space-x-2">
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
             </svg>
             <span class="text-sm">{errorMessage()}</span>
-            <button 
+            <button
               type="button"
               onClick={() => setErrorMessage("")}
               class="ml-2 text-white/80 hover:text-white"
@@ -782,10 +815,14 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
         <div class="fixed top-4 right-4 bg-green-600/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
           <div class="flex items-center space-x-2">
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clip-rule="evenodd"
+              />
             </svg>
             <span class="text-sm">{successMessage()}</span>
-            <button 
+            <button
               type="button"
               onClick={() => setSuccessMessage("")}
               class="ml-2 text-white/80 hover:text-white"
@@ -866,7 +903,10 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
           </Show>
 
           <Show when={activeTab() === "extensions"}>
-            <ExtensionsContent isMobileView onShowExtensions={props?.onShowExtensions} />
+            <ExtensionsContent
+              isMobileView
+              onShowExtensions={props?.onShowExtensions}
+            />
           </Show>
 
           <Show when={activeTab() === "notifications"}>
@@ -882,7 +922,7 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
             <h1 class="text-xl font-medium text-teal-400">Takos Dashboard</h1>
 
             <div class="flex items-center">
-              <button 
+              <button
                 type="button"
                 class="bg-teal-700 hover:bg-teal-600 text-white py-1.5 px-4 rounded flex items-center mr-4 transition-colors duration-200"
               >
@@ -903,7 +943,7 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
                 新規作成
               </button>
 
-              <button 
+              <button
                 type="button"
                 class="text-gray-400 hover:text-gray-200 py-1 px-2 rounded-full hover:bg-gray-700/50 transition-colors duration-200"
               >
@@ -948,7 +988,10 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
 
             {/* 拡張機能セクション */}
             <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
-              <ExtensionsContent isMobileView={false} onShowExtensions={props?.onShowExtensions} />
+              <ExtensionsContent
+                isMobileView={false}
+                onShowExtensions={props?.onShowExtensions}
+              />
             </div>
 
             {/* 通知セクション */}

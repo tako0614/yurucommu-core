@@ -153,8 +153,11 @@ app.put("/:id", async (c) => {
     const { name, icon } = body;
     const domain = c.env.ACTIVITYPUB_DOMAIN;
 
-    const updateData: { name?: string; icon?: string; activityPubActor?: unknown } =
-      {};
+    const updateData: {
+      name?: string;
+      icon?: string;
+      activityPubActor?: unknown;
+    } = {};
 
     const accountToUpdate = await Account.findById(id);
     if (!accountToUpdate) {

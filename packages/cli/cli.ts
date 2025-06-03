@@ -2,7 +2,7 @@
 
 /**
  * Takopack CLI 3.0
- * 
+ *
  * Thin wrapper around @takopack/builder
  * Deno/npm両対応のCLI実行環境
  */

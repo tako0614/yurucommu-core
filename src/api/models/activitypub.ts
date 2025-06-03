@@ -229,7 +229,13 @@ const communitySchema = new mongoose.Schema({
   timestamps: true,
 });
 
-export const ActivityPubObject = mongoose.model("ActivityPubObject", activityPubObjectSchema);
-export const ActivityPubActor = mongoose.model("ActivityPubActor", activityPubActorSchema);
+export const ActivityPubObject = mongoose.model(
+  "ActivityPubObject",
+  activityPubObjectSchema,
+);
+export const ActivityPubActor = mongoose.model(
+  "ActivityPubActor",
+  activityPubActorSchema,
+);
 export const Follow = mongoose.model("Follow", followSchema);
 export const Community = mongoose.model("Community", communitySchema);

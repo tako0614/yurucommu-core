@@ -22,7 +22,8 @@ npm install -g @takopack/cli
 
 ### Binary Download
 
-Download pre-compiled binaries from [GitHub Releases](https://github.com/takos/takopack/releases):
+Download pre-compiled binaries from
+[GitHub Releases](https://github.com/takos/takopack/releases):
 
 - Linux: `takopack-linux`
 - Windows: `takopack.exe`
@@ -104,7 +105,7 @@ my-extension/
 
 ```typescript
 // Using decorators
-@activity("Note", { priority: 100, serial: true })
+
 export function onReceiveNote(ctx: string, note: Note) {
   return { processed: true };
 }
@@ -119,8 +120,8 @@ export function onReceiveLike(ctx: string, like: Like) {
 ### Event Handlers
 
 ```typescript
-// Using decorators  
-@event("userClick", { source: "ui", target: "background" })
+// Using decorators
+
 export function onUserClick(data: ClickData): void {
   console.log("User clicked:", data);
 }
@@ -134,7 +135,8 @@ export function onDataSync(payload: SyncData): void {
 
 ## Migration from Builder 2.0
 
-Builder 3.0 is designed to be mostly compatible with existing projects. Key changes:
+Builder 3.0 is designed to be mostly compatible with existing projects. Key
+changes:
 
 1. **Configuration**: `takopack.config.ts` instead of programmatic API
 2. **File organization**: Source files in `src/` directories
@@ -145,14 +147,14 @@ See [Migration Guide](../docs/migration-v3.md) for detailed instructions.
 
 ## Comparison
 
-| Feature | Builder 2.0 | Builder 3.0 |
-|---------|-------------|-------------|
-| Configuration | Fluent API | Config file |
-| Import handling | toString() | Static preservation |  
-| Function detection | Manual | AST analysis |
-| Bundle size | Larger | Smaller |
-| Build speed | Slower | Faster |
-| Dependencies | Many | Minimal |
+| Feature            | Builder 2.0 | Builder 3.0         |
+| ------------------ | ----------- | ------------------- |
+| Configuration      | Fluent API  | Config file         |
+| Import handling    | toString()  | Static preservation |
+| Function detection | Manual      | AST analysis        |
+| Bundle size        | Larger      | Smaller             |
+| Build speed        | Slower      | Faster              |
+| Dependencies       | Many        | Minimal             |
 
 ## License
 

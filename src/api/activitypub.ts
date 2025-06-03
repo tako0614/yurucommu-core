@@ -1,18 +1,26 @@
 import { Hono } from "hono";
 import { Env } from "./index.ts";
-import { ActivityPubObject, ActivityPubActor, Follow, Community as _Community } from "./models/activitypub.ts";
-import { ActivityPubActivity, VerificationResult } from "./types/activitypub.ts";
+import {
+  ActivityPubActor,
+  ActivityPubObject,
+  Community as _Community,
+  Follow,
+} from "./models/activitypub.ts";
+import {
+  ActivityPubActivity,
+  VerificationResult,
+} from "./types/activitypub.ts";
 import { Account } from "./models/account.ts";
-import { 
-  validateActivityPubObject as _validateActivityPubObject, 
-  isLocalActor as _isLocalActor, 
-  deliverActivity, 
-  getActor,
-  processFollow,
-  processAccept,
-  processUndo,
+import {
   calculateDeliveryTargets,
-  verifyIncomingActivity
+  deliverActivity,
+  getActor,
+  isLocalActor as _isLocalActor,
+  processAccept,
+  processFollow,
+  processUndo,
+  validateActivityPubObject as _validateActivityPubObject,
+  verifyIncomingActivity,
 } from "./utils/activitypub.ts";
 import { extensionHookManager } from "./extensionHookManager.ts"; // 後で作成
 
@@ -58,7 +66,7 @@ app.get("/.well-known/webfinger", async (c) => {
 app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ name: username });
-  
+
   if (!account) {
     return c.json({ error: "Not found" }, 404);
   }
@@ -70,8 +78,9 @@ app.get("/users/:username", async (c) => {
 // プラグインアクター情報取得
 app.get("/plugins/:identifier/:localName", async (c) => {
   const { identifier, localName } = c.req.param();
-  const actorId = `https://${c.env.ACTIVITYPUB_DOMAIN}/plugins/${identifier}/${localName}`;
-  
+  const actorId =
+    `https://${c.env.ACTIVITYPUB_DOMAIN}/plugins/${identifier}/${localName}`;
+
   const actor = await ActivityPubActor.findOne({ id: actorId, isPlugin: true });
   if (!actor) {
     return c.json({ error: "Not found" }, 404);
@@ -82,16 +91,17 @@ app.get("/plugins/:identifier/:localName", async (c) => {
 });
 
 // Inbox エンドポイント（個人）
-app.post("/users/:username/inbox", async (c) => {  try {
+app.post("/users/:username/inbox", async (c) => {
+  try {
     const username = c.req.param("username");
     const body = await c.req.text();
-    
+
     // アカウント確認
     const account = await Account.findOne({ name: username });
     if (!account) {
       return c.json({ error: "Account not found" }, 404);
     }
-    
+
     // 包括的な検証（HTTP署名、Digest、ActivityPub形式）
     const headers: Record<string, string> = {};
     c.req.raw.headers.forEach((value, key) => {
@@ -101,14 +111,14 @@ app.post("/users/:username/inbox", async (c) => {  try {
       "POST",
       c.req.url,
       headers,
-      body
+      body,
     );
 
     const verification: VerificationResult = {
       valid: rawVerification.valid,
       actorId: rawVerification.actorId,
       activity: rawVerification.activity as ActivityPubActivity,
-      error: rawVerification.valid ? undefined : "Verification failed"
+      error: rawVerification.valid ? undefined : "Verification failed",
     };
 
     if (!verification.valid || !verification.activity) {
@@ -119,7 +129,9 @@ app.post("/users/:username/inbox", async (c) => {  try {
     const activity: ActivityPubActivity = verification.activity;
 
     // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processIncomingActivity(activity);
+    const hookResult = await extensionHookManager.processIncomingActivity(
+      activity,
+    );
     if (!hookResult.accepted) {
       return c.json({ error: "Activity rejected by extensions" }, 400);
     }
@@ -145,32 +157,37 @@ app.post("/users/:username/inbox", async (c) => {  try {
     switch (activity.type) {
       case "Follow":
         await processFollow(activity);
-        
+
         // 自動承認の場合
         if (account.activityPubActor.manuallyApprovesFollowers !== true) {
           const acceptActivity = {
             "@context": "https://www.w3.org/ns/activitystreams",
             type: "Accept",
-            id: `https://${c.env.ACTIVITYPUB_DOMAIN}/activities/${crypto.randomUUID()}`,
+            id:
+              `https://${c.env.ACTIVITYPUB_DOMAIN}/activities/${crypto.randomUUID()}`,
             actor: account.activityPubActor.id,
             object: activity,
           };
-            // Accept を配信
-          const senderActor = await getActor(activity.actor, c.env.ACTIVITYPUB_DOMAIN);
+          // Accept を配信
+          const senderActor = await getActor(
+            activity.actor,
+            c.env.ACTIVITYPUB_DOMAIN,
+          );
           if (senderActor && senderActor.inbox) {
             await deliverActivity(
               acceptActivity,
               senderActor.inbox,
               `${account.activityPubActor.id}#main-key`,
-              account.privateKeyPem
+              account.privateKeyPem,
             );
-          }}
+          }
+        }
         break;
-        
+
       case "Accept":
         await processAccept(activity);
         break;
-        
+
       case "Undo":
         await processUndo(activity);
         break;
@@ -187,7 +204,7 @@ app.post("/users/:username/inbox", async (c) => {  try {
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ name: username });
-  
+
   if (!account) {
     return c.json({ error: "Not found" }, 404);
   }
@@ -216,7 +233,7 @@ app.get("/users/:username/outbox", async (c) => {
     type: "OrderedCollection",
     id: `https://${c.env.ACTIVITYPUB_DOMAIN}/users/${username}/outbox`,
     totalItems,
-    orderedItems: activities.map(activity => activity.rawObject),
+    orderedItems: activities.map((activity) => activity.rawObject),
   });
 });
 
@@ -233,14 +250,17 @@ app.post("/users/:username/outbox", async (c) => {
 
     // アクティビティにIDを割り当て
     if (!activity.id) {
-      activity.id = `https://${c.env.ACTIVITYPUB_DOMAIN}/activities/${crypto.randomUUID()}`;
+      activity.id =
+        `https://${c.env.ACTIVITYPUB_DOMAIN}/activities/${crypto.randomUUID()}`;
     }
 
     // アクターを設定
     activity.actor = account.activityPubActor.id;
 
     // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processOutgoingActivity(activity);
+    const hookResult = await extensionHookManager.processOutgoingActivity(
+      activity,
+    );
     const processedActivity = hookResult.processedActivity || activity;
 
     // データベースに保存
@@ -261,8 +281,11 @@ app.post("/users/:username/outbox", async (c) => {
     });
 
     // 配信先を計算
-    const deliveryTargets = calculateDeliveryTargets(processedActivity, c.env.ACTIVITYPUB_DOMAIN);
-      // 各配信先に送信
+    const deliveryTargets = calculateDeliveryTargets(
+      processedActivity,
+      c.env.ACTIVITYPUB_DOMAIN,
+    );
+    // 各配信先に送信
     for (const target of deliveryTargets) {
       const targetActor = await getActor(target, c.env.ACTIVITYPUB_DOMAIN);
       if (targetActor && targetActor.inbox) {
@@ -270,14 +293,14 @@ app.post("/users/:username/outbox", async (c) => {
           processedActivity,
           targetActor.inbox,
           `${account.activityPubActor.id}#main-key`,
-          account.privateKeyPem
+          account.privateKeyPem,
         );
       }
     }
 
-    return c.json({ 
+    return c.json({
       id: processedActivity.id,
-      status: "published" 
+      status: "published",
     }, 201);
   } catch (error) {
     console.error("Outbox processing error:", error);
@@ -289,7 +312,7 @@ app.post("/users/:username/outbox", async (c) => {
 app.get("/users/:username/followers", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ name: username });
-  
+
   if (!account) {
     return c.json({ error: "Not found" }, 404);
   }
@@ -305,7 +328,7 @@ app.get("/users/:username/followers", async (c) => {
     type: "OrderedCollection",
     id: `https://${c.env.ACTIVITYPUB_DOMAIN}/users/${username}/followers`,
     totalItems: followers.length,
-    orderedItems: followers.map(f => f.follower),
+    orderedItems: followers.map((f) => f.follower),
   });
 });
 
@@ -313,7 +336,7 @@ app.get("/users/:username/followers", async (c) => {
 app.get("/users/:username/following", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ name: username });
-  
+
   if (!account) {
     return c.json({ error: "Not found" }, 404);
   }
@@ -329,7 +352,7 @@ app.get("/users/:username/following", async (c) => {
     type: "OrderedCollection",
     id: `https://${c.env.ACTIVITYPUB_DOMAIN}/users/${username}/following`,
     totalItems: following.length,
-    orderedItems: following.map(f => f.following),
+    orderedItems: following.map((f) => f.following),
   });
 });
 
@@ -346,14 +369,14 @@ app.post("/inbox", async (c) => {
       "POST",
       c.req.url,
       headers,
-      body
+      body,
     );
 
     const verification: VerificationResult = {
       valid: rawVerification.valid,
       actorId: rawVerification.actorId,
       activity: rawVerification.activity as ActivityPubActivity,
-      error: rawVerification.valid ? undefined : "Verification failed"
+      error: rawVerification.valid ? undefined : "Verification failed",
     };
 
     if (!verification.valid || !verification.activity) {
@@ -364,7 +387,9 @@ app.post("/inbox", async (c) => {
     const activity: ActivityPubActivity = verification.activity;
 
     // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processIncomingActivity(activity);
+    const hookResult = await extensionHookManager.processIncomingActivity(
+      activity,
+    );
     if (!hookResult.accepted) {
       return c.json({ error: "Activity rejected by extensions" }, 400);
     }
@@ -391,29 +416,29 @@ app.post("/inbox", async (c) => {
       case "Follow":
         await processFollow(activity);
         break;
-        
+
       case "Accept":
         await processAccept(activity);
         break;
-        
+
       case "Undo":
         await processUndo(activity);
         break;
-        
-      case "Delete":        // 削除処理
+
+      case "Delete": // 削除処理
         if (activity.object) {
-          const objectId = typeof activity.object === "string" 
-            ? activity.object 
+          const objectId = typeof activity.object === "string"
+            ? activity.object
             : (activity.object as { id?: string })?.id;
           if (objectId) {
             await ActivityPubObject.updateMany(
               { "rawObject.id": objectId },
-              { $set: { deleted: true } }
+              { $set: { deleted: true } },
             );
           }
         }
         break;
-        
+
       default:
         // その他のアクティビティは保存のみ
         console.log(`Received activity type: ${activity.type}`);

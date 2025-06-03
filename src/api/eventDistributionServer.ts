@@ -27,12 +27,13 @@ export class WebSocketEventServer {
 
   // WebSocketサーバーを開始
   start(): void {
-    this.wss = new WebSocketServer({ 
+    this.wss = new WebSocketServer({
       port: this.port,
-      path: "/ws/events"
+      path: "/ws/events",
     });
 
-    WebSocketEventServer.instance = this;    this.wss.on("connection", (ws: WebSocket, _request: Request) => {
+    WebSocketEventServer.instance = this;
+    this.wss.on("connection", (ws: WebSocket, _request: Request) => {
       const connectionId = this.generateConnectionId();
       const connection: ClientConnection = {
         id: connectionId,
@@ -42,7 +43,7 @@ export class WebSocketEventServer {
       };
 
       this.clients.set(connectionId, connection);
-      console.log(`Client connected: ${connectionId}`);      // メッセージハンドリング
+      console.log(`Client connected: ${connectionId}`); // メッセージハンドリング
       ws.addEventListener("message", async (event) => {
         try {
           const data = event.data;
@@ -52,7 +53,7 @@ export class WebSocketEventServer {
           console.error("Invalid message from client:", error);
           ws.send(JSON.stringify({
             type: "error",
-            message: "Invalid message format"
+            message: "Invalid message format",
           }));
         }
       });
@@ -73,7 +74,7 @@ export class WebSocketEventServer {
       ws.send(JSON.stringify({
         type: "connected",
         connectionId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       }));
     });
 
@@ -85,13 +86,22 @@ export class WebSocketEventServer {
     console.log("WebSocket event distribution server initialized");
   }
   // クライアントメッセージの処理
-  private async handleClientMessage(connectionId: string, message: { type: string; token?: string; events?: string[]; [key: string]: unknown }) {
+  private async handleClientMessage(
+    connectionId: string,
+    message: {
+      type: string;
+      token?: string;
+      events?: string[];
+      [key: string]: unknown;
+    },
+  ) {
     const connection = this.clients.get(connectionId);
     if (!connection) return;
 
     connection.lastActivity = new Date();
 
-    switch (message.type) {      case "authenticate":
+    switch (message.type) {
+      case "authenticate":
         if (message.token) {
           await this.authenticateClient(connectionId, message.token);
         }
@@ -108,16 +118,17 @@ export class WebSocketEventServer {
       case "ping":
         connection.socket.send(JSON.stringify({
           type: "pong",
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         }));
-        break;      case "extension_event":
+        break;
+      case "extension_event":
         await this.handleExtensionEvent(connectionId, message);
         break;
 
       default:
         connection.socket.send(JSON.stringify({
           type: "error",
-          message: `Unknown message type: ${message.type}`
+          message: `Unknown message type: ${message.type}`,
         }));
     }
   }
@@ -131,15 +142,15 @@ export class WebSocketEventServer {
       // セッション検証
       const { Session } = await import("./models/sessions.ts");
       const session = await Session.findOne({ sessionId: token });
-      
+
       if (session && session.expiresAt > new Date()) {
         connection.userId = session.userId;
-        
+
         // 認証成功
         connection.socket.send(JSON.stringify({
           type: "authenticated",
           userId: session.userId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         }));
 
         // 保留中のイベントを送信
@@ -147,14 +158,14 @@ export class WebSocketEventServer {
       } else {
         connection.socket.send(JSON.stringify({
           type: "auth_failed",
-          message: "Invalid or expired token"
+          message: "Invalid or expired token",
         }));
       }
     } catch (error) {
       console.error("Authentication error:", error);
       connection.socket.send(JSON.stringify({
         type: "auth_failed",
-        message: "Authentication error"
+        message: "Authentication error",
       }));
     }
   }
@@ -164,14 +175,14 @@ export class WebSocketEventServer {
     const connection = this.clients.get(connectionId);
     if (!connection) return;
 
-    events.forEach(event => {
+    events.forEach((event) => {
       connection.subscriptions.add(event);
     });
 
     connection.socket.send(JSON.stringify({
       type: "subscribed",
       events,
-      totalSubscriptions: connection.subscriptions.size
+      totalSubscriptions: connection.subscriptions.size,
     }));
   }
 
@@ -180,29 +191,32 @@ export class WebSocketEventServer {
     const connection = this.clients.get(connectionId);
     if (!connection) return;
 
-    events.forEach(event => {
+    events.forEach((event) => {
       connection.subscriptions.delete(event);
     });
 
     connection.socket.send(JSON.stringify({
       type: "unsubscribed",
       events,
-      totalSubscriptions: connection.subscriptions.size
+      totalSubscriptions: connection.subscriptions.size,
     }));
-  }  // 拡張機能イベントの処理
-  private async handleExtensionEvent(connectionId: string, message: Record<string, unknown>) {
+  } // 拡張機能イベントの処理
+  private async handleExtensionEvent(
+    connectionId: string,
+    message: Record<string, unknown>,
+  ) {
     const connection = this.clients.get(connectionId);
     if (!connection || !connection.userId) {
       connection?.socket.send(JSON.stringify({
         type: "error",
-        message: "Authentication required"
+        message: "Authentication required",
       }));
       return;
-    }    // 必須フィールドの存在確認
+    } // 必須フィールドの存在確認
     if (!message.extensionId || !message.eventName) {
       connection.socket.send(JSON.stringify({
         type: "error",
-        message: "extensionId and eventName are required"
+        message: "extensionId and eventName are required",
       }));
       return;
     }
@@ -210,23 +224,24 @@ export class WebSocketEventServer {
     const extensionId = message.extensionId as string;
     const eventName = message.eventName as string;
 
-    try {      // 拡張機能のイベントハンドラーを呼び出し
+    try { // 拡張機能のイベントハンドラーを呼び出し
       const result = await extensionHookManager.processClientEvent(
         extensionId,
         eventName,
         message.payload,
-        connection.userId
+        connection.userId,
       );
 
       connection.socket.send(JSON.stringify({
         type: "extension_event_result",
         requestId: message.requestId,
-        result
-      }));    } catch (error) {
+        result,
+      }));
+    } catch (error) {
       connection.socket.send(JSON.stringify({
         type: "extension_event_error",
         requestId: message.requestId,
-        error: error instanceof Error ? error.message : "Unknown error"
+        error: error instanceof Error ? error.message : "Unknown error",
       }));
     }
   }
@@ -236,7 +251,7 @@ export class WebSocketEventServer {
       type: "event",
       eventName,
       payload,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     let targetClients: ClientConnection[];
@@ -244,17 +259,19 @@ export class WebSocketEventServer {
     if (targetUserId) {
       // 特定ユーザーに送信
       targetClients = Array.from(this.clients.values())
-        .filter(client => client.userId === targetUserId);
+        .filter((client) => client.userId === targetUserId);
     } else {
       // 全ユーザーに送信
       targetClients = Array.from(this.clients.values())
-        .filter(client => client.userId); // 認証済みクライアントのみ
+        .filter((client) => client.userId); // 認証済みクライアントのみ
     }
 
     // イベントを購読しているクライアントに送信
     targetClients
-      .filter(client => client.subscriptions.has(eventName) || client.subscriptions.has("*"))
-      .forEach(client => {
+      .filter((client) =>
+        client.subscriptions.has(eventName) || client.subscriptions.has("*")
+      )
+      .forEach((client) => {
         try {
           if (client.socket.readyState === 1) { // WebSocket.OPEN
             client.socket.send(JSON.stringify(event));
@@ -266,10 +283,10 @@ export class WebSocketEventServer {
 
     // オフラインユーザーのためにイベントをキューに保存
     if (targetUserId) {
-      const isUserOnline = targetClients.some(client => 
+      const isUserOnline = targetClients.some((client) =>
         client.userId === targetUserId && client.socket.readyState === 1
       );
-      
+
       if (!isUserOnline) {
         this.queueEventForUser(targetUserId, event);
       }
@@ -280,10 +297,10 @@ export class WebSocketEventServer {
     if (!this.eventQueue.has(userId)) {
       this.eventQueue.set(userId, []);
     }
-    
+
     const userQueue = this.eventQueue.get(userId)!;
     userQueue.push(event);
-    
+
     // キューサイズ制限（最新100件）
     if (userQueue.length > 100) {
       userQueue.splice(0, userQueue.length - 100);
@@ -298,12 +315,12 @@ export class WebSocketEventServer {
     if (!userQueue || userQueue.length === 0) return;
 
     // キューのイベントを送信
-    userQueue.forEach(event => {
+    userQueue.forEach((event) => {
       try {
         if (connection.socket.readyState === 1) {
           connection.socket.send(JSON.stringify({
             ...event,
-            queued: true
+            queued: true,
           }));
         }
       } catch (error) {
@@ -321,8 +338,9 @@ export class WebSocketEventServer {
     const inactiveThreshold = 5 * 60 * 1000; // 5分
 
     for (const [connectionId, connection] of this.clients.entries()) {
-      const timeSinceActivity = now.getTime() - connection.lastActivity.getTime();
-      
+      const timeSinceActivity = now.getTime() -
+        connection.lastActivity.getTime();
+
       if (timeSinceActivity > inactiveThreshold) {
         console.log(`Removing inactive client: ${connectionId}`);
         connection.socket.close();
@@ -331,7 +349,7 @@ export class WebSocketEventServer {
         // Ping送信
         connection.socket.send(JSON.stringify({
           type: "ping",
-          timestamp: now.toISOString()
+          timestamp: now.toISOString(),
         }));
       }
     }
@@ -350,14 +368,14 @@ export class WebSocketEventServer {
   // 特定ユーザーの接続数を取得
   getUserConnectionCount(userId: string): number {
     return Array.from(this.clients.values())
-      .filter(client => client.userId === userId).length;
+      .filter((client) => client.userId === userId).length;
   }
 
   // サーバー統計情報
   getServerStats() {
     const totalConnections = this.clients.size;
     const authenticatedConnections = Array.from(this.clients.values())
-      .filter(client => client.userId).length;
+      .filter((client) => client.userId).length;
     const totalSubscriptions = Array.from(this.clients.values())
       .reduce((sum, client) => sum + client.subscriptions.size, 0);
 
@@ -366,7 +384,7 @@ export class WebSocketEventServer {
       authenticatedConnections,
       totalSubscriptions,
       queuedEventsCount: Array.from(this.eventQueue.values())
-    .reduce((sum, queue) => sum + queue.length, 0)
+        .reduce((sum, queue) => sum + queue.length, 0),
     };
   }
 }

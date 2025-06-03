@@ -1,6 +1,6 @@
 // 拡張機能管理UI (SolidJS)
 
-import { Component, createSignal, createEffect, For, Show } from 'solid-js';
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
 
 type Extension = {
   id: string;
@@ -27,7 +27,9 @@ type ExtensionManagerProps = {
   onBack?: () => void;
 };
 
-export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (props) => {
+export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (
+  props,
+) => {
   const [extensions, setExtensions] = createSignal<Extension[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [errorMessage, setErrorMessage] = createSignal<string>("");
@@ -127,7 +129,9 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
       const result = await response.json();
 
       if (result.success) {
-        setSuccessMessage(enabled ? "拡張機能を有効にしました" : "拡張機能を無効にしました");
+        setSuccessMessage(
+          enabled ? "拡張機能を有効にしました" : "拡張機能を無効にしました",
+        );
         await loadExtensions(); // 一覧を再読み込み
       } else {
         setErrorMessage(result.error || "切り替えに失敗しました");
@@ -142,7 +146,7 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
   const handleFileSelect = (event: Event) => {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
-    if (file && file.name.endsWith('.takopack')) {
+    if (file && file.name.endsWith(".takopack")) {
       setUploadingFile(file);
     } else {
       setErrorMessage(".takopackファイルを選択してください");
@@ -204,7 +208,7 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
             </button>
             <h1 class="text-2xl font-bold">拡張機能管理</h1>
           </div>
-          
+
           <div class="flex items-center space-x-3">
             <input
               type="file"
@@ -249,7 +253,8 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
         <Show when={uploadingFile()}>
           <div class="mb-4 p-4 bg-gray-800 rounded-md">
             <p class="text-gray-300">
-              選択されたファイル: <span class="text-white">{uploadingFile()?.name}</span>
+              選択されたファイル:{" "}
+              <span class="text-white">{uploadingFile()?.name}</span>
             </p>
           </div>
         </Show>
@@ -257,7 +262,8 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
         {/* ローディング */}
         <Show when={loading()}>
           <div class="text-center py-8">
-            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500">
+            </div>
             <p class="mt-2 text-gray-400">読み込み中...</p>
           </div>
         </Show>
@@ -310,7 +316,8 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
                   <div class="flex space-x-2">
                     <button
                       type="button"
-                      onClick={() => toggleExtension(extension.id, !extension.enabled)}
+                      onClick={() =>
+                        toggleExtension(extension.id, !extension.enabled)}
                       disabled={loading()}
                       class={`flex-1 px-3 py-2 text-sm rounded-md transition-colors disabled:opacity-50 ${
                         extension.enabled
@@ -350,7 +357,9 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
                   d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                 />
               </svg>
-              <p class="text-gray-400">インストールされた拡張機能はありません</p>
+              <p class="text-gray-400">
+                インストールされた拡張機能はありません
+              </p>
               <p class="text-sm text-gray-500 mt-2">
                 .takopackファイルを選択してインストールしてください
               </p>
@@ -358,7 +367,8 @@ export const ExtensionManagerComponent: Component<ExtensionManagerProps> = (prop
           </Show>
         </Show>
       </div>
-    </div>  );
+    </div>
+  );
 };
 
 export { ExtensionManagerComponent as ExtensionManager };

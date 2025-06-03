@@ -19,10 +19,10 @@ app.get("/:identifier/*", async (c) => {
     // ファイルシステムからアセットを読み取り
     const fs = await import("fs/promises");
     const assetPath = `./assets/${identifier}/${path}`;
-    
+
     try {
       const stat = await fs.stat(assetPath);
-      
+
       // ディレクトリの場合はエラー
       if (stat.isDirectory()) {
         return c.json({ error: "Directory access not allowed" }, 403);
@@ -30,24 +30,26 @@ app.get("/:identifier/*", async (c) => {
 
       // ファイルを読み取り
       const content = await fs.readFile(assetPath);
-        // Content-Typeを推定
+      // Content-Typeを推定
       const contentType = getContentType(path || "");
-      
+
       // キャッシュヘッダーを設定（デフォルトで1時間）
       c.header("Cache-Control", "public, max-age=3600");
       c.header("Content-Type", contentType);
-      
+
       return new Response(content, {
         status: 200,
         headers: c.res.headers,
       });
-        } catch (error) {
-      if (error instanceof Error && 'code' in error && (error as { code: string }).code === "ENOENT") {
+    } catch (error) {
+      if (
+        error instanceof Error && "code" in error &&
+        (error as { code: string }).code === "ENOENT"
+      ) {
         return c.json({ error: "Asset not found" }, 404);
       }
       throw error;
     }
-    
   } catch (error) {
     console.error("CDN asset error:", error);
     return c.json({ error: "Internal server error" }, 500);
@@ -68,30 +70,29 @@ app.get("/:identifier", async (c) => {
     // アセットディレクトリの内容を取得
     const fs = await import("fs/promises");
     const assetDir = `./assets/${identifier}`;
-    
+
     try {
       const files = await fs.readdir(assetDir, { recursive: true });
-      const fileList = files.map(f => f.toString()).filter(f => {
+      const fileList = files.map((f) => f.toString()).filter((f) => {
         // ディレクトリを除外
-        return !f.endsWith('/');
+        return !f.endsWith("/");
       });
-      
-      return c.json({ 
+
+      return c.json({
         identifier,
         assets: fileList,
-        total: fileList.length
+        total: fileList.length,
       });
-        } catch (error) {
+    } catch (error) {
       if ((error as { code?: string })?.code === "ENOENT") {
-        return c.json({ 
+        return c.json({
           identifier,
           assets: [],
-          total: 0
+          total: 0,
         });
       }
       throw error;
     }
-    
   } catch (error) {
     console.error("CDN asset list error:", error);
     return c.json({ error: "Internal server error" }, 500);
@@ -100,8 +101,8 @@ app.get("/:identifier", async (c) => {
 
 // Content-Typeを推定する関数
 function getContentType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-  
+  const ext = path.split(".").pop()?.toLowerCase();
+
   switch (ext) {
     case "html":
       return "text/html";

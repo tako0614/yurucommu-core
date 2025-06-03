@@ -5,26 +5,26 @@
 
 // Import common types
 import type {
-  SerializableValue,
-  SerializableObject,
-  SerializableArray,
-  TakosEvent,
   EventHandler,
   EventUnsubscribe,
+  SerializableArray,
+  SerializableObject,
+  SerializableValue,
+  TakosAssetsAPI,
+  TakosEvent,
   TakosKVAPI,
-  TakosAssetsAPI
-} from './common.d.ts';
+} from "./common.d.ts";
 
 // Re-export common types for backward compatibility
 export type {
-  SerializableValue,
-  SerializableObject,
-  SerializableArray,
-  TakosEvent,
   EventHandler,
   EventUnsubscribe,
+  SerializableArray,
+  SerializableObject,
+  SerializableValue,
+  TakosAssetsAPI,
+  TakosEvent,
   TakosKVAPI,
-  TakosAssetsAPI
 };
 
 // Client-specific types
@@ -33,7 +33,10 @@ export interface TakosClientAPI {
   assets: TakosAssetsAPI;
   events: {
     publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-    subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
+    subscribe<T = SerializableValue>(
+      name: string,
+      handler: EventHandler<T>,
+    ): EventUnsubscribe;
     unsubscribe(name: string, handler: EventHandler): void;
   };
 }

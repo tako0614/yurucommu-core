@@ -52,9 +52,11 @@ class EventManager {
         results.push({ success: true, result });
       } catch (error) {
         console.error("Event handler error:", error);
-        results.push({ 
-          success: false, 
-          error: error instanceof Error ? error.message : "処理中にエラーが発生しました" 
+        results.push({
+          success: false,
+          error: error instanceof Error
+            ? error.message
+            : "処理中にエラーが発生しました",
         });
       }
     }

@@ -17,6 +17,7 @@
     "npm:date-fns@^2.30.0": "2.30.0",
     "npm:esbuild@*": "0.20.2",
     "npm:esbuild@0.20": "0.20.2",
+    "npm:esbuild@0.20.2": "0.20.2",
     "npm:hono@^4.7.9": "4.7.10",
     "npm:jotai@^2.12.4": "2.12.5",
     "npm:mongoose@^8.15.0": "8.15.1",

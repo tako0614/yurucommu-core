@@ -55,8 +55,7 @@
 
 ## 🌐 4. Actor プロファイル拡張
 
-`accountKey` と `signingKey` だけを公開します。
-オプションで **masterKey**
+`accountKey` と `signingKey` だけを公開します。 オプションで **masterKey**
 による鍵署名を追加できます（クライアント側で鍵の真正性を検証）。
 
 ```jsonc

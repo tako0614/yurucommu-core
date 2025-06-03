@@ -1,16 +1,16 @@
 import { parse } from "npm:@typescript-eslint/typescript-estree@8.18.0";
 import { AST_NODE_TYPES } from "npm:@typescript-eslint/typescript-estree@8.18.0";
-import type { 
-  ModuleAnalysis, 
-  ExportInfo, 
-  ImportInfo, 
-  DecoratorInfo, 
-  JSDocTagInfo 
+import type {
+  DecoratorInfo,
+  ExportInfo,
+  ImportInfo,
+  JSDocTagInfo,
+  ModuleAnalysis,
 } from "./types.ts";
 
 /**
  * TypeScript/JavaScript AST解析器
- * 
+ *
  * ファイルを解析して以下を抽出:
  * - export関数・変数・クラス
  * - import文
@@ -63,8 +63,11 @@ export class ASTAnalyzer {
         imports,
         decorators,
         jsDocTags,
-      };    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.warn(`AST解析エラー (${filePath}):`, errorMessage);
       return {
         filePath,
@@ -110,7 +113,7 @@ export class ASTAnalyzer {
     for (const key in node) {
       const child = node[key];
       if (Array.isArray(child)) {
-        child.forEach(item => this.traverseNode(item, context));
+        child.forEach((item) => this.traverseNode(item, context));
       } else if (child && typeof child === "object") {
         this.traverseNode(child, context);
       }
@@ -120,10 +123,13 @@ export class ASTAnalyzer {
   /**
    * Export宣言の処理
    */
-  private handleExportDeclaration(node: any, context: { exports: ExportInfo[] }): void {
+  private handleExportDeclaration(
+    node: any,
+    context: { exports: ExportInfo[] },
+  ): void {
     if (node.declaration) {
       const decl = node.declaration;
-      
+
       if (decl.type === AST_NODE_TYPES.FunctionDeclaration && decl.id) {
         context.exports.push({
           name: decl.id.name,
@@ -174,14 +180,19 @@ export class ASTAnalyzer {
   /**
    * Import宣言の処理
    */
-  private handleImportDeclaration(node: any, context: { imports: ImportInfo[] }): void {
+  private handleImportDeclaration(
+    node: any,
+    context: { imports: ImportInfo[] },
+  ): void {
     const imports: { name: string; alias?: string }[] = [];
-    
+
     node.specifiers?.forEach((spec: any) => {
       if (spec.type === AST_NODE_TYPES.ImportSpecifier) {
         imports.push({
           name: spec.imported.name,
-          alias: spec.local.name !== spec.imported.name ? spec.local.name : undefined,
+          alias: spec.local.name !== spec.imported.name
+            ? spec.local.name
+            : undefined,
         });
       } else if (spec.type === AST_NODE_TYPES.ImportDefaultSpecifier) {
         imports.push({
@@ -207,14 +218,17 @@ export class ASTAnalyzer {
   /**
    * デコレータの処理
    */
-  private handleDecorators(node: any, context: { decorators: DecoratorInfo[] }): void {
+  private handleDecorators(
+    node: any,
+    context: { decorators: DecoratorInfo[] },
+  ): void {
     const targetFunction = this.getFunctionName(node);
     if (!targetFunction) return;
 
     node.decorators.forEach((decorator: any) => {
       const decoratorName = this.getDecoratorName(decorator);
       const args = this.getDecoratorArgs(decorator);
-      
+
       if (decoratorName) {
         context.decorators.push({
           name: decoratorName,
@@ -229,7 +243,7 @@ export class ASTAnalyzer {
   /**
    * JSDocコメントの処理
    */
-  private handleJSDocComments(node: any, context: { 
+  private handleJSDocComments(node: any, context: {
     jsDocTags: JSDocTagInfo[];
     comments: any[];
   }): void {
@@ -238,14 +252,19 @@ export class ASTAnalyzer {
 
     // 関数の直前のコメントを探す
     const functionLine = node.loc?.start.line || 0;
-    const relevantComments = context.comments.filter(comment => 
-      comment.loc.end.line === functionLine - 1 || 
+    const relevantComments = context.comments.filter((comment) =>
+      comment.loc.end.line === functionLine - 1 ||
       comment.loc.end.line === functionLine - 2
     );
 
-    relevantComments.forEach(comment => {
+    relevantComments.forEach((comment) => {
       if (comment.type === "Block" && comment.value.includes("@")) {
-        this.parseJSDocTags(comment.value, targetFunction, comment.loc.start.line, context);
+        this.parseJSDocTags(
+          comment.value,
+          targetFunction,
+          comment.loc.start.line,
+          context,
+        );
       }
     });
   }
@@ -254,17 +273,17 @@ export class ASTAnalyzer {
    * JSDocタグをパース
    */
   private parseJSDocTags(
-    commentValue: string, 
-    targetFunction: string, 
+    commentValue: string,
+    targetFunction: string,
     startLineOfCommentBlock: number,
-    context: { jsDocTags: JSDocTagInfo[] }
+    context: { jsDocTags: JSDocTagInfo[] },
   ): void {
-    const lines = commentValue.split('\n');
-    
+    const lines = commentValue.split("\n");
+
     lines.forEach((lineContent, index) => {
-      const trimmed = lineContent.trim().replace(/^\*\s?/, '');
+      const trimmed = lineContent.trim().replace(/^\*\s?/, "");
       const tagMatch = trimmed.match(/^@(\w+)(?:\s+(.+))?/);
-      
+
       if (tagMatch) {
         const [, tag, value] = tagMatch;
         context.jsDocTags.push({

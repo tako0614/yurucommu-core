@@ -1,23 +1,22 @@
-import type { 
-  ModuleAnalysis, 
-  VirtualEntry,
-  EventDefinition,
+import type {
   ActivityPubConfig,
+  EventDefinition,
+  ModuleAnalysis,
   TypeGenerationOptions,
-  TypeGenerationResult
+  TypeGenerationResult,
+  VirtualEntry,
 } from "./types.ts";
 
 /**
  * Virtual Entrypoint Generator
- * 
+ *
  * AST解析結果から仮想エントリポイントを生成
  * - server.js用のエクスポート統合
- * - client.js用のエクスポート統合  
+ * - client.js用のエクスポート統合
  * - manifest.json用の設定生成
  * - TypeScript型定義ファイル生成
  */
 export class VirtualEntryGenerator {
-  
   /**
    * サーバー用Virtual Entrypoint生成
    */
@@ -26,20 +25,28 @@ export class VirtualEntryGenerator {
     const imports: string[] = [];
     const eventDefinitions: Record<string, EventDefinition> = {};
     const activityPubConfigs: ActivityPubConfig[] = [];
-    
-    analyses.forEach(analysis => {
+
+    analyses.forEach((analysis) => {
       // import文を収集
-      analysis.imports.forEach(imp => {
+      analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
-          imports.push(`import ${this.formatImportClause(imp.imports)} from "${imp.source}";`);
+          imports.push(
+            `import ${
+              this.formatImportClause(imp.imports)
+            } from "${imp.source}";`,
+          );
         }
       });
 
       // export関数を収集
-      analysis.exports.forEach(exp => {
+      analysis.exports.forEach((exp) => {
         if (exp.type === "function" || exp.type === "const") {
           exports.push(exp.name);
-          imports.push(`export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`);
+          imports.push(
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
+          );
         }
       });
 
@@ -69,20 +76,28 @@ export class VirtualEntryGenerator {
   generateClientEntry(analyses: ModuleAnalysis[]): VirtualEntry {
     const exports: string[] = [];
     const imports: string[] = [];
-    
-    analyses.forEach(analysis => {
+
+    analyses.forEach((analysis) => {
       // import文を収集
-      analysis.imports.forEach(imp => {
+      analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
-          imports.push(`import ${this.formatImportClause(imp.imports)} from "${imp.source}";`);
+          imports.push(
+            `import ${
+              this.formatImportClause(imp.imports)
+            } from "${imp.source}";`,
+          );
         }
       });
 
       // export関数を収集
-      analysis.exports.forEach(exp => {
+      analysis.exports.forEach((exp) => {
         if (exp.type === "function" || exp.type === "const") {
           exports.push(exp.name);
-          imports.push(`export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`);
+          imports.push(
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
+          );
         }
       });
     });
@@ -103,12 +118,15 @@ export class VirtualEntryGenerator {
   private processJSDocTags(
     analysis: ModuleAnalysis,
     eventDefinitions: Record<string, EventDefinition>,
-    activityPubConfigs: ActivityPubConfig[]
+    activityPubConfigs: ActivityPubConfig[],
   ): void {
-    analysis.jsDocTags.forEach(tag => {
+    analysis.jsDocTags.forEach((tag) => {
       if (tag.tag === "activity") {
         // @activity("Note", { priority: 100, serial: true })
-        const activityConfig = this.parseActivityTag(tag.value, tag.targetFunction);
+        const activityConfig = this.parseActivityTag(
+          tag.value,
+          tag.targetFunction,
+        );
         if (activityConfig) {
           activityPubConfigs.push(activityConfig);
         }
@@ -131,20 +149,28 @@ export class VirtualEntryGenerator {
   private processDecorators(
     analysis: ModuleAnalysis,
     eventDefinitions: Record<string, EventDefinition>,
-    activityPubConfigs: ActivityPubConfig[]
+    activityPubConfigs: ActivityPubConfig[],
   ): void {
-    analysis.decorators.forEach(decorator => {
+    analysis.decorators.forEach((decorator) => {
       if (decorator.name === "activity") {
         // @activity("Note", { priority: 100 })
-        const activityConfig = this.parseActivityDecorator(decorator.args, decorator.targetFunction);
+        const activityConfig = this.parseActivityDecorator(
+          decorator.args,
+          decorator.targetFunction,
+        );
         if (activityConfig) {
           activityPubConfigs.push(activityConfig);
         }
       } else if (decorator.name === "event") {
         // @event("myEvent", { source: "client", target: "server" })
-        const eventConfig = this.parseEventDecorator(decorator.args, decorator.targetFunction);
+        const eventConfig = this.parseEventDecorator(
+          decorator.args,
+          decorator.targetFunction,
+        );
         if (eventConfig) {
-          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
+          const eventName = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
           }
@@ -156,7 +182,10 @@ export class VirtualEntryGenerator {
   /**
    * @activityタグをパース
    */
-  private parseActivityTag(value: string, targetFunction: string): ActivityPubConfig | null {
+  private parseActivityTag(
+    value: string,
+    targetFunction: string,
+  ): ActivityPubConfig | null {
     try {
       // @activity("Note", { priority: 100, serial: true }) 形式をパース
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
@@ -169,7 +198,9 @@ export class VirtualEntryGenerator {
         context: "https://www.w3.org/ns/activitystreams",
         object,
         hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+        canAccept: targetFunction.startsWith("canAccept")
+          ? targetFunction
+          : undefined,
         priority: options.priority,
         serial: options.serial,
       };
@@ -181,7 +212,10 @@ export class VirtualEntryGenerator {
   /**
    * @activityデコレータをパース
    */
-  private parseActivityDecorator(args: unknown[], targetFunction: string): ActivityPubConfig | null {
+  private parseActivityDecorator(
+    args: unknown[],
+    targetFunction: string,
+  ): ActivityPubConfig | null {
     if (args.length === 0) return null;
 
     const object = args[0] as string;
@@ -191,7 +225,9 @@ export class VirtualEntryGenerator {
       context: "https://www.w3.org/ns/activitystreams",
       object,
       hook: targetFunction,
-      canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+      canAccept: targetFunction.startsWith("canAccept")
+        ? targetFunction
+        : undefined,
       priority: options.priority as number,
       serial: options.serial as boolean,
     };
@@ -200,7 +236,10 @@ export class VirtualEntryGenerator {
   /**
    * @eventタグをパース
    */
-  private parseEventTag(value: string, targetFunction: string): EventDefinition | null {
+  private parseEventTag(
+    value: string,
+    targetFunction: string,
+  ): EventDefinition | null {
     try {
       // @event("myEvent", { source: "client", target: "server" }) 形式をパース
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
@@ -220,14 +259,28 @@ export class VirtualEntryGenerator {
   /**
    * @eventデコレータをパース
    */
-  private parseEventDecorator(args: unknown[], targetFunction: string): EventDefinition | null {
+  private parseEventDecorator(
+    args: unknown[],
+    targetFunction: string,
+  ): EventDefinition | null {
     if (args.length === 0) return null;
 
     const options = (args[1] as Record<string, unknown>) || {};
 
     return {
-      source: (typeof options.source === "string" ? options.source : "client") as "client" | "server" | "background" | "ui",
-      target: (typeof options.target === "string" ? options.target : "server") as "server" | "client" | "client:*" | "ui" | "background",
+      source:
+        (typeof options.source === "string" ? options.source : "client") as
+          | "client"
+          | "server"
+          | "background"
+          | "ui",
+      target:
+        (typeof options.target === "string" ? options.target : "server") as
+          | "server"
+          | "client"
+          | "client:*"
+          | "ui"
+          | "background",
       handler: targetFunction,
     };
   }
@@ -243,8 +296,10 @@ export class VirtualEntryGenerator {
   /**
    * import句をフォーマット
    */
-  private formatImportClause(imports: { name: string; alias?: string }[]): string {
-    const clauses = imports.map(imp => {
+  private formatImportClause(
+    imports: { name: string; alias?: string }[],
+  ): string {
+    const clauses = imports.map((imp) => {
       if (imp.name === "default") {
         return imp.alias || "default";
       } else if (imp.name === "*") {
@@ -259,29 +314,32 @@ export class VirtualEntryGenerator {
     } else {
       return `{ ${clauses.join(", ")} }`;
     }
-  }  /**
+  } /**
    * 相対パス変換
    */
+
   private relativePath(filePath: string): string {
     // virtual entryは .takopack-tmp フォルダ内にあるため、
     // 元ファイルへは ../ を使って戻る必要がある
     let path = filePath;
-    if (!path.startsWith('./') && !path.startsWith('../') && !path.startsWith('/')) {
-      path = '../' + path;
+    if (
+      !path.startsWith("./") && !path.startsWith("../") && !path.startsWith("/")
+    ) {
+      path = "../" + path;
     }
-    
+
     return path;
   }
   /**
    * エントリポイントコンテンツを構築
    */
   private buildEntryContent(
-    imports: string[], 
+    imports: string[],
     _exports: string[],
     metadata?: {
       eventDefinitions?: Record<string, EventDefinition>;
       activityPubConfigs?: ActivityPubConfig[];
-    }
+    },
   ): string {
     const content: string[] = [];
 
@@ -289,7 +347,7 @@ export class VirtualEntryGenerator {
     content.push("// Auto-generated virtual entry point");
     content.push("// DO NOT EDIT MANUALLY");
     content.push("");
-    
+
     if (imports.length > 0) {
       content.push(...Array.from(new Set(imports)));
       content.push("");
@@ -299,13 +357,32 @@ export class VirtualEntryGenerator {
     if (metadata) {
       content.push("/*");
       content.push(" * Generated metadata:");
-      if (metadata.eventDefinitions && Object.keys(metadata.eventDefinitions).length > 0) {
+      if (
+        metadata.eventDefinitions &&
+        Object.keys(metadata.eventDefinitions).length > 0
+      ) {
         content.push(" * Event Definitions:");
-        content.push(` *   ${JSON.stringify(metadata.eventDefinitions, null, 2).replace(/\n/g, "\n *   ")}`);
+        content.push(
+          ` *   ${
+            JSON.stringify(metadata.eventDefinitions, null, 2).replace(
+              /\n/g,
+              "\n *   ",
+            )
+          }`,
+        );
       }
-      if (metadata.activityPubConfigs && metadata.activityPubConfigs.length > 0) {
+      if (
+        metadata.activityPubConfigs && metadata.activityPubConfigs.length > 0
+      ) {
         content.push(" * ActivityPub Configs:");
-        content.push(` *   ${JSON.stringify(metadata.activityPubConfigs, null, 2).replace(/\n/g, "\n *   ")}`);
+        content.push(
+          ` *   ${
+            JSON.stringify(metadata.activityPubConfigs, null, 2).replace(
+              /\n/g,
+              "\n *   ",
+            )
+          }`,
+        );
       }
       content.push(" */");
       content.push("");
@@ -317,13 +394,15 @@ export class VirtualEntryGenerator {
   /**
    * TypeScript型定義ファイルを生成
    */
-  generateTypeDefinitions(options: TypeGenerationOptions): TypeGenerationResult {
+  generateTypeDefinitions(
+    options: TypeGenerationOptions,
+  ): TypeGenerationResult {
     const content = this.buildTypeDefinitionContent(options);
-    
+
     return {
       filePath: options.outputPath,
       content,
-      typeCount: this.countTypesInContent(content)
+      typeCount: this.countTypesInContent(content),
     };
   }
 
@@ -345,7 +424,9 @@ export class VirtualEntryGenerator {
     lines.push("");
 
     // Context-specific globalThis extension
-    lines.push("// GlobalThis type extension for " + options.context + " context");
+    lines.push(
+      "// GlobalThis type extension for " + options.context + " context",
+    );
     lines.push(this.generateGlobalThisExtension(options.context));
     lines.push("");
 
@@ -411,7 +492,8 @@ export interface TakosAssetsAPI {
    * コンテキスト別のglobalThis拡張を生成
    */
   private generateGlobalThisExtension(context: string): string {
-    switch (context) {      case 'server':
+    switch (context) {
+      case "server":
         return `
 declare global {
   namespace globalThis {
@@ -445,7 +527,7 @@ declare global {
   }
 }`;
 
-      case 'client':
+      case "client":
         return `
 export interface GlobalThisWithClientTakos {
   takos: {
@@ -461,7 +543,7 @@ export interface GlobalThisWithClientTakos {
 
 declare const globalThis: GlobalThisWithClientTakos;`;
 
-      case 'ui':
+      case "ui":
         return `
 export interface GlobalThisWithUITakos {
   takos: {
@@ -508,7 +590,8 @@ export interface CustomActivityPubActivity {
    * 型定義内容から型の数をカウント
    */
   private countTypesInContent(content: string): number {
-    const typeDeclarations = content.match(/(interface|type|declare)\s+\w+/g) || [];
+    const typeDeclarations = content.match(/(interface|type|declare)\s+\w+/g) ||
+      [];
     return typeDeclarations.length;
   }
 }

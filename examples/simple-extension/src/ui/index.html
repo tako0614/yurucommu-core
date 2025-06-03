@@ -1,221 +1,263 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simple Test Extension</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 20px;
-            max-width: 600px;
-            margin: 0 auto;
-            background: #f5f5f5;
-        }
-        
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-        
-        .button {
-            background: #007acc;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            margin: 8px 8px 8px 0;
-            transition: background 0.2s;
-        }
-        
-        .button:hover {
-            background: #005a99;
-        }
-        
-        .button.secondary {
-            background: #6c757d;
-        }
-        
-        .button.secondary:hover {
-            background: #545b62;
-        }
-        
-        .log {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            padding: 15px;
-            margin-top: 20px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        
-        .status {
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        
-        .status.success { background: #d4edda; color: #155724; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.info { background: #d1ecf1; color: #0c5460; }
+      body {
+        font-family:
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        padding: 20px;
+        max-width: 600px;
+        margin: 0 auto;
+        background: #f5f5f5;
+      }
+
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
+
+      .button {
+        background: #007acc;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        margin: 8px 8px 8px 0;
+        transition: background 0.2s;
+      }
+
+      .button:hover {
+        background: #005a99;
+      }
+
+      .button.secondary {
+        background: #6c757d;
+      }
+
+      .button.secondary:hover {
+        background: #545b62;
+      }
+
+      .log {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 15px;
+        margin-top: 20px;
+        font-family: "Monaco", "Menlo", monospace;
+        font-size: 12px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .status {
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+
+      .status.success {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status.error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .status.info {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h1>🐙 Simple Test Extension</h1>
-        <p>Testing Takopack Builder 3.0 with static import preservation</p>
-        
-        <div class="controls">
-            <button class="button" onclick="testServerFunction()">Test Server Function</button>
-            <button class="button" onclick="testEventPublish()">Test Event Publish</button>
-            <button class="button secondary" onclick="testKVStore()">Test KV Store</button>
-            <button class="button secondary" onclick="simulateLogin()">Simulate Login</button>
-        </div>
-        
-        <div id="status"></div>
-        <div id="log" class="log"></div>
+      <h1>🐙 Simple Test Extension</h1>
+      <p>Testing Takopack Builder 3.0 with static import preservation</p>
+
+      <div class="controls">
+        <button class="button" onclick="testServerFunction()">
+          Test Server Function
+        </button>
+        <button class="button" onclick="testEventPublish()">
+          Test Event Publish
+        </button>
+        <button class="button secondary" onclick="testKVStore()">
+          Test KV Store
+        </button>
+        <button class="button secondary" onclick="simulateLogin()">
+          Simulate Login
+        </button>
+      </div>
+
+      <div id="status"></div>
+      <div id="log" class="log"></div>
     </div>
-    
+
     <script>
-        let logContainer = document.getElementById('log');
-        let statusContainer = document.getElementById('status');
-        
-        function log(message, type = 'info') {
-            const timestamp = new Date().toLocaleTimeString();
-            const logEntry = document.createElement('div');
-            logEntry.textContent = `[${timestamp}] ${message}`;
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-        
-        function showStatus(message, type = 'info') {
-            statusContainer.innerHTML = `<div class="status ${type}">${message}</div>`;
-        }
-        
-        function testServerFunction() {
-            log('Testing server function call...');
-            
-            if (typeof takos !== 'undefined' && takos.server) {
-                // Call server function (hypothetical API)
-                takos.server.call('hello', ['Takopack 3.0'])
-                    .then(result => {
-                        log(`Server response: ${result}`);
-                        showStatus('Server function test successful!', 'success');
-                    })
-                    .catch(error => {
-                        log(`Server error: ${error}`);
-                        showStatus('Server function test failed', 'error');
-                    });
-            } else {
-                log('Takos API not available (running outside extension context)');
-                showStatus('Takos API not available', 'error');
-            }
-        }
-        
-        function testEventPublish() {
-            log('Publishing user click event...');
-            
-            const clickData = {
-                x: Math.floor(Math.random() * 800),
-                y: Math.floor(Math.random() * 600),
-                timestamp: Date.now()
-            };
-            
-            if (typeof takos !== 'undefined' && takos.events) {
-                takos.events.publishToBackground('userClick', clickData)
-                    .then(() => {
-                        log(`Event published: userClick`);
-                        showStatus('Event published successfully!', 'success');
-                    })
-                    .catch(error => {
-                        log(`Event error: ${error}`);
-                        showStatus('Event publish failed', 'error');
-                    });
-            } else {
-                log('Event publishing (simulated): ' + JSON.stringify(clickData));
-                showStatus('Event simulated (not in extension context)', 'info');
-            }
-        }
-        
-        function testKVStore() {
-            log('Testing KV store operations...');
-            
-            if (typeof takos !== 'undefined' && takos.kv) {
-                const testKey = 'test:' + Date.now();
-                const testValue = { message: 'Hello from UI', timestamp: Date.now() };
-                
-                takos.kv.write(testKey, testValue)
-                    .then(() => takos.kv.read(testKey))
-                    .then(result => {
-                        log(`KV read result: ${JSON.stringify(result)}`);
-                        showStatus('KV store test successful!', 'success');
-                    })
-                    .catch(error => {
-                        log(`KV error: ${error}`);
-                        showStatus('KV store test failed', 'error');
-                    });
-            } else {
-                log('KV store not available (running outside extension context)');
-                showStatus('KV store not available', 'error');
-            }
-        }
-        
-        function simulateLogin() {
-            log('Simulating user login event...');
-            
-            const loginData = {
-                username: 'testuser',
-                timestamp: Date.now()
-            };
-            
-            if (typeof takos !== 'undefined' && takos.events) {
-                takos.events.publish('userLogin', loginData)
-                    .then(response => {
-                        log(`Login response: ${JSON.stringify(response)}`);
-                        showStatus('Login simulation successful!', 'success');
-                    })
-                    .catch(error => {
-                        log(`Login error: ${error}`);
-                        showStatus('Login simulation failed', 'error');
-                    });
-            } else {
-                log('Login simulation (no server): ' + JSON.stringify(loginData));
-                showStatus('Login simulated (not in extension context)', 'info');
-            }
-        }
-        
-        // Subscribe to background events
-        if (typeof takos !== 'undefined' && takos.events) {
-            takos.events.subscribe('showNotification', (data) => {
-                log(`Notification: ${data.message}`);
-                showStatus(data.message, data.type || 'info');
+      let logContainer = document.getElementById("log");
+      let statusContainer = document.getElementById("status");
+
+      function log(message, type = "info") {
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement("div");
+        logEntry.textContent = `[${timestamp}] ${message}`;
+        logContainer.appendChild(logEntry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      function showStatus(message, type = "info") {
+        statusContainer.innerHTML =
+          `<div class="status ${type}">${message}</div>`;
+      }
+
+      function testServerFunction() {
+        log("Testing server function call...");
+
+        if (typeof takos !== "undefined" && takos.server) {
+          // Call server function (hypothetical API)
+          takos.server.call("hello", ["Takopack 3.0"])
+            .then((result) => {
+              log(`Server response: ${result}`);
+              showStatus("Server function test successful!", "success");
+            })
+            .catch((error) => {
+              log(`Server error: ${error}`);
+              showStatus("Server function test failed", "error");
             });
-            
-            log('Event listeners registered');
+        } else {
+          log(
+            "Takos API not available (running outside extension context)",
+          );
+          showStatus("Takos API not available", "error");
         }
-        
-        // Initial log
-        log('Simple Test Extension UI loaded');
-        log('Takopack Builder 3.0 - Static Import Preservation Demo');
-        
-        // Test click tracking
-        document.addEventListener('click', (event) => {
-            if (event.target.tagName !== 'BUTTON') {
-                testEventPublish();
-            }
+      }
+
+      function testEventPublish() {
+        log("Publishing user click event...");
+
+        const clickData = {
+          x: Math.floor(Math.random() * 800),
+          y: Math.floor(Math.random() * 600),
+          timestamp: Date.now(),
+        };
+
+        if (typeof takos !== "undefined" && takos.events) {
+          takos.events.publishToBackground("userClick", clickData)
+            .then(() => {
+              log(`Event published: userClick`);
+              showStatus("Event published successfully!", "success");
+            })
+            .catch((error) => {
+              log(`Event error: ${error}`);
+              showStatus("Event publish failed", "error");
+            });
+        } else {
+          log(
+            "Event publishing (simulated): " +
+              JSON.stringify(clickData),
+          );
+          showStatus(
+            "Event simulated (not in extension context)",
+            "info",
+          );
+        }
+      }
+
+      function testKVStore() {
+        log("Testing KV store operations...");
+
+        if (typeof takos !== "undefined" && takos.kv) {
+          const testKey = "test:" + Date.now();
+          const testValue = {
+            message: "Hello from UI",
+            timestamp: Date.now(),
+          };
+
+          takos.kv.write(testKey, testValue)
+            .then(() => takos.kv.read(testKey))
+            .then((result) => {
+              log(`KV read result: ${JSON.stringify(result)}`);
+              showStatus("KV store test successful!", "success");
+            })
+            .catch((error) => {
+              log(`KV error: ${error}`);
+              showStatus("KV store test failed", "error");
+            });
+        } else {
+          log(
+            "KV store not available (running outside extension context)",
+          );
+          showStatus("KV store not available", "error");
+        }
+      }
+
+      function simulateLogin() {
+        log("Simulating user login event...");
+
+        const loginData = {
+          username: "testuser",
+          timestamp: Date.now(),
+        };
+
+        if (typeof takos !== "undefined" && takos.events) {
+          takos.events.publish("userLogin", loginData)
+            .then((response) => {
+              log(`Login response: ${JSON.stringify(response)}`);
+              showStatus("Login simulation successful!", "success");
+            })
+            .catch((error) => {
+              log(`Login error: ${error}`);
+              showStatus("Login simulation failed", "error");
+            });
+        } else {
+          log(
+            "Login simulation (no server): " +
+              JSON.stringify(loginData),
+          );
+          showStatus(
+            "Login simulated (not in extension context)",
+            "info",
+          );
+        }
+      }
+
+      // Subscribe to background events
+      if (typeof takos !== "undefined" && takos.events) {
+        takos.events.subscribe("showNotification", (data) => {
+          log(`Notification: ${data.message}`);
+          showStatus(data.message, data.type || "info");
         });
+
+        log("Event listeners registered");
+      }
+
+      // Initial log
+      log("Simple Test Extension UI loaded");
+      log("Takopack Builder 3.0 - Static Import Preservation Demo");
+
+      // Test click tracking
+      document.addEventListener("click", (event) => {
+        if (event.target.tagName !== "BUTTON") {
+          testEventPublish();
+        }
+      });
     </script>
-</body>
+  </body>
 </html>

@@ -8,9 +8,9 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 
 ## 🔧 技術スタック
 
-**言語/ランタイム**: TypeScript/Deno  
-**バックエンドフレームワーク**: Hono  
-**フロントエンドフレームワーク**: Solid.js/tauri  
+**言語/ランタイム**: TypeScript/Deno\
+**バックエンドフレームワーク**: Hono\
+**フロントエンドフレームワーク**: Solid.js/tauri\
 **データベース**: Prisma(prisma対応ならなんでも)
 
 ## 🚀 GET started(backend)
@@ -51,13 +51,13 @@ deno run --allow-all build.ts help
 2. **Fluent API**：
    ```typescript
    import Takopack from "./src/builder/takopack.ts";
-   
+
    const takopack = new Takopack()
      .server("src/server.ts")
-     .client("src/client.ts") 
+     .client("src/client.ts")
      .ui("src/index.html")
-     .manifest({ /* 設定 */ });
-   
+     .manifest({/* 設定 */});
+
    await takopack.build();
    ```
 
@@ -68,7 +68,8 @@ deno run --allow-all build.ts help
 - **[Takopack Builder API](./docs/takopack/builder.md)** - Fluent APIの使用方法
 - **[Takopack拡張機能仕様書](./docs/takopack/main.md)** - 拡張機能の仕様
 - **[takos web](./docs/takos-web/index.md)** - Web API仕様
-- **[ActivityPub (Additional object)](./docs/activityPub/index.md)** - ActivityPub拡張仕様
+- **[ActivityPub (Additional object)](./docs/activityPub/index.md)** -
+  ActivityPub拡張仕様
 
 ## 🎯 特徴
 
