@@ -1,0 +1,21 @@
+{
+  "name": "@takopack/cli",
+  "version": "3.0.0",
+  "description": "Command line interface for Takopack Builder 3.0",
+  "exports": {
+    ".": "./cli.ts"
+  },
+  "bin": {
+    "takopack": "./cli.ts"
+  },
+  "imports": {
+    "@takopack/builder": "../builder/mod.ts"
+  },
+  "tasks": {
+    "build": "deno compile --target x86_64-unknown-linux-gnu --output takopack-linux cli.ts",
+    "build:windows": "deno compile --target x86_64-pc-windows-msvc --output takopack.exe cli.ts",
+    "build:macos": "deno compile --target x86_64-apple-darwin --output takopack-macos cli.ts",
+    "build:all": "deno task build && deno task build:windows && deno task build:macos"
+  },
+  "nodeModulesDir": "auto"
+}

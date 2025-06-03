@@ -6,6 +6,10 @@ const accountSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  displayName: {
+    type: String,
+    required: true,
+  },
   icon: {
     type: String,
     required: true,
@@ -14,11 +18,11 @@ const accountSchema = new mongoose.Schema({
     type: Object,
     required: true,
   },
-  publicKeyPem: { // 公開鍵
+  publicKeyPem: {
     type: String,
     required: true,
   },
-  privateKeyPem: { // 秘密鍵 (取り扱いに注意)
+  privateKeyPem: {
     type: String,
     required: true,
   },

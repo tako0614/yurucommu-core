@@ -1,0 +1,22 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-all --watch main.ts dev",
+    "build": "deno run --allow-all main.ts build",
+    "watch": "deno run --allow-all main.ts watch",
+    "takopack": "deno run --allow-all main.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1",
+    "@std/async": "jsr:@std/async@^1.0.13",
+    "@std/datetime": "jsr:@std/datetime@^0.225.5",
+    "@std/fs": "jsr:@std/fs@^1.0.18",
+    "@std/path": "jsr:@std/path@^1.1.0",
+    "esbuild": "npm:esbuild@^0.25.5",
+    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
+    "uuid": "npm:uuid@^11.1.0"
+  },
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "deno.ns"]
+  },
+  "nodeModulesDir": "manual"
+}

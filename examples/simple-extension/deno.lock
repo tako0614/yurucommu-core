@@ -1,0 +1,22 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
+    "npm:zod@*": "3.25.42"
+  },
+  "jsr": {
+    "@zip-js/zip-js@2.7.62": {
+      "integrity": "11cbe0746fa1e52e6e0a601c89ba97365f16e38a07f139b9d9914f988aec9081"
+    }
+  },
+  "npm": {
+    "zod@3.25.42": {
+      "integrity": "sha512-PcALTLskaucbeHc41tU/xfjfhcz8z0GdhhDcSgrCTmSazUuqnYqiXO63M0QUBVwpBlsLsNVn5qHSC5Dw3KZvaQ=="
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@zip-js/zip-js@^2.7.62"
+    ]
+  }
+}

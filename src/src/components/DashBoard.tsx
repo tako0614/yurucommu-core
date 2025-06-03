@@ -1,12 +1,15 @@
-import { Component, createSignal, For, onMount, Show } from "solid-js";
+import { Component, createEffect, createSignal, For, onMount, Show } from "solid-js";
 
 // アカウントデータの型定義
 type Account = {
   id: string;
+  userName: string;
   displayName: string;
-  email: string;
   avatarInitial: string;
 };
+
+// Helper function to check if a string is a data URL
+const isDataUrl = (str: string) => str.startsWith("data:image/");
 
 // アカウント設定コンテンツコンポーネント
 const AccountSettingsContent: Component<{
@@ -15,10 +18,95 @@ const AccountSettingsContent: Component<{
   setSelectedAccountId: (id: string) => void;
   addNewAccount: () => void;
   updateAccount: (id: string, updates: Partial<Account>) => void;
+  deleteAccount: (id: string) => void;
   isMobileView: boolean;
 }> = (props) => {
   const selectedAccount = () =>
     props.accounts.find((account) => account.id === props.selectedAccountId);
+
+  // ローカル編集状態
+  const [editingDisplayName, setEditingDisplayName] = createSignal("");
+  const [editingUserName, setEditingUserName] = createSignal("");
+  const [editingIcon, setEditingIcon] = createSignal(""); // データURLまたはサーバーからの初期値
+  const [hasChanges, setHasChanges] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+
+  // 選択されたアカウントが変更されたときにローカル状態を更新
+  createEffect(() => {
+    const account = selectedAccount();
+    if (account) {
+      setEditingDisplayName(account.displayName);
+      setEditingUserName(account.userName);
+      setEditingIcon(account.avatarInitial); // avatarInitialはデータURLまたはサーバーからの初期値
+      setHasChanges(false);
+    }
+  });
+
+  const handleSave = () => {
+    const account = selectedAccount();
+    if (!account || !hasChanges()) return;
+
+    const updates: Partial<Account> = {};
+    if (editingDisplayName() !== account.displayName) {
+      updates.displayName = editingDisplayName();
+    }
+    if (editingUserName() !== account.userName) {
+      updates.userName = editingUserName();
+    }
+    if (editingIcon() !== account.avatarInitial) {
+      updates.avatarInitial = editingIcon();
+    }
+
+    if (Object.keys(updates).length > 0) {
+      props.updateAccount(props.selectedAccountId, updates);
+      setHasChanges(false);
+    }
+  };
+
+  const handleDelete = () => {
+    const account = selectedAccount();
+    if (!account) return;
+    
+    props.deleteAccount(props.selectedAccountId);
+    setShowDeleteConfirm(false);
+  };
+
+  const checkForChanges = () => {
+    const account = selectedAccount();
+    if (!account) return;
+    
+    const hasDisplayNameChange = editingDisplayName() !== account.displayName;
+    const hasUserNameChange = editingUserName() !== account.userName;
+    const hasIconChange = editingIcon() !== account.avatarInitial;
+    setHasChanges(hasDisplayNameChange || hasUserNameChange || hasIconChange);
+  };
+
+  // アイコンプレビュー用の関数
+  const IconPreview: Component<{ iconValue: string; displayNameValue: string; class?: string }> = (p) => {
+    const displayIcon = () => {
+      const icon = p.iconValue?.trim();
+      if (icon && isDataUrl(icon)) {
+        return <img src={icon} alt="icon" class="h-full w-full object-cover rounded-full" />;
+      }
+      // データURLでない場合は、表示名からイニシャルを生成
+      const initials = p.displayNameValue?.charAt(0).toUpperCase() || "?";
+      return initials.substring(0, 2);
+    };
+    return <div class={p.class}>{displayIcon()}</div>;
+  };
+  
+  const handleFileChange = (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (files && files[0]) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setEditingIcon(event.target?.result as string);
+        checkForChanges();
+      };
+      reader.readAsDataURL(files[0]);
+    }
+  };
+
 
   return (
     <div class={`${props.isMobileView ? "space-y-6" : "space-y-5"}`}>
@@ -41,6 +129,7 @@ const AccountSettingsContent: Component<{
           <For each={props.accounts}>
             {(account) => (
               <button
+                type="button"
                 class={`
                   flex-shrink-0 flex flex-col items-center 
                   p-3 rounded-lg transition duration-200 
@@ -52,13 +141,11 @@ const AccountSettingsContent: Component<{
                 `}
                 onClick={() => props.setSelectedAccountId(account.id)}
               >
-                <div class="
-                    h-12 w-12 rounded-full bg-teal-600/80 
-                    text-white flex items-center justify-center 
-                    text-xl font-normal
-                  ">
-                  {account.avatarInitial}
-                </div>
+                <IconPreview 
+                  iconValue={account.avatarInitial} 
+                  displayNameValue={account.displayName}
+                  class="h-12 w-12 rounded-full bg-teal-600/80 text-white flex items-center justify-center text-xl font-normal"
+                />
                 <span class="mt-2 text-sm truncate text-gray-200">
                   {account.displayName}
                 </span>
@@ -67,6 +154,7 @@ const AccountSettingsContent: Component<{
           </For>
 
           <button
+            type="button"
             class="flex-shrink-0 flex flex-col items-center p-3 rounded-lg bg-gray-600/70 hover:bg-gray-500/70 transition duration-200"
             onClick={props.addNewAccount}
           >
@@ -95,14 +183,16 @@ const AccountSettingsContent: Component<{
       <Show when={selectedAccount()}>
         <form class="bg-[#181918] rounded-lg shadow-md p-5 space-y-5 m-auto">
           <div class="flex items-center space-x-5">
-            <div class="h-16 w-16 rounded-full bg-teal-600/80 flex items-center justify-center text-2xl text-white">
-              {selectedAccount()?.avatarInitial}
-            </div>
+            <IconPreview 
+              iconValue={editingIcon()} // editingIcon はデータURLか、元の avatarInitial (イニシャル文字列)
+              displayNameValue={editingDisplayName()}
+              class="h-16 w-16 rounded-full bg-teal-600/80 text-white flex items-center justify-center text-2xl"
+            />
             <div>
               <h3 class="text-lg font-normal text-gray-100">
-                {selectedAccount()?.displayName}
+                {editingDisplayName()} 
               </h3>
-              <p class="text-sm text-gray-400">{selectedAccount()?.email}</p>
+              <p class="text-sm text-gray-400">@{editingUserName()}</p>
             </div>
           </div>
           <div class="space-y-4">
@@ -113,36 +203,95 @@ const AccountSettingsContent: Component<{
                 class="w-full bg-gray-700/70 border border-gray-600/50 rounded px-3 py-2 text-sm text-gray-100
                        focus:outline-none focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500/50"
                 placeholder="表示名を入力"
-                value={selectedAccount()?.displayName}
-                onInput={(e) =>
-                  props.updateAccount(props.selectedAccountId, {
-                    displayName: e.currentTarget.value,
-                  })}
+                value={editingDisplayName()}
+                onInput={(e) => {
+                  setEditingDisplayName(e.currentTarget.value);
+                  checkForChanges();
+                }}
               />
             </div>
             <div>
               <label class="block text-sm text-gray-300 mb-1.5">
-                メールアドレス
+                ユーザー名
               </label>
               <input
-                type="email"
+                type="text"
                 class="w-full bg-gray-700/70 border border-gray-600/50 rounded px-3 py-2 text-sm text-gray-100
                        focus:outline-none focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500/50"
-                placeholder="you@example.com"
-                value={selectedAccount()?.email}
-                onInput={(e) =>
-                  props.updateAccount(props.selectedAccountId, {
-                    email: e.currentTarget.value,
-                  })}
+                placeholder="ユーザー名を入力"
+                value={editingUserName()}
+                onInput={(e) => {
+                  setEditingUserName(e.currentTarget.value);
+                  checkForChanges();
+                }}
               />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-300 mb-1.5">
+                アイコン画像
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                class="w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4
+                       file:rounded-full file:border-0 file:text-sm file:font-semibold
+                       file:bg-teal-600/80 file:text-white hover:file:bg-teal-700/80"
+                onInput={handleFileChange}
+              />
+              <p class="text-xs text-gray-400 mt-1">
+                画像をアップロードすると、表示名の最初の文字から生成されるイニシャルの代わりに表示されます。
+              </p>
             </div>
           </div>
           <button
             type="button"
-            class="w-full bg-teal-700 hover:bg-teal-600 text-white rounded py-2 text-sm transition-colors duration-200"
+            class={`w-full py-2 text-sm transition-colors duration-200 rounded ${
+              hasChanges()
+                ? "bg-teal-700 hover:bg-teal-600 text-white"
+                : "bg-gray-600/70 text-gray-400 cursor-not-allowed"
+            }`}
+            onClick={handleSave}
+            disabled={!hasChanges()}
           >
-            更新
+            {hasChanges() ? "変更を保存" : "更新"}
           </button>
+
+          {/* 削除ボタン */}
+          <div class="pt-3 border-t border-gray-600/50">
+            <Show when={!showDeleteConfirm()}>
+              <button
+                type="button"
+                class="w-full py-2 text-sm bg-red-600/80 hover:bg-red-600 text-white rounded transition-colors duration-200"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                アカウントを削除
+              </button>
+            </Show>
+
+            <Show when={showDeleteConfirm()}>
+              <div class="space-y-3">
+                <p class="text-sm text-red-400 text-center">
+                  本当にこのアカウントを削除しますか？
+                </p>
+                <div class="flex space-x-3">
+                  <button
+                    type="button"
+                    class="flex-1 py-2 text-sm bg-gray-600/70 hover:bg-gray-600 text-gray-200 rounded transition-colors duration-200"
+                    onClick={() => setShowDeleteConfirm(false)}
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    class="flex-1 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors duration-200"
+                    onClick={handleDelete}
+                  >
+                    削除する
+                  </button>
+                </div>
+              </div>
+            </Show>
+          </div>
         </form>
       </Show>
     </div>
@@ -150,7 +299,7 @@ const AccountSettingsContent: Component<{
 };
 
 // 拡張機能コンテンツコンポーネント
-const ExtensionsContent: Component<{ isMobileView: boolean }> = (props) => {
+const ExtensionsContent: Component<{ isMobileView: boolean; onShowExtensions?: () => void }> = (props) => {
   // ダミーの拡張機能データ
   const initialExtensionsData = [
     {
@@ -201,9 +350,13 @@ const ExtensionsContent: Component<{ isMobileView: boolean }> = (props) => {
     <div class={`${props.isMobileView ? "space-y-4" : ""}`}>
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-lg font-medium text-gray-100">拡張機能管理</h2>
-        <div class="text-teal-400 hover:underline cursor-pointer text-sm">
-          ストアで他の拡張機能を探す
-        </div>
+        <button 
+          type="button"
+          class="text-teal-400 hover:bg-teal-500/10 px-3 py-1 rounded-md transition-colors text-sm"
+          onClick={props.onShowExtensions}
+        >
+          拡張機能マネージャーを開く →
+        </button>
       </div>
       <div class="mb-4">
         <input
@@ -235,7 +388,10 @@ const ExtensionsContent: Component<{ isMobileView: boolean }> = (props) => {
 
               {/* アクションボタン */}
               <div class="flex items-center space-x-2 flex-shrink-0">
-                <button class="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-600/70 rounded">
+                <button 
+                  type="button"
+                  class="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-600/70 rounded"
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="h-4 w-4"
@@ -349,64 +505,219 @@ const NotificationsContent: Component<{ isMobileView: boolean }> = (props) => {
         </div>
       </div>
 
-      <button class="w-full mt-4 bg-transparent hover:bg-gray-700/70 text-gray-400 hover:text-gray-200 py-2 px-4 border border-gray-600/50 rounded transition-colors duration-200">
+      <button 
+        type="button"
+        class="w-full mt-4 bg-transparent hover:bg-gray-700/70 text-gray-400 hover:text-gray-200 py-2 px-4 border border-gray-600/50 rounded transition-colors duration-200"
+      >
         すべての通知を表示
       </button>
     </div>
   );
 };
 
-export function Dashboard() {
+export function Dashboard(props?: { onShowExtensions?: () => void }) {
   const [activeTab, setActiveTab] = createSignal("account");
   const [touchStartX, setTouchStartX] = createSignal(0);
   const [isMobileView, setIsMobileView] = createSignal(false);
 
   // サンプルアカウントデータ
-  const [accounts, setAccounts] = createSignal<Account[]>(
-    [
-      {
-        id: "1",
-        displayName: "ユーザー1",
-        email: "user1@example.com",
-        avatarInitial: "1",
-      },
-      {
-        id: "2",
-        displayName: "ユーザー2",
-        email: "user2@example.com",
-        avatarInitial: "2",
-      },
-      {
-        id: "3",
-        displayName: "ユーザー3",
-        email: "user3@example.com",
-        avatarInitial: "3",
-      },
-    ],
-  );
+  const [accounts, setAccounts] = createSignal<Account[]>([]);
 
   // 現在選択中のアカウントID
-  const [selectedAccountId, setSelectedAccountId] = createSignal("1");
+  const [selectedAccountId, setSelectedAccountId] = createSignal("");
+
+  // エラーメッセージと成功メッセージ用のシグナル
+  const [errorMessage, setErrorMessage] = createSignal("");
+  const [successMessage, setSuccessMessage] = createSignal("");
+
+  // メッセージを自動で消去する関数
+  const showMessage = (message: string, isError: boolean = false) => {
+    if (isError) {
+      setErrorMessage(message);
+      setSuccessMessage("");
+      setTimeout(() => setErrorMessage(""), 5000);
+    } else {
+      setSuccessMessage(message);
+      setErrorMessage("");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    }
+  };
+
+  // APIでアカウント一覧を取得
+  const loadAccounts = async (preserveSelectedId?: string) => {
+    try {
+      const response = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            eventId: "accounts:list",
+            identifier: "takos",
+            payload: {}
+          }]
+        })
+      });
+      const results = await response.json();
+      if (results[0]?.success) {
+        setAccounts(results[0].result || []);
+        
+        // 選択中のIDを保持するか、初期選択を行う
+        if (preserveSelectedId) {
+          // 指定されたIDのアカウントが存在するかチェック
+          const accountExists = results[0].result?.some((acc: Account) => acc.id === preserveSelectedId);
+          if (accountExists) {
+            setSelectedAccountId(preserveSelectedId);
+          } else if (results[0].result?.length > 0) {
+            setSelectedAccountId(results[0].result[0].id);
+          }
+        } else if (results[0].result?.length > 0 && !selectedAccountId()) {
+          // 初回読み込み時のみ最初のアカウントを選択
+          setSelectedAccountId(results[0].result[0].id);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load accounts:", error);
+    }
+  };
 
   // 新規アカウント追加機能
-  const addNewAccount = () => {
-    const newId = String(accounts().length + 1);
-    const newAccount: Account = {
-      id: newId,
-      displayName: `新規ユーザー${newId}`,
-      email: `new${newId}@example.com`,
-      avatarInitial: `新`,
-    };
-
-    setAccounts([...accounts(), newAccount]);
-    setSelectedAccountId(newId);
+  const addNewAccount = async () => {
+    const username = `user${Date.now()}`;
+    try {
+      setErrorMessage(""); // エラーメッセージをクリア
+      setSuccessMessage("");
+      const response = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            eventId: "accounts:create",
+            identifier: "takos",
+            payload: { username }
+          }]
+        })
+      });
+      const results = await response.json();
+      if (results[0]?.success) {
+        const newAccountId = results[0].result.id;
+        await loadAccounts(newAccountId); // 新規作成されたアカウントを選択
+        setSelectedAccountId(newAccountId);
+        showMessage("アカウントを作成しました");
+      } else {
+        showMessage(results[0]?.error || "アカウントの作成に失敗しました", true);
+      }
+    } catch (error) {
+      console.error("Failed to create account:", error);
+      showMessage("アカウントの作成に失敗しました", true);
+    }
   };
 
   // アカウント更新機能
-  const updateAccount = (id: string, updates: Partial<Account>) => {
-    setAccounts(
-      accounts().map((acc) => acc.id === id ? { ...acc, ...updates } : acc),
-    );
+  const updateAccount = async (id: string, updates: Partial<Account>) => {
+    try {
+      setErrorMessage(""); 
+      setSuccessMessage("");
+      const currentAccount = accounts().find(acc => acc.id === id);
+      if (!currentAccount) return;
+
+      const payload: Record<string, unknown> = {
+        username: currentAccount.userName, 
+      };
+
+      if (updates.userName) {
+        payload.newUsername = updates.userName;
+      }
+      
+      if (updates.displayName) {
+        payload.newDisplayName = updates.displayName;
+      }
+
+      // アイコンの処理
+      if (updates.avatarInitial !== undefined) { // editingIcon() が元の値から変更された場合
+        if (isDataUrl(updates.avatarInitial)) {
+          payload.icon = updates.avatarInitial;
+        } else { // データURLでない場合、または画像がクリアされた場合を想定し、表示名からイニシャルを生成
+          const baseDisplayName = updates.displayName || currentAccount.displayName;
+          payload.icon = (baseDisplayName.charAt(0).toUpperCase() || "?").substring(0, 2);
+        }
+      } else if (updates.displayName) { 
+        // アイコンはファイルアップロード等で明示的に変更されなかったが、表示名が変更された場合
+        // かつ、現在のアイコンがデータURLでない（つまりイニシャルである）場合のみ、イニシャルを更新
+        if (!isDataUrl(currentAccount.avatarInitial)) {
+          payload.icon = (updates.displayName.charAt(0).toUpperCase() || "?").substring(0, 2);
+        }
+        // 現在のアイコンが画像の場合は、表示名変更だけではアイコンは変更しない
+      }
+      // payload.icon が未定義の場合、サーバー側はアイコンを変更しない
+
+
+      const response = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            eventId: "accounts:edit",
+            identifier: "takos",
+            payload
+          }]
+        })
+      });
+      const results = await response.json();
+      if (results[0]?.success) {
+        const updatedAccountId = results[0].result.id;
+        await loadAccounts(updatedAccountId); // 更新されたアカウントを選択状態で保持
+        showMessage("アカウントを更新しました");
+      } else {
+        showMessage(results[0]?.error || "アカウントの更新に失敗しました", true);
+        console.error("Update failed:", results[0]);
+      }
+    } catch (error) {
+      console.error("Failed to update account:", error);
+      showMessage("アカウントの更新に失敗しました", true);
+    }
+  };
+
+  // アカウント削除機能
+  const deleteAccount = async (id: string) => {
+    try {
+      setErrorMessage("");
+      setSuccessMessage("");
+      
+      const currentAccount = accounts().find(acc => acc.id === id);
+      if (!currentAccount) return;
+
+      const response = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            eventId: "accounts:delete",
+            identifier: "takos",
+            payload: { username: currentAccount.userName }
+          }]
+        })
+      });
+      
+      const results = await response.json();
+      if (results[0]?.success) {
+        // アカウント一覧を再読み込み
+        await loadAccounts();
+        showMessage("アカウントを削除しました");
+        
+        // 削除されたアカウントが選択されていた場合、別のアカウントを選択
+        const remainingAccounts = accounts();
+        if (remainingAccounts.length > 0) {
+          setSelectedAccountId(remainingAccounts[0].id);
+        } else {
+          setSelectedAccountId("");
+        }
+      } else {
+        showMessage(results[0]?.error || "アカウントの削除に失敗しました", true);
+      }
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      showMessage("アカウントの削除に失敗しました", true);
+    }
   };
 
   // スワイプ機能の実装
@@ -435,17 +746,56 @@ export function Dashboard() {
 
   // 画面サイズに応じたビュー切替
   const checkViewport = () => {
-    setIsMobileView(window.innerWidth < 1024);
+    setIsMobileView(globalThis.innerWidth < 1024);
   };
 
   // コンポーネントマウント時の処理
   onMount(() => {
     checkViewport();
-    window.addEventListener("resize", checkViewport);
+    globalThis.addEventListener("resize", checkViewport);
+    loadAccounts(); // アカウントデータを読み込み
   });
 
   return (
     <div class="min-h-screen bg-[#121212] text-gray-100">
+      {/* エラーメッセージ表示 */}
+      <Show when={errorMessage()}>
+        <div class="fixed top-4 right-4 bg-red-600/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
+          <div class="flex items-center space-x-2">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-sm">{errorMessage()}</span>
+            <button 
+              type="button"
+              onClick={() => setErrorMessage("")}
+              class="ml-2 text-white/80 hover:text-white"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      </Show>
+
+      {/* 成功メッセージ表示 */}
+      <Show when={successMessage()}>
+        <div class="fixed top-4 right-4 bg-green-600/90 text-white px-4 py-2 rounded-lg shadow-lg z-50">
+          <div class="flex items-center space-x-2">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-sm">{successMessage()}</span>
+            <button 
+              type="button"
+              onClick={() => setSuccessMessage("")}
+              class="ml-2 text-white/80 hover:text-white"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      </Show>
+
       {/* モバイル用上部ナビ */}
       <Show when={isMobileView()}>
         <div
@@ -459,6 +809,7 @@ export function Dashboard() {
 
           <div class="flex justify-between border-b border-gray-700/70">
             <button
+              type="button"
               class={`flex-1 py-2 text-center ${
                 activeTab() === "account"
                   ? "text-teal-400 border-b-2 border-teal-400/70"
@@ -469,6 +820,7 @@ export function Dashboard() {
               アカウント
             </button>
             <button
+              type="button"
               class={`flex-1 py-2 text-center ${
                 activeTab() === "extensions"
                   ? "text-teal-400 border-b-2 border-teal-400/70"
@@ -479,6 +831,7 @@ export function Dashboard() {
               拡張機能
             </button>
             <button
+              type="button"
               class={`flex-1 py-2 text-center ${
                 activeTab() === "notifications"
                   ? "text-teal-400 border-b-2 border-teal-400/70"
@@ -507,16 +860,17 @@ export function Dashboard() {
               setSelectedAccountId={setSelectedAccountId}
               addNewAccount={addNewAccount}
               updateAccount={updateAccount}
-              isMobileView={true}
+              deleteAccount={deleteAccount}
+              isMobileView
             />
           </Show>
 
           <Show when={activeTab() === "extensions"}>
-            <ExtensionsContent isMobileView={true} />
+            <ExtensionsContent isMobileView onShowExtensions={props?.onShowExtensions} />
           </Show>
 
           <Show when={activeTab() === "notifications"}>
-            <NotificationsContent isMobileView={true} />
+            <NotificationsContent isMobileView />
           </Show>
         </div>
       </Show>
@@ -528,7 +882,10 @@ export function Dashboard() {
             <h1 class="text-xl font-medium text-teal-400">Takos Dashboard</h1>
 
             <div class="flex items-center">
-              <button class="bg-teal-700 hover:bg-teal-600 text-white py-1.5 px-4 rounded flex items-center mr-4 transition-colors duration-200">
+              <button 
+                type="button"
+                class="bg-teal-700 hover:bg-teal-600 text-white py-1.5 px-4 rounded flex items-center mr-4 transition-colors duration-200"
+              >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   class="h-4 w-4 mr-1.5"
@@ -546,7 +903,10 @@ export function Dashboard() {
                 新規作成
               </button>
 
-              <button class="text-gray-400 hover:text-gray-200 py-1 px-2 rounded-full hover:bg-gray-700/50 transition-colors duration-200">
+              <button 
+                type="button"
+                class="text-gray-400 hover:text-gray-200 py-1 px-2 rounded-full hover:bg-gray-700/50 transition-colors duration-200"
+              >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   class="h-5 w-5"
@@ -581,13 +941,14 @@ export function Dashboard() {
                 setSelectedAccountId={setSelectedAccountId}
                 addNewAccount={addNewAccount}
                 updateAccount={updateAccount}
+                deleteAccount={deleteAccount}
                 isMobileView={false}
               />
             </div>
 
             {/* 拡張機能セクション */}
             <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
-              <ExtensionsContent isMobileView={false} />
+              <ExtensionsContent isMobileView={false} onShowExtensions={props?.onShowExtensions} />
             </div>
 
             {/* 通知セクション */}

@@ -91,7 +91,7 @@ app.post("/", async (c) => {
     return c.json({ success: true, data: newAccount }, 201);
   } catch (error) {
     console.error("Account creation error:", error);
-    if (error.code === 11000) { // MongoDB duplicate key error
+    if ((error as { code?: number })?.code === 11000) { // MongoDB duplicate key error
       return c.json(
         { success: false, error: "その名前は既に使用されています" },
         409,
@@ -153,7 +153,7 @@ app.put("/:id", async (c) => {
     const { name, icon } = body;
     const domain = c.env.ACTIVITYPUB_DOMAIN;
 
-    const updateData: { name?: string; icon?: string; activityPubActor?: any } =
+    const updateData: { name?: string; icon?: string; activityPubActor?: unknown } =
       {};
 
     const accountToUpdate = await Account.findById(id);
@@ -211,11 +211,11 @@ app.put("/:id", async (c) => {
       };
       // @context や type は不変なので、既存のものをそのまま使う
       if (accountToUpdate.activityPubActor["@context"]) {
-        updateData.activityPubActor["@context"] =
+        (updateData.activityPubActor as Record<string, unknown>)["@context"] =
           accountToUpdate.activityPubActor["@context"];
       }
       if (accountToUpdate.activityPubActor.type) {
-        updateData.activityPubActor.type =
+        (updateData.activityPubActor as Record<string, unknown>).type =
           accountToUpdate.activityPubActor.type;
       }
     }
@@ -240,7 +240,7 @@ app.put("/:id", async (c) => {
     return c.json({ success: true, data: updatedAccount });
   } catch (error) {
     console.error("Account update error:", error);
-    if (error.code === 11000) {
+    if ((error as { code?: number })?.code === 11000) {
       return c.json(
         { success: false, error: "その名前は既に使用されています" },
         409,

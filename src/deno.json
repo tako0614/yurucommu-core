@@ -17,6 +17,7 @@
     "@prisma/client": "npm:@prisma/client@^6.8.2",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.4",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.7",
+    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
     "hono": "npm:hono@^4.7.9",
     "jotai": "npm:jotai@^2.12.4",
     "mongoose": "npm:mongoose@^8.15.0",

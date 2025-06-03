@@ -1,5 +1,5 @@
 import HeaderButton from "./headerButton.tsx";
-import { useAtom, useSetAtom } from "solid-jotai";
+import { useSetAtom } from "solid-jotai";
 import { selectedAppState } from "../../states/app.ts";
 const headerButtons = [
   {

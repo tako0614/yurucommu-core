@@ -1,0 +1,398 @@
+// Permission types based on the specification
+export type Permission = 
+  | "fetch:net"
+  | "activitypub:send"
+  | "activitypub:read"
+  | "activitypub:receive:hook"
+  | "activitypub:actor:read"
+  | "activitypub:actor:write"
+  | "plugin-actor:create"
+  | "plugin-actor:read"
+  | "plugin-actor:write"
+  | "plugin-actor:delete"
+  | "kv:read"
+  | "kv:write"
+  | "assets:read"
+  | "assets:write"
+  | "events:publish"
+  | "events:subscribe"
+  | "deno:read"
+  | "deno:write"
+  | "deno:net"
+  | "deno:env"
+  | "deno:run"
+  | "deno:sys"
+  | "deno:ffi";
+
+/**
+ * AST解析結果
+ */
+export interface ModuleAnalysis {
+  filePath: string;
+  exports: ExportInfo[];
+  imports: ImportInfo[];
+  decorators: DecoratorInfo[];
+  jsDocTags: JSDocTagInfo[];
+}
+
+export interface ExportInfo {
+  name: string;
+  type: "function" | "const" | "class" | "type";
+  isDefault: boolean;
+  line: number;
+  column: number;
+}
+
+export interface ImportInfo {
+  source: string;
+  imports: { name: string; alias?: string }[];
+  isTypeOnly: boolean;
+  line: number;
+}
+
+export interface DecoratorInfo {
+  name: string;
+  args: unknown[];
+  targetFunction: string;
+  line: number;
+}
+
+export interface JSDocTagInfo {
+  tag: string;
+  value: string;
+  targetFunction: string;
+  line: number;
+}
+
+/**
+ * Virtual Entrypoint 生成用型
+ */
+export interface VirtualEntry {
+  type: "server" | "client";
+  exports: string[];
+  imports: string[];
+  content: string;
+}
+
+/**
+ * ビルド結果
+ */
+export interface BuildResult {
+  success: boolean;
+  manifest: ExtensionManifest;
+  files: {
+    server?: string;
+    client?: string;
+    ui?: string[];
+  };
+  metrics: BuildMetrics;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface BuildMetrics {
+  buildStartTime: number;
+  buildEndTime: number;
+  totalDuration: number;
+  bundlingDuration: number;
+  validationDuration: number;
+  compressionDuration: number;
+  outputSize: {
+    server: number;
+    client: number;
+    ui: number;
+    total: number;
+  };
+  functionCounts: {
+    server: number;
+    client: number;
+    events: number;
+  };
+  warnings: string[];
+  errors: string[];
+}
+
+/**
+ * Takopack manifest
+ */
+export interface ExtensionManifest {
+  name: string;
+  description?: string;
+  version: string;
+  identifier: string;
+  apiVersion?: string;
+  permissions?: Permission[];
+  server: {
+    entry: string;
+  };
+  client: {
+    entryUI: string;
+    entryBackground: string;
+  };
+  eventDefinitions?: Record<string, EventDefinition>;
+  activityPub?: ActivityPubConfig[];
+}
+
+export interface EventDefinition {
+  source: "client" | "server" | "background" | "ui";
+  target: "server" | "client" | "client:*" | "ui" | "background";
+  handler: string;
+}
+
+export interface ActivityPubConfig {
+  context: string;
+  object: string;
+  canAccept?: string;
+  hook?: string;
+  priority?: number;
+  serial?: boolean;
+}
+
+/**
+ * CLI コマンド引数
+ */
+export interface CommandArgs {
+  command: "build" | "watch" | "dev" | "init" | "types";
+  config?: string;
+  outDir?: string;
+  dev?: boolean;
+  verbose?: boolean;
+  context?: 'server' | 'client' | 'ui' | 'all';
+  includeCustomTypes?: boolean;
+}
+
+/**
+ * Takopack 設定定義（config.tsから移動）
+ */
+export interface TakopackConfig {
+  /** マニフェスト設定 */
+  manifest: {
+    name: string;
+    identifier: string;
+    version: string;
+    description?: string;
+    permissions?: Permission[];
+  };
+
+  /** エントリポイント設定 */
+  entries: {
+    server?: string[];
+    client?: string[];
+    ui?: string[];
+  };
+
+  /** ビルド設定 */
+  build?: {
+    target?: string;
+    dev?: boolean;
+    analysis?: boolean;
+    outDir?: string;
+    minify?: boolean;
+  };
+
+  /** プラグイン設定 */
+  plugins?: TakopackPlugin[];
+}
+
+/**
+ * プラグインインターフェース
+ */
+export interface TakopackPlugin {
+  name: string;
+  setup(build: PluginContext): void | Promise<void>;
+}
+
+export interface PluginContext {
+  onTransform?: (callback: (args: TransformArgs) => TransformResult | Promise<TransformResult>) => void;
+  onGenerate?: (callback: (args: GenerateArgs) => void | Promise<void>) => void;
+}
+
+export interface TransformArgs {
+  filePath: string;
+  code: string;
+  isEntry: boolean;
+}
+
+export interface TransformResult {
+  code?: string;
+  map?: string;
+}
+
+export interface GenerateArgs {
+  manifest: ExtensionManifest;
+  files: Map<string, string>;
+}
+
+/**
+ * Takos API Type Definitions
+ * globalThis.takos で利用可能な型安全なAPI
+ */
+
+// Common types
+export type SerializableValue = string | number | boolean | null | undefined | SerializableObject | SerializableArray;
+export interface SerializableObject {
+  [key: string]: SerializableValue;
+}
+export interface SerializableArray extends Array<SerializableValue> {}
+
+// ActivityPub 関連型
+export interface ActivityPubActivity extends SerializableObject {
+  id?: string;
+  type: string;
+  actor?: string;
+  object?: SerializableValue;
+  target?: string;
+  published?: string;
+}
+
+export interface ActivityPubActor extends SerializableObject {
+  id: string;
+  type: string;
+  preferredUsername?: string;
+  name?: string;
+  summary?: string;
+  icon?: { type: string; url: string };
+}
+
+// Event 関連型
+export interface TakosEvent<T = SerializableValue> {
+  name: string;
+  payload: T;
+  timestamp: number;
+  source: 'server' | 'client' | 'ui' | 'background';
+}
+
+export type EventHandler<T = SerializableValue> = (payload: T) => void | Promise<void>;
+export type EventUnsubscribe = () => void;
+
+// Assets 関連型
+export interface AssetWriteOptions {
+  cacheTTL?: number;
+}
+
+// Takos API Interfaces
+export interface TakosKVAPI {
+  read(key: string): Promise<SerializableValue>;
+  write(key: string, value: SerializableValue): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(): Promise<string[]>;
+}
+
+export interface TakosActivityPubActorAPI {
+  read(userId: string): Promise<ActivityPubActor>;
+  update(userId: string, key: string, value: string): Promise<void>;
+  delete(userId: string, key: string): Promise<void>;
+}
+
+export interface TakosActivityPubPluginActorAPI {
+  create(localName: string, profile: SerializableObject): Promise<string>;
+  read(iri: string): Promise<ActivityPubActor>;
+  update(iri: string, partial: Partial<ActivityPubActor>): Promise<void>;
+  delete(iri: string): Promise<void>;
+  list(): Promise<string[]>;
+}
+
+export interface TakosActivityPubAPI {
+  send(userId: string, activity: ActivityPubActivity): Promise<void>;
+  read(id: string): Promise<ActivityPubActivity>;
+  delete(id: string): Promise<void>;
+  list(userId?: string): Promise<string[]>;
+  follow(followerId: string, followeeId: string): Promise<void>;
+  unfollow(followerId: string, followeeId: string): Promise<void>;
+  listFollowers(actorId: string): Promise<string[]>;
+  listFollowing(actorId: string): Promise<string[]>;
+  actor: TakosActivityPubActorAPI;
+  pluginActor: TakosActivityPubPluginActorAPI;
+}
+
+export interface TakosAssetsAPI {
+  read(path: string): Promise<string>;
+  write(path: string, data: string | Uint8Array, options?: AssetWriteOptions): Promise<string>;
+  delete(path: string): Promise<void>;
+  list(prefix?: string): Promise<string[]>;
+}
+
+// Context-aware Events API
+export interface TakosServerEventsAPI {
+  publish(eventName: string, payload: SerializableValue): Promise<[200 | 400 | 500, SerializableObject]>;
+  publishToClient(eventName: string, payload: SerializableValue): Promise<void>;
+  publishToClientPushNotification(eventName: string, payload: SerializableValue): Promise<void>;
+  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+}
+
+export interface TakosClientEventsAPI {
+  publishToUI(eventName: string, payload: SerializableValue): Promise<void>;
+  publishToBackground(eventName: string, payload: SerializableValue): Promise<void>;
+  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+}
+
+export interface TakosUIEventsAPI {
+  publishToBackground(eventName: string, payload: SerializableValue): Promise<void>;
+  subscribe<T = SerializableValue>(eventName: string, handler: EventHandler<T>): EventUnsubscribe;
+}
+
+// Main Takos API Interface
+export interface TakosAPI {
+  kv: TakosKVAPI;
+  activitypub: TakosActivityPubAPI;
+  assets: TakosAssetsAPI;
+  fetch(url: string, options?: RequestInit): Promise<Response>;
+}
+
+export interface TakosServerAPI extends TakosAPI {
+  events: TakosServerEventsAPI;
+}
+
+export interface TakosClientAPI extends TakosAPI {
+  events: TakosClientEventsAPI;
+}
+
+export interface TakosUIAPI {
+  events: TakosUIEventsAPI;
+  // UI環境では一部のAPIは制限される
+}
+
+/**
+ * GlobalThis 型拡張
+ * 各実行コンテキストに応じた適切なTakos APIを提供
+ */
+declare global {
+  namespace globalThis {
+    // Server Context (server.js)
+    var takos: TakosServerAPI | undefined;
+  }
+}
+
+// Client Context用の型 (client.js - background)
+export interface GlobalThisWithClientTakos {
+  takos: TakosClientAPI | undefined;
+}
+
+// UI Context用の型 (index.html)
+export interface GlobalThisWithUITakos {
+  takos: TakosUIAPI | undefined;
+}
+
+/**
+ * TypeScript型定義生成機能
+ */
+export interface TypeGenerationOptions {
+  /** 生成する型定義のスコープ */
+  context: 'server' | 'client' | 'ui';
+  /** 出力ファイルパス */
+  outputPath: string;
+  /** カスタム型定義を含めるか */
+  includeCustomTypes?: boolean;
+}
+
+/**
+ * 型定義生成結果
+ */
+export interface TypeGenerationResult {
+  /** 生成されたファイルパス */
+  filePath: string;
+  /** 生成された型定義の内容 */
+  content: string;
+  /** 含まれる型の数 */
+  typeCount: number;
+}

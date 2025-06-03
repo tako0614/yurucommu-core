@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "dev": "deno run --watch main.ts"
+  },
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62"
+  }
+}
