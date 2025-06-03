@@ -1,14 +1,14 @@
-import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
-import { resolve } from "https://deno.land/std@0.208.0/path/mod.ts";
-import { existsSync } from "https://deno.land/std@0.208.0/fs/mod.ts";
+import { parseArgs } from "jsr:@std/cli@1/parse-args";
+import { resolve } from "jsr:@std/path@1";
+import { existsSync } from "jsr:@std/fs@1";
 
-import type { TakopackConfig, CommandArgs } from "./types.ts";
+import type { TakopackConfig, CommandArgs, CLIInterface } from "./types.ts";
 import { build, watch, dev, init, generateTypes } from "./commands.ts";
 
 /**
  * CLI インターフェース
  */
-export function createCLI() {
+export function createCLI(): CLIInterface {
   return {
     async run(args: string[] = Deno.args): Promise<void> {      const parsed = parseArgs(args, {
         string: ["config", "out-dir", "context"],

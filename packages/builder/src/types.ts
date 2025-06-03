@@ -162,6 +162,22 @@ export interface CommandArgs {
 }
 
 /**
+ * CLI インターフェース
+ */
+export interface CLIInterface {
+  run(args?: string[]): Promise<void>;
+  executeCommand(args: CommandArgs): Promise<void>;
+  handleBuild(args: CommandArgs): Promise<void>;
+  handleWatch(args: CommandArgs): Promise<void>;
+  handleDev(args: CommandArgs): Promise<void>;
+  handleInit(args: CommandArgs): Promise<void>;
+  handleTypes(args: CommandArgs): Promise<void>;
+  loadConfig(configPath?: string): Promise<TakopackConfig>;
+  showHelp(): void;
+  showVersion(): void;
+}
+
+/**
  * Takopack 設定定義（config.tsから移動）
  */
 export interface TakopackConfig {
@@ -353,14 +369,12 @@ export interface TakosUIAPI {
 }
 
 /**
- * GlobalThis 型拡張
+ * GlobalThis 型拡張インターフェース
  * 各実行コンテキストに応じた適切なTakos APIを提供
  */
-declare global {
-  namespace globalThis {
-    // Server Context (server.js)
-    var takos: TakosServerAPI | undefined;
-  }
+// Server Context用の型 (server.js)  
+export interface GlobalThisWithServerTakos {
+  takos: TakosServerAPI | undefined;
 }
 
 // Client Context用の型 (client.js - background)

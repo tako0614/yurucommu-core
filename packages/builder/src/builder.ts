@@ -1,7 +1,7 @@
-import { join, resolve } from "https://deno.land/std@0.208.0/path/mod.ts";
-import { existsSync } from "https://deno.land/std@0.208.0/fs/mod.ts";
+import { join, resolve } from "jsr:@std/path@1";
+import { existsSync } from "jsr:@std/fs@1";
 import { ZipWriter, BlobWriter, TextReader } from "jsr:@zip-js/zip-js@^2.7.62";
-import * as esbuild from "https://deno.land/x/esbuild@v0.20.2/mod.js";
+import * as esbuild from "esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
 import type { 

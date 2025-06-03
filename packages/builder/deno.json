@@ -2,18 +2,19 @@
   "name": "@takopack/builder",
   "version": "3.0.0",
   "description": "Next generation Takopack extension build tool with static import preservation",
+  "license": "MIT",
   "exports": {
     ".": "./mod.ts"
-  },  "tasks": {
+  },"tasks": {
     "build": "deno run -A mod.ts build",
     "dev": "deno run -A mod.ts dev",
     "test": "deno test -A",
     "check": "deno check **/*.ts"
-  },
-  "imports": {
+  },  "imports": {
     "@typescript-eslint/typescript-estree": "npm:@typescript-eslint/typescript-estree@8.18.0",
     "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
-    "@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@^0.11.1"
+    "@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@^0.11.1",
+    "esbuild": "npm:esbuild@0.20.2"
   },
   "compilerOptions": {
     "lib": ["deno.ns", "dom", "es2022"],
