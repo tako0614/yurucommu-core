@@ -414,7 +414,7 @@ export class TakopackBuilder {
       manifest.eventDefinitions = eventDefinitions;
     }
     if (activityPubConfigs.length > 0) {
-      manifest.activityPub = activityPubConfigs;
+      manifest.activityPub = { objects: activityPubConfigs };
     }
 
     return manifest;
@@ -616,12 +616,14 @@ export class TakopackBuilder {
       const options = match[2] ? JSON.parse(match[2]) : {};
 
       return {
+        accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
-        object,
-        hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
-        priority: options.priority,
-        serial: options.serial,
+        hooks: {
+          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          onReceive: targetFunction,
+          priority: options.priority,
+          serial: options.serial,
+        },
       };
     } catch {
       return null;

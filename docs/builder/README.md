@@ -253,22 +253,23 @@ ActivityPubフック処理を設定します。
 
 ```typescript
 .activityPub(
-  // 設定
-  { 
+  {
+    accepts: ["Note"],
     context: "https://www.w3.org/ns/activitystreams",
-    object: "Note",
-    priority: 1,
-    serial: false
+    hooks: {
+      priority: 1,
+      serial: false,
+    },
   },
   // canAccept関数（オプション）
   (context: string, object: any) => {
     return object.type === "Create" && object.object?.type === "Note";
   },
-  // hook関数（オプション）
+  // onReceiveフック（オプション）
   async (context: string, object: any) => {
     console.log("Note received:", object);
     return { processed: true };
-  }
+  },
 )
 ```
 
@@ -591,9 +592,11 @@ const activityPubExtension = new FunctionBasedTakopack()
   // ActivityPub Note処理
   .activityPub(
     {
+      accepts: ["Note"],
       context: "https://www.w3.org/ns/activitystreams",
-      object: "Note",
-      priority: 1,
+      hooks: {
+        priority: 1,
+      },
     },
     // canAccept: Noteの受信可否判定
     (context: string, object: any) => {
@@ -601,7 +604,7 @@ const activityPubExtension = new FunctionBasedTakopack()
         object.object?.type === "Note" &&
         object.object?.content;
     },
-    // hook: Note処理
+    // onReceive: Note処理
     async (context: string, object: any) => {
       const note = object.object;
 
