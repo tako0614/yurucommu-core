@@ -14,6 +14,9 @@ export interface TakosKV {
 
 export interface TakosEvents {
   publish(name: string, payload: unknown): Promise<unknown>;
+  publishToClient(name: string, payload: unknown): Promise<unknown>;
+  publishToClientPushNotification(name: string, payload: unknown):
+    Promise<unknown>;
   publishToBackground(name: string, payload: unknown): Promise<unknown>;
   publishToUI(name: string, payload: unknown): Promise<unknown>;
   subscribe(name: string, handler: (payload: unknown) => void): () => void;
@@ -21,7 +24,11 @@ export interface TakosEvents {
 
 export interface TakosAssets {
   read(path: string): Promise<string>;
-  write(path: string, data: string | Uint8Array): Promise<string>;
+  write(
+    path: string,
+    data: string | Uint8Array,
+    options?: { cacheTTL?: number },
+  ): Promise<string>;
   delete(path: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
 }
@@ -81,6 +88,11 @@ export class Takos {
   };
   events = {
     publish: async (_name: string, _payload: unknown) => {},
+    publishToClient: async (_name: string, _payload: unknown) => {},
+    publishToClientPushNotification: async (
+      _name: string,
+      _payload: unknown,
+    ) => {},
     publishToBackground: async (_name: string, _payload: unknown) => {},
     publishToUI: async (_name: string, _payload: unknown) => {},
     subscribe: (_name: string, _handler: (payload: unknown) => void) => {
@@ -89,7 +101,11 @@ export class Takos {
   };
   assets = {
     read: async (_path: string) => "",
-    write: async (_path: string, _data: string | Uint8Array) => "",
+    write: async (
+      _path: string,
+      _data: string | Uint8Array,
+      _options?: { cacheTTL?: number },
+    ) => "",
     delete: async (_path: string) => {},
     list: async (_prefix?: string) => [] as string[],
   };

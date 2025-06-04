@@ -41,3 +41,28 @@ deno.test("override takos APIs via options", async () => {
   assertEquals(result, "value:foo");
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+deno.test("override new event APIs", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "test3",
+      identifier: "com.example.test3",
+      version: "0.1.0",
+    }),
+    server:
+      `export async function send(){ await globalThis.takos.events.publishToClient('ev', {}); return 1; }`,
+  };
+
+  let called = false;
+  const takopack = new TakoPack([pack], {
+    events: {
+      publishToClient: async () => {
+        called = true;
+      },
+    },
+  });
+  await takopack.init();
+  await takopack.callServer("com.example.test3", "send");
+  assert(called);
+  delete (globalThis as Record<string, unknown>).takos;
+});
