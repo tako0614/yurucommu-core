@@ -93,9 +93,7 @@ export class TakopackBuilder {
         warnings: [],
       };
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Build failed:", errorMessage);
 
       return {
@@ -292,9 +290,7 @@ export class TakopackBuilder {
 
       console.log(`✅ Bundled: ${entryPoint} → ${outputPath}`);
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to bundle ${entryPoint}: ${errorMessage}`);
     }
   }
@@ -326,14 +322,25 @@ export class TakopackBuilder {
     const eventDefinitions: Record<string, EventDefinition> = {};
     const activityPubConfigs: ActivityPubConfig[] = [];
 
+    const exportedClassSet = new Set<string>();
+
+    [...analyses.server, ...analyses.client].forEach((analysis) => {
+      analysis.exports.forEach((exp) => {
+        if (exp.type === "class") exportedClassSet.add(exp.name);
+      });
+    });
+
     [...analyses.server, ...analyses.client].forEach((analysis) => {
       // JSDocタグから抽出
       analysis.jsDocTags.forEach((tag) => {
+        const handlerName = tag.targetClass && exportedClassSet.has(tag.targetClass)
+          ? `${tag.targetClass}_${tag.targetFunction}`
+          : tag.targetFunction;
         if (tag.tag === "event") {
           const eventName = this.extractEventNameFromTag(tag.value);
           const eventConfig = this.parseEventConfig(
             tag.value,
-            tag.targetFunction,
+            handlerName,
           );
           if (eventName && eventConfig) {
             eventDefinitions[eventName] = eventConfig;
@@ -341,7 +348,7 @@ export class TakopackBuilder {
         } else if (tag.tag === "activity") {
           const activityConfig = this.parseActivityConfig(
             tag.value,
-            tag.targetFunction,
+            handlerName,
           );
           if (activityConfig) {
             activityPubConfigs.push(activityConfig);
@@ -351,10 +358,11 @@ export class TakopackBuilder {
 
       // デコレータから抽出
       analysis.decorators.forEach((decorator) => {
+        const handlerName = decorator.targetClass && exportedClassSet.has(decorator.targetClass)
+          ? `${decorator.targetClass}_${decorator.targetFunction}`
+          : decorator.targetFunction;
         if (decorator.name === "event" && decorator.args.length > 0) {
-          const eventName = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
+          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
@@ -362,12 +370,10 @@ export class TakopackBuilder {
           eventDefinitions[eventName] = {
             source: (options.source as any) || "client",
             target: (options.target as any) || "server",
-            handler: decorator.targetFunction,
+            handler: handlerName,
           };
         } else if (decorator.name === "activity" && decorator.args.length > 0) {
-          const object = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
+          const object = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
@@ -375,10 +381,8 @@ export class TakopackBuilder {
           activityPubConfigs.push({
             context: "https://www.w3.org/ns/activitystreams",
             object,
-            hook: decorator.targetFunction,
-            canAccept: decorator.targetFunction.startsWith("canAccept")
-              ? decorator.targetFunction
-              : undefined,
+            hook: handlerName,
+            canAccept: handlerName.startsWith("canAccept") ? handlerName : undefined,
             priority: options.priority as number,
             serial: options.serial as boolean,
           });
@@ -596,9 +600,7 @@ export class TakopackBuilder {
         context: "https://www.w3.org/ns/activitystreams",
         object,
         hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept")
-          ? targetFunction
-          : undefined,
+        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
         priority: options.priority,
         serial: options.serial,
       };
@@ -631,9 +633,7 @@ export class TakopackBuilder {
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Type definition generation failed:", errorMessage);
       throw error;
     }

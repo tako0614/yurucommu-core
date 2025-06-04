@@ -41,6 +41,11 @@ export interface ExportInfo {
   isDefault: boolean;
   line: number;
   column: number;
+  /**
+   * If this export is a const initialized with `new SomeClass()`
+   * this holds the class name.
+   */
+  instanceOf?: string;
 }
 
 export interface ImportInfo {
@@ -54,6 +59,8 @@ export interface DecoratorInfo {
   name: string;
   args: unknown[];
   targetFunction: string;
+  /** メソッドが属するクラス名 (あれば) */
+  targetClass?: string;
   line: number;
 }
 
@@ -61,6 +68,8 @@ export interface JSDocTagInfo {
   tag: string;
   value: string;
   targetFunction: string;
+  /** メソッドが属するクラス名 (あれば) */
+  targetClass?: string;
   line: number;
 }
 

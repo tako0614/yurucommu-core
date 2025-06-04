@@ -1,19 +1,22 @@
 // Server-side functions
 
 import { z } from "npm:zod";
+import { SerializableObject, ServerExtension } from "@takopack/builder";
 
-export function hello(name: string): string {
+export const HelloServer = new ServerExtension();
+
+HelloServer.hello = (name: string): string => {
   return `Hello, ${name} from server!`;
-}
+};
 
-export function calculateSum(a: number, b: number): number {
+HelloServer.calculateSum = (a: number, b: number): number => {
   return a + b;
-}
+};
 
 /** @event("userLogin", { source: "client", target: "server" }) */
-export function onUserLogin(
+HelloServer.onUserLogin = (
   userData: { username: string; timestamp: number },
-): [number, any] {
+): [number, SerializableObject] => {
   console.log("User logged in:", userData);
 
   z.object({
@@ -30,4 +33,6 @@ export function onUserLogin(
   );
 
   return [200, { success: true, message: "Login recorded" }];
-}
+};
+
+export { HelloServer };

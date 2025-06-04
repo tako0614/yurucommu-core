@@ -1,22 +1,31 @@
 import type { Note } from "../../types.ts";
+import { SerializableObject, ServerExtension } from "@takopack/builder";
 
-export const canAcceptNote = (ctx: string, obj: unknown): boolean => {
+export const NoteActivity = new ServerExtension();
+
+NoteActivity.canAcceptNote = (_ctx: string, obj: unknown): boolean => {
   // Simple validation: check if it's a Note object
   return !!(
     obj &&
     typeof obj === "object" &&
     "type" in obj &&
-    (obj as any).type === "Note"
+    (obj as Record<string, unknown>).type === "Note"
   );
 };
 
 /** @activity("Note", { priority: 100, serial: true }) */
-export function onReceiveNote(ctx: string, note: Note) {
+NoteActivity.onReceiveNote = (
+  _ctx: string,
+  note: Note,
+) => {
   console.log("Processing ActivityPub Note:", note);
 
   // Store the note in KV
   if (note.id) {
-    globalThis.takos?.kv.write(`note:${note.id}`, note as any);
+    globalThis.takos?.kv.write(
+      `note:${note.id}`,
+      note as SerializableObject,
+    );
   }
 
   // Process mentions or hashtags if needed
@@ -29,10 +38,15 @@ export function onReceiveNote(ctx: string, note: Note) {
     timestamp: Date.now(),
     processed_by: "simple-extension",
   };
-}
+};
 
 /** @activity("Like", { priority: 50 }) */
-export function onReceiveLike(ctx: string, like: any) {
+NoteActivity.onReceiveLike = (
+  _ctx: string,
+  like: SerializableObject,
+) => {
   console.log("Received Like activity:", like);
   return like; // Pass through unchanged
-}
+};
+
+export { NoteActivity };

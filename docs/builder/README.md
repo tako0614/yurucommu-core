@@ -390,6 +390,54 @@ type Permission =
 })
 ```
 
+### インスタンスベース開発
+
+Takopack Builder 3.0 では、`ServerExtension` や `ClientExtension` を
+インスタンス化してメソッドを追加するスタイルを推奨しています。 JSDoc
+タグを付与することでイベントや ActivityPub フックを定義できます。
+
+```typescript
+import { ServerExtension } from "@takopack/builder";
+
+export const MyServer = new ServerExtension();
+
+/** @event("userLogin", { source: "client", target: "server" }) */
+MyServer.onUserLogin = (data: { username: string }) => {
+  console.log("login", data);
+  return [200, { ok: true }];
+};
+
+export { MyServer };
+```
+
+インスタンス名とメソッド名の組み合わせから `MyServer_onUserLogin`
+のようなラッパー関数が自動生成され、manifest の `handler` として利用されます。
+
+### アプリコンテナ API
+
+複数の拡張機能インスタンスをまとめて登録したい場合は `TakoPack`
+クラスを利用できます。
+
+```typescript
+import { ClientExtension, ServerExtension, TakoPack } from "@takopack/builder";
+
+export const MyServer = new ServerExtension();
+MyServer.onHello = (name: string) => {
+  return [200, { greeting: name }];
+};
+
+export const MyClient = new ClientExtension();
+MyClient.greet = () => {
+  console.log("Hello from client");
+};
+
+const app = new TakoPack()
+  .useServer(MyServer)
+  .useClient(MyClient);
+
+export const functions = app.functions;
+```
+
 ---
 
 ## 7. esbuildバンドル機能
