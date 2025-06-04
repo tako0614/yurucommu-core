@@ -1,7 +1,7 @@
 import type { Note } from "../../types.ts";
 import { SerializableObject, ServerExtension } from "@takopack/builder";
 
-export const NoteActivity = new ServerExtension();
+const NoteActivity = new ServerExtension();
 
 NoteActivity.canAcceptNote = (_ctx: string, obj: unknown): boolean => {
   // Simple validation: check if it's a Note object
@@ -22,7 +22,8 @@ NoteActivity.onReceiveNote = (
 
   // Store the note in KV
   if (note.id) {
-    globalThis.takos?.kv.write(
+    // deno-lint-ignore no-explicit-any
+    (globalThis as any).takos?.kv.write(
       `note:${note.id}`,
       note as SerializableObject,
     );
