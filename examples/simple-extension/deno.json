@@ -5,6 +5,6 @@
   },
   "nodeModulesDir": "auto",
   "imports": {
-    "@takopack/builder": "jsr:@takopack/builder@^4.0.0"
+    "@takopack/builder": "jsr:@takopack/builder@^4.0.1"
   }
 }
