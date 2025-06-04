@@ -94,8 +94,7 @@ export class Takos {
       _payload: unknown,
     ) => {},
     publishToBackground: async (_name: string, _payload: unknown) => {},
-    publishToUI: async (_name: string, _payload: unknown) => {},
-    subscribe: (_name: string, _handler: (payload: unknown) => void) => {
+    publishToUI: async (_name: string, _payload: unknown) => {},    subscribe: (_name: string, _handler: (payload: unknown) => void): (() => void) => {
       return () => {};
     },
   };

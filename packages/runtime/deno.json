@@ -2,6 +2,7 @@
   "name": "@takopack/runtime",
   "version": "1.0.0",
   "description": "Takopack runtime",
+  "license": "MIT",
   "exports": {
     ".": "./mod.ts"
   },

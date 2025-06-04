@@ -15,5 +15,6 @@
     "lib": ["deno.ns", "dom"],
     "strict": true
   },
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+  "license": "AGPL-3.0"
 }
