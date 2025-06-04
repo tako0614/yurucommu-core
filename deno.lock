@@ -1,8 +1,10 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/dotenv@*": "0.225.4",
     "jsr:@std/dotenv@~0.225.4": "0.225.4",
+    "jsr:@std/internal@^1.0.6": "1.0.6",
     "jsr:@zip-js/zip-js@*": "2.7.62",
     "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
     "npm:@hono/vite-dev-server@0.19": "0.19.1_hono@4.7.10",
@@ -34,8 +36,17 @@
     "npm:zod@^3.24.4": "3.25.30"
   },
   "jsr": {
+    "@std/assert@1.0.13": {
+      "integrity": "ae0d31e41919b12c656c742b22522c32fb26ed0cba32975cb0de2a273cb68b29",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
     "@std/dotenv@0.225.4": {
       "integrity": "2a672c2b192abe535dcfea1ae89f219ee3979af6aad7d185cb19206ee9bc5caf"
+    },
+    "@std/internal@1.0.6": {
+      "integrity": "9533b128f230f73bd209408bb07a4b12f8d4255ab2a4d22a1fd6d87304aca9a4"
     },
     "@zip-js/zip-js@2.7.62": {
       "integrity": "11cbe0746fa1e52e6e0a601c89ba97365f16e38a07f139b9d9914f988aec9081"
