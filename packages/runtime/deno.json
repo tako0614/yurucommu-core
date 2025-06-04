@@ -1,0 +1,16 @@
+{
+  "name": "@takopack/runtime",
+  "version": "1.0.0",
+  "description": "Takopack runtime",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "tasks": {
+    "test": "deno test -A"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"],
+    "strict": true
+  },
+  "nodeModulesDir": "auto"
+}
