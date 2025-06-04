@@ -2,7 +2,13 @@ import {
   TextWriter,
   Uint8ArrayReader,
   ZipReader,
+  configure,
 } from "jsr:@zip-js/zip-js@^2.7.62";
+
+// Configure to disable workers to prevent timer leaks in tests
+configure({
+  useWebWorkers: false,
+});
 
 export interface TakoUnpackResult {
   manifest: string;

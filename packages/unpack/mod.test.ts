@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^0.225.4";
+import { assertEquals } from "jsr:@std/assert";
 import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
 import { unpackTakoPack } from "./mod.ts";
 
