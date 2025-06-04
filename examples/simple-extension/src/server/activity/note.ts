@@ -25,7 +25,7 @@ NoteActivity.onReceiveNote = (
     // deno-lint-ignore no-explicit-any
     (globalThis as any).takos?.kv.write(
       `note:${note.id}`,
-      note as SerializableObject,
+      note as unknown as SerializableObject,
     );
   }
 

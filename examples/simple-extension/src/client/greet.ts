@@ -37,5 +37,3 @@ GreetClient.onBackgroundTask = (task: { id: string; action: string }): void => {
       console.log("Unknown task action:", task.action);
   }
 };
-
-export { GreetClient };

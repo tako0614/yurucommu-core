@@ -9,9 +9,9 @@
     "jsr:@std/path@1": "1.1.0",
     "jsr:@std/path@^1.0.6": "1.1.0",
     "jsr:@std/path@^1.1.0": "1.1.0",
-    "jsr:@takopack/builder@^4.0.1": "4.0.1",
     "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
     "npm:@typescript-eslint/typescript-estree@8.18.0": "8.18.0_typescript@5.7.3",
+    "npm:esbuild@*": "0.20.2",
     "npm:esbuild@0.20.2": "0.20.2",
     "npm:zod@*": "3.25.42"
   },
@@ -41,18 +41,6 @@
     },
     "@std/path@1.1.0": {
       "integrity": "ddc94f8e3c275627281cbc23341df6b8bcc874d70374f75fec2533521e3d6886"
-    },
-    "@takopack/builder@4.0.1": {
-      "integrity": "82e95c3830167220833d8dac32267245b8ce48415854cadc7e5edfc8325ddeb4",
-      "dependencies": [
-        "jsr:@luca/esbuild-deno-loader",
-        "jsr:@std/cli",
-        "jsr:@std/fs",
-        "jsr:@std/path@1",
-        "jsr:@zip-js/zip-js",
-        "npm:@typescript-eslint/typescript-estree",
-        "npm:esbuild"
-      ]
     },
     "@zip-js/zip-js@2.7.62": {
       "integrity": "11cbe0746fa1e52e6e0a601c89ba97365f16e38a07f139b9d9914f988aec9081"
@@ -369,7 +357,13 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@takopack/builder@^4.0.1"
+      "jsr:@luca/esbuild-deno-loader@~0.11.1",
+      "jsr:@std/cli@1",
+      "jsr:@std/fs@1",
+      "jsr:@std/path@1",
+      "jsr:@zip-js/zip-js@^2.7.62",
+      "npm:@typescript-eslint/typescript-estree@8.18.0",
+      "npm:esbuild@0.20.2"
     ]
   }
 }

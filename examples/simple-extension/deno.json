@@ -1,10 +1,21 @@
 {
   "tasks": {
     "dev": "deno run --watch main.ts",
-    "build": "deno run -A -r jsr:@takopack/builder build"
+    "build": "deno run -A -r ../../packages/cli/cli.ts build"
   },
   "nodeModulesDir": "auto",
   "imports": {
-    "@takopack/builder": "jsr:@takopack/builder@^4.0.1"
+    "@takopack/builder": "../../packages/builder/mod.ts",
+    "@typescript-eslint/typescript-estree": "npm:@typescript-eslint/typescript-estree@8.18.0",
+    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
+    "@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@^0.11.1",
+    "esbuild": "npm:esbuild@0.20.2",
+    "@std/path": "jsr:@std/path@1",
+    "@std/fs": "jsr:@std/fs@1",
+    "@std/cli": "jsr:@std/cli@1"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom", "es2022"],
+    "strict": true
   }
 }

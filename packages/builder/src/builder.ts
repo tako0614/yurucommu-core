@@ -1,7 +1,7 @@
 import { join, resolve } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
 import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
-import * as esbuild from "esbuild";
+import * as esbuild from "npm:esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
 import type {
@@ -253,7 +253,6 @@ export class TakopackBuilder {
 
     return result;
   }
-
   /**
    * 単一ファイルをesbuildでバンドル
    */
@@ -267,12 +266,32 @@ export class TakopackBuilder {
         entryPoints: [entryPoint],
         outfile: outputPath,
         bundle: true,
-        format: platform === "node" ? "esm" : "esm",
-        platform: platform === "node" ? "neutral" : "browser",
+        format: "esm",
+        platform: platform === "node" ? "node" : "browser",
         target: this.config.build?.target || "es2022",
         minify: !this.config.build?.dev && (this.config.build?.minify ?? true),
         sourcemap: this.config.build?.dev,
         treeShaking: true,
+        mainFields: ["module", "main"],        external: platform === "node" ? [
+          // Node.js built-ins
+          "node:*",
+          "inspector",
+          // Large packages that should remain external for server
+          "esbuild",
+          "typescript",
+          "@typescript-eslint/*",
+          "debug",
+          "fast-glob",
+        ] : [
+          // Browser externals - also exclude Node.js things that shouldn't be in browser bundles
+          "node:*",
+          "inspector",
+          "esbuild",
+          "typescript", 
+          "@typescript-eslint/*",
+          "debug",
+          "fast-glob",
+        ],
         plugins: [
           ...denoPlugins({
             configPath: resolve("deno.json"),
