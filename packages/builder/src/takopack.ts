@@ -35,7 +35,11 @@ export class TakoPack {
    * Exposed for builder to pick up exported classes.
    * Contains all registered classes grouped by context.
    */
-  get functions() {
+  get functions(): {
+    server: Array<typeof ServerExtension>;
+    client: Array<typeof ClientExtension>;
+    ui: Array<typeof UIExtension>;
+  } {
     return {
       server: this.serverClasses,
       client: this.clientClasses,
