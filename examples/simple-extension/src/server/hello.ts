@@ -3,7 +3,7 @@
 import { z } from "npm:zod";
 import { SerializableObject, ServerExtension } from "@takopack/builder";
 
-export const HelloServer = new ServerExtension();
+const HelloServer = new ServerExtension();
 
 HelloServer.hello = (name: string): string => {
   return `Hello, ${name} from server!`;
@@ -27,7 +27,8 @@ HelloServer.onUserLogin = (
   }).parse(userData);
 
   // Save to KV store
-  globalThis.takos?.kv.write(
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).takos?.kv.write(
     `last_login:${userData.username}`,
     userData.timestamp,
   );

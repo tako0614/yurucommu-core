@@ -1,3 +1,11 @@
-export class ServerExtension {}
-export class ClientExtension {}
-export class UIExtension {}
+export class ServerExtension {
+  [key: string]: unknown;
+}
+
+export class ClientExtension {
+  [key: string]: unknown;
+}
+
+export class UIExtension {
+  [key: string]: unknown;
+}

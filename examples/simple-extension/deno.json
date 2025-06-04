@@ -4,7 +4,7 @@
     "build": "deno run -A -r jsr:@takopack/builder build"
   },
   "nodeModulesDir": "auto",
-  "imports ": {
+  "imports": {
     "@takopack/builder": "jsr:@takopack/builder@^4.0.0"
   }
 }
