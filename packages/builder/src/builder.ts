@@ -385,10 +385,9 @@ export class TakopackBuilder {
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
-            : {};
-          eventDefinitions[eventName] = {
-            source: (options.source as any) || "client",
-            target: (options.target as any) || "server",
+            : {};          eventDefinitions[eventName] = {
+            source: (options.source as "client" | "server" | "background" | "ui") || "client",
+            target: (options.target as "server" | "client" | "client:*" | "ui" | "background") || "server",
             handler: handlerName,
           };
         } else if (decorator.name === "activity" && decorator.args.length > 0) {
@@ -396,14 +395,15 @@ export class TakopackBuilder {
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
-            : {};
-          activityPubConfigs.push({
+            : {};          activityPubConfigs.push({
             context: "https://www.w3.org/ns/activitystreams",
-            object,
-            hook: handlerName,
-            canAccept: handlerName.startsWith("canAccept") ? handlerName : undefined,
-            priority: options.priority as number,
-            serial: options.serial as boolean,
+            accepts: [object],
+            hooks: {
+              canAccept: handlerName.startsWith("canAccept") ? handlerName : undefined,
+              onReceive: handlerName,
+              priority: options.priority as number,
+              serial: options.serial as boolean,
+            },
           });
         }
       });
@@ -706,10 +706,9 @@ export class TakopackBuilder {
 
   /**
    * 統合型定義ファイルを生成
-   */
-  private async generateUnifiedTypeDefinitions(
+   */  private async generateUnifiedTypeDefinitions(
     outputDir: string,
-    results: TypeGenerationResult[],
+    _results: TypeGenerationResult[],
   ): Promise<void> {
     const lines: string[] = [];
 
