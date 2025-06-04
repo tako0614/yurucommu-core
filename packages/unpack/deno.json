@@ -1,0 +1,19 @@
+{
+  "name": "@takopack/unpack",
+  "version": "1.0.0",
+  "description": "Utility to unpack .takopack archives",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62"
+  },
+  "tasks": {
+    "test": "deno test -A"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"],
+    "strict": true
+  },
+  "nodeModulesDir": "auto"
+}

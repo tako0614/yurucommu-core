@@ -1,7 +1,7 @@
 import { join, resolve } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
 import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
-import * as esbuild from "esbuild";
+import * as esbuild from "npm:esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
 import type {
@@ -93,9 +93,7 @@ export class TakopackBuilder {
         warnings: [],
       };
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Build failed:", errorMessage);
 
       return {
@@ -255,7 +253,6 @@ export class TakopackBuilder {
 
     return result;
   }
-
   /**
    * 単一ファイルをesbuildでバンドル
    */
@@ -269,12 +266,32 @@ export class TakopackBuilder {
         entryPoints: [entryPoint],
         outfile: outputPath,
         bundle: true,
-        format: platform === "node" ? "esm" : "esm",
-        platform: platform === "node" ? "neutral" : "browser",
+        format: "esm",
+        platform: platform === "node" ? "node" : "browser",
         target: this.config.build?.target || "es2022",
         minify: !this.config.build?.dev && (this.config.build?.minify ?? true),
         sourcemap: this.config.build?.dev,
         treeShaking: true,
+        mainFields: ["module", "main"],        external: platform === "node" ? [
+          // Node.js built-ins
+          "node:*",
+          "inspector",
+          // Large packages that should remain external for server
+          "esbuild",
+          "typescript",
+          "@typescript-eslint/*",
+          "debug",
+          "fast-glob",
+        ] : [
+          // Browser externals - also exclude Node.js things that shouldn't be in browser bundles
+          "node:*",
+          "inspector",
+          "esbuild",
+          "typescript", 
+          "@typescript-eslint/*",
+          "debug",
+          "fast-glob",
+        ],
         plugins: [
           ...denoPlugins({
             configPath: resolve("deno.json"),
@@ -292,9 +309,7 @@ export class TakopackBuilder {
 
       console.log(`✅ Bundled: ${entryPoint} → ${outputPath}`);
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to bundle ${entryPoint}: ${errorMessage}`);
     }
   }
@@ -326,14 +341,25 @@ export class TakopackBuilder {
     const eventDefinitions: Record<string, EventDefinition> = {};
     const activityPubConfigs: ActivityPubConfig[] = [];
 
+    const exportedClassSet = new Set<string>();
+
+    [...analyses.server, ...analyses.client].forEach((analysis) => {
+      analysis.exports.forEach((exp) => {
+        if (exp.type === "class") exportedClassSet.add(exp.name);
+      });
+    });
+
     [...analyses.server, ...analyses.client].forEach((analysis) => {
       // JSDocタグから抽出
       analysis.jsDocTags.forEach((tag) => {
+        const handlerName = tag.targetClass && exportedClassSet.has(tag.targetClass)
+          ? `${tag.targetClass}_${tag.targetFunction}`
+          : tag.targetFunction;
         if (tag.tag === "event") {
           const eventName = this.extractEventNameFromTag(tag.value);
           const eventConfig = this.parseEventConfig(
             tag.value,
-            tag.targetFunction,
+            handlerName,
           );
           if (eventName && eventConfig) {
             eventDefinitions[eventName] = eventConfig;
@@ -341,7 +367,7 @@ export class TakopackBuilder {
         } else if (tag.tag === "activity") {
           const activityConfig = this.parseActivityConfig(
             tag.value,
-            tag.targetFunction,
+            handlerName,
           );
           if (activityConfig) {
             activityPubConfigs.push(activityConfig);
@@ -351,36 +377,33 @@ export class TakopackBuilder {
 
       // デコレータから抽出
       analysis.decorators.forEach((decorator) => {
+        const handlerName = decorator.targetClass && exportedClassSet.has(decorator.targetClass)
+          ? `${decorator.targetClass}_${decorator.targetFunction}`
+          : decorator.targetFunction;
         if (decorator.name === "event" && decorator.args.length > 0) {
-          const eventName = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
+          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
-            : {};
-          eventDefinitions[eventName] = {
-            source: (options.source as any) || "client",
-            target: (options.target as any) || "server",
-            handler: decorator.targetFunction,
+            : {};          eventDefinitions[eventName] = {
+            source: (options.source as "client" | "server" | "background" | "ui") || "client",
+            target: (options.target as "server" | "client" | "client:*" | "ui" | "background") || "server",
+            handler: handlerName,
           };
         } else if (decorator.name === "activity" && decorator.args.length > 0) {
-          const object = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
+          const object = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
-            : {};
-          activityPubConfigs.push({
+            : {};          activityPubConfigs.push({
             context: "https://www.w3.org/ns/activitystreams",
-            object,
-            hook: decorator.targetFunction,
-            canAccept: decorator.targetFunction.startsWith("canAccept")
-              ? decorator.targetFunction
-              : undefined,
-            priority: options.priority as number,
-            serial: options.serial as boolean,
+            accepts: [object],
+            hooks: {
+              canAccept: handlerName.startsWith("canAccept") ? handlerName : undefined,
+              onReceive: handlerName,
+              priority: options.priority as number,
+              serial: options.serial as boolean,
+            },
           });
         }
       });
@@ -391,7 +414,7 @@ export class TakopackBuilder {
       manifest.eventDefinitions = eventDefinitions;
     }
     if (activityPubConfigs.length > 0) {
-      manifest.activityPub = activityPubConfigs;
+      manifest.activityPub = { objects: activityPubConfigs };
     }
 
     return manifest;
@@ -593,14 +616,14 @@ export class TakopackBuilder {
       const options = match[2] ? JSON.parse(match[2]) : {};
 
       return {
+        accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
-        object,
-        hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept")
-          ? targetFunction
-          : undefined,
-        priority: options.priority,
-        serial: options.serial,
+        hooks: {
+          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          onReceive: targetFunction,
+          priority: options.priority,
+          serial: options.serial,
+        },
       };
     } catch {
       return null;
@@ -631,9 +654,7 @@ export class TakopackBuilder {
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("❌ Type definition generation failed:", errorMessage);
       throw error;
     }
@@ -685,10 +706,9 @@ export class TakopackBuilder {
 
   /**
    * 統合型定義ファイルを生成
-   */
-  private async generateUnifiedTypeDefinitions(
+   */  private async generateUnifiedTypeDefinitions(
     outputDir: string,
-    results: TypeGenerationResult[],
+    _results: TypeGenerationResult[],
   ): Promise<void> {
     const lines: string[] = [];
 

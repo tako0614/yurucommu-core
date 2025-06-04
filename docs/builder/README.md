@@ -253,22 +253,23 @@ ActivityPubフック処理を設定します。
 
 ```typescript
 .activityPub(
-  // 設定
-  { 
+  {
+    accepts: ["Note"],
     context: "https://www.w3.org/ns/activitystreams",
-    object: "Note",
-    priority: 1,
-    serial: false
+    hooks: {
+      priority: 1,
+      serial: false,
+    },
   },
   // canAccept関数（オプション）
   (context: string, object: any) => {
     return object.type === "Create" && object.object?.type === "Note";
   },
-  // hook関数（オプション）
+  // onReceiveフック（オプション）
   async (context: string, object: any) => {
     console.log("Note received:", object);
     return { processed: true };
-  }
+  },
 )
 ```
 
@@ -388,6 +389,54 @@ type Permission =
   // UIに通知
   await globalThis.takos.events.publishToUI("refresh", newData);
 })
+```
+
+### インスタンスベース開発
+
+Takopack Builder 3.0 では、`ServerExtension` や `ClientExtension` を
+インスタンス化してメソッドを追加するスタイルを推奨しています。 JSDoc
+タグを付与することでイベントや ActivityPub フックを定義できます。
+
+```typescript
+import { ServerExtension } from "@takopack/builder";
+
+export const MyServer = new ServerExtension();
+
+/** @event("userLogin", { source: "client", target: "server" }) */
+MyServer.onUserLogin = (data: { username: string }) => {
+  console.log("login", data);
+  return [200, { ok: true }];
+};
+
+export { MyServer };
+```
+
+インスタンス名とメソッド名の組み合わせから `MyServer_onUserLogin`
+のようなラッパー関数が自動生成され、manifest の `handler` として利用されます。
+
+### アプリコンテナ API
+
+複数の拡張機能インスタンスをまとめて登録したい場合は `TakoPack`
+クラスを利用できます。
+
+```typescript
+import { ClientExtension, ServerExtension, TakoPack } from "@takopack/builder";
+
+export const MyServer = new ServerExtension();
+MyServer.onHello = (name: string) => {
+  return [200, { greeting: name }];
+};
+
+export const MyClient = new ClientExtension();
+MyClient.greet = () => {
+  console.log("Hello from client");
+};
+
+const app = new TakoPack()
+  .useServer(MyServer)
+  .useClient(MyClient);
+
+export const functions = app.functions;
 ```
 
 ---
@@ -543,9 +592,11 @@ const activityPubExtension = new FunctionBasedTakopack()
   // ActivityPub Note処理
   .activityPub(
     {
+      accepts: ["Note"],
       context: "https://www.w3.org/ns/activitystreams",
-      object: "Note",
-      priority: 1,
+      hooks: {
+        priority: 1,
+      },
     },
     // canAccept: Noteの受信可否判定
     (context: string, object: any) => {
@@ -553,7 +604,7 @@ const activityPubExtension = new FunctionBasedTakopack()
         object.object?.type === "Note" &&
         object.object?.content;
     },
-    // hook: Note処理
+    // onReceive: Note処理
     async (context: string, object: any) => {
       const note = object.object;
 

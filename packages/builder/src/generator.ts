@@ -1,6 +1,7 @@
 import type {
   ActivityPubConfig,
   EventDefinition,
+  ExportInfo,
   ModuleAnalysis,
   TypeGenerationOptions,
   TypeGenerationResult,
@@ -23,6 +24,9 @@ export class VirtualEntryGenerator {
   generateServerEntry(analyses: ModuleAnalysis[]): VirtualEntry {
     const exports: string[] = [];
     const imports: string[] = [];
+    const wrappers: string[] = [];
+    const classMap = new Map<string, Set<string>>();
+    const exportInfoMap = new Map<string, ExportInfo>();
     const eventDefinitions: Record<string, EventDefinition> = {};
     const activityPubConfigs: ActivityPubConfig[] = [];
 
@@ -31,33 +35,79 @@ export class VirtualEntryGenerator {
       analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
           imports.push(
-            `import ${
-              this.formatImportClause(imp.imports)
-            } from "${imp.source}";`,
+            `import ${this.formatImportClause(imp.imports)} from "${imp.source}";`,
           );
         }
       });
 
       // export関数を収集
       analysis.exports.forEach((exp) => {
-        if (exp.type === "function" || exp.type === "const") {
+        exportInfoMap.set(exp.name, exp);
+        if (exp.type === "function") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${
-              this.relativePath(analysis.filePath)
-            }";`,
+            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
           );
+        } else if (exp.type === "const" && exp.instanceOf) {
+          imports.push(
+            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+          classMap.set(exp.name, new Set());
+        } else if (exp.type === "const") {
+          exports.push(exp.name);
+          imports.push(
+            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+        } else if (exp.type === "class") {
+          imports.push(
+            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+          classMap.set(exp.name, new Set());
         }
       });
 
       // JSDocタグからActivityPubとイベント設定を生成
-      this.processJSDocTags(analysis, eventDefinitions, activityPubConfigs);
+      this.processJSDocTags(
+        analysis,
+        eventDefinitions,
+        activityPubConfigs,
+        classMap,
+      );
 
       // デコレータからActivityPubとイベント設定を生成
-      this.processDecorators(analysis, eventDefinitions, activityPubConfigs);
+      this.processDecorators(
+        analysis,
+        eventDefinitions,
+        activityPubConfigs,
+        classMap,
+      );
     });
 
-    const content = this.buildEntryContent(imports, exports, {
+    // ラッパー関数生成
+    classMap.forEach((methods, className) => {
+      const info = exportInfoMap.get(className);
+      if (info && info.type === "const" && info.instanceOf) {
+        methods.forEach((m) => {
+          const wrapperName = `${className}_${m}`;
+          wrappers.push(
+            `export const ${wrapperName} = (...args: any[]) => ${className}.${m}(...args);`,
+          );
+          exports.push(wrapperName);
+        });
+      } else {
+        const instance = `__${className}`;
+        wrappers.push(`const ${instance} = new ${className}();`);
+        methods.forEach((m) => {
+          const wrapperName = `${className}_${m}`;
+          wrappers.push(
+            `export const ${wrapperName} = (...args: any[]) => ${instance}.${m}(...args);`,
+          );
+          exports.push(wrapperName);
+        });
+      }
+    });
+
+    const content = this.buildEntryContent([...imports, ...wrappers], exports, {
       eventDefinitions,
       activityPubConfigs,
     });
@@ -76,33 +126,86 @@ export class VirtualEntryGenerator {
   generateClientEntry(analyses: ModuleAnalysis[]): VirtualEntry {
     const exports: string[] = [];
     const imports: string[] = [];
+    const wrappers: string[] = [];
+    const classMap = new Map<string, Set<string>>();
+    const exportInfoMap = new Map<string, ExportInfo>();
 
     analyses.forEach((analysis) => {
       // import文を収集
       analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
           imports.push(
-            `import ${
-              this.formatImportClause(imp.imports)
-            } from "${imp.source}";`,
+            `import ${this.formatImportClause(imp.imports)} from "${imp.source}";`,
           );
         }
       });
 
       // export関数を収集
       analysis.exports.forEach((exp) => {
-        if (exp.type === "function" || exp.type === "const") {
+        exportInfoMap.set(exp.name, exp);
+        if (exp.type === "function") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${
-              this.relativePath(analysis.filePath)
-            }";`,
+            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
           );
+        } else if (exp.type === "const" && exp.instanceOf) {
+          imports.push(
+            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+          classMap.set(exp.name, new Set());
+        } else if (exp.type === "const") {
+          exports.push(exp.name);
+          imports.push(
+            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+        } else if (exp.type === "class") {
+          imports.push(
+            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+          );
+          classMap.set(exp.name, new Set());
         }
       });
+
+      // JSDoc / Decorator 処理してメソッド登録
+      this.processJSDocTags(
+        analysis,
+        {},
+        [],
+        classMap,
+      );
+      this.processDecorators(
+        analysis,
+        {},
+        [],
+        classMap,
+      );
     });
 
-    const content = this.buildEntryContent(imports, exports);
+    // ラッパー生成
+    classMap.forEach((methods, className) => {
+      const info = exportInfoMap.get(className);
+      if (info && info.type === "const" && info.instanceOf) {
+        methods.forEach((m) => {
+          const wrapperName = `${className}_${m}`;
+          wrappers.push(
+            `export const ${wrapperName} = (...args: any[]) => ${className}.${m}(...args);`,
+          );
+          exports.push(wrapperName);
+        });
+      } else {
+        const instance = `__${className}`;
+        wrappers.push(`const ${instance} = new ${className}();`);
+        methods.forEach((m) => {
+          const wrapperName = `${className}_${m}`;
+          wrappers.push(
+            `export const ${wrapperName} = (...args: any[]) => ${instance}.${m}(...args);`,
+          );
+          exports.push(wrapperName);
+        });
+      }
+    });
+
+    const content = this.buildEntryContent([...imports, ...wrappers], exports);
 
     return {
       type: "client",
@@ -119,26 +222,37 @@ export class VirtualEntryGenerator {
     analysis: ModuleAnalysis,
     eventDefinitions: Record<string, EventDefinition>,
     activityPubConfigs: ActivityPubConfig[],
+    classMap: Map<string, Set<string>>,
   ): void {
     analysis.jsDocTags.forEach((tag) => {
       if (tag.tag === "activity") {
         // @activity("Note", { priority: 100, serial: true })
+        const handlerName = tag.targetClass
+          ? `${tag.targetClass}_${tag.targetFunction}`
+          : tag.targetFunction;
         const activityConfig = this.parseActivityTag(
           tag.value,
-          tag.targetFunction,
+          handlerName,
         );
         if (activityConfig) {
           activityPubConfigs.push(activityConfig);
         }
       } else if (tag.tag === "event") {
         // @event("myEvent", { source: "client", target: "server" })
-        const eventConfig = this.parseEventTag(tag.value, tag.targetFunction);
+        const handlerName = tag.targetClass
+          ? `${tag.targetClass}_${tag.targetFunction}`
+          : tag.targetFunction;
+        const eventConfig = this.parseEventTag(tag.value, handlerName);
         if (eventConfig) {
           const eventName = this.extractEventName(tag.value);
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
           }
         }
+      }
+
+      if (tag.targetClass && classMap.has(tag.targetClass)) {
+        classMap.get(tag.targetClass)!.add(tag.targetFunction);
       }
     });
   }
@@ -150,31 +264,40 @@ export class VirtualEntryGenerator {
     analysis: ModuleAnalysis,
     eventDefinitions: Record<string, EventDefinition>,
     activityPubConfigs: ActivityPubConfig[],
+    classMap: Map<string, Set<string>>,
   ): void {
     analysis.decorators.forEach((decorator) => {
       if (decorator.name === "activity") {
         // @activity("Note", { priority: 100 })
+        const handlerName = decorator.targetClass
+          ? `${decorator.targetClass}_${decorator.targetFunction}`
+          : decorator.targetFunction;
         const activityConfig = this.parseActivityDecorator(
           decorator.args,
-          decorator.targetFunction,
+          handlerName,
         );
         if (activityConfig) {
           activityPubConfigs.push(activityConfig);
         }
       } else if (decorator.name === "event") {
         // @event("myEvent", { source: "client", target: "server" })
+        const handlerName = decorator.targetClass
+          ? `${decorator.targetClass}_${decorator.targetFunction}`
+          : decorator.targetFunction;
         const eventConfig = this.parseEventDecorator(
           decorator.args,
-          decorator.targetFunction,
+          handlerName,
         );
         if (eventConfig) {
-          const eventName = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
+          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
           }
         }
+      }
+
+      if (decorator.targetClass && classMap.has(decorator.targetClass)) {
+        classMap.get(decorator.targetClass)!.add(decorator.targetFunction);
       }
     });
   }
@@ -195,14 +318,14 @@ export class VirtualEntryGenerator {
       const options = match[2] ? JSON.parse(match[2]) : {};
 
       return {
+        accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
-        object,
-        hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept")
-          ? targetFunction
-          : undefined,
-        priority: options.priority,
-        serial: options.serial,
+        hooks: {
+          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          onReceive: targetFunction,
+          priority: options.priority,
+          serial: options.serial,
+        },
       };
     } catch {
       return null;
@@ -222,14 +345,14 @@ export class VirtualEntryGenerator {
     const options = (args[1] as Record<string, unknown>) || {};
 
     return {
+      accepts: [object],
       context: "https://www.w3.org/ns/activitystreams",
-      object,
-      hook: targetFunction,
-      canAccept: targetFunction.startsWith("canAccept")
-        ? targetFunction
-        : undefined,
-      priority: options.priority as number,
-      serial: options.serial as boolean,
+      hooks: {
+        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+        onReceive: targetFunction,
+        priority: options.priority as number,
+        serial: options.serial as boolean,
+      },
     };
   }
 
@@ -268,19 +391,17 @@ export class VirtualEntryGenerator {
     const options = (args[1] as Record<string, unknown>) || {};
 
     return {
-      source:
-        (typeof options.source === "string" ? options.source : "client") as
-          | "client"
-          | "server"
-          | "background"
-          | "ui",
-      target:
-        (typeof options.target === "string" ? options.target : "server") as
-          | "server"
-          | "client"
-          | "client:*"
-          | "ui"
-          | "background",
+      source: (typeof options.source === "string" ? options.source : "client") as
+        | "client"
+        | "server"
+        | "background"
+        | "ui",
+      target: (typeof options.target === "string" ? options.target : "server") as
+        | "server"
+        | "client"
+        | "client:*"
+        | "ui"
+        | "background",
       handler: targetFunction,
     };
   }

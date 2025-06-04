@@ -41,6 +41,11 @@ export interface ExportInfo {
   isDefault: boolean;
   line: number;
   column: number;
+  /**
+   * If this export is a const initialized with `new SomeClass()`
+   * this holds the class name.
+   */
+  instanceOf?: string;
 }
 
 export interface ImportInfo {
@@ -54,6 +59,8 @@ export interface DecoratorInfo {
   name: string;
   args: unknown[];
   targetFunction: string;
+  /** メソッドが属するクラス名 (あれば) */
+  targetClass?: string;
   line: number;
 }
 
@@ -61,6 +68,8 @@ export interface JSDocTagInfo {
   tag: string;
   value: string;
   targetFunction: string;
+  /** メソッドが属するクラス名 (あれば) */
+  targetClass?: string;
   line: number;
 }
 
@@ -130,7 +139,9 @@ export interface ExtensionManifest {
     entryBackground: string;
   };
   eventDefinitions?: Record<string, EventDefinition>;
-  activityPub?: ActivityPubConfig[];
+  activityPub?: {
+    objects: ActivityPubConfig[];
+  };
 }
 
 export interface EventDefinition {
@@ -140,12 +151,14 @@ export interface EventDefinition {
 }
 
 export interface ActivityPubConfig {
+  accepts: string[];
   context: string;
-  object: string;
-  canAccept?: string;
-  hook?: string;
-  priority?: number;
-  serial?: boolean;
+  hooks: {
+    canAccept?: string;
+    onReceive: string;
+    priority?: number;
+    serial?: boolean;
+  };
 }
 
 /**

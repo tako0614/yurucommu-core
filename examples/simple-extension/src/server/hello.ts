@@ -1,19 +1,22 @@
 // Server-side functions
 
 import { z } from "npm:zod";
+import { SerializableObject, ServerExtension, getTakosServerAPI } from "@takopack/builder";
 
-export function hello(name: string): string {
+const HelloServer = new ServerExtension();
+
+HelloServer.hello = (name: string): string => {
   return `Hello, ${name} from server!`;
-}
+};
 
-export function calculateSum(a: number, b: number): number {
+HelloServer.calculateSum = (a: number, b: number): number => {
   return a + b;
-}
+};
 
 /** @event("userLogin", { source: "client", target: "server" }) */
-export function onUserLogin(
+HelloServer.onUserLogin = async (
   userData: { username: string; timestamp: number },
-): [number, any] {
+): Promise<[number, SerializableObject]> => {
   console.log("User logged in:", userData);
 
   z.object({
@@ -22,12 +25,14 @@ export function onUserLogin(
       "Timestamp must be a positive integer",
     ),
   }).parse(userData);
-
   // Save to KV store
-  globalThis.takos?.kv.write(
+  const takosAPI = getTakosServerAPI();
+  await takosAPI?.kv.write(
     `last_login:${userData.username}`,
     userData.timestamp,
   );
 
   return [200, { success: true, message: "Login recorded" }];
-}
+};
+
+export { HelloServer };

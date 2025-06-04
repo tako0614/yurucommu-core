@@ -65,9 +65,7 @@ export class ASTAnalyzer {
         jsDocTags,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.warn(`AST解析エラー (${filePath}):`, errorMessage);
       return {
         filePath,
@@ -82,13 +80,19 @@ export class ASTAnalyzer {
   /**
    * ASTノードを再帰的に走査
    */
-  private traverseNode(node: any, context: {
-    exports: ExportInfo[];
-    imports: ImportInfo[];
-    decorators: DecoratorInfo[];
-    jsDocTags: JSDocTagInfo[];
-    comments: any[];
-  }): void {
+  private traverseNode(
+    // deno-lint-ignore no-explicit-any
+    node: any,
+    context: {
+      exports: ExportInfo[];
+      imports: ImportInfo[];
+      decorators: DecoratorInfo[];
+      jsDocTags: JSDocTagInfo[];
+      // deno-lint-ignore no-explicit-any
+      comments: any[];
+      currentClass?: string;
+    },
+  ): void {
     if (!node || typeof node !== "object") return;
 
     // Export宣言の処理
@@ -109,6 +113,59 @@ export class ASTAnalyzer {
     // JSDocコメントの処理
     this.handleJSDocComments(node, context);
 
+    // クラス宣言の場合はクラス名を保持してメソッドを走査
+    if (node.type === AST_NODE_TYPES.ClassDeclaration && node.body) {
+      const prev = context.currentClass;
+      const className = node.id?.name;
+      if (className) context.currentClass = className;
+      for (const elem of node.body.body) {
+        this.traverseNode(elem, context);
+      }
+      context.currentClass = prev;
+      return;
+    }
+
+    // インスタンスへのメソッド代入 (obj.method = () => {})
+    if (
+      node.type === AST_NODE_TYPES.ExpressionStatement &&
+      node.expression?.type === AST_NODE_TYPES.AssignmentExpression &&
+      node.expression.left.type === AST_NODE_TYPES.MemberExpression &&
+      node.expression.left.object.type === AST_NODE_TYPES.Identifier &&
+      node.expression.left.property.type === AST_NODE_TYPES.Identifier
+    ) {
+      const objName = node.expression.left.object.name;
+      const methodName = node.expression.left.property.name;
+      const right = node.expression.right;
+
+      if (
+        right.type === AST_NODE_TYPES.FunctionExpression ||
+        right.type === AST_NODE_TYPES.ArrowFunctionExpression
+      ) {
+        const functionLine = right.loc?.start.line || 0;
+        const relevantComments = context.comments.filter((comment) =>
+          comment.loc.end.line === functionLine - 1 ||
+          comment.loc.end.line === functionLine - 2
+        );
+
+        relevantComments.forEach((comment) => {
+          if (comment.type === "Block" && comment.value.includes("@")) {
+            this.parseJSDocTags(
+              comment.value,
+              methodName,
+              comment.loc.start.line,
+              { jsDocTags: context.jsDocTags, currentClass: objName },
+            );
+          }
+        });
+
+        const prev = context.currentClass;
+        context.currentClass = objName;
+        this.traverseNode(right, context);
+        context.currentClass = prev;
+        return;
+      }
+    }
+
     // 子ノードを再帰処理
     for (const key in node) {
       const child = node[key];
@@ -124,6 +181,7 @@ export class ASTAnalyzer {
    * Export宣言の処理
    */
   private handleExportDeclaration(
+    // deno-lint-ignore no-explicit-any
     node: any,
     context: { exports: ExportInfo[] },
   ): void {
@@ -139,14 +197,23 @@ export class ASTAnalyzer {
           column: decl.loc?.start.column || 0,
         });
       } else if (decl.type === AST_NODE_TYPES.VariableDeclaration) {
+        // deno-lint-ignore no-explicit-any
         decl.declarations.forEach((declarator: any) => {
           if (declarator.id?.name) {
+            let instanceOf: string | undefined;
+            if (
+              declarator.init?.type === AST_NODE_TYPES.NewExpression &&
+              declarator.init.callee?.type === AST_NODE_TYPES.Identifier
+            ) {
+              instanceOf = declarator.init.callee.name;
+            }
             context.exports.push({
               name: declarator.id.name,
               type: "const",
               isDefault: false,
               line: declarator.loc?.start.line || 0,
               column: declarator.loc?.start.column || 0,
+              instanceOf,
             });
           }
         });
@@ -163,6 +230,7 @@ export class ASTAnalyzer {
 
     // 個別エクスポート (export { foo, bar })
     if (node.specifiers?.length > 0) {
+      // deno-lint-ignore no-explicit-any
       node.specifiers.forEach((spec: any) => {
         if (spec.type === AST_NODE_TYPES.ExportSpecifier) {
           context.exports.push({
@@ -181,18 +249,18 @@ export class ASTAnalyzer {
    * Import宣言の処理
    */
   private handleImportDeclaration(
+    // deno-lint-ignore no-explicit-any
     node: any,
     context: { imports: ImportInfo[] },
   ): void {
     const imports: { name: string; alias?: string }[] = [];
 
+    // deno-lint-ignore no-explicit-any
     node.specifiers?.forEach((spec: any) => {
       if (spec.type === AST_NODE_TYPES.ImportSpecifier) {
         imports.push({
           name: spec.imported.name,
-          alias: spec.local.name !== spec.imported.name
-            ? spec.local.name
-            : undefined,
+          alias: spec.local.name !== spec.imported.name ? spec.local.name : undefined,
         });
       } else if (spec.type === AST_NODE_TYPES.ImportDefaultSpecifier) {
         imports.push({
@@ -219,12 +287,14 @@ export class ASTAnalyzer {
    * デコレータの処理
    */
   private handleDecorators(
+    // deno-lint-ignore no-explicit-any
     node: any,
-    context: { decorators: DecoratorInfo[] },
+    context: { decorators: DecoratorInfo[]; currentClass?: string },
   ): void {
     const targetFunction = this.getFunctionName(node);
     if (!targetFunction) return;
 
+    // deno-lint-ignore no-explicit-any
     node.decorators.forEach((decorator: any) => {
       const decoratorName = this.getDecoratorName(decorator);
       const args = this.getDecoratorArgs(decorator);
@@ -234,6 +304,7 @@ export class ASTAnalyzer {
           name: decoratorName,
           args,
           targetFunction,
+          targetClass: context.currentClass,
           line: decorator.loc?.start.line || 0,
         });
       }
@@ -243,10 +314,16 @@ export class ASTAnalyzer {
   /**
    * JSDocコメントの処理
    */
-  private handleJSDocComments(node: any, context: {
-    jsDocTags: JSDocTagInfo[];
-    comments: any[];
-  }): void {
+  private handleJSDocComments(
+    // deno-lint-ignore no-explicit-any
+    node: any,
+    context: {
+      jsDocTags: JSDocTagInfo[];
+      // deno-lint-ignore no-explicit-any
+      comments: any[];
+      currentClass?: string;
+    },
+  ): void {
     const targetFunction = this.getFunctionName(node);
     if (!targetFunction) return;
 
@@ -276,7 +353,7 @@ export class ASTAnalyzer {
     commentValue: string,
     targetFunction: string,
     startLineOfCommentBlock: number,
-    context: { jsDocTags: JSDocTagInfo[] },
+    context: { jsDocTags: JSDocTagInfo[]; currentClass?: string },
   ): void {
     const lines = commentValue.split("\n");
 
@@ -290,6 +367,7 @@ export class ASTAnalyzer {
           tag,
           value: value || "",
           targetFunction,
+          targetClass: context.currentClass,
           line: startLineOfCommentBlock + index,
         });
       }
@@ -299,7 +377,10 @@ export class ASTAnalyzer {
   /**
    * 関数名を取得
    */
-  private getFunctionName(node: any): string | null {
+  private getFunctionName(
+    // deno-lint-ignore no-explicit-any
+    node: any,
+  ): string | null {
     if (node.type === AST_NODE_TYPES.FunctionDeclaration && node.id) {
       return node.id.name;
     }
@@ -315,7 +396,10 @@ export class ASTAnalyzer {
   /**
    * デコレータ名を取得
    */
-  private getDecoratorName(decorator: any): string | null {
+  private getDecoratorName(
+    // deno-lint-ignore no-explicit-any
+    decorator: any,
+  ): string | null {
     if (decorator.expression?.type === AST_NODE_TYPES.Identifier) {
       return decorator.expression.name;
     }
@@ -330,8 +414,12 @@ export class ASTAnalyzer {
   /**
    * デコレータ引数を取得
    */
-  private getDecoratorArgs(decorator: any): unknown[] {
+  private getDecoratorArgs(
+    // deno-lint-ignore no-explicit-any
+    decorator: any,
+  ): unknown[] {
     if (decorator.expression?.type === AST_NODE_TYPES.CallExpression) {
+      // deno-lint-ignore no-explicit-any
       return decorator.expression.arguments?.map((arg: any) => {
         if (arg.type === AST_NODE_TYPES.Literal) {
           return arg.value;
@@ -339,6 +427,7 @@ export class ASTAnalyzer {
         if (arg.type === AST_NODE_TYPES.ObjectExpression) {
           // 簡単なオブジェクト解析
           const obj: Record<string, unknown> = {};
+          // deno-lint-ignore no-explicit-any
           arg.properties?.forEach((prop: any) => {
             if (prop.key?.name && prop.value?.value !== undefined) {
               obj[prop.key.name] = prop.value.value;
