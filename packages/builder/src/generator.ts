@@ -318,12 +318,14 @@ export class VirtualEntryGenerator {
       const options = match[2] ? JSON.parse(match[2]) : {};
 
       return {
+        accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
-        object,
-        hook: targetFunction,
-        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
-        priority: options.priority,
-        serial: options.serial,
+        hooks: {
+          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          onReceive: targetFunction,
+          priority: options.priority,
+          serial: options.serial,
+        },
       };
     } catch {
       return null;
@@ -343,12 +345,14 @@ export class VirtualEntryGenerator {
     const options = (args[1] as Record<string, unknown>) || {};
 
     return {
+      accepts: [object],
       context: "https://www.w3.org/ns/activitystreams",
-      object,
-      hook: targetFunction,
-      canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
-      priority: options.priority as number,
-      serial: options.serial as boolean,
+      hooks: {
+        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+        onReceive: targetFunction,
+        priority: options.priority as number,
+        serial: options.serial as boolean,
+      },
     };
   }
 

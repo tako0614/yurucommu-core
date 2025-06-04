@@ -139,7 +139,9 @@ export interface ExtensionManifest {
     entryBackground: string;
   };
   eventDefinitions?: Record<string, EventDefinition>;
-  activityPub?: ActivityPubConfig[];
+  activityPub?: {
+    objects: ActivityPubConfig[];
+  };
 }
 
 export interface EventDefinition {
@@ -149,12 +151,14 @@ export interface EventDefinition {
 }
 
 export interface ActivityPubConfig {
+  accepts: string[];
   context: string;
-  object: string;
-  canAccept?: string;
-  hook?: string;
-  priority?: number;
-  serial?: boolean;
+  hooks: {
+    canAccept?: string;
+    onReceive: string;
+    priority?: number;
+    serial?: boolean;
+  };
 }
 
 /**
