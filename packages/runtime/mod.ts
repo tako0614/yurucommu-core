@@ -15,6 +15,7 @@ export interface TakosKV {
 export interface TakosEvents {
   publish(name: string, payload: unknown): Promise<unknown>;
   publishToClient(name: string, payload: unknown): Promise<unknown>;
+
   publishToClientPushNotification(
     name: string,
     payload: unknown,
@@ -290,7 +291,6 @@ class PackWorker {
     this.#worker.terminate();
   }
 }
-
 interface LoadedPack {
   manifest: Record<string, unknown>;
   serverCode?: string;

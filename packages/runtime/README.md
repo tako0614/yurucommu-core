@@ -27,11 +27,13 @@ const result = await runtime.callServer(manifest.identifier, "hello", [
 The `assets.write` API accepts an optional `{ cacheTTL }` option following the
 specification in `docs/takopack/main.md`.
 
+
 Server code runs inside a sandboxed Deno `Worker`. The runtime derives
 permissions from `manifest.permissions` (e.g. `deno:read`, `deno:net`) and
 passes them to the worker. Client code is executed in a plain Web Worker without
 any Deno namespace, while UI code is intended to be embedded in a sandboxed
 `<iframe>`.
+
 
 The implementation is intentionally minimal and focuses on server-side
 execution. The `takos` object exposes stub implementations of the APIs described
