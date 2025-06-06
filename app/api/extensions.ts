@@ -27,7 +27,7 @@ app.use("*", async (c, next) => {
 app.get("/", async (c) => {
   try {
     const extensions = await Extention.find({});
-    const extensionsData = extensions.map((ext) => ({
+    const extensionsData = extensions.map((ext: { id: any; version: any; manifest: any; }) => ({
       id: ext.id,
       version: ext.version,
       manifest: ext.manifest,
