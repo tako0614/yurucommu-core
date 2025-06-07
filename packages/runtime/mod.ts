@@ -148,7 +148,11 @@ export class Takos {
       _payload: unknown,
     ) => {},
     publishToBackground: async (_name: string, _payload: unknown) => {},
-    publishToUI: async (_name: string, _payload: unknown) => {},    subscribe: (_name: string, _handler: (payload: unknown) => void): (() => void) => {
+    publishToUI: async (_name: string, _payload: unknown) => {},
+    subscribe: (
+      _name: string,
+      _handler: (payload: unknown) => void,
+    ): () => void => {
       return () => {};
     },
   };
@@ -231,10 +235,11 @@ class PackWorker {
     const url = URL.createObjectURL(
       new Blob([WORKER_SOURCE], { type: "application/javascript" }),
     );
-    this.#worker = new Worker(url, {
-      type: "module",
-    });
-    URL.revokeObjectURL(url);
+    this.#worker = new Worker(url, { type: "module" });
+    // Revoke the blob URL after the worker has initialized to avoid
+    // breaking module loading on slower environments.
+    const revoke = () => URL.revokeObjectURL(url);
+    this.#worker.addEventListener("message", revoke, { once: true });
     this.#takos = takos;
     this.#worker.onmessage = (e) => this.#onMessage(e);
     this.#worker.postMessage({ type: "init", code, takosPaths: TAKOS_PATHS });
