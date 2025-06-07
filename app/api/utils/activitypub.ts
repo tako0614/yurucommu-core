@@ -5,7 +5,7 @@ import {
   Follow,
 } from "../models/activitypub.ts";
 import { Account } from "../models/account.ts";
-import { ActivityPubActor as ActivityPubActorType } from "@takopack/builder";
+import { ActivityPubActor as ActivityPubActorType } from "../../ui/builder/types/takos-api.ts";
 
 // Type definitions
 interface ActivityPubGenericObject {
