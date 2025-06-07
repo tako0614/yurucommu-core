@@ -1,6 +1,7 @@
 {
   "imports": {
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
     "@takopack/builder": "jsr:@takopack/builder@^4.0.1",
     "hono": "npm:hono@^4.7.11",
     "mongoose": "npm:mongoose@^8.15.1",
