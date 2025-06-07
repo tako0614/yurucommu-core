@@ -111,24 +111,10 @@ const activityPubActorSchema = new mongoose.Schema({
   privateKeyPem: {
     type: String, // ローカルアクターのみ
   },
-  // 拡張プロパティ
-  extensions: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {},
-  },
   // メタデータ
   isLocal: {
     type: Boolean,
     default: true,
-    index: true,
-  },
-  isPlugin: {
-    type: Boolean,
-    default: false,
-    index: true,
-  },
-  pluginIdentifier: {
-    type: String, // プラグインが作成したアクターの場合
     index: true,
   },
   // 生データ
@@ -215,11 +201,6 @@ const communitySchema = new mongoose.Schema({
   banned: [{
     type: String, // Actor IRI
   }],
-  // 拡張プロパティ
-  extensions: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {},
-  },
   // 生データ
   rawActor: {
     type: mongoose.Schema.Types.Mixed,

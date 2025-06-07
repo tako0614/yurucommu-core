@@ -312,157 +312,6 @@ const AccountSettingsContent: Component<{
   );
 };
 
-// 拡張機能コンテンツコンポーネント
-const ExtensionsContent: Component<
-  { isMobileView: boolean; onShowExtensions?: () => void }
-> = (props) => {
-  // ダミーの拡張機能データ
-  const initialExtensionsData = [
-    {
-      id: 1,
-      name: "テーマカラー変更",
-      description: "エディタのテーマカラーをカスタマイズします。",
-      author: "Takos Corp",
-      iconInitial: "TC",
-    },
-    {
-      id: 2,
-      name: "Markdownプレビュー",
-      description: "Markdownファイルをリアルタイムでプレビューします。",
-      author: "SolidJS Community",
-      iconInitial: "MP",
-    },
-    {
-      id: 3,
-      name: "コードスニペット",
-      description: "よく使うコードのスニペット集。",
-      author: "DevTools",
-      iconInitial: "CS",
-    },
-    {
-      id: 4,
-      name: "Git連携強化",
-      description: "Gitの操作をより簡単に行えるようにします。",
-      author: "GitHub",
-      iconInitial: "GI",
-    },
-  ];
-
-  const [searchTerm, setSearchTerm] = createSignal("");
-
-  const filteredExtensions = () => {
-    const lowerSearchTerm = searchTerm().toLowerCase();
-    if (!lowerSearchTerm) {
-      return initialExtensionsData;
-    }
-    return initialExtensionsData.filter((ext) =>
-      ext.name.toLowerCase().includes(lowerSearchTerm) ||
-      ext.description.toLowerCase().includes(lowerSearchTerm) ||
-      ext.author.toLowerCase().includes(lowerSearchTerm)
-    );
-  };
-
-  return (
-    <div class={`${props.isMobileView ? "space-y-4" : ""}`}>
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-medium text-gray-100">拡張機能管理</h2>
-        <button
-          type="button"
-          class="text-teal-400 hover:bg-teal-500/10 px-3 py-1 rounded-md transition-colors text-sm"
-          onClick={props.onShowExtensions}
-        >
-          拡張機能マネージャーを開く →
-        </button>
-      </div>
-      <div class="mb-4">
-        <input
-          type="text"
-          placeholder="拡張機能を検索 (例: @installed)"
-          class="w-full bg-gray-700/70 border border-gray-600/50 rounded p-2 text-sm placeholder-gray-400 
-                 focus:outline-none focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500/50"
-          value={searchTerm()}
-          onInput={(e) => setSearchTerm(e.currentTarget.value)}
-        />
-      </div>
-      <div class="space-y-2">
-        <For each={filteredExtensions()}>
-          {(ext) => (
-            <div class="bg-[#181918] hover:bg-gray-700/90 transition-colors p-3 rounded-lg shadow-sm flex items-center space-x-3 m-auto mb-2">
-              {/* アイコン */}
-              <div
-                class={`flex-shrink-0 w-10 h-10 rounded bg-teal-600/80 flex items-center justify-center text-white font-normal text-sm`}
-              >
-                {ext.iconInitial}
-              </div>
-
-              {/* 拡張機能情報 */}
-              <div class="flex-grow min-w-0">
-                <h3 class="font-normal text-gray-200 truncate">{ext.name}</h3>
-                <p class="text-gray-400 text-xs truncate">{ext.description}</p>
-                <span class="text-xs text-teal-400/90">{ext.author}</span>
-              </div>
-
-              {/* アクションボタン */}
-              <div class="flex items-center space-x-2 flex-shrink-0">
-                <button
-                  type="button"
-                  class="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-600/70 rounded"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                    />
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                  </svg>
-                </button>
-                <div class="relative inline-block w-9 align-middle">
-                  <input
-                    type="checkbox"
-                    id={`toggle-${
-                      props.isMobileView ? "mobile" : "desktop"
-                    }-${ext.id}`}
-                    class="opacity-0 absolute peer"
-                    checked={ext.id % 2 === 0}
-                  />
-                  <label
-                    for={`toggle-${
-                      props.isMobileView ? "mobile" : "desktop"
-                    }-${ext.id}`}
-                    class={`block overflow-hidden h-4 w-8 rounded-full bg-gray-600/80 cursor-pointer peer-checked:bg-teal-600/70 transition-colors`}
-                  >
-                    <span
-                      class={`block h-4 w-4 rounded-full bg-white/90 shadow-sm transform transition-transform peer-checked:translate-x-4`}
-                    >
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-        </For>
-        <Show when={filteredExtensions().length === 0 && searchTerm()}>
-          <p class="text-gray-400 text-center py-4">
-            「{searchTerm()}」に一致する拡張機能は見つかりませんでした。
-          </p>
-        </Show>
-      </div>
-    </div>
-  );
-};
 
 // 通知コンテンツコンポーネント
 const NotificationsContent: Component<{ isMobileView: boolean }> = (props) => {
@@ -531,7 +380,7 @@ const NotificationsContent: Component<{ isMobileView: boolean }> = (props) => {
   );
 };
 
-export function Dashboard(props?: { onShowExtensions?: () => void }) {
+export function Dashboard() {
   const [activeTab, setActiveTab] = createSignal("account");
   const [touchStartX, setTouchStartX] = createSignal(0);
   const [isMobileView, setIsMobileView] = createSignal(false);
@@ -760,7 +609,7 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
 
     // 左右のスワイプを検出（閾値: 50px）
     if (Math.abs(diffX) > 50) {
-      const tabs = ["account", "extensions", "notifications"];
+      const tabs = ["account", "notifications"];
       const currentIndex = tabs.indexOf(activeTab());
 
       if (diffX > 0 && currentIndex > 0) {
@@ -859,17 +708,6 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
             <button
               type="button"
               class={`flex-1 py-2 text-center ${
-                activeTab() === "extensions"
-                  ? "text-teal-400 border-b-2 border-teal-400/70"
-                  : "text-gray-400"
-              }`}
-              onClick={() => setActiveTab("extensions")}
-            >
-              拡張機能
-            </button>
-            <button
-              type="button"
-              class={`flex-1 py-2 text-center ${
                 activeTab() === "notifications"
                   ? "text-teal-400 border-b-2 border-teal-400/70"
                   : "text-gray-400"
@@ -902,12 +740,6 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
             />
           </Show>
 
-          <Show when={activeTab() === "extensions"}>
-            <ExtensionsContent
-              isMobileView
-              onShowExtensions={props?.onShowExtensions}
-            />
-          </Show>
 
           <Show when={activeTab() === "notifications"}>
             <NotificationsContent isMobileView />
@@ -983,14 +815,6 @@ export function Dashboard(props?: { onShowExtensions?: () => void }) {
                 updateAccount={updateAccount}
                 deleteAccount={deleteAccount}
                 isMobileView={false}
-              />
-            </div>
-
-            {/* 拡張機能セクション */}
-            <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
-              <ExtensionsContent
-                isMobileView={false}
-                onShowExtensions={props?.onShowExtensions}
               />
             </div>
 

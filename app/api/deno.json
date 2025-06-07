@@ -1,6 +1,12 @@
 {
   "imports": {
+    "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
+    "@takopack/builder": "jsr:@takopack/builder@^4.0.1",
     "hono": "npm:hono@^4.7.11",
-    "mongoose": "npm:mongoose@^8.15.1"
+    "mongoose": "npm:mongoose@^8.15.1",
+    "zod": "npm:zod@^3.25.56"
+  },
+  "tasks": {
+    "dev": "deno run -A --watch index.ts"
   }
 }

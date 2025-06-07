@@ -1,6 +1,5 @@
 // WebSocket サーバーによるリアルタイムイベント配信
 import { WebSocketServer } from "npm:ws"; // Changed from "ws"
-import { extensionHookManager } from "./extensionHookManager.ts";
 
 export interface ClientConnection {
   id: string;
@@ -121,9 +120,6 @@ export class WebSocketEventServer {
           timestamp: new Date().toISOString(),
         }));
         break;
-      case "extension_event":
-        await this.handleExtensionEvent(connectionId, message);
-        break;
 
       default:
         connection.socket.send(JSON.stringify({
@@ -200,50 +196,6 @@ export class WebSocketEventServer {
       events,
       totalSubscriptions: connection.subscriptions.size,
     }));
-  } // 拡張機能イベントの処理
-  private async handleExtensionEvent(
-    connectionId: string,
-    message: Record<string, unknown>,
-  ) {
-    const connection = this.clients.get(connectionId);
-    if (!connection || !connection.userId) {
-      connection?.socket.send(JSON.stringify({
-        type: "error",
-        message: "Authentication required",
-      }));
-      return;
-    } // 必須フィールドの存在確認
-    if (!message.extensionId || !message.eventName) {
-      connection.socket.send(JSON.stringify({
-        type: "error",
-        message: "extensionId and eventName are required",
-      }));
-      return;
-    }
-
-    const extensionId = message.extensionId as string;
-    const eventName = message.eventName as string;
-
-    try { // 拡張機能のイベントハンドラーを呼び出し
-      const result = await extensionHookManager.processClientEvent(
-        extensionId,
-        eventName,
-        message.payload,
-        connection.userId,
-      );
-
-      connection.socket.send(JSON.stringify({
-        type: "extension_event_result",
-        requestId: message.requestId,
-        result,
-      }));
-    } catch (error) {
-      connection.socket.send(JSON.stringify({
-        type: "extension_event_error",
-        requestId: message.requestId,
-        error: error instanceof Error ? error.message : "Unknown error",
-      }));
-    }
   }
   // イベントの配信
   distributeEvent(eventName: string, payload: unknown, targetUserId?: string) {

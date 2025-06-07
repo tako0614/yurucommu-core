@@ -3,7 +3,6 @@
 export interface WebSocketEvent {
   type: string;
   userId?: string;
-  extensionId?: string;
   timestamp: number;
   data: unknown;
 }
