@@ -12,13 +12,19 @@ function App() {
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
     try {
-      const res = await fetch("/api/status");
-      if (res.ok) {
-        const data = await res.json();
-        setIsLoggedIn(data.login);
-      } else {
-        setIsLoggedIn(false);
-      }
+      const res = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            eventId: "sessions:status",
+            identifier: "takos",
+            payload: {},
+          }],
+        }),
+      });
+      const results = await res.json();
+      setIsLoggedIn(results[0]?.result?.login ?? false);
     } catch (err) {
       console.error("Failed to fetch login status:", err);
       setIsLoggedIn(false);
