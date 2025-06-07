@@ -18,13 +18,13 @@ Deno.test("load takopack and call server function", async () => {
     "world",
   ]);
   assertEquals(result, "Hello world");
-  assert(globalThis.takos);
+  assert((globalThis as any).takos);
   // cleanup
   delete (globalThis as Record<string, unknown>).takos;
 });
 
 
-deno.test("override takos APIs via options", async () => {
+Deno.test("override takos APIs via options", async () => {
 
   const pack = {
     manifest: JSON.stringify({
@@ -46,7 +46,7 @@ deno.test("override takos APIs via options", async () => {
 });
 
 
-deno.test("override new event APIs", async () => {
+Deno.test("override new event APIs", async () => {
 
 
   const pack = {

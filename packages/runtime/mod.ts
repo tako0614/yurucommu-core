@@ -227,13 +227,12 @@ class PackWorker {
   #pending = new Map<number, (value: unknown) => void>();
   #takos: Takos;
   #callId = 0;
-  constructor(code: string, takos: Takos, perms: Deno.PermissionOptions) {
+  constructor(code: string, takos: Takos, perms: Record<string, boolean>) {
     const url = URL.createObjectURL(
       new Blob([WORKER_SOURCE], { type: "application/javascript" }),
     );
     this.#worker = new Worker(url, {
       type: "module",
-      deno: { namespace: true, permissions: perms },
     });
     URL.revokeObjectURL(url);
     this.#takos = takos;
@@ -267,11 +266,12 @@ class PackWorker {
     try {
       const result = await target(...d.args);
       this.#worker.postMessage({ type: "takosResult", id: d.id, result });
-    } catch (err) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
       this.#worker.postMessage({
         type: "takosResult",
         id: d.id,
-        error: err.message,
+        error: message,
       });
     }
   }
@@ -326,7 +326,7 @@ export class TakoPack {
         pack.serverWorker = new PackWorker(pack.serverCode, this.takos, perms);
       }
       if (pack.clientCode) {
-        const perms: Deno.PermissionOptions = {
+        const perms: Record<string, boolean> = {
           read: false,
           write: false,
           net: false,
@@ -355,8 +355,8 @@ export class TakoPack {
 
   #extractPermissions(
     manifest: Record<string, unknown>,
-  ): Deno.PermissionOptions {
-    const perms: Deno.PermissionOptions = {
+  ): Record<string, boolean> {
+    const perms: Record<string, boolean> = {
       read: false,
       write: false,
       net: false,
@@ -371,7 +371,7 @@ export class TakoPack {
     for (const p of list) {
       if (typeof p !== "string") continue;
       if (!p.startsWith("deno:")) continue;
-      const name = p.slice(5) as keyof Deno.PermissionOptions;
+      const name = p.slice(5);
       if (name in perms) perms[name] = true;
     }
     return perms;
