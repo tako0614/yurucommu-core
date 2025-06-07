@@ -155,3 +155,25 @@ eventManager.add(
     }
   },
 );
+
+eventManager.add(
+  "takos",
+  "accounts:get",
+  z.object({ id: z.string().optional(), username: z.string().optional() }),
+  async (_c, payload) => {
+    try {
+      const query = payload.id ? { _id: payload.id } : { name: payload.username };
+      const account = await Account.findOne(query);
+      if (!account) throw new Error("Account not found");
+      return {
+        id: account._id.toString(),
+        userName: account.name,
+        displayName: account.displayName,
+        avatarInitial: account.icon,
+      };
+    } catch (error) {
+      console.error("Account get error:", error);
+      throw new Error("Failed to fetch account");
+    }
+  },
+);
