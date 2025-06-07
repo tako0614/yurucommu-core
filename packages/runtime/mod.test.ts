@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "jsr:@std/assert";
 import { TakoPack } from "./mod.ts";
 
+
 Deno.test("load takopack and call server function", async () => {
   const pack = {
     manifest: JSON.stringify({
@@ -17,11 +18,14 @@ Deno.test("load takopack and call server function", async () => {
     "world",
   ]);
   assertEquals(result, "Hello world");
+  assert((globalThis as any).takos);
   // cleanup
   delete (globalThis as Record<string, unknown>).takos;
 });
 
+
 Deno.test("override takos APIs via options", async () => {
+
   const pack = {
     manifest: JSON.stringify({
       name: "test2",
@@ -41,7 +45,10 @@ Deno.test("override takos APIs via options", async () => {
   delete (globalThis as Record<string, unknown>).takos;
 });
 
+
 Deno.test("override new event APIs", async () => {
+
+
   const pack = {
     manifest: JSON.stringify({
       name: "test3",
