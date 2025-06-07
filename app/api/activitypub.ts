@@ -22,7 +22,6 @@ import {
   validateActivityPubObject as _validateActivityPubObject,
   verifyIncomingActivity,
 } from "./utils/activitypub.ts";
-import { extensionHookManager } from "./extensionHookManager.ts"; // 後で作成
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -128,14 +127,6 @@ app.post("/users/:username/inbox", async (c) => {
 
     const activity: ActivityPubActivity = verification.activity;
 
-    // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processIncomingActivity(
-      activity,
-    );
-    if (!hookResult.accepted) {
-      return c.json({ error: "Activity rejected by extensions" }, 400);
-    }
-
     // アクティビティをデータベースに保存
     await ActivityPubObject.create({
       id: activity.id,
@@ -148,7 +139,7 @@ app.post("/users/:username/inbox", async (c) => {
       published: activity.published || new Date(),
       content: activity.content,
       summary: activity.summary,
-      rawObject: hookResult.processedActivity || activity,
+      rawObject: activity,
       isLocal: false,
       userId: account._id.toString(),
     });
@@ -257,11 +248,7 @@ app.post("/users/:username/outbox", async (c) => {
     // アクターを設定
     activity.actor = account.activityPubActor.id;
 
-    // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processOutgoingActivity(
-      activity,
-    );
-    const processedActivity = hookResult.processedActivity || activity;
+    const processedActivity = activity;
 
     // データベースに保存
     await ActivityPubObject.create({
@@ -386,14 +373,6 @@ app.post("/inbox", async (c) => {
 
     const activity: ActivityPubActivity = verification.activity;
 
-    // 拡張機能のフック処理
-    const hookResult = await extensionHookManager.processIncomingActivity(
-      activity,
-    );
-    if (!hookResult.accepted) {
-      return c.json({ error: "Activity rejected by extensions" }, 400);
-    }
-
     // アクティビティをデータベースに保存（共有inboxは特定ユーザーに紐づかない）
     await ActivityPubObject.create({
       id: activity.id,
@@ -406,7 +385,7 @@ app.post("/inbox", async (c) => {
       published: activity.published || new Date(),
       content: activity.content,
       summary: activity.summary,
-      rawObject: hookResult.processedActivity || activity,
+      rawObject: activity,
       isLocal: false,
       // userIdは設定しない（共有inboxのため）
     });

@@ -76,7 +76,6 @@ eventManager.add(
     newUsername: z.string().optional(),
     newDisplayName: z.string().optional(),
     icon: z.string().optional(), // アイコンは文字列（初期値またはデータURL）    description: z.string().optional(),
-    extentions: z.array(z.string()).optional(),
   }),
   async (_c, payload) => {
     try {
