@@ -74,20 +74,6 @@ app.get("/users/:username", async (c) => {
   return c.json(account.activityPubActor);
 });
 
-// プラグインアクター情報取得
-app.get("/plugins/:identifier/:localName", async (c) => {
-  const { identifier, localName } = c.req.param();
-  const actorId =
-    `https://${c.env.ACTIVITYPUB_DOMAIN}/plugins/${identifier}/${localName}`;
-
-  const actor = await ActivityPubActor.findOne({ id: actorId, isPlugin: true });
-  if (!actor) {
-    return c.json({ error: "Not found" }, 404);
-  }
-
-  c.header("Content-Type", "application/activity+json");
-  return c.json(actor.rawActor);
-});
 
 // Inbox エンドポイント（個人）
 app.post("/users/:username/inbox", async (c) => {
