@@ -8,7 +8,11 @@ export default function ExtensionUpload() {
     if (!files || !files[0]) return;
     const buf = await files[0].arrayBuffer();
     const bin = new Uint8Array(buf);
-    const base64 = btoa(String.fromCharCode(...bin));
+    let binary = "";
+    for (const b of bin) {
+      binary += String.fromCharCode(b);
+    }
+    const base64 = btoa(binary);
     const body = {
       events: [
         {
