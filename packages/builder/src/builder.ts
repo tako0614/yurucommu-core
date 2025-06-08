@@ -279,7 +279,6 @@ export class TakopackBuilder {
           // Large packages that should remain external for server
           "esbuild",
           "typescript",
-          "@typescript-eslint/*",
           "debug",
           "fast-glob",
         ] : [
@@ -287,8 +286,7 @@ export class TakopackBuilder {
           "node:*",
           "inspector",
           "esbuild",
-          "typescript", 
-          "@typescript-eslint/*",
+          "typescript",
           "debug",
           "fast-glob",
         ],
