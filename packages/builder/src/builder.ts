@@ -272,23 +272,11 @@ export class TakopackBuilder {
         minify: !this.config.build?.dev && (this.config.build?.minify ?? true),
         sourcemap: this.config.build?.dev,
         treeShaking: true,
-        mainFields: ["module", "main"],        external: platform === "node" ? [
-          // Node.js built-ins
+        mainFields: ["module", "main"],
+        external: [
+          // Keep only Node built-ins external so Deno can resolve bundled deps
           "node:*",
           "inspector",
-          // Large packages that should remain external for server
-          "esbuild",
-          "typescript",
-          "debug",
-          "fast-glob",
-        ] : [
-          // Browser externals - also exclude Node.js things that shouldn't be in browser bundles
-          "node:*",
-          "inspector",
-          "esbuild",
-          "typescript",
-          "debug",
-          "fast-glob",
         ],
         plugins: [
           ...denoPlugins({
