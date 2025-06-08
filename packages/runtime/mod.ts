@@ -64,7 +64,8 @@ export interface TakosActivityPub {
 
 const WORKER_SOURCE = `
 import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
+// Use an absolute file path for Node compatibility
+const require = createRequire("/tmp/takos-worker.js");
 let takosCallId = 0;
 const takosCallbacks = new Map();
 function setPath(root, path, fn) {
