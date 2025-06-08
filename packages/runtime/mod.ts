@@ -75,6 +75,11 @@ globalThis.require = require;
 globalThis.__filename = workerFilename;
 globalThis.__dirname = "/tmp";
 globalThis.global = globalThis;
+let allowedPerms = {};
+const permState = (name) => allowedPerms[name] ? "granted" : "denied";
+Deno.permissions.query = async (desc) => ({ state: permState(desc.name) });
+Deno.permissions.request = async (desc) => ({ state: permState(desc.name) });
+Deno.permissions.revoke = async (desc) => ({ state: permState(desc.name) });
 let takosCallId = 0;
 const takosCallbacks = new Map();
 function setPath(root, path, fn) {
@@ -102,6 +107,7 @@ let mod = null;
 self.onmessage = async (e) => {
   const d = e.data;
   if (d.type === 'init') {
+    allowedPerms = d.allowedPermissions || {};
     globalThis.takos = createTakos(d.takosPaths);
     const url = URL.createObjectURL(new Blob([d.code], { type: 'application/javascript' }));
     mod = await import(url);
@@ -266,6 +272,7 @@ class PackWorker {
             run: perms.run,
             sys: perms.sys,
             ffi: perms.ffi,
+            hrtime: perms.hrtime,
           },
         },
       });
@@ -283,6 +290,7 @@ class PackWorker {
       type: "init",
       code: wrapped,
       takosPaths: TAKOS_PATHS,
+      allowedPermissions: perms,
     });
     this.#ready = new Promise((res) => {
       const handler = (ev: MessageEvent) => {
@@ -385,6 +393,7 @@ export class TakoPack {
           run: false,
           sys: false,
           ffi: false,
+          hrtime: false,
         };
         pack.clientWorker = new PackWorker(
           pack.clientCode,
@@ -420,6 +429,7 @@ export class TakoPack {
       run: false,
       sys: false,
       ffi: false,
+      hrtime: false,
     };
     const list = Array.isArray(manifest.permissions)
       ? manifest.permissions
