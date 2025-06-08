@@ -12,8 +12,20 @@ export default defineConfig({
         target: "http://localhost:3001",
         changeOrigin: true,
         secure: false,
+        timeout: 5000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('プロキシエラー:', err.message);
+          });
+        },
       },
     },
+  },
+  css: {
+    devSourcemap: false, // CSS ソースマップを無効化
+  },
+  build: {
+    sourcemap: false, // ビルド時のソースマップを無効化
   },
   plugins: [
     solid(),

@@ -1,6 +1,6 @@
+import { SerializableObject } from "@takopack/builder";
 import type { Note } from "../../types.ts";
 import {
-  SerializableObject,
   ServerExtension,
 } from "@takopack/builder/src/classes.ts";
 
