@@ -451,9 +451,9 @@ Takos ランタイムでは拡張機能を安全に実行するため、各レ�
   自動的に拒否されます。
 - **server.js 実行時に表示される `✅ Granted ...` メッセージは、権限確認の
   ダイアログではなく、付与された権限を示すだけのログです。**
-- **server.js 環境**: `require` / `__dirname` / `__filename` / `global` 等の
-  Node 互換グローバルを提供し、組み込みモジュールは `node:` プレフィックス
-  付きで解決されます。
+- **server.js 環境**: `require` / `__dirname` / `__filename` / `global` /
+  `process` / `Buffer` / `setImmediate` など Node 互換グローバルを提供し、組み
+  込みモジュール は `node:` プレフィックス付きで解決されます。
 - **client.js**: ブラウザの `Worker` 上で実行され、Deno
   名前空間は利用できません。
 - **index.html**: UI は `sandbox` 属性付きの `<iframe>`

@@ -64,6 +64,9 @@ export interface TakosActivityPub {
 
 const WORKER_SOURCE = `
 import { createRequire, builtinModules } from "node:module";
+import process from "node:process";
+import { Buffer } from "node:buffer";
+import { setImmediate } from "node:timers";
 // Use an absolute file path for Node compatibility
 const workerFilename = "/tmp/takos-worker.js";
 const baseRequire = createRequire(workerFilename);
@@ -75,6 +78,9 @@ globalThis.require = require;
 globalThis.__filename = workerFilename;
 globalThis.__dirname = "/tmp";
 globalThis.global = globalThis;
+globalThis.process = process;
+globalThis.Buffer = Buffer;
+globalThis.setImmediate = setImmediate;
 let allowedPerms = {};
 const permState = (name) => allowedPerms[name] ? "granted" : "denied";
 Deno.permissions.query = async (desc) => ({ state: permState(desc.name) });
@@ -285,7 +291,8 @@ class PackWorker {
     this.#worker.addEventListener("message", revoke, { once: true });
     this.#takos = takos;
     this.#worker.onmessage = (e) => this.#onMessage(e);
-    const wrapped = `const require = globalThis.require;\nconst __filename = globalThis.__filename;\nconst __dirname = globalThis.__dirname;\n${code}`;
+    const wrapped =
+      `const require = globalThis.require;\nconst __filename = globalThis.__filename;\nconst __dirname = globalThis.__dirname;\n${code}`;
     this.#worker.postMessage({
       type: "init",
       code: wrapped,
