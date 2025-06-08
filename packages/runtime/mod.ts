@@ -245,6 +245,7 @@ class PackWorker {
         type: "module",
         deno: {
           namespace: true,
+          npm: true,
           permissions: {
             read: perms.read,
             write: perms.write,
