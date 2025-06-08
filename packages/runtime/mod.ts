@@ -74,6 +74,7 @@ const require = (id) =>
 globalThis.require = require;
 globalThis.__filename = workerFilename;
 globalThis.__dirname = "/tmp";
+globalThis.global = globalThis;
 let takosCallId = 0;
 const takosCallbacks = new Map();
 function setPath(root, path, fn) {
