@@ -447,6 +447,11 @@ Takos ランタイムでは拡張機能を安全に実行するため、各レ�
 
 - **server.js**: Deno `Worker` として起動し、`manifest.permissions` に含まれる
   `deno:*` 権限のみを付与します。
+- **server.js 実行時**: Manifest に記載されていない `deno:*` 権限のリクエストは
+  自動的に拒否されます。
+- **server.js 環境**: `require` / `__dirname` / `__filename` / `global` 等の
+  Node 互換グローバルを提供し、組み込みモジュールは `node:` プレフィックス
+  付きで解決されます。
 - **client.js**: ブラウザの `Worker` 上で実行され、Deno
   名前空間は利用できません。
 - **index.html**: UI は `sandbox` 属性付きの `<iframe>`

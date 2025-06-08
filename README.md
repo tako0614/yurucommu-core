@@ -24,6 +24,8 @@ deno task dev
 
 `dev` タスクでは Deno の `--unstable-worker-options`
 フラグを付与して起動するため、拡張機能のサーバーコードを安全に実行できます。
+拡張機能が `manifest.json` に宣言していない `deno:*` 権限を要求した場合、
+ランタイムが自動的に拒否するため、`-A` オプションを付けても余計な確認は発生しません。
 
 ## 🔨 Takopack Extensions
 
