@@ -285,6 +285,11 @@ class PackWorker {
     } else {
       this.#worker = new Worker(url, { type: "module" });
     }
+    this.#worker.addEventListener("error", (e) => {
+      const msg = (e as ErrorEvent).message ?? "unknown";
+      console.error("PackWorker error:", msg);
+      if ("preventDefault" in e) (e as ErrorEvent).preventDefault();
+    });
     // Revoke the blob URL after the worker has initialized to avoid
     // breaking module loading on slower environments.
     const revoke = () => URL.revokeObjectURL(url);
