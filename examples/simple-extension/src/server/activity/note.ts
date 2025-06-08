@@ -1,5 +1,8 @@
 import type { Note } from "../../types.ts";
-import { SerializableObject, ServerExtension } from "@takopack/builder";
+import {
+  SerializableObject,
+  ServerExtension,
+} from "@takopack/builder/src/classes.ts";
 
 const NoteActivity = new ServerExtension();
 

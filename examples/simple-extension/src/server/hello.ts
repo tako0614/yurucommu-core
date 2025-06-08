@@ -1,7 +1,11 @@
 // Server-side functions
 
 import { z } from "npm:zod";
-import { SerializableObject, ServerExtension, getTakosServerAPI } from "@takopack/builder";
+import {
+  SerializableObject,
+  ServerExtension,
+} from "@takopack/builder/src/classes.ts";
+import { getTakosServerAPI } from "@takopack/builder/src/api-helpers.ts";
 
 const HelloServer = new ServerExtension();
 
