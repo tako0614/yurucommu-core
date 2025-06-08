@@ -1,8 +1,7 @@
-import { ClientExtension, getTakosClientAPI } from "@takopack/builder";
+import { ClientExtension } from "@takopack/builder/src/classes.ts";
+import { getTakosClientAPI } from "@takopack/builder/src/api-helpers.ts";
 
 export const GreetClient = new ClientExtension();
-
-
 
 GreetClient.greet = (): void => {
   console.log("Hello from client background!");
