@@ -65,12 +65,15 @@ export interface TakosActivityPub {
 const WORKER_SOURCE = `
 import { createRequire, builtinModules } from "node:module";
 // Use an absolute file path for Node compatibility
-const baseRequire = createRequire("/tmp/takos-worker.js");
+const workerFilename = "/tmp/takos-worker.js";
+const baseRequire = createRequire(workerFilename);
 const require = (id) =>
   builtinModules.includes(id) && !id.startsWith("node:")
     ? baseRequire("node:" + id)
     : baseRequire(id);
 globalThis.require = require;
+globalThis.__filename = workerFilename;
+globalThis.__dirname = "/tmp";
 let takosCallId = 0;
 const takosCallbacks = new Map();
 function setPath(root, path, fn) {
@@ -274,7 +277,7 @@ class PackWorker {
     this.#worker.addEventListener("message", revoke, { once: true });
     this.#takos = takos;
     this.#worker.onmessage = (e) => this.#onMessage(e);
-    const wrapped = `const require = globalThis.require;\n${code}`;
+    const wrapped = `const require = globalThis.require;\nconst __filename = globalThis.__filename;\nconst __dirname = globalThis.__dirname;\n${code}`;
     this.#worker.postMessage({
       type: "init",
       code: wrapped,
