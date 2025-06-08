@@ -281,7 +281,7 @@ class PackWorker {
             hrtime: perms.hrtime,
           },
         },
-      });
+      } as any);
     } else {
       this.#worker = new Worker(url, { type: "module" });
     }
