@@ -64,6 +64,7 @@ export interface TakosActivityPub {
 
 const WORKER_SOURCE = `
 import { createRequire, builtinModules } from "node:module";
+
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { setImmediate } from "node:timers";
