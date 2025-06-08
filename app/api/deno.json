@@ -8,6 +8,6 @@
     "zod": "npm:zod@^3.25.56"
   },
   "tasks": {
-    "dev": "deno run -A --watch index.ts"
+    "dev": "deno run -A --unstable-worker-options --watch --no-prompt index.ts"
   }
 }

@@ -15,11 +15,22 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 
 ## 🚀 GET started(backend)
 
-env記述後
+環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
 
 ```bash
-deno task run
+cd app/api
+deno task dev
 ```
+
+`dev` タスクでは Deno の `--unstable-worker-options`
+フラグを付与して起動するため、拡張機能のサーバーコードを安全に実行できます。
+拡張機能が `manifest.json` に宣言していない `deno:*` 権限を要求した場合、
+ランタイムが自動的に拒否するため、`-A`
+オプションを付けても余計な確認は発生しません。 Deno が出力する `✅ Granted ...`
+というメッセージは、許可を求めているわけではなく
+起動時に付与された権限を示すログです。 Worker 内では
+`require`、`__dirname`、`__filename`、`global`、`process`、
+`Buffer`、`setImmediate` といった Node 互換グローバルが利用できます。
 
 ## 🔨 Takopack Extensions
 

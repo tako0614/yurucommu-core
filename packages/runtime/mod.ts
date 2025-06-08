@@ -63,6 +63,30 @@ export interface TakosActivityPub {
 }
 
 const WORKER_SOURCE = `
+import { createRequire, builtinModules } from "node:module";
+
+import process from "node:process";
+import { Buffer } from "node:buffer";
+import { setImmediate } from "node:timers";
+// Use an absolute file path for Node compatibility
+const workerFilename = "/tmp/takos-worker.js";
+const baseRequire = createRequire(workerFilename);
+const require = (id) =>
+  builtinModules.includes(id) && !id.startsWith("node:")
+    ? baseRequire("node:" + id)
+    : baseRequire(id);
+globalThis.require = require;
+globalThis.__filename = workerFilename;
+globalThis.__dirname = "/tmp";
+globalThis.global = globalThis;
+globalThis.process = process;
+globalThis.Buffer = Buffer;
+globalThis.setImmediate = setImmediate;
+let allowedPerms = {};
+const permState = (name) => allowedPerms[name] ? "granted" : "denied";
+Deno.permissions.query = async (desc) => ({ state: permState(desc.name) });
+Deno.permissions.request = async (desc) => ({ state: permState(desc.name) });
+Deno.permissions.revoke = async (desc) => ({ state: permState(desc.name) });
 let takosCallId = 0;
 const takosCallbacks = new Map();
 function setPath(root, path, fn) {
@@ -90,6 +114,7 @@ let mod = null;
 self.onmessage = async (e) => {
   const d = e.data;
   if (d.type === 'init') {
+    allowedPerms = d.allowedPermissions || {};
     globalThis.takos = createTakos(d.takosPaths);
     const url = URL.createObjectURL(new Blob([d.code], { type: 'application/javascript' }));
     mod = await import(url);
@@ -148,7 +173,11 @@ export class Takos {
       _payload: unknown,
     ) => {},
     publishToBackground: async (_name: string, _payload: unknown) => {},
-    publishToUI: async (_name: string, _payload: unknown) => {},    subscribe: (_name: string, _handler: (payload: unknown) => void): (() => void) => {
+    publishToUI: async (_name: string, _payload: unknown) => {},
+    subscribe: (
+      _name: string,
+      _handler: (payload: unknown) => void,
+    ): () => void => {
       return () => {};
     },
   };
@@ -227,17 +256,55 @@ class PackWorker {
   #pending = new Map<number, (value: unknown) => void>();
   #takos: Takos;
   #callId = 0;
-  constructor(code: string, takos: Takos, perms: Record<string, boolean>) {
+  constructor(
+    code: string,
+    takos: Takos,
+    perms: Record<string, boolean>,
+    useDeno = false,
+  ) {
     const url = URL.createObjectURL(
       new Blob([WORKER_SOURCE], { type: "application/javascript" }),
     );
-    this.#worker = new Worker(url, {
-      type: "module",
+    if (useDeno) {
+      this.#worker = new Worker(url, {
+        type: "module",
+        deno: {
+          namespace: true,
+          npm: true,
+          permissions: {
+            read: perms.read,
+            write: perms.write,
+            net: perms.net,
+            env: perms.env,
+            run: perms.run,
+            sys: perms.sys,
+            ffi: perms.ffi,
+            hrtime: perms.hrtime,
+          },
+        },
+      } as any);
+    } else {
+      this.#worker = new Worker(url, { type: "module" });
+    }
+    this.#worker.addEventListener("error", (e) => {
+      const msg = (e as ErrorEvent).message ?? "unknown";
+      console.error("PackWorker error:", msg);
+      if ("preventDefault" in e) (e as ErrorEvent).preventDefault();
     });
-    URL.revokeObjectURL(url);
+    // Revoke the blob URL after the worker has initialized to avoid
+    // breaking module loading on slower environments.
+    const revoke = () => URL.revokeObjectURL(url);
+    this.#worker.addEventListener("message", revoke, { once: true });
     this.#takos = takos;
     this.#worker.onmessage = (e) => this.#onMessage(e);
-    this.#worker.postMessage({ type: "init", code, takosPaths: TAKOS_PATHS });
+    const wrapped =
+      `const require = globalThis.require;\nconst __filename = globalThis.__filename;\nconst __dirname = globalThis.__dirname;\n${code}`;
+    this.#worker.postMessage({
+      type: "init",
+      code: wrapped,
+      takosPaths: TAKOS_PATHS,
+      allowedPermissions: perms,
+    });
     this.#ready = new Promise((res) => {
       const handler = (ev: MessageEvent) => {
         if (ev.data && ev.data.type === "ready") {
@@ -323,7 +390,12 @@ export class TakoPack {
     for (const pack of this.packs.values()) {
       if (pack.serverCode) {
         const perms = this.#extractPermissions(pack.manifest);
-        pack.serverWorker = new PackWorker(pack.serverCode, this.takos, perms);
+        pack.serverWorker = new PackWorker(
+          pack.serverCode,
+          this.takos,
+          perms,
+          true,
+        );
       }
       if (pack.clientCode) {
         const perms: Record<string, boolean> = {
@@ -334,8 +406,14 @@ export class TakoPack {
           run: false,
           sys: false,
           ffi: false,
+          hrtime: false,
         };
-        pack.clientWorker = new PackWorker(pack.clientCode, this.takos, perms);
+        pack.clientWorker = new PackWorker(
+          pack.clientCode,
+          this.takos,
+          perms,
+          false,
+        );
       }
     }
   }
@@ -364,6 +442,7 @@ export class TakoPack {
       run: false,
       sys: false,
       ffi: false,
+      hrtime: false,
     };
     const list = Array.isArray(manifest.permissions)
       ? manifest.permissions
