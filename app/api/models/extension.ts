@@ -6,6 +6,7 @@ const extensionSchema = new mongoose.Schema({
   server: { type: String },
   client: { type: String },
   ui: { type: String },
+  icon: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
 

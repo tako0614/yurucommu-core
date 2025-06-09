@@ -30,6 +30,7 @@ eventManager.add(
         server: result.server,
         client: result.client,
         ui: result.index,
+        icon: result.icon,
       },
       { upsert: true },
     );
@@ -40,6 +41,7 @@ eventManager.add(
       server: result.server,
       client: result.client,
       ui: result.index,
+      icon: result.icon,
     } as any);
 
     return { success: true };
@@ -61,5 +63,19 @@ eventManager.add(
     }
     const result = await runtime.callServer(id, fn, args);
     return { result };
+  },
+);
+
+eventManager.add(
+  "takos",
+  "extensions:list",
+  z.null().optional(),
+  async () => {
+    const docs = await Extension.find();
+    return docs.map((d) => ({
+      identifier: d.identifier,
+      name: d.manifest.name,
+      icon: d.icon,
+    }));
   },
 );
