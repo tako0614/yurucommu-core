@@ -90,8 +90,8 @@ awesome-pack.takopack (ZIP形式)
     "plugin-actor:delete",
     "kv:read",
     "kv:write",
-    "assets:read",
-    "assets:write",
+    "cdn:read",
+    "cdn:write",
     "events:publish",
     "events:subscribe",
     // 以下の特権権限は高度な権限を持ちます。使用に関して警告が表示されます。
@@ -229,15 +229,15 @@ awesome-pack.takopack (ZIP形式)
 **必要権限**: `fetch:net` _(クライアント側では `client.allowedConnectSrc`
 設定が必要)_
 
-### 6.5 assets
+### 6.5 cdn
 
-- **read**: `takos.assets.read(path: string): Promise<string>`
+- **read**: `takos.cdn.read(path: string): Promise<string>`
 - **write**:
-  `takos.assets.write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>`
-- **delete**: `takos.assets.delete(path: string): Promise<void>`
-- **list**: `takos.assets.list(prefix?: string): Promise<string[]>`
+  `takos.cdn.write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>`
+- **delete**: `takos.cdn.delete(path: string): Promise<void>`
+- **list**: `takos.cdn.list(prefix?: string): Promise<string[]>`
 
-**必要権限**: `assets:read` / `assets:write`
+**必要権限**: `cdn:read` / `cdn:write`
 
 - **制限**: 合計20MBまで
 - **CDN エンドポイント**: `/cdn/<identifier>/<path>`

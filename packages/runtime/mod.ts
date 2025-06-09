@@ -25,7 +25,7 @@ export interface TakosEvents {
   subscribe(name: string, handler: (payload: unknown) => void): () => void;
 }
 
-export interface TakosAssets {
+export interface TakosCdn {
   read(path: string): Promise<string>;
   write(
     path: string,
@@ -142,7 +142,7 @@ export interface TakosOptions {
   fetch?: (url: string, options?: RequestInit) => Promise<Response>;
   kv?: Partial<TakosKV>;
   events?: Partial<TakosEvents>;
-  assets?: Partial<TakosAssets>;
+  cdn?: Partial<TakosCdn>;
   activitypub?: Partial<TakosActivityPub>;
 }
 
@@ -152,7 +152,7 @@ export class Takos {
     this.opts = opts;
     if (opts.kv) Object.assign(this.kv, opts.kv);
     if (opts.events) Object.assign(this.events, opts.events);
-    if (opts.assets) Object.assign(this.assets, opts.assets);
+    if (opts.cdn) Object.assign(this.cdn, opts.cdn);
     if (opts.activitypub) Object.assign(this.activitypub, opts.activitypub);
   }
   fetch(url: string, options?: RequestInit): Promise<Response> {
@@ -181,7 +181,7 @@ export class Takos {
       return () => {};
     },
   };
-  assets = {
+  cdn = {
     read: async (_path: string) => "",
     write: async (
       _path: string,
@@ -228,10 +228,10 @@ const TAKOS_PATHS: string[][] = [
   ["events", "publishToBackground"],
   ["events", "publishToUI"],
   ["events", "subscribe"],
-  ["assets", "read"],
-  ["assets", "write"],
-  ["assets", "delete"],
-  ["assets", "list"],
+  ["cdn", "read"],
+  ["cdn", "write"],
+  ["cdn", "delete"],
+  ["cdn", "list"],
   ["activitypub", "send"],
   ["activitypub", "read"],
   ["activitypub", "delete"],

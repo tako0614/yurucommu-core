@@ -38,8 +38,8 @@ export interface TakosKVAPI {
   list(): Promise<string[]>;
 }
 
-// Assets API
-export interface TakosAssetsAPI {
+// CDN API
+export interface TakosCdnAPI {
   read(assetId: string): Promise<Uint8Array>;
   write(
     assetId: string,

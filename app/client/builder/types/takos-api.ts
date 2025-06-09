@@ -40,7 +40,7 @@ export interface KVStore {
   list(): Promise<string[]>;
 }
 
-export interface AssetsManager {
+export interface CdnManager {
   read(path: string): Promise<string>;
   write(
     path: string,
@@ -103,7 +103,7 @@ export interface ActivityPubManager {
 export interface TakosAPI {
   activitypub: ActivityPubManager;
   kv: KVStore;
-  assets: AssetsManager;
+  cdn: CdnManager;
   events: EventManager;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }

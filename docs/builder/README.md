@@ -317,8 +317,8 @@ type Permission =
   | "plugin-actor:delete"
   | "kv:read"
   | "kv:write"
-  | "assets:read"
-  | "assets:write"
+  | "cdn:read"
+  | "cdn:write"
   | "events:publish"
   | "events:subscribe"
   | "deno:read" // 特権権限

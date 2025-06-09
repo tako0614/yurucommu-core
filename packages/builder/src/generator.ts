@@ -601,7 +601,7 @@ export interface TakosKVAPI {
 }
 
 // Assets API
-export interface TakosAssetsAPI {
+export interface TakosCdnAPI {
   read(assetId: string): Promise<Uint8Array>;
   write(assetId: string, data: Uint8Array, options?: { cacheTTL?: number }): Promise<void>;
   delete(assetId: string): Promise<void>;
@@ -638,7 +638,7 @@ declare global {
           list(): Promise<string[]>;
         };
       };
-      assets: TakosAssetsAPI;
+      cdn: TakosCdnAPI;
       events: {
         publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
         subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
@@ -653,7 +653,7 @@ declare global {
 export interface GlobalThisWithClientTakos {
   takos: {
     kv: TakosKVAPI;
-    assets: TakosAssetsAPI;
+    cdn: TakosCdnAPI;
     events: {
       publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
       subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
