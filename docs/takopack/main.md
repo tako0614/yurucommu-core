@@ -76,6 +76,7 @@ awesome-pack.takopack (ZIP形式)
   "description": "A brief description of the extension's functionality.",
   "version": "1.2.0",
   "identifier": "com.example.awesome",
+  "icon": "./icon.png",
   "apiVersion": "2.0",
   "permissions": [
     "fetch:net",

@@ -8,6 +8,7 @@ Deno.test("load takopack and call server function", async () => {
       name: "test",
       identifier: "com.example.test",
       version: "0.1.0",
+      icon: "./icon.png",
     }),
     server: `export function hello(name){ return 'Hello '+name; }`,
   };
@@ -31,6 +32,7 @@ Deno.test("override takos APIs via options", async () => {
       name: "test2",
       identifier: "com.example.test2",
       version: "0.1.0",
+      icon: "./icon.png",
     }),
     server:
       `export async function check(){ return await globalThis.takos.kv.read('foo'); }`,
@@ -54,6 +56,7 @@ Deno.test("override new event APIs", async () => {
       name: "test3",
       identifier: "com.example.test3",
       version: "0.1.0",
+      icon: "./icon.png",
     }),
     server:
       `export async function send(){ await globalThis.takos.events.publishToClient('ev', {}); return 1; }`,
