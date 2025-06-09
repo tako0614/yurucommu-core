@@ -1,6 +1,7 @@
 import { TakoPack } from "../../../packages/runtime/mod.ts";
 import { Extension } from "../models/extension.ts";
 import { WebSocketEventServer } from "../eventDistributionServer.ts";
+import { KVItem } from "../models/kv.ts";
 
 const runtimes = new Map<string, TakoPack>();
 
@@ -35,9 +36,43 @@ export async function loadExtension(
         ui: doc.ui,
       },
     ], {
-      events: {        publishToClient: (name: string, payload: unknown) => {
+      events: {
+        publishToClient: (name: string, payload: unknown) => {
           wss?.distributeEvent(name, payload);
           return Promise.resolve();
+        },
+      },
+      kv: {
+        read: async (key: string) => {
+          const item = await KVItem.findOne({
+            identifier: doc.identifier,
+            side: "server",
+            key,
+          });
+          return item ? item.value : undefined;
+        },
+        write: async (key: string, value: unknown) => {
+          await KVItem.findOneAndUpdate(
+            { identifier: doc.identifier, side: "server", key },
+            { value },
+            { upsert: true },
+          );
+        },
+        delete: async (key: string) => {
+          await KVItem.deleteOne({
+            identifier: doc.identifier,
+            side: "server",
+            key,
+          });
+        },
+        list: async (prefix?: string) => {
+          const query: Record<string, unknown> = {
+            identifier: doc.identifier,
+            side: "server",
+          };
+          if (prefix) query.key = { $regex: "^" + prefix };
+          const docs = await KVItem.find(query).select("key");
+          return docs.map((d) => d.key);
         },
       },
     });

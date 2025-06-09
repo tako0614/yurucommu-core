@@ -222,6 +222,9 @@ awesome-pack.takopack (ZIP形式)
 ※ `kv:write` は `kv:read`
 を包含しません。読み取りが必要な場合は両方の権限が必要です。
 
+> **メモ**: `server.js` からの `takos.kv.*` と `client.js` / `index.html` からの
+> `takos.kv.*` は それぞれ独立したストレージ領域に保存されます。
+
 ### 6.4 fetch
 
 - **fetch**: `takos.fetch(url: string, options?: object): Promise<Response>`

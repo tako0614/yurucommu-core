@@ -7,6 +7,8 @@ import "./events/accounts.ts"; // イベントハンドラーを登録
 import "./events/sessions.ts"; // セッション関連イベント
 import "./events/activitypub.ts"; // ActivityPub 関連イベント
 import "./events/extensions.ts"; // Takopack 拡張機能イベント
+import "./events/kv.ts";
+import "./events/cdn.ts";
 
 export const app = new Hono<{
   Bindings: Env;
