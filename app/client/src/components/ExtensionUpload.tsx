@@ -69,7 +69,15 @@ export default function ExtensionUpload() {
                   ? <img src={ext.icon} class="w-6 h-6" alt={ext.name} />
                   : <span class="w-6 h-6 bg-gray-500 inline-block" />}
               </span>
-              <span>{ext.name}</span>
+              <span class="flex-1">{ext.name}</span>
+              <button
+                class="text-sm text-blue-500 underline"
+                onClick={() => {
+                  window.open(`/api/extensions/${ext.identifier}/ui`, "_blank");
+                }}
+              >
+                Open
+              </button>
             </li>
           )}
         </For>
