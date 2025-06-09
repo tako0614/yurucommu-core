@@ -16,7 +16,7 @@ export default app.post(
         z.object({
           eventId: z.string(),
           identifier: z.string(),
-          payload: z.object({}).passthrough(),
+          payload: z.unknown(),
         }),
       ),
     }),
