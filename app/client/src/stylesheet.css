@@ -188,7 +188,6 @@ input {
   }
   .l-header__ul-item {
     width: 100%;
-    padding-top: 100%;
   }
 }
 @media (max-width: 768px) {

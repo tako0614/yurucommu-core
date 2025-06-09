@@ -11,12 +11,6 @@ configure({
   useWebWorkers: false,
 });
 
-function uint8ToBase64(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
-
 function mimeFromPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -31,12 +25,6 @@ function mimeFromPath(path: string): string {
     default:
       return "image/png";
   }
-}
-
-function toDataUrl(bytes: Uint8Array, path: string): string {
-  const mime = mimeFromPath(path);
-  const base64 = uint8ToBase64(bytes);
-  return `data:${mime};base64,${base64}`;
 }
 
 export interface TakoUnpackResult {
@@ -110,9 +98,15 @@ export async function unpackTakoPack(
     } else if (entry.filename === "takos/index.html") {
       index = await entry.getData!(new TextWriter());
     } else if (iconPath && entry.filename === iconPath) {
-      const blob = await entry.getData!(new BlobWriter());
-      const buf = new Uint8Array(await blob.arrayBuffer());
-      icon = toDataUrl(buf, iconPath);
+      const mimeType = mimeFromPath(iconPath);
+      const blob = await entry.getData!(new BlobWriter(mimeType));
+      // Use FileReader to convert blob to data URL
+      icon = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
     }
   }
   await reader.close();
