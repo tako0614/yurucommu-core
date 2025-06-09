@@ -76,5 +76,10 @@ export function createTakos(identifier: string) {
     },
   };
 
-  return { kv, cdn, events, fetch };
+  const server = {
+    call: (fn: string, args: unknown[] = []) =>
+      call("extensions:invoke", { id: identifier, fn, args }),
+  };
+
+  return { kv, cdn, events, server, fetch };
 }

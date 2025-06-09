@@ -271,6 +271,12 @@ awesome-pack.takopack (ZIP形式)
 
 - **レート制限**: 10件/秒
 
+### 6.7 server
+
+- **call**: `takos.server.call(name: string, args?: any[]): Promise<any>`
+
+任意のサーバーサイド関数を呼び出します。引数は配列で渡し、戻り値が返されます。
+
 ---
 
 ## 7. globalThis.takos の利用例
