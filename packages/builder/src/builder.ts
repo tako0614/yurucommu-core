@@ -1,6 +1,11 @@
 import { join, resolve, basename } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
-import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
+import {
+  BlobWriter,
+  TextReader,
+  Uint8ArrayReader,
+  ZipWriter,
+} from "jsr:@zip-js/zip-js@^2.7.62";
 import * as esbuild from "npm:esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
@@ -464,18 +469,29 @@ export class TakopackBuilder {
     const zipFile = new BlobWriter("application/zip");
     const zipWriter = new ZipWriter(zipFile);
 
-    const addFileToZip = async (filePath: string, zipPath: string) => {
+    const addFileToZip = async (
+      filePath: string,
+      zipPath: string,
+      binary = false,
+    ) => {
       if (existsSync(filePath)) {
-        const content = await Deno.readTextFile(filePath);
-        await zipWriter.add(zipPath, new TextReader(content));
+        if (binary) {
+          const buf = await Deno.readFile(filePath);
+          await zipWriter.add(zipPath, new Uint8ArrayReader(buf));
+        } else {
+          const content = await Deno.readTextFile(filePath);
+          await zipWriter.add(zipPath, new TextReader(content));
+        }
       }
     };
 
     // takopack仕様: takos/ ディレクトリ下にファイルを配置
     const requiredFiles = ["manifest.json"];
     const optionalFiles = ["server.js", "client.js", "index.html"];
+    let iconFile: string | undefined;
     if (this.config.manifest.icon) {
-      optionalFiles.push(basename(this.config.manifest.icon));
+      iconFile = basename(this.config.manifest.icon);
+      optionalFiles.push(iconFile);
     }
 
     // 必須ファイルの追加
@@ -487,7 +503,8 @@ export class TakopackBuilder {
     for (const file of optionalFiles) {
       const filePath = join(sauceDir, file);
       if (existsSync(filePath)) {
-        await addFileToZip(filePath, `takos/${file}`);
+        const isIcon = iconFile && file === iconFile;
+        await addFileToZip(filePath, `takos/${file}`, Boolean(isIcon));
       }
     }
 

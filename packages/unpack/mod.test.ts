@@ -1,5 +1,10 @@
 import { assertEquals } from "jsr:@std/assert";
-import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
+import {
+  BlobWriter,
+  TextReader,
+  Uint8ArrayReader,
+  ZipWriter,
+} from "jsr:@zip-js/zip-js@^2.7.62";
 import { unpackTakoPack } from "./mod.ts";
 
 Deno.test("unpack takopack archive", async () => {
@@ -25,5 +30,5 @@ Deno.test("unpack takopack archive", async () => {
   assertEquals(result.server, "console.log('server');");
   assertEquals(result.client, "console.log('client');");
   assertEquals(result.index, "<html></html>");
-  assertEquals(result.icon, "icon");
+  assertEquals(result.icon, "data:image/png;base64,aWNvbg==");
 });
