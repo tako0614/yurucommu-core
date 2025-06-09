@@ -9,7 +9,12 @@ app.get("/api/extensions/:id/ui", async (c) => {
   const ext = await Extension.findOne({ identifier: id });
   if (!ext || !ext.ui) return c.notFound();
   c.header("Content-Type", "text/html; charset=utf-8");
-  return c.html(ext.ui);
+  const script =
+    '<script>window.takos = window.parent && window.parent.takos;</script>';
+  const html = ext.ui.includes("</head>")
+    ? ext.ui.replace("</head>", script + "</head>")
+    : script + ext.ui;
+  return c.html(html);
 });
 
 export default app;
