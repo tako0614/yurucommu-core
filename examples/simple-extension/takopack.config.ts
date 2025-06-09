@@ -5,6 +5,7 @@ export default defineConfig({
     name: "Simple Test Extension",
     identifier: "test.simple",
     version: "1.0.0",
+    icon: "./icon.png",
     description: "A simple test extension for Takopack Builder 3.0",
     permissions: ["kv:read", "kv:write", "activitypub:receive:hook"],
   },
