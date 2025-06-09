@@ -3,7 +3,7 @@ import {
   TextWriter,
   Uint8ArrayReader,
   ZipReader,
-  Uint8ArrayWriter,
+  BlobWriter,
 } from "jsr:@zip-js/zip-js@^2.7.62";
 
 // Configure to disable workers to prevent timer leaks in tests
@@ -110,8 +110,9 @@ export async function unpackTakoPack(
     } else if (entry.filename === "takos/index.html") {
       index = await entry.getData!(new TextWriter());
     } else if (iconPath && entry.filename === iconPath) {
-      const bytes = await entry.getData!(new Uint8ArrayWriter());
-      icon = toDataUrl(bytes, iconPath);
+      const blob = await entry.getData!(new BlobWriter());
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      icon = toDataUrl(buf, iconPath);
     }
   }
   await reader.close();
