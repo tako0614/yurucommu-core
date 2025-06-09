@@ -129,6 +129,8 @@ export interface ExtensionManifest {
   description?: string;
   version: string;
   identifier: string;
+  /** アイコンファイルへのパス */
+  icon?: string;
   apiVersion?: string;
   permissions?: Permission[];
   server: {
@@ -200,6 +202,7 @@ export interface TakopackConfig {
     identifier: string;
     version: string;
     description?: string;
+    icon?: string;
     permissions?: Permission[];
   };
 

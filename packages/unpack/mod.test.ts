@@ -7,7 +7,7 @@ Deno.test("unpack takopack archive", async () => {
   const zip = new ZipWriter(writer);
   await zip.add(
     "takos/manifest.json",
-    new TextReader('{"name":"test","identifier":"id","version":"0.1.0"}'),
+    new TextReader('{"name":"test","identifier":"id","version":"0.1.0","icon":"./icon.png"}'),
   );
   await zip.add("takos/server.js", new TextReader("console.log('server');"));
   await zip.add("takos/client.js", new TextReader("console.log('client');"));

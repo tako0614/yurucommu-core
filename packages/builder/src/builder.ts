@@ -1,4 +1,4 @@
-import { join, resolve } from "jsr:@std/path@1";
+import { join, resolve, basename } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
 import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
 import * as esbuild from "npm:esbuild";
@@ -68,15 +68,18 @@ export class TakopackBuilder {
       // 6. UIファイルコピー
       await this.copyUIFiles();
 
-      // 7. .takopackファイル生成
+      // 7. アイコンファイルコピー
+      await this.copyIconFile();
+
+      // 8. .takopackファイル生成
       await this.createTakopackFile();
 
-      // 8. クリーンアップ
+      // 9. クリーンアップ
       await this.cleanup();
 
       const buildEndTime = performance.now();
 
-      // 9. 結果レポート
+      // 10. 結果レポート
       const metrics = this.buildMetrics(
         buildStartTime,
         buildEndTime,
@@ -312,6 +315,9 @@ export class TakopackBuilder {
       description: this.config.manifest.description || "",
       version: this.config.manifest.version,
       identifier: this.config.manifest.identifier,
+      icon: this.config.manifest.icon
+        ? `./${basename(this.config.manifest.icon)}`
+        : undefined,
       apiVersion: "2.0",
       permissions: this.config.manifest.permissions || [],
       server: {
@@ -426,6 +432,21 @@ export class TakopackBuilder {
   }
 
   /**
+   * アイコンファイルをコピー
+   */
+  private async copyIconFile(): Promise<void> {
+    if (!this.config.manifest.icon) return;
+    const outDir = this.config.build?.outDir || "dist";
+    const sauceDir = join(outDir, "sauce");
+    const iconPath = this.config.manifest.icon;
+    if (existsSync(iconPath)) {
+      const destPath = join(sauceDir, basename(iconPath));
+      await Deno.copyFile(iconPath, destPath);
+      console.log(`📋 Copied icon: ${iconPath} → ${destPath}`);
+    }
+  }
+
+  /**
    * .takopackファイル生成
    */
   private async createTakopackFile(): Promise<void> {
@@ -453,6 +474,9 @@ export class TakopackBuilder {
     // takopack仕様: takos/ ディレクトリ下にファイルを配置
     const requiredFiles = ["manifest.json"];
     const optionalFiles = ["server.js", "client.js", "index.html"];
+    if (this.config.manifest.icon) {
+      optionalFiles.push(basename(this.config.manifest.icon));
+    }
 
     // 必須ファイルの追加
     for (const file of requiredFiles) {
