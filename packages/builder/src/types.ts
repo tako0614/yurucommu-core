@@ -12,8 +12,8 @@ export type Permission =
   | "plugin-actor:delete"
   | "kv:read"
   | "kv:write"
-  | "assets:read"
-  | "assets:write"
+  | "cdn:read"
+  | "cdn:write"
   | "events:publish"
   | "events:subscribe"
   | "deno:read"
@@ -347,7 +347,7 @@ export interface TakosActivityPubAPI {
   pluginActor: TakosActivityPubPluginActorAPI;
 }
 
-export interface TakosAssetsAPI {
+export interface TakosCdnAPI {
   read(path: string): Promise<string>;
   write(
     path: string,
@@ -402,7 +402,7 @@ export interface TakosUIEventsAPI {
 export interface TakosAPI {
   kv: TakosKVAPI;
   activitypub: TakosActivityPubAPI;
-  assets: TakosAssetsAPI;
+  cdn: TakosCdnAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
 

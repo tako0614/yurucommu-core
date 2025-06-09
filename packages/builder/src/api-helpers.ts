@@ -26,7 +26,7 @@ export interface TakosKVAPI {
   list(): Promise<string[]>;
 }
 
-export interface TakosAssetsAPI {
+export interface TakosCdnAPI {
   read(path: string): Promise<string>;
   write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>;
   delete(path: string): Promise<void>;
@@ -56,14 +56,14 @@ export interface TakosActivityPubAPI {
 export interface TakosServerAPI {
   kv: TakosKVAPI;
   activitypub: TakosActivityPubAPI;
-  assets: TakosAssetsAPI;
+  cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
 
 export interface TakosClientAPI {
   kv: TakosKVAPI;
-  assets: TakosAssetsAPI;
+  cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
@@ -183,7 +183,7 @@ export function isServerContext(api: unknown): api is TakosServerAPI {
          typeof api === 'object' && 
          'kv' in api && 
          'activitypub' in api && 
-         'assets' in api &&
+         'cdn' in api &&
          'events' in api &&
          'fetch' in api;
 }
@@ -192,7 +192,7 @@ export function isClientContext(api: unknown): api is TakosClientAPI {
   return api !== null && 
          typeof api === 'object' && 
          'kv' in api && 
-         'assets' in api &&
+         'cdn' in api &&
          'events' in api &&
          'fetch' in api;
 }

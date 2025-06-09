@@ -10,7 +10,7 @@ import type {
   SerializableArray,
   SerializableObject,
   SerializableValue,
-  TakosAssetsAPI,
+  TakosCdnAPI,
   TakosEvent,
   TakosKVAPI,
 } from "./common.d.ts";
@@ -22,7 +22,7 @@ export type {
   SerializableArray,
   SerializableObject,
   SerializableValue,
-  TakosAssetsAPI,
+  TakosCdnAPI,
   TakosEvent,
   TakosKVAPI,
 };
@@ -48,7 +48,7 @@ export interface TakosServerAPI {
       list(): Promise<string[]>;
     };
   };
-  assets: TakosAssetsAPI;
+  cdn: TakosCdnAPI;
   events: {
     publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
     subscribe<T = SerializableValue>(

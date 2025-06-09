@@ -38,7 +38,7 @@ export type {
   TakosEvent,
   TakosEventsAPI,
   TakosKVAPI,
-  TakosAssetsAPI,
+  TakosCdnAPI,
   TakosActivityPubAPI,
   TakosServerAPI,
   TakosClientAPI,

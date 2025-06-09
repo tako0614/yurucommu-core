@@ -24,7 +24,7 @@ const result = await runtime.callServer(manifest.identifier, "hello", [
 ]);
 ```
 
-The `assets.write` API accepts an optional `{ cacheTTL }` option following the
+The `cdn.write` API accepts an optional `{ cacheTTL }` option following the
 specification in `docs/takopack/main.md`.
 
 
