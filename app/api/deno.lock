@@ -15,6 +15,8 @@
     "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
     "npm:@hono/zod-validator@0.7": "0.7.0_hono@4.7.11_zod@3.25.56",
     "npm:@typescript-eslint/typescript-estree@8.18.0": "8.18.0_typescript@5.7.3",
+    "npm:base64-js@*": "1.5.1",
+    "npm:base64@*": "2.1.0",
     "npm:esbuild@0.20.2": "0.20.2",
     "npm:hono@^4.7.11": "4.7.11",
     "npm:mongoose@^8.15.1": "8.15.1",
@@ -248,6 +250,13 @@
     },
     "balanced-match@1.0.2": {
       "integrity": "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="
+    },
+    "base64-js@1.5.1": {
+      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="
+    },
+    "base64@2.1.0": {
+      "integrity": "sha512-OMwRpdU6gPEjeru59uEBDxIho/QkyqPQVLg07pFcqzGcw2cGQ0ZCnxfL8l4+6u9YDf4ai1ut2kvhLQsk670aPA==",
+      "scripts": true
     },
     "brace-expansion@2.0.1": {
       "integrity": "sha512-XnAIvQ8eM+kC6aULx6wuQiwVsnzsi9d3WxzV3FpWTGA19F621kwdbsAcFKXgKUHZWsy+mY6iL1sHTxWEFCytDA==",
