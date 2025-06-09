@@ -460,8 +460,8 @@ Takos ランタイムでは拡張機能を安全に実行するため、各レ�
   込みモジュール は `node:` プレフィックス付きで解決されます。
 - **client.js**: ブラウザの `Worker` 上で実行され、Deno
   名前空間は利用できません。
-- **index.html**: UI は `sandbox` 属性付きの `<iframe>`
-  に読み込み、ホストアプリと 分離されます。
+- **index.html**: UI は `sandbox="allow-scripts allow-same-origin"` を 付与した
+  `<iframe>` に読み込み、ホストアプリと 分離されます。
 
 各環境からは `globalThis.takos` を通じて必要な API のみが呼び出せるため、
 拡張機能コードはホストの権限を直接取得することなく安全に実行できます。

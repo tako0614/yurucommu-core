@@ -30,7 +30,7 @@ export default function ExtensionFrame() {
   return (
     <iframe
       ref={frame!}
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-same-origin"
       class="w-full h-full border-none"
       onLoad={onLoad}
     />
