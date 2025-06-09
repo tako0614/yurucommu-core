@@ -1,8 +1,8 @@
 import {
+  configure,
   TextWriter,
   Uint8ArrayReader,
   ZipReader,
-  configure,
 } from "jsr:@zip-js/zip-js@^2.7.62";
 
 // Configure to disable workers to prevent timer leaks in tests
@@ -15,6 +15,8 @@ export interface TakoUnpackResult {
   server?: string;
   client?: string;
   index?: string;
+  /** Icon file content if present */
+  icon?: string;
 }
 
 /**
@@ -53,15 +55,20 @@ export async function unpackTakoPack(
     throw new Error("manifest.json not found in package");
   }
   try {
-    JSON.parse(manifest);
+    const manifestObj = JSON.parse(manifest);
+    const iconPath = manifestObj.icon
+      ? `takos/${manifestObj.icon.replace(/^\.\/?/, "")}`
+      : undefined;
+    const icon = iconPath ? files[iconPath] : undefined;
+
+    return {
+      manifest,
+      server: files["takos/server.js"],
+      client: files["takos/client.js"],
+      index: files["takos/index.html"],
+      icon,
+    };
   } catch {
     throw new Error("manifest.json is not valid JSON");
   }
-
-  return {
-    manifest,
-    server: files["takos/server.js"],
-    client: files["takos/client.js"],
-    index: files["takos/index.html"],
-  };
 }

@@ -14,10 +14,24 @@ export async function initExtensions() {
   }
 }
 
-export async function loadExtension(doc: typeof Extension.prototype & { identifier: string; manifest: any; server?: string; client?: string; ui?: string; }) {
+export async function loadExtension(
+  doc: typeof Extension.prototype & {
+    identifier: string;
+    manifest: any;
+    server?: string;
+    client?: string;
+    ui?: string;
+    icon?: string;
+  },
+) {
   try {
     const pack = new TakoPack([
-      { manifest: doc.manifest, server: doc.server, client: doc.client, ui: doc.ui },
+      {
+        manifest: doc.manifest,
+        server: doc.server,
+        client: doc.client,
+        ui: doc.ui,
+      },
     ]);
     await pack.init();
     runtimes.set(doc.identifier, pack);
