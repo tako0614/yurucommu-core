@@ -16,9 +16,9 @@ export async function initExtensions() {
 }
 
 export async function loadExtension(
-  doc: typeof Extension.prototype & {
+  doc: {
     identifier: string;
-    manifest: any;
+    manifest: Record<string, unknown>;
     server?: string;
     client?: string;
     ui?: string;
@@ -35,9 +35,9 @@ export async function loadExtension(
         ui: doc.ui,
       },
     ], {
-      events: {
-        publishToClient: async (name: string, payload: unknown) => {
+      events: {        publishToClient: (name: string, payload: unknown) => {
           wss?.distributeEvent(name, payload);
+          return Promise.resolve();
         },
       },
     });

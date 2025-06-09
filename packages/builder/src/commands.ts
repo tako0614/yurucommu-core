@@ -1,6 +1,5 @@
 import type {
   BuildResult,
-  CommandArgs,
   TakopackConfig,
   TypeGenerationOptions,
   TypeGenerationResult,

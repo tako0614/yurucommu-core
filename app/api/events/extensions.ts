@@ -33,16 +33,14 @@ eventManager.add(
         icon: result.icon,
       },
       { upsert: true },
-    );
-
-    await loadExtension({
+    );    await loadExtension({
       identifier: manifest.identifier,
       manifest,
       server: result.server,
       client: result.client,
       ui: result.index,
       icon: result.icon,
-    } as any);
+    });
 
     return { success: true };
   },
