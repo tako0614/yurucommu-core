@@ -453,9 +453,7 @@ const finalObject = await PackC.onReceive(afterB);
 **client.js および index.html でのイベントハンドラー**:
 
 - 戻り値: `void` または `Promise<void>`
-- UI
-  とバックグラウンド間のイベントは同一オリジン・同一拡張機能内のみ流れるため、追加の
-  CSRF トークンや外部セキュリティチェックは不要
+- UIとバックグラウンド間のイベントは同一オリジン・同一拡張機能内のみ流れるため、追加のCSRFトークンや外部セキュリティチェックは不要
 
 ---
 
