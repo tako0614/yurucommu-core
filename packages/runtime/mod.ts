@@ -366,13 +366,29 @@ interface LoadedPack {
   clientWorker?: PackWorker;
 }
 
+export interface TakoPackInitOptions {
+  server?: TakosOptions;
+  client?: TakosOptions;
+}
+
 export class TakoPack {
   private packs = new Map<string, LoadedPack>();
-  private takos: Takos;
+  private serverTakos: Takos;
+  private clientTakos: Takos;
 
-  constructor(packs: UnpackedTakoPack[], options: TakosOptions = {}) {
-    this.takos = new Takos(options);
-    (globalThis as Record<string, unknown>).takos = this.takos;
+  constructor(
+    packs: UnpackedTakoPack[],
+    options: TakosOptions | TakoPackInitOptions = {},
+  ) {
+    const serverOpts = "server" in options || "client" in options
+      ? (options as TakoPackInitOptions).server ?? {}
+      : options as TakosOptions;
+    const clientOpts = "server" in options || "client" in options
+      ? (options as TakoPackInitOptions).client ?? {}
+      : options as TakosOptions;
+    this.serverTakos = new Takos(serverOpts);
+    this.clientTakos = new Takos(clientOpts);
+    (globalThis as Record<string, unknown>).takos = this.serverTakos;
     for (const p of packs) {
       const manifest = typeof p.manifest === "string"
         ? JSON.parse(p.manifest)
@@ -392,7 +408,7 @@ export class TakoPack {
         const perms = this.#extractPermissions(pack.manifest);
         pack.serverWorker = new PackWorker(
           pack.serverCode,
-          this.takos,
+          this.serverTakos,
           perms,
           true,
         );
@@ -410,7 +426,7 @@ export class TakoPack {
         };
         pack.clientWorker = new PackWorker(
           pack.clientCode,
-          this.takos,
+          this.clientTakos,
           perms,
           false,
         );

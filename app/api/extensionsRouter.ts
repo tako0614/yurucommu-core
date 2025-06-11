@@ -10,7 +10,7 @@ app.get("/api/extensions/:id/ui", async (c) => {
   if (!ext || !ext.ui) return c.notFound();
   c.header("Content-Type", "text/html; charset=utf-8");
   const script =
-    '<script>window.takos = window.parent && window.parent.takos;</script>';
+    "<script>try{if(!window.takos&&window.parent)window.takos=window.parent.takos;}catch(e){}</script>";
   const html = ext.ui.includes("</head>")
     ? ext.ui.replace("</head>", script + "</head>")
     : script + ext.ui;

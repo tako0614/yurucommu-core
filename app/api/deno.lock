@@ -8,12 +8,14 @@
     "jsr:@std/dotenv@~0.225.5": "0.225.5",
     "jsr:@std/encoding@^1.0.5": "1.0.10",
     "jsr:@std/fs@1": "1.0.18",
+    "jsr:@std/fs@^1.0.18": "1.0.18",
     "jsr:@std/path@1": "1.1.0",
     "jsr:@std/path@^1.0.6": "1.1.0",
     "jsr:@std/path@^1.1.0": "1.1.0",
     "jsr:@takopack/builder@^4.0.1": "4.0.1",
     "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
     "npm:@hono/zod-validator@0.7": "0.7.0_hono@4.7.11_zod@3.25.56",
+    "npm:@types/node@*": "22.15.15",
     "npm:@typescript-eslint/typescript-estree@8.18.0": "8.18.0_typescript@5.7.3",
     "npm:base64-js@*": "1.5.1",
     "npm:base64@*": "2.1.0",
@@ -58,7 +60,7 @@
       "dependencies": [
         "jsr:@luca/esbuild-deno-loader",
         "jsr:@std/cli",
-        "jsr:@std/fs",
+        "jsr:@std/fs@1",
         "jsr:@std/path@1",
         "jsr:@zip-js/zip-js",
         "npm:@typescript-eslint/typescript-estree",
@@ -213,6 +215,12 @@
       "dependencies": [
         "@nodelib/fs.scandir",
         "fastq"
+      ]
+    },
+    "@types/node@22.15.15": {
+      "integrity": "sha512-R5muMcZob3/Jjchn5LcO8jdKwSCbzqmPB6ruBxMcf9kbxtniZHP327s6C37iOfuw8mbKK3cAQa7sEl7afLrQ8A==",
+      "dependencies": [
+        "undici-types"
       ]
     },
     "@types/webidl-conversions@7.0.3": {
@@ -469,6 +477,9 @@
       "integrity": "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==",
       "bin": true
     },
+    "undici-types@6.21.0": {
+      "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="
+    },
     "webidl-conversions@7.0.0": {
       "integrity": "sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g=="
     },
@@ -489,6 +500,8 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/dotenv@~0.225.5",
+      "jsr:@std/fs@^1.0.18",
+      "jsr:@std/path@^1.1.0",
       "jsr:@takopack/builder@^4.0.1",
       "npm:@hono/zod-validator@0.7",
       "npm:hono@^4.7.11",
