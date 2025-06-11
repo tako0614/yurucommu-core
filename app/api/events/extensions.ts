@@ -29,7 +29,7 @@ eventManager.add(
         manifest,
         server: result.server,
         client: result.client,
-        ui: result.index,
+        ui: result.ui, // result.index → result.ui に修正
         icon: result.icon,
       },
       { upsert: true },
@@ -38,7 +38,7 @@ eventManager.add(
       manifest,
       server: result.server,
       client: result.client,
-      ui: result.index,
+      ui: result.ui, // result.index → result.ui に修正
       icon: result.icon,
     });
 
