@@ -344,9 +344,7 @@ export class TakopackBuilder {
     [...analyses.server, ...analyses.client].forEach((analysis) => {
       // JSDocタグから抽出
       analysis.jsDocTags.forEach((tag) => {
-        const handlerName = tag.targetClass && exportedClassSet.has(tag.targetClass)
-          ? `${tag.targetClass}_${tag.targetFunction}`
-          : tag.targetFunction;
+        const handlerName = tag.targetFunction;
         if (tag.tag === "event") {
           const eventName = this.extractEventNameFromTag(tag.value);
           const eventConfig = this.parseEventConfig(
@@ -369,9 +367,7 @@ export class TakopackBuilder {
 
       // デコレータから抽出
       analysis.decorators.forEach((decorator) => {
-        const handlerName = decorator.targetClass && exportedClassSet.has(decorator.targetClass)
-          ? `${decorator.targetClass}_${decorator.targetFunction}`
-          : decorator.targetFunction;
+        const handlerName = decorator.targetFunction;
         if (decorator.name === "event" && decorator.args.length > 0) {
           const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           const options = (typeof decorator.args[1] === "object" &&
