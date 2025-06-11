@@ -133,6 +133,17 @@ export interface ExtensionManifest {
   icon?: string;
   apiVersion?: string;
   permissions?: Permission[];
+  /** 依存拡張の宣言 */
+  extensionDependencies?: Array<{
+    identifier: string;
+    version: string;
+  }>;
+  /** 他拡張へ公開するAPI */
+  exports?: {
+    server?: string[];
+    background?: string[];
+    ui?: string[];
+  };
   server: {
     entry: string;
   };
@@ -203,6 +214,12 @@ export interface TakopackConfig {
     description?: string;
     icon?: string;
     permissions?: Permission[];
+    extensionDependencies?: Array<{ identifier: string; version: string }>;
+    exports?: {
+      server?: string[];
+      background?: string[];
+      ui?: string[];
+    };
   };
 
   /** エントリポイント設定 */
