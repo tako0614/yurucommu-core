@@ -94,20 +94,6 @@ awesome-pack.takopack (ZIP形式)
     "ui": []
   },
 
-  "apiVersion": "2.1",
-
-  // 追加：他拡張への依存定義
-  "extensionDependencies": [
-    { "identifier": "com.example.library", "version": "^1.0.0" }
-  ],
-
-  // 追加：外部公開APIの指定
-  "exports": {
-    "server": ["calculateHash", "sign"],
-    "background": [],
-    "ui": []
-  },
-
   "permissions": [
     "fetch:net",
     "activitypub:send",
