@@ -24,7 +24,7 @@ const result = await runtime.callServer(manifest.identifier, "hello", [
 ```
 
 The `cdn.write` API accepts an optional `{ cacheTTL }` option following the
-specification in `docs/takopack/main.md`.
+specification in `docs/takopack/v3.md`.
 
 
 Server code runs inside a sandboxed Deno `Worker`. The runtime derives
@@ -36,4 +36,6 @@ any Deno namespace, while UI code is intended to be embedded in a sandboxed
 
 The implementation is intentionally minimal and focuses on server-side
 execution. The `takos` object exposes stub implementations of the APIs described
-in `docs/takopack/main.md`.
+in `docs/takopack/v3.md`, including the `extensions` API for cross-pack
+communication. The namespace offers `get()` for fetching a single extension and
+an `all` array listing loaded extensions.
