@@ -136,6 +136,7 @@ export interface TakosOptions {
   events?: Partial<TakosEvents>;
   cdn?: Partial<TakosCdn>;
   activitypub?: Partial<TakosActivityPub>;
+  ap?: Partial<TakosActivityPub>;
 }
 
 export class Takos {
@@ -146,6 +147,7 @@ export class Takos {
     if (opts.events) Object.assign(this.events, opts.events);
     if (opts.cdn) Object.assign(this.cdn, opts.cdn);
     if (opts.activitypub) Object.assign(this.activitypub, opts.activitypub);
+    if (opts.ap) Object.assign(this.activitypub, opts.ap);
   }
   fetch(url: string, options?: RequestInit): Promise<Response> {
     const fn = this.opts.fetch ?? fetch;
@@ -199,6 +201,9 @@ export class Takos {
       list: async () => [] as string[],
     },
   };
+  get ap() {
+    return this.activitypub;
+  }
 }
 
 const TAKOS_PATHS: string[][] = [
@@ -229,6 +234,22 @@ const TAKOS_PATHS: string[][] = [
   ["activitypub", "pluginActor", "update"],
   ["activitypub", "pluginActor", "delete"],
   ["activitypub", "pluginActor", "list"],
+  ["ap", "send"],
+  ["ap", "read"],
+  ["ap", "delete"],
+  ["ap", "list"],
+  ["ap", "actor", "read"],
+  ["ap", "actor", "update"],
+  ["ap", "actor", "delete"],
+  ["ap", "follow"],
+  ["ap", "unfollow"],
+  ["ap", "listFollowers"],
+  ["ap", "listFollowing"],
+  ["ap", "pluginActor", "create"],
+  ["ap", "pluginActor", "read"],
+  ["ap", "pluginActor", "update"],
+  ["ap", "pluginActor", "delete"],
+  ["ap", "pluginActor", "list"],
 ];
 
 class PackWorker {

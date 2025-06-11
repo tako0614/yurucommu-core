@@ -376,6 +376,7 @@ export interface TakosEventsAPI {
 export interface TakosAPI {
   kv: TakosKVAPI;
   activitypub: TakosActivityPubAPI;
+  ap: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }

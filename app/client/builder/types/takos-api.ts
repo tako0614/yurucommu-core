@@ -90,6 +90,7 @@ export interface ActivityPubManager {
 
 export interface TakosAPI {
   activitypub: ActivityPubManager;
+  ap: ActivityPubManager;
   kv: KVStore;
   cdn: CdnManager;
   events: EventManager;
