@@ -76,3 +76,27 @@ Deno.test("override new event APIs", async () => {
   assert(called);
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("extensions API activation", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "lib", 
+      identifier: "com.example.lib",
+      version: "0.1.0",
+      icon: "./icon.png",
+      exports: { server: ["add"] },
+    }),
+    server: `export function add(a,b){return a+b;}`,
+  };
+  const takopack = new TakoPack([pack]);
+  await takopack.init();
+  const ext = (globalThis as any).takos.extensions.get("com.example.lib");
+  assert(ext);
+  const api = await ext.activate();
+  const res = await (api as any).add(1,2);
+  assertEquals(res, 3);
+  const all = (globalThis as any).takos.extensions.all;
+  assert(Array.isArray(all));
+  assertEquals(all.length, 1);
+  delete (globalThis as Record<string, unknown>).takos;
+});

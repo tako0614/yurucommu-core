@@ -54,6 +54,18 @@ export interface TakosActivityPub {
   };
 }
 
+export interface Extension {
+  identifier: string;
+  version: string;
+  readonly isActive: boolean;
+  activate(): Promise<unknown>;
+}
+
+export interface TakosExtensions {
+  get(identifier: string): Extension | undefined;
+  readonly all: Extension[];
+}
+
 const WORKER_SOURCE = `
 import { createRequire, builtinModules } from "node:module";
 
@@ -81,25 +93,59 @@ Deno.permissions.request = async (desc) => ({ state: permState(desc.name) });
 Deno.permissions.revoke = async (desc) => ({ state: permState(desc.name) });
 let takosCallId = 0;
 const takosCallbacks = new Map();
-function setPath(root, path, fn) {
+function createExtension(desc) {
+  return {
+    identifier: desc.identifier,
+    version: desc.version,
+    get isActive() {
+      return desc.isActive;
+    },
+    activate() {
+      return new Promise((resolve, reject) => {
+        const id = ++takosCallId;
+        takosCallbacks.set(id, { resolve, reject });
+        self.postMessage({
+          type: 'takosCall',
+          id,
+          path: ['extensions', 'activate'],
+          args: [desc.identifier],
+        });
+      });
+    },
+  };
+}
+function setPath(root, path, fn, transform) {
   let obj = root;
   for (let i = 0; i < path.length - 1; i++) {
     obj[path[i]] ??= {};
     obj = obj[path[i]];
   }
-  obj[path[path.length - 1]] = fn;
+  obj[path[path.length - 1]] = (...args) => {
+    return fn(transform, args);
+  };
 }
-function createTakos(paths) {
+function createTakos(paths, exts = []) {
   const t = {};
   for (const p of paths) {
-    setPath(t, p, (...args) => {
-      return new Promise((resolve, reject) => {
-        const id = ++takosCallId;
-        takosCallbacks.set(id, { resolve, reject });
-        self.postMessage({ type: 'takosCall', id, path: p, args });
-      });
-    });
+    let transform = null;
+    if (p[0] === 'extensions' && p[1] === 'get') {
+      transform = (d) => (d ? createExtension(d) : undefined);
+    }
+    setPath(
+      t,
+      p,
+      (tr, args) => {
+        return new Promise((resolve, reject) => {
+          const id = ++takosCallId;
+          takosCallbacks.set(id, { resolve, reject, transform: tr });
+          self.postMessage({ type: 'takosCall', id, path: p, args });
+        });
+      },
+      transform,
+    );
   }
+  t.extensions ??= {};
+  t.extensions.all = exts.map(createExtension);
   return t;
 }
 let mod = null;
@@ -107,7 +153,7 @@ self.onmessage = async (e) => {
   const d = e.data;
   if (d.type === 'init') {
     allowedPerms = d.allowedPermissions || {};
-    globalThis.takos = createTakos(d.takosPaths);
+    globalThis.takos = createTakos(d.takosPaths, d.extensions || []);
     const url = URL.createObjectURL(new Blob([d.code], { type: 'application/javascript' }));
     mod = await import(url);
     self.postMessage({ type: 'ready' });
@@ -124,8 +170,9 @@ self.onmessage = async (e) => {
     const cb = takosCallbacks.get(d.id);
     if (!cb) return;
     takosCallbacks.delete(d.id);
+    const result = cb.transform ? cb.transform(d.result) : d.result;
     if ('error' in d) cb.reject(new Error(d.error));
-    else cb.resolve(d.result);
+    else cb.resolve(result);
   }
 };
 `;
@@ -137,10 +184,16 @@ export interface TakosOptions {
   cdn?: Partial<TakosCdn>;
   activitypub?: Partial<TakosActivityPub>;
   ap?: Partial<TakosActivityPub>;
+  extensions?: TakosExtensions;
 }
 
 export class Takos {
   private opts: TakosOptions;
+  private extProvider?: {
+    get(id: string): Extension | undefined;
+    all(): Extension[];
+  };
+  extensions: TakosExtensions;
   constructor(opts: TakosOptions = {}) {
     this.opts = opts;
     if (opts.kv) Object.assign(this.kv, opts.kv);
@@ -148,6 +201,25 @@ export class Takos {
     if (opts.cdn) Object.assign(this.cdn, opts.cdn);
     if (opts.activitypub) Object.assign(this.activitypub, opts.activitypub);
     if (opts.ap) Object.assign(this.activitypub, opts.ap);
+    if (opts.extensions) this.extProvider = opts.extensions;
+    const self = this;
+    this.extensions = {
+      get(id: string) {
+        return self.extProvider?.get(id);
+      },
+      get all() {
+        return self.extProvider?.all() ?? [];
+      },
+    };
+  }
+  activateExtension(id: string): Promise<unknown> {
+    const ext = this.extProvider?.get(id);
+    return ext ? ext.activate() : Promise.resolve(undefined);
+  }
+  setExtensionsProvider(
+    p: { get(id: string): Extension | undefined; all(): Extension[] },
+  ) {
+    this.extProvider = p;
   }
   fetch(url: string, options?: RequestInit): Promise<Response> {
     const fn = this.opts.fetch ?? fetch;
@@ -250,6 +322,8 @@ const TAKOS_PATHS: string[][] = [
   ["ap", "pluginActor", "update"],
   ["ap", "pluginActor", "delete"],
   ["ap", "pluginActor", "list"],
+  ["extensions", "get"],
+  ["extensions", "activate"],
 ];
 
 class PackWorker {
@@ -306,6 +380,11 @@ class PackWorker {
       code: wrapped,
       takosPaths: TAKOS_PATHS,
       allowedPermissions: perms,
+      extensions: Array.from(takos.extensions.all, (e) => ({
+        identifier: e.identifier,
+        version: e.version,
+        isActive: e.isActive,
+      })),
     });
     this.#ready = new Promise((res) => {
       const handler = (ev: MessageEvent) => {
@@ -333,7 +412,21 @@ class PackWorker {
     let target: any = this.#takos;
     for (const p of d.path) target = target?.[p];
     try {
-      const result = await target(...d.args);
+      let result;
+      if (d.path[0] === "extensions" && d.path[1] === "activate") {
+        result = await this.#takos.activateExtension(d.args[0] as string);
+      } else {
+        result = await target(...d.args);
+      }
+      if (d.path[0] === "extensions" && d.path[1] === "get") {
+        result = result
+          ? {
+            identifier: result.identifier,
+            version: result.version,
+            isActive: result.isActive,
+          }
+          : undefined;
+      }
       this.#worker.postMessage({ type: "takosResult", id: d.id, result });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -366,6 +459,39 @@ interface LoadedPack {
   ui?: string;
   serverWorker?: PackWorker;
   clientWorker?: PackWorker;
+  activated?: Record<string, unknown>;
+}
+
+class RuntimeExtension implements Extension {
+  #pack: LoadedPack;
+  constructor(pack: LoadedPack) {
+    this.#pack = pack;
+  }
+  get identifier() {
+    return this.#pack.manifest.identifier as string;
+  }
+  get version() {
+    return this.#pack.manifest.version as string;
+  }
+  get isActive() {
+    return !!this.#pack.activated;
+  }
+  async activate(): Promise<unknown> {
+    if (this.#pack.activated) return this.#pack.activated;
+    const exportsList = Array.isArray(this.#pack.manifest?.exports?.server)
+      ? this.#pack.manifest.exports.server as string[]
+      : [];
+    if (!this.#pack.serverWorker) {
+      this.#pack.activated = {};
+      return this.#pack.activated;
+    }
+    const api: Record<string, unknown> = {};
+    for (const fn of exportsList) {
+      api[fn] = (...args: unknown[]) => this.#pack.serverWorker!.call(fn, args);
+    }
+    this.#pack.activated = api;
+    return api;
+  }
 }
 
 export interface TakoPackInitOptions {
@@ -377,6 +503,7 @@ export class TakoPack {
   private packs = new Map<string, LoadedPack>();
   private serverTakos: Takos;
   private clientTakos: Takos;
+  private extensions = new Map<string, RuntimeExtension>();
 
   constructor(
     packs: UnpackedTakoPack[],
@@ -395,13 +522,24 @@ export class TakoPack {
       const manifest = typeof p.manifest === "string"
         ? JSON.parse(p.manifest)
         : p.manifest;
-      this.packs.set(manifest.identifier as string, {
+      const loaded: LoadedPack = {
         manifest,
         serverCode: p.server,
         clientCode: p.client,
         ui: p.ui,
-      });
+      };
+      this.packs.set(manifest.identifier as string, loaded);
+      this.extensions.set(
+        manifest.identifier as string,
+        new RuntimeExtension(loaded),
+      );
     }
+    const provider = {
+      get: (id: string) => this.extensions.get(id),
+      all: () => Array.from(this.extensions.values()),
+    };
+    this.serverTakos.setExtensionsProvider(provider);
+    this.clientTakos.setExtensionsProvider(provider);
   }
 
   async init(): Promise<void> {
