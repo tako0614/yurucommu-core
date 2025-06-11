@@ -13,9 +13,10 @@ export interface TakosEvent<T = unknown> {
 }
 
 export interface TakosEventsAPI {
-  publish<T = unknown>(eventName: string, payload: T): Promise<void>;
-  publishToBackground<T = unknown>(eventName: string, payload: T): Promise<void>;
-  publishToUI<T = unknown>(eventName: string, payload: T): Promise<void>;
+  publish<T = unknown>(
+    eventName: string,
+    payload: T,
+  ): Promise<[number, unknown] | void>;
   subscribe<T = unknown>(eventName: string, handler: (payload: T) => void): () => void;
 }
 
@@ -69,7 +70,7 @@ export interface TakosClientAPI {
 }
 
 export interface TakosUIAPI {
-  events: Pick<TakosEventsAPI, 'publishToBackground' | 'subscribe'>;
+  events: TakosEventsAPI;
 }
 
 // 型安全なTakos APIアクセス関数群
@@ -106,25 +107,21 @@ export function getTakosAPI(): TakosServerAPI | TakosClientAPI | TakosUIAPI | un
  * イベントを安全に発行する
  */
 export async function publishEvent<T = unknown>(
-  eventName: string, 
+  eventName: string,
   payload: T,
   context: 'server' | 'client' | 'ui' = 'client'
 ): Promise<void> {
-  if (context === 'ui') {
-    const api = getTakosUIAPI();
-    if (!api?.events) {
-      console.warn(`Takos API not available in ${context} context`);
-      return;
-    }
-    await api.events.publishToBackground(eventName, payload);
-  } else {
-    const api = context === 'server' ? getTakosServerAPI() : getTakosClientAPI();
-    if (!api?.events) {
-      console.warn(`Takos API not available in ${context} context`);
-      return;
-    }
-    await api.events.publish(eventName, payload);
+  const api =
+    context === 'server'
+      ? getTakosServerAPI()
+      : context === 'client'
+      ? getTakosClientAPI()
+      : getTakosUIAPI();
+  if (!api?.events) {
+    console.warn(`Takos API not available in ${context} context`);
+    return;
   }
+  await api.events.publish(eventName, payload);
 }
 
 /**

@@ -159,7 +159,7 @@
         };
 
         if (typeof takos !== "undefined" && takos.events) {
-          takos.events.publishToBackground("userClick", clickData)
+          takos.events.publish("userClick", clickData)
             .then(() => {
               log(`Event published: userClick`);
               showStatus("Event published successfully!", "success");

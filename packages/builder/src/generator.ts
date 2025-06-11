@@ -238,7 +238,7 @@ export class VirtualEntryGenerator {
           activityPubConfigs.push(activityConfig);
         }
       } else if (tag.tag === "event") {
-        // @event("myEvent", { source: "client", target: "server" })
+        // @event("myEvent", { source: "client" })
         const handlerName = tag.targetClass
           ? `${tag.targetClass}_${tag.targetFunction}`
           : tag.targetFunction;
@@ -280,7 +280,7 @@ export class VirtualEntryGenerator {
           activityPubConfigs.push(activityConfig);
         }
       } else if (decorator.name === "event") {
-        // @event("myEvent", { source: "client", target: "server" })
+        // @event("myEvent", { source: "client" })
         const handlerName = decorator.targetClass
           ? `${decorator.targetClass}_${decorator.targetFunction}`
           : decorator.targetFunction;
@@ -364,7 +364,7 @@ export class VirtualEntryGenerator {
     targetFunction: string,
   ): EventDefinition | null {
     try {
-      // @event("myEvent", { source: "client", target: "server" }) 形式をパース
+      // @event("myEvent", { source: "client" }) 形式をパース
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
       if (!match) return null;
 
@@ -372,7 +372,6 @@ export class VirtualEntryGenerator {
 
       return {
         source: options.source || "client",
-        target: options.target || "server",
         handler: targetFunction,
       };
     } catch {
@@ -396,12 +395,6 @@ export class VirtualEntryGenerator {
         | "server"
         | "background"
         | "ui",
-      target: (typeof options.target === "string" ? options.target : "server") as
-        | "server"
-        | "client"
-        | "client:*"
-        | "ui"
-        | "background",
       handler: targetFunction,
     };
   }

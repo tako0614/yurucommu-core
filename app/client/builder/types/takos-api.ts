@@ -52,19 +52,7 @@ export interface CdnManager {
 }
 
 export interface EventManager {
-  // Server-side (server.js)
-  publish(eventName: string, payload: unknown): Promise<[number, unknown]>;
-  publishToClient(eventName: string, payload: unknown): Promise<void>;
-  publishToClientPushNotification(
-    eventName: string,
-    payload: unknown,
-  ): Promise<void>;
-
-  // Client-side (client.js)
-  publishToUI(eventName: string, payload: unknown): Promise<void>;
-  publishToBackground(eventName: string, payload: unknown): Promise<void>;
-
-  // Common API
+  publish(eventName: string, payload: unknown): Promise<[number, unknown] | void>;
   subscribe(eventName: string, handler: (payload: unknown) => void): () => void;
 }
 

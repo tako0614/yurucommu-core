@@ -214,7 +214,6 @@ UI HTMLコンテンツを設定します。
 ```typescript
 .addEvent("customEvent", {
   source: "client",
-  target: "server",
   handler: "handleCustomEvent"
 }, async (payload: any) => {
   return [200, { processed: true }];
@@ -365,7 +364,7 @@ type Permission =
 
 // UI更新処理
 .clientFunction("updateUI", async (data: any) => {
-  await globalThis.takos.events.publishToUI("dataUpdate", data);
+  await globalThis.takos.events.publish("dataUpdate", data);
 })
 ```
 
@@ -387,7 +386,7 @@ type Permission =
 .addServerToClientEvent("dataChanged", async (newData: any) => {
   console.log("Data updated:", newData);
   // UIに通知
-  await globalThis.takos.events.publishToUI("refresh", newData);
+  await globalThis.takos.events.publish("refresh", newData);
 })
 ```
 
@@ -402,7 +401,7 @@ import { ServerExtension } from "@takopack/builder";
 
 export const MyServer = new ServerExtension();
 
-/** @event("userLogin", { source: "client", target: "server" }) */
+/** @event("userLogin", { source: "client" }) */
 MyServer.onUserLogin = (data: { username: string }) => {
   console.log("login", data);
   return [200, { ok: true }];
@@ -566,7 +565,7 @@ const memoExtension = new FunctionBasedTakopack()
         <script>
           async function saveMemo() {
             const memo = document.getElementById('memo').value;
-            await takos.events.publishToBackground('saveMemo', memo);
+            await takos.events.publish('saveMemo', memo);
           }
         </script>
       </body>

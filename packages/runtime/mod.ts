@@ -14,14 +14,6 @@ export interface TakosKV {
 
 export interface TakosEvents {
   publish(name: string, payload: unknown): Promise<unknown>;
-  publishToClient(name: string, payload: unknown): Promise<unknown>;
-
-  publishToClientPushNotification(
-    name: string,
-    payload: unknown,
-  ): Promise<unknown>;
-  publishToBackground(name: string, payload: unknown): Promise<unknown>;
-  publishToUI(name: string, payload: unknown): Promise<unknown>;
   subscribe(name: string, handler: (payload: unknown) => void): () => void;
 }
 
@@ -167,13 +159,6 @@ export class Takos {
   };
   events = {
     publish: async (_name: string, _payload: unknown) => {},
-    publishToClient: async (_name: string, _payload: unknown) => {},
-    publishToClientPushNotification: async (
-      _name: string,
-      _payload: unknown,
-    ) => {},
-    publishToBackground: async (_name: string, _payload: unknown) => {},
-    publishToUI: async (_name: string, _payload: unknown) => {},
     subscribe: (
       _name: string,
       _handler: (payload: unknown) => void,
@@ -223,10 +208,6 @@ const TAKOS_PATHS: string[][] = [
   ["kv", "delete"],
   ["kv", "list"],
   ["events", "publish"],
-  ["events", "publishToClient"],
-  ["events", "publishToClientPushNotification"],
-  ["events", "publishToBackground"],
-  ["events", "publishToUI"],
   ["events", "subscribe"],
   ["cdn", "read"],
   ["cdn", "write"],

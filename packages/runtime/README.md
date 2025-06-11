@@ -15,7 +15,6 @@ const runtime = new TakoPack([
   kv: { read: myRead },
   events: {
     publish: myPublish,
-    publishToClient: myPublishClient,
   },
 });
 await runtime.init();

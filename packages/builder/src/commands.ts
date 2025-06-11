@@ -161,7 +161,7 @@ export function greet(): void {
   console.log("Hello from client background!");
 }
 
-/** @event("userClick", { source: "ui", target: "background" }) */
+/** @event("userClick", { source: "ui" }) */
 export function onUserClick(data: any): void {
   console.log("User clicked:", data);
 }`;
@@ -189,7 +189,7 @@ export function onUserClick(data: any): void {
     <script>
         function handleClick() {
             if (typeof takos !== 'undefined') {
-                takos.events.publishToBackground('userClick', { timestamp: Date.now() });
+                takos.events.publish('userClick', { timestamp: Date.now() });
             } else {
                 console.log('Takos API not available');
             }
