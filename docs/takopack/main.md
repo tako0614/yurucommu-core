@@ -6,7 +6,7 @@
 
 - **✅ 拡張機能間API連携**:
   `extensionDependencies`・`exports`・`takos.extensions` API・権限モデル追加
-- **✅ イベント定義の統一**: `direction` → `source/target` 形式に変更
+- **✅ イベント定義の統一**: `direction` → `source` のみを指定する形式に変更
 - **✅ 権限管理の一元化**: 個別関数から `manifest.permissions` に移行
 - **✅ ActivityPub API統一**: 複数メソッドを単一 `activityPub()` メソッドに統合
 - **✅ 型安全性の向上**: TypeScript完全対応と型推論の強化
@@ -146,17 +146,14 @@ manifest.json は [manifest.schema.json](./manifest.schema.json) を用いて検
   "eventDefinitions": {
     "postMessage": {
       "source": "client",
-      "target": "server",
       "handler": "onPostMessage"
     },
     "notifyClient": {
       "source": "server",
-      "target": "client",
       "handler": "onNotifyClient"
     },
     "notifyUI": {
       "source": "background",
-      "target": "ui",
       "handler": "onNotifyUI"
     }
   }
@@ -278,20 +275,11 @@ manifest.json は [manifest.schema.json](./manifest.schema.json) を用いて検
 
 ### 6.6 events
 
-#### サーバー側 (server.js)
+イベントは宣言した`eventDefinitions`に基づき、どのレイヤーからも次のAPIで発行します。
 
-- `takos.events.publish(eventName: string, payload: any): Promise<[200|400|500, object]>`
-- `takos.events.publishToClient(eventName: string, payload: any): Promise<void>`
-- `takos.events.publishToClientPushNotification(eventName: string, payload: any): Promise<void>`
+- `takos.events.publish(eventName: string, payload: any): Promise<[200|400|500, object]> | Promise<void>`
 
-#### バックグラウンド (client.js)
-
-- `takos.events.publishToUI(eventName: string, payload: any): Promise<void>`
-- `takos.events.publishToBackground(eventName: string, payload: any): Promise<void>`
-
-#### UI (index.html)
-
-- `takos.events.publishToBackground(eventName: string, payload: any): Promise<void>`
+サーバー側ハンドラーが存在する場合は `[status, body]` が返ります。それ以外は `void` です。
 
 **共通API**:
 
@@ -417,12 +405,9 @@ const finalObject = await PackC.onReceive(afterB);
 
 ## 9. イベント定義と利用法
 
-- `eventDefinitions`でイベント定義（**v2.0新形式：source/target**）
+- `eventDefinitions`でイベント定義
 - `server.js`で処理関数を実装・export
-- **client→server**: `takos.events.publish(eventName, payload)`
-- **server→client**: `takos.events.publishToClient(eventName, payload)`
-- **background→ui**: `takos.events.publishToUI(eventName, payload)`
-- **ui→background**: `takos.events.publishToBackground(eventName, payload)`
+- どのレイヤーからも `takos.events.publish(eventName, payload)` で発行します
 
 ### イベント定義の新形式
 
@@ -431,19 +416,14 @@ const finalObject = await PackC.onReceive(afterB);
   "eventDefinitions": {
     "myEvent": {
       "source": "client", // 送信元：client, server, background, ui
-      "target": "server", // 送信先：server, client, client:*, ui, background
       "handler": "onMyEvent" // ハンドラー関数名
     }
   }
 }
 ```
 
-**対応する方向性**:
 
-- `client` → `server`
-- `server` → `client` または `client:*` (ブロードキャスト)
-- `background` → `ui`
-- `ui` → `background`
+ハンドラーを実装したレイヤーが受信先となり、送信元は `source` で指定します。
 
 ### 実装規定 (イベント)
 
@@ -466,8 +446,8 @@ Packを移行する際は次の点を確認してください。
 
 1. **権限宣言の統合**: 個別に宣言していた権限は `manifest.permissions`
    フィールドにまとめて記述します。
-2. **イベント定義形式の変更**: `direction` プロパティは廃止され、`source` と
-   `target` を指定する方式になりました。
+2. **イベント定義形式の変更**: `direction` プロパティは廃止され、`source` のみ
+   を指定する方式になりました。
 3. **ActivityPub APIの整理**: 複数存在したAPIは `activityPub()`
    メソッドに集約されています。旧メソッドは置き換えてください。
 4. **拡張間API連携**: 依存パッケージは `extensionDependencies`

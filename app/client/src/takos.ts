@@ -60,11 +60,6 @@ export function createTakos(identifier: string) {
   const events = {
     publish: (name: string, payload: unknown) =>
       call("extensions:invoke", { id: identifier, fn: name, args: [payload] }),
-    publishToBackground: (_n: string, _p: unknown) => Promise.resolve(),
-    publishToUI: (_n: string, _p: unknown) => Promise.resolve(),
-    publishToClient: (_n: string, _p: unknown) => Promise.resolve(),
-    publishToClientPushNotification: (_n: string, _p: unknown) =>
-      Promise.resolve(),
     subscribe: (name: string, handler: (payload: unknown) => void) => {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name)!.add(handler);

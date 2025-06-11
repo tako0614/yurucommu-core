@@ -37,9 +37,9 @@ export async function loadExtension(
       },
     ], {
       events: {
-        publishToClient: (name: string, payload: unknown) => {
+        publish: (name: string, payload: unknown) => {
           wss?.distributeEvent(name, payload);
-          return Promise.resolve();
+          return Promise.resolve(undefined);
         },
       },
       kv: {

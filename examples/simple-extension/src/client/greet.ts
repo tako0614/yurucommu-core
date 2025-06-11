@@ -7,7 +7,7 @@ GreetClient.greet = (): void => {
   console.log("Hello from client background!");
 };
 
-/** @event("userClick", { source: "ui", target: "background" }) */
+/** @event("userClick", { source: "ui" }) */
 GreetClient.onUserClick = (
   data: { x: number; y: number; timestamp: number },
 ): void => {
@@ -22,7 +22,7 @@ GreetClient.onUserClick = (
   }
 };
 
-/** @event("backgroundTask", { source: "server", target: "client" }) */
+/** @event("backgroundTask", { source: "server" }) */
 GreetClient.onBackgroundTask = (task: { id: string; action: string }): void => {
   console.log("Received background task:", task);
   const takosAPI = getTakosClientAPI();

@@ -148,7 +148,6 @@ export interface ExtensionManifest {
 
 export interface EventDefinition {
   source: "client" | "server" | "background" | "ui";
-  target: "server" | "client" | "client:*" | "ui" | "background";
   handler: string;
 }
 
@@ -362,39 +361,11 @@ export interface TakosCdnAPI {
 }
 
 // Context-aware Events API
-export interface TakosServerEventsAPI {
+export interface TakosEventsAPI {
   publish(
     eventName: string,
     payload: SerializableValue,
-  ): Promise<[200 | 400 | 500, SerializableObject]>;
-  publishToClient(eventName: string, payload: SerializableValue): Promise<void>;
-  publishToClientPushNotification(
-    eventName: string,
-    payload: SerializableValue,
-  ): Promise<void>;
-  subscribe<T = SerializableValue>(
-    eventName: string,
-    handler: EventHandler<T>,
-  ): EventUnsubscribe;
-}
-
-export interface TakosClientEventsAPI {
-  publishToUI(eventName: string, payload: SerializableValue): Promise<void>;
-  publishToBackground(
-    eventName: string,
-    payload: SerializableValue,
-  ): Promise<void>;
-  subscribe<T = SerializableValue>(
-    eventName: string,
-    handler: EventHandler<T>,
-  ): EventUnsubscribe;
-}
-
-export interface TakosUIEventsAPI {
-  publishToBackground(
-    eventName: string,
-    payload: SerializableValue,
-  ): Promise<void>;
+  ): Promise<[200 | 400 | 500, SerializableObject] | void>;
   subscribe<T = SerializableValue>(
     eventName: string,
     handler: EventHandler<T>,
@@ -410,15 +381,15 @@ export interface TakosAPI {
 }
 
 export interface TakosServerAPI extends TakosAPI {
-  events: TakosServerEventsAPI;
+  events: TakosEventsAPI;
 }
 
 export interface TakosClientAPI extends TakosAPI {
-  events: TakosClientEventsAPI;
+  events: TakosEventsAPI;
 }
 
 export interface TakosUIAPI {
-  events: TakosUIEventsAPI;
+  events: TakosEventsAPI;
   // UI環境では一部のAPIは制限される
 }
 

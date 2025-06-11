@@ -17,7 +17,7 @@ HelloServer.calculateSum = (a: number, b: number): number => {
   return a + b;
 };
 
-/** @event("userLogin", { source: "client", target: "server" }) */
+/** @event("userLogin", { source: "client" }) */
 HelloServer.onUserLogin = async (
   userData: { username: string; timestamp: number },
 ): Promise<[number, SerializableObject]> => {
