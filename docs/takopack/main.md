@@ -1,13 +1,15 @@
 # 🐙 **Takos 拡張機能仕様書**
 
-> **仕様バージョン**: v2.0（改訂版） **最終更新**: 2025-06-01
+> **仕様バージョン**: v2.1（拡張間API連携対応版）
+> **最終更新**: 2025-06-11
 
-## 🆕 **v2.0 主要変更点**
+## 🆕 **v2.1 主要変更点**
 
-- **✅ イベント定義の統一**: `direction` → `source/target` 形式に変更
-- **✅ 権限管理の一元化**: 個別関数から `manifest.permissions` に移行
-- **✅ ActivityPub API統一**: 複数メソッドを単一 `activityPub()` メソッドに統合
-- **✅ 型安全性の向上**: TypeScript完全対応と型推論の強化
+* **✅ 拡張機能間API連携**: `extensionDependencies`・`exports`・`takos.extensions` API・権限モデル追加
+* **✅ イベント定義の統一**: `direction` → `source/target` 形式に変更
+* **✅ 権限管理の一元化**: 個別関数から `manifest.permissions` に移行
+* **✅ ActivityPub API統一**: 複数メソッドを単一 `activityPub()` メソッドに統合
+* **✅ 型安全性の向上**: TypeScript完全対応と型推論の強化
 
 ---
 
@@ -23,24 +25,28 @@
 8. [ActivityPubフック処理](#activitypubフック処理)
 9. [イベント定義と利用法](#イベント定義と利用法)
 10. [v1.3からの移行ガイド](#v13からの移行ガイド)
+11. [Sandbox 実行環境](#sandbox-実行環境)
+12. [拡張機能間API連携仕様](#拡張機能間api連携仕様) ←★新規
 
 ---
 
 ## 1. 目的
 
-takosをVSCodeのように安全かつ柔軟に拡張可能にすること。\
-最小構成は **サーバー・バックグラウンド・UI** の3レイヤーで成り立ち、\
+takosをVSCodeのように安全かつ柔軟に拡張可能にすること。
+最小構成は **サーバー・バックグラウンド・UI** の3レイヤーで成り立ち、
 `server.js`・`client.js`・`index.html` の **3 ファイル** に集約される。
 
 ---
 
 ## 2. 用語
 
-| 用語             | 説明                                                              |
-| ---------------- | ----------------------------------------------------------------- |
-| Pack (.takopack) | 拡張機能パッケージ（zip形式）。内部トップフォルダが`takos/`。     |
-| Identifier       | `com.example.foo`形式。`takos` は公式予約。                       |
-| Permission       | Packが利用する権限文字列。v2.0では`resource:action(:scope)`形式。 |
+| 用語                    | 説明                                                |
+| --------------------- | ------------------------------------------------- |
+| Pack (.takopack)      | 拡張機能パッケージ（zip形式）。内部トップフォルダが`takos/`。              |
+| Identifier            | `com.example.foo`形式。`takos` は公式予約。                |
+| Permission            | Packが利用する権限文字列。v2.0では`resource:action(:scope)`形式。 |
+| ExtensionDependencies | 依存する他の拡張パッケージ。manifestに配列で記述。                     |
+| Exports               | この拡張が外部に公開するAPI一覧。manifestに記述。                    |
 
 ---
 
@@ -59,12 +65,9 @@ awesome-pack.takopack (ZIP形式)
 
 ### ファイル要件:
 
-- `server.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
-- `client.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
-- `index.html`: ブラウザで動作する、依存関係のない単一HTMLファイル
-
-<!-- 注意: `server.js` と `client.js` は、原則として関数宣言のみを記述し、トップレベルでの即時実行コードは避けてください。 -->
-<!-- 用語補足: ここでの「バックグラウンドスクリプト」は拡張機能の背景処理を指し、UIの背景色(background)とは異なります。 -->
+* `server.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
+* `client.js`: Denoで動作する、依存関係のない単一JavaScriptファイル
+* `index.html`: ブラウザで動作する、依存関係のない単一HTMLファイル
 
 ---
 
@@ -77,7 +80,20 @@ awesome-pack.takopack (ZIP形式)
   "version": "1.2.0",
   "identifier": "com.example.awesome",
   "icon": "./icon.png",
-  "apiVersion": "2.0",
+  "apiVersion": "2.1",
+
+  // 追加：他拡張への依存定義
+  "extensionDependencies": [
+    { "identifier": "com.example.library", "version": "^1.0.0" }
+  ],
+
+  // 追加：外部公開APIの指定
+  "exports": {
+    "server": ["calculateHash", "sign"],
+    "background": [],
+    "ui": []
+  },
+
   "permissions": [
     "fetch:net",
     "activitypub:send",
@@ -95,6 +111,8 @@ awesome-pack.takopack (ZIP形式)
     "cdn:write",
     "events:publish",
     "events:subscribe",
+    "extensions:invoke",   // 他拡張API呼び出し権限
+    "extensions:export",   // 自身のAPI公開権限
     // 以下の特権権限は高度な権限を持ちます。使用に関して警告が表示されます。
     "deno:read",
     "deno:write",
@@ -143,17 +161,25 @@ awesome-pack.takopack (ZIP形式)
 }
 ```
 
+---
+
 ## 5. 名前空間と衝突回避
 
-- Identifier は逆FQDN形式。
-- 同一identifier衝突時は先着優先。
-- 各パッケージのKV、アセットは自動的に名前空間分離される。
-  - KVキー: `${identifier}:${key}` 形式で内部保存
-  - アセット: `${identifier}/${path}` 形式でアクセス可能
+* Identifier は逆FQDN形式。
+* 同一identifier衝突時は先着優先。
+* 各パッケージのKV、アセットは自動的に名前空間分離される。
+
+  * KVキー: `${identifier}:${key}` 形式で内部保存
+  * アセット: `${identifier}/${path}` 形式でアクセス可能
+* **拡張APIエクスポート衝突**: 複数Packが同一関数名をexportしても、識別子ごとに完全分離される。
+* **依存解決**: バージョン解決はnpm-semver互換。複数依存時は先着・最新版優先、警告通知。
 
 ---
 
 ## 6. API と必要な権限
+
+> **既存のAPI説明は全てそのまま記載（省略なし）**
+> **新規追加API・権限を本節内で明記**
 
 ### 6.1 ActivityPub
 
@@ -271,15 +297,65 @@ awesome-pack.takopack (ZIP形式)
 
 - **レート制限**: 10件/秒
 
-### 6.7 server
 
-- **call**: `takos.server.call(name: string, args?: any[]): Promise<any>`
+### 6.7 **拡張間API呼び出し**
 
-任意のサーバーサイド関数を呼び出します。引数は配列で渡し、戻り値が返されます。
+* **API呼び出し**:
+  `takos.extensions.get(identifier: string): Extension | undefined`
+
+  * **必要権限**: `extensions:invoke`
+* **API公開**:
+  manifestの`exports`に記載した関数だけをexport
+
+  * **必要権限**: `extensions:export`
+* **activate()パターン**:
+  依存先APIは `await ext.activate()` で取得
 
 ---
 
-## 7. globalThis.takos の利用例
+## 7. globalThis.takos API 詳細
+
+```typescript
+// 既存API例はそのまま
+
+// --- 追加 ---
+namespace takos.extensions {
+  function get(identifier: string): Extension | undefined;
+  const all: Extension[];
+}
+interface Extension {
+  identifier: string;
+  version: string;
+  isActive: boolean;
+  activate(): Promise<any>; // manifest.exportsで宣言されたAPIを返す
+}
+```
+
+### 追加利用例
+
+**呼び出し側**（server.js等）:
+
+```javascript
+const ext = takos.extensions.get("com.example.library");
+if (ext) {
+  const api = await ext.activate();
+  const hash = await api.calculateHash("hello");
+  console.log(hash);
+}
+```
+
+**公開側**（library/server.js）:
+
+```javascript
+export function activate() {
+  return {
+    async calculateHash(text) { /* ... */ },
+    async sign(data, privKey) { /* ... */ }
+  }
+}
+```
+
+---
 
 ```javascript
 const { takos } = globalThis;
@@ -302,8 +378,6 @@ async function example() {
   });
 }
 ```
-
----
 
 ## 8. ActivityPub フック処理
 
@@ -337,6 +411,8 @@ const finalObject = await PackC.onReceive(afterB);
 - `canAccept`: `boolean|Promise<boolean>`、タイムアウト時は`false`扱い
 - `onReceive`:
   `object|Promise<object>`、変更なしは受取オブジェクトをそのまま返す
+
+---
 
 ## 9. イベント定義と利用法
 
@@ -384,90 +460,63 @@ const finalObject = await PackC.onReceive(afterB);
 
 ---
 
-## 10. v1.3からv2.0への移行ガイド
-
-### 🔄 主要な変更点
-
-#### 1. イベント定義フォーマットの統一
-
-**v1.3 (旧形式)**:
-
-```json
-{
-  "eventDefinitions": {
-    "myEvent": {
-      "direction": "client→server",
-      "handler": "onMyEvent"
-    }
-  }
-}
-```
-
-**v2.0 (新形式)**:
-
-```json
-{
-  "eventDefinitions": {
-    "myEvent": {
-      "source": "client",
-      "target": "server",
-      "handler": "onMyEvent"
-    }
-  }
-}
-```
-
-#### 2. 権限管理の一元化
-
-権限は`manifest.json`の`permissions`配列で一括管理されます。
-
-#### 3. ActivityPub APIの統一
-
-ActivityPub設定はmanifest.jsonの`activityPub`セクションで設定されます。
-
-### 📋 移行チェックリスト
-
-- [ ] **イベント定義を新形式に変更**
-  - `direction: "client→server"` → `source: "client", target: "server"`
-  - `direction: "server→client"` → `source: "server", target: "client"`
-  - `direction: "background→ui"` → `source: "background", target: "ui"`
-  - `direction: "ui→background"` → `source: "ui", target: "background"`
-
-- [ ] **権限を一元化**
-  - 全権限を`manifest.json`の`permissions`配列に集約
-
-- [ ] **ActivityPub設定を更新**
-  - `activityPub`セクションで設定を統一
-
-### 🚀 推奨移行手順
-
-1. **バックアップ作成**: 既存コードをバックアップ
-2. **権限の洗い出し**: 使用している権限をリスト化
-3. **イベント定義の変換**: direction形式をsource/target形式に変換
-4. **権限の一元化**: manifestで権限を一括管理
-5. **ActivityPub設定の更新**: 統一形式に変更
-6. **テストの実行**: 新しい仕様での動作確認
-
-移行に関する質問やサポートが必要な場合は、開発チームまでお問い合わせください。
-
 ## 11. Sandbox 実行環境
 
-Takos ランタイムでは拡張機能を安全に実行するため、各レイヤーを分離した
-サンドボックス方式を採用します。
+* 拡張APIの呼び出し／公開も、Packごと・レイヤーごとにサンドボックス分離される
+* activate()によるAPIエクスポート時は`exports`で指定された関数のみを対象とし、
+  返却値・引数はstructuredClone準拠で伝達（クロスレイヤ・クロスPack安全）
+* 呼び出し先Packの権限昇格はされず、API呼び出し権限はexport元拡張の範囲内に限定
+* サイクル依存検出時はエラー
 
-- **server.js**: Deno `Worker` として起動し、`manifest.permissions` に含まれる
-  `deno:*` 権限のみを付与します。
-- **server.js 実行時**: Manifest に記載されていない `deno:*` 権限のリクエストは
-  自動的に拒否されます。
-- **server.js 実行時に表示される `✅ Granted ...` メッセージは、権限確認の
-  ダイアログではなく、付与された権限を示すだけのログです。**
-- **server.js 環境**: `require` / `__dirname` / `__filename` / `global` /
-  `process` / `Buffer` / `setImmediate` など Node 互換グローバルを提供し、組み
-  込みモジュール は `node:` プレフィックス付きで解決されます。
-- **client.js**: ブラウザの `Worker` 上で実行され、Deno
-  名前空間は利用できません。
-- **index.html**: UI は `sandbox="allow-scripts allow-same-origin"` を 付与した
-  `<iframe>` に読み込み、ホストアプリと 分離されます。
+---
 
-各環境からは `globalThis.takos` を通じて必要な API のみが呼び出せるため、
-拡張機能コードはホストの権限を直接取得することなく安全に実行できます。
+## 12. **拡張機能間API連携仕様**
+
+### 12.1 依存とエクスポートの記述
+
+* **`extensionDependencies`**:
+  依存先Packのidentifier・バージョン範囲を宣言
+  未インストール時はUIでインストールを促す
+
+* **`exports`**:
+  公開するAPI関数名をレイヤーごとに配列で列挙
+  各レイヤー（server, background, ui）ごとに独立管理
+
+### 12.2 権限制御
+
+* **extensions\:export**
+
+  * 自分のAPIを他拡張に公開する権限
+* **extensions\:invoke**
+
+  * 他拡張のAPIを取得・利用する権限
+  * 拡張子ごと・レイヤーごとに権限昇格なし
+  * manifestでscope指定可能（`extensions:invoke:com.example.library`）も将来拡張
+
+### 12.3 API利用方法
+
+* `takos.extensions.get(identifier)`
+
+  * 依存先PackのExtensionオブジェクトを取得（なければundefined）
+* `Extension.activate()`
+
+  * 依存先APIオブジェクトをPromiseで返却
+* APIエクスポートはactivate()の戻り値で、manifest.exportsで列挙した関数のみ可
+* 他拡張のactivate()は複数回呼んでも同じAPIオブジェクトを返す
+
+### 12.4 クロスPackの型安全
+
+* TypeScript推奨。API呼び出し・返却値はstructuredClone準拠
+* 依存Packの型定義（d.ts）はnpmのtypings同様、サイドローディング/型参照可能
+
+### 12.5 バージョンと依存解決
+
+* npm-semver準拠で解決。衝突時は警告＋最新版優先、複数依存可
+* サイクル依存・バージョン不整合時はエラー
+
+### 12.6 セキュリティとサンドボックス
+
+
+* すべてのAPI呼び出しはstructuredClone準拠でシリアライズ
+* クロスPackの権限制御、UIレイヤーのinvoke制限（background経由推奨）
+* サンドボックス逸脱は不可
