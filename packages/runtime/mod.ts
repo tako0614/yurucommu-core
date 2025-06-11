@@ -191,7 +191,7 @@ export class Takos {
   private opts: TakosOptions;
   private extProvider?: {
     get(id: string): Extension | undefined;
-    all(): Extension[];
+    all: Extension[];
   };
   extensions: TakosExtensions;
   constructor(opts: TakosOptions = {}) {
@@ -208,7 +208,7 @@ export class Takos {
         return self.extProvider?.get(id);
       },
       get all() {
-        return self.extProvider?.all() ?? [];
+        return self.extProvider?.all ?? [];
       },
     };
   }
@@ -217,7 +217,7 @@ export class Takos {
     return ext ? ext.activate() : Promise.resolve(undefined);
   }
   setExtensionsProvider(
-    p: { get(id: string): Extension | undefined; all(): Extension[] },
+    p: { get(id: string): Extension | undefined; all: Extension[] },
   ) {
     this.extProvider = p;
   }
@@ -478,8 +478,8 @@ class RuntimeExtension implements Extension {
   }
   async activate(): Promise<unknown> {
     if (this.#pack.activated) return this.#pack.activated;
-    const exportsList = Array.isArray(this.#pack.manifest?.exports?.server)
-      ? this.#pack.manifest.exports.server as string[]
+    const exportsList = Array.isArray((this.#pack.manifest as any)?.exports?.server)
+      ? (this.#pack.manifest as any).exports.server as string[]
       : [];
     if (!this.#pack.serverWorker) {
       this.#pack.activated = {};
@@ -534,9 +534,14 @@ export class TakoPack {
         new RuntimeExtension(loaded),
       );
     }
+    const outer = this;
     const provider = {
-      get: (id: string) => this.extensions.get(id),
-      all: () => Array.from(this.extensions.values()),
+      get(id: string) {
+        return outer.extensions.get(id);
+      },
+      get all(): Extension[] {
+        return Array.from(outer.extensions.values());
+      },
     };
     this.serverTakos.setExtensionsProvider(provider);
     this.clientTakos.setExtensionsProvider(provider);
