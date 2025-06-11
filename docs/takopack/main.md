@@ -248,6 +248,9 @@ awesome-pack.takopack (ZIP形式)
 ※ `kv:write` は `kv:read`
 を包含しません。読み取りが必要な場合は両方の権限が必要です。
 
+> **メモ**: `server.js` からの `takos.kv.*` と `client.js` / `index.html` からの
+> `takos.kv.*` は それぞれ独立したストレージ領域に保存されます。
+
 ### 6.4 fetch
 
 - **fetch**: `takos.fetch(url: string, options?: object): Promise<Response>`
@@ -293,6 +296,7 @@ awesome-pack.takopack (ZIP形式)
 **必要権限**: `events:publish` / `events:subscribe`
 
 - **レート制限**: 10件/秒
+
 
 ### 6.7 **拡張間API呼び出し**
 
@@ -511,6 +515,7 @@ const finalObject = await PackC.onReceive(afterB);
 * サイクル依存・バージョン不整合時はエラー
 
 ### 12.6 セキュリティとサンドボックス
+
 
 * すべてのAPI呼び出しはstructuredClone準拠でシリアライズ
 * クロスPackの権限制御、UIレイヤーのinvoke制限（background経由推奨）

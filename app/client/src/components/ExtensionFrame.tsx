@@ -1,8 +1,7 @@
 import { createEffect, onCleanup } from "solid-js";
 import { useAtom } from "solid-jotai";
-import {
-  selectedExtensionState,
-} from "../states/extensions.ts";
+import { selectedExtensionState } from "../states/extensions.ts";
+import { createTakos } from "../takos.ts";
 
 export default function ExtensionFrame() {
   const [extId] = useAtom(selectedExtensionState);
@@ -16,8 +15,8 @@ export default function ExtensionFrame() {
 
   function onLoad() {
     try {
-      if (frame?.contentWindow) {
-        (frame.contentWindow as any).takos = (window as any).takos;
+      if (frame?.contentWindow && extId()) {
+        (frame.contentWindow as any).takos = createTakos(extId()!);
       }
     } catch (_e) {
       /* ignore */
@@ -31,7 +30,7 @@ export default function ExtensionFrame() {
   return (
     <iframe
       ref={frame!}
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-same-origin"
       class="w-full h-full border-none"
       onLoad={onLoad}
     />
