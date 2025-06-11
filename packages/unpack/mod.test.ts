@@ -13,7 +13,7 @@ Deno.test("unpack takopack archive", async () => {
   await zip.add(
     "takos/manifest.json",
     new TextReader(
-      '{"name":"test","identifier":"id","version":"0.1.0","icon":"./icon.png"}',
+      '{"name":"test","identifier":"id","version":"0.1.0","icon":"./icon.png","server":{"entry":"./server.js"},"client":{"entryBackground":"./client.js","entryUI":"./index.html"}}',
     ),
   );
   await zip.add("takos/server.js", new TextReader("console.log('server');"));
@@ -26,9 +26,9 @@ Deno.test("unpack takopack archive", async () => {
 
   const result = await unpackTakoPack(buffer);
 
-  assertEquals(typeof result.manifest, "string");
+  assertEquals(result.manifest.name, "test");
   assertEquals(result.server, "console.log('server');");
   assertEquals(result.client, "console.log('client');");
-  assertEquals(result.index, "<html></html>");
+  assertEquals(result.ui, "<html></html>");
   assertEquals(result.icon, "data:image/png;base64,aWNvbg==");
 });

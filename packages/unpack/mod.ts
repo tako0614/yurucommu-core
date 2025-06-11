@@ -28,10 +28,10 @@ function mimeFromPath(path: string): string {
 }
 
 export interface TakoUnpackResult {
-  manifest: string;
+  manifest: Record<string, unknown>;
   server?: string;
   client?: string;
-  index?: string;
+  ui?: string;
   /** Icon file content if present */
   icon?: string;
 }
@@ -57,25 +57,32 @@ export async function unpackTakoPack(
   // first extract manifest to determine icon path
   let reader = new ZipReader(new Uint8ArrayReader(bytes));
   const entries = await reader.getEntries();
-  let manifest = "";
+  let manifestText = "";
   for (const entry of entries) {
     if (!entry.directory && entry.filename === "takos/manifest.json") {
-      manifest = await entry.getData!(new TextWriter());
+      manifestText = await entry.getData!(new TextWriter());
       break;
     }
   }
   await reader.close();
 
-  if (!manifest) {
+  if (!manifestText) {
     throw new Error("manifest.json not found in package");
   }
 
   let manifestObj: any;
   try {
-    manifestObj = JSON.parse(manifest);
+    manifestObj = JSON.parse(manifestText);
   } catch {
     throw new Error("manifest.json is not valid JSON");
   }
+
+  const serverEntry = manifestObj?.server?.entry?.replace(/^\.\/?/, "") ||
+    "server.js";
+  const bgEntry = manifestObj?.client?.entryBackground?.replace(/^\.\/?/, "") ||
+    "client.js";
+  const uiEntry = manifestObj?.client?.entryUI?.replace(/^\.\/?/, "") ||
+    "index.html";
 
   const iconPath = manifestObj.icon
     ? `takos/${manifestObj.icon.replace(/^\.\/?/, "")}`
@@ -86,17 +93,17 @@ export async function unpackTakoPack(
   const entries2 = await reader.getEntries();
   let server: string | undefined;
   let client: string | undefined;
-  let index: string | undefined;
+  let ui: string | undefined;
   let icon: string | undefined;
 
   for (const entry of entries2) {
     if (entry.directory) continue;
-    if (entry.filename === "takos/server.js") {
+    if (entry.filename === `takos/${serverEntry}`) {
       server = await entry.getData!(new TextWriter());
-    } else if (entry.filename === "takos/client.js") {
+    } else if (entry.filename === `takos/${bgEntry}`) {
       client = await entry.getData!(new TextWriter());
-    } else if (entry.filename === "takos/index.html") {
-      index = await entry.getData!(new TextWriter());
+    } else if (entry.filename === `takos/${uiEntry}`) {
+      ui = await entry.getData!(new TextWriter());
     } else if (iconPath && entry.filename === iconPath) {
       const mimeType = mimeFromPath(iconPath);
       const blob = await entry.getData!(new BlobWriter(mimeType));
@@ -111,5 +118,5 @@ export async function unpackTakoPack(
   }
   await reader.close();
 
-  return { manifest, server, client, index, icon };
+  return { manifest: manifestObj, server, client, ui, icon };
 }
