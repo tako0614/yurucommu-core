@@ -73,6 +73,8 @@ awesome-pack.takopack (ZIP形式)
 
 ## 4. manifest.json 詳細仕様
 
+manifest.json は [manifest.schema.json](./manifest.schema.json) を用いて検証できます。
+
 ```jsonc
 {
   "name": "awesome-pack",

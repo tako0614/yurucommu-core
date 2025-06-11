@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Takopack manifest schema",
+  "type": "object",
+  "required": ["name", "identifier", "version", "server", "client"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name of the extension"
+    },
+    "identifier": {
+      "type": "string",
+      "description": "Unique identifier in reverse FQDN format"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semver version of the extension"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human readable description"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Path to icon file"
+    },
+    "apiVersion": {
+      "type": "string",
+      "description": "Target Takopack API version"
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Permissions requested by this extension"
+    },
+    "extensionDependencies": {
+      "type": "array",
+      "description": "List of dependent extensions",
+      "items": {
+        "type": "object",
+        "required": ["identifier", "version"],
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Identifier of the dependency"
+          },
+          "version": {
+            "type": "string",
+            "description": "Semver range of the dependency"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "exports": {
+      "type": "object",
+      "description": "APIs exported by this extension",
+      "properties": {
+        "server": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Server side exports"
+        },
+        "background": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Background script exports"
+        },
+        "ui": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "UI exports"
+        }
+      },
+      "additionalProperties": false
+    },
+    "server": {
+      "type": "object",
+      "description": "Server entry point",
+      "required": ["entry"],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "description": "Path to server.js"
+        }
+      },
+      "additionalProperties": false
+    },
+    "client": {
+      "type": "object",
+      "description": "Client entry points",
+      "required": ["entryBackground", "entryUI"],
+      "properties": {
+        "entryBackground": {
+          "type": "string",
+          "description": "Path to client.js"
+        },
+        "entryUI": {
+          "type": "string",
+          "description": "Path to index.html"
+        }
+      },
+      "additionalProperties": false
+    },
+    "activityPub": {
+      "type": "object",
+      "description": "ActivityPub hooks configuration"
+    },
+    "eventDefinitions": {
+      "type": "object",
+      "description": "Custom event definitions"
+    }
+  }
+}
