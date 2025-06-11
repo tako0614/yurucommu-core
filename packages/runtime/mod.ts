@@ -160,7 +160,10 @@ self.onmessage = async (e) => {
   } else if (d.type === 'call') {
     try {
       const fn = mod[d.fnName];
-      if (typeof fn !== 'function') throw new Error('function not found');
+      if (typeof fn !== 'function') {
+        const keys = Object.keys(mod).join(', ');
+        throw new Error(\`function not found: ${d.fnName} (available: ${keys})\`);
+      }
       const result = await fn(...d.args);
       self.postMessage({ type: 'result', id: d.id, result });
     } catch (err) {
@@ -478,9 +481,10 @@ class RuntimeExtension implements Extension {
   }
   async activate(): Promise<unknown> {
     if (this.#pack.activated) return this.#pack.activated;
-    const exportsList = Array.isArray((this.#pack.manifest as any)?.exports?.server)
-      ? (this.#pack.manifest as any).exports.server as string[]
-      : [];
+    const exportsList =
+      Array.isArray((this.#pack.manifest as any)?.exports?.server)
+        ? (this.#pack.manifest as any).exports.server as string[]
+        : [];
     if (!this.#pack.serverWorker) {
       this.#pack.activated = {};
       return this.#pack.activated;
