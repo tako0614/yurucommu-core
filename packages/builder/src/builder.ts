@@ -1,11 +1,6 @@
-import { join, resolve, basename } from "jsr:@std/path@1";
+import { basename, join, resolve } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
-import {
-  BlobWriter,
-  TextReader,
-  Uint8ArrayReader,
-  ZipWriter,
-} from "jsr:@zip-js/zip-js@^2.7.62";
+import { BlobWriter, TextReader, Uint8ArrayReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
 import * as esbuild from "npm:esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
@@ -320,11 +315,11 @@ export class TakopackBuilder {
       description: this.config.manifest.description || "",
       version: this.config.manifest.version,
       identifier: this.config.manifest.identifier,
-      icon: this.config.manifest.icon
-        ? `./${basename(this.config.manifest.icon)}`
-        : undefined,
-      apiVersion: "2.0",
+      icon: this.config.manifest.icon ? `./${basename(this.config.manifest.icon)}` : undefined,
+      apiVersion: "3.0",
       permissions: this.config.manifest.permissions || [],
+      extensionDependencies: this.config.manifest.extensionDependencies,
+      exports: this.config.manifest.exports,
       server: {
         entry: "./server.js",
       },
@@ -392,7 +387,8 @@ export class TakopackBuilder {
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
-            : {};          activityPubConfigs.push({
+            : {};
+          activityPubConfigs.push({
             context: "https://www.w3.org/ns/activitystreams",
             accepts: [object],
             hooks: {
@@ -732,7 +728,7 @@ export class TakopackBuilder {
 
   /**
    * 統合型定義ファイルを生成
-   */  private async generateUnifiedTypeDefinitions(
+   */ private async generateUnifiedTypeDefinitions(
     outputDir: string,
     _results: TypeGenerationResult[],
   ): Promise<void> {
