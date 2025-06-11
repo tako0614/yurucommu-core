@@ -1,5 +1,7 @@
 # takosとは
 
+> **言語について**: README とドキュメントは日本語版のみ提供されています。(English version is not available yet)
+
 takosはActivityPubでweb自主するためのソフトウェアです。
 takosは、ActivityPubに追加で、以下の機能を提供します。
 

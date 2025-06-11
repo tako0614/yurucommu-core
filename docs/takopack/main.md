@@ -76,7 +76,7 @@ awesome-pack.takopack (ZIP形式)
 ```jsonc
 {
   "name": "awesome-pack",
-  "description": "A brief description of the extension's functionality.",
+  "description": "拡張機能の簡単な説明です",
   "version": "1.2.0",
   "identifier": "com.example.awesome",
   "icon": "./icon.png",
@@ -373,7 +373,7 @@ async function example() {
   // プラグインアクター作成例
   const actorIri = await takos.activitypub.pluginActor.create("bot1", {
     name: "My Bot",
-    summary: "A helpful bot",
+    summary: "便利なボット",
   });
 }
 ```
