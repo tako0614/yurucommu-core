@@ -22,7 +22,9 @@ export type Permission =
   | "deno:env"
   | "deno:run"
   | "deno:sys"
-  | "deno:ffi";
+  | "deno:ffi"
+  | "extensions:invoke"
+  | "extensions:export"
 
 /**
  * AST解析結果
