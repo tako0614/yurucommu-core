@@ -88,7 +88,7 @@ export class VirtualEntryGenerator {
       const info = exportInfoMap.get(className);
       if (info && info.type === "const" && info.instanceOf) {
         methods.forEach((m) => {
-          const wrapperName = `${className}_${m}`;
+          const wrapperName = `${m}`;
           wrappers.push(
             `export const ${wrapperName} = (...args: any[]) => ${className}.${m}(...args);`,
           );
@@ -98,7 +98,7 @@ export class VirtualEntryGenerator {
         const instance = `__${className}`;
         wrappers.push(`const ${instance} = new ${className}();`);
         methods.forEach((m) => {
-          const wrapperName = `${className}_${m}`;
+          const wrapperName = `${m}`;
           wrappers.push(
             `export const ${wrapperName} = (...args: any[]) => ${instance}.${m}(...args);`,
           );
@@ -186,7 +186,7 @@ export class VirtualEntryGenerator {
       const info = exportInfoMap.get(className);
       if (info && info.type === "const" && info.instanceOf) {
         methods.forEach((m) => {
-          const wrapperName = `${className}_${m}`;
+          const wrapperName = `${m}`;
           wrappers.push(
             `export const ${wrapperName} = (...args: any[]) => ${className}.${m}(...args);`,
           );
@@ -196,7 +196,7 @@ export class VirtualEntryGenerator {
         const instance = `__${className}`;
         wrappers.push(`const ${instance} = new ${className}();`);
         methods.forEach((m) => {
-          const wrapperName = `${className}_${m}`;
+          const wrapperName = `${m}`;
           wrappers.push(
             `export const ${wrapperName} = (...args: any[]) => ${instance}.${m}(...args);`,
           );
@@ -227,9 +227,7 @@ export class VirtualEntryGenerator {
     analysis.jsDocTags.forEach((tag) => {
       if (tag.tag === "activity") {
         // @activity("Note", { priority: 100, serial: true })
-        const handlerName = tag.targetClass
-          ? `${tag.targetClass}_${tag.targetFunction}`
-          : tag.targetFunction;
+        const handlerName = tag.targetFunction;
         const activityConfig = this.parseActivityTag(
           tag.value,
           handlerName,
@@ -239,9 +237,7 @@ export class VirtualEntryGenerator {
         }
       } else if (tag.tag === "event") {
         // @event("myEvent", { source: "client" })
-        const handlerName = tag.targetClass
-          ? `${tag.targetClass}_${tag.targetFunction}`
-          : tag.targetFunction;
+        const handlerName = tag.targetFunction;
         const eventConfig = this.parseEventTag(tag.value, handlerName);
         if (eventConfig) {
           const eventName = this.extractEventName(tag.value);
@@ -269,9 +265,7 @@ export class VirtualEntryGenerator {
     analysis.decorators.forEach((decorator) => {
       if (decorator.name === "activity") {
         // @activity("Note", { priority: 100 })
-        const handlerName = decorator.targetClass
-          ? `${decorator.targetClass}_${decorator.targetFunction}`
-          : decorator.targetFunction;
+        const handlerName = decorator.targetFunction;
         const activityConfig = this.parseActivityDecorator(
           decorator.args,
           handlerName,
@@ -281,9 +275,7 @@ export class VirtualEntryGenerator {
         }
       } else if (decorator.name === "event") {
         // @event("myEvent", { source: "client" })
-        const handlerName = decorator.targetClass
-          ? `${decorator.targetClass}_${decorator.targetFunction}`
-          : decorator.targetFunction;
+        const handlerName = decorator.targetFunction;
         const eventConfig = this.parseEventDecorator(
           decorator.args,
           handlerName,
