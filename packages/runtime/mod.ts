@@ -86,13 +86,16 @@ globalThis.global = globalThis;
 globalThis.process = process;
 globalThis.Buffer = Buffer;
 globalThis.setImmediate = setImmediate;
+
 let allowedPerms = {};
 const permState = (name) => allowedPerms[name] ? "granted" : "denied";
 Deno.permissions.query = async (desc) => ({ state: permState(desc.name) });
 Deno.permissions.request = async (desc) => ({ state: permState(desc.name) });
 Deno.permissions.revoke = async (desc) => ({ state: permState(desc.name) });
+
 let takosCallId = 0;
 const takosCallbacks = new Map();
+
 function createExtension(desc) {
   return {
     identifier: desc.identifier,
@@ -114,6 +117,7 @@ function createExtension(desc) {
     },
   };
 }
+
 function setPath(root, path, fn, transform) {
   let obj = root;
   for (let i = 0; i < path.length - 1; i++) {
@@ -124,6 +128,7 @@ function setPath(root, path, fn, transform) {
     return fn(transform, args);
   };
 }
+
 function createTakos(paths, exts = []) {
   const t = {};
   for (const p of paths) {
@@ -148,6 +153,7 @@ function createTakos(paths, exts = []) {
   t.extensions.all = exts.map(createExtension);
   return t;
 }
+
 let mod = null;
 self.onmessage = async (e) => {
   const d = e.data;
@@ -162,7 +168,7 @@ self.onmessage = async (e) => {
       const fn = mod[d.fnName];
       if (typeof fn !== 'function') {
         const keys = Object.keys(mod).join(', ');
-        throw new Error(\`function not found: ${d.fnName} (available: ${keys})\`);
+        throw new Error(\`function not found: \${d.fnName} (available: \${keys})\`);
       }
       const result = await fn(...d.args);
       self.postMessage({ type: 'result', id: d.id, result });
