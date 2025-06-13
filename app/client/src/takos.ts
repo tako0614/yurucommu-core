@@ -58,8 +58,18 @@ export function createTakos(identifier: string) {
   });
 
   const events = {
-    publish: (name: string, payload: unknown) =>
-      call("extensions:invoke", { id: identifier, fn: name, args: [payload] }),
+    publish: async (name: string, payload: unknown) => {
+      const result = await call("extensions:invoke", {
+        id: identifier,
+        fn: name,
+        args: [payload],
+      });
+      if (Array.isArray(result)) return result;
+      if (result && typeof result === "object" && "result" in result) {
+        return (result as { result: unknown }).result;
+      }
+      return result;
+    },
     subscribe: (name: string, handler: (payload: unknown) => void) => {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name)!.add(handler);
