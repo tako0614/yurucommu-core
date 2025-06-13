@@ -90,7 +90,7 @@ ApiServer.onRunServerTests = async (): Promise<
     const api = ext ? await ext.activate() : undefined;
     if (api) {
       // deno-lint-ignore no-explicit-any
-      await (api as any).ping();
+      const res = await (api as any).publish("ping");
     }
     results.extensions = takos?.extensions.all.length ?? 0;
   } catch (e) {
