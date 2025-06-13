@@ -33,7 +33,8 @@ eventManager.add(
         icon: result.icon,
       },
       { upsert: true },
-    );    await loadExtension({
+    );
+    await loadExtension({
       identifier: manifest.identifier,
       manifest,
       server: result.server,
@@ -60,7 +61,7 @@ eventManager.add(
       throw new Error("extension not found");
     }
     const result = await runtime.callServer(id, fn, args);
-    return { result };
+    return result;
   },
 );
 
