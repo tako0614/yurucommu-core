@@ -29,7 +29,7 @@ Deno.test("export wrappers use method name", () => {
 
   const gen = new VirtualEntryGenerator();
   const entry = gen.generateServerEntry([analysis]);
-  if (!entry.content.includes("export const onRunServerTests")) {
+  if (!entry.content.includes("export const runServerTests")) {
     throw new Error("wrapper name mismatch");
   }
 });
