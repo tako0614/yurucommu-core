@@ -117,3 +117,23 @@ Deno.test("callServer throws on undefined event", async () => {
   );
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("callServer maps event name to handler", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "test5",
+      identifier: "com.example.test5",
+      version: "0.1.0",
+      icon: "./icon.png",
+      eventDefinitions: {
+        run: { source: "ui", handler: "actual" },
+      },
+    }),
+    server: `export function actual(){ return 42; }`,
+  };
+  const takopack = new TakoPack([pack]);
+  await takopack.init();
+  const result = await takopack.callServer("com.example.test5", "run");
+  assertEquals(result, 42);
+  delete (globalThis as Record<string, unknown>).takos;
+});
