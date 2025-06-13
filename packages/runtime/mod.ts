@@ -165,9 +165,13 @@ self.onmessage = async (e) => {
     self.postMessage({ type: 'ready' });
   } else if (d.type === 'call') {
     try {
-      const fn = mod[d.fnName];
-      if (typeof fn !== 'function') {
-        const keys = Object.keys(mod).join(', ');
+      let target = mod;
+      for (const part of d.fnName.split(".")) {
+        target = target?.[part];
+      }
+      const fn = target;
+      if (typeof fn !== "function") {
+        const keys = Object.keys(mod).join(", ");
         throw new Error(\`function not found: \${d.fnName} (available: \${keys})\`);
       }
       const result = await fn(...d.args);
@@ -599,7 +603,42 @@ export class TakoPack {
     if (!pack.serverWorker) {
       throw new Error(`server not loaded for ${identifier}`);
     }
-    return await pack.serverWorker.call(fnName, args);
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, { handler?: string }>
+      | undefined;
+    const def = defs?.[fnName];
+    if (defs && !def) {
+      throw new Error(
+        `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
+      );
+    }
+    const callName = def?.handler || fnName;
+    try {
+      return await pack.serverWorker.call(callName, args);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("function not found")) {
+        const m = err.message.match(/available: ([^)]*)/);
+        if (m) {
+          const prefixes = m[1].split(/,\s*/);
+          const attempts = [] as string[];
+          for (const prefix of prefixes) {
+            attempts.push(`${prefix}.${callName}`);
+            if (!def) {
+              const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+              attempts.push(`${prefix}.on${cap}`);
+            }
+          }
+          for (const name of attempts) {
+            try {
+              return await pack.serverWorker.call(name, args);
+            } catch {
+              // ignore and continue trying
+            }
+          }
+        }
+      }
+      throw err;
+    }
   }
 
   #extractPermissions(
