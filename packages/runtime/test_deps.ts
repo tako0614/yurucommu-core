@@ -1,4 +1,7 @@
-export function assert(condition: unknown, message?: string): asserts condition {
+export function assert(
+  condition: unknown,
+  message?: string,
+): asserts condition {
   if (!condition) throw new Error(message ?? "Assertion failed");
 }
 
@@ -20,11 +23,16 @@ export async function assertRejects(
   try {
     await fn();
   } catch (err) {
-    if (err instanceof ErrorClass && (!msgIncludes || err.message.includes(msgIncludes))) {
+    if (
+      err instanceof ErrorClass &&
+      (!msgIncludes || err.message.includes(msgIncludes))
+    ) {
       return err;
     }
     throw new Error(
-      `Expected rejection with ${ErrorClass.name}${msgIncludes ? ` containing ${msgIncludes}` : ""}, got ${err}`,
+      `Expected rejection with ${ErrorClass.name}${
+        msgIncludes ? ` containing ${msgIncludes}` : ""
+      }, got ${err}`,
     );
   }
   throw new Error("Expected function to reject");
