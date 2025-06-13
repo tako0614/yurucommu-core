@@ -286,7 +286,9 @@ export class Takos {
       },
     };
   }
-  activateExtension(id: string): Promise<unknown> {
+  activateExtension(
+    id: string,
+  ): Promise<{ publish(name: string, payload?: unknown): Promise<unknown> } | undefined> {
     const ext = this.extProvider?.get(id);
     return ext ? ext.activate() : Promise.resolve(undefined);
   }
