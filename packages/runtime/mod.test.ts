@@ -1,4 +1,8 @@
-import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+} from "./test_deps.ts";
 import { TakoPack } from "./mod.ts";
 
 Deno.test("load takopack and call server function", async () => {
