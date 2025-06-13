@@ -106,7 +106,27 @@ function createExtension(desc) {
     activate() {
       return new Promise((resolve, reject) => {
         const id = ++takosCallId;
-        takosCallbacks.set(id, { resolve, reject });
+        takosCallbacks.set(id, {
+          resolve: (fns) => {
+            const api = {};
+            for (const fn of fns) {
+              api[fn] = (...args) => {
+                return new Promise((res, rej) => {
+                  const callId = ++takosCallId;
+                  takosCallbacks.set(callId, { resolve: res, reject: rej });
+                  self.postMessage({
+                    type: 'takosCall',
+                    id: callId,
+                    path: ['extensions', 'invoke'],
+                    args: [desc.identifier, fn, args],
+                  });
+                });
+              };
+            }
+            resolve(api);
+          },
+          reject,
+        });
         self.postMessage({
           type: 'takosCall',
           id,
@@ -131,6 +151,7 @@ function setPath(root, path, fn, transform) {
 
 function createTakos(paths, exts = []) {
   const t = {};
+  const extMap = new Map(exts.map((e) => [e.identifier, e]));
   for (const p of paths) {
     let transform = null;
     if (p[0] === 'extensions' && p[1] === 'get') {
@@ -151,6 +172,10 @@ function createTakos(paths, exts = []) {
   }
   t.extensions ??= {};
   t.extensions.all = exts.map(createExtension);
+  t.extensions.get = (id) => {
+    const desc = extMap.get(id);
+    return desc ? createExtension(desc) : undefined;
+  };
   return t;
 }
 
@@ -337,6 +362,7 @@ const TAKOS_PATHS: string[][] = [
   ["ap", "pluginActor", "list"],
   ["extensions", "get"],
   ["extensions", "activate"],
+  ["extensions", "invoke"],
 ];
 
 class PackWorker {
@@ -431,7 +457,16 @@ class PackWorker {
     try {
       let result;
       if (d.path[0] === "extensions" && d.path[1] === "activate") {
-        result = await this.#takos.activateExtension(d.args[0] as string);
+        const api = await this.#takos.activateExtension(d.args[0] as string);
+        result = Object.keys(api as Record<string, unknown>);
+      } else if (d.path[0] === "extensions" && d.path[1] === "invoke") {
+        const [id, fnName, fnArgs] = d.args as [string, string, unknown[]];
+        const api = await this.#takos.activateExtension(id);
+        const fn = (api as Record<string, any>)[fnName];
+        if (typeof fn !== "function") {
+          throw new Error(`function not found: ${fnName}`);
+        }
+        result = await fn(...fnArgs);
       } else {
         if (typeof target === "function") {
           result = await target.apply(ctx, d.args);
@@ -442,9 +477,9 @@ class PackWorker {
       if (d.path[0] === "extensions" && d.path[1] === "get") {
         result = result
           ? {
-            identifier: result.identifier,
-            version: result.version,
-            isActive: result.isActive,
+            identifier: (result as any).identifier,
+            version: (result as any).version,
+            isActive: (result as any).isActive,
           }
           : undefined;
       }
