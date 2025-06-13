@@ -422,14 +422,22 @@ class PackWorker {
     }
   }
   async #handleTakosCall(d: { id: number; path: string[]; args: unknown[] }) {
+    let ctx: any = this.#takos;
     let target: any = this.#takos;
-    for (const p of d.path) target = target?.[p];
+    for (const p of d.path) {
+      ctx = target;
+      target = target?.[p];
+    }
     try {
       let result;
       if (d.path[0] === "extensions" && d.path[1] === "activate") {
         result = await this.#takos.activateExtension(d.args[0] as string);
       } else {
-        result = await target(...d.args);
+        if (typeof target === "function") {
+          result = await target.apply(ctx, d.args);
+        } else {
+          result = target;
+        }
       }
       if (d.path[0] === "extensions" && d.path[1] === "get") {
         result = result
