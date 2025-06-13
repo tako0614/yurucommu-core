@@ -157,3 +157,20 @@ Deno.test("callServer handles handlers on exported objects", async () => {
   assertEquals(result, 88);
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("callServer guesses handler name when eventDefinitions missing", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "test7",
+      identifier: "com.example.test7",
+      version: "0.1.0",
+      icon: "./icon.png",
+    }),
+    server: `export const Api = {}; Api.onRun = () => 77;`,
+  };
+  const takopack = new TakoPack([pack]);
+  await takopack.init();
+  const result = await takopack.callServer("com.example.test7", "run");
+  assertEquals(result, 77);
+  delete (globalThis as Record<string, unknown>).takos;
+});

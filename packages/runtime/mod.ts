@@ -616,19 +616,24 @@ export class TakoPack {
     try {
       return await pack.serverWorker.call(callName, args);
     } catch (err) {
-      if (
-        def && err instanceof Error &&
-        err.message.includes("function not found")
-      ) {
+      if (err instanceof Error && err.message.includes("function not found")) {
         const m = err.message.match(/available: ([^)]*)/);
         if (m) {
-          for (const prefix of m[1].split(/,\s*/)) {
+          const prefixes = m[1].split(/,\s*/);
+          const attempts = [] as string[];
+          for (const prefix of prefixes) {
+            attempts.push(`${prefix}.${callName}`);
+            if (!def) {
+              const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+              attempts.push(`${prefix}.on${cap}`);
+            }
+          }
+          for (const name of attempts) {
             try {
-              return await pack.serverWorker.call(
-                `${prefix}.${callName}`,
-                args,
-              );
-            } catch {}
+              return await pack.serverWorker.call(name, args);
+            } catch {
+              // ignore and continue trying
+            }
           }
         }
       }
