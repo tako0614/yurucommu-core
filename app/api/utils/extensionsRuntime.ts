@@ -80,12 +80,12 @@ export async function loadExtension(
       client: {},
     });
 
+    await pack.init();
+
     // Forward client events to the server runtime
     pack.clientTakos.events.publish = (name: string, payload: unknown) => {
       return pack.callServer(doc.identifier, name, [payload]);
     };
-
-    await pack.init();
     runtimes.set(doc.identifier, pack);
   } catch (err) {
     console.error(`Failed to initialize extension ${doc.identifier}:`, err);

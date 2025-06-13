@@ -59,14 +59,14 @@ export function createTakos(identifier: string) {
 
   const events = {
     publish: async (name: string, payload: unknown) => {
-      const result = await call("extensions:invoke", {
+      const raw = await call("extensions:invoke", {
         id: identifier,
         fn: name,
         args: [payload],
       });
-      if (Array.isArray(result)) return result;
-      if (result && typeof result === "object" && "result" in result) {
-        return (result as { result: unknown }).result;
+      let result: unknown = raw;
+      while (result && typeof result === "object" && "result" in result) {
+        result = (result as { result: unknown }).result;
       }
       return result;
     },
