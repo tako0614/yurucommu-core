@@ -68,6 +68,18 @@ export function createTakos(identifier: string) {
       while (result && typeof result === "object" && "result" in result) {
         result = (result as { result: unknown }).result;
       }
+      if (
+        !Array.isArray(result) &&
+        result &&
+        typeof result === "object" &&
+        "0" in result &&
+        "1" in result
+      ) {
+        result = [
+          (result as Record<string, unknown>)["0"],
+          (result as Record<string, unknown>)["1"],
+        ];
+      }
       return result;
     },
     subscribe: (name: string, handler: (payload: unknown) => void) => {
