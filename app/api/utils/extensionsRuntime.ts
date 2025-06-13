@@ -83,8 +83,12 @@ export async function loadExtension(
     await pack.init();
 
     // Forward client events to the server runtime
-    pack.clientTakos.events.publish = (name: string, payload: unknown) => {
-      return pack.callServer(doc.identifier, name, [payload]);
+    pack.clientTakos.events.publish = (
+      name: string,
+      payload: unknown,
+      options?: { push?: boolean },
+    ) => {
+      return pack.callServer(doc.identifier, name, [payload, options]);
     };
     runtimes.set(doc.identifier, pack);
   } catch (err) {

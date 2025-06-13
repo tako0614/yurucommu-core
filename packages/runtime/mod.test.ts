@@ -53,7 +53,7 @@ Deno.test("override new event APIs", async () => {
       icon: "./icon.png",
     }),
     server:
-      `export async function send(){ await globalThis.takos.events.publish('ev', {}); return 1; }`,
+      `export async function send(){ await globalThis.takos.events.publish('ev', {}, { push: true }); return 1; }`,
   };
 
   let called = false;

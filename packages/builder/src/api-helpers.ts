@@ -109,7 +109,8 @@ export function getTakosAPI(): TakosServerAPI | TakosClientAPI | TakosUIAPI | un
 export async function publishEvent<T = unknown>(
   eventName: string,
   payload: T,
-  context: 'server' | 'client' | 'ui' = 'client'
+  context: 'server' | 'client' | 'ui' = 'client',
+  options?: { push?: boolean },
 ): Promise<void> {
   const api =
     context === 'server'
@@ -121,7 +122,7 @@ export async function publishEvent<T = unknown>(
     console.warn(`Takos API not available in ${context} context`);
     return;
   }
-  await api.events.publish(eventName, payload);
+  await api.events.publish(eventName, payload, options);
 }
 
 /**

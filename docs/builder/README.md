@@ -364,7 +364,7 @@ type Permission =
 
 // UI更新処理
 .clientFunction("updateUI", async (data: any) => {
-  await globalThis.takos.events.publish("dataUpdate", data);
+  await globalThis.takos.events.publish("dataUpdate", data, { push: true });
 })
 ```
 
@@ -386,7 +386,7 @@ type Permission =
 .addServerToClientEvent("dataChanged", async (newData: any) => {
   console.log("Data updated:", newData);
   // UIに通知
-  await globalThis.takos.events.publish("refresh", newData);
+  await globalThis.takos.events.publish("refresh", newData, { push: true });
 })
 ```
 
@@ -565,7 +565,7 @@ const memoExtension = new FunctionBasedTakopack()
         <script>
           async function saveMemo() {
             const memo = document.getElementById('memo').value;
-            await takos.events.publish('saveMemo', memo);
+            await takos.events.publish('saveMemo', memo, { push: true });
           }
         </script>
       </body>
