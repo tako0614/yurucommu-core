@@ -28,6 +28,7 @@ export class VirtualEntryGenerator {
     const classMap = new Map<string, Set<string>>();
     const exportInfoMap = new Map<string, ExportInfo>();
     const eventDefinitions: Record<string, EventDefinition> = {};
+    const eventWrappers = new Map<string, { className?: string; handler: string }>();
     const activityPubConfigs: ActivityPubConfig[] = [];
 
     analyses.forEach((analysis) => {
@@ -72,6 +73,7 @@ export class VirtualEntryGenerator {
         eventDefinitions,
         activityPubConfigs,
         classMap,
+        eventWrappers,
       );
 
       // デコレータからActivityPubとイベント設定を生成
@@ -80,6 +82,7 @@ export class VirtualEntryGenerator {
         eventDefinitions,
         activityPubConfigs,
         classMap,
+        eventWrappers,
       );
     });
 
@@ -105,6 +108,21 @@ export class VirtualEntryGenerator {
           exports.push(wrapperName);
         });
       }
+    });
+
+    // Event wrappers using event names
+    eventWrappers.forEach((info, eventName) => {
+      const wrapperName = eventName;
+      if (info.className) {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.className}.${info.handler}(...args);`,
+        );
+      } else {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.handler}(...args);`,
+        );
+      }
+      exports.push(wrapperName);
     });
 
     const content = this.buildEntryContent([...imports, ...wrappers], exports, {
@@ -172,12 +190,14 @@ export class VirtualEntryGenerator {
         {},
         [],
         classMap,
+        new Map(),
       );
       this.processDecorators(
         analysis,
         {},
         [],
         classMap,
+        new Map(),
       );
     });
 
@@ -223,6 +243,7 @@ export class VirtualEntryGenerator {
     eventDefinitions: Record<string, EventDefinition>,
     activityPubConfigs: ActivityPubConfig[],
     classMap: Map<string, Set<string>>,
+    eventWrappers: Map<string, { className?: string; handler: string }>,
   ): void {
     analysis.jsDocTags.forEach((tag) => {
       if (tag.tag === "activity") {
@@ -243,6 +264,10 @@ export class VirtualEntryGenerator {
           const eventName = this.extractEventName(tag.value);
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
+            eventWrappers.set(eventName, {
+              className: tag.targetClass,
+              handler: handlerName,
+            });
           }
         }
       }
@@ -261,6 +286,7 @@ export class VirtualEntryGenerator {
     eventDefinitions: Record<string, EventDefinition>,
     activityPubConfigs: ActivityPubConfig[],
     classMap: Map<string, Set<string>>,
+    eventWrappers: Map<string, { className?: string; handler: string }>,
   ): void {
     analysis.decorators.forEach((decorator) => {
       if (decorator.name === "activity") {
@@ -284,6 +310,10 @@ export class VirtualEntryGenerator {
           const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
+            eventWrappers.set(eventName, {
+              className: decorator.targetClass,
+              handler: handlerName,
+            });
           }
         }
       }
