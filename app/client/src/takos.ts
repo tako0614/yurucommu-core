@@ -15,6 +15,37 @@ export function createTakos(identifier: string) {
     throw new Error(r?.error || "Event error");
   }
 
+  function unwrapResult(raw: unknown): unknown {
+    let result: unknown = raw;
+    while (result && typeof result === "object" && "result" in result) {
+      result = (result as { result: unknown }).result;
+    }
+    if (
+      result &&
+      typeof result === "object" &&
+      !Array.isArray(result) &&
+      "status" in result &&
+      "body" in result
+    ) {
+      result = [
+        (result as Record<string, unknown>)["status"],
+        (result as Record<string, unknown>)["body"],
+      ];
+    } else if (
+      !Array.isArray(result) &&
+      result &&
+      typeof result === "object" &&
+      "0" in result &&
+      "1" in result
+    ) {
+      result = [
+        (result as Record<string, unknown>)["0"],
+        (result as Record<string, unknown>)["1"],
+      ];
+    }
+    return result;
+  }
+
   const kv = {
     read: (key: string) =>
       call("kv:read", {
@@ -64,23 +95,7 @@ export function createTakos(identifier: string) {
         fn: name,
         args: [payload],
       });
-      let result: unknown = raw;
-      while (result && typeof result === "object" && "result" in result) {
-        result = (result as { result: unknown }).result;
-      }
-      if (
-        !Array.isArray(result) &&
-        result &&
-        typeof result === "object" &&
-        "0" in result &&
-        "1" in result
-      ) {
-        result = [
-          (result as Record<string, unknown>)["0"],
-          (result as Record<string, unknown>)["1"],
-        ];
-      }
-      return result;
+      return unwrapResult(raw);
     },
     subscribe: (name: string, handler: (payload: unknown) => void) => {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -94,8 +109,10 @@ export function createTakos(identifier: string) {
   };
 
   const server = {
-    call: (fn: string, args: unknown[] = []) =>
-      call("extensions:invoke", { id: identifier, fn, args }),
+    call: async (fn: string, args: unknown[] = []) => {
+      const raw = await call("extensions:invoke", { id: identifier, fn, args });
+      return unwrapResult(raw);
+    },
   };
 
   return { kv, cdn, events, server, fetch };
