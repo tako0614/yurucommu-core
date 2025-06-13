@@ -165,9 +165,13 @@ self.onmessage = async (e) => {
     self.postMessage({ type: 'ready' });
   } else if (d.type === 'call') {
     try {
-      const fn = mod[d.fnName];
-      if (typeof fn !== 'function') {
-        const keys = Object.keys(mod).join(', ');
+      let target = mod;
+      for (const part of d.fnName.split(".")) {
+        target = target?.[part];
+      }
+      const fn = target;
+      if (typeof fn !== "function") {
+        const keys = Object.keys(mod).join(", ");
         throw new Error(\`function not found: \${d.fnName} (available: \${keys})\`);
       }
       const result = await fn(...d.args);
@@ -602,16 +606,34 @@ export class TakoPack {
     const defs = (pack.manifest as Record<string, any>).eventDefinitions as
       | Record<string, { handler?: string }>
       | undefined;
-    if (defs) {
-      const def = defs[fnName];
-      if (!def) {
-        throw new Error(
-          `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
-        );
-      }
-      fnName = def.handler || fnName;
+    const def = defs?.[fnName];
+    if (defs && !def) {
+      throw new Error(
+        `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
+      );
     }
-    return await pack.serverWorker.call(fnName, args);
+    const callName = def?.handler || fnName;
+    try {
+      return await pack.serverWorker.call(callName, args);
+    } catch (err) {
+      if (
+        def && err instanceof Error &&
+        err.message.includes("function not found")
+      ) {
+        const m = err.message.match(/available: ([^)]*)/);
+        if (m) {
+          for (const prefix of m[1].split(/,\s*/)) {
+            try {
+              return await pack.serverWorker.call(
+                `${prefix}.${callName}`,
+                args,
+              );
+            } catch {}
+          }
+        }
+      }
+      throw err;
+    }
   }
 
   #extractPermissions(

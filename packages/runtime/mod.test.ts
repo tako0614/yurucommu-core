@@ -137,3 +137,23 @@ Deno.test("callServer maps event name to handler", async () => {
   assertEquals(result, 42);
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("callServer handles handlers on exported objects", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "test6",
+      identifier: "com.example.test6",
+      version: "0.1.0",
+      icon: "./icon.png",
+      eventDefinitions: {
+        run: { source: "ui", handler: "onRun" },
+      },
+    }),
+    server: `export const Api = {}; Api.onRun = () => 88;`,
+  };
+  const takopack = new TakoPack([pack]);
+  await takopack.init();
+  const result = await takopack.callServer("com.example.test6", "run");
+  assertEquals(result, 88);
+  delete (globalThis as Record<string, unknown>).takos;
+});
