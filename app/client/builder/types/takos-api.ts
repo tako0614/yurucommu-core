@@ -52,7 +52,11 @@ export interface CdnManager {
 }
 
 export interface EventManager {
-  publish(eventName: string, payload: unknown): Promise<[number, unknown] | void>;
+  publish(
+    eventName: string,
+    payload: unknown,
+    options?: { push?: boolean },
+  ): Promise<[number, unknown] | void>;
   subscribe(eventName: string, handler: (payload: unknown) => void): () => void;
 }
 

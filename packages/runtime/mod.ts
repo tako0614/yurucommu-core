@@ -13,7 +13,11 @@ export interface TakosKV {
 }
 
 export interface TakosEvents {
-  publish(name: string, payload: unknown): Promise<unknown>;
+  publish(
+    name: string,
+    payload: unknown,
+    options?: { push?: boolean },
+  ): Promise<unknown>;
   subscribe(name: string, handler: (payload: unknown) => void): () => void;
 }
 
@@ -300,7 +304,11 @@ export class Takos {
     list: async () => [] as string[],
   };
   events = {
-    publish: async (_name: string, _payload: unknown) => {},
+    publish: async (
+      _name: string,
+      _payload: unknown,
+      _options?: { push?: boolean },
+    ) => {},
     subscribe: (
       _name: string,
       _handler: (payload: unknown) => void,
