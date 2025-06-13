@@ -153,6 +153,36 @@ function createTakos(paths, exts = []) {
   const t = {};
   const extMap = new Map(exts.map((e) => [e.identifier, e]));
   for (const p of paths) {
+    if (p[0] === 'activateExtension') {
+      t.activateExtension = (id) => {
+        return new Promise((resolve, reject) => {
+          const callId = ++takosCallId;
+          takosCallbacks.set(callId, {
+            resolve: (fns) => {
+              const api = {};
+              for (const fn of fns) {
+                api[fn] = (...args) => {
+                  return new Promise((res, rej) => {
+                    const id2 = ++takosCallId;
+                    takosCallbacks.set(id2, { resolve: res, reject: rej });
+                    self.postMessage({
+                      type: 'takosCall',
+                      id: id2,
+                      path: ['extensions', 'invoke'],
+                      args: [id, fn, args],
+                    });
+                  });
+                };
+              }
+              resolve(api);
+            },
+            reject,
+          });
+          self.postMessage({ type: 'takosCall', id: callId, path: p, args: [id] });
+        });
+      };
+      continue;
+    }
     let transform = null;
     if (p[0] === 'extensions' && p[1] === 'get') {
       transform = (d) => (d ? createExtension(d) : undefined);
@@ -363,6 +393,7 @@ const TAKOS_PATHS: string[][] = [
   ["extensions", "get"],
   ["extensions", "activate"],
   ["extensions", "invoke"],
+  ["activateExtension"],
 ];
 
 class PackWorker {
@@ -456,7 +487,10 @@ class PackWorker {
     }
     try {
       let result;
-      if (d.path[0] === "extensions" && d.path[1] === "activate") {
+      if (d.path[0] === "activateExtension") {
+        const api = await this.#takos.activateExtension(d.args[0] as string);
+        result = Object.keys(api as Record<string, unknown>);
+      } else if (d.path[0] === "extensions" && d.path[1] === "activate") {
         const api = await this.#takos.activateExtension(d.args[0] as string);
         result = Object.keys(api as Record<string, unknown>);
       } else if (d.path[0] === "extensions" && d.path[1] === "invoke") {

@@ -95,6 +95,34 @@ Deno.test("extensions API activation", async () => {
   delete (globalThis as Record<string, unknown>).takos;
 });
 
+Deno.test("activateExtension from worker", async () => {
+  const lib = {
+    manifest: JSON.stringify({
+      name: "lib2",
+      identifier: "com.example.lib2",
+      version: "0.1.0",
+      icon: "./icon.png",
+      exports: { server: ["mul"] },
+    }),
+    server: `export function mul(a,b){return a*b;}`,
+  };
+  const user = {
+    manifest: JSON.stringify({
+      name: "user",
+      identifier: "com.example.user",
+      version: "0.1.0",
+      icon: "./icon.png",
+    }),
+    server:
+      `export async function run(){ const api = await globalThis.takos.activateExtension('com.example.lib2'); return await api.mul(2,3); }`,
+  };
+  const takopack = new TakoPack([lib, user]);
+  await takopack.init();
+  const res = await takopack.callServer("com.example.user", "run");
+  assertEquals(res, 6);
+  delete (globalThis as Record<string, unknown>).takos;
+});
+
 Deno.test("callServer throws on undefined event", async () => {
   const pack = {
     manifest: JSON.stringify({
