@@ -1,6 +1,5 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import { TakoPack } from "./mod.ts";
-
 
 Deno.test("load takopack and call server function", async () => {
   const pack = {
@@ -24,9 +23,7 @@ Deno.test("load takopack and call server function", async () => {
   delete (globalThis as Record<string, unknown>).takos;
 });
 
-
 Deno.test("override takos APIs via options", async () => {
-
   const pack = {
     manifest: JSON.stringify({
       name: "test2",
@@ -47,10 +44,7 @@ Deno.test("override takos APIs via options", async () => {
   delete (globalThis as Record<string, unknown>).takos;
 });
 
-
 Deno.test("override new event APIs", async () => {
-
-
   const pack = {
     manifest: JSON.stringify({
       name: "test3",
@@ -80,7 +74,7 @@ Deno.test("override new event APIs", async () => {
 Deno.test("extensions API activation", async () => {
   const pack = {
     manifest: JSON.stringify({
-      name: "lib", 
+      name: "lib",
       identifier: "com.example.lib",
       version: "0.1.0",
       icon: "./icon.png",
@@ -93,10 +87,33 @@ Deno.test("extensions API activation", async () => {
   const ext = (globalThis as any).takos.extensions.get("com.example.lib");
   assert(ext);
   const api = await ext.activate();
-  const res = await (api as any).add(1,2);
+  const res = await (api as any).add(1, 2);
   assertEquals(res, 3);
   const all = (globalThis as any).takos.extensions.all;
   assert(Array.isArray(all));
   assertEquals(all.length, 1);
+  delete (globalThis as Record<string, unknown>).takos;
+});
+
+Deno.test("callServer throws on undefined event", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "test4",
+      identifier: "com.example.test4",
+      version: "0.1.0",
+      icon: "./icon.png",
+      eventDefinitions: {
+        defined: { source: "ui", handler: "defined" },
+      },
+    }),
+    server: `export function defined(){ return 1; }`,
+  };
+  const takopack = new TakoPack([pack]);
+  await takopack.init();
+  await assertRejects(
+    () => takopack.callServer("com.example.test4", "other"),
+    Error,
+    "manifest.eventDefinitions",
+  );
   delete (globalThis as Record<string, unknown>).takos;
 });

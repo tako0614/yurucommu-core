@@ -599,6 +599,14 @@ export class TakoPack {
     if (!pack.serverWorker) {
       throw new Error(`server not loaded for ${identifier}`);
     }
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, unknown>
+      | undefined;
+    if (defs && !(fnName in defs)) {
+      throw new Error(
+        `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
+      );
+    }
     return await pack.serverWorker.call(fnName, args);
   }
 
