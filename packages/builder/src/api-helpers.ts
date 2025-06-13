@@ -1,6 +1,6 @@
 /**
  * Takos API Helpers
- * 
+ *
  * 型安全なglobalThis.takosアクセスと共通ユーティリティ関数
  */
 
@@ -16,6 +16,7 @@ export interface TakosEventsAPI {
   publish<T = unknown>(
     eventName: string,
     payload: T,
+    options?: { push?: boolean },
   ): Promise<[number, unknown] | void>;
   subscribe<T = unknown>(eventName: string, handler: (payload: T) => void): () => void;
 }
@@ -99,7 +100,11 @@ export function getTakosUIAPI(): TakosUIAPI | undefined {
  * 汎用的なTakos APIアクセス（型推論が制限される）
  */
 export function getTakosAPI(): TakosServerAPI | TakosClientAPI | TakosUIAPI | undefined {
-  return (globalThis as Record<string, unknown>).takos as TakosServerAPI | TakosClientAPI | TakosUIAPI | undefined;
+  return (globalThis as Record<string, unknown>).takos as
+    | TakosServerAPI
+    | TakosClientAPI
+    | TakosUIAPI
+    | undefined;
 }
 
 // 便利なヘルパー関数
@@ -109,15 +114,14 @@ export function getTakosAPI(): TakosServerAPI | TakosClientAPI | TakosUIAPI | un
 export async function publishEvent<T = unknown>(
   eventName: string,
   payload: T,
-  context: 'server' | 'client' | 'ui' = 'client',
+  context: "server" | "client" | "ui" = "client",
   options?: { push?: boolean },
 ): Promise<void> {
-  const api =
-    context === 'server'
-      ? getTakosServerAPI()
-      : context === 'client'
-      ? getTakosClientAPI()
-      : getTakosUIAPI();
+  const api = context === "server"
+    ? getTakosServerAPI()
+    : context === "client"
+    ? getTakosClientAPI()
+    : getTakosUIAPI();
   if (!api?.events) {
     console.warn(`Takos API not available in ${context} context`);
     return;
@@ -133,13 +137,13 @@ export async function kvRead(key: string): Promise<unknown> {
   if (serverAPI?.kv) {
     return await serverAPI.kv.read(key);
   }
-  
+
   const clientAPI = getTakosClientAPI();
   if (clientAPI?.kv) {
     return await clientAPI.kv.read(key);
   }
-  
-  console.warn('KV API not available in this context');
+
+  console.warn("KV API not available in this context");
   return undefined;
 }
 
@@ -149,55 +153,55 @@ export async function kvWrite(key: string, value: unknown): Promise<void> {
     await serverAPI.kv.write(key, value);
     return;
   }
-  
+
   const clientAPI = getTakosClientAPI();
   if (clientAPI?.kv) {
     await clientAPI.kv.write(key, value);
     return;
   }
-  
-  console.warn('KV API not available in this context');
+
+  console.warn("KV API not available in this context");
 }
 
 /**
  * ActivityPubアクションを安全に実行する
  */
 export async function sendActivityPub(
-  userId: string, 
-  activity: Record<string, unknown>
+  userId: string,
+  activity: Record<string, unknown>,
 ): Promise<void> {
   const api = getTakosServerAPI();
   if (!api?.activitypub) {
-    console.warn('ActivityPub API not available in this context (server only)');
+    console.warn("ActivityPub API not available in this context (server only)");
     return;
   }
-  
+
   await api.activitypub.send(userId, activity);
 }
 
 // 型ガード関数
 export function isServerContext(api: unknown): api is TakosServerAPI {
-  return api !== null && 
-         typeof api === 'object' && 
-         'kv' in api && 
-         'activitypub' in api && 
-         'cdn' in api &&
-         'events' in api &&
-         'fetch' in api;
+  return api !== null &&
+    typeof api === "object" &&
+    "kv" in api &&
+    "activitypub" in api &&
+    "cdn" in api &&
+    "events" in api &&
+    "fetch" in api;
 }
 
 export function isClientContext(api: unknown): api is TakosClientAPI {
-  return api !== null && 
-         typeof api === 'object' && 
-         'kv' in api && 
-         'cdn' in api &&
-         'events' in api &&
-         'fetch' in api;
+  return api !== null &&
+    typeof api === "object" &&
+    "kv" in api &&
+    "cdn" in api &&
+    "events" in api &&
+    "fetch" in api;
 }
 
 export function isUIContext(api: unknown): api is TakosUIAPI {
-  return api !== null && 
-         typeof api === 'object' && 
-         'events' in api &&
-         !('kv' in api);
+  return api !== null &&
+    typeof api === "object" &&
+    "events" in api &&
+    !("kv" in api);
 }

@@ -24,7 +24,7 @@ export type Permission =
   | "deno:sys"
   | "deno:ffi"
   | "extensions:invoke"
-  | "extensions:export"
+  | "extensions:export";
 
 /**
  * AST解析結果
@@ -384,6 +384,7 @@ export interface TakosEventsAPI {
   publish(
     eventName: string,
     payload: SerializableValue,
+    options?: { push?: boolean },
   ): Promise<[200 | 400 | 500, SerializableObject] | void>;
   subscribe<T = SerializableValue>(
     eventName: string,
