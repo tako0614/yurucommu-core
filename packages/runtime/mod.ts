@@ -62,7 +62,9 @@ export interface Extension {
   identifier: string;
   version: string;
   readonly isActive: boolean;
-  activate(): Promise<unknown>;
+  activate(): Promise<{
+    publish(name: string, payload?: unknown): Promise<unknown>;
+  }>;
 }
 
 export interface TakosExtensions {
@@ -557,7 +559,9 @@ interface LoadedPack {
   ui?: string;
   serverWorker?: PackWorker;
   clientWorker?: PackWorker;
-  activated?: Record<string, unknown>;
+  activated?: Record<string, unknown> & {
+    publish: (name: string, payload?: unknown) => Promise<unknown>;
+  };
 }
 
 class RuntimeExtension implements Extension {
@@ -574,17 +578,27 @@ class RuntimeExtension implements Extension {
   get isActive() {
     return !!this.#pack.activated;
   }
-  async activate(): Promise<unknown> {
+  async activate(): Promise<{
+    publish(name: string, payload?: unknown): Promise<unknown>;
+  }> {
     if (this.#pack.activated) return this.#pack.activated;
     const exportsList =
       Array.isArray((this.#pack.manifest as any)?.exports?.server)
         ? (this.#pack.manifest as any).exports.server as string[]
         : [];
     if (!this.#pack.serverWorker) {
-      this.#pack.activated = {};
-      return this.#pack.activated;
+      const api: { publish: (name: string, payload?: unknown) => Promise<unknown> } = {
+        publish: async () => undefined,
+      };
+      this.#pack.activated = api;
+      return api;
     }
-    const api: Record<string, unknown> = {};
+    const api: Record<string, unknown> & {
+      publish: (name: string, payload?: unknown) => Promise<unknown>;
+    } = {
+      publish: (name: string, payload?: unknown) =>
+        this.#pack.serverWorker!.call(name, [payload]),
+    };
     for (const fn of exportsList) {
       api[fn] = (...args: unknown[]) => this.#pack.serverWorker!.call(fn, args);
     }

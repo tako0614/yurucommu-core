@@ -87,7 +87,7 @@ Deno.test("extensions API activation", async () => {
   const ext = (globalThis as any).takos.extensions.get("com.example.lib");
   assert(ext);
   const api = await ext.activate();
-  const res = await (api as any).add(1, 2);
+  const res = await (api as any).publish("add", [1, 2]);
   assertEquals(res, 3);
   const all = (globalThis as any).takos.extensions.all;
   assert(Array.isArray(all));
@@ -114,7 +114,7 @@ Deno.test("activateExtension from worker", async () => {
       icon: "./icon.png",
     }),
     server:
-      `export async function run(){ const api = await globalThis.takos.activateExtension('com.example.lib2'); return await api.mul(2,3); }`,
+      `export async function run(){ const api = await globalThis.takos.activateExtension('com.example.lib2'); return await api.publish('mul', [2,3]); }`,
   };
   const takopack = new TakoPack([lib, user]);
   await takopack.init();
