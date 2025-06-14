@@ -221,6 +221,7 @@ self.onmessage = async (e) => {
   if (d.type === 'init') {
     allowedPerms = d.allowedPermissions || {};
     globalThis.takos = createTakos(d.takosPaths, d.extensions || []);
+    globalThis.fetch = (...args) => globalThis.takos.fetch(...args);
     const url = URL.createObjectURL(new Blob([d.code], { type: 'application/javascript' }));
     mod = await import(url);
     self.postMessage({ type: 'ready' });
