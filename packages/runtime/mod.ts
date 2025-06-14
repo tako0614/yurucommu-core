@@ -316,12 +316,14 @@ export class Takos {
     delete: async (_key: string) => {},
     list: async () => [] as string[],
   };
-  events = {
+  events: TakosEvents = {
     publish: async (
       _name: string,
       _payload: unknown,
       _options?: { push?: boolean },
-    ) => {},
+    ): Promise<unknown> => {
+      return undefined;
+    },
     subscribe: (
       _name: string,
       _handler: (payload: unknown) => void,
