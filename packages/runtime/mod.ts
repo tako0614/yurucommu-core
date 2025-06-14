@@ -743,6 +743,16 @@ export class TakoPack {
     }
   }
 
+  setClientPublish(
+    fn: (
+      name: string,
+      payload: unknown,
+      options?: { push?: boolean },
+    ) => Promise<unknown>,
+  ): void {
+    this.clientTakos.events.publish = fn;
+  }
+
   async callServer(
     identifier: string,
     fnName: string,
