@@ -91,6 +91,7 @@ ApiServer.onRunServerTests = async (): Promise<
     if (api) {
       // deno-lint-ignore no-explicit-any
       const res = await (api as any).publish("ping");
+      console.log("Extension ping response:", res);
     }
     results.extensions = takos?.extensions.all.length ?? 0;
   } catch (e) {
