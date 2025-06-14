@@ -533,10 +533,14 @@ class PackWorker {
       }
       if (d.path[0] === "fetch") {
         const arr = new Uint8Array(await (result as Response).arrayBuffer());
+        const headersArr: [string, string][] = [];
+        (result as Response).headers.forEach((value, key) => {
+          headersArr.push([key, value]);
+        });
         result = {
           status: (result as Response).status,
           statusText: (result as Response).statusText,
-          headers: Array.from((result as Response).headers),
+          headers: headersArr,
           body: arr,
         };
       } else if (d.path[0] === "extensions" && d.path[1] === "get") {
