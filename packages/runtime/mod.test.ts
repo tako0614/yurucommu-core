@@ -202,3 +202,31 @@ Deno.test("callServer guesses handler name when eventDefinitions missing", async
   assertEquals(result, 77);
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("extensions API handles methods on exported objects", async () => {
+  const lib = {
+    manifest: JSON.stringify({
+      name: "libobj",
+      identifier: "com.example.libobj",
+      version: "0.1.0",
+      icon: "./icon.png",
+      exports: { server: ["ping"] },
+    }),
+    server: `export const ApiServer = {}; ApiServer.ping = () => 'pong';`,
+  };
+  const user = {
+    manifest: JSON.stringify({
+      name: "userobj",
+      identifier: "com.example.userobj",
+      version: "0.1.0",
+      icon: "./icon.png",
+    }),
+    server:
+      `export async function call(){ const api = await globalThis.takos.activateExtension('com.example.libobj'); return await api.publish('ping'); }`,
+  };
+  const takopack = new TakoPack([lib, user]);
+  await takopack.init();
+  const res = await takopack.callServer("com.example.userobj", "call");
+  assertEquals(res, "pong");
+  delete (globalThis as Record<string, unknown>).takos;
+});
