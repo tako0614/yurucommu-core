@@ -192,6 +192,12 @@ function createTakos(paths, exts = []) {
     let transform = null;
     if (p[0] === 'extensions' && p[1] === 'get') {
       transform = (d) => (d ? createExtension(d) : undefined);
+    } else if (p[0] === 'fetch') {
+      transform = (d) =>
+        new Response(
+          d.body ? new Uint8Array(d.body) : undefined,
+          { status: d.status, statusText: d.statusText, headers: d.headers },
+        );
     }
     setPath(
       t,
@@ -221,6 +227,7 @@ self.onmessage = async (e) => {
   if (d.type === 'init') {
     allowedPerms = d.allowedPermissions || {};
     globalThis.takos = createTakos(d.takosPaths, d.extensions || []);
+    globalThis.fetch = (...args) => globalThis.takos.fetch(...args);
     const url = URL.createObjectURL(new Blob([d.code], { type: 'application/javascript' }));
     mod = await import(url);
     self.postMessage({ type: 'ready' });
@@ -522,7 +529,15 @@ class PackWorker {
           result = target;
         }
       }
-      if (d.path[0] === "extensions" && d.path[1] === "get") {
+      if (d.path[0] === "fetch") {
+        const arr = new Uint8Array(await (result as Response).arrayBuffer());
+        result = {
+          status: (result as Response).status,
+          statusText: (result as Response).statusText,
+          headers: Array.from((result as Response).headers.entries()),
+          body: arr,
+        };
+      } else if (d.path[0] === "extensions" && d.path[1] === "get") {
         result = result
           ? {
             identifier: (result as any).identifier,

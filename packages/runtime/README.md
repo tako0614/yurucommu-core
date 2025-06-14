@@ -33,6 +33,10 @@ passes them to the worker. Client code is executed in a plain Web Worker without
 any Deno namespace, while UI code is intended to be embedded in a sandboxed
 `<iframe>`.
 
+For convenience the worker's global `fetch()` is automatically mapped to
+`takos.fetch()`. This allows network requests from extension code without
+granting the `deno:net` permission to the sandboxed worker.
+
 
 The implementation is intentionally minimal and focuses on server-side
 execution. The `takos` object exposes stub implementations of the APIs described

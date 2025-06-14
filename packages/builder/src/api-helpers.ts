@@ -57,7 +57,7 @@ export interface TakosActivityPubAPI {
 // コンテキスト別API定義
 export interface TakosServerAPI {
   kv: TakosKVAPI;
-  activitypub: TakosActivityPubAPI;
+  ap: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
