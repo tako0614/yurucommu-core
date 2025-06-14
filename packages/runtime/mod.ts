@@ -288,7 +288,9 @@ export class Takos {
   }
   activateExtension(
     id: string,
-  ): Promise<{ publish(name: string, payload?: unknown): Promise<unknown> } | undefined> {
+  ): Promise<
+    { publish(name: string, payload?: unknown): Promise<unknown> } | undefined
+  > {
     const ext = this.extProvider?.get(id);
     return ext ? ext.activate() : Promise.resolve(undefined);
   }
@@ -589,20 +591,50 @@ class RuntimeExtension implements Extension {
         ? (this.#pack.manifest as any).exports.server as string[]
         : [];
     if (!this.#pack.serverWorker) {
-      const api: { publish: (name: string, payload?: unknown) => Promise<unknown> } = {
+      const api: {
+        publish: (name: string, payload?: unknown) => Promise<unknown>;
+      } = {
         publish: async () => undefined,
       };
       this.#pack.activated = api;
       return api;
     }
+    const callWithFallback = async (
+      fn: string,
+      args: unknown[],
+    ): Promise<unknown> => {
+      try {
+        return await this.#pack.serverWorker!.call(fn, args);
+      } catch (err) {
+        if (
+          err instanceof Error && err.message.includes("function not found")
+        ) {
+          const m = err.message.match(/available: ([^)]*)/);
+          if (m) {
+            const prefixes = m[1].split(/,\s*/);
+            for (const prefix of prefixes) {
+              try {
+                return await this.#pack.serverWorker!.call(
+                  `${prefix}.${fn}`,
+                  args,
+                );
+              } catch {
+                // try next prefix
+              }
+            }
+          }
+        }
+        throw err;
+      }
+    };
     const api: Record<string, unknown> & {
       publish: (name: string, payload?: unknown) => Promise<unknown>;
     } = {
       publish: (name: string, payload?: unknown) =>
-        this.#pack.serverWorker!.call(name, [payload]),
+        callWithFallback(name, [payload]),
     };
     for (const fn of exportsList) {
-      api[fn] = (...args: unknown[]) => this.#pack.serverWorker!.call(fn, args);
+      api[fn] = (...args: unknown[]) => callWithFallback(fn, args);
     }
     this.#pack.activated = api;
     return api;
