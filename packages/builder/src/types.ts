@@ -368,6 +368,20 @@ export interface TakosActivityPubAPI {
   pluginActor: TakosActivityPubPluginActorAPI;
 }
 
+export interface Extension {
+  identifier: string;
+  version: string;
+  isActive: boolean;
+  activate(): Promise<{
+    publish(name: string, payload?: SerializableValue): Promise<SerializableValue>;
+  }>;
+}
+
+export interface TakosExtensionsAPI {
+  get(identifier: string): Extension | undefined;
+  readonly all: Extension[];
+}
+
 export interface TakosCdnAPI {
   read(path: string): Promise<string>;
   write(
@@ -403,14 +417,32 @@ export interface TakosAPI {
 
 export interface TakosServerAPI extends TakosAPI {
   events: TakosEventsAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<
+    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+  >;
 }
 
 export interface TakosClientAPI extends TakosAPI {
   events: TakosEventsAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<
+    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+  >;
 }
 
 export interface TakosUIAPI {
   events: TakosEventsAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<
+    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+  >;
   // UI環境では一部のAPIは制限される
 }
 
