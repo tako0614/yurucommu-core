@@ -536,7 +536,7 @@ class PackWorker {
         result = {
           status: (result as Response).status,
           statusText: (result as Response).statusText,
-          headers: Array.from((result as Response).headers.entries()),
+          headers: Array.from((result as Response).headers),
           body: arr,
         };
       } else if (d.path[0] === "extensions" && d.path[1] === "get") {

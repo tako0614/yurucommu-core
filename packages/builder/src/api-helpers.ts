@@ -75,6 +75,7 @@ export interface TakosExtensionsAPI {
 // コンテキスト別API定義
 export interface TakosServerAPI {
   kv: TakosKVAPI;
+  activitypub: TakosActivityPubAPI;
   ap: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   events: TakosEventsAPI;
@@ -87,6 +88,7 @@ export interface TakosServerAPI {
 
 export interface TakosClientAPI {
   kv: TakosKVAPI;
+  activitypub: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   extensions: TakosExtensionsAPI;
@@ -98,6 +100,7 @@ export interface TakosClientAPI {
 
 export interface TakosUIAPI {
   events: TakosEventsAPI;
+  activitypub: TakosActivityPubAPI;
   extensions: TakosExtensionsAPI;
   activateExtension(
     identifier: string,
