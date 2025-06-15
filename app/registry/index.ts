@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { dirname, fromFileUrl, join } from "@std/path";
+import { ensureDir } from "@std/fs";
 import mongoose from "mongoose";
 import { sendEmail } from "./sendMail.ts";
 import { load } from "jsr:@std/dotenv";
@@ -87,6 +88,7 @@ app.use("/api/domains/*", auth);
 app.use("/api/domains", auth);
 
 const rootDir = env["REGISTRY_DIR"] ?? "./registry";
+await ensureDir(rootDir);
 const uiDir = join(
   dirname(fromFileUrl(import.meta.url)),
   "public",
