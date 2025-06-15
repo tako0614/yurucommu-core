@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { dirname, fromFileUrl, join } from "@std/path";
 import mongoose from "mongoose";
+import { SmtpClient } from "https://deno.land/x/smtp/mod.ts";
 
 interface UserDoc extends mongoose.Document {
   email: string;
@@ -141,10 +142,30 @@ function contentType(path: string): string {
   return "application/octet-stream";
 }
 
-function sendVerificationEmail(email: string, token: string): void {
+async function sendVerificationEmail(email: string, token: string): Promise<void> {
   const base = Deno.env.get("VERIFY_BASE_URL") ?? "http://localhost:8080";
   const url = `${base}/api/verify/${token}`;
-  console.log(`Verify ${email}: ${url}`);
+  const host = Deno.env.get("SMTP_HOST");
+  const from = Deno.env.get("SMTP_FROM");
+  const username = Deno.env.get("SMTP_USER");
+  const password = Deno.env.get("SMTP_PASS");
+  const port = Number(Deno.env.get("SMTP_PORT") ?? "465");
+  if (!host || !from || !username || !password) {
+    console.log(`Verify ${email}: ${url}`);
+    return;
+  }
+  const client = new SmtpClient();
+  try {
+    await client.connectTLS({ hostname: host, port, username, password });
+    await client.send({
+      from,
+      to: email,
+      subject: "Takopack account verification",
+      content: `Please verify your account by visiting ${url}`,
+    });
+  } finally {
+    await client.close();
+  }
 }
 
 app.post("/api/register", async (c) => {
