@@ -37,7 +37,7 @@ export default function DomainSection() {
           domain: domainInput.value,
         },
       );
-      setToken(`認証トークン: ${data.token}`);
+      setToken(`認証トークン: takopack-verify=${data.token}`);
       domainInput.value = "";
       setShowAddModal(false);
       await refresh();
@@ -66,7 +66,7 @@ export default function DomainSection() {
       const data = await req<{ token: string }>(
         `/api/domains/${encodeURIComponent(name)}/token`,
       );
-      setToken(`認証トークン: ${data.token}`);
+      setToken(`認証トークン: takopack-verify=${data.token}`);
     } catch (error) {
       console.error("Failed to fetch token:", error);
     } finally {
