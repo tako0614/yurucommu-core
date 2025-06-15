@@ -8,7 +8,7 @@ const env = await load();
 
 await mongoose.connect(env["MONGO_URI"])
   .then(() => console.log("Connected to MongoDB"))
-  .catch((err: any) => console.error("MongoDB connection error:", err));
+  .catch((err: Error) => console.error("MongoDB connection error:", err));
 
 // WebSocketマネージャーを初期化（静的インスタンスとして初期化されます）
 WebSocketManager.getInstance();

@@ -3,7 +3,7 @@ import { useAtom } from "solid-jotai";
 import { loginState } from "./states/session.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { Aplication } from "./components/Aplication.tsx";
-import { WebSocketProvider, WebSocketStatus, EventDebugPanel } from "./components/WebSocketProvider.tsx";
+import { WebSocketProvider } from "./components/WebSocketProvider.tsx";
 import "./App.css";
 import "./stylesheet.css";
 

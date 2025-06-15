@@ -1,223 +1,298 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { TakosWebSocketClient, initWebSocketClient, getWebSocketClient } from '../utils/websocket.ts';
+import { createSignal, createEffect, onCleanup, Accessor } from 'solid-js';
+// Ensure your import path is correct for your project structure.
+// Typically, you wouldn't include the .ts extension in the import path.
+import { TakosWebSocketClient, initWebSocketClient, getWebSocketClient } from './websocket.ts';
 
 export interface UseWebSocketOptions {
-  url?: string;
-  token?: string;
-  autoConnect?: boolean;
-  subscriptions?: string[];
+    url?: string | Accessor<string | undefined>;
+    token?: string | Accessor<string | undefined>;
+    autoConnect?: boolean | Accessor<boolean | undefined>;
+    subscriptions?: string[] | Accessor<string[] | undefined>;
 }
 
 export interface WebSocketState {
-  isConnected: boolean;
-  connectionState: string;
-  error: string | null;
-  lastMessage: any;
+    isConnected: boolean;
+    connectionState: string;
+    error: string | null;
+    lastMessage: { eventName: string; payload: unknown } | null; // More specific type
 }
 
-export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const {
-    url = `ws://${window.location.hostname}:3001/ws/events`,
-    token,
-    autoConnect = true,
-    subscriptions = []
-  } = options;
-
-  const [state, setState] = useState<WebSocketState>({
-    isConnected: false,
-    connectionState: 'DISCONNECTED',
-    error: null,
-    lastMessage: null
-  });
-
-  const clientRef = useRef<TakosWebSocketClient | null>(null);
-  const eventHandlersRef = useRef(new Map<string, Set<(payload: unknown) => void>>());
-
-  // WebSocketクライアントの初期化
-  useEffect(() => {
-    if (autoConnect) {
-      connect();
+// Helper to resolve option values, which might be accessors
+const getOption = <T>(value: T | Accessor<T | undefined>, defaultValue?: T): T | undefined => {
+    if (typeof value === 'function' && value.length === 0) {
+        const accessor = value as Accessor<T | undefined>;
+        const result = accessor();
+        return result === undefined ? defaultValue : result;
     }
+    return value === undefined ? defaultValue : value as T;
+};
 
-    return () => {
-      disconnect();
-    };
-  }, [url, autoConnect]);
 
-  // トークンが変更された場合の再認証
-  useEffect(() => {
-    if (clientRef.current && clientRef.current.isConnected() && token) {
-      // 再接続して新しいトークンで認証
-      connect();
-    }
-  }, [token]);
-
-  // 購読の更新
-  useEffect(() => {
-    if (clientRef.current && subscriptions.length > 0) {
-      clientRef.current.subscribe(subscriptions);
-    }
-  }, [subscriptions]);
-
-  // 接続
-  const connect = useCallback(async () => {
-    try {
-      setState(prev => ({ ...prev, error: null }));
-      
-      if (!clientRef.current) {
-        clientRef.current = initWebSocketClient(url);
-      }
-
-      await clientRef.current.connect(token);
-      
-      // 状態更新のためのリスナーを設定
-      const updateState = () => {
-        if (clientRef.current) {
-          setState(prev => ({
-            ...prev,
-            isConnected: clientRef.current!.isConnected(),
-            connectionState: clientRef.current!.getConnectionState()
-          }));
-        }
-      };
-
-      // 定期的に状態を更新
-      const interval = setInterval(updateState, 1000);
-      
-      // クリーンアップ用にintervalを保存
-      (clientRef.current as any)._stateInterval = interval;
-
-      updateState();
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Connection failed',
+export function useWebSocket(optionsArg: UseWebSocketOptions = {}) {
+    const [state, setState] = createSignal<WebSocketState>({
         isConnected: false,
-        connectionState: 'DISCONNECTED'
-      }));
-    }
-  }, [url, token]);
-
-  // 切断
-  const disconnect = useCallback(() => {
-    if (clientRef.current) {
-      // 状態更新のintervalをクリア
-      if ((clientRef.current as any)._stateInterval) {
-        clearInterval((clientRef.current as any)._stateInterval);
-      }
-      
-      clientRef.current.disconnect();
-      clientRef.current = null;
-    }
-    
-    setState({
-      isConnected: false,
-      connectionState: 'DISCONNECTED',
-      error: null,
-      lastMessage: null
+        connectionState: 'DISCONNECTED',
+        error: null,
+        lastMessage: null,
     });
-  }, []);
 
-  // イベント購読
-  const subscribe = useCallback((events: string[]) => {
-    if (clientRef.current) {
-      clientRef.current.subscribe(events);
-    }
-  }, []);
+    const [getClient, setClient] = createSignal<TakosWebSocketClient | null>(null);
+    // Stores original handlers provided by the user
+    const eventHandlers = new Map<string, Set<(payload: unknown) => void>>();
+    // Stores wrapped handlers used for client.on/off to manage lastMessage update
+    const clientEventWrappers = new Map<string, Map<(payload: unknown) => void, (payload: unknown) => void>>();
+    let stateUpdateIntervalId: ReturnType<typeof setInterval> | undefined;
+    const connect = async () => {
+        const currentUrl = getOption(optionsArg.url, `ws://${globalThis.location?.hostname || 'localhost'}:3001/ws/events`)!;
+        const currentToken = getOption(optionsArg.token);
 
-  // イベント購読解除
-  const unsubscribe = useCallback((events: string[]) => {
-    if (clientRef.current) {
-      clientRef.current.unsubscribe(events);
-    }
-  }, []);
+        setState(prev => ({ ...prev, error: null, connectionState: 'CONNECTING' }));
 
-  // イベントハンドラーの追加
-  const on = useCallback((eventName: string, handler: (payload: unknown) => void) => {
-    if (clientRef.current) {
-      clientRef.current.on(eventName, (payload) => {
-        setState(prev => ({ ...prev, lastMessage: { eventName, payload } }));
-        handler(payload);
-      });
-    }
+        if (stateUpdateIntervalId) {
+            clearInterval(stateUpdateIntervalId);
+            stateUpdateIntervalId = undefined;
+        }
 
-    // ローカルの管理用
-    if (!eventHandlersRef.current.has(eventName)) {
-      eventHandlersRef.current.set(eventName, new Set());
-    }
-    eventHandlersRef.current.get(eventName)!.add(handler);
-  }, []);
+        let client = getClient();
+        let isNewClientInstance = false;        // If client exists but URL changed, re-initialize
+        if (client) {
+            // For now, we always recreate the client when reconnecting
+            // In production, you might want to check if URL actually changed
+            client.disconnect();
+            setClient(null);
+            client = null;
+        }        if (!client) {
+            client = initWebSocketClient(currentUrl);
+            setClient(client);
+            isNewClientInstance = true;
+        }
+        
+        try {
+            await client.connect(currentToken);
 
-  // イベントハンドラーの削除
-  const off = useCallback((eventName: string, handler: (payload: unknown) => void) => {
-    if (clientRef.current) {
-      clientRef.current.off(eventName, handler);
-    }
+            if (isNewClientInstance) {
+                // Re-apply stored event handlers to the new client instance
+                for (const [eventName, handlerMap] of clientEventWrappers) {
+                    for (const wrappedHandler of handlerMap.values()) {
+                        // Note: original handler is key in handlerMap, wrappedHandler is value
+                        client.on(eventName, wrappedHandler);
+                    }
+                }
+            }
+            
+            const updateState = () => {
+                const c = getClient();
+                if (c) {
+                    setState(prev => ({
+                        ...prev,
+                        isConnected: c.isConnected(),
+                        connectionState: c.getConnectionState(),
+                    }));
+                }
+            };
+            stateUpdateIntervalId = setInterval(updateState, 1000);
+            updateState(); // Initial update
 
-    const handlers = eventHandlersRef.current.get(eventName);
-    if (handlers) {
-      handlers.delete(handler);
-      if (handlers.size === 0) {
-        eventHandlersRef.current.delete(eventName);
-      }
-    }
-  }, []);
+            const currentSubscriptions = getOption(optionsArg.subscriptions, []);
+            if (client.isConnected() && currentSubscriptions && currentSubscriptions.length > 0) {
+                client.subscribe(currentSubscriptions);
+            }
+            if (client.isConnected()) {
+                 setState(prev => ({ ...prev, connectionState: client!.getConnectionState(), isConnected: true, error: null }));
+            }
 
-  return {
-    ...state,
-    connect,
-    disconnect,
-    subscribe,
-    unsubscribe,
-    on,
-    off,
-    client: clientRef.current
-  };
+        } catch (error) {
+            setState(prev => ({
+                ...prev,
+                error: error instanceof Error ? error.message : 'Connection failed',
+                isConnected: false,
+                connectionState: 'DISCONNECTED',
+            }));
+        }
+    };
+
+    const disconnect = () => {
+        if (stateUpdateIntervalId) {
+            clearInterval(stateUpdateIntervalId);
+            stateUpdateIntervalId = undefined;
+        }
+        const client = getClient();
+        if (client) {
+            client.disconnect();
+            setClient(null);
+        }
+        setState({
+            isConnected: false,
+            connectionState: 'DISCONNECTED',
+            error: null,
+            lastMessage: null,
+        });
+    };
+
+    createEffect(() => {
+        const shouldConnect = getOption(optionsArg.autoConnect, true);
+        getOption(optionsArg.url); // Track URL for changes
+
+        if (shouldConnect) {
+            connect();
+        }
+        onCleanup(() => {
+            disconnect();
+        });
+    });
+
+    createEffect(() => {
+        const currentToken = getOption(optionsArg.token);
+        const client = getClient();
+        if (client && client.isConnected() && currentToken !== undefined) {
+            // Assuming connect() handles re-authentication if called with a new token
+            connect();
+        }
+    });
+
+    createEffect(() => {
+        const currentSubscriptions = getOption(optionsArg.subscriptions, []);
+        const client = getClient();
+        if (client && state().isConnected && currentSubscriptions && currentSubscriptions.length > 0) {
+            client.subscribe(currentSubscriptions);
+        }
+    });
+
+    const on = (eventName: string, handler: (payload: unknown) => void) => {
+        const wrappedClientHandler = (payload: unknown) => {
+                setState(prev => ({ ...prev, lastMessage: { eventName, payload } }));
+                handler(payload);
+        };
+
+        const client = getClient();
+        if (client) {
+                client.on(eventName, wrappedClientHandler);
+        }
+
+        if (!eventHandlers.has(eventName)) {
+                eventHandlers.set(eventName, new Set());
+                clientEventWrappers.set(eventName, new Map());
+        }
+        eventHandlers.get(eventName)!.add(handler);
+        clientEventWrappers.get(eventName)!.set(handler, wrappedClientHandler);
+    };
+
+    const off = (eventName: string, handler: (payload: unknown) => void) => {
+        const client = getClient();
+        const wrappedHandler = clientEventWrappers.get(eventName)?.get(handler);
+
+        if (client && wrappedHandler) {
+                client.off(eventName, wrappedHandler);
+        }
+
+        const handlersSet = eventHandlers.get(eventName);
+        if (handlersSet) {
+                handlersSet.delete(handler);
+                clientEventWrappers.get(eventName)?.delete(handler);
+                if (handlersSet.size === 0) {
+                        eventHandlers.delete(eventName);
+                        clientEventWrappers.delete(eventName);
+                }
+        }
+    };
+
+    const subscribe = (events: string[]) => {
+        const client = getClient();
+        if (client && state().isConnected) {
+            client.subscribe(events);
+        }
+    };
+
+    const unsubscribe = (events: string[]) => {
+        const client = getClient();
+        if (client && state().isConnected) {
+            client.unsubscribe(events);
+        }
+    };
+
+    return {
+        isConnected: () => state().isConnected,
+        connectionState: () => state().connectionState,
+        error: () => state().error,
+        lastMessage: () => state().lastMessage,
+        connect,
+        disconnect,
+        subscribe,
+        unsubscribe,
+        on,
+        off,
+        client: getClient, // Exposes the client signal getter
+    };
 }
 
-// WebSocketイベントを監視するフック
 export function useWebSocketEvent<T = unknown>(
-  eventName: string,
-  handler: (payload: T) => void,
-  deps: any[] = []
+    eventName: string | Accessor<string>,
+    handler: (payload: T) => void,
+    customDeps: Accessor<unknown>[] = [] // Changed from any to unknown
 ) {
-  const { on, off, isConnected } = useWebSocket({ autoConnect: false });
+    // This hook creates its own WebSocket management instance.
+    // This is generally okay if `initWebSocketClient` is a singleton factory for a given URL,
+    // and `TakosWebSocketClient` allows multiple managers for its events.
+    // `autoConnect: false` means this hook relies on another `useWebSocket` call (e.g. global)
+    // to actually establish the connection.
+    const { on, off, isConnected } = useWebSocket({ autoConnect: false });
 
-  useEffect(() => {
-    if (isConnected) {
-      const wrappedHandler = (payload: unknown) => handler(payload as T);
-      on(eventName, wrappedHandler);
-      
-      return () => {
-        off(eventName, wrappedHandler);
-      };
-    }
-  }, [eventName, isConnected, ...deps]);
+    createEffect(() => {
+        const currentEventName = getOption(eventName)!; // eventName should always be provided
+        
+        // Track custom dependencies by accessing them
+        for (const dep of customDeps) {
+            dep();
+        }
+
+        if (isConnected()) {
+            const wrappedHandler = (payload: unknown) => handler(payload as T);
+            on(currentEventName, wrappedHandler);
+            
+            onCleanup(() => {
+                off(currentEventName, wrappedHandler);
+            });
+        }
+    });
 }
 
-// WebSocketの状態のみを監視するフック
-export function useWebSocketState() {
-  const client = getWebSocketClient();
-  const [state, setState] = useState<WebSocketState>({
-    isConnected: client?.isConnected() || false,
-    connectionState: client?.getConnectionState() || 'DISCONNECTED',
-    error: null,
-    lastMessage: null
-  });
+// Renamed to avoid conflict with the WebSocketState interface
+export function useWebSocketStateHook() {
+    const [state, setState] = createSignal<WebSocketState>({
+        isConnected: getWebSocketClient()?.isConnected() || false,
+        connectionState: getWebSocketClient()?.getConnectionState() || 'DISCONNECTED',
+        error: null,
+        lastMessage: null,
+    });
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (client) {
-        setState(prev => ({
-          ...prev,
-          isConnected: client.isConnected(),
-          connectionState: client.getConnectionState()
-        }));
-      }
-    }, 1000);
+    createEffect(() => {
+        const client = getWebSocketClient();
 
-    return () => clearInterval(interval);
-  }, [client]);
+        if (!client) {
+            setState({
+                isConnected: false,
+                connectionState: 'DISCONNECTED',
+                error: null,
+                lastMessage: null,
+            });
+            return;
+        }
 
-  return state;
+        const intervalId = setInterval(() => {
+            setState(prev => ({
+                ...prev,
+                isConnected: client.isConnected(),
+                connectionState: client.getConnectionState(),
+            }));
+        }, 1000);
+
+        onCleanup(() => clearInterval(intervalId));
+    });
+
+    return {
+        isConnected: () => state().isConnected,
+        connectionState: () => state().connectionState,
+        error: () => state().error,
+        lastMessage: () => state().lastMessage,
+    };
 }
