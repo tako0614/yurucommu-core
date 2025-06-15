@@ -8,6 +8,7 @@ export default function PackageSection() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [sortBy, setSortBy] = createSignal("name");
   const [isLoading, setIsLoading] = createSignal(false);
+  const [error, setError] = createSignal("");
   const [selectedPackage, setSelectedPackage] = createSignal<
     PackageInfo | null
   >(null);
@@ -49,11 +50,16 @@ export default function PackageSection() {
 
   const refresh = async () => {
     setIsLoading(true);
+    setError("");
     try {
       const data = await req<{ packages: PackageInfo[] }>("/_takopack/search");
       setPackages(data.packages);
     } catch (error) {
       console.error("Failed to fetch packages:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "パッケージ取得に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -61,6 +67,7 @@ export default function PackageSection() {
 
   const addPackage = async () => {
     setIsLoading(true);
+    setError("");
     try {
       if (!fileInput.files?.[0]) throw new Error("no file");
       const form = new FormData();
@@ -74,6 +81,10 @@ export default function PackageSection() {
       await refresh();
     } catch (error) {
       console.error("Failed to add package:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "パッケージ公開に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +113,25 @@ export default function PackageSection() {
         packageCount={filteredAndSortedPackages().length}
         isLoading={isLoading()}
       />
+
+      <Show when={error()}>
+        <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mt-4">
+          <div class="flex items-center space-x-2">
+            <svg
+              class="w-5 h-5 text-red-400"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <p class="text-red-300 text-sm">{error()}</p>
+          </div>
+        </div>
+      </Show>
 
       {/* メインコンテンツ */}
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

@@ -10,16 +10,22 @@ export default function DomainSection() {
   const [domains, setDomains] = createSignal<Domain[]>([]);
   const [token, setToken] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
+  const [error, setError] = createSignal("");
   const [showAddModal, setShowAddModal] = createSignal(false);
   let domainInput!: HTMLInputElement;
 
   const refresh = async () => {
     setIsLoading(true);
+    setError("");
     try {
       const data = await req<{ domains: Domain[] }>("/api/domains");
       setDomains(data.domains);
     } catch (error) {
       console.error("Failed to fetch domains:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "ドメイン取得に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -29,6 +35,7 @@ export default function DomainSection() {
     if (!domainInput.value.trim()) return;
 
     setIsLoading(true);
+    setError("");
     try {
       const data = await req<{ token: string }>(
         "/api/domains/request",
@@ -43,6 +50,10 @@ export default function DomainSection() {
       await refresh();
     } catch (error) {
       console.error("Failed to request domain:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "ドメイン登録に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -50,11 +61,16 @@ export default function DomainSection() {
 
   const verifyDomain = async (name: string) => {
     setIsLoading(true);
+    setError("");
     try {
       await req("/api/domains/verify", "POST", { domain: name });
       await refresh();
     } catch (error) {
       console.error("Failed to verify domain:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "ドメイン認証に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -62,6 +78,7 @@ export default function DomainSection() {
 
   const viewToken = async (name: string) => {
     setIsLoading(true);
+    setError("");
     try {
       const data = await req<{ token: string }>(
         `/api/domains/${encodeURIComponent(name)}/token`,
@@ -69,6 +86,10 @@ export default function DomainSection() {
       setToken(`認証トークン: takopack-verify=${data.token}`);
     } catch (error) {
       console.error("Failed to fetch token:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "トークン取得に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -77,11 +98,16 @@ export default function DomainSection() {
   const deleteDomain = async (name: string) => {
     if (!confirm(`${name} を削除しますか?`)) return;
     setIsLoading(true);
+    setError("");
     try {
       await req(`/api/domains/${encodeURIComponent(name)}`, "DELETE");
       await refresh();
     } catch (error) {
       console.error("Failed to delete domain:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "ドメイン削除に失敗しました";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -144,6 +170,26 @@ export default function DomainSection() {
           </button>
         </div>
       </div>
+
+      {/* エラーメッセージ */}
+      <Show when={error()}>
+        <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+          <div class="flex items-center space-x-2">
+            <svg
+              class="w-5 h-5 text-red-400"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <p class="text-red-300 text-sm">{error()}</p>
+          </div>
+        </div>
+      </Show>
 
       {/* 統計情報 */}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
