@@ -23,6 +23,6 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/_takopack/, '')
       }
     },
-    port: 3000,
+    port: 3001,
   }
 })

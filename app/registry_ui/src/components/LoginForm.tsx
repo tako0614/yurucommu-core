@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { req } from "../api";
+import { req } from "../api.ts";
 
 export default function LoginForm(props: { onAuthed: () => void }) {
   const [email, setEmail] = createSignal("");

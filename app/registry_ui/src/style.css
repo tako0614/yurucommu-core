@@ -1,7 +1,1 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-  @apply min-h-screen font-sans;
-}
+@import "tailwindcss";

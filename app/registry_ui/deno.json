@@ -16,6 +16,6 @@
   "compilerOptions": {
     "lib": ["esnext", "dom", "deno.ns"],
     "jsx": "react-jsx",
-    "jsxImportSource": "solid-js/jsx-runtime"
+    "jsxImportSource": "solid-js"
   }
 }

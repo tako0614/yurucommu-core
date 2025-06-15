@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
-import LoginForm from "./components/LoginForm";
-import DomainSection from "./components/DomainSection";
-import PackageSection from "./components/PackageSection";
+import LoginForm from "./components/LoginForm.tsx";
+import DomainSection from "./components/DomainSection.tsx";
+import PackageSection from "./components/PackageSection.tsx";
 
 export default function App() {
   const [authed, setAuthed] = createSignal(false);

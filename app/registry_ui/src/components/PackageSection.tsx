@@ -1,5 +1,5 @@
 import { createSignal, For } from "solid-js";
-import { req } from "../api";
+import { req } from "../api.ts";
 
 interface Pack {
   identifier: string;
