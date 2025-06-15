@@ -13,12 +13,7 @@ export default function PackageSection() {
   >(null);
   const [showPublishModal, setShowPublishModal] = createSignal(false);
   // フォーム用の参照
-  let idInput!: HTMLInputElement;
-  let nameInput!: HTMLInputElement;
-  let versionInput!: HTMLInputElement;
-  let descInput!: HTMLTextAreaElement;
-  let urlInput!: HTMLInputElement;
-  let shaInput!: HTMLInputElement;
+  let fileInput!: HTMLInputElement;
 
   const filteredAndSortedPackages = createMemo(() => {
     let filtered = packages();
@@ -67,22 +62,13 @@ export default function PackageSection() {
   const addPackage = async () => {
     setIsLoading(true);
     try {
-      await req("/api/packages", "POST", {
-        identifier: idInput.value,
-        name: nameInput.value,
-        version: versionInput.value,
-        description: descInput.value,
-        downloadUrl: urlInput.value,
-        sha256: shaInput.value || undefined,
-      });
+      if (!fileInput.files?.[0]) throw new Error("no file");
+      const form = new FormData();
+      form.append("file", fileInput.files[0]);
+      await req("/api/packages", "POST", form);
 
       // フォームをリセット
-      idInput.value = "";
-      nameInput.value = "";
-      versionInput.value = "";
-      descInput.value = "";
-      urlInput.value = "";
-      shaInput.value = "";
+      if (fileInput) fileInput.value = "";
 
       setShowPublishModal(false);
       await refresh();
@@ -345,71 +331,15 @@ export default function PackageSection() {
             </div>
 
             <div class="p-6 space-y-6">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">
-                    識別子
-                  </label>
-                  <input
-                    ref={idInput!}
-                    placeholder="com.example.package"
-                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">
-                    パッケージ名
-                  </label>
-                  <input
-                    ref={nameInput!}
-                    placeholder="My Package"
-                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
               <div>
                 <label class="block text-sm font-medium text-gray-300 mb-2">
-                  バージョン
+                  Takopack ファイル
                 </label>
                 <input
-                  ref={versionInput!}
-                  placeholder="1.0.0"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  説明
-                </label>
-                <textarea
-                  ref={descInput!}
-                  placeholder="パッケージの説明を入力してください..."
-                  rows={3}
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  ダウンロードURL
-                </label>
-                <input
-                  ref={urlInput!}
-                  placeholder="https://example.com/package.zip"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  SHA256ハッシュ（オプション）
-                </label>
-                <input
-                  ref={shaInput!}
-                  placeholder="ファイルのSHA256ハッシュ値"
-                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  type="file"
+                  ref={fileInput!}
+                  class="w-full text-gray-100"
+                  accept=".takopack"
                 />
               </div>
             </div>

@@ -4,6 +4,7 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import mongoose from "mongoose";
 import { sendEmail } from "./sendMail.ts";
 import { load } from "jsr:@std/dotenv";
+import { unpackTakoPack } from "../../packages/unpack/mod.ts";
 
 const env = await load();
 
@@ -448,11 +449,19 @@ app.get("/_takopack/search", async (c) => {
 app.post("/api/packages", auth, async (c) => {
   const userId = c.get("userId");
   try {
-    const body = await c.req.json();
-    const { identifier, name, version, description, downloadUrl, sha256 } =
-      body;
-    if (!identifier || !name || !version || !downloadUrl) {
-      return c.json({ error: "Bad request" }, 400);
+    const form = await c.req.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return c.json({ error: "File required" }, 400);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await unpackTakoPack(bytes);
+    const manifest = typeof result.manifest === "string"
+      ? JSON.parse(result.manifest)
+      : result.manifest;
+    const { identifier, name, version, description } = manifest;
+    if (!identifier || !name || !version) {
+      return c.json({ error: "Invalid manifest" }, 400);
     }
     const domain = identifierDomain(identifier);
     if (domain) {
@@ -465,6 +474,13 @@ app.post("/api/packages", auth, async (c) => {
         return c.json({ error: "Domain not verified" }, 400);
       }
     }
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const sha256 = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const filename = `${identifier}-${version}.takopack`;
+    await Deno.writeFile(join(rootDir, filename), bytes);
+    const downloadUrl = `/${filename}`;
     await Package.create({
       identifier,
       name,
@@ -474,7 +490,8 @@ app.post("/api/packages", auth, async (c) => {
       sha256,
     });
     return c.json({ ok: true });
-  } catch {
+  } catch (err) {
+    console.error("Failed to publish package", err);
     return c.json({ error: "Bad request" }, 400);
   }
 });
