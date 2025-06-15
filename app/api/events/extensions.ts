@@ -4,6 +4,7 @@ import { unpackTakoPack } from "../../../packages/unpack/mod.ts";
 import {
   fetchPackageInfo,
   downloadAndUnpack,
+  fetchRegistryIndex,
   searchRegistry,
 } from "../../../packages/registry/mod.ts";
 import { Extension } from "../models/extension.ts";
@@ -59,7 +60,13 @@ eventManager.add(
   async (c, { q, limit } = {}) => {
     const url = c.env.REGISTRY_URL;
     if (!url) throw new Error("REGISTRY_URL not configured");
-    const { index } = await searchRegistry(url, { q, limit });
+    if (q) {
+      const searchUrl = url.endsWith("/") ? `${url}search` : `${url}/search`;
+      const { index } = await searchRegistry(searchUrl, { q, limit });
+      return index;
+    }
+    const indexUrl = url.endsWith("/") ? `${url}index.json` : `${url}/index.json`;
+    const { index } = await fetchRegistryIndex(indexUrl);
     return index;
   },
 );
