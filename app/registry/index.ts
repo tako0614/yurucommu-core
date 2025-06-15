@@ -133,7 +133,7 @@ function hash(value: string): Promise<string> {
 function identifierDomain(id: string): string | null {
   const parts = id.split(".");
   if (parts.length < 2) return null;
-  return `${parts[1]}.${parts[0]}`;
+  return parts.slice(0, -1).reverse().join(".");
 }
 
 function contentType(path: string): string {
@@ -290,6 +290,18 @@ app.get("/api/domains", async (c) => {
       verified: d.verified,
     })),
   });
+});
+
+app.delete("/api/domains/:name", async (c) => {
+  const userId = c.get("userId");
+  const name = c.req.param("name");
+  const entry = await Domain.findOne({
+    name,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!entry) return c.json({ error: "Not found" }, 404);
+  await entry.deleteOne();
+  return c.json({ ok: true });
 });
 
 app.get("/", async (c) => {

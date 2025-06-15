@@ -48,6 +48,31 @@ export default function DomainSection() {
     }
   };
 
+  const verifyDomain = async (name: string) => {
+    setIsLoading(true);
+    try {
+      await req("/api/domains/verify", "POST", { domain: name });
+      await refresh();
+    } catch (error) {
+      console.error("Failed to verify domain:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteDomain = async (name: string) => {
+    if (!confirm(`${name} を削除しますか?`)) return;
+    setIsLoading(true);
+    try {
+      await req(`/api/domains/${encodeURIComponent(name)}`, "DELETE");
+      await refresh();
+    } catch (error) {
+      console.error("Failed to delete domain:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // 初期読み込み
   refresh();
 
@@ -301,13 +326,15 @@ export default function DomainSection() {
                         <Show when={!domain.verified}>
                           <button
                             type="button"
+                            onClick={() => verifyDomain(domain.name)}
                             class="px-3 py-1.5 text-xs font-medium text-yellow-300 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/10 transition-colors duration-200"
                           >
-                            認証手順を確認
+                            認証確認
                           </button>
                         </Show>
                         <button
                           type="button"
+                          onClick={() => deleteDomain(domain.name)}
                           class="p-2 text-gray-400 hover:text-gray-300 rounded-lg hover:bg-gray-700/50 transition-colors duration-200"
                         >
                           <svg
@@ -320,7 +347,7 @@ export default function DomainSection() {
                               stroke-linecap="round"
                               stroke-linejoin="round"
                               stroke-width="2"
-                              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                              d="M6 18L18 6M6 6l12 12"
                             />
                           </svg>
                         </button>
