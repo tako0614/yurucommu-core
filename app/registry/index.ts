@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 import { sendEmail } from "./sendMail.ts";
 import { load } from "jsr:@std/dotenv";
 
-const env = await load()
+const env = await load();
 
 interface UserDoc extends mongoose.Document {
   email: string;
@@ -145,15 +145,19 @@ function contentType(path: string): string {
   return "application/octet-stream";
 }
 
-async function sendVerificationEmail(email: string, token: string): Promise<void> {
+async function sendVerificationEmail(
+  email: string,
+  token: string,
+): Promise<void> {
   const base = env["VERIFY_BASE_URL"] ?? "http://localhost:8080";
   const url = `${base}/api/verify/${token}`;
-  
+
   const subject = "Takopack account verification";
-  const body = `Please verify your account by visiting the following URL:\n\n${url}\n\nIf you did not request this verification, please ignore this email.`;
-  
+  const body =
+    `Please verify your account by visiting the following URL:\n\n${url}\n\nIf you did not request this verification, please ignore this email.`;
+
   const success = await sendEmail(email, subject, body);
-  
+
   if (success) {
     console.log(`Verification email sent to ${email}`);
   } else {
@@ -277,6 +281,19 @@ app.post("/api/domains/verify", async (c) => {
   } catch {
     return c.json({ error: "Verification failed" }, 400);
   }
+});
+
+app.get("/api/domains/:name/token", async (c) => {
+  const userId = c.get("userId");
+  const name = c.req.param("name");
+  const entry = await Domain.findOne({
+    name,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!entry || !entry.verificationToken) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return c.json({ token: entry.verificationToken });
 });
 
 app.get("/api/domains", async (c) => {

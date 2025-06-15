@@ -60,6 +60,20 @@ export default function DomainSection() {
     }
   };
 
+  const viewToken = async (name: string) => {
+    setIsLoading(true);
+    try {
+      const data = await req<{ token: string }>(
+        `/api/domains/${encodeURIComponent(name)}/token`,
+      );
+      setToken(`認証トークン: ${data.token}`);
+    } catch (error) {
+      console.error("Failed to fetch token:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const deleteDomain = async (name: string) => {
     if (!confirm(`${name} を削除しますか?`)) return;
     setIsLoading(true);
@@ -324,13 +338,22 @@ export default function DomainSection() {
 
                       <div class="flex items-center space-x-2">
                         <Show when={!domain.verified}>
-                          <button
-                            type="button"
-                            onClick={() => verifyDomain(domain.name)}
-                            class="px-3 py-1.5 text-xs font-medium text-yellow-300 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/10 transition-colors duration-200"
-                          >
-                            認証確認
-                          </button>
+                          <div class="flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => verifyDomain(domain.name)}
+                              class="px-3 py-1.5 text-xs font-medium text-yellow-300 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/10 transition-colors duration-200"
+                            >
+                              認証確認
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => viewToken(domain.name)}
+                              class="px-3 py-1.5 text-xs font-medium text-blue-300 border border-blue-500/30 rounded-lg hover:bg-blue-500/10 transition-colors duration-200"
+                            >
+                              トークン表示
+                            </button>
+                          </div>
                         </Show>
                         <button
                           type="button"
