@@ -20,4 +20,7 @@ const extensionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-export const Extension = mongoose.model<IExtension>("Extension", extensionSchema);
+export const Extension = mongoose.model<IExtension>(
+  "Extension",
+  extensionSchema,
+);

@@ -3,7 +3,7 @@ import { defineConfig } from "../../packages/builder/mod.ts";
 export default defineConfig({
   manifest: {
     name: "API Test Extension",
-    identifier: "test.api",
+    identifier: "jp.takos.api-test",
     version: "1.0.0",
     icon: "./icon.png",
     description: "docs/takopack/v3.mdのAPIを検証する拡張機能",

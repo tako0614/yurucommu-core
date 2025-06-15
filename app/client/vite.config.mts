@@ -14,8 +14,8 @@ export default defineConfig({
         secure: false,
         timeout: 5000,
         configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('プロキシエラー:', err.message);
+          proxy.on("error", (err, _req, _res) => {
+            console.log("プロキシエラー:", err.message);
           });
         },
       },

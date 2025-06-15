@@ -44,7 +44,7 @@ export type Permission =
   | "deno:sys"
   | "deno:ffi"
   | "extensions:invoke"
-  |  "extensions:export";
+  | "extensions:export";
 
 // Function types
 export type ServerFunction<

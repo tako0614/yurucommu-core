@@ -4,7 +4,7 @@ import {
   extensionListState,
   selectedExtensionState,
 } from "../../states/extensions.ts";
-import { onMount, For } from "solid-js";
+import { For, onMount } from "solid-js";
 
 export default function ChatHeader() {
   const setSelectedApp = useSetAtom(selectedAppState);
@@ -14,7 +14,11 @@ export default function ChatHeader() {
   onMount(async () => {
     try {
       const body = {
-        events: [{ identifier: "takos", eventId: "extensions:list", payload: null }],
+        events: [{
+          identifier: "takos",
+          eventId: "extensions:list",
+          payload: null,
+        }],
       };
       const res = await fetch("/api/event", {
         method: "POST",
@@ -47,18 +51,26 @@ export default function ChatHeader() {
               class="rounded-full h-9 w-9 m-auto"
             />
           </div>
-          <For each={extensions()}>{(ext) => (
-            <li
-              class="l-header__ul-item flex"
-              onClick={() => {
-                setSelectedExt(ext.identifier);
-              }}
-            >
-              {ext.icon
-                ? <img src={ext.icon} class="rounded-full m-auto h-[40px]" alt={ext.name} />
-                : <span class="h-6 w-6 bg-gray-500 inline-block" />}
-            </li>
-          )}</For>
+          <For each={extensions()}>
+            {(ext) => (
+              <li
+                class="l-header__ul-item flex"
+                onClick={() => {
+                  setSelectedExt(ext.identifier);
+                }}
+              >
+                {ext.icon
+                  ? (
+                    <img
+                      src={ext.icon}
+                      class="rounded-full m-auto h-[40px]"
+                      alt={ext.name}
+                    />
+                  )
+                  : <span class="h-6 w-6 bg-gray-500 inline-block" />}
+              </li>
+            )}
+          </For>
         </ul>
       </header>
     </>

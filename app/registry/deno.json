@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "hono": "npm:hono@^4.7.11",
+    "@std/path": "jsr:@std/path@^1.1.0",
+    "mongoose": "npm:mongoose@^8",
+    "nodemailer": "npm:nodemailer@^7.0.3"
+  },
+  "tasks": {
+    "start": "deno run -A --watch index.ts",
+    "ui-dev": "deno run -A npm:vite --config ui/vite.config.ts",
+    "ui-build": "deno run -A npm:vite build --config ui/vite.config.ts"
+  }
+}

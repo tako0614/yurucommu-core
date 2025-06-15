@@ -313,7 +313,6 @@ const AccountSettingsContent: Component<{
   );
 };
 
-
 // 通知コンテンツコンポーネント
 const NotificationsContent: Component<{ isMobileView: boolean }> = (props) => {
   return (
@@ -740,7 +739,6 @@ export function Dashboard() {
               isMobileView
             />
           </Show>
-
 
           <Show when={activeTab() === "notifications"}>
             <NotificationsContent isMobileView />
