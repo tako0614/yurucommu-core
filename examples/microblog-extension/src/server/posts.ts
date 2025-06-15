@@ -14,7 +14,8 @@ MicroblogServer.onAddPost = async (
   payload: { text: string },
 ): Promise<[number, Record<string, unknown>]> => {
   const takos = getTakosServerAPI();
-  const posts: Post[] = (await takos?.kv.read("posts")) ?? [];
+  const rawPosts = await takos?.kv.read("posts");
+  const posts: Post[] = Array.isArray(rawPosts) ? rawPosts : [];
   const post: Post = { id: Date.now(), text: payload.text.slice(0, 280), timestamp: Date.now() };
   posts.push(post);
   await takos?.kv.write("posts", posts);
@@ -23,11 +24,11 @@ MicroblogServer.onAddPost = async (
 };
 
 /** @event("getTimeline", { source: "client" }) */
-MicroblogServer.onGetTimeline = async (): Promise<
-  [number, Record<string, unknown>]
+MicroblogServer.onGetTimeline = async (): Promise<[number, Record<string, unknown>]
 > => {
   const takos = getTakosServerAPI();
-  const posts: Post[] = (await takos?.kv.read("posts")) ?? [];
+  const rawPosts = await takos?.kv.read("posts");
+  const posts: Post[] = Array.isArray(rawPosts) ? rawPosts : [];
   return [200, { posts }];
 };
 

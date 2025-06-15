@@ -12,11 +12,6 @@ export default defineConfig({
       "events:publish",
       "events:subscribe",
     ],
-    eventDefinitions: {
-      addPost: { source: "client", handler: "onAddPost" },
-      getTimeline: { source: "client", handler: "onGetTimeline" },
-      timelineUpdated: { source: "server", handler: "onTimelineUpdated" },
-    },
   },
 
   entries: {

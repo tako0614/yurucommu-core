@@ -22,5 +22,7 @@ export default defineConfig({
       },
     },
     port: 3002,
+    host: true,
+    allowedHosts: ["registry.takos.jp", "localhost"],
   },
 });
