@@ -55,7 +55,7 @@ export default function App() {
       <Show when={!authed()}>
         <PublicNavHeader onLogin={handleLogin} />{" "}
         {/* パブリックパッケージブラウザー */}
-        <main class="flex-1 w-3/4 mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main class="flex-1 w-full md:w-3/4 mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <PackageBrowser />
         </main>
 
