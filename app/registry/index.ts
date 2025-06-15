@@ -498,7 +498,7 @@ app.post("/api/packages", auth, async (c) => {
       .join("");
     const filename = `${identifier}-${version}.takopack`;
     await Deno.writeFile(join(rootDir, filename), bytes);
-    const downloadUrl = `/${filename}`;
+    const downloadUrl = `/api/${filename}`;
     await Package.create({
       identifier,
       name,
@@ -545,7 +545,7 @@ app.get("/_takopack/packages/:id", async (c) => {
   });
 });
 
-app.get("/:file", async (c) => {
+app.get("/api/:file", async (c) => {
   const file = c.req.param("file");
   const path = join(rootDir, file);
   try {
