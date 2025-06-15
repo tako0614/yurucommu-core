@@ -8,6 +8,7 @@ interface NavHeaderProps {
 
 export default function NavHeader(props: NavHeaderProps) {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [showMobileMenu, setShowMobileMenu] = createSignal(false);
 
   return (
     <header class="bg-gray-900/95 backdrop-blur-sm border-b border-gray-800 sticky top-0 z-50">
@@ -54,9 +55,9 @@ export default function NavHeader(props: NavHeaderProps) {
               href="#"
               class="text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium"
             >
-              サポート
-            </a>
-          </nav>
+            サポート
+          </a>
+        </nav>
 
           {/* 右側のアクション */}
           <div class="flex items-center space-x-4">
@@ -156,8 +157,57 @@ export default function NavHeader(props: NavHeaderProps) {
                 ログイン
               </button>
             </Show>
+            <button
+              type="button"
+              onClick={() => setShowMobileMenu(!showMobileMenu())}
+              class="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            </button>
           </div>
         </div>
+        <Show when={showMobileMenu()}>
+          <div class="md:hidden border-t border-gray-800 pt-4 pb-4">
+            <nav class="flex flex-col space-y-3">
+              <a
+                href="#"
+                class="text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium py-2"
+              >
+                ホーム
+              </a>
+              <a
+                href="#"
+                class="text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium py-2"
+              >
+                パッケージ
+              </a>
+              <a
+                href="#"
+                class="text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium py-2"
+              >
+                ドキュメント
+              </a>
+              <a
+                href="#"
+                class="text-gray-300 hover:text-white transition-colors duration-200 text-sm font-medium py-2"
+              >
+                サポート
+              </a>
+            </nav>
+          </div>
+        </Show>
       </div>
     </header>
   );
