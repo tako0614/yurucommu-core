@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { dirname, fromFileUrl, join } from "@std/path";
 import mongoose from "mongoose";
-import { SmtpClient } from "https://deno.land/x/smtp/mod.ts";
+import { sendEmail } from "./sendMail.ts";
+import { load } from "jsr:@std/dotenv";
+
+const env = await load()
 
 interface UserDoc extends mongoose.Document {
   email: string;
@@ -72,13 +75,13 @@ const app = new Hono<{ Variables: { userId?: string } }>();
 app.use("/api/domains/*", auth);
 app.use("/api/domains", auth);
 
-const rootDir = Deno.env.get("REGISTRY_DIR") ?? "./registry";
+const rootDir = env["REGISTRY_DIR"] ?? "./registry";
 const uiDir = join(
   dirname(fromFileUrl(import.meta.url)),
   "public",
 );
 const adminPath = join(uiDir, "index.html");
-const mongoUri = Deno.env.get("MONGO_URI") ??
+const mongoUri = env["MONGO_URI"] ??
   "mongodb://localhost:27017/takoregistry";
 
 await mongoose.connect(mongoUri);
@@ -143,28 +146,19 @@ function contentType(path: string): string {
 }
 
 async function sendVerificationEmail(email: string, token: string): Promise<void> {
-  const base = Deno.env.get("VERIFY_BASE_URL") ?? "http://localhost:8080";
+  const base = env["VERIFY_BASE_URL"] ?? "http://localhost:8080";
   const url = `${base}/api/verify/${token}`;
-  const host = Deno.env.get("SMTP_HOST");
-  const from = Deno.env.get("SMTP_FROM");
-  const username = Deno.env.get("SMTP_USER");
-  const password = Deno.env.get("SMTP_PASS");
-  const port = Number(Deno.env.get("SMTP_PORT") ?? "465");
-  if (!host || !from || !username || !password) {
-    console.log(`Verify ${email}: ${url}`);
-    return;
-  }
-  const client = new SmtpClient();
-  try {
-    await client.connectTLS({ hostname: host, port, username, password });
-    await client.send({
-      from,
-      to: email,
-      subject: "Takopack account verification",
-      content: `Please verify your account by visiting ${url}`,
-    });
-  } finally {
-    await client.close();
+  
+  const subject = "Takopack account verification";
+  const body = `Please verify your account by visiting the following URL:\n\n${url}\n\nIf you did not request this verification, please ignore this email.`;
+  
+  const success = await sendEmail(email, subject, body);
+  
+  if (success) {
+    console.log(`Verification email sent to ${email}`);
+  } else {
+    console.error(`Failed to send verification email to ${email}`);
+    throw new Error("Failed to send verification email");
   }
 }
 
@@ -187,8 +181,8 @@ app.post("/api/register", async (c) => {
 app.post("/api/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
-    const envUser = Deno.env.get("REGISTRY_USER");
-    const envPass = Deno.env.get("REGISTRY_PASS");
+    const envUser = env["REGISTRY_USER"];
+    const envPass = env["REGISTRY_PASS"];
     let userId: string | undefined = undefined;
     if (envUser && envPass && email === envUser && password === envPass) {
       // ok
@@ -499,6 +493,6 @@ app.get("/:file", async (c) => {
 });
 
 if (import.meta.main) {
-  const port = Number(Deno.env.get("PORT") ?? 8080);
+  const port = Number(env["PORT"] ?? "8080");
   Deno.serve({ port, handler: (req) => app.fetch(req) });
 }
