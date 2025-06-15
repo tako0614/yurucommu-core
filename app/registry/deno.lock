@@ -2,7 +2,9 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/dotenv@*": "0.225.5",
+    "jsr:@std/fs@*": "1.0.18",
     "jsr:@std/path@^1.1.0": "1.1.0",
+    "jsr:@zip-js/zip-js@^2.7.62": "2.7.62",
     "npm:@types/node@*": "22.15.15",
     "npm:create-vite-extra@latest": "2.2.0",
     "npm:hono@^4.7.11": "4.7.11",
@@ -14,8 +16,17 @@
     "@std/dotenv@0.225.5": {
       "integrity": "9ce6f9d0ec3311f74a32535aa1b8c62ed88b1ab91b7f0815797d77a6f60c922f"
     },
+    "@std/fs@1.0.18": {
+      "integrity": "24bcad99eab1af4fde75e05da6e9ed0e0dce5edb71b7e34baacf86ffe3969f3a",
+      "dependencies": [
+        "jsr:@std/path"
+      ]
+    },
     "@std/path@1.1.0": {
       "integrity": "ddc94f8e3c275627281cbc23341df6b8bcc874d70374f75fec2533521e3d6886"
+    },
+    "@zip-js/zip-js@2.7.62": {
+      "integrity": "11cbe0746fa1e52e6e0a601c89ba97365f16e38a07f139b9d9914f988aec9081"
     }
   },
   "npm": {

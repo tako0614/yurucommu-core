@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { ensureDir } from "@std/fs";
+import { ensureDir } from "jsr:@std/fs";
 import mongoose from "mongoose";
 import { sendEmail } from "./sendMail.ts";
 import { load } from "jsr:@std/dotenv";
