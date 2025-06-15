@@ -21,6 +21,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    port: 3001,
+    port: 3002,
   },
 });
