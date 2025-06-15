@@ -5,6 +5,7 @@ export interface PackageInfo {
   name: string;
   version: string;
   description?: string;
+  icon?: string;
   downloadUrl: string;
   sha256?: string;
   createdAt?: string;
@@ -44,9 +45,18 @@ export default function PackageCard(props: PackageCardProps) {
     <div class="group bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6 hover:border-purple-500/30 hover:bg-gray-800/70 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/10 animate-fade-in">
       <div class="flex items-start justify-between mb-4">
         <div class="flex items-center space-x-3">
-          <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-semibold text-lg shadow-lg">
-            {getInitials(props.package.name)}
-          </div>
+          <Show
+            when={props.package.icon}
+            fallback={
+              <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-semibold text-lg shadow-lg">
+                {getInitials(props.package.name)}
+              </div>
+            }
+          >
+            {(icon) => (
+              <img src={icon()} alt="icon" class="w-12 h-12 rounded-lg shadow-lg" />
+            )}
+          </Show>
           <div class="flex-1 min-w-0">
             <h3 class="text-lg font-semibold text-gray-100 truncate group-hover:text-purple-300 transition-colors">
               {props.package.name}

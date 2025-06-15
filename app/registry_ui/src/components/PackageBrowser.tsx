@@ -261,9 +261,18 @@ export default function PackageBrowser() {
             <div class="p-6 border-b border-gray-700">
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-4">
-                  <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-2xl">
-                    {selectedPackage()?.name.charAt(0).toUpperCase()}
-                  </div>
+                  <Show
+                    when={selectedPackage()?.icon}
+                    fallback={
+                      <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-2xl">
+                        {selectedPackage()?.name.charAt(0).toUpperCase()}
+                      </div>
+                    }
+                  >
+                    {(icon) => (
+                      <img src={icon()} alt="icon" class="w-16 h-16 rounded-xl" />
+                    )}
+                  </Show>
                   <div>
                     <h3 class="text-2xl font-bold text-gray-100">
                       {selectedPackage()?.name}

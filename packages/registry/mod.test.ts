@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1.0.13";
+import { assert, assertEquals } from "jsr:@std/assert@1.0.13";
 import { BlobWriter, TextReader, ZipWriter } from "jsr:@zip-js/zip-js@2.7.62";
 import { serve } from "jsr:@std/http@1.0.6";
 import {
@@ -44,6 +44,7 @@ Deno.test("fetch index and download", async () => {
             identifier: "com.test",
             name: "Test",
             version: "0.1.0",
+            icon: "data:image/png;base64,aWNvbg==",
             downloadUrl: `http://localhost:${
               (server.listener.addr as Deno.NetAddr).port
             }/test.takopack`,
@@ -68,6 +69,7 @@ Deno.test("fetch index and download", async () => {
   const pkg = index.packages[0];
   const result = await downloadAndUnpack(pkg);
   assertEquals(result.manifest.name, "test");
+  assert(result.icon && result.icon.startsWith("data:image/png;base64,"));
 
   // second call with If-None-Match should return null
   const cached = await fetchRegistryIndex(
@@ -90,8 +92,8 @@ Deno.test("search registry", async () => {
     if (url.pathname === "/_takopack/search") {
       const q = url.searchParams.get("q") ?? "";
       const list = [
-        { identifier: "com.foo", name: "Foo", version: "1" },
-        { identifier: "com.bar", name: "Bar", version: "1" },
+        { identifier: "com.foo", name: "Foo", version: "1", icon: "i" },
+        { identifier: "com.bar", name: "Bar", version: "1", icon: "i" },
       ];
       const result = list.filter((p) =>
         (p.name + p.identifier).toLowerCase().includes(q.toLowerCase())
@@ -131,7 +133,7 @@ Deno.test("fetch package info", async () => {
     const url = new URL(req.url);
     if (url.pathname === "/_takopack/packages/com.test") {
       return new Response(
-        JSON.stringify({ identifier: "com.test", version: "1" }),
+        JSON.stringify({ identifier: "com.test", version: "1", icon: "x" }),
       );
     }
     return new Response("Not found", { status: 404 });

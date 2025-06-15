@@ -15,6 +15,7 @@
       "name": "Foo Extension",
       "version": "1.0.0",
       "description": "サンプル拡張",
+      "icon": "data:image/png;base64,......",
       "downloadUrl": "https://registry.example.com/com.example.foo-1.0.0.takopack",
       "sha256": "..." // 任意の整合性ハッシュ
     }

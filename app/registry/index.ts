@@ -28,6 +28,7 @@ interface PackageDoc extends mongoose.Document {
   name: string;
   version: string;
   description?: string;
+  icon?: string;
   downloadUrl: string;
   sha256?: string;
   createdAt?: Date;
@@ -107,6 +108,7 @@ const Package = mongoose.model(
     name: { type: String, required: true },
     version: { type: String, required: true },
     description: String,
+    icon: String,
     downloadUrl: { type: String, required: true },
     sha256: String,
   }, { timestamps: true }),
@@ -368,6 +370,7 @@ async function getIndex(): Promise<{
       name: p.name,
       version: p.version,
       description: p.description,
+      icon: p.icon,
       downloadUrl: p.downloadUrl,
       sha256: p.sha256,
     })),
@@ -431,6 +434,7 @@ app.get("/_takopack/search", async (c) => {
       name: p.name,
       version: p.version,
       description: p.description,
+      icon: p.icon,
       downloadUrl: p.downloadUrl,
       sha256: p.sha256,
     })),
@@ -505,6 +509,7 @@ app.post("/api/packages", auth, async (c) => {
       name,
       version,
       description,
+      icon: result.icon,
       downloadUrl,
       sha256,
     });
