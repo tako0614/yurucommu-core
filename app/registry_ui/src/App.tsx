@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { req } from "./api.ts";
 import LoginFormModal from "./components/LoginFormModal.tsx";
 import NavHeader from "./components/NavHeader.tsx";
@@ -28,10 +28,15 @@ export default function App() {
     setShowLoginModal(true);
   };
 
-  const handleLogout = () => {
-    setAuthed(false);
-    setActiveTab("packages");
-    // 実際のログアウト処理をここに実装
+  const handleLogout = async () => {
+    try {
+      await req("/api/logout", "POST");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAuthed(false);
+      setActiveTab("packages");
+    }
   };
 
   const handleLoginSuccess = () => {
