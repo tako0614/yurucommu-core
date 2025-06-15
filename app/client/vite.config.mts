@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     port: 3000, // ここでポートを指定
     strictPort: true, // 既に使われているポートならエラーにする
-    host: "0.0.0.0", // 必要に応じて外部アクセスを許可
+    host: true, // ホスト名を解決可能にする
+    allowedHosts: ["dev.takos.jp", "localhost"],
     proxy: {
       "/api": {
         target: "http://localhost:3001",
