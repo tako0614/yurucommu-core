@@ -15,6 +15,7 @@ interface Props {
 
 export default function ExtensionRegistry(props: Props = {}) {
   const [packages, setPackages] = createSignal<PackageInfo[]>([]);
+  const [installed, setInstalled] = createSignal<string[]>([]);
   const [query, setQuery] = createSignal("");
 
   const fetchPackages = async (q = "") => {
@@ -38,43 +39,83 @@ export default function ExtensionRegistry(props: Props = {}) {
     }
   };
 
+  const fetchInstalled = async () => {
+    const body = {
+      events: [
+        { identifier: "takos", eventId: "extensions:list", payload: null },
+      ],
+    };
+    const res = await fetch("/api/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const ids = (data[0]?.result ?? []).map((p: { identifier: string }) =>
+        p.identifier
+      );
+      setInstalled(ids);
+    }
+  };
+
   const install = async (id: string) => {
     const body = {
       events: [
         { identifier: "takos", eventId: "extensions:install", payload: { id } },
       ],
     };
-    await fetch("/api/event", {
+    const res = await fetch("/api/event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (res.ok) fetchInstalled();
   };
 
-  onMount(() => fetchPackages());
+  onMount(() => {
+    fetchInstalled();
+    fetchPackages();
+  });
 
   return (
     <div>
       {!props.hideHeader && <h3 class="text-lg mb-2">Registry</h3>}
-      <input
-        type="text"
-        value={query()}
-        onInput={(e) => setQuery(e.currentTarget.value)}
-        onKeyDown={(e) => e.key === "Enter" && fetchPackages(query())}
-        class="border px-2 py-1 mb-2 bg-transparent"
-      />
-      <ul class="space-y-1">
-        <For each={packages()}>{(pkg) => (
-          <li class="flex justify-between items-center">
-            <span>{pkg.name}</span>
-            <button
-              class="text-sm text-blue-500 underline"
-              onClick={() => install(pkg.identifier)}
-            >
-              Install
-            </button>
-          </li>
-        )}</For>
+      <div class="mb-2">
+        <input
+          type="text"
+          placeholder="Search extensions"
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === "Enter" && fetchPackages(query())}
+          class="border px-2 py-1 bg-transparent w-full"
+        />
+      </div>
+      <ul class="space-y-2 max-h-96 overflow-y-auto">
+        <For each={packages()}>
+          {(pkg) => (
+            <li class="p-2 border border-gray-700 rounded">
+              <div class="flex justify-between">
+                <div class="pr-2">
+                  <p class="font-semibold">{pkg.name}</p>
+                  <p class="text-xs text-gray-400">{pkg.description}</p>
+                  <p class="text-xs text-gray-500">v{pkg.version}</p>
+                </div>
+                <div class="flex items-start">
+                  <button
+                    class="text-sm text-blue-500 underline disabled:text-gray-500"
+                    disabled={installed().includes(pkg.identifier)}
+                    onClick={() => install(pkg.identifier)}
+                  >
+                    {installed().includes(pkg.identifier)
+                      ? "Installed"
+                      : "Install"}
+                  </button>
+                </div>
+              </div>
+            </li>
+          )}
+        </For>
       </ul>
     </div>
   );
