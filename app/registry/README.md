@@ -12,8 +12,8 @@
 - `GET /_takopack/index.json` - パッケージ一覧（`ETag` と `Last-Modified` 付き）
 - `GET /_takopack/search?q=<keyword>&limit=<n>` - キーワードで検索
 - `GET /_takopack/packages/<id>` - 指定した識別子の最新パッケージ情報
-- `POST /api/login` - ユーザー認証。`REGISTRY_USER` と `REGISTRY_PASS` で認証情報を設定
-  し、ドメイン登録やパッケージ公開時に使用するセッションを取得
+- `POST /api/login` - ユーザー認証。`REGISTRY_USER` と `REGISTRY_PASS`
+  で認証情報を設定 し、ドメイン登録やパッケージ公開時に使用するセッションを取得
 - `POST /api/register` - メールアドレスでアカウント作成（確認メール送信）
 - `GET /api/verify/<token>` - メールのリンクからアカウントを有効化
 - `POST /api/domains/request` - 逆ドメイン所有確認トークンを発行（レスポンスに

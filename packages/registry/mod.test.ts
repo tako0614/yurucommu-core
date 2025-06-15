@@ -111,10 +111,13 @@ Deno.test("search registry", async () => {
   assertEquals(index.packages.length, 1);
   assertEquals(index.packages[0].identifier, "com.foo");
 
-  const cached = await searchRegistry(`http://localhost:${port}/_takopack/search`, {
-    q: "Foo",
-    etag,
-  });
+  const cached = await searchRegistry(
+    `http://localhost:${port}/_takopack/search`,
+    {
+      q: "Foo",
+      etag,
+    },
+  );
   assertEquals(cached.index, null);
 
   controller.abort();

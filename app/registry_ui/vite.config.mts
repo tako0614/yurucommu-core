@@ -1,28 +1,26 @@
-import { defineConfig } from 'vite'
-import solid from 'vite-plugin-solid'
-import tailwindcss from '@tailwindcss/vite'
-import 'solid-js'
+import { defineConfig } from "vite";
+import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
+import "solid-js";
 
 export default defineConfig({
   plugins: [solid(), tailwindcss()],
   build: {
-    outDir: '../registry/public',
+    outDir: "../registry/public",
     emptyOutDir: true,
-    target: 'esnext',
+    target: "esnext",
   },
   server: {
     proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
+      "/api": {
+        target: "http://localhost:8080",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
       },
-      "_takopack": {
-        target: 'http://localhost:8080',
+      "/_takopack": {
+        target: "http://localhost:8080",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/_takopack/, '')
-      }
+      },
     },
     port: 3001,
-  }
-})
+  },
+});

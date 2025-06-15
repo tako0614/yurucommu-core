@@ -18,7 +18,10 @@ export interface TakosEventsAPI {
     payload: T,
     options?: { push?: boolean },
   ): Promise<[number, unknown] | void>;
-  subscribe<T = unknown>(eventName: string, handler: (payload: T) => void): () => void;
+  subscribe<T = unknown>(
+    eventName: string,
+    handler: (payload: T) => void,
+  ): () => void;
 }
 
 export interface TakosKVAPI {
@@ -30,7 +33,11 @@ export interface TakosKVAPI {
 
 export interface TakosCdnAPI {
   read(path: string): Promise<string>;
-  write(path: string, data: string | Uint8Array, options?: { cacheTTL?: number }): Promise<string>;
+  write(
+    path: string,
+    data: string | Uint8Array,
+    options?: { cacheTTL?: number },
+  ): Promise<string>;
   delete(path: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
 }
@@ -46,7 +53,10 @@ export interface TakosActivityPubAPI {
     delete(userId: string, key: string): Promise<void>;
   };
   pluginActor: {
-    create(localName: string, profile: Record<string, unknown>): Promise<string>;
+    create(
+      localName: string,
+      profile: Record<string, unknown>,
+    ): Promise<string>;
     read(iri: string): Promise<Record<string, unknown>>;
     update(iri: string, partial: Record<string, unknown>): Promise<void>;
     delete(iri: string): Promise<void>;
@@ -79,27 +89,37 @@ export interface TakosUIAPI {
  * サーバーコンテキストでTakos APIにアクセス
  */
 export function getTakosServerAPI(): TakosServerAPI | undefined {
-  return (globalThis as Record<string, unknown>).takos as TakosServerAPI | undefined;
+  return (globalThis as Record<string, unknown>).takos as
+    | TakosServerAPI
+    | undefined;
 }
 
 /**
  * クライアントコンテキストでTakos APIにアクセス
  */
 export function getTakosClientAPI(): TakosClientAPI | undefined {
-  return (globalThis as Record<string, unknown>).takos as TakosClientAPI | undefined;
+  return (globalThis as Record<string, unknown>).takos as
+    | TakosClientAPI
+    | undefined;
 }
 
 /**
  * UIコンテキストでTakos APIにアクセス
  */
 export function getTakosUIAPI(): TakosUIAPI | undefined {
-  return (globalThis as Record<string, unknown>).takos as TakosUIAPI | undefined;
+  return (globalThis as Record<string, unknown>).takos as
+    | TakosUIAPI
+    | undefined;
 }
 
 /**
  * 汎用的なTakos APIアクセス（型推論が制限される）
  */
-export function getTakosAPI(): TakosServerAPI | TakosClientAPI | TakosUIAPI | undefined {
+export function getTakosAPI():
+  | TakosServerAPI
+  | TakosClientAPI
+  | TakosUIAPI
+  | undefined {
   return (globalThis as Record<string, unknown>).takos as
     | TakosServerAPI
     | TakosClientAPI

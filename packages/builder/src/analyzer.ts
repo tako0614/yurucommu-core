@@ -65,7 +65,9 @@ export class ASTAnalyzer {
         jsDocTags,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.warn(`AST解析エラー (${filePath}):`, errorMessage);
       return {
         filePath,
@@ -260,7 +262,9 @@ export class ASTAnalyzer {
       if (spec.type === AST_NODE_TYPES.ImportSpecifier) {
         imports.push({
           name: spec.imported.name,
-          alias: spec.local.name !== spec.imported.name ? spec.local.name : undefined,
+          alias: spec.local.name !== spec.imported.name
+            ? spec.local.name
+            : undefined,
         });
       } else if (spec.type === AST_NODE_TYPES.ImportDefaultSpecifier) {
         imports.push({

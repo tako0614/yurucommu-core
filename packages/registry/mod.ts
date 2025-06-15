@@ -1,4 +1,4 @@
-import { unpackTakoPack, TakoUnpackResult } from "@takopack/unpack";
+import { TakoUnpackResult, unpackTakoPack } from "@takopack/unpack";
 
 export interface RegistryPackage {
   identifier: string;
@@ -90,7 +90,9 @@ export async function fetchPackageInfo(
   options: FetchIndexOptions = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<FetchPackageResult> {
-  const u = url.endsWith("/") ? `${url}packages/${id}` : `${url}/packages/${id}`;
+  const u = url.endsWith("/")
+    ? `${url}packages/${id}`
+    : `${url}/packages/${id}`;
   const headers: Record<string, string> = {};
   if (options.etag) headers["If-None-Match"] = options.etag;
   if (options.lastModified) headers["If-Modified-Since"] = options.lastModified;

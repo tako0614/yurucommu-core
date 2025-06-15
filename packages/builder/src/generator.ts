@@ -28,7 +28,10 @@ export class VirtualEntryGenerator {
     const classMap = new Map<string, Set<string>>();
     const exportInfoMap = new Map<string, ExportInfo>();
     const eventDefinitions: Record<string, EventDefinition> = {};
-    const eventWrappers = new Map<string, { className?: string; handler: string }>();
+    const eventWrappers = new Map<
+      string,
+      { className?: string; handler: string }
+    >();
     const activityPubConfigs: ActivityPubConfig[] = [];
 
     analyses.forEach((analysis) => {
@@ -36,7 +39,9 @@ export class VirtualEntryGenerator {
       analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
           imports.push(
-            `import ${this.formatImportClause(imp.imports)} from "${imp.source}";`,
+            `import ${
+              this.formatImportClause(imp.imports)
+            } from "${imp.source}";`,
           );
         }
       });
@@ -47,21 +52,29 @@ export class VirtualEntryGenerator {
         if (exp.type === "function") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
         } else if (exp.type === "const" && exp.instanceOf) {
           imports.push(
-            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `import { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
           classMap.set(exp.name, new Set());
         } else if (exp.type === "const") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
         } else if (exp.type === "class") {
           imports.push(
-            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `import { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
           classMap.set(exp.name, new Set());
         }
@@ -153,7 +166,9 @@ export class VirtualEntryGenerator {
       analysis.imports.forEach((imp) => {
         if (!imp.isTypeOnly) {
           imports.push(
-            `import ${this.formatImportClause(imp.imports)} from "${imp.source}";`,
+            `import ${
+              this.formatImportClause(imp.imports)
+            } from "${imp.source}";`,
           );
         }
       });
@@ -164,21 +179,29 @@ export class VirtualEntryGenerator {
         if (exp.type === "function") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
         } else if (exp.type === "const" && exp.instanceOf) {
           imports.push(
-            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `import { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
           classMap.set(exp.name, new Set());
         } else if (exp.type === "const") {
           exports.push(exp.name);
           imports.push(
-            `export { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `export { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
         } else if (exp.type === "class") {
           imports.push(
-            `import { ${exp.name} } from "${this.relativePath(analysis.filePath)}";`,
+            `import { ${exp.name} } from "${
+              this.relativePath(analysis.filePath)
+            }";`,
           );
           classMap.set(exp.name, new Set());
         }
@@ -307,7 +330,9 @@ export class VirtualEntryGenerator {
           handlerName,
         );
         if (eventConfig) {
-          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
+          const eventName = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
           if (eventName) {
             eventDefinitions[eventName] = eventConfig;
             eventWrappers.set(eventName, {
@@ -343,7 +368,9 @@ export class VirtualEntryGenerator {
         accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
         hooks: {
-          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          canAccept: targetFunction.startsWith("canAccept")
+            ? targetFunction
+            : undefined,
           onReceive: targetFunction,
           priority: options.priority,
           serial: options.serial,
@@ -370,7 +397,9 @@ export class VirtualEntryGenerator {
       accepts: [object],
       context: "https://www.w3.org/ns/activitystreams",
       hooks: {
-        canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+        canAccept: targetFunction.startsWith("canAccept")
+          ? targetFunction
+          : undefined,
         onReceive: targetFunction,
         priority: options.priority as number,
         serial: options.serial as boolean,
@@ -412,11 +441,12 @@ export class VirtualEntryGenerator {
     const options = (args[1] as Record<string, unknown>) || {};
 
     return {
-      source: (typeof options.source === "string" ? options.source : "client") as
-        | "client"
-        | "server"
-        | "background"
-        | "ui",
+      source:
+        (typeof options.source === "string" ? options.source : "client") as
+          | "client"
+          | "server"
+          | "background"
+          | "ui",
       handler: targetFunction,
     };
   }

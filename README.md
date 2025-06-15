@@ -1,6 +1,8 @@
 # takosとは
 
-> **言語について**: README とドキュメントは日本語版のみ提供されています。(English version is not available yet)
+> **言語について**: README
+> とドキュメントは日本語版のみ提供されています。(English version is not
+> available yet)
 
 takosはActivityPubでweb自主するためのソフトウェアです。
 takosは、ActivityPubに追加で、以下の機能を提供します。
@@ -80,7 +82,8 @@ deno run --allow-all build.ts help
 
 - **[Takopack Builder API](./docs/takopack/builder.md)** - Fluent APIの使用方法
 - **[Takopack拡張機能仕様書](./docs/takopack/main.md)** - 拡張機能の仕様
-- **[Takopack レジストリ仕様](./docs/takopack/registry.md)** - 拡張機能レジストリ仕様（`app/registry` に簡易実装あり）
+- **[Takopack レジストリ仕様](./docs/takopack/registry.md)** -
+  拡張機能レジストリ仕様（`app/registry` に簡易実装あり）
 - **[takos web](./docs/takos-web/index.md)** - Web API仕様
 - **[ActivityPub (Additional object)](./docs/activityPub/index.md)** -
   ActivityPub拡張仕様

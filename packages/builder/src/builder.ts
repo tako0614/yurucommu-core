@@ -1,6 +1,11 @@
 import { basename, join, resolve } from "jsr:@std/path@1";
 import { existsSync } from "jsr:@std/fs@1";
-import { BlobWriter, TextReader, Uint8ArrayReader, ZipWriter } from "jsr:@zip-js/zip-js@^2.7.62";
+import {
+  BlobWriter,
+  TextReader,
+  Uint8ArrayReader,
+  ZipWriter,
+} from "jsr:@zip-js/zip-js@^2.7.62";
 import * as esbuild from "npm:esbuild";
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@^0.11.1";
 
@@ -96,7 +101,9 @@ export class TakopackBuilder {
         warnings: [],
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.error("❌ Build failed:", errorMessage);
 
       return {
@@ -298,7 +305,9 @@ export class TakopackBuilder {
 
       console.log(`✅ Bundled: ${entryPoint} → ${outputPath}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       throw new Error(`Failed to bundle ${entryPoint}: ${errorMessage}`);
     }
   }
@@ -315,7 +324,9 @@ export class TakopackBuilder {
       description: this.config.manifest.description || "",
       version: this.config.manifest.version,
       identifier: this.config.manifest.identifier,
-      icon: this.config.manifest.icon ? `./${basename(this.config.manifest.icon)}` : undefined,
+      icon: this.config.manifest.icon
+        ? `./${basename(this.config.manifest.icon)}`
+        : undefined,
       apiVersion: "3.0",
       permissions: this.config.manifest.permissions || [],
       extensionDependencies: this.config.manifest.extensionDependencies,
@@ -369,17 +380,23 @@ export class TakopackBuilder {
       analysis.decorators.forEach((decorator) => {
         const handlerName = decorator.targetFunction;
         if (decorator.name === "event" && decorator.args.length > 0) {
-          const eventName = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
+          const eventName = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? (decorator.args[1] as Record<string, unknown>)
             : {};
           eventDefinitions[eventName] = {
-            source: (options.source as "client" | "server" | "background" | "ui") || "client",
+            source:
+              (options.source as "client" | "server" | "background" | "ui") ||
+              "client",
             handler: handlerName,
           };
         } else if (decorator.name === "activity" && decorator.args.length > 0) {
-          const object = typeof decorator.args[0] === "string" ? decorator.args[0] : "";
+          const object = typeof decorator.args[0] === "string"
+            ? decorator.args[0]
+            : "";
           const options = (typeof decorator.args[1] === "object" &&
               decorator.args[1] !== null)
             ? decorator.args[1] as Record<string, unknown>
@@ -388,7 +405,9 @@ export class TakopackBuilder {
             context: "https://www.w3.org/ns/activitystreams",
             accepts: [object],
             hooks: {
-              canAccept: handlerName.startsWith("canAccept") ? handlerName : undefined,
+              canAccept: handlerName.startsWith("canAccept")
+                ? handlerName
+                : undefined,
               onReceive: handlerName,
               priority: options.priority as number,
               serial: options.serial as boolean,
@@ -637,7 +656,9 @@ export class TakopackBuilder {
         accepts: [object],
         context: "https://www.w3.org/ns/activitystreams",
         hooks: {
-          canAccept: targetFunction.startsWith("canAccept") ? targetFunction : undefined,
+          canAccept: targetFunction.startsWith("canAccept")
+            ? targetFunction
+            : undefined,
           onReceive: targetFunction,
           priority: options.priority,
           serial: options.serial,
@@ -672,7 +693,9 @@ export class TakopackBuilder {
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
       console.error("❌ Type definition generation failed:", errorMessage);
       throw error;
     }

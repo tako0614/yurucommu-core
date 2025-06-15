@@ -12,10 +12,10 @@ HTTP API を提供します。
 - `GET /_takopack/search?q=<keyword>&limit=<n>` –
   キーワードで検索したパッケージ一覧を返します。こちらも `ETag` /
   `Last-Modified` を返します。
-- `GET /_takopack/packages/<id>` – 特定の識別子の最新パッケージ情報を取得します。
+- `GET /_takopack/packages/<id>` –
+  特定の識別子の最新パッケージ情報を取得します。
 - `GET <downloadUrl>` – `index.json` で参照されている `.takopack`
   アーカイブをダウンロードします。
-
 
 `index.json` のフォーマットは以下の通りです。
 
@@ -43,4 +43,3 @@ HTTP API を提供します。
 ヘッダーを利用した条件付きリクエストを行うことで、更新がない場合に 304
 が返されるため無駄なダウンロードを避けられます。`/_takopack/packages/<id>`
 も同様にキャッシュを活用できます。
-

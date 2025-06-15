@@ -1,9 +1,9 @@
 import {
+  BlobWriter,
   configure,
   TextWriter,
   Uint8ArrayReader,
   ZipReader,
-  BlobWriter,
 } from "jsr:@zip-js/zip-js@^2.7.62";
 
 // Configure to disable workers to prevent timer leaks in tests

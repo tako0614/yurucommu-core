@@ -74,7 +74,6 @@ app.get("/users/:username", async (c) => {
   return c.json(account.activityPubActor);
 });
 
-
 // Inbox エンドポイント（個人）
 app.post("/users/:username/inbox", async (c) => {
   try {

@@ -162,7 +162,9 @@ eventManager.add(
   z.object({ id: z.string().optional(), username: z.string().optional() }),
   async (_c, payload) => {
     try {
-      const query = payload.id ? { _id: payload.id } : { name: payload.username };
+      const query = payload.id
+        ? { _id: payload.id }
+        : { name: payload.username };
       const account = await Account.findOne(query);
       if (!account) throw new Error("Account not found");
       return {

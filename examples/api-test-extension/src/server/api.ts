@@ -45,8 +45,8 @@ ApiServer.onRunServerTests = async (): Promise<
   // fetch API
   try {
     const res = await takos?.fetch("https://example.com");
-        console.log("Fetch status:", res?.status);
-            console.log(typeof res);
+    console.log("Fetch status:", res?.status);
+    console.log(typeof res);
     console.dir("Fetch response:", await res);
 
     results.fetch = res?.status ?? "no";
