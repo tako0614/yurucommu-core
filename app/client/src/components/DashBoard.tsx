@@ -7,6 +7,7 @@ import {
   Show,
 } from "solid-js";
 import ExtensionUpload from "./ExtensionUpload.tsx";
+import ExtensionRegistry from "./ExtensionRegistry.tsx";
 
 // アカウントデータの型定義
 type Account = {
@@ -825,6 +826,10 @@ export function Dashboard() {
             {/* Extension upload */}
             <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
               <ExtensionUpload />
+            </div>
+            {/* Extension registry */}
+            <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
+              <ExtensionRegistry />
             </div>
           </div>
         </div>
