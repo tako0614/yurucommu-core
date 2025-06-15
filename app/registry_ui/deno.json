@@ -3,7 +3,7 @@
     "dev": "deno run -A --node-modules-dir npm:vite@^5.4.19 dev",
     "build": "deno run -A --node-modules-dir npm:vite build",
     "preview": "deno run -A --node-modules-dir npm:vite preview",
-    "serve": "deno run --allow-net --allow-read https://deno.land/std@0.157.0/http/file_server.ts dist/"
+    "serve": "deno run --allow-net --allow-read https://deno.land/std@0.157.0/http/file_server.ts ../registry/public"
   },
   "imports": {
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.10",
@@ -16,6 +16,6 @@
   "compilerOptions": {
     "lib": ["esnext", "dom", "deno.ns"],
     "jsx": "react-jsx",
-    "jsxImportSource": "solid-js/jsx-runtime"
+    "jsxImportSource": "solid-js"
   }
 }

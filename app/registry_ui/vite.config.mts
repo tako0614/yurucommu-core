@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
-import tailwindcss from '@tailwindcss/vite';
+import tailwindcss from '@tailwindcss/vite'
 import 'solid-js'
 
-// https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [solid(),
-tailwindcss(),
-  ],
+  plugins: [solid(), tailwindcss()],
+  build: {
+    outDir: '../registry/public',
+    emptyOutDir: true,
+    target: 'esnext',
+  },
   server: {
     proxy: {
       '/api': {
@@ -21,6 +23,6 @@ tailwindcss(),
         rewrite: (path) => path.replace(/^\/_takopack/, '')
       }
     },
-    port: 3000,
+    port: 3001,
   }
 })
