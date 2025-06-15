@@ -88,6 +88,7 @@ app.use("/api/domains/*", auth);
 app.use("/api/domains", auth);
 
 const rootDir = env["REGISTRY_DIR"] ?? "./registry";
+const registryBaseUrl = env["REGISTRY_BASE_URL"] ?? "http://localhost:8080";
 await ensureDir(rootDir);
 const uiDir = join(
   dirname(fromFileUrl(import.meta.url)),
@@ -498,7 +499,7 @@ app.post("/api/packages", auth, async (c) => {
       .join("");
     const filename = `${identifier}-${version}.takopack`;
     await Deno.writeFile(join(rootDir, filename), bytes);
-    const downloadUrl = `/api/${filename}`;
+    const downloadUrl = `${registryBaseUrl}/api/${filename}`;
     await Package.create({
       identifier,
       name,
