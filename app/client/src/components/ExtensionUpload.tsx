@@ -1,6 +1,10 @@
 import { createSignal, For, onMount } from "solid-js";
 
-export default function ExtensionUpload() {
+interface Props {
+  hideHeader?: boolean;
+}
+
+export default function ExtensionUpload(props: Props = {}) {
   const [message, setMessage] = createSignal("");
   const [extensions, setExtensions] = createSignal<
     { identifier: string; name: string; icon?: string }[]
@@ -57,7 +61,7 @@ export default function ExtensionUpload() {
 
   return (
     <div>
-      <h3 class="text-lg mb-2">Upload Extension</h3>
+      {!props.hideHeader && <h3 class="text-lg mb-2">Upload Extension</h3>}
       <input type="file" onChange={handleChange} />
       <p>{message()}</p>
       <ul class="mt-3 space-y-2">

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { eventManager } from "../eventManager.ts";
 import { unpackTakoPack } from "../../../packages/unpack/mod.ts";
+import {
+  fetchPackageInfo,
+  downloadAndUnpack,
+  fetchRegistryIndex,
+  searchRegistry,
+} from "../../../packages/registry/mod.ts";
 import { Extension } from "../models/extension.ts";
 import { getRuntime, loadExtension } from "../utils/extensionsRuntime.ts";
 
@@ -43,6 +49,61 @@ eventManager.add(
       icon: result.icon,
     });
 
+    return { success: true };
+  },
+);
+
+eventManager.add(
+  "takos",
+  "extensions:search",
+  z.object({ q: z.string().optional(), limit: z.number().optional() }).optional(),
+  async (c, { q, limit } = {}) => {
+    const url = c.env.REGISTRY_URL;
+    if (!url) throw new Error("REGISTRY_URL not configured");
+    if (q) {
+      const searchUrl = url.endsWith("/") ? `${url}search` : `${url}/search`;
+      const { index } = await searchRegistry(searchUrl, { q, limit });
+      return index;
+    }
+    const indexUrl = url.endsWith("/") ? `${url}index.json` : `${url}/index.json`;
+    const { index } = await fetchRegistryIndex(indexUrl);
+    return index;
+  },
+);
+
+eventManager.add(
+  "takos",
+  "extensions:install",
+  z.object({ id: z.string(), registry: z.string().url().optional() }),
+  async (c, { id, registry }) => {
+    const url = registry ?? c.env.REGISTRY_URL;
+    if (!url) throw new Error("REGISTRY_URL not configured");
+    const { pkg } = await fetchPackageInfo(url, id);
+    if (!pkg) throw new Error("Package not found");
+    const result = await downloadAndUnpack(pkg);
+    const manifest = typeof result.manifest === "string"
+      ? JSON.parse(result.manifest)
+      : result.manifest;
+    await Extension.findOneAndUpdate(
+      { identifier: manifest.identifier },
+      {
+        identifier: manifest.identifier,
+        manifest,
+        server: result.server,
+        client: result.client,
+        ui: result.ui,
+        icon: result.icon,
+      },
+      { upsert: true },
+    );
+    await loadExtension({
+      identifier: manifest.identifier,
+      manifest,
+      server: result.server,
+      client: result.client,
+      ui: result.ui,
+      icon: result.icon,
+    });
     return { success: true };
   },
 );

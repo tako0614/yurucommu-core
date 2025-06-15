@@ -29,4 +29,5 @@ export interface Env {
   hashedPassword: string;
   salt: string;
   ACTIVITYPUB_DOMAIN: string;
+  REGISTRY_URL?: string;
 }
