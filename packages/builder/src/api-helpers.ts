@@ -40,6 +40,10 @@ export interface TakosActivityPubAPI {
   read(id: string): Promise<Record<string, unknown>>;
   delete(id: string): Promise<void>;
   list(userId?: string): Promise<string[]>;
+  follow(followerId: string, followeeId: string): Promise<void>;
+  unfollow(followerId: string, followeeId: string): Promise<void>;
+  listFollowers(actorId: string): Promise<string[]>;
+  listFollowing(actorId: string): Promise<string[]>;
   actor: {
     read(userId: string): Promise<Record<string, unknown>>;
     update(userId: string, key: string, value: string): Promise<void>;
@@ -54,24 +58,53 @@ export interface TakosActivityPubAPI {
   };
 }
 
+export interface Extension {
+  identifier: string;
+  version: string;
+  isActive: boolean;
+  activate(): Promise<{
+    publish(name: string, payload?: unknown): Promise<unknown>;
+  }>;
+}
+
+export interface TakosExtensionsAPI {
+  get(identifier: string): Extension | undefined;
+  readonly all: Extension[];
+}
+
 // コンテキスト別API定義
 export interface TakosServerAPI {
   kv: TakosKVAPI;
+  activitypub: TakosActivityPubAPI;
   ap: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   events: TakosEventsAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<{ publish(name: string, payload?: unknown): Promise<unknown> } | undefined>;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
 
 export interface TakosClientAPI {
   kv: TakosKVAPI;
+  activitypub: TakosActivityPubAPI;
   cdn: TakosCdnAPI;
   events: TakosEventsAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<{ publish(name: string, payload?: unknown): Promise<unknown> } | undefined>;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
 
 export interface TakosUIAPI {
   events: TakosEventsAPI;
+  activitypub: TakosActivityPubAPI;
+  extensions: TakosExtensionsAPI;
+  activateExtension(
+    identifier: string,
+  ): Promise<{ publish(name: string, payload?: unknown): Promise<unknown> } | undefined>;
 }
 
 // 型安全なTakos APIアクセス関数群

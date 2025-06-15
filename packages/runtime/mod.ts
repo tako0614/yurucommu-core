@@ -316,12 +316,14 @@ export class Takos {
     delete: async (_key: string) => {},
     list: async () => [] as string[],
   };
-  events = {
+  events: TakosEvents = {
     publish: async (
       _name: string,
       _payload: unknown,
       _options?: { push?: boolean },
-    ) => {},
+    ): Promise<unknown> => {
+      return undefined;
+    },
     subscribe: (
       _name: string,
       _handler: (payload: unknown) => void,
@@ -531,10 +533,14 @@ class PackWorker {
       }
       if (d.path[0] === "fetch") {
         const arr = new Uint8Array(await (result as Response).arrayBuffer());
+        const headersArr: [string, string][] = [];
+        (result as Response).headers.forEach((value, key) => {
+          headersArr.push([key, value]);
+        });
         result = {
           status: (result as Response).status,
           statusText: (result as Response).statusText,
-          headers: Array.from((result as Response).headers.entries()),
+          headers: headersArr,
           body: arr,
         };
       } else if (d.path[0] === "extensions" && d.path[1] === "get") {
@@ -739,6 +745,16 @@ export class TakoPack {
         );
       }
     }
+  }
+
+  setClientPublish(
+    fn: (
+      name: string,
+      payload: unknown,
+      options?: { push?: boolean },
+    ) => Promise<unknown>,
+  ): void {
+    this.clientTakos.events.publish = fn;
   }
 
   async callServer(
