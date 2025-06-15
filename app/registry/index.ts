@@ -230,6 +230,17 @@ app.post("/api/login", async (c) => {
   }
 });
 
+app.post("/api/logout", async (c) => {
+  const token = getCookie(c.req.raw, "session");
+  if (token) {
+    await Session.deleteOne({ token });
+  }
+  return c.json(
+    { ok: true },
+    { headers: { "Set-Cookie": "session=; HttpOnly; Path=/; Max-Age=0" } },
+  );
+});
+
 app.get("/api/verify/:token", async (c) => {
   const token = c.req.param("token");
   const user = await User.findOne({ verificationToken: token });
