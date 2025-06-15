@@ -25,33 +25,40 @@ export default function DomainSection() {
   };
 
   return (
-    <div class="mt-4">
-      <h2 class="text-xl mb-2">Domains</h2>
-      <ul class="mb-2">
+    <div class="bg-white shadow rounded p-4">
+      <h2 class="text-xl font-semibold mb-4">Domains</h2>
+      <ul class="mb-4 space-y-1">
         <For each={domains()}>
-          {(d) => <li>{d.name}{d.verified ? " ✅" : " ❌"}</li>}
+          {(d) => (
+            <li class="flex justify-between">
+              <span>{d.name}</span>
+              <span>{d.verified ? "✅" : "❌"}</span>
+            </li>
+          )}
         </For>
       </ul>
-      <input
-        class="border p-1 mr-2"
-        ref={domainInput!}
-        placeholder="example.com"
-      />
-      <button
-        type="button"
-        class="px-2 py-1 bg-blue-500 text-white mr-2"
-        onClick={requestDomain}
-      >
-        Request
-      </button>
-      <span class="mr-2">{token()}</span>
-      <button
-        type="button"
-        class="px-2 py-1 bg-gray-500 text-white"
-        onClick={refresh}
-      >
-        Refresh
-      </button>
+      <div class="flex items-center space-x-2 mb-2">
+        <input
+          class="flex-1 border border-gray-300 p-1 rounded"
+          ref={domainInput!}
+          placeholder="example.com"
+        />
+        <button
+          type="button"
+          class="px-3 py-1 bg-blue-500 text-white rounded"
+          onClick={requestDomain}
+        >
+          Request
+        </button>
+        <button
+          type="button"
+          class="px-3 py-1 bg-gray-500 text-white rounded"
+          onClick={refresh}
+        >
+          Refresh
+        </button>
+      </div>
+      {token() && <p class="text-sm text-gray-600">{token()}</p>}
     </div>
   );
 }

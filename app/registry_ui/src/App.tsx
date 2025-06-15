@@ -7,16 +7,20 @@ export default function App() {
   const [authed, setAuthed] = createSignal(false);
 
   return (
-    <div class="p-4">
-      <h1 class="text-2xl font-bold mb-4">Takopack Registry 管理</h1>
-      {authed()
-        ? (
-          <>
-            <DomainSection />
-            <PackageSection />
-          </>
-        )
-        : <LoginForm onAuthed={() => setAuthed(true)} />}
+    <div class="p-6">
+      <h1 class="text-3xl font-bold text-center mb-6">
+        Takopack Registry 管理
+      </h1>
+      <div class="max-w-3xl mx-auto space-y-6">
+        {authed()
+          ? (
+            <>
+              <DomainSection />
+              <PackageSection />
+            </>
+          )
+          : <LoginForm onAuthed={() => setAuthed(true)} />}
+      </div>
     </div>
   );
 }

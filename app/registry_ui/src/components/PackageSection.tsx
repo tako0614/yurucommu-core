@@ -33,46 +33,61 @@ export default function PackageSection() {
   };
 
   return (
-    <div class="mt-4">
-      <h2 class="text-xl mb-2">Packages</h2>
-      <ul class="mb-2">
+    <div class="bg-white shadow rounded p-4">
+      <h2 class="text-xl font-semibold mb-4">Packages</h2>
+      <ul class="mb-4 space-y-1">
         <For each={packages()}>
-          {(p) => <li>{p.identifier} {p.version}</li>}
+          {(p) => (
+            <li class="flex justify-between">
+              <span>{p.identifier}</span>
+              <span class="text-gray-500">{p.version}</span>
+            </li>
+          )}
         </For>
       </ul>
       <button
         type="button"
-        class="px-2 py-1 bg-gray-500 text-white mb-2"
+        class="px-3 py-1 bg-gray-500 text-white rounded mb-4"
         onClick={refresh}
       >
         Refresh
       </button>
-      <h3 class="text-lg mt-2">Add</h3>
-      <input
-        class="border p-1 mr-2"
-        ref={idInput!}
-        placeholder="com.example.foo"
-      />
-      <input class="border p-1 mr-2" ref={nameInput!} placeholder="name" />
-      <input class="border p-1 mr-2" ref={versionInput!} placeholder="1.0.0" />
-      <input
-        class="border p-1 mr-2"
-        ref={descInput!}
-        placeholder="description"
-      />
-      <input
-        class="border p-1 mr-2"
-        ref={urlInput!}
-        placeholder="download url"
-      />
-      <input
-        class="border p-1 mr-2"
-        ref={shaInput!}
-        placeholder="sha256(optional)"
-      />
+      <h3 class="text-lg font-semibold mb-2">Add</h3>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <input
+          class="border border-gray-300 p-1 rounded"
+          ref={idInput!}
+          placeholder="com.example.foo"
+        />
+        <input
+          class="border border-gray-300 p-1 rounded"
+          ref={nameInput!}
+          placeholder="name"
+        />
+        <input
+          class="border border-gray-300 p-1 rounded"
+          ref={versionInput!}
+          placeholder="1.0.0"
+        />
+        <input
+          class="border border-gray-300 p-1 rounded"
+          ref={descInput!}
+          placeholder="description"
+        />
+        <input
+          class="border border-gray-300 p-1 rounded col-span-2"
+          ref={urlInput!}
+          placeholder="download url"
+        />
+        <input
+          class="border border-gray-300 p-1 rounded col-span-2"
+          ref={shaInput!}
+          placeholder="sha256(optional)"
+        />
+      </div>
       <button
         type="button"
-        class="px-2 py-1 bg-blue-500 text-white"
+        class="px-3 py-1 bg-blue-500 text-white rounded"
         onClick={add}
       >
         Add Package
