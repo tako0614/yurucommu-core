@@ -1,5 +1,6 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { req } from "../api.ts";
+import Alert from "./Alert.tsx";
 import PackageCard, { PackageInfo } from "./PackageCard.tsx";
 import SearchBar from "./SearchBar.tsx";
 
@@ -15,6 +16,19 @@ export default function PackageSection() {
   const [showPublishModal, setShowPublishModal] = createSignal(false);
   // フォーム用の参照
   let fileInput!: HTMLInputElement;
+
+  const run = async (fn: () => Promise<void>) => {
+    setIsLoading(true);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredAndSortedPackages = createMemo(() => {
     let filtered = packages();
@@ -48,46 +62,23 @@ export default function PackageSection() {
     return filtered;
   });
 
-  const refresh = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
+  const refresh = () =>
+    run(async () => {
       const data = await req<{ packages: PackageInfo[] }>("/_takopack/search");
       setPackages(data.packages);
-    } catch (error) {
-      console.error("Failed to fetch packages:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "パッケージ取得に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    });
 
   const addPackage = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
+    await run(async () => {
       if (!fileInput.files?.[0]) throw new Error("no file");
       const form = new FormData();
       form.append("file", fileInput.files[0]);
       await req("/api/packages", "POST", form);
 
-      // フォームをリセット
       if (fileInput) fileInput.value = "";
-
       setShowPublishModal(false);
       await refresh();
-    } catch (error) {
-      console.error("Failed to add package:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "パッケージ公開に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   const handleInstall = (pkg: PackageInfo) => {
@@ -115,22 +106,7 @@ export default function PackageSection() {
       />
 
       <Show when={error()}>
-        <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mt-4">
-          <div class="flex items-center space-x-2">
-            <svg
-              class="w-5 h-5 text-red-400"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                clip-rule="evenodd"
-              />
-            </svg>
-            <p class="text-red-300 text-sm">{error()}</p>
-          </div>
-        </div>
+        <Alert type="error" message={error()!} />
       </Show>
 
       {/* メインコンテンツ */}

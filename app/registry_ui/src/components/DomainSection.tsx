@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { req } from "../api.ts";
+import Alert from "./Alert.tsx";
 
 interface Domain {
   name: string;
@@ -14,103 +15,60 @@ export default function DomainSection() {
   const [showAddModal, setShowAddModal] = createSignal(false);
   let domainInput!: HTMLInputElement;
 
-  const refresh = async () => {
+  const run = async (fn: () => Promise<void>) => {
     setIsLoading(true);
     setError("");
     try {
-      const data = await req<{ domains: Domain[] }>("/api/domains");
-      setDomains(data.domains);
-    } catch (error) {
-      console.error("Failed to fetch domains:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "ドメイン取得に失敗しました";
-      setError(message);
+      await fn();
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setIsLoading(false);
     }
   };
+
+  const refresh = () =>
+    run(async () => {
+      const data = await req<{ domains: Domain[] }>("/api/domains");
+      setDomains(data.domains);
+    });
 
   const requestDomain = async () => {
     if (!domainInput.value.trim()) return;
-
-    setIsLoading(true);
-    setError("");
-    try {
+    await run(async () => {
       const data = await req<{ token: string }>(
         "/api/domains/request",
         "POST",
-        {
-          domain: domainInput.value,
-        },
+        { domain: domainInput.value },
       );
-      setToken(`認証トークン: takopack-verify=${data.token}`);
+      setToken(data.token);
       domainInput.value = "";
       setShowAddModal(false);
       await refresh();
-    } catch (error) {
-      console.error("Failed to request domain:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "ドメイン登録に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
-  const verifyDomain = async (name: string) => {
-    setIsLoading(true);
-    setError("");
-    try {
+  const verifyDomain = (name: string) =>
+    run(async () => {
       await req("/api/domains/verify", "POST", { domain: name });
       await refresh();
-    } catch (error) {
-      console.error("Failed to verify domain:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "ドメイン認証に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    });
 
-  const viewToken = async (name: string) => {
-    setIsLoading(true);
-    setError("");
-    try {
+  const viewToken = (name: string) =>
+    run(async () => {
       const data = await req<{ token: string }>(
         `/api/domains/${encodeURIComponent(name)}/token`,
       );
-      setToken(`認証トークン: takopack-verify=${data.token}`);
-    } catch (error) {
-      console.error("Failed to fetch token:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "トークン取得に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      setToken(data.token);
+    });
 
   const deleteDomain = async (name: string) => {
     if (!confirm(`${name} を削除しますか?`)) return;
-    setIsLoading(true);
-    setError("");
-    try {
+    await run(async () => {
       await req(`/api/domains/${encodeURIComponent(name)}`, "DELETE");
       await refresh();
-    } catch (error) {
-      console.error("Failed to delete domain:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "ドメイン削除に失敗しました";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   // 初期読み込み
@@ -173,22 +131,7 @@ export default function DomainSection() {
 
       {/* エラーメッセージ */}
       <Show when={error()}>
-        <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-          <div class="flex items-center space-x-2">
-            <svg
-              class="w-5 h-5 text-red-400"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                clip-rule="evenodd"
-              />
-            </svg>
-            <p class="text-red-300 text-sm">{error()}</p>
-          </div>
-        </div>
+        <Alert type="error" message={error()!} />
       </Show>
 
       {/* 統計情報 */}
@@ -432,49 +375,10 @@ export default function DomainSection() {
 
       {/* 認証トークン表示 */}
       <Show when={token()}>
-        <div class="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
-          <div class="flex items-start space-x-3">
-            <svg
-              class="w-5 h-5 text-blue-400 mt-0.5"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                clip-rule="evenodd"
-              />
-            </svg>
-            <div class="flex-1">
-              <h4 class="text-sm font-medium text-blue-300">認証トークン</h4>
-              <p class="text-sm text-blue-200 mt-1 font-mono bg-blue-500/20 px-2 py-1 rounded">
-                {token()}
-              </p>
-              <p class="text-xs text-blue-300 mt-2">
-                このトークンをドメインのDNS TXTレコードに追加してください。
-              </p>
-            </div>{" "}
-            <button
-              type="button"
-              onClick={() => setToken("")}
-              class="p-1 text-blue-400 hover:text-blue-300"
-            >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
+        <Alert
+          message={`認証トークン: takopack-verify=${token()}`}
+          onClose={() => setToken("")}
+        />
       </Show>
 
       {/* ドメイン追加モーダル */}
