@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>Takopack Registry Admin</title>
+</head>
+<body>
+<h1>Takopack Registry 管理</h1>
+<section id="auth">
+<h2>ログイン/登録</h2>
+<input id="email" placeholder="email" />
+<input id="password" type="password" placeholder="password" />
+<button id="loginBtn">Login</button>
+<button id="registerBtn">Register</button>
+</section>
+<section id="domains" style="display:none;">
+<h2>Domains</h2>
+<ul id="domainList"></ul>
+<input id="domainInput" placeholder="example.com" />
+<button id="requestDomainBtn">Request</button>
+<span id="domainToken"></span>
+<button id="refreshDomainsBtn">Refresh</button>
+</section>
+<section id="packages" style="display:none;">
+<h2>Packages</h2>
+<ul id="packageList"></ul>
+<button id="refreshPackagesBtn">Refresh</button>
+<h3>Add</h3>
+<input id="pkgIdentifier" placeholder="com.example.foo" />
+<input id="pkgName" placeholder="name" />
+<input id="pkgVersion" placeholder="1.0.0" />
+<input id="pkgDesc" placeholder="description" />
+<input id="pkgUrl" placeholder="download url" />
+<input id="pkgSha" placeholder="sha256(optional)" />
+<button id="addPackageBtn">Add Package</button>
+</section>
+<script>
+async function req(path, method='GET', body){
+  const opts = {method, headers:{'Content-Type':'application/json'}};
+  if(body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if(!res.ok){
+    let data = null;
+    try{ data = await res.json(); }catch{}
+    alert(data?.error || res.statusText);
+    throw new Error('request failed');
+  }
+  return res.json();
+}
+async function login(){
+  await req('/api/login','POST',{email:email.value,password:password.value});
+  auth.style.display='none';
+  domains.style.display='block';
+  packages.style.display='block';
+  refreshDomains();
+  refreshPackages();
+}
+async function registerAccount(){
+  await req('/api/register','POST',{email:email.value,password:password.value});
+  alert('Check email for verification');
+}
+async function refreshDomains(){
+  const data = await req('/api/domains');
+  domainList.innerHTML='';
+  data.domains.forEach(d=>{
+    const li=document.createElement('li');
+    li.textContent=d.name+(d.verified?' ✅':' ❌');
+    domainList.appendChild(li);
+  });
+}
+async function requestDomain(){
+  const data = await req('/api/domains/request','POST',{domain:domainInput.value});
+  domainToken.textContent='token: '+data.token;
+  refreshDomains();
+}
+async function refreshPackages(){
+  const data = await req('/_takopack/search');
+  packageList.innerHTML='';
+  data.packages.forEach(p=>{
+    const li=document.createElement('li');
+    li.textContent=p.identifier+' '+p.version;
+    packageList.appendChild(li);
+  });
+}
+async function addPackage(){
+  await req('/api/packages','POST',{identifier:pkgIdentifier.value,name:pkgName.value,version:pkgVersion.value,description:pkgDesc.value,downloadUrl:pkgUrl.value,sha256:pkgSha.value||undefined});
+  refreshPackages();
+}
+loginBtn.onclick=login;
+registerBtn.onclick=registerAccount;
+refreshDomainsBtn.onclick=refreshDomains;
+requestDomainBtn.onclick=requestDomain;
+refreshPackagesBtn.onclick=refreshPackages;
+addPackageBtn.onclick=addPackage;
+</script>
+</body>
+</html>
