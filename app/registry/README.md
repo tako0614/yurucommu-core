@@ -4,8 +4,8 @@
 パッケージ情報は MongoDB で管理され、`MONGO_URI` で接続先を指定します。
 `REGISTRY_DIR` 環境変数（デフォルト `./registry`）で指定したディレクトリから
 `.takopack` アーカイブを提供します。ブラウザから操作できる管理UI(`/admin`)
-も用意されています。UI は Vite で開発でき、API へのリクエストは `/api`
-にまとめられています。
+も用意されています。UI は Solid.js + Tailwind CSS で作られており、Vite を
+使って開発できます。API へのリクエストは `/api` にまとめられています。
 
 ## エンドポイント
 

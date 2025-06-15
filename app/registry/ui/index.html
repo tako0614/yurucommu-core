@@ -1,39 +1,12 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <title>Takopack Registry Admin</title>
-</head>
-<body>
-  <h1>Takopack Registry 管理</h1>
-  <section id="auth">
-    <h2>ログイン/登録</h2>
-    <input id="email" placeholder="email" />
-    <input id="password" type="password" placeholder="password" />
-    <button id="loginBtn">Login</button>
-    <button id="registerBtn">Register</button>
-  </section>
-  <section id="domains" style="display:none;">
-    <h2>Domains</h2>
-    <ul id="domainList"></ul>
-    <input id="domainInput" placeholder="example.com" />
-    <button id="requestDomainBtn">Request</button>
-    <span id="domainToken"></span>
-    <button id="refreshDomainsBtn">Refresh</button>
-  </section>
-  <section id="packages" style="display:none;">
-    <h2>Packages</h2>
-    <ul id="packageList"></ul>
-    <button id="refreshPackagesBtn">Refresh</button>
-    <h3>Add</h3>
-    <input id="pkgIdentifier" placeholder="com.example.foo" />
-    <input id="pkgName" placeholder="name" />
-    <input id="pkgVersion" placeholder="1.0.0" />
-    <input id="pkgDesc" placeholder="description" />
-    <input id="pkgUrl" placeholder="download url" />
-    <input id="pkgSha" placeholder="sha256(optional)" />
-    <button id="addPackageBtn">Add Package</button>
-  </section>
-  <script type="module" src="/src/main.ts"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Takopack Registry Admin</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
