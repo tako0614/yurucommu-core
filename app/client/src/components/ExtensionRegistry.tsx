@@ -9,7 +9,11 @@ interface PackageInfo {
   sha256?: string;
 }
 
-export default function ExtensionRegistry() {
+interface Props {
+  hideHeader?: boolean;
+}
+
+export default function ExtensionRegistry(props: Props = {}) {
   const [packages, setPackages] = createSignal<PackageInfo[]>([]);
   const [query, setQuery] = createSignal("");
 
@@ -51,7 +55,7 @@ export default function ExtensionRegistry() {
 
   return (
     <div>
-      <h3 class="text-lg mb-2">Registry</h3>
+      {!props.hideHeader && <h3 class="text-lg mb-2">Registry</h3>}
       <input
         type="text"
         value={query()}
