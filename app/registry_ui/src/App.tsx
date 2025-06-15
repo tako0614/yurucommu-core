@@ -1,4 +1,5 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, onMount } from "solid-js";
+import { req } from "./api.ts";
 import LoginFormModal from "./components/LoginFormModal.tsx";
 import NavHeader from "./components/NavHeader.tsx";
 import PublicNavHeader from "./components/PublicNavHeader.tsx";
@@ -13,6 +14,15 @@ export default function App() {
     "packages",
   );
   const [showLoginModal, setShowLoginModal] = createSignal(false);
+
+  onMount(async () => {
+    try {
+      await req("/api/domains");
+      setAuthed(true);
+    } catch {
+      setAuthed(false);
+    }
+  });
 
   const handleLogin = () => {
     setShowLoginModal(true);
