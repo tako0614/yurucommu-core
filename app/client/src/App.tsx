@@ -3,6 +3,7 @@ import { useAtom } from "solid-jotai";
 import { loginState } from "./states/session.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { Aplication } from "./components/Aplication.tsx";
+import { WebSocketProvider, WebSocketStatus, EventDebugPanel } from "./components/WebSocketProvider.tsx";
 import "./App.css";
 import "./stylesheet.css";
 
@@ -32,12 +33,14 @@ function App() {
   });
 
   return (
-    <Show
-      when={isLoggedIn()}
-      fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
-    >
-      <Aplication />
-    </Show>
+    <WebSocketProvider>
+      <Show
+        when={isLoggedIn()}
+        fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
+      >
+        <Aplication />
+      </Show>
+    </WebSocketProvider>
   );
 }
 

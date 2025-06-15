@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import honoApp from "./hono.ts";
-import { WebSocketEventServer } from "./eventDistributionServer.ts";
+import { WebSocketManager } from "./websocketHandler.ts";
 import { initExtensions } from "./utils/extensionsRuntime.ts";
 import { load } from "jsr:@std/dotenv";
 
@@ -10,10 +10,9 @@ await mongoose.connect(env["MONGO_URI"])
   .then(() => console.log("Connected to MongoDB"))
   .catch((err: any) => console.error("MongoDB connection error:", err));
 
-// WebSocketイベント配信サーバーを初期化
-const wsEventServer = new WebSocketEventServer(3002);
-wsEventServer.start();
-console.log("WebSocket event server started on port 3002");
+// WebSocketマネージャーを初期化（静的インスタンスとして初期化されます）
+WebSocketManager.getInstance();
+console.log("WebSocket manager initialized");
 
 await initExtensions();
 

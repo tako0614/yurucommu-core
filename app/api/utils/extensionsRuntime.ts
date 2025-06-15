@@ -1,6 +1,6 @@
 import { TakoPack } from "../../../packages/runtime/mod.ts";
 import { Extension } from "../models/extension.ts";
-import { WebSocketEventServer } from "../eventDistributionServer.ts";
+import { WebSocketManager } from "../websocketHandler.ts";
 import { KVItem } from "../models/kv.ts";
 
 const runtimes = new Map<string, TakoPack>();
@@ -26,8 +26,7 @@ export async function loadExtension(
     icon?: string;
   },
 ) {
-  try {
-    const wss = WebSocketEventServer.getInstance();
+  try {    const wsManager = WebSocketManager.getInstance();
     const pack = new TakoPack([
       {
         manifest: doc.manifest,
@@ -39,7 +38,7 @@ export async function loadExtension(
       server: {
         events: {
           publish: (name: string, payload: unknown) => {
-            wss?.distributeEvent(name, payload);
+            wsManager.distributeEvent(name, payload);
             return Promise.resolve(undefined);
           },
         },

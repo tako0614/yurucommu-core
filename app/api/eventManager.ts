@@ -1,6 +1,8 @@
 // deno-lint-ignore-file
 import { type Context } from "hono";
 import z from "zod";
+import { WebSocketManager } from "./websocketHandler.ts";
+
 class EventManager {
   private events = new Map<
     string,
@@ -50,6 +52,15 @@ class EventManager {
       try {
         const result = await eventDef.handler(c, parsed.data);
         results.push({ success: true, result });
+        
+        // WebSocketでイベントを配信
+        const wsManager = WebSocketManager.getInstance();
+        wsManager.distributeEvent(`${e.identifier}:${e.eventId}`, {
+          identifier: e.identifier,
+          eventId: e.eventId,
+          payload: parsed.data,
+          result
+        });
       } catch (error) {
         console.error("Event handler error:", error);
         results.push({
