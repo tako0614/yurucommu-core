@@ -221,7 +221,8 @@ app.post("/api/login", async (c) => {
       { ok: true },
       {
         headers: {
-          "Set-Cookie": `session=${id}; HttpOnly; Path=/; Max-Age=3600`,
+          "Set-Cookie":
+            `session=${id}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax`,
         },
       },
     );
@@ -237,7 +238,11 @@ app.post("/api/logout", async (c) => {
   }
   return c.json(
     { ok: true },
-    { headers: { "Set-Cookie": "session=; HttpOnly; Path=/; Max-Age=0" } },
+    {
+      headers: {
+        "Set-Cookie": "session=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax",
+      },
+    },
   );
 });
 
