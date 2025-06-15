@@ -32,12 +32,20 @@ interface PackageDoc extends mongoose.Document {
   updatedAt?: Date;
 }
 
-interface SessionInfo {
-  expires: number;
+interface SessionDoc extends mongoose.Document {
+  token: string;
   userId?: string;
+  expiresAt: Date;
 }
 
-const sessions = new Map<string, SessionInfo>();
+const Session = mongoose.model<SessionDoc>(
+  "Session",
+  new mongoose.Schema({
+    token: { type: String, required: true, unique: true },
+    userId: String,
+    expiresAt: { type: Date, required: true, index: { expires: 0 } },
+  }, { timestamps: true }),
+);
 
 function getCookie(req: Request, name: string): string | undefined {
   const cookie = req.headers.get("Cookie");
@@ -62,9 +70,11 @@ async function auth(
   if (!id) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const session = sessions.get(id);
-  if (!session || session.expires < Date.now()) {
-    sessions.delete(id);
+  const session = await Session.findOne({
+    token: id,
+    expiresAt: { $gt: new Date() },
+  }).lean();
+  if (!session) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   c.set("userId", session.userId);
@@ -202,8 +212,8 @@ app.post("/api/login", async (c) => {
       userId = user.id;
     }
     const id = crypto.randomUUID();
-    const expires = Date.now() + 60 * 60 * 1000; // 1 hour
-    sessions.set(id, { expires, userId });
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await Session.create({ token: id, userId, expiresAt });
     return c.json(
       { ok: true },
       {
