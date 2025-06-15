@@ -37,6 +37,8 @@ deno task start
 `REGISTRY_PASS` を設定すると `/api/login` で取得するセッションに利用されます。
 このセッションはドメイン登録とパッケージ公開の際だけ必要です。
 メール認証に使用する確認リンクは `VERIFY_BASE_URL` 環境変数で生成されます。
+パッケージのダウンロードURLは `REGISTRY_BASE_URL`（デフォルト
+`http://localhost:8080`）で指定したドメインを用いて絶対URLとして保存されます。
 SMTP 設定は `SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASS`、`SMTP_FROM`
 を用意すると送信に利用されます。これらが未設定の場合は確認リンクが
 コンソールに表示されるだけです。
