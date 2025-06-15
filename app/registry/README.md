@@ -37,6 +37,9 @@ deno task start
 `REGISTRY_PASS` を設定すると `/api/login` で取得するセッションに利用されます。
 このセッションはドメイン登録とパッケージ公開の際だけ必要です。
 メール認証に使用する確認リンクは `VERIFY_BASE_URL` 環境変数で生成されます。
+SMTP 設定は `SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASS`、`SMTP_FROM`
+を用意すると送信に利用されます。これらが未設定の場合は確認リンクが
+コンソールに表示されるだけです。
 
 UI の開発時は次のコマンドで Vite サーバーを起動できます。
 

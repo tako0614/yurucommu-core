@@ -2,7 +2,8 @@
   "imports": {
     "hono": "npm:hono@^4.7.11",
     "@std/path": "jsr:@std/path@^1.1.0",
-    "mongoose": "npm:mongoose@^8"
+    "mongoose": "npm:mongoose@^8",
+    "nodemailer": "npm:nodemailer@^7.0.3"
   },
   "tasks": {
     "start": "deno run -A index.ts",
