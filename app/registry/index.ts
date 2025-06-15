@@ -277,7 +277,7 @@ app.get("/api/domains", async (c) => {
   });
 });
 
-app.get("/admin", async (c) => {
+app.get("/", async (c) => {
   const html = await Deno.readTextFile(adminPath);
   return c.html(html);
 });
