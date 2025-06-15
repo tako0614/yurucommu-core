@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { dirname, fromFileUrl, join } from "@std/path";
+import { ensureDir } from "jsr:@std/fs";
 import mongoose from "mongoose";
 import { sendEmail } from "./sendMail.ts";
 import { load } from "jsr:@std/dotenv";
+import { unpackTakoPack } from "../../packages/unpack/mod.ts";
 
-const env = await load()
+const env = await load();
 
 interface UserDoc extends mongoose.Document {
   email: string;
@@ -32,12 +34,20 @@ interface PackageDoc extends mongoose.Document {
   updatedAt?: Date;
 }
 
-interface SessionInfo {
-  expires: number;
+interface SessionDoc extends mongoose.Document {
+  token: string;
   userId?: string;
+  expiresAt: Date;
 }
 
-const sessions = new Map<string, SessionInfo>();
+const Session = mongoose.model<SessionDoc>(
+  "Session",
+  new mongoose.Schema({
+    token: { type: String, required: true, unique: true },
+    userId: String,
+    expiresAt: { type: Date, required: true, index: { expires: 0 } },
+  }, { timestamps: true }),
+);
 
 function getCookie(req: Request, name: string): string | undefined {
   const cookie = req.headers.get("Cookie");
@@ -62,9 +72,11 @@ async function auth(
   if (!id) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const session = sessions.get(id);
-  if (!session || session.expires < Date.now()) {
-    sessions.delete(id);
+  const session = await Session.findOne({
+    token: id,
+    expiresAt: { $gt: new Date() },
+  }).lean();
+  if (!session) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   c.set("userId", session.userId);
@@ -76,6 +88,7 @@ app.use("/api/domains/*", auth);
 app.use("/api/domains", auth);
 
 const rootDir = env["REGISTRY_DIR"] ?? "./registry";
+await ensureDir(rootDir);
 const uiDir = join(
   dirname(fromFileUrl(import.meta.url)),
   "public",
@@ -133,7 +146,7 @@ function hash(value: string): Promise<string> {
 function identifierDomain(id: string): string | null {
   const parts = id.split(".");
   if (parts.length < 2) return null;
-  return `${parts[1]}.${parts[0]}`;
+  return parts.slice(0, -1).reverse().join(".");
 }
 
 function contentType(path: string): string {
@@ -145,15 +158,19 @@ function contentType(path: string): string {
   return "application/octet-stream";
 }
 
-async function sendVerificationEmail(email: string, token: string): Promise<void> {
+async function sendVerificationEmail(
+  email: string,
+  token: string,
+): Promise<void> {
   const base = env["VERIFY_BASE_URL"] ?? "http://localhost:8080";
   const url = `${base}/api/verify/${token}`;
-  
+
   const subject = "Takopack account verification";
-  const body = `Please verify your account by visiting the following URL:\n\n${url}\n\nIf you did not request this verification, please ignore this email.`;
-  
+  const body =
+    `Please verify your account by visiting the following URL:\n\n${url}\n\nIf you did not request this verification, please ignore this email.`;
+
   const success = await sendEmail(email, subject, body);
-  
+
   if (success) {
     console.log(`Verification email sent to ${email}`);
   } else {
@@ -198,8 +215,8 @@ app.post("/api/login", async (c) => {
       userId = user.id;
     }
     const id = crypto.randomUUID();
-    const expires = Date.now() + 60 * 60 * 1000; // 1 hour
-    sessions.set(id, { expires, userId });
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await Session.create({ token: id, userId, expiresAt });
     return c.json(
       { ok: true },
       {
@@ -211,6 +228,17 @@ app.post("/api/login", async (c) => {
   } catch {
     return c.json({ error: "Bad request" }, 400);
   }
+});
+
+app.post("/api/logout", async (c) => {
+  const token = getCookie(c.req.raw, "session");
+  if (token) {
+    await Session.deleteOne({ token });
+  }
+  return c.json(
+    { ok: true },
+    { headers: { "Set-Cookie": "session=; HttpOnly; Path=/; Max-Age=0" } },
+  );
 });
 
 app.get("/api/verify/:token", async (c) => {
@@ -279,6 +307,19 @@ app.post("/api/domains/verify", async (c) => {
   }
 });
 
+app.get("/api/domains/:name/token", async (c) => {
+  const userId = c.get("userId");
+  const name = c.req.param("name");
+  const entry = await Domain.findOne({
+    name,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!entry || !entry.verificationToken) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return c.json({ token: entry.verificationToken });
+});
+
 app.get("/api/domains", async (c) => {
   const userId = c.get("userId");
   const domains = await Domain.find({
@@ -290,6 +331,18 @@ app.get("/api/domains", async (c) => {
       verified: d.verified,
     })),
   });
+});
+
+app.delete("/api/domains/:name", async (c) => {
+  const userId = c.get("userId");
+  const name = c.req.param("name");
+  const entry = await Domain.findOne({
+    name,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!entry) return c.json({ error: "Not found" }, 404);
+  await entry.deleteOne();
+  return c.json({ ok: true });
 });
 
 app.get("/", async (c) => {
@@ -409,11 +462,19 @@ app.get("/_takopack/search", async (c) => {
 app.post("/api/packages", auth, async (c) => {
   const userId = c.get("userId");
   try {
-    const body = await c.req.json();
-    const { identifier, name, version, description, downloadUrl, sha256 } =
-      body;
-    if (!identifier || !name || !version || !downloadUrl) {
-      return c.json({ error: "Bad request" }, 400);
+    const form = await c.req.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return c.json({ error: "File required" }, 400);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await unpackTakoPack(bytes);
+    const manifest = typeof result.manifest === "string"
+      ? JSON.parse(result.manifest)
+      : result.manifest;
+    const { identifier, name, version, description } = manifest;
+    if (!identifier || !name || !version) {
+      return c.json({ error: "Invalid manifest" }, 400);
     }
     const domain = identifierDomain(identifier);
     if (domain) {
@@ -426,6 +487,13 @@ app.post("/api/packages", auth, async (c) => {
         return c.json({ error: "Domain not verified" }, 400);
       }
     }
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const sha256 = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const filename = `${identifier}-${version}.takopack`;
+    await Deno.writeFile(join(rootDir, filename), bytes);
+    const downloadUrl = `/${filename}`;
     await Package.create({
       identifier,
       name,
@@ -435,7 +503,8 @@ app.post("/api/packages", auth, async (c) => {
       sha256,
     });
     return c.json({ ok: true });
-  } catch {
+  } catch (err) {
+    console.error("Failed to publish package", err);
     return c.json({ error: "Bad request" }, 400);
   }
 });
