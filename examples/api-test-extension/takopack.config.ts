@@ -3,7 +3,7 @@ import { defineConfig } from "../../packages/builder/mod.ts";
 export default defineConfig({
   manifest: {
     name: "API Test Extension",
-    identifier: "com.example.api-test",
+    identifier: "jp.takos.api-test",
     version: "1.0.0",
     description: "Runs a suite of API calls to verify Takopack runtime.",
     permissions: [
@@ -33,6 +33,7 @@ export default defineConfig({
       "deno:sys",
       "deno:ffi",
     ],
+    icon: "./icon.png",
   },
 
   entries: {
