@@ -5,6 +5,8 @@ export interface RegistryPackage {
   name: string;
   version: string;
   description?: string;
+  /** Data URL for icon image if available */
+  icon?: string;
   downloadUrl: string;
   sha256?: string;
 }
