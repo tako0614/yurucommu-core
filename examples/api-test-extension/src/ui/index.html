@@ -4,8 +4,18 @@
     <meta charset="UTF-8" />
     <title>API Test</title>
     <style>
+      body { font-family: sans-serif; }
       section { margin-bottom: 1rem; }
       button { margin: 2px; }
+      #output {
+        border: 1px solid #ccc;
+        padding: 0.25rem;
+      }
+      #output pre {
+        margin: 0.25rem 0;
+        padding: 0.25rem;
+        background: #f0f0f0;
+      }
     </style>
   </head>
   <body>
@@ -22,7 +32,10 @@
       <h2>UI</h2>
       <div id="ui"></div>
     </section>
-    <pre id="output"></pre>
+    <section>
+      <h2>Results</h2>
+      <div id="output"></div>
+    </section>
     <script>
       const serverTests = [
         'serverKv',
@@ -103,7 +116,9 @@
 
       function print(name, res) {
         const out = document.getElementById('output');
-        out.textContent = name + '\n' + JSON.stringify(res, null, 2);
+        const pre = document.createElement('pre');
+        pre.textContent = name + '\n' + JSON.stringify(res, null, 2);
+        out.prepend(pre);
       }
 
       addButtons(document.getElementById('server'), serverTests, runEvent);
