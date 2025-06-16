@@ -33,6 +33,7 @@ export default defineConfig({
       "deno:sys",
       "deno:ffi",
     ],
+    icon: "./icon.png",
   },
 
   entries: {
