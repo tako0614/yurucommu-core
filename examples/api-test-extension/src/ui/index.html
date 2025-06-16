@@ -4,9 +4,17 @@
     <meta charset="UTF-8" />
     <title>API Test</title>
     <style>
-      body { font-family: sans-serif; }
-      section { margin-bottom: 1rem; }
-      button { margin: 2px; }
+      body {
+        font-family: sans-serif;
+        background: #fff;
+        color: #333;
+      }
+      section {
+        margin-bottom: 1rem;
+      }
+      button {
+        margin: 2px;
+      }
       #output {
         border: 1px solid #ccc;
         padding: 0.25rem;
@@ -15,6 +23,10 @@
         margin: 0.25rem 0;
         padding: 0.25rem;
         background: #f0f0f0;
+      }
+      #output pre.error {
+        color: #b00020;
+        background: #fff0f0;
       }
     </style>
   </head>
@@ -38,32 +50,32 @@
     </section>
     <script>
       const serverTests = [
-        'serverKv',
-        'serverCdn',
-        'serverEvents',
-        'serverActivityPub',
-        'serverExtensions',
-        'serverFetch'
+        "serverKv",
+        "serverCdn",
+        "serverEvents",
+        "serverActivityPub",
+        "serverExtensions",
+        "serverFetch",
       ];
       const clientTests = [
-        'clientKv',
-        'clientCdn',
-        'clientEvents',
-        'clientExtensions',
-        'clientFetch'
+        "clientKv",
+        "clientCdn",
+        "clientEvents",
+        "clientExtensions",
+        "clientFetch",
       ];
       const uiTests = [
-        'uiKv',
-        'uiCdn',
-        'uiEvents',
-        'uiFetch',
-        'uiExtensions',
-        'uiUrl'
+        "uiKv",
+        "uiCdn",
+        "uiEvents",
+        "uiFetch",
+        "uiExtensions",
+        "uiUrl",
       ];
 
       function addButtons(container, tests, runner) {
-        tests.forEach(name => {
-          const b = document.createElement('button');
+        tests.forEach((name) => {
+          const b = document.createElement("button");
           b.textContent = name;
           b.onclick = () => runner(name);
           container.appendChild(b);
@@ -71,59 +83,89 @@
       }
 
       async function runEvent(name) {
-        if (typeof takos === 'undefined') return;
-        const res = await takos.events.publish(name, {});
-        if (Array.isArray(res)) {
-          const [, body] = res;
-          print(name, body);
+        if (typeof takos === "undefined") return;
+        try {
+          const res = await takos.events.publish(name, {});
+          if (Array.isArray(res)) {
+            const [, body] = res;
+            print(name, body);
+          }
+        } catch (err) {
+          print(name, String(err), true);
         }
       }
 
       async function runUi(name) {
-        if (name === 'uiKv') {
-          await takos.kv.write('ui:test', 'ok');
-          const value = await takos.kv.read('ui:test');
-          await takos.kv.delete('ui:test');
-          print(name, { value });
-        } else if (name === 'uiCdn') {
-          await takos.cdn.write('ui.txt', 'hello', { cacheTTL: 0 });
-          const data = await takos.cdn.read('ui.txt');
-          await takos.cdn.delete('ui.txt');
-          print(name, { data });
-        } else if (name === 'uiEvents') {
-          let received = false;
-          const u = takos.events.subscribe('uiPing', () => { received = true; });
-          await takos.events.publish('uiPing', {});
-          u();
-          print(name, { received });
-        } else if (name === 'uiFetch') {
-          const res = await takos.fetch('https://example.com');
-          print(name, { ok: res.ok });
-        } else if (name === 'uiExtensions') {
-          const ext = takos.extensions.get('com.example.api-test');
-          const api = await takos.activateExtension('com.example.api-test');
-          print(name, { has: !!ext, activated: typeof api?.publish === 'function' });
-        } else if (name === 'uiUrl') {
-          const before = takos.getURL();
-          let changed = false;
-          const off = takos.changeURL(() => { changed = true; });
-          takos.pushURL('tmp', { showBar: false });
-          takos.setURL(before, { showBar: false });
-          off();
-          print(name, { before, changed, after: takos.getURL() });
+        try {
+          if (name === "uiKv") {
+            await takos.kv.write("ui:test", "ok");
+            const value = await takos.kv.read("ui:test");
+            await takos.kv.delete("ui:test");
+            print(name, { value });
+          } else if (name === "uiCdn") {
+            await takos.cdn.write("ui.txt", "hello", { cacheTTL: 0 });
+            const data = await takos.cdn.read("ui.txt");
+            await takos.cdn.delete("ui.txt");
+            print(name, { data });
+          } else if (name === "uiEvents") {
+            let received = false;
+            const u = takos.events.subscribe("uiPing", () => {
+              received = true;
+            });
+            await takos.events.publish("uiPing", {});
+            u();
+            print(name, { received });
+          } else if (name === "uiFetch") {
+            const res = await takos.fetch("https://example.com");
+            print(name, { ok: res.ok });
+          } else if (name === "uiExtensions") {
+            const ext = takos.extensions.get("com.example.api-test");
+            const api = await takos.activateExtension(
+              "com.example.api-test",
+            );
+            print(name, {
+              has: !!ext,
+              activated: typeof api?.publish === "function",
+            });
+          } else if (name === "uiUrl") {
+            const before = takos.getURL();
+            let changed = false;
+            const off = takos.changeURL(() => {
+              changed = true;
+            });
+            takos.pushURL("tmp", { showBar: false });
+            takos.setURL(before, { showBar: false });
+            off();
+            print(name, { before, changed, after: takos.getURL() });
+          }
+        } catch (err) {
+          print(name, String(err), true);
         }
       }
 
-      function print(name, res) {
-        const out = document.getElementById('output');
-        const pre = document.createElement('pre');
-        pre.textContent = name + '\n' + JSON.stringify(res, null, 2);
+      function print(name, res, error = false) {
+        const out = document.getElementById("output");
+        const pre = document.createElement("pre");
+        if (typeof res === "string") {
+          pre.textContent = name + "\n" + res;
+        } else {
+          pre.textContent = name + "\n" + JSON.stringify(res, null, 2);
+        }
+        if (error) pre.classList.add("error");
         out.prepend(pre);
       }
 
-      addButtons(document.getElementById('server'), serverTests, runEvent);
-      addButtons(document.getElementById('client'), clientTests, runEvent);
-      addButtons(document.getElementById('ui'), uiTests, runUi);
+      addButtons(
+        document.getElementById("server"),
+        serverTests,
+        runEvent,
+      );
+      addButtons(
+        document.getElementById("client"),
+        clientTests,
+        runEvent,
+      );
+      addButtons(document.getElementById("ui"), uiTests, runUi);
     </script>
   </body>
 </html>
