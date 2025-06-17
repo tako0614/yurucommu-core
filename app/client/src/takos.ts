@@ -67,40 +67,78 @@ export function createTakos(identifier: string) {
   }
 
   const localPrefix = `takos:${identifier}::`;
-  const isBrowser = typeof window !== "undefined" &&
-    typeof window.localStorage !== "undefined";
+  const isBrowser = typeof indexedDB !== "undefined";
+
+  let dbPromise: Promise<IDBDatabase> | undefined;
+  function openDB() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open("takos-kv", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    return dbPromise;
+  }
 
   const kv = isBrowser
     ? {
       read: async (key: string) => {
-        const raw = window.localStorage.getItem(localPrefix + key);
-        if (raw === null) return undefined;
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return raw;
-        }
+        const db = await openDB();
+        return await new Promise<unknown>((resolve, reject) => {
+          const tx = db.transaction("kv", "readonly");
+          const store = tx.objectStore("kv");
+          const req = store.get(localPrefix + key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
       },
       write: async (key: string, value: unknown) => {
-        try {
-          window.localStorage.setItem(localPrefix + key, JSON.stringify(value));
-        } catch {
-          window.localStorage.setItem(localPrefix + key, String(value));
-        }
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("kv", "readwrite");
+          const store = tx.objectStore("kv");
+          store.put(value, localPrefix + key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
       },
       delete: async (key: string) => {
-        window.localStorage.removeItem(localPrefix + key);
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("kv", "readwrite");
+          const store = tx.objectStore("kv");
+          store.delete(localPrefix + key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
       },
       list: async (prefix?: string) => {
-        const keys: string[] = [];
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const k = window.localStorage.key(i)!;
-          if (k.startsWith(localPrefix)) {
-            const sub = k.slice(localPrefix.length);
-            if (!prefix || sub.startsWith(prefix)) keys.push(sub);
-          }
-        }
-        return keys;
+        const db = await openDB();
+        return await new Promise<string[]>((resolve, reject) => {
+          const keys: string[] = [];
+          const tx = db.transaction("kv", "readonly");
+          const store = tx.objectStore("kv");
+          const req = store.openCursor();
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              const k = cursor.key as string;
+              if (k.startsWith(localPrefix)) {
+                const sub = k.slice(localPrefix.length);
+                if (!prefix || sub.startsWith(prefix)) keys.push(sub);
+              }
+              cursor.continue();
+            } else {
+              resolve(keys);
+            }
+          };
+          req.onerror = () => reject(req.error);
+        });
       },
     }
     : {
@@ -170,15 +208,6 @@ export function createTakos(identifier: string) {
         }
         throw err;
       }
-    },
-    subscribe: (name: string, handler: (payload: unknown) => void) => {
-      if (!listeners.has(name)) listeners.set(name, new Set());
-      listeners.get(name)!.add(handler);
-      wsClient.subscribe(name);
-      return () => {
-        listeners.get(name)?.delete(handler);
-        if (!listeners.get(name)?.size) wsClient.unsubscribe(name);
-      };
     },
   };
 
