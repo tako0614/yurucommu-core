@@ -270,12 +270,51 @@ export function createTakos(identifier: string) {
     },
     activate: () => ({
       publish: async (name: string, payload?: unknown) => {
-        const raw = await call("extensions:invoke", {
-          id: identifier,
-          fn: name,
-          args: [payload],
-        });
-        return unwrapResult(raw);
+        const defs = (globalThis as Record<string, any>).__takosEventDefs?.[
+          identifier
+        ];
+        const def = defs?.[name];
+        const localFn = (globalThis as Record<string, any>).__takosClientEvents?.[
+          identifier
+        ]?.[name];
+
+        if (
+          def?.source === "client" ||
+          def?.source === "ui" ||
+          def?.source === "background"
+        ) {
+          if (typeof localFn === "function") {
+            return unwrapResult(await localFn(payload));
+          }
+          return undefined;
+        }
+
+        if (def?.source === "server") {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+          });
+          return unwrapResult(raw);
+        }
+
+        if (typeof localFn === "function") {
+          return unwrapResult(await localFn(payload));
+        }
+
+        try {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+          });
+          return unwrapResult(raw);
+        } catch (err) {
+          if (err instanceof Error && err.message.includes("function not found")) {
+            return undefined;
+          }
+          throw err;
+        }
       },
     }),
   };
