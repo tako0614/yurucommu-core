@@ -274,6 +274,7 @@ export class Takos {
     get(id: string): Extension | undefined;
     all: Extension[];
   };
+  private localKv = new Map<string, unknown>();
   extensions: TakosExtensions;
   constructor(opts: TakosOptions = {}) {
     this.opts = opts;
@@ -311,10 +312,17 @@ export class Takos {
     return fn(url, options);
   };
   kv = {
-    read: async (_key: string) => undefined as unknown,
-    write: async (_key: string, _value: unknown) => {},
-    delete: async (_key: string) => {},
-    list: async () => [] as string[],
+    read: async (key: string) => this.localKv.get(key),
+    write: async (key: string, value: unknown) => {
+      this.localKv.set(key, value);
+    },
+    delete: async (key: string) => {
+      this.localKv.delete(key);
+    },
+    list: async (prefix?: string) => {
+      const keys = Array.from(this.localKv.keys());
+      return prefix ? keys.filter((k) => k.startsWith(prefix)) : keys;
+    },
   };
   events: TakosEvents = {
     publish: async (
