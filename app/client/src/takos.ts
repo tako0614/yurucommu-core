@@ -2,15 +2,35 @@ import { wsClient } from "./utils/websocketClient.ts";
 
 export function createTakos(identifier: string) {
   async function call(eventId: string, payload: unknown) {
-    const res = await fetch("/api/event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        events: [{ identifier: "takos", eventId, payload }],
-      }),
-    });
-    const data = await res.json();
-    const r = data[0];
+    let res: Response;
+    try {
+      res = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{ identifier: "takos", eventId, payload }],
+        }),
+      });
+    } catch (err) {
+      throw new Error(
+        `Request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch (_err) {
+      const text = await res.text();
+      throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
+    }
+    const arr = Array.isArray(data)
+      ? data as { success?: boolean; result?: unknown; error?: string }[]
+      : [];
+    const r = arr[0];
     if (r && r.success) return r.result;
     throw new Error(r?.error || "Event error");
   }
@@ -90,12 +110,29 @@ export function createTakos(identifier: string) {
 
   const events = {
     publish: async (name: string, payload: unknown) => {
-      const raw = await call("extensions:invoke", {
-        id: identifier,
-        fn: name,
-        args: [payload],
+      const handlers = listeners.get(name);
+      handlers?.forEach((h) => {
+        try {
+          h(payload);
+        } catch (_e) {
+          /* ignore */
+        }
       });
-      return unwrapResult(raw);
+      try {
+        const raw = await call("extensions:invoke", {
+          id: identifier,
+          fn: name,
+          args: [payload],
+        });
+        return unwrapResult(raw);
+      } catch (err) {
+        if (
+          err instanceof Error && err.message.includes("function not found")
+        ) {
+          return undefined;
+        }
+        throw err;
+      }
     },
     subscribe: (name: string, handler: (payload: unknown) => void) => {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -115,5 +152,69 @@ export function createTakos(identifier: string) {
     },
   };
 
-  return { kv, cdn, events, server, fetch };
+  const fetchFn = (input: RequestInfo | URL, init?: RequestInit) =>
+    fetch(input, init);
+
+  const extensionObj = {
+    identifier,
+    version: "",
+    get isActive() {
+      return true;
+    },
+    activate: () => ({
+      publish: async (name: string, payload?: unknown) => {
+        const raw = await call("extensions:invoke", {
+          id: identifier,
+          fn: name,
+          args: [payload],
+        });
+        return unwrapResult(raw);
+      },
+    }),
+  };
+
+  const extensions = {
+    get(id: string) {
+      return id === identifier ? extensionObj : undefined;
+    },
+    get all() {
+      return [extensionObj];
+    },
+  };
+
+  function getURL() {
+    return location.hash.slice(1).split("/").filter((p) => p);
+  }
+
+  function setURL(segments: string[], _opts?: { showBar?: boolean }) {
+    location.hash = "#" + segments.join("/");
+  }
+
+  function pushURL(segment: string, opts?: { showBar?: boolean }) {
+    const segments = getURL();
+    segments.push(segment);
+    setURL(segments, opts);
+  }
+
+  function changeURL(
+    listener: (e: { url: string[] }) => void,
+  ): () => void {
+    const handler = () => listener({ url: getURL() });
+    globalThis.addEventListener("hashchange", handler);
+    return () => globalThis.removeEventListener("hashchange", handler);
+  }
+
+  return {
+    kv,
+    cdn,
+    events,
+    server,
+    fetch: fetchFn,
+    extensions,
+    activateExtension: extensionObj.activate,
+    getURL,
+    pushURL,
+    setURL,
+    changeURL,
+  };
 }

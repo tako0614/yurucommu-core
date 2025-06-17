@@ -28,7 +28,9 @@ async function testCdn() {
 async function testEvents() {
   const t = getApi();
   let flag = false;
-  const unsub = t?.events.subscribe("srvPing", () => { flag = true; });
+  const unsub = t?.events.subscribe("srvPing", () => {
+    flag = true;
+  });
   await t?.events.publish("srvPing", {});
   unsub?.();
   return { received: flag };
@@ -74,26 +76,58 @@ ApiServer.onServerKv = async (): Promise<[number, Record<string, unknown>]> => {
 };
 
 /** @event("serverCdn", { source: "ui" }) */
-ApiServer.onServerCdn = async (): Promise<[number, Record<string, unknown>]> => {
+ApiServer.onServerCdn = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
   return [200, await testCdn()];
 };
 
 /** @event("serverEvents", { source: "ui" }) */
-ApiServer.onServerEvents = async (): Promise<[number, Record<string, unknown>]> => {
+ApiServer.onServerEvents = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
   return [200, await testEvents()];
 };
 
 /** @event("serverActivityPub", { source: "ui" }) */
-ApiServer.onServerActivityPub = async (): Promise<[number, Record<string, unknown>]> => {
+ApiServer.onServerActivityPub = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
   return [200, await testActivityPub()];
 };
 
 /** @event("serverExtensions", { source: "ui" }) */
-ApiServer.onServerExtensions = async (): Promise<[number, Record<string, unknown>]> => {
+ApiServer.onServerExtensions = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
   return [200, await testExtensions()];
 };
 
 /** @event("serverFetch", { source: "ui" }) */
-ApiServer.onServerFetch = async (): Promise<[number, Record<string, unknown>]> => {
+ApiServer.onServerFetch = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
   return [200, await testFetch()];
 };
+
+// Direct wrappers for event names when not using the builder-generated wrappers
+export function serverKv(): Promise<[number, Record<string, unknown>]> {
+  return ApiServer.onServerKv();
+}
+export function serverCdn(): Promise<[number, Record<string, unknown>]> {
+  return ApiServer.onServerCdn();
+}
+export function serverEvents(): Promise<[number, Record<string, unknown>]> {
+  return ApiServer.onServerEvents();
+}
+export function serverActivityPub(): Promise<
+  [number, Record<string, unknown>]
+> {
+  return ApiServer.onServerActivityPub();
+}
+export function serverExtensions(): Promise<[number, Record<string, unknown>]> {
+  return ApiServer.onServerExtensions();
+}
+export function serverFetch(): Promise<[number, Record<string, unknown>]> {
+  return ApiServer.onServerFetch();
+}
