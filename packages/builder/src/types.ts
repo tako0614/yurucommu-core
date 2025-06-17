@@ -409,20 +409,20 @@ export interface TakosEventsAPI {
 // Main Takos API Interface
 export interface TakosAPI {
   kv: TakosKVAPI;
-  activitypub: TakosActivityPubAPI;
-  ap: TakosActivityPubAPI;
-  cdn: TakosCdnAPI;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
 
 export interface TakosServerAPI extends TakosAPI {
+  activitypub: TakosActivityPubAPI;
+  ap: TakosActivityPubAPI;
+  cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   extensions: TakosExtensionsAPI;
   activateExtension(
     identifier: string,
-  ): Promise<
-    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
-  >;
+    ): Promise<
+      { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+    >;
 }
 
 export interface TakosClientAPI extends TakosAPI {

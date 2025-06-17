@@ -419,6 +419,20 @@ const TAKOS_PATHS: string[][] = [
   ["activateExtension"],
 ];
 
+const CLIENT_TAKOS_PATHS: string[][] = [
+  ["fetch"],
+  ["kv", "read"],
+  ["kv", "write"],
+  ["kv", "delete"],
+  ["kv", "list"],
+  ["events", "publish"],
+  ["events", "subscribe"],
+  ["extensions", "get"],
+  ["extensions", "activate"],
+  ["extensions", "invoke"],
+  ["activateExtension"],
+];
+
 class PackWorker {
   #worker: Worker;
   #ready: Promise<void>;
@@ -430,6 +444,7 @@ class PackWorker {
     takos: Takos,
     perms: Record<string, boolean>,
     useDeno = false,
+    paths: string[][] = TAKOS_PATHS,
   ) {
     const url = URL.createObjectURL(
       new Blob([WORKER_SOURCE], { type: "application/javascript" }),
@@ -471,7 +486,7 @@ class PackWorker {
     this.#worker.postMessage({
       type: "init",
       code: wrapped,
-      takosPaths: TAKOS_PATHS,
+      takosPaths: paths,
       allowedPermissions: perms,
       extensions: Array.from(takos.extensions.all, (e) => ({
         identifier: e.identifier,
@@ -724,6 +739,7 @@ export class TakoPack {
           this.serverTakos,
           perms,
           true,
+          TAKOS_PATHS,
         );
       }
       if (pack.clientCode) {
@@ -742,6 +758,7 @@ export class TakoPack {
           this.clientTakos,
           perms,
           false,
+          CLIENT_TAKOS_PATHS,
         );
       }
     }
