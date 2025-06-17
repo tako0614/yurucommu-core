@@ -1,5 +1,4 @@
-import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts";
-import { TextDecoderStream } from "https://deno.land/std@0.224.0/streams/text_decoder_stream.ts";
+import { TextLineStream } from "@std/streams/text-line-stream";
 
 const targetDirectories = [
     "app/api",
@@ -57,7 +56,11 @@ async function runDevCommandInDir(dir: string): Promise<Deno.CommandStatus> {
         return status;
 
     } catch (error) {
-        console.error(`[INFO] Failed to start 'deno task dev' in ./${dir}: ${error.message}`);
+        if (error instanceof Error) {
+            console.error(`[INFO] Failed to start 'deno task dev' in ./${dir}: ${error.message}`);
+        } else {
+            console.error(`[INFO] Failed to start 'deno task dev' in ./${dir}: ${String(error)}`);
+        }
         // Re-throw or return a custom error status if needed for Promise.all handling
         throw error; 
     }
@@ -79,7 +82,11 @@ async function main() {
             }
         });
     } catch (error) {
-        console.error("[INFO] An error occurred while managing dev tasks:", error.message);
+        if (error instanceof Error) {
+            console.error("[INFO] An error occurred while managing dev tasks:", error.message);
+        } else {
+            console.error("[INFO] An error occurred while managing dev tasks:", String(error));
+        }
         // This block is reached if any `runDevCommandInDir` throws an unhandled error (e.g., command not found, cwd invalid before spawn)
         // Child processes that were successfully spawned might still be running.
         // Deno's default behavior on script termination (e.g. due to unhandled rejection)

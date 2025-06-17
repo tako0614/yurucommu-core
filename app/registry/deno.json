@@ -7,7 +7,7 @@
   },
   "tasks": {
     "start": "deno run -A --watch index.ts",
-    "dev": "deno run -A npm:vite --config ui/vite.config.ts",
+    "dev": "deno run -A --watch index.ts",
     "ui-build": "deno run -A npm:vite build --config ui/vite.config.ts"
   }
 }
