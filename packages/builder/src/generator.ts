@@ -160,6 +160,7 @@ export class VirtualEntryGenerator {
     const wrappers: string[] = [];
     const classMap = new Map<string, Set<string>>();
     const exportInfoMap = new Map<string, ExportInfo>();
+    const eventWrappers = new Map<string, { className?: string; handler: string }>();
 
     analyses.forEach((analysis) => {
       // import文を収集
@@ -213,14 +214,14 @@ export class VirtualEntryGenerator {
         {},
         [],
         classMap,
-        new Map(),
+        eventWrappers,
       );
       this.processDecorators(
         analysis,
         {},
         [],
         classMap,
-        new Map(),
+        eventWrappers,
       );
     });
 
@@ -246,6 +247,20 @@ export class VirtualEntryGenerator {
           exports.push(wrapperName);
         });
       }
+    });
+
+    eventWrappers.forEach((info, eventName) => {
+      const wrapperName = eventName;
+      if (info.className) {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.className}.${info.handler}(...args);`,
+        );
+      } else {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.handler}(...args);`,
+        );
+      }
+      exports.push(wrapperName);
     });
 
     const content = this.buildEntryContent([...imports, ...wrappers], exports);
