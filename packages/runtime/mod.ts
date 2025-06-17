@@ -830,6 +830,76 @@ export class TakoPack {
     }
   }
 
+  async callClient(
+    identifier: string,
+    fnName: string,
+    args: unknown[] = [],
+  ): Promise<unknown> {
+    const pack = this.packs.get(identifier);
+    if (!pack) throw new Error(`pack not found: ${identifier}`);
+    if (!pack.clientWorker) {
+      throw new Error(`client not loaded for ${identifier}`);
+    }
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, { handler?: string }>
+      | undefined;
+    const def = defs?.[fnName];
+    if (defs && !def) {
+      throw new Error(
+        `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
+      );
+    }
+    const callName = def?.handler || fnName;
+    try {
+      return await pack.clientWorker.call(callName, args);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("function not found")) {
+        const m = err.message.match(/available: ([^)]*)/);
+        if (m) {
+          const prefixes = m[1].split(/,\s*/);
+          const attempts = [] as string[];
+          for (const prefix of prefixes) {
+            attempts.push(`${prefix}.${callName}`);
+            if (!def) {
+              const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+              attempts.push(`${prefix}.on${cap}`);
+            }
+          }
+          for (const name of attempts) {
+            try {
+              return await pack.clientWorker.call(name, args);
+            } catch {
+              // ignore and try next
+            }
+          }
+        }
+      }
+      throw err;
+    }
+  }
+
+  async call(
+    identifier: string,
+    fnName: string,
+    args: unknown[] = [],
+  ): Promise<unknown> {
+    try {
+      return await this.callServer(identifier, fnName, args);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("server not loaded") ||
+          err.message.includes("function not found") ||
+          err.message.includes("event not defined"))
+      ) {
+        if (this.packs.get(identifier)?.clientWorker) {
+          return await this.callClient(identifier, fnName, args);
+        }
+      }
+      throw err;
+    }
+  }
+
   #extractPermissions(
     manifest: Record<string, unknown>,
   ): Record<string, boolean> {

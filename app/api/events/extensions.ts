@@ -121,7 +121,7 @@ eventManager.add(
     if (!runtime) {
       throw new Error("extension not found");
     }
-    const result = await runtime.callServer(id, fn, args);
+    const result = await runtime.call(id, fn, args);
     return result;
   },
 );
