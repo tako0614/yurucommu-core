@@ -874,6 +874,20 @@ export class TakoPack {
     fnName: string,
     args: unknown[] = [],
   ): Promise<unknown> {
+    const pack = this.packs.get(identifier);
+    if (!pack) throw new Error(`pack not found: ${identifier}`);
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, { source?: string }>
+      | undefined;
+    const def = defs?.[fnName];
+
+    if (def?.source === "client" || def?.source === "ui" || def?.source === "background") {
+      return await this.callClient(identifier, fnName, args);
+    }
+    if (def?.source === "server") {
+      return await this.callServer(identifier, fnName, args);
+    }
+
     try {
       return await this.callServer(identifier, fnName, args);
     } catch (err) {
@@ -883,7 +897,7 @@ export class TakoPack {
           err.message.includes("function not found") ||
           err.message.includes("event not defined"))
       ) {
-        if (this.packs.get(identifier)?.clientWorker) {
+        if (pack.clientWorker) {
           return await this.callClient(identifier, fnName, args);
         }
       }

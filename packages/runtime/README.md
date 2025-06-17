@@ -18,7 +18,7 @@ const runtime = new TakoPack([
   },
 });
 await runtime.init();
-// Automatically runs the handler in the appropriate layer
+// `call()` runs the handler on the layer specified in `eventDefinitions`
 const result = await runtime.call(manifest.identifier, "hello", [
   "world",
 ]);
