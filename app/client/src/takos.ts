@@ -66,20 +66,57 @@ export function createTakos(identifier: string) {
     return result;
   }
 
-  const kv = {
-    read: (key: string) =>
-      call("kv:read", {
-        id: identifier,
-        key,
-        side: "client",
-      }),
-    write: (key: string, value: unknown) =>
-      call("kv:write", { id: identifier, key, value, side: "client" }),
-    delete: (key: string) =>
-      call("kv:delete", { id: identifier, key, side: "client" }),
-    list: (prefix?: string) =>
-      call("kv:list", { id: identifier, prefix, side: "client" }),
-  };
+  const localPrefix = `takos:${identifier}::`;
+  const isBrowser = typeof window !== "undefined" &&
+    typeof window.localStorage !== "undefined";
+
+  const kv = isBrowser
+    ? {
+      read: async (key: string) => {
+        const raw = window.localStorage.getItem(localPrefix + key);
+        if (raw === null) return undefined;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return raw;
+        }
+      },
+      write: async (key: string, value: unknown) => {
+        try {
+          window.localStorage.setItem(localPrefix + key, JSON.stringify(value));
+        } catch {
+          window.localStorage.setItem(localPrefix + key, String(value));
+        }
+      },
+      delete: async (key: string) => {
+        window.localStorage.removeItem(localPrefix + key);
+      },
+      list: async (prefix?: string) => {
+        const keys: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i)!;
+          if (k.startsWith(localPrefix)) {
+            const sub = k.slice(localPrefix.length);
+            if (!prefix || sub.startsWith(prefix)) keys.push(sub);
+          }
+        }
+        return keys;
+      },
+    }
+    : {
+      read: (key: string) =>
+        call("kv:read", {
+          id: identifier,
+          key,
+          side: "client",
+        }),
+      write: (key: string, value: unknown) =>
+        call("kv:write", { id: identifier, key, value, side: "client" }),
+      delete: (key: string) =>
+        call("kv:delete", { id: identifier, key, side: "client" }),
+      list: (prefix?: string) =>
+        call("kv:list", { id: identifier, prefix, side: "client" }),
+    };
 
   const cdn = {
     read: (path: string) => call("cdn:read", { id: identifier, path }),
