@@ -483,6 +483,7 @@ ${exportsString}`;
     const functions: string[] = [];
     const exports: string[] = [];
     const usedImports = new Set<string>();
+    const eventMapEntries: string[] = [];
 
     for (const [name, registration] of this.clientFunctions) {
       const fnString = registration.fn.toString();
@@ -543,15 +544,27 @@ ${functionDeclaration}`);
       exports.push(name);
     }
 
+    if (this.manifestConfig?.eventDefinitions) {
+      for (const [ev, def] of Object.entries(this.manifestConfig.eventDefinitions)) {
+        if (def.handler && this.clientFunctions.has(def.handler)) {
+          eventMapEntries.push(`  "${ev}": ${def.handler},`);
+        }
+      }
+    }
+
     const importsString = Array.from(usedImports).join("\n");
     const exportsString = exports.length > 0
       ? `export { ${exports.join(", ")} };`
       : "";
 
+    const eventMap = eventMapEntries.length > 0
+      ? `\nconst __events = {\n${eventMapEntries.join("\n")}\n};\nif(!globalThis.__takosClientEvents) globalThis.__takosClientEvents = {};\nglobalThis.__takosClientEvents["${this.manifestConfig?.identifier}"] = __events;\n`
+      : "";
+
     return `${importsString ? importsString + "\n\n" : ""}${
       functions.join("\n\n")
     }
-
+${eventMap}
 ${exportsString}`;
   }
 

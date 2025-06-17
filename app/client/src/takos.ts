@@ -193,6 +193,15 @@ export function createTakos(identifier: string) {
           /* ignore */
         }
       });
+      const local = (globalThis as Record<string, any>).__takosClientEvents?.[identifier]?.[name];
+      if (typeof local === "function") {
+        try {
+          return await local(payload);
+        } catch (err) {
+          console.error("local event handler error", err);
+          throw err;
+        }
+      }
       try {
         const raw = await call("extensions:invoke", {
           id: identifier,
