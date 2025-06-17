@@ -16,6 +16,7 @@ HTTP API を提供します。
   特定の識別子の最新パッケージ情報を取得します。
 - `GET <downloadUrl>` – `index.json` で参照されている `.takopack`
   アーカイブをダウンロードします。
+- パッケージ登録時は同じ identifier と version の組み合わせを再登録できません。
 
 `index.json` のフォーマットは以下の通りです。
 
