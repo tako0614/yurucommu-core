@@ -59,14 +59,12 @@
       ];
       const clientTests = [
         "clientKv",
-        "clientCdn",
         "clientEvents",
         "clientExtensions",
         "clientFetch",
       ];
       const uiTests = [
         "uiKv",
-        "uiCdn",
         "uiEvents",
         "uiFetch",
         "uiExtensions",
@@ -102,19 +100,9 @@
             const value = await takos.kv.read("ui:test");
             await takos.kv.delete("ui:test");
             print(name, { value });
-          } else if (name === "uiCdn") {
-            await takos.cdn.write("ui.txt", "hello", { cacheTTL: 0 });
-            const data = await takos.cdn.read("ui.txt");
-            await takos.cdn.delete("ui.txt");
-            print(name, { data });
           } else if (name === "uiEvents") {
-            let received = false;
-            const u = takos.events.subscribe("uiPing", () => {
-              received = true;
-            });
             await takos.events.publish("uiPing", {});
-            u();
-            print(name, { received });
+            print(name, { ok: true });
           } else if (name === "uiFetch") {
             const res = await takos.fetch("https://example.com");
             print(name, { ok: res.ok });

@@ -18,7 +18,6 @@ export interface TakosEvents {
     payload: unknown,
     options?: { push?: boolean },
   ): Promise<unknown>;
-  subscribe(name: string, handler: (payload: unknown) => void): () => void;
 }
 
 export interface TakosCdn {
@@ -274,6 +273,7 @@ export class Takos {
     get(id: string): Extension | undefined;
     all: Extension[];
   };
+  private localKv = new Map<string, unknown>();
   extensions: TakosExtensions;
   constructor(opts: TakosOptions = {}) {
     this.opts = opts;
@@ -311,10 +311,17 @@ export class Takos {
     return fn(url, options);
   };
   kv = {
-    read: async (_key: string) => undefined as unknown,
-    write: async (_key: string, _value: unknown) => {},
-    delete: async (_key: string) => {},
-    list: async () => [] as string[],
+    read: async (key: string) => this.localKv.get(key),
+    write: async (key: string, value: unknown) => {
+      this.localKv.set(key, value);
+    },
+    delete: async (key: string) => {
+      this.localKv.delete(key);
+    },
+    list: async (prefix?: string) => {
+      const keys = Array.from(this.localKv.keys());
+      return prefix ? keys.filter((k) => k.startsWith(prefix)) : keys;
+    },
   };
   events: TakosEvents = {
     publish: async (
@@ -323,12 +330,6 @@ export class Takos {
       _options?: { push?: boolean },
     ): Promise<unknown> => {
       return undefined;
-    },
-    subscribe: (
-      _name: string,
-      _handler: (payload: unknown) => void,
-    ): () => void => {
-      return () => {};
     },
   };
   cdn = {
@@ -376,7 +377,6 @@ const TAKOS_PATHS: string[][] = [
   ["kv", "delete"],
   ["kv", "list"],
   ["events", "publish"],
-  ["events", "subscribe"],
   ["cdn", "read"],
   ["cdn", "write"],
   ["cdn", "delete"],
@@ -419,6 +419,19 @@ const TAKOS_PATHS: string[][] = [
   ["activateExtension"],
 ];
 
+const CLIENT_TAKOS_PATHS: string[][] = [
+  ["fetch"],
+  ["kv", "read"],
+  ["kv", "write"],
+  ["kv", "delete"],
+  ["kv", "list"],
+  ["events", "publish"],
+  ["extensions", "get"],
+  ["extensions", "activate"],
+  ["extensions", "invoke"],
+  ["activateExtension"],
+];
+
 class PackWorker {
   #worker: Worker;
   #ready: Promise<void>;
@@ -430,6 +443,7 @@ class PackWorker {
     takos: Takos,
     perms: Record<string, boolean>,
     useDeno = false,
+    paths: string[][] = TAKOS_PATHS,
   ) {
     const url = URL.createObjectURL(
       new Blob([WORKER_SOURCE], { type: "application/javascript" }),
@@ -471,7 +485,7 @@ class PackWorker {
     this.#worker.postMessage({
       type: "init",
       code: wrapped,
-      takosPaths: TAKOS_PATHS,
+      takosPaths: paths,
       allowedPermissions: perms,
       extensions: Array.from(takos.extensions.all, (e) => ({
         identifier: e.identifier,
@@ -724,6 +738,7 @@ export class TakoPack {
           this.serverTakos,
           perms,
           true,
+          TAKOS_PATHS,
         );
       }
       if (pack.clientCode) {
@@ -742,6 +757,7 @@ export class TakoPack {
           this.clientTakos,
           perms,
           false,
+          CLIENT_TAKOS_PATHS,
         );
       }
     }
@@ -799,6 +815,90 @@ export class TakoPack {
               // ignore and continue trying
             }
           }
+        }
+      }
+      throw err;
+    }
+  }
+
+  async callClient(
+    identifier: string,
+    fnName: string,
+    args: unknown[] = [],
+  ): Promise<unknown> {
+    const pack = this.packs.get(identifier);
+    if (!pack) throw new Error(`pack not found: ${identifier}`);
+    if (!pack.clientWorker) {
+      throw new Error(`client not loaded for ${identifier}`);
+    }
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, { handler?: string }>
+      | undefined;
+    const def = defs?.[fnName];
+    if (defs && !def) {
+      throw new Error(
+        `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
+      );
+    }
+    const callName = def?.handler || fnName;
+    try {
+      return await pack.clientWorker.call(callName, args);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("function not found")) {
+        const m = err.message.match(/available: ([^)]*)/);
+        if (m) {
+          const prefixes = m[1].split(/,\s*/);
+          const attempts = [] as string[];
+          for (const prefix of prefixes) {
+            attempts.push(`${prefix}.${callName}`);
+            if (!def) {
+              const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+              attempts.push(`${prefix}.on${cap}`);
+            }
+          }
+          for (const name of attempts) {
+            try {
+              return await pack.clientWorker.call(name, args);
+            } catch {
+              // ignore and try next
+            }
+          }
+        }
+      }
+      throw err;
+    }
+  }
+
+  async call(
+    identifier: string,
+    fnName: string,
+    args: unknown[] = [],
+  ): Promise<unknown> {
+    const pack = this.packs.get(identifier);
+    if (!pack) throw new Error(`pack not found: ${identifier}`);
+    const defs = (pack.manifest as Record<string, any>).eventDefinitions as
+      | Record<string, { source?: string }>
+      | undefined;
+    const def = defs?.[fnName];
+
+    if (def?.source === "client" || def?.source === "ui" || def?.source === "background") {
+      return await this.callClient(identifier, fnName, args);
+    }
+    if (def?.source === "server") {
+      return await this.callServer(identifier, fnName, args);
+    }
+
+    try {
+      return await this.callServer(identifier, fnName, args);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("server not loaded") ||
+          err.message.includes("function not found") ||
+          err.message.includes("event not defined"))
+      ) {
+        if (pack.clientWorker) {
+          return await this.callClient(identifier, fnName, args);
         }
       }
       throw err;

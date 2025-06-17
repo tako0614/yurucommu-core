@@ -18,10 +18,6 @@ export interface TakosEventsAPI {
     payload: T,
     options?: { push?: boolean },
   ): Promise<[number, unknown] | void>;
-  subscribe<T = unknown>(
-    eventName: string,
-    handler: (payload: T) => void,
-  ): () => void;
 }
 
 export interface TakosKVAPI {
@@ -98,8 +94,6 @@ export interface TakosServerAPI {
 
 export interface TakosClientAPI {
   kv: TakosKVAPI;
-  activitypub: TakosActivityPubAPI;
-  cdn: TakosCdnAPI;
   events: TakosEventsAPI;
   extensions: TakosExtensionsAPI;
   activateExtension(
@@ -110,7 +104,6 @@ export interface TakosClientAPI {
 
 export interface TakosUIAPI {
   events: TakosEventsAPI;
-  activitypub: TakosActivityPubAPI;
   extensions: TakosExtensionsAPI;
   activateExtension(
     identifier: string,
@@ -247,7 +240,6 @@ export function isClientContext(api: unknown): api is TakosClientAPI {
   return api !== null &&
     typeof api === "object" &&
     "kv" in api &&
-    "cdn" in api &&
     "events" in api &&
     "fetch" in api;
 }
@@ -256,5 +248,6 @@ export function isUIContext(api: unknown): api is TakosUIAPI {
   return api !== null &&
     typeof api === "object" &&
     "events" in api &&
-    !("kv" in api);
+    !("kv" in api) &&
+    !("activitypub" in api);
 }

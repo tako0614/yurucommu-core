@@ -319,7 +319,6 @@ type Permission =
   | "cdn:read"
   | "cdn:write"
   | "events:publish"
-  | "events:subscribe"
   | "deno:read" // 特権権限
   | "deno:write" // 特権権限
   | "deno:net" // 特権権限
@@ -576,7 +575,7 @@ const memoExtension = new FunctionBasedTakopack()
     description: "A simple memo-taking extension",
     version: "1.0.0",
     identifier: "com.example.simplememo",
-    permissions: ["kv:read", "kv:write", "events:publish", "events:subscribe"],
+    permissions: ["kv:read", "kv:write", "events:publish"],
   });
 
 await memoExtension.build();

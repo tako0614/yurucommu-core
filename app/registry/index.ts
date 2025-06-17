@@ -101,17 +101,20 @@ const mongoUri = env["MONGO_URI"] ??
 
 await mongoose.connect(mongoUri);
 
+const packageSchema = new mongoose.Schema({
+  identifier: { type: String, required: true },
+  name: { type: String, required: true },
+  version: { type: String, required: true },
+  description: String,
+  icon: String,
+  downloadUrl: { type: String, required: true },
+  sha256: String,
+}, { timestamps: true });
+packageSchema.index({ identifier: 1, version: 1 }, { unique: true });
+
 const Package = mongoose.model(
   "Package",
-  new mongoose.Schema({
-    identifier: { type: String, required: true },
-    name: { type: String, required: true },
-    version: { type: String, required: true },
-    description: String,
-    icon: String,
-    downloadUrl: { type: String, required: true },
-    sha256: String,
-  }, { timestamps: true }),
+  packageSchema,
 );
 
 const User = mongoose.model<UserDoc>(
@@ -496,6 +499,10 @@ app.post("/api/packages", auth, async (c) => {
       if (!domainEntry) {
         return c.json({ error: "Domain not verified" }, 400);
       }
+    }
+    const existing = await Package.findOne({ identifier, version });
+    if (existing) {
+      return c.json({ error: "Package version already exists" }, 409);
     }
     const digest = await crypto.subtle.digest("SHA-256", bytes);
     const sha256 = Array.from(new Uint8Array(digest))

@@ -160,6 +160,7 @@ export class VirtualEntryGenerator {
     const wrappers: string[] = [];
     const classMap = new Map<string, Set<string>>();
     const exportInfoMap = new Map<string, ExportInfo>();
+    const eventWrappers = new Map<string, { className?: string; handler: string }>();
 
     analyses.forEach((analysis) => {
       // import文を収集
@@ -213,14 +214,14 @@ export class VirtualEntryGenerator {
         {},
         [],
         classMap,
-        new Map(),
+        eventWrappers,
       );
       this.processDecorators(
         analysis,
         {},
         [],
         classMap,
-        new Map(),
+        eventWrappers,
       );
     });
 
@@ -246,6 +247,20 @@ export class VirtualEntryGenerator {
           exports.push(wrapperName);
         });
       }
+    });
+
+    eventWrappers.forEach((info, eventName) => {
+      const wrapperName = eventName;
+      if (info.className) {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.className}.${info.handler}(...args);`,
+        );
+      } else {
+        wrappers.push(
+          `export const ${wrapperName} = (...args: any[]) => ${info.handler}(...args);`,
+        );
+      }
+      exports.push(wrapperName);
     });
 
     const content = this.buildEntryContent([...imports, ...wrappers], exports);
@@ -635,7 +650,6 @@ export interface TakosEvent<T = SerializableValue> {
 }
 
 export type EventHandler<T = SerializableValue> = (payload: T) => void | Promise<void>;
-export type EventUnsubscribe = () => void;
 
 // KV API
 export interface TakosKVAPI {
@@ -686,8 +700,6 @@ declare global {
       cdn: TakosCdnAPI;
       events: {
         publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-        subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-        unsubscribe(name: string, handler: EventHandler): void;
       };
     } | undefined;
   }
@@ -701,8 +713,6 @@ export interface GlobalThisWithClientTakos {
     cdn: TakosCdnAPI;
     events: {
       publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-      subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-      unsubscribe(name: string, handler: EventHandler): void;
     };
   } | undefined;
 }
@@ -715,8 +725,6 @@ export interface GlobalThisWithUITakos {
   takos: {
     events: {
       publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-      subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-      unsubscribe(name: string, handler: EventHandler): void;
     };
   } | undefined;
 }
