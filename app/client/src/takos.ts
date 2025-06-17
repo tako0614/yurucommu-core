@@ -193,15 +193,47 @@ export function createTakos(identifier: string) {
           /* ignore */
         }
       });
-      const local = (globalThis as Record<string, any>).__takosClientEvents?.[identifier]?.[name];
-      if (typeof local === "function") {
+
+      const defs = (globalThis as Record<string, any>).__takosEventDefs
+        ?.[identifier];
+      const def = defs?.[name];
+
+      const localFn = (globalThis as Record<string, any>).__takosClientEvents
+        ?.[identifier]?.[name];
+
+      if (
+        def?.source === "client" || def?.source === "ui" ||
+        def?.source === "background"
+      ) {
+        if (typeof localFn === "function") {
+          try {
+            return await localFn(payload);
+          } catch (err) {
+            console.error("local event handler error", err);
+            throw err;
+          }
+        }
+        return undefined;
+      }
+
+      if (def?.source === "server") {
+        const raw = await call("extensions:invoke", {
+          id: identifier,
+          fn: name,
+          args: [payload],
+        });
+        return unwrapResult(raw);
+      }
+
+      if (typeof localFn === "function") {
         try {
-          return await local(payload);
+          return await localFn(payload);
         } catch (err) {
           console.error("local event handler error", err);
           throw err;
         }
       }
+
       try {
         const raw = await call("extensions:invoke", {
           id: identifier,
