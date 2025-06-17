@@ -2,15 +2,35 @@ import { wsClient } from "./utils/websocketClient.ts";
 
 export function createTakos(identifier: string) {
   async function call(eventId: string, payload: unknown) {
-    const res = await fetch("/api/event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        events: [{ identifier: "takos", eventId, payload }],
-      }),
-    });
-    const data = await res.json();
-    const r = data[0];
+    let res: Response;
+    try {
+      res = await fetch("/api/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{ identifier: "takos", eventId, payload }],
+        }),
+      });
+    } catch (err) {
+      throw new Error(
+        `Request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch (_err) {
+      const text = await res.text();
+      throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
+    }
+    const arr = Array.isArray(data)
+      ? data as { success?: boolean; result?: unknown; error?: string }[]
+      : [];
+    const r = arr[0];
     if (r && r.success) return r.result;
     throw new Error(r?.error || "Event error");
   }
