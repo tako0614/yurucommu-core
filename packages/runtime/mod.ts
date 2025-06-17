@@ -18,7 +18,6 @@ export interface TakosEvents {
     payload: unknown,
     options?: { push?: boolean },
   ): Promise<unknown>;
-  subscribe(name: string, handler: (payload: unknown) => void): () => void;
 }
 
 export interface TakosCdn {
@@ -332,12 +331,6 @@ export class Takos {
     ): Promise<unknown> => {
       return undefined;
     },
-    subscribe: (
-      _name: string,
-      _handler: (payload: unknown) => void,
-    ): () => void => {
-      return () => {};
-    },
   };
   cdn = {
     read: async (_path: string) => "",
@@ -384,7 +377,6 @@ const TAKOS_PATHS: string[][] = [
   ["kv", "delete"],
   ["kv", "list"],
   ["events", "publish"],
-  ["events", "subscribe"],
   ["cdn", "read"],
   ["cdn", "write"],
   ["cdn", "delete"],
@@ -434,7 +426,6 @@ const CLIENT_TAKOS_PATHS: string[][] = [
   ["kv", "delete"],
   ["kv", "list"],
   ["events", "publish"],
-  ["events", "subscribe"],
   ["extensions", "get"],
   ["extensions", "activate"],
   ["extensions", "invoke"],

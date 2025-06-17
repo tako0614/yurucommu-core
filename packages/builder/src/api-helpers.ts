@@ -18,10 +18,6 @@ export interface TakosEventsAPI {
     payload: T,
     options?: { push?: boolean },
   ): Promise<[number, unknown] | void>;
-  subscribe<T = unknown>(
-    eventName: string,
-    handler: (payload: T) => void,
-  ): () => void;
 }
 
 export interface TakosKVAPI {

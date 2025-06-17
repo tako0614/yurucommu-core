@@ -15,7 +15,6 @@ export type Permission =
   | "cdn:read"
   | "cdn:write"
   | "events:publish"
-  | "events:subscribe"
   | "deno:read"
   | "deno:write"
   | "deno:net"
@@ -326,7 +325,6 @@ export interface TakosEvent<T = SerializableValue> {
 export type EventHandler<T = SerializableValue> = (
   payload: T,
 ) => void | Promise<void>;
-export type EventUnsubscribe = () => void;
 
 // Assets 関連型
 export interface AssetWriteOptions {
@@ -400,10 +398,6 @@ export interface TakosEventsAPI {
     payload: SerializableValue,
     options?: { push?: boolean },
   ): Promise<[200 | 400 | 500, SerializableObject] | void>;
-  subscribe<T = SerializableValue>(
-    eventName: string,
-    handler: EventHandler<T>,
-  ): EventUnsubscribe;
 }
 
 // Main Takos API Interface

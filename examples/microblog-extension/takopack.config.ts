@@ -10,7 +10,6 @@ export default defineConfig({
       "kv:read",
       "kv:write",
       "events:publish",
-      "events:subscribe",
     ],
   },
 

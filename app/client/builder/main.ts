@@ -35,7 +35,6 @@ export type Permission =
   | "cdn:read"
   | "cdn:write"
   | "events:publish"
-  | "events:subscribe"
   | "deno:read"
   | "deno:write"
   | "deno:net"

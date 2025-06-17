@@ -635,7 +635,6 @@ export interface TakosEvent<T = SerializableValue> {
 }
 
 export type EventHandler<T = SerializableValue> = (payload: T) => void | Promise<void>;
-export type EventUnsubscribe = () => void;
 
 // KV API
 export interface TakosKVAPI {
@@ -686,8 +685,6 @@ declare global {
       cdn: TakosCdnAPI;
       events: {
         publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-        subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-        unsubscribe(name: string, handler: EventHandler): void;
       };
     } | undefined;
   }
@@ -701,8 +698,6 @@ export interface GlobalThisWithClientTakos {
     cdn: TakosCdnAPI;
     events: {
       publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-      subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-      unsubscribe(name: string, handler: EventHandler): void;
     };
   } | undefined;
 }
@@ -715,8 +710,6 @@ export interface GlobalThisWithUITakos {
   takos: {
     events: {
       publish<T = SerializableValue>(name: string, payload: T): Promise<void>;
-      subscribe<T = SerializableValue>(name: string, handler: EventHandler<T>): EventUnsubscribe;
-      unsubscribe(name: string, handler: EventHandler): void;
     };
   } | undefined;
 }
