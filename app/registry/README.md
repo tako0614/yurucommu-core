@@ -23,6 +23,7 @@
     レコードとして追加してから実行します
 - `GET /api/domains` - 登録済みドメイン一覧を取得
 - `POST /api/packages` - パッケージ登録（ドメイン確認済みが必要）
+  - 既存の identifier と version の組み合わせは登録できません
 - `GET /api/<file>` - `.takopack` アーカイブのダウンロード
 
 ## サーバーの起動方法
