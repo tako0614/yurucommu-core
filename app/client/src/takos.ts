@@ -66,20 +66,95 @@ export function createTakos(identifier: string) {
     return result;
   }
 
-  const kv = {
-    read: (key: string) =>
-      call("kv:read", {
-        id: identifier,
-        key,
-        side: "client",
-      }),
-    write: (key: string, value: unknown) =>
-      call("kv:write", { id: identifier, key, value, side: "client" }),
-    delete: (key: string) =>
-      call("kv:delete", { id: identifier, key, side: "client" }),
-    list: (prefix?: string) =>
-      call("kv:list", { id: identifier, prefix, side: "client" }),
-  };
+  const localPrefix = `takos:${identifier}::`;
+  const isBrowser = typeof indexedDB !== "undefined";
+
+  let dbPromise: Promise<IDBDatabase> | undefined;
+  function openDB() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open("takos-kv", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    return dbPromise;
+  }
+
+  const kv = isBrowser
+    ? {
+      read: async (key: string) => {
+        const db = await openDB();
+        return await new Promise<unknown>((resolve, reject) => {
+          const tx = db.transaction("kv", "readonly");
+          const store = tx.objectStore("kv");
+          const req = store.get(localPrefix + key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      write: async (key: string, value: unknown) => {
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("kv", "readwrite");
+          const store = tx.objectStore("kv");
+          store.put(value, localPrefix + key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      },
+      delete: async (key: string) => {
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("kv", "readwrite");
+          const store = tx.objectStore("kv");
+          store.delete(localPrefix + key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      },
+      list: async (prefix?: string) => {
+        const db = await openDB();
+        return await new Promise<string[]>((resolve, reject) => {
+          const keys: string[] = [];
+          const tx = db.transaction("kv", "readonly");
+          const store = tx.objectStore("kv");
+          const req = store.openCursor();
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              const k = cursor.key as string;
+              if (k.startsWith(localPrefix)) {
+                const sub = k.slice(localPrefix.length);
+                if (!prefix || sub.startsWith(prefix)) keys.push(sub);
+              }
+              cursor.continue();
+            } else {
+              resolve(keys);
+            }
+          };
+          req.onerror = () => reject(req.error);
+        });
+      },
+    }
+    : {
+      read: (key: string) =>
+        call("kv:read", {
+          id: identifier,
+          key,
+          side: "client",
+        }),
+      write: (key: string, value: unknown) =>
+        call("kv:write", { id: identifier, key, value, side: "client" }),
+      delete: (key: string) =>
+        call("kv:delete", { id: identifier, key, side: "client" }),
+      list: (prefix?: string) =>
+        call("kv:list", { id: identifier, prefix, side: "client" }),
+    };
 
   const cdn = {
     read: (path: string) => call("cdn:read", { id: identifier, path }),
@@ -118,6 +193,47 @@ export function createTakos(identifier: string) {
           /* ignore */
         }
       });
+
+      const defs = (globalThis as Record<string, any>).__takosEventDefs
+        ?.[identifier];
+      const def = defs?.[name];
+
+      const localFn = (globalThis as Record<string, any>).__takosClientEvents
+        ?.[identifier]?.[name];
+
+      if (
+        def?.source === "client" || def?.source === "ui" ||
+        def?.source === "background"
+      ) {
+        if (typeof localFn === "function") {
+          try {
+            return await localFn(payload);
+          } catch (err) {
+            console.error("local event handler error", err);
+            throw err;
+          }
+        }
+        return undefined;
+      }
+
+      if (def?.source === "server") {
+        const raw = await call("extensions:invoke", {
+          id: identifier,
+          fn: name,
+          args: [payload],
+        });
+        return unwrapResult(raw);
+      }
+
+      if (typeof localFn === "function") {
+        try {
+          return await localFn(payload);
+        } catch (err) {
+          console.error("local event handler error", err);
+          throw err;
+        }
+      }
+
       try {
         const raw = await call("extensions:invoke", {
           id: identifier,
@@ -133,15 +249,6 @@ export function createTakos(identifier: string) {
         }
         throw err;
       }
-    },
-    subscribe: (name: string, handler: (payload: unknown) => void) => {
-      if (!listeners.has(name)) listeners.set(name, new Set());
-      listeners.get(name)!.add(handler);
-      wsClient.subscribe(name);
-      return () => {
-        listeners.get(name)?.delete(handler);
-        if (!listeners.get(name)?.size) wsClient.unsubscribe(name);
-      };
     },
   };
 
@@ -163,12 +270,51 @@ export function createTakos(identifier: string) {
     },
     activate: () => ({
       publish: async (name: string, payload?: unknown) => {
-        const raw = await call("extensions:invoke", {
-          id: identifier,
-          fn: name,
-          args: [payload],
-        });
-        return unwrapResult(raw);
+        const defs = (globalThis as Record<string, any>).__takosEventDefs?.[
+          identifier
+        ];
+        const def = defs?.[name];
+        const localFn = (globalThis as Record<string, any>).__takosClientEvents?.[
+          identifier
+        ]?.[name];
+
+        if (
+          def?.source === "client" ||
+          def?.source === "ui" ||
+          def?.source === "background"
+        ) {
+          if (typeof localFn === "function") {
+            return unwrapResult(await localFn(payload));
+          }
+          return undefined;
+        }
+
+        if (def?.source === "server") {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+          });
+          return unwrapResult(raw);
+        }
+
+        if (typeof localFn === "function") {
+          return unwrapResult(await localFn(payload));
+        }
+
+        try {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+          });
+          return unwrapResult(raw);
+        } catch (err) {
+          if (err instanceof Error && err.message.includes("function not found")) {
+            return undefined;
+          }
+          throw err;
+        }
       },
     }),
   };

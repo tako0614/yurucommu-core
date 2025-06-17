@@ -81,14 +81,15 @@ export async function loadExtension(
 
     await pack.init();
 
-    // Forward client events to the server runtime
+    // Forward client events to connected clients only
     pack.setClientPublish(
       (
         name: string,
         payload: unknown,
-        options?: { push?: boolean },
+        _options?: { push?: boolean },
       ) => {
-        return pack.callServer(doc.identifier, name, [payload, options]);
+        wsManager.distributeEvent(name, payload);
+        return Promise.resolve(undefined);
       },
     );
     runtimes.set(doc.identifier, pack);

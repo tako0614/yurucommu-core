@@ -11,23 +11,10 @@ async function testKv() {
   return { value };
 }
 
-async function testCdn() {
-  const t = getTakosClientAPI();
-  await t?.cdn.write("client.txt", "hello", { cacheTTL: 0 });
-  const data = await t?.cdn.read("client.txt");
-  await t?.cdn.delete("client.txt");
-  return { data };
-}
-
 async function testEvents() {
   const t = getTakosClientAPI();
-  let flag = false;
-  const unsub = t?.events.subscribe("clientPing", () => {
-    flag = true;
-  });
   await t?.events.publish("clientPing", {});
-  unsub?.();
-  return { received: flag };
+  return { ok: true };
 }
 
 async function testExtensions() {
@@ -46,13 +33,6 @@ async function testFetch() {
 /** @event("clientKv", { source: "ui" }) */
 ApiClient.onClientKv = async (): Promise<[number, Record<string, unknown>]> => {
   return [200, await testKv()];
-};
-
-/** @event("clientCdn", { source: "ui" }) */
-ApiClient.onClientCdn = async (): Promise<
-  [number, Record<string, unknown>]
-> => {
-  return [200, await testCdn()];
 };
 
 /** @event("clientEvents", { source: "ui" }) */
@@ -79,9 +59,6 @@ ApiClient.onClientFetch = async (): Promise<
 // Direct wrappers for event names when not using builder-generated wrappers
 export function clientKv(): Promise<[number, Record<string, unknown>]> {
   return ApiClient.onClientKv();
-}
-export function clientCdn(): Promise<[number, Record<string, unknown>]> {
-  return ApiClient.onClientCdn();
 }
 export function clientEvents(): Promise<[number, Record<string, unknown>]> {
   return ApiClient.onClientEvents();

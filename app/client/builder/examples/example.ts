@@ -399,10 +399,7 @@ const modernUI = `<!DOCTYPE html>
 
         // イベントリスナー設定
         if (typeof takos !== 'undefined' && takos.events) {
-            takos.events.subscribe('metricsUpdated', function(data) {
-                addLog('メトリクスが更新されました', 'info');
-                refreshMetrics();
-            });
+            // events.subscribe is removed; metricsUpdated will invoke handlers directly
         }
     </script>
 </body>
@@ -433,7 +430,6 @@ const extension = new FunctionBasedTakopack()
       "activitypub:send",
       "activitypub:receive:hook",
       "events:publish",
-      "events:subscribe",
     ],
   })
   // === サーバー関数（権限引数なし） ===

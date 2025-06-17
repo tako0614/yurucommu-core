@@ -22,7 +22,6 @@ export default defineConfig({
       "cdn:read",
       "cdn:write",
       "events:publish",
-      "events:subscribe",
       "extensions:invoke",
       "extensions:export",
       "deno:read",

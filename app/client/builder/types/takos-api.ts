@@ -93,10 +93,7 @@ export interface ActivityPubManager {
 }
 
 export interface TakosAPI {
-  activitypub: ActivityPubManager;
-  ap: ActivityPubManager;
   kv: KVStore;
-  cdn: CdnManager;
   events: EventManager;
   fetch(url: string, options?: RequestInit): Promise<Response>;
 }
