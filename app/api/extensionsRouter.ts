@@ -25,6 +25,7 @@ app.get("/api/extensions/:id/client.js", async (c) => {
   const ext = await Extension.findOne({ identifier: id });
   if (!ext || !ext.client) return c.notFound();
   c.header("Content-Type", "application/javascript; charset=utf-8");
+  c.header("Cache-Control", "no-store");
   return c.body(ext.client);
 });
 
@@ -48,6 +49,7 @@ app.get("/api/extensions/:id/sw.js", async (c) => {
     `/api/extensions/${id}/client.js`,
   );
   c.header("Content-Type", "application/javascript; charset=utf-8");
+  c.header("Cache-Control", "no-store");
   return c.body(code);
 });
 
