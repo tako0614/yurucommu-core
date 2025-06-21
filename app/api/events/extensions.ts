@@ -115,6 +115,7 @@ eventManager.add(
     id: z.string(),
     fn: z.string(),
     args: z.array(z.unknown()).optional(),
+    options: z.object({ push: z.boolean().optional(), token: z.string().optional() }).optional(),
   }),
   async (_c, { id, fn, args = [] }) => {
     const runtime = getRuntime(id);

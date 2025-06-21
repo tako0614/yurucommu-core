@@ -55,7 +55,7 @@ export interface EventManager {
   publish(
     eventName: string,
     payload: unknown,
-    options?: { push?: boolean },
+    options?: { push?: boolean; token?: string },
   ): Promise<[number, unknown] | void>;
   subscribe(eventName: string, handler: (payload: unknown) => void): () => void;
 }

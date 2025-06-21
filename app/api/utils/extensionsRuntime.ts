@@ -2,6 +2,10 @@ import { TakoPack } from "../../../packages/runtime/mod.ts";
 import { Extension } from "../models/extension.ts";
 import { WebSocketManager } from "../websocketHandler.ts";
 import { KVItem } from "../models/kv.ts";
+import { sendFCM } from "./fcm.ts";
+
+const serviceAccountStr = Deno.env.get("SERVICE_ACCOUNT_JSON");
+const serviceAccount = serviceAccountStr ? JSON.parse(serviceAccountStr) : null;
 
 const runtimes = new Map<string, TakoPack>();
 
@@ -26,12 +30,12 @@ export async function loadExtension(
     icon?: string;
   },
 ) {
-  try {    const wsManager = WebSocketManager.getInstance();
+  try {
+    const wsManager = WebSocketManager.getInstance();
     const pack = new TakoPack([
       {
         manifest: doc.manifest,
         server: doc.server,
-        client: doc.client,
         ui: doc.ui,
       },
     ], {
@@ -76,20 +80,26 @@ export async function loadExtension(
           },
         },
       },
-      client: {},
     });
 
     await pack.init();
 
     // Forward client events to connected clients only
     pack.setClientPublish(
-      (
+      async (
         name: string,
         payload: unknown,
-        _options?: { push?: boolean },
+        options?: { push?: boolean; token?: string },
       ) => {
         wsManager.distributeEvent(name, payload);
-        return Promise.resolve(undefined);
+        if (options?.push && options.token && serviceAccount) {
+          await sendFCM(serviceAccount, options.token, {
+            id: doc.identifier,
+            fn: name,
+            args: [payload],
+          }).catch((err) => console.error("FCM error", err));
+        }
+        return undefined;
       },
     );
     runtimes.set(doc.identifier, pack);

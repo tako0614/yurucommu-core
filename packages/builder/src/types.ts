@@ -396,7 +396,7 @@ export interface TakosEventsAPI {
   publish(
     eventName: string,
     payload: SerializableValue,
-    options?: { push?: boolean },
+    options?: { push?: boolean; token?: string },
   ): Promise<[200 | 400 | 500, SerializableObject] | void>;
 }
 

@@ -1,4 +1,34 @@
 import { wsClient } from "./utils/websocketClient.ts";
+import { loadExtensionWorker } from "./extensionWorker.ts";
+import { initializeApp } from "firebase/app";
+import { getMessaging, getToken } from "firebase/messaging";
+
+let firebaseTokenPromise: Promise<string | null> | null = null;
+
+async function getFirebaseToken(): Promise<string | null> {
+  if (firebaseTokenPromise) return firebaseTokenPromise;
+  firebaseTokenPromise = (async () => {
+    try {
+      const res = await fetch("/api/firebase-config");
+      if (!res.ok) return null;
+      const config = await res.json();
+      const app = initializeApp(config);
+      const messaging = getMessaging(app);
+      return await getToken(messaging).catch(() => null);
+    } catch {
+      return null;
+    }
+  })();
+  return firebaseTokenPromise;
+}
+
+interface TakosGlobals {
+  __takosEventDefs?: Record<string, Record<string, unknown>>;
+  __takosClientEvents?: Record<
+    string,
+    Record<string, (p: unknown) => Promise<unknown>>
+  >;
+}
 
 export function createTakos(identifier: string) {
   async function call(eventId: string, payload: unknown) {
@@ -184,7 +214,17 @@ export function createTakos(identifier: string) {
   });
 
   const events = {
-    publish: async (name: string, payload: unknown) => {
+    publish: async (
+      name: string,
+      payload: unknown,
+      options?: { push?: boolean; token?: string },
+    ) => {
+      if (options?.push && !options.token) {
+        const token = await getFirebaseToken();
+        if (token) {
+          options = { ...options, token };
+        }
+      }
       const handlers = listeners.get(name);
       handlers?.forEach((h) => {
         try {
@@ -194,67 +234,79 @@ export function createTakos(identifier: string) {
         }
       });
 
-      const defs = (globalThis as Record<string, any>).__takosEventDefs
-        ?.[identifier];
-      const def = defs?.[name];
-
-      const localFn = (globalThis as Record<string, any>).__takosClientEvents
-        ?.[identifier]?.[name];
-
-      if (
-        def?.source === "client" || def?.source === "ui" ||
-        def?.source === "background"
-      ) {
-        if (typeof localFn === "function") {
-          try {
-            return await localFn(payload);
-          } catch (err) {
-            console.error("local event handler error", err);
-            throw err;
-          }
+      const g = globalThis as TakosGlobals;
+      let defs = g.__takosEventDefs?.[identifier];
+      if (!defs) {
+        try {
+          const w = await loadExtensionWorker(identifier, takos);
+          await w.ready;
+          defs = g.__takosEventDefs?.[identifier];
+        } catch {
+          /* ignore */
         }
-        return undefined;
       }
+      const def = defs?.[name];
+      let w: ReturnType<typeof loadExtensionWorker> | undefined;
 
       if (def?.source === "server") {
         const raw = await call("extensions:invoke", {
           id: identifier,
           fn: name,
           args: [payload],
+          options,
         });
         return unwrapResult(raw);
-      }
-
-      if (typeof localFn === "function") {
-        try {
-          return await localFn(payload);
-        } catch (err) {
-          console.error("local event handler error", err);
-          throw err;
-        }
       }
 
       try {
-        const raw = await call("extensions:invoke", {
-          id: identifier,
-          fn: name,
-          args: [payload],
-        });
-        return unwrapResult(raw);
-      } catch (err) {
+        w = await loadExtensionWorker(identifier, takos);
+        const result = await w.callEvent(name, payload);
         if (
-          err instanceof Error && err.message.includes("function not found")
+          def?.source === "client" ||
+          def?.source === "ui" ||
+          def?.source === "background"
         ) {
-          return undefined;
+          return result;
         }
-        throw err;
+        if (def) return result;
+      } catch (err) {
+        if (def) throw err;
       }
+
+      if (!def) {
+        try {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+            options,
+          });
+          return unwrapResult(raw);
+        } catch (err) {
+          if (
+            err instanceof Error && err.message.includes("function not found")
+          ) {
+            return undefined;
+          }
+          throw err;
+        }
+      }
+      return undefined;
     },
   };
 
   const server = {
-    call: async (fn: string, args: unknown[] = []) => {
-      const raw = await call("extensions:invoke", { id: identifier, fn, args });
+    call: async (
+      fn: string,
+      args: unknown[] = [],
+      options?: { push?: boolean; token?: string },
+    ) => {
+      const raw = await call("extensions:invoke", {
+        id: identifier,
+        fn,
+        args,
+        options,
+      });
       return unwrapResult(raw);
     },
   };
@@ -269,52 +321,74 @@ export function createTakos(identifier: string) {
       return true;
     },
     activate: () => ({
-      publish: async (name: string, payload?: unknown) => {
-        const defs = (globalThis as Record<string, any>).__takosEventDefs?.[
-          identifier
-        ];
-        const def = defs?.[name];
-        const localFn = (globalThis as Record<string, any>).__takosClientEvents?.[
-          identifier
-        ]?.[name];
-
-        if (
-          def?.source === "client" ||
-          def?.source === "ui" ||
-          def?.source === "background"
-        ) {
-          if (typeof localFn === "function") {
-            return unwrapResult(await localFn(payload));
+      publish: async (
+        name: string,
+        payload?: unknown,
+        options?: { push?: boolean; token?: string },
+      ) => {
+        if (options?.push && !options.token) {
+          const token = await getFirebaseToken();
+          if (token) {
+            options = { ...options, token };
           }
-          return undefined;
         }
+        const g = globalThis as TakosGlobals;
+        let defs = g.__takosEventDefs?.[identifier];
+        if (!defs) {
+          try {
+            const w = await loadExtensionWorker(identifier, takos);
+            await w.ready;
+            defs = g.__takosEventDefs?.[identifier];
+          } catch {
+            /* ignore */
+          }
+        }
+        const def = defs?.[name];
 
         if (def?.source === "server") {
           const raw = await call("extensions:invoke", {
             id: identifier,
             fn: name,
             args: [payload],
+            options,
           });
           return unwrapResult(raw);
-        }
-
-        if (typeof localFn === "function") {
-          return unwrapResult(await localFn(payload));
         }
 
         try {
-          const raw = await call("extensions:invoke", {
-            id: identifier,
-            fn: name,
-            args: [payload],
-          });
-          return unwrapResult(raw);
-        } catch (err) {
-          if (err instanceof Error && err.message.includes("function not found")) {
-            return undefined;
+          const w = await loadExtensionWorker(identifier, takos);
+          const result = await w.callEvent(name, payload);
+          if (
+            def?.source === "client" ||
+            def?.source === "ui" ||
+            def?.source === "background"
+          ) {
+            return unwrapResult(result);
           }
-          throw err;
+          if (def) return unwrapResult(result);
+        } catch (err) {
+          if (def) throw err;
         }
+
+        if (!def) {
+          try {
+            const raw = await call("extensions:invoke", {
+              id: identifier,
+              fn: name,
+              args: [payload],
+              options,
+            });
+            return unwrapResult(raw);
+          } catch (err) {
+            if (
+              err instanceof Error && err.message.includes("function not found")
+            ) {
+              return undefined;
+            }
+            throw err;
+          }
+        }
+        return undefined;
       },
     }),
   };
@@ -350,7 +424,7 @@ export function createTakos(identifier: string) {
     return () => globalThis.removeEventListener("hashchange", handler);
   }
 
-  return {
+  const takos = {
     kv,
     cdn,
     events,
@@ -362,5 +436,11 @@ export function createTakos(identifier: string) {
     pushURL,
     setURL,
     changeURL,
-  };
+  } as const;
+
+  if (typeof document !== "undefined") {
+    loadExtensionWorker(identifier, takos).catch(() => {});
+  }
+
+  return takos;
 }

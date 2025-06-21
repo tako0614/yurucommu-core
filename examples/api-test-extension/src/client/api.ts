@@ -56,16 +56,10 @@ ApiClient.onClientFetch = async (): Promise<
   return [200, await testFetch()];
 };
 
-// Direct wrappers for event names when not using builder-generated wrappers
-export function clientKv(): Promise<[number, Record<string, unknown>]> {
-  return ApiClient.onClientKv();
-}
-export function clientEvents(): Promise<[number, Record<string, unknown>]> {
-  return ApiClient.onClientEvents();
-}
-export function clientExtensions(): Promise<[number, Record<string, unknown>]> {
-  return ApiClient.onClientExtensions();
-}
-export function clientFetch(): Promise<[number, Record<string, unknown>]> {
-  return ApiClient.onClientFetch();
-}
+/** @event("clientSource", { source: "client" }) */
+ApiClient.onClientSource = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
+  return [200, { env: "client" }];
+};
+

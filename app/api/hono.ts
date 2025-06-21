@@ -27,6 +27,16 @@ app.get("/api/ws/stats", (c) => {
   return c.json(stats);
 });
 
+app.get("/api/firebase-config", (c) => {
+  const cfg = c.env["GOOGLE_SERVICE_JSON"];
+  if (!cfg) return c.json({});
+  try {
+    return c.json(JSON.parse(cfg));
+  } catch {
+    return c.json({});
+  }
+});
+
 // eventRouter.ts で定義したルート群を統合
 app.route("/", eventApp); // 追加：/api/event を処理
 app.route("/", extensionsRouter);
