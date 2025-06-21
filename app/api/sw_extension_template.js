@@ -39,12 +39,7 @@ function createTakos(paths) {
 let mod = null;
 async function loadMod(id) {
   if (mod) return;
-  const res = await fetch("/api/extensions/" + id + "/client.js");
-  const txt = await res.text();
-  const url = URL.createObjectURL(
-    new Blob([txt], { type: "application/javascript" }),
-  );
-  mod = await import(url);
+  mod = await import(`/api/extensions/${id}/client.js`);
 }
 self.onmessage = async (e) => {
   const d = e.data;

@@ -1,7 +1,7 @@
 import { wsClient } from "./utils/websocketClient.ts";
 import { loadExtensionWorker } from "./extensionWorker.ts";
-import { initializeApp } from "npm:firebase/app";
-import { getMessaging, getToken } from "npm:firebase/messaging";
+import { initializeApp } from "firebase/app";
+import { getMessaging, getToken } from "firebase/messaging";
 
 let firebaseTokenPromise: Promise<string | null> | null = null;
 
