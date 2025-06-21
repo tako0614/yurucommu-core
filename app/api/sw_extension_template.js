@@ -36,18 +36,13 @@ function createTakos(paths) {
   }
   return t;
 }
-let mod = null;
-async function loadMod(id) {
-  if (mod) return;
-  mod = await import(`/api/extensions/${id}/client.js`);
-}
+import * as mod from "__CLIENT_PATH__";
 self.onmessage = async (e) => {
   const d = e.data;
   if (d.type === "init") {
     port = e.ports[0];
     extId = d.id;
     globalThis.takos = createTakos(d.takosPaths);
-    await loadMod(d.id);
     port.postMessage({ type: "ready" });
   } else if (d.type === "call") {
     try {
@@ -91,7 +86,6 @@ async function handlePush(event) {
       }
     }
     if (data.fn) {
-      await loadMod(extId);
       let target = mod;
       for (const part of data.fn.split(".")) target = target?.[part];
       if (typeof target === "function") {
