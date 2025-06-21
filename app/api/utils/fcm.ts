@@ -16,5 +16,15 @@ export async function sendFCM(
   data: Record<string, unknown>,
 ): Promise<void> {
   const messaging = getMessaging(getApp(serviceAccount));
-  await messaging.send({ token, data: data as Record<string, string> });
+  const json = JSON.stringify(data);
+  const CHUNK_SIZE = 3500; // FCM data payload limit is 4096 bytes
+  const msgData: Record<string, string> = {};
+  if (json.length <= CHUNK_SIZE) {
+    msgData.payload = json;
+  } else {
+    for (let i = 0, idx = 0; i < json.length; i += CHUNK_SIZE, idx++) {
+      msgData[`payload${idx}`] = json.slice(i, i + CHUNK_SIZE);
+    }
+  }
+  await messaging.send({ token, data: msgData });
 }

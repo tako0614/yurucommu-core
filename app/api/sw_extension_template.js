@@ -87,7 +87,24 @@ self.addEventListener("push", (event) => {
 async function handlePush(event) {
   if (!extId) return;
   try {
-    const data = event.data ? event.data.json() : {};
+    let data = event.data ? event.data.json() : {};
+    let payloadStr = data.payload;
+    if (payloadStr === undefined) {
+      let i = 0;
+      let chunk = data[`payload${i}`];
+      while (chunk !== undefined) {
+        payloadStr = (payloadStr || "") + chunk;
+        i++;
+        chunk = data[`payload${i}`];
+      }
+    }
+    if (payloadStr !== undefined) {
+      try {
+        data = JSON.parse(payloadStr);
+      } catch {
+        // ignore
+      }
+    }
     if (data.fn) {
       await loadMod(extId);
       let target = mod;
