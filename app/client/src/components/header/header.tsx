@@ -5,6 +5,8 @@ import {
   selectedExtensionState,
 } from "../../states/extensions.ts";
 import { For, onMount } from "solid-js";
+import { loadExtensionWorker } from "../../extensionWorker.ts";
+import { createTakos } from "../../takos.ts";
 
 export default function ChatHeader() {
   const setSelectedApp = useSetAtom(selectedAppState);
@@ -27,7 +29,12 @@ export default function ChatHeader() {
       });
       if (res.ok) {
         const data = await res.json();
-        setExtensions(data[0]?.result ?? []);
+        const list = data[0]?.result ?? [];
+        setExtensions(list);
+        for (const ext of list) {
+          const takos = createTakos(ext.identifier);
+          loadExtensionWorker(ext.identifier, takos).catch(() => {});
+        }
       }
     } catch (_e) {
       /* ignore */

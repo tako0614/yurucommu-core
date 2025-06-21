@@ -16,7 +16,7 @@ export interface TakosEvents {
   publish(
     name: string,
     payload: unknown,
-    options?: { push?: boolean },
+    options?: { push?: boolean; token?: string },
   ): Promise<unknown>;
 }
 
@@ -327,7 +327,7 @@ export class Takos {
     publish: async (
       _name: string,
       _payload: unknown,
-      _options?: { push?: boolean },
+      _options?: { push?: boolean; token?: string },
     ): Promise<unknown> => {
       return undefined;
     },
@@ -767,7 +767,7 @@ export class TakoPack {
     fn: (
       name: string,
       payload: unknown,
-      options?: { push?: boolean },
+      options?: { push?: boolean; token?: string },
     ) => Promise<unknown>,
   ): void {
     this.clientTakos.events.publish = fn;
@@ -797,10 +797,10 @@ export class TakoPack {
       return await pack.serverWorker.call(callName, args);
     } catch (err) {
       if (err instanceof Error && err.message.includes("function not found")) {
+        const attempts: string[] = [];
         const m = err.message.match(/available: ([^)]*)/);
         if (m) {
           const prefixes = m[1].split(/,\s*/);
-          const attempts = [] as string[];
           for (const prefix of prefixes) {
             attempts.push(`${prefix}.${callName}`);
             if (!def) {
@@ -808,12 +808,16 @@ export class TakoPack {
               attempts.push(`${prefix}.on${cap}`);
             }
           }
-          for (const name of attempts) {
-            try {
-              return await pack.serverWorker.call(name, args);
-            } catch {
-              // ignore and continue trying
-            }
+        }
+        if (!def) {
+          const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+          attempts.push(`on${cap}`);
+        }
+        for (const name of attempts) {
+          try {
+            return await pack.serverWorker.call(name, args);
+          } catch {
+            // ignore and continue trying
           }
         }
       }
@@ -845,10 +849,10 @@ export class TakoPack {
       return await pack.clientWorker.call(callName, args);
     } catch (err) {
       if (err instanceof Error && err.message.includes("function not found")) {
+        const attempts: string[] = [];
         const m = err.message.match(/available: ([^)]*)/);
         if (m) {
           const prefixes = m[1].split(/,\s*/);
-          const attempts = [] as string[];
           for (const prefix of prefixes) {
             attempts.push(`${prefix}.${callName}`);
             if (!def) {
@@ -856,12 +860,16 @@ export class TakoPack {
               attempts.push(`${prefix}.on${cap}`);
             }
           }
-          for (const name of attempts) {
-            try {
-              return await pack.clientWorker.call(name, args);
-            } catch {
-              // ignore and try next
-            }
+        }
+        if (!def) {
+          const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
+          attempts.push(`on${cap}`);
+        }
+        for (const name of attempts) {
+          try {
+            return await pack.clientWorker.call(name, args);
+          } catch {
+            // ignore and try next
           }
         }
       }
@@ -882,10 +890,16 @@ export class TakoPack {
     const def = defs?.[fnName];
 
     if (def?.source === "client" || def?.source === "ui" || def?.source === "background") {
-      return await this.callClient(identifier, fnName, args);
+      if (pack.clientWorker) {
+        return await this.callClient(identifier, fnName, args);
+      }
+      return await this.callServer(identifier, fnName, args);
     }
     if (def?.source === "server") {
-      return await this.callServer(identifier, fnName, args);
+      if (pack.serverWorker) {
+        return await this.callServer(identifier, fnName, args);
+      }
+      return await this.callClient(identifier, fnName, args);
     }
 
     try {

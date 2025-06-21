@@ -16,7 +16,7 @@ export interface TakosEventsAPI {
   publish<T = unknown>(
     eventName: string,
     payload: T,
-    options?: { push?: boolean },
+    options?: { push?: boolean; token?: string },
   ): Promise<[number, unknown] | void>;
 }
 
@@ -161,7 +161,7 @@ export async function publishEvent<T = unknown>(
   eventName: string,
   payload: T,
   context: "server" | "client" | "ui" = "client",
-  options?: { push?: boolean },
+  options?: { push?: boolean; token?: string },
 ): Promise<void> {
   const api = context === "server"
     ? getTakosServerAPI()

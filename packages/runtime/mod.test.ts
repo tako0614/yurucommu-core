@@ -230,3 +230,30 @@ Deno.test("extensions API handles methods on exported objects", async () => {
   assertEquals(res, "pong");
   delete (globalThis as Record<string, unknown>).takos;
 });
+
+Deno.test("call uses correct worker for event source", async () => {
+  const pack = {
+    manifest: JSON.stringify({
+      name: "sources",
+      identifier: "com.example.sources",
+      version: "0.1.0",
+      icon: "./icon.png",
+      eventDefinitions: {
+        fromServer: { source: "server", handler: "fromServer" },
+        fromClient: { source: "client", handler: "fromClient" },
+        fromUi: { source: "ui", handler: "fromUi" },
+      },
+    }),
+    server: `export function fromServer(){ return 'server'; }`,
+    client: `export function fromClient(){ return 'client'; } export function fromUi(){ return 'ui'; }`,
+  };
+  const tp = new TakoPack([pack]);
+  await tp.init();
+  const res1 = await tp.call("com.example.sources", "fromServer");
+  assertEquals(res1, "server");
+  const res2 = await tp.call("com.example.sources", "fromClient");
+  assertEquals(res2, "client");
+  const res3 = await tp.call("com.example.sources", "fromUi");
+  assertEquals(res3, "ui");
+  delete (globalThis as Record<string, unknown>).takos;
+});
