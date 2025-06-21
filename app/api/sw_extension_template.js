@@ -88,19 +88,9 @@ async function handlePush(event) {
   if (!extId) return;
   try {
     let data = event.data ? event.data.json() : {};
-    let payloadStr = data.payload;
-    if (payloadStr === undefined) {
-      let i = 0;
-      let chunk = data[`payload${i}`];
-      while (chunk !== undefined) {
-        payloadStr = (payloadStr || "") + chunk;
-        i++;
-        chunk = data[`payload${i}`];
-      }
-    }
-    if (payloadStr !== undefined) {
+    if (typeof data.payload === "string") {
       try {
-        data = JSON.parse(payloadStr);
+        data = JSON.parse(data.payload);
       } catch {
         // ignore
       }

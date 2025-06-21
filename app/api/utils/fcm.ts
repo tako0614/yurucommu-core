@@ -17,14 +17,11 @@ export async function sendFCM(
 ): Promise<void> {
   const messaging = getMessaging(getApp(serviceAccount));
   const json = JSON.stringify(data);
-  const CHUNK_SIZE = 3500; // FCM data payload limit is 4096 bytes
-  const msgData: Record<string, string> = {};
-  if (json.length <= CHUNK_SIZE) {
-    msgData.payload = json;
-  } else {
-    for (let i = 0, idx = 0; i < json.length; i += CHUNK_SIZE, idx++) {
-      msgData[`payload${idx}`] = json.slice(i, i + CHUNK_SIZE);
-    }
+  const LIMIT = 3500; // FCM data payload limit is ~4096 bytes
+  if (json.length > LIMIT) {
+    throw new Error(
+      `FCM payload too large: ${json.length} bytes (limit ${LIMIT})`,
+    );
   }
-  await messaging.send({ token, data: msgData });
+  await messaging.send({ token, data: { payload: json } });
 }
