@@ -24,54 +24,58 @@ async function requireAuth(c: any) {
 }
 
 // ActivityPub オブジェクト送信
-eventManager.add(
-  "takos",
+eventManager.add(  "takos",
   "activitypub:send",
-  z.object({ userId: z.string(), activity: z.object({}).passthrough() }),
+  z.object({ userId: z.string(), activity: z.record(z.unknown()) }),
   async (c, { userId, activity }) => {
     await requireAuth(c);
     const account = await Account.findById(userId);
     if (!account) throw new Error("アカウントが見つかりません");
-    if (!activity.id) {
-      activity.id =
+    
+    // 型安全な活動オブジェクト
+    const typedActivity = activity as Record<string, unknown>;
+    
+    if (!typedActivity.id) {
+      typedActivity.id =
         `https://${c.env.ACTIVITYPUB_DOMAIN}/activities/${crypto.randomUUID()}`;
     }
-    activity.actor = account.activityPubActor.id;
-    activity.published = activity.published || new Date().toISOString();
+    typedActivity.actor = account.activityPubActor.id;
+    const publishedDate = typedActivity.published || new Date().toISOString();
+    typedActivity.published = publishedDate;
 
     await ActivityPubObject.create({
-      id: activity.id,
-      type: activity.type,
-      actor: activity.actor,
-      object: activity.object,
-      target: activity.target,
-      to: activity.to,
-      cc: activity.cc,
-      published: new Date(activity.published),
-      content: activity.content,
-      summary: activity.summary,
-      rawObject: activity,
+      id: String(typedActivity.id),
+      type: String(typedActivity.type),
+      actor: String(typedActivity.actor),
+      object: typedActivity.object,
+      target: typedActivity.target ? String(typedActivity.target) : undefined,
+      to: Array.isArray(typedActivity.to) ? typedActivity.to.map(String) : [],
+      cc: Array.isArray(typedActivity.cc) ? typedActivity.cc.map(String) : [],
+      published: new Date(String(publishedDate)),
+      content: typedActivity.content ? String(typedActivity.content) : undefined,
+      summary: typedActivity.summary ? String(typedActivity.summary) : undefined,
+      rawObject: typedActivity,
       isLocal: true,
       userId: account._id.toString(),
-    });
-
-    const ctx = (activity as Record<string, unknown>)["@context"] ??
-      "https://www.w3.org/ns/activitystreams";
-    if (activity.object && typeof activity.object === "object") {
-      activity.object = await runActivityPubHooks(
-        (activity.object as Record<string, unknown>)["@context"] ?? ctx,
-        activity.object as Record<string, unknown>,
+    });    const ctx = typedActivity["@context"] ?? "https://www.w3.org/ns/activitystreams";
+    if (typedActivity.object && typeof typedActivity.object === "object") {
+      const objectWithContext = typedActivity.object as Record<string, unknown>;
+      typedActivity.object = await runActivityPubHooks(
+        String(objectWithContext["@context"] ?? ctx),
+        objectWithContext,
       );
     } else {
       const processed = await runActivityPubHooks(
-        ctx,
-        activity as unknown as Record<string, unknown>,
+        String(ctx),
+        typedActivity,
       );
-      Object.assign(activity, processed);
+      Object.assign(typedActivity, processed);
     }
 
     const deliveryTargets = new Set<string>();
-    [...(activity.to || []), ...(activity.cc || [])].forEach((target) => {
+    const toArray = Array.isArray(typedActivity.to) ? typedActivity.to : [];
+    const ccArray = Array.isArray(typedActivity.cc) ? typedActivity.cc : [];
+    [...toArray, ...ccArray].forEach((target) => {
       if (
         typeof target === "string" &&
         !target.startsWith(`https://${c.env.ACTIVITYPUB_DOMAIN}/`)
@@ -82,8 +86,18 @@ eventManager.add(
     for (const target of deliveryTargets) {
       const targetActor = await getActor(target, c.env.ACTIVITYPUB_DOMAIN);
       if (targetActor && targetActor.inbox) {
+        // ActivityPubGenericObjectに必要なプロパティを確保
+        const activityForDelivery = {
+          type: String(typedActivity.type),
+          id: String(typedActivity.id),
+          actor: String(typedActivity.actor),
+          object: typedActivity.object,
+          to: toArray,
+          cc: ccArray,
+          ...typedActivity,
+        };
         await deliverActivity(
-          activity,
+          activityForDelivery,
           targetActor.inbox,
           `${account.activityPubActor.id}#main-key`,
           account.privateKeyPem,
@@ -91,7 +105,7 @@ eventManager.add(
       }
     }
 
-    return { id: activity.id };
+    return { id: typedActivity.id };
   },
 );
 
@@ -221,10 +235,8 @@ eventManager.add(
       rawObject: followActivity,
       isLocal: true,
       userId: followerAccount._id.toString(),
-    });
-
-    const processedFollow = await runActivityPubHooks(
-      (followActivity as Record<string, unknown>)["@context"] ??
+    });    const processedFollow = await runActivityPubHooks(
+      String((followActivity as Record<string, unknown>)["@context"]) ??
         "https://www.w3.org/ns/activitystreams",
       followActivity as unknown as Record<string, unknown>,
     );
@@ -287,10 +299,8 @@ eventManager.add(
         `${followerAccount.activityPubActor.id}#main-key`,
         followerAccount.privateKeyPem,
       );
-    }
-
-    const processedUndo = await runActivityPubHooks(
-      (undoActivity as Record<string, unknown>)["@context"] ??
+    }    const processedUndo = await runActivityPubHooks(
+      String((undoActivity as Record<string, unknown>)["@context"]) ??
         "https://www.w3.org/ns/activitystreams",
       undoActivity as unknown as Record<string, unknown>,
     );

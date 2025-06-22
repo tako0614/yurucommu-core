@@ -63,11 +63,6 @@ export type UIEventHandlerFunction<T = unknown> = (
   payload: T,
 ) => void | Promise<void>;
 
-// ActivityPub types
-export type ActivityPubCanAcceptFunction<T = unknown> = (
-  context: string,
-  object: T,
-) => boolean | Promise<boolean>;
 export type ActivityPubHookFunction<T = unknown> = (
   context: string,
   object: T,

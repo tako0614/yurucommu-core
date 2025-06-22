@@ -128,18 +128,16 @@ app.post("/users/:username/inbox", async (c) => {
       rawObject: activity,
       isLocal: false,
       userId: account._id.toString(),
-    });
-
-    const apContext = (activity as Record<string, unknown>)["@context"] ??
+    });    const apContext = (activity as Record<string, unknown>)["@context"] ??
       "https://www.w3.org/ns/activitystreams";
     if (activity.object && typeof activity.object === "object") {
       activity.object = await runActivityPubHooks(
-        (activity.object as Record<string, unknown>)["@context"] ?? apContext,
+        String((activity.object as Record<string, unknown>)["@context"]) ?? String(apContext),
         activity.object as Record<string, unknown>,
       );
     } else {
       const processed = await runActivityPubHooks(
-        apContext,
+        String(apContext),
         activity as unknown as Record<string, unknown>,
       );
       Object.assign(activity, processed);
@@ -266,9 +264,7 @@ app.post("/users/:username/outbox", async (c) => {
       rawObject: processedActivity,
       isLocal: true,
       userId: account._id.toString(),
-    });
-
-    const context =
+    });    const context =
       (processedActivity as Record<string, unknown>)["@context"] ??
         "https://www.w3.org/ns/activitystreams";
     if (
@@ -276,13 +272,13 @@ app.post("/users/:username/outbox", async (c) => {
       typeof processedActivity.object === "object"
     ) {
       processedActivity.object = await runActivityPubHooks(
-        (processedActivity.object as Record<string, unknown>)["@context"] ??
-          context,
+        String((processedActivity.object as Record<string, unknown>)["@context"]) ??
+          String(context),
         processedActivity.object as Record<string, unknown>,
       );
     } else {
       const processed = await runActivityPubHooks(
-        context,
+        String(context),
         processedActivity as unknown as Record<string, unknown>,
       );
       Object.assign(processedActivity, processed);
@@ -409,18 +405,16 @@ app.post("/inbox", async (c) => {
       rawObject: activity,
       isLocal: false,
       // userIdは設定しない（共有inboxのため）
-    });
-
-    const sharedCtx = (activity as Record<string, unknown>)["@context"] ??
+    });    const sharedCtx = (activity as Record<string, unknown>)["@context"] ??
       "https://www.w3.org/ns/activitystreams";
     if (activity.object && typeof activity.object === "object") {
       activity.object = await runActivityPubHooks(
-        (activity.object as Record<string, unknown>)["@context"] ?? sharedCtx,
+        String((activity.object as Record<string, unknown>)["@context"]) ?? String(sharedCtx),
         activity.object as Record<string, unknown>,
       );
     } else {
       const processed = await runActivityPubHooks(
-        sharedCtx,
+        String(sharedCtx),
         activity as unknown as Record<string, unknown>,
       );
       Object.assign(activity, processed);
