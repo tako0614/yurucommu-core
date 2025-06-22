@@ -53,26 +53,9 @@
       }
     },
     "exports": {
-      "type": "object",
-      "description": "APIs exported by this extension",
-      "properties": {
-        "server": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Server side exports"
-        },
-        "background": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Background script exports"
-        },
-        "ui": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "UI exports"
-        }
-      },
-      "additionalProperties": false
+      "type": "array",
+      "description": "APIs exported by this extension (event names)",
+      "items": { "type": "string" }
     },
     "server": {
       "type": "object",

@@ -78,7 +78,10 @@ Deno.test("extensions API activation", async () => {
       identifier: "com.example.lib",
       version: "0.1.0",
       icon: "./icon.png",
-      exports: { server: ["add"] },
+      exports: ["add"],
+      eventDefinitions: {
+        add: { source: "server", handler: "add" },
+      },
     }),
     server: `export function add(a,b){return a+b;}`,
   };
@@ -102,7 +105,10 @@ Deno.test("activateExtension from worker", async () => {
       identifier: "com.example.lib2",
       version: "0.1.0",
       icon: "./icon.png",
-      exports: { server: ["mul"] },
+      exports: ["mul"],
+      eventDefinitions: {
+        mul: { source: "server", handler: "mul" },
+      },
     }),
     server: `export function mul(a,b){return a*b;}`,
   };
@@ -210,7 +216,10 @@ Deno.test("extensions API handles methods on exported objects", async () => {
       identifier: "com.example.libobj",
       version: "0.1.0",
       icon: "./icon.png",
-      exports: { server: ["ping"] },
+      exports: ["ping"],
+      eventDefinitions: {
+        ping: { source: "server", handler: "ping" },
+      },
     }),
     server: `export const ApiServer = {}; ApiServer.ping = () => 'pong';`,
   };

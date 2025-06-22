@@ -622,8 +622,8 @@ class RuntimeExtension implements Extension {
   }> {
     if (this.#pack.activated) return this.#pack.activated;
     const exportsList =
-      Array.isArray((this.#pack.manifest as any)?.exports?.server)
-        ? (this.#pack.manifest as any).exports.server as string[]
+      Array.isArray((this.#pack.manifest as any)?.exports)
+        ? (this.#pack.manifest as any).exports as string[]
         : [];
     if (!this.#pack.serverWorker) {
       const api: {
