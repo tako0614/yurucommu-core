@@ -117,7 +117,7 @@ export interface EventDefinition {
 // ActivityPub設定（新しい単一API形式）
 export interface ActivityPubConfig {
   objects: string[];
-  hook?: string;
+  hook: string;
 }
 
 // マニフェスト設定

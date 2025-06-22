@@ -1,7 +1,10 @@
 import type { createTakos } from "./takos.ts";
 
 interface TakosGlobals {
-  __takosEventDefs?: Record<string, Record<string, unknown>>;
+  __takosEventDefs?: Record<
+    string,
+    Record<string, { source?: string; handler?: string }>
+  >;
   __takosClientEvents?: Record<
     string,
     Record<string, (p: unknown) => Promise<unknown>>
@@ -18,12 +21,12 @@ const CLIENT_TAKOS_PATHS: string[][] = [
 ];
 
 class ExtensionWorker {
-  #reg: ServiceWorkerRegistration;
-  #port: MessagePort;
+  #reg!: ServiceWorkerRegistration;
+  #port!: MessagePort;
   #ready: Promise<void>;
   #pending = new Map<number, (v: unknown) => void>();
   #takos: ReturnType<typeof createTakos>;
-  #defs: Record<string, { handler?: string }>;
+  #defs: Record<string, { handler?: string; source?: string }>;
   #callId = 0;
   constructor(
     id: string,
@@ -178,7 +181,7 @@ export function loadExtensionWorker(
     const w = new ExtensionWorker(
       id,
       takos,
-      defs as Record<string, { handler?: string }>,
+      defs as Record<string, { handler?: string; source?: string }>,
     );
     await w.ready;
     workers.set(id, w);

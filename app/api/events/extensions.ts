@@ -2,8 +2,8 @@ import { z } from "zod";
 import { eventManager } from "../eventManager.ts";
 import { unpackTakoPack } from "../../../packages/unpack/mod.ts";
 import {
-  fetchPackageInfo,
   downloadAndUnpack,
+  fetchPackageInfo,
   fetchRegistryIndex,
   searchRegistry,
 } from "../../../packages/registry/mod.ts";
@@ -56,8 +56,10 @@ eventManager.add(
 eventManager.add(
   "takos",
   "extensions:search",
-  z.object({ q: z.string().optional(), limit: z.number().optional() }).optional(),
-  async (c, { q, limit } = {}) => {
+  z.object({ q: z.string().optional(), limit: z.number().optional() })
+    .optional(),
+  async (c, payload) => {
+    const { q, limit } = payload ?? {};
     const url = c.env.REGISTRY_URL;
     if (!url) throw new Error("REGISTRY_URL not configured");
     if (q) {
@@ -65,7 +67,9 @@ eventManager.add(
       const { index } = await searchRegistry(searchUrl, { q, limit });
       return index;
     }
-    const indexUrl = url.endsWith("/") ? `${url}index.json` : `${url}/index.json`;
+    const indexUrl = url.endsWith("/")
+      ? `${url}index.json`
+      : `${url}/index.json`;
     const { index } = await fetchRegistryIndex(indexUrl);
     return index;
   },
@@ -115,7 +119,10 @@ eventManager.add(
     id: z.string(),
     fn: z.string(),
     args: z.array(z.unknown()).optional(),
-    options: z.object({ push: z.boolean().optional(), token: z.string().optional() }).optional(),
+    options: z.object({
+      push: z.boolean().optional(),
+      token: z.string().optional(),
+    }).optional(),
   }),
   async (_c, { id, fn, args = [] }) => {
     const runtime = getRuntime(id);
