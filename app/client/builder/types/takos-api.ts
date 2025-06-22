@@ -70,16 +70,17 @@ export interface PluginActorManager {
 
 export interface ActivityPubManager {
   // Object operations
-  send(userId: string, activity: ActivityPubObject): Promise<void>;
+  currentUser(): Promise<string>;
+  send(activity: ActivityPubObject): Promise<void>;
   read(id: string): Promise<ActivityPubObject>;
   delete(id: string): Promise<void>;
-  list(userId?: string): Promise<string[]>;
+  list(): Promise<string[]>;
 
   // Actor operations
   actor: {
-    read(userId: string): Promise<ActivityPubActor>;
-    update(userId: string, key: string, value: string): Promise<void>;
-    delete(userId: string, key: string): Promise<void>;
+    read(): Promise<ActivityPubActor>;
+    update(key: string, value: string): Promise<void>;
+    delete(key: string): Promise<void>;
   };
 
   // Follow operations

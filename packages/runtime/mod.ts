@@ -32,14 +32,18 @@ export interface TakosCdn {
 }
 
 export interface TakosActivityPub {
-  send(userId: string, activity: Record<string, unknown>): Promise<void>;
+  /** 現在選択中のユーザーIDを取得する */
+  currentUser(): Promise<string>;
+  /** 選択ユーザーとして Activity を送信 */
+  send(activity: Record<string, unknown>): Promise<void>;
   read(id: string): Promise<Record<string, unknown>>;
   delete(id: string): Promise<void>;
-  list(userId?: string): Promise<string[]>;
+  /** 選択ユーザーの送信履歴を取得 */
+  list(): Promise<string[]>;
   actor: {
-    read(userId: string): Promise<Record<string, unknown>>;
-    update(userId: string, key: string, value: string): Promise<void>;
-    delete(userId: string, key: string): Promise<void>;
+    read(): Promise<Record<string, unknown>>;
+    update(key: string, value: string): Promise<void>;
+    delete(key: string): Promise<void>;
   };
   follow(followerId: string, followeeId: string): Promise<void>;
   unfollow(followerId: string, followeeId: string): Promise<void>;
@@ -343,14 +347,15 @@ export class Takos {
     list: async (_prefix?: string) => [] as string[],
   };
   activitypub = {
-    send: async (_userId: string, _activity: Record<string, unknown>) => {},
+    currentUser: async () => "",
+    send: async (_activity: Record<string, unknown>) => {},
     read: async (_id: string) => ({} as Record<string, unknown>),
     delete: async (_id: string) => {},
-    list: async (_userId?: string) => [] as string[],
+    list: async () => [] as string[],
     actor: {
-      read: async (_userId: string) => ({} as Record<string, unknown>),
-      update: async (_userId: string, _key: string, _value: string) => {},
-      delete: async (_userId: string, _key: string) => {},
+      read: async () => ({} as Record<string, unknown>),
+      update: async (_key: string, _value: string) => {},
+      delete: async (_key: string) => {},
     },
     follow: async (_followerId: string, _followeeId: string) => {},
     unfollow: async (_followerId: string, _followeeId: string) => {},
@@ -381,6 +386,7 @@ const TAKOS_PATHS: string[][] = [
   ["cdn", "write"],
   ["cdn", "delete"],
   ["cdn", "list"],
+  ["activitypub", "currentUser"],
   ["activitypub", "send"],
   ["activitypub", "read"],
   ["activitypub", "delete"],
@@ -401,6 +407,7 @@ const TAKOS_PATHS: string[][] = [
   ["ap", "read"],
   ["ap", "delete"],
   ["ap", "list"],
+  ["ap", "currentUser"],
   ["ap", "actor", "read"],
   ["ap", "actor", "update"],
   ["ap", "actor", "delete"],

@@ -39,18 +39,19 @@ export interface TakosCdnAPI {
 }
 
 export interface TakosActivityPubAPI {
-  send(userId: string, activity: Record<string, unknown>): Promise<void>;
+  currentUser(): Promise<string>;
+  send(activity: Record<string, unknown>): Promise<void>;
   read(id: string): Promise<Record<string, unknown>>;
   delete(id: string): Promise<void>;
-  list(userId?: string): Promise<string[]>;
+  list(): Promise<string[]>;
   follow(followerId: string, followeeId: string): Promise<void>;
   unfollow(followerId: string, followeeId: string): Promise<void>;
   listFollowers(actorId: string): Promise<string[]>;
   listFollowing(actorId: string): Promise<string[]>;
   actor: {
-    read(userId: string): Promise<Record<string, unknown>>;
-    update(userId: string, key: string, value: string): Promise<void>;
-    delete(userId: string, key: string): Promise<void>;
+    read(): Promise<Record<string, unknown>>;
+    update(key: string, value: string): Promise<void>;
+    delete(key: string): Promise<void>;
   };
   pluginActor: {
     create(
@@ -213,7 +214,6 @@ export async function kvWrite(key: string, value: unknown): Promise<void> {
  * ActivityPubアクションを安全に実行する
  */
 export async function sendActivityPub(
-  userId: string,
   activity: Record<string, unknown>,
 ): Promise<void> {
   const api = getTakosServerAPI();
@@ -222,7 +222,7 @@ export async function sendActivityPub(
     return;
   }
 
-  await api.activitypub.send(userId, activity);
+  await api.activitypub.send(activity);
 }
 
 // 型ガード関数

@@ -33,13 +33,13 @@ async function testEvents() {
 
 async function testActivityPub() {
   const t = getApi();
-  await t?.activitypub.send("srv", { type: "Note" });
+  await t?.activitypub.send({ type: "Note" });
   await t?.activitypub.read("id:srv");
   await t?.activitypub.delete("id:srv");
-  await t?.activitypub.list("srv");
-  await t?.activitypub.actor.read("srv");
-  await t?.activitypub.actor.update("srv", "k", "v");
-  await t?.activitypub.actor.delete("srv", "k");
+  await t?.activitypub.list();
+  await t?.activitypub.actor.read();
+  await t?.activitypub.actor.update("k", "v");
+  await t?.activitypub.actor.delete("k");
   await t?.activitypub.follow("srv", "you");
   await t?.activitypub.unfollow("srv", "you");
   await t?.activitypub.listFollowers("srv");

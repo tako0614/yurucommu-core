@@ -665,14 +665,15 @@ declare global {
     var takos: {
       kv: TakosKVAPI;
       activityPub: {
-        send(userId: string, activity: SerializableObject): Promise<void>;
+        currentUser(): Promise<string>;
+        send(activity: SerializableObject): Promise<void>;
         read(id: string): Promise<SerializableObject>;
         delete(id: string): Promise<void>;
-        list(userId?: string): Promise<string[]>;
+        list(): Promise<string[]>;
         actor: {
-          read(userId: string): Promise<SerializableObject>;
-          update(userId: string, key: string, value: string): Promise<void>;
-          delete(userId: string, key: string): Promise<void>;
+          read(): Promise<SerializableObject>;
+          update(key: string, value: string): Promise<void>;
+          delete(key: string): Promise<void>;
         };
         pluginActor: {
           create(localName: string, profile: SerializableObject): Promise<string>;
