@@ -70,7 +70,7 @@ export async function unpackTakoPack(
     throw new Error("manifest.json not found in package");
   }
 
-  let manifestObj: any;
+  let manifestObj;
   try {
     manifestObj = JSON.parse(manifestText);
   } catch {
