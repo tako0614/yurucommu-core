@@ -19,8 +19,8 @@ async function testEvents() {
 
 async function testExtensions() {
   const t = getTakosClientAPI();
-  const ext = t?.extensions.get("com.example.api-test");
-  const api = await t?.activateExtension("com.example.api-test");
+  const ext = t?.extensions.get("jp.takos.api-test");
+  const api = await t?.activateExtension("jp.takos.api-test");
   return { has: !!ext, activated: typeof api?.publish === "function" };
 }
 

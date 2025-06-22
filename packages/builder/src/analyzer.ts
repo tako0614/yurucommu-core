@@ -352,8 +352,7 @@ export class ASTAnalyzer {
 
   /**
    * JSDocタグをパース
-   */
-  private parseJSDocTags(
+   */  private parseJSDocTags(
     commentValue: string,
     targetFunction: string,
     startLineOfCommentBlock: number,
@@ -362,11 +361,17 @@ export class ASTAnalyzer {
     const lines = commentValue.split("\n");
 
     lines.forEach((lineContent, index) => {
-      const trimmed = lineContent.trim().replace(/^\*\s?/, "");
-      const tagMatch = trimmed.match(/^@(\w+)(?:\s+(.+))?/);
+      const trimmed = lineContent.trim().replace(/^\*\s?/, "");      const tagMatch = trimmed.match(/^@(\w+)(.+)?/);
 
       if (tagMatch) {
         const [, tag, value] = tagMatch;
+        // デバッグ出力
+        if (tag === "event") {
+          console.log(`DEBUG: JSDoc @${tag} found:`);
+          console.log(`  trimmed: "${trimmed}"`);
+          console.log(`  value: "${value || ""}"`);
+          console.log(`  targetFunction: "${targetFunction}"`);
+        }
         context.jsDocTags.push({
           tag,
           value: value || "",

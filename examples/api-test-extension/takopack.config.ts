@@ -30,9 +30,13 @@ export default defineConfig({
       "deno:env",
       "deno:run",
       "deno:sys",
-      "deno:ffi",
-    ],
+      "deno:ffi",    ],
     icon: "./icon.png",
+    exports: {
+      server: ["onServerKv", "onServerCdn", "onServerEvents", "onServerActivityPub", "onServerExtensions", "onServerFetch"],
+      background: ["onClientKv", "onClientEvents", "onClientExtensions", "onClientFetch"],
+      ui: []
+    },
   },
 
   entries: {
