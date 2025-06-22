@@ -509,16 +509,8 @@ const extension = new FunctionBasedTakopack()
 
   .activityPub(
     {
-      context: "https://www.w3.org/ns/activitystreams",
-      object: "Note",
-      priority: 1,
+      objects: ["Note"],
     },
-    // canAccept関数（第2引数）
-    (context: string, object: ActivityPubObject) => {
-      console.log(`ActivityPub canAccept: ${context}, ${object.type}`);
-      return object.type === "Create" && object.object?.type === "Note";
-    },
-    // hook関数（第3引数）
     async (_context: string, object: ActivityPubObject) => {
       console.log(`ActivityPub hook: 受信したNote: ${object.object?.content}`);
 

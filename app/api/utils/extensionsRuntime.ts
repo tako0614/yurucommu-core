@@ -122,21 +122,26 @@ export function getManifest(id: string): Record<string, unknown> | undefined {
 export async function runActivityPubHooks(
   context: string,
   object: Record<string, unknown>,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
+  let result = object;
   for (const [id, pack] of runtimes) {
     const manifest = manifests.get(id);
     const ap = manifest?.activityPub as
       | { objects: string[]; hook: string }
       | undefined;
     if (ap && ap.hook && Array.isArray(ap.objects)) {
-      const objType = object.type as string | undefined;
+      const objType = result.type as string | undefined;
       if (objType && ap.objects.includes(objType)) {
         try {
-          await pack.call(id, ap.hook, [context, object]);
+          const res = await pack.call(id, ap.hook, [context, result]);
+          if (res && typeof res === "object") {
+            result = res as Record<string, unknown>;
+          }
         } catch (err) {
           console.error(`ActivityPub hook failed for ${id}:`, err);
         }
       }
     }
   }
+  return result;
 }

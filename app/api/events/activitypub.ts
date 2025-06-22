@@ -58,15 +58,16 @@ eventManager.add(
     const ctx = (activity as Record<string, unknown>)["@context"] ??
       "https://www.w3.org/ns/activitystreams";
     if (activity.object && typeof activity.object === "object") {
-      await runActivityPubHooks(
+      activity.object = await runActivityPubHooks(
         (activity.object as Record<string, unknown>)["@context"] ?? ctx,
         activity.object as Record<string, unknown>,
       );
     } else {
-      await runActivityPubHooks(
+      const processed = await runActivityPubHooks(
         ctx,
         activity as unknown as Record<string, unknown>,
       );
+      Object.assign(activity, processed);
     }
 
     const deliveryTargets = new Set<string>();
@@ -222,11 +223,12 @@ eventManager.add(
       userId: followerAccount._id.toString(),
     });
 
-    await runActivityPubHooks(
+    const processedFollow = await runActivityPubHooks(
       (followActivity as Record<string, unknown>)["@context"] ??
         "https://www.w3.org/ns/activitystreams",
       followActivity as unknown as Record<string, unknown>,
     );
+    Object.assign(followActivity, processedFollow);
     await Follow.create({
       follower: followerAccount.activityPubActor.id,
       following: followeeId,
@@ -287,11 +289,12 @@ eventManager.add(
       );
     }
 
-    await runActivityPubHooks(
+    const processedUndo = await runActivityPubHooks(
       (undoActivity as Record<string, unknown>)["@context"] ??
         "https://www.w3.org/ns/activitystreams",
       undoActivity as unknown as Record<string, unknown>,
     );
+    Object.assign(undoActivity, processedUndo);
     return { id: undoActivity.id };
   },
 );

@@ -233,9 +233,8 @@ export default class FunctionBasedTakopack {
 
   /**
    * 新しい ActivityPub API (単一のメソッド)
-   * @param config - { context: string, object: string }を含む設定
-   * @param canAccept - canAccept関数 (第2引数)
-   * @param hook - hook関数 (第3引数)
+   * @param config - サポートする objects を指定
+   * @param hook - 受信時に呼び出す関数
    */
   activityPub<T>(
     config: { objects: string[] },

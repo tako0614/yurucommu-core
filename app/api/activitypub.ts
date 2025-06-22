@@ -133,15 +133,16 @@ app.post("/users/:username/inbox", async (c) => {
     const apContext = (activity as Record<string, unknown>)["@context"] ??
       "https://www.w3.org/ns/activitystreams";
     if (activity.object && typeof activity.object === "object") {
-      await runActivityPubHooks(
+      activity.object = await runActivityPubHooks(
         (activity.object as Record<string, unknown>)["@context"] ?? apContext,
         activity.object as Record<string, unknown>,
       );
     } else {
-      await runActivityPubHooks(
+      const processed = await runActivityPubHooks(
         apContext,
         activity as unknown as Record<string, unknown>,
       );
+      Object.assign(activity, processed);
     }
 
     // 標準的なアクティビティ処理
@@ -274,16 +275,17 @@ app.post("/users/:username/outbox", async (c) => {
       processedActivity.object &&
       typeof processedActivity.object === "object"
     ) {
-      await runActivityPubHooks(
+      processedActivity.object = await runActivityPubHooks(
         (processedActivity.object as Record<string, unknown>)["@context"] ??
           context,
         processedActivity.object as Record<string, unknown>,
       );
     } else {
-      await runActivityPubHooks(
+      const processed = await runActivityPubHooks(
         context,
         processedActivity as unknown as Record<string, unknown>,
       );
+      Object.assign(processedActivity, processed);
     }
 
     // 配信先を計算
@@ -412,15 +414,16 @@ app.post("/inbox", async (c) => {
     const sharedCtx = (activity as Record<string, unknown>)["@context"] ??
       "https://www.w3.org/ns/activitystreams";
     if (activity.object && typeof activity.object === "object") {
-      await runActivityPubHooks(
+      activity.object = await runActivityPubHooks(
         (activity.object as Record<string, unknown>)["@context"] ?? sharedCtx,
         activity.object as Record<string, unknown>,
       );
     } else {
-      await runActivityPubHooks(
+      const processed = await runActivityPubHooks(
         sharedCtx,
         activity as unknown as Record<string, unknown>,
       );
+      Object.assign(activity, processed);
     }
 
     // 標準的なアクティビティ処理
