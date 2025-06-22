@@ -111,7 +111,7 @@ export function onReceiveNote(ctx: string, note: Note) {
 }
 
 // Using JSDoc
-/** @activity("Like", { priority: 50 }) */
+/** @activity("Like") */
 export function onReceiveLike(ctx: string, like: Like) {
   return like;
 }

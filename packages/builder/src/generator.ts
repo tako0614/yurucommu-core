@@ -288,7 +288,7 @@ export class VirtualEntryGenerator {
   ): void {
     analysis.jsDocTags.forEach((tag) => {
       if (tag.tag === "activity") {
-        // @activity("Note", { priority: 100, serial: true })
+        // @activity("Note")
         const handlerName = tag.targetFunction;
         const activityConfig = this.parseActivityTag(
           tag.value,
@@ -331,7 +331,7 @@ export class VirtualEntryGenerator {
   ): void {
     analysis.decorators.forEach((decorator) => {
       if (decorator.name === "activity") {
-        // @activity("Note", { priority: 100 })
+        // @activity("Note")
         const handlerName = decorator.targetFunction;
         const activityConfig = this.parseActivityDecorator(
           decorator.args,
@@ -375,7 +375,7 @@ export class VirtualEntryGenerator {
     targetFunction: string,
   ): ActivityPubConfig | null {
     try {
-      // @activity("Note", { priority: 100, serial: true }) 形式をパース
+      // @activity("Note") 形式をパース
       const match = value.match(/^["']([^"']+)["'](?:,\s*({.+}))?/);
       if (!match) return null;
 
