@@ -778,24 +778,34 @@ export class TakoPack {
     fnName: string,
     args: unknown[] = [],
   ): Promise<unknown> {
+    console.log(`TakoPack.callServer: ${identifier}, ${fnName}, args:`, args);
     const pack = this.packs.get(identifier);
     if (!pack) throw new Error(`pack not found: ${identifier}`);
     if (!pack.serverWorker) {
+      console.log(`No server worker for ${identifier}`);
       throw new Error(`server not loaded for ${identifier}`);
     }
+    
+    // deno-lint-ignore no-explicit-any
     const defs = (pack.manifest as Record<string, any>).eventDefinitions as
       | Record<string, { handler?: string }>
       | undefined;
     const def = defs?.[fnName];
     if (defs && !def) {
+      console.log(`Event ${fnName} not defined in manifest for ${identifier}`);
       throw new Error(
         `event not defined: ${fnName} in manifest.eventDefinitions for ${identifier}`,
       );
     }
     const callName = def?.handler || fnName;
+    console.log(`Calling server function: ${callName} (original: ${fnName})`);
+    
     try {
-      return await pack.serverWorker.call(callName, args);
+      const result = await pack.serverWorker.call(callName, args);
+      console.log(`Server function ${callName} returned:`, result);
+      return result;
     } catch (err) {
+      console.log(`Server function ${callName} failed:`, err);
       if (err instanceof Error && err.message.includes("function not found")) {
         const attempts: string[] = [];
         const m = err.message.match(/available: ([^)]*)/);
@@ -813,9 +823,13 @@ export class TakoPack {
           const cap = callName.charAt(0).toUpperCase() + callName.slice(1);
           attempts.push(`on${cap}`);
         }
+        
+        console.log(`Trying fallback function names:`, attempts);
         for (const name of attempts) {
           try {
-            return await pack.serverWorker.call(name, args);
+            const result = await pack.serverWorker.call(name, args);
+            console.log(`Fallback function ${name} succeeded:`, result);
+            return result;
           } catch {
             // ignore and continue trying
           }
@@ -882,29 +896,44 @@ export class TakoPack {
     fnName: string,
     args: unknown[] = [],
   ): Promise<unknown> {
+    console.log(`TakoPack.call: ${identifier}, ${fnName}, args:`, args);
     const pack = this.packs.get(identifier);
-    if (!pack) throw new Error(`pack not found: ${identifier}`);
+    if (!pack) {
+      console.error(`Pack not found: ${identifier}`);
+      throw new Error(`pack not found: ${identifier}`);
+    }
+    
+    console.log(`Pack found for ${identifier}, serverWorker:`, !!pack.serverWorker, 'clientWorker:', !!pack.clientWorker);
+    
     const defs = (pack.manifest as Record<string, any>).eventDefinitions as
       | Record<string, { source?: string }>
       | undefined;
     const def = defs?.[fnName];
+    
+    console.log(`Event definition for ${fnName}:`, def);
 
     if (def?.source === "client" || def?.source === "ui" || def?.source === "background") {
+      console.log(`Trying client worker for ${fnName} (source: ${def?.source})`);
       if (pack.clientWorker) {
         return await this.callClient(identifier, fnName, args);
       }
       return await this.callServer(identifier, fnName, args);
     }
     if (def?.source === "server") {
+      console.log(`Trying server worker for ${fnName} (source: server)`);
       if (pack.serverWorker) {
         return await this.callServer(identifier, fnName, args);
       }
       return await this.callClient(identifier, fnName, args);
     }
 
+    console.log(`No specific source defined for ${fnName}, trying server first`);
     try {
-      return await this.callServer(identifier, fnName, args);
+      const result = await this.callServer(identifier, fnName, args);
+      console.log(`Server call successful for ${fnName}:`, result);
+      return result;
     } catch (err) {
+      console.log(`Server call failed for ${fnName}:`, err);
       if (
         err instanceof Error &&
         (err.message.includes("server not loaded") ||
@@ -912,6 +941,7 @@ export class TakoPack {
           err.message.includes("event not defined"))
       ) {
         if (pack.clientWorker) {
+          console.log(`Trying client worker as fallback for ${fnName}`);
           return await this.callClient(identifier, fnName, args);
         }
       }

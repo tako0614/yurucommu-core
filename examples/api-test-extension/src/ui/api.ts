@@ -1,4 +1,7 @@
 // UI layer exports and event handlers
+
+const { takos } = globalThis as any;
+
 export async function onUiKv(): Promise<Record<string, unknown>> {
   if (typeof takos === "undefined") throw new Error("Takos API not available");
   

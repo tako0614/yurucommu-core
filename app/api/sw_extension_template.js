@@ -1,6 +1,5 @@
 // Takos extension service worker (v2) - Fixed import() issue
 // Static import to avoid ServiceWorker import() restriction
-import * as mod from "__CLIENT_PATH__";
 
 self.addEventListener("install", (e) => e.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));

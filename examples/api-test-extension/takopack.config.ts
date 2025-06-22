@@ -45,7 +45,6 @@ export default defineConfig({
       "clientFetch",
     ],
   },
-
   entries: {
     server: ["src/server/api.ts"],
     client: ["src/client/api.ts"],

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Layer Communication Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fafafa;
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #555;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #2d2d2d;
+            color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .success {
+            color: #4caf50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .info {
+            color: #2196f3;
+        }
+        .clear-btn {
+            background: #666;
+            margin-top: 10px;
+        }
+        .clear-btn:hover {
+            background: #555;
+        }
+        .layer-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .layer-ui { background: #e3f2fd; color: #1976d2; }
+        .layer-server { background: #f3e5f5; color: #7b1fa2; }
+        .layer-client { background: #e8f5e8; color: #388e3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐙 Takos Layer Communication Test</h1>
+        <p>このテストページでは、UI、Server、Clientレイヤー間の関数呼び出しとイベント通信をテストできます。</p>
+        
+        <!-- UI Layer Tests -->
+        <div class="test-section">
+            <h2><span class="layer-badge layer-ui">UI</span>UI レイヤーからの呼び出し</h2>
+            <div class="button-group">
+                <button onclick="callServerFromUI()">Server関数を呼び出し</button>
+                <button onclick="callClientFromUI()">Client関数を呼び出し</button>
+                <button onclick="sendEventToServer()">Serverにイベント送信</button>
+                <button onclick="sendEventToClient()">Clientにイベント送信</button>
+                <button onclick="testAllFromUI()">全テスト実行</button>
+            </div>
+        </div>
+
+        <!-- Server Layer Tests -->
+        <div class="test-section">
+            <h2><span class="layer-badge layer-server">Server</span>Server レイヤーからの呼び出し</h2>
+            <div class="button-group">
+                <button onclick="triggerServerTests()">Serverテストを実行</button>
+                <button onclick="getServerEvents()">Server受信イベント確認</button>
+            </div>
+        </div>
+
+        <!-- Client Layer Tests -->
+        <div class="test-section">
+            <h2><span class="layer-badge layer-client">Client</span>Client レイヤーからの呼び出し</h2>
+            <div class="button-group">
+                <button onclick="triggerClientTests()">Clientテストを実行</button>
+                <button onclick="getClientEvents()">Client受信イベント確認</button>
+            </div>
+        </div>
+
+        <!-- Output -->
+        <div class="test-section">
+            <h2>📋 テスト結果</h2>
+            <div id="output" class="output">テスト結果がここに表示されます...</div>
+            <button class="clear-btn" onclick="clearOutput()">出力をクリア</button>
+        </div>
+    </div>    <script>
+        // deno-lint-ignore-file no-explicit-any
+        const { takos } = globalThis;
+        const output = document.getElementById('output');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearOutput() {
+            output.innerHTML = '';
+        }
+
+        // UI functions that can be called from other layers
+        window.uiFunction = function(message) {
+            log(`[UI] uiFunction called with: ${message}`, 'success');
+            return {
+                layer: "ui",
+                message: `UI processed: ${message}`,
+                timestamp: new Date().toISOString()
+            };
+        };        // UI to Server communication
+        async function callServerFromUI() {
+            try {
+                log('[UI] Calling server function...', 'info');
+                
+                // Use takos.extensions.invoke directly to call server function
+                const result = await takos.extensions.invoke("jp.takos.layer-communication-test", "serverFunction", ["Hello from UI!"]);
+                
+                log(`[UI] Server function result: ${JSON.stringify(result, null, 2)}`, 'success');
+            } catch (error) {
+                log(`[UI] Error calling server function: ${error.message}`, 'error');
+            }
+        }        // UI to Client communication
+        async function callClientFromUI() {
+            try {
+                log('[UI] Calling client function...', 'info');
+                
+                // Since we can't directly call client functions from UI, we use events
+                await takos.events.publish("uiToClient", {
+                    message: "Hello from UI!",
+                    timestamp: new Date().toISOString()
+                });
+                
+                log('[UI] Event sent to client for function call', 'success');
+            } catch (error) {
+                log(`[UI] Error calling client function: ${error.message}`, 'error');
+                console.error('Full client function error:', error);
+            }
+        }
+
+        // Send event to Server
+        async function sendEventToServer() {
+            try {
+                log('[UI] Sending event to server...', 'info');
+                const result = await takos.events.publish("uiToServer", {
+                    message: "Hello from UI via event!",
+                    timestamp: new Date().toISOString(),
+                    data: { test: true }
+                });
+                
+                log(`[UI] Event sent to server, result: ${JSON.stringify(result, null, 2)}`, 'success');
+            } catch (error) {
+                log(`[UI] Error sending event to server: ${error.message}`, 'error');
+            }
+        }
+
+        // Send event to Client
+        async function sendEventToClient() {
+            try {
+                log('[UI] Sending event to client...', 'info');
+                await takos.events.publish("uiToClient", {
+                    message: "Hello from client via event!",
+                    timestamp: new Date().toISOString(),
+                    data: { test: true }
+                });
+                
+                log('[UI] Event sent to client', 'success');
+            } catch (error) {
+                log(`[UI] Error sending event to client: ${error.message}`, 'error');
+            }
+        }
+
+        // Test all UI communications
+        async function testAllFromUI() {
+            log('=== Starting UI layer communication tests ===', 'info');
+            await callServerFromUI();
+            await callClientFromUI();
+            await sendEventToServer();
+            await sendEventToClient();
+            log('=== UI layer tests completed ===', 'info');
+        }        // Trigger server tests
+        async function triggerServerTests() {
+            try {
+                log('[UI] Triggering server tests...', 'info');
+                
+                const result = await takos.extensions.invoke("jp.takos.layer-communication-test", "testAllFromServer", []);
+                
+                log(`[UI] Server tests result: ${JSON.stringify(result, null, 2)}`, 'success');
+            } catch (error) {
+                log(`[UI] Error triggering server tests: ${error.message}`, 'error');
+            }
+        }        // Get server received events
+        async function getServerEvents() {
+            try {
+                log('[UI] Getting server received events...', 'info');
+                
+                // Wait a bit for events to be processed
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const result = await takos.extensions.invoke("jp.takos.layer-communication-test", "getLastEvents", []);
+                
+                log(`[UI] Server received events: ${JSON.stringify(result, null, 2)}`, 'success');
+            } catch (error) {
+                log(`[UI] Error getting server events: ${error.message}`, 'error');
+            }
+        }// Trigger client tests
+        async function triggerClientTests() {
+            try {
+                log('[UI] Triggering client tests...', 'info');
+                
+                // Since client functions run in a separate runtime, use events to trigger
+                await takos.events.publish("triggerClientTests", {
+                    timestamp: new Date().toISOString()
+                });
+                
+                log('[UI] Client test trigger sent', 'success');
+            } catch (error) {
+                log(`[UI] Error triggering client tests: ${error.message}`, 'error');
+            }
+        }        // Get client received events
+        async function getClientEvents() {
+            try {
+                log('[UI] Getting client received events...', 'info');
+                
+                // Since client functions run in a separate runtime, use events to request
+                await takos.events.publish("getClientEvents", {
+                    timestamp: new Date().toISOString()
+                });
+                
+                log('[UI] Client events request sent', 'success');
+            } catch (error) {
+                log(`[UI] Error getting client events: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        // Event handlers for receiving events from other layers
+        window.onServerToUI = function(payload) {
+            log(`[UI] Received event from server: ${JSON.stringify(payload, null, 2)}`, 'success');
+            
+            // Store the event in UI KV for testing
+            takos.kv.write("lastServerToUIEvent", payload);
+            
+            return { 
+                received: true, 
+                processedBy: "ui",
+                originalPayload: payload,
+                timestamp: new Date().toISOString()
+            };
+        };
+
+        window.onClientToUI = function(payload) {
+            log(`[UI] Received event from client: ${JSON.stringify(payload, null, 2)}`, 'success');
+            
+            // Store the event in UI KV for testing
+            takos.kv.write("lastClientToUIEvent", payload);
+            
+            return { 
+                received: true, 
+                processedBy: "ui",
+                originalPayload: payload,
+                timestamp: new Date().toISOString()
+            };
+        };        // Event handlers for receiving responses from client
+        window.onClientTestResults = function(payload) {
+            console.log('[UI] onClientTestResults called:', payload);
+            log(`[UI] Received client test results: ${JSON.stringify(payload.results, null, 2)}`, 'success');
+            return {
+                received: true,
+                processedBy: "ui",
+                timestamp: new Date().toISOString()
+            };
+        };
+
+        window.onClientEventsResponse = function(payload) {
+            console.log('[UI] onClientEventsResponse called:', payload);
+            log(`[UI] Received client events: ${JSON.stringify(payload.events, null, 2)}`, 'success');
+            return {
+                received: true,
+                processedBy: "ui",
+                timestamp: new Date().toISOString()
+            };
+        };
+
+        // Initialize
+        log('Layer Communication Test UI loaded', 'success');
+        log('Ready to test inter-layer communications!', 'info');
+    </script>
+</body>
+</html>
