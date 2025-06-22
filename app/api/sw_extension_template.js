@@ -1,10 +1,15 @@
-// Takos extension service worker (v1)
+// Takos extension service worker (v2) - Fixed import() issue
+// Static import to avoid ServiceWorker import() restriction
+import * as mod from "__CLIENT_PATH__";
+
 self.addEventListener("install", (e) => e.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+
 let takosCallId = 0;
 const takosCallbacks = new Map();
 let port = null;
 let extId = null;
+
 function setPath(root, path, fn, transform) {
   let obj = root;
   for (let i = 0; i < path.length - 1; i++) {
@@ -13,6 +18,7 @@ function setPath(root, path, fn, transform) {
   }
   obj[path[path.length - 1]] = (...args) => fn(transform, args);
 }
+
 function createTakos(paths) {
   const t = {};
   for (const p of paths) {
@@ -37,7 +43,7 @@ function createTakos(paths) {
   }
   return t;
 }
-import * as mod from "__CLIENT_PATH__";
+
 self.onmessage = async (e) => {
   const d = e.data;
   if (d.type === "init") {
