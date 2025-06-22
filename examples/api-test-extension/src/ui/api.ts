@@ -103,6 +103,7 @@ export async function onUiToClientEvent(): Promise<Record<string, unknown>> {
 }
 
 // Event receivers
+/** @event("uiReceiveFromServer", { source: "server" }) */
 export function onUiReceiveFromServer(payload: Record<string, unknown>): void {
   console.log("UI received from server:", payload);
   const output = document.getElementById("output");
@@ -113,6 +114,7 @@ export function onUiReceiveFromServer(payload: Record<string, unknown>): void {
   }
 }
 
+/** @event("uiReceiveFromClient", { source: "client" }) */
 export function onUiReceiveFromClient(payload: Record<string, unknown>): void {
   console.log("UI received from client:", payload);
   const output = document.getElementById("output");
@@ -123,15 +125,6 @@ export function onUiReceiveFromClient(payload: Record<string, unknown>): void {
   }
 }
 
-export function onServerReceiveFromUi(payload: Record<string, unknown>): [number, Record<string, unknown>] {
-  console.log("Server received from UI:", payload);
-  return [200, { received: true, payload, timestamp: Date.now() }];
-}
-
-export function onClientReceiveFromUi(payload: Record<string, unknown>): [number, Record<string, unknown>] {
-  console.log("Client received from UI:", payload);
-  return [200, { received: true, payload, timestamp: Date.now() }];
-}
 
 // Make functions available globally for HTML to use
 if (typeof globalThis !== "undefined") {
@@ -146,8 +139,6 @@ if (typeof globalThis !== "undefined") {
     onUiToServerEvent,
     onUiToClientEvent,
     onUiReceiveFromServer,
-    onUiReceiveFromClient,
-    onServerReceiveFromUi,
-    onClientReceiveFromUi
+    onUiReceiveFromClient
   });
 }

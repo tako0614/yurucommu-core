@@ -63,3 +63,22 @@ ApiClient.onClientSource = async (): Promise<
   return [200, { env: "client" }];
 };
 
+/** @event("clientReceiveFromUi", { source: "ui" }) */
+ApiClient.onClientReceiveFromUi = (
+  payload: Record<string, unknown>,
+): [number, Record<string, unknown>] => {
+  console.log("Client received from UI:", payload);
+  return [200, { received: true, payload, timestamp: Date.now() }];
+};
+
+/** @event("clientSendUiEvent", { source: "ui" }) */
+ApiClient.onClientSendUiEvent = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
+  const t = getTakosClientAPI();
+  await t?.events.publish("uiReceiveFromClient", {
+    from: "client",
+    timestamp: Date.now(),
+  });
+  return [200, { ok: true }];
+};
