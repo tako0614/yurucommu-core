@@ -11,6 +11,11 @@ import "./events/extensions.ts"; // Takopack 拡張機能イベント
 import "./events/kv.ts";
 import "./events/cdn.ts";
 
+// 環境変数を読み込むためのモジュール
+import { load } from "jsr:@std/dotenv";
+// 環境変数をロード
+const env = await load();
+
 export const app = new Hono<{
   Bindings: Env;
 }>();
@@ -28,7 +33,7 @@ app.get("/api/ws/stats", (c) => {
 });
 
 app.get("/api/firebase-config", (c) => {
-  const cfg = c.env["GOOGLE_SERVICE_JSON"];
+  const cfg = env["GOOGLE_SERVICE_JSON"];
   if (!cfg) return c.json({});
   try {
     return c.json(JSON.parse(cfg));
