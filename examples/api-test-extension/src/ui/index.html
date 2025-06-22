@@ -45,6 +45,10 @@
       <div id="ui"></div>
     </section>
     <section>
+      <h2>Cross Layer</h2>
+      <div id="cross"></div>
+    </section>
+    <section>
       <h2>Results</h2>
       <div id="output"></div>
     </section>
@@ -56,6 +60,7 @@
         "serverActivityPub",
         "serverExtensions",
         "serverFetch",
+        "serverSendUiEvent",
         "serverSource",
       ];
       const clientTests = [
@@ -63,6 +68,7 @@
         "clientEvents",
         "clientExtensions",
         "clientFetch",
+        "clientSendUiEvent",
         "clientSource",
       ];
       const uiTests = [
@@ -71,6 +77,12 @@
         "uiFetch",
         "uiExtensions",
         "uiUrl",
+      ];
+      const crossTests = [
+        "onUiCallServer",
+        "onUiCallClient",
+        "onUiToServerEvent",
+        "onUiToClientEvent",
       ];
 
       function addButtons(container, tests, runner) {
@@ -133,6 +145,18 @@
         }
       }
 
+      async function runCross(name) {
+        try {
+          const fn = globalThis[name];
+          if (typeof fn === "function") {
+            const res = await fn();
+            print(name, res);
+          }
+        } catch (err) {
+          print(name, String(err), true);
+        }
+      }
+
       function print(name, res, error = false) {
         const out = document.getElementById("output");
         const pre = document.createElement("pre");
@@ -156,6 +180,7 @@
         runEvent,
       );
       addButtons(document.getElementById("ui"), uiTests, runUi);
+      addButtons(document.getElementById("cross"), crossTests, runCross);
     </script>
   </body>
 </html>

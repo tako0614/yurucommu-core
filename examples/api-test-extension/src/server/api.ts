@@ -112,3 +112,22 @@ ApiServer.onServerSource = async (): Promise<
   return [200, { env: "server" }];
 };
 
+/** @event("serverReceiveFromUi", { source: "ui" }) */
+ApiServer.onServerReceiveFromUi = (
+  payload: Record<string, unknown>,
+): [number, Record<string, unknown>] => {
+  console.log("Server received from UI:", payload);
+  return [200, { received: true, payload, timestamp: Date.now() }];
+};
+
+/** @event("serverSendUiEvent", { source: "ui" }) */
+ApiServer.onServerSendUiEvent = async (): Promise<
+  [number, Record<string, unknown>]
+> => {
+  const t = getApi();
+  await t?.events.publish("uiReceiveFromServer", {
+    from: "server",
+    timestamp: Date.now(),
+  });
+  return [200, { ok: true }];
+};
