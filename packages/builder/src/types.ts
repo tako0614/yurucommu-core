@@ -139,12 +139,11 @@ export interface ExtensionManifest {
     identifier: string;
     version: string;
   }>;
-  /** 他拡張へ公開するAPI */
-  exports?: {
-    server?: string[];
-    background?: string[];
-    ui?: string[];
-  };
+  /**
+   * APIs exported for other extensions.
+   * Array of event names defined in `eventDefinitions`.
+   */
+  exports?: string[];
   server: {
     entry: string;
   };
@@ -216,11 +215,12 @@ export interface TakopackConfig {
     icon?: string;
     permissions?: Permission[];
     extensionDependencies?: Array<{ identifier: string; version: string }>;
-    exports?: {
-      server?: string[];
-      background?: string[];
-      ui?: string[];
-    };
+    /**
+     * APIs exported for other extensions.
+     *
+     * Use event names declared in `eventDefinitions`.
+     */
+    exports?: string[];
   };
 
   /** エントリポイント設定 */
