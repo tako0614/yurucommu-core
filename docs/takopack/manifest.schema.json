@@ -87,7 +87,16 @@
     },
     "activityPub": {
       "type": "object",
-      "description": "ActivityPub hooks configuration"
+      "description": "ActivityPub hooks configuration",
+      "required": ["objects", "hook"],
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "hook": { "type": "string" }
+      },
+      "additionalProperties": false
     },
     "eventDefinitions": {
       "type": "object",

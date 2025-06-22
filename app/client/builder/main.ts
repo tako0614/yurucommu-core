@@ -116,12 +116,8 @@ export interface EventDefinition {
 
 // ActivityPub設定（新しい単一API形式）
 export interface ActivityPubConfig {
-  context: string;
-  object: string;
-  canAccept?: string;
+  objects: string[];
   hook?: string;
-  priority?: number;
-  serial?: boolean;
 }
 
 // マニフェスト設定
@@ -133,7 +129,7 @@ export interface ManifestConfig {
   apiVersion?: string;
   permissions?: Permission[]; // 一括で記述
   eventDefinitions?: Record<string, EventDefinition>;
-  activityPub?: ActivityPubConfig[]; // 新しい単一API形式
+  activityPub?: ActivityPubConfig; // 新しい単一API形式
 }
 
 // 関数登録インターフェース
@@ -242,59 +238,44 @@ export default class FunctionBasedTakopack {
    * @param hook - hook関数 (第3引数)
    */
   activityPub<T>(
-    config: {
-      context: string;
-      object: string;
-      priority?: number;
-      serial?: boolean;
-    },
-    canAccept?: ActivityPubCanAcceptFunction<T>,
+    config: { objects: string[] },
     hook?: ActivityPubHookFunction<T>,
   ): this {
-    // canAccept関数を登録
-    if (canAccept) {
-      const canAcceptName = `canAccept_${config.object.toLowerCase()}`;
-      this.serverFunctions.set(canAcceptName, {
-        name: canAcceptName,
-        fn: canAccept as ServerFunction<unknown[], unknown>,
-        type: "hook",
-      });
-    }
-
-    // hook関数を登録
     if (hook) {
-      const hookName = `hook_${config.object.toLowerCase()}`;
+      const hookName = `hook_${config.objects.join("_").toLowerCase()}`;
       this.serverFunctions.set(hookName, {
         name: hookName,
         fn: hook as ServerFunction<unknown[], unknown>,
         type: "hook",
       });
-    }
 
-    // ActivityPub設定をマニフェストに追加
-    if (!this.manifestConfig) {
-      this.manifestConfig = {
-        name: "",
-        description: "",
-        version: "1.0.0",
-        identifier: "",
-        activityPub: [],
-      };
+      if (!this.manifestConfig) {
+        this.manifestConfig = {
+          name: "",
+          description: "",
+          version: "1.0.0",
+          identifier: "",
+          activityPub: { objects: config.objects, hook: hookName },
+        };
+      } else {
+        this.manifestConfig.activityPub = {
+          objects: config.objects,
+          hook: hookName,
+        };
+      }
+    } else {
+      if (!this.manifestConfig) {
+        this.manifestConfig = {
+          name: "",
+          description: "",
+          version: "1.0.0",
+          identifier: "",
+          activityPub: { objects: config.objects, hook: "" },
+        };
+      } else {
+        this.manifestConfig.activityPub = { objects: config.objects, hook: "" };
+      }
     }
-    if (!this.manifestConfig.activityPub) {
-      this.manifestConfig.activityPub = [];
-    }
-
-    this.manifestConfig.activityPub.push({
-      context: config.context,
-      object: config.object,
-      canAccept: canAccept
-        ? `canAccept_${config.object.toLowerCase()}`
-        : undefined,
-      hook: hook ? `hook_${config.object.toLowerCase()}` : undefined,
-      priority: config.priority,
-      serial: config.serial,
-    });
 
     return this;
   }
@@ -545,7 +526,9 @@ ${functionDeclaration}`);
     }
 
     if (this.manifestConfig?.eventDefinitions) {
-      for (const [ev, def] of Object.entries(this.manifestConfig.eventDefinitions)) {
+      for (
+        const [ev, def] of Object.entries(this.manifestConfig.eventDefinitions)
+      ) {
         if (def.handler && this.clientFunctions.has(def.handler)) {
           eventMapEntries.push(`  "${ev}": ${def.handler},`);
         }
@@ -558,7 +541,9 @@ ${functionDeclaration}`);
       : "";
 
     const eventMap = eventMapEntries.length > 0
-      ? `\nconst __events = {\n${eventMapEntries.join("\n")}\n};\nif(!globalThis.__takosClientEvents) globalThis.__takosClientEvents = {};\nglobalThis.__takosClientEvents["${this.manifestConfig?.identifier}"] = __events;\n`
+      ? `\nconst __events = {\n${
+        eventMapEntries.join("\n")
+      }\n};\nif(!globalThis.__takosClientEvents) globalThis.__takosClientEvents = {};\nglobalThis.__takosClientEvents["${this.manifestConfig?.identifier}"] = __events;\n`
       : "";
 
     return `${importsString ? importsString + "\n\n" : ""}${
@@ -606,22 +591,8 @@ ${exportsString}`;
     }
 
     // activityPub設定の追加（takopack仕様準拠）
-    if (
-      this.manifestConfig.activityPub &&
-      this.manifestConfig.activityPub.length > 0
-    ) {
-      manifest.activityPub = {
-        objects: this.manifestConfig.activityPub.map((config) => ({
-          accepts: [config.object],
-          context: config.context,
-          hooks: {
-            canAccept: config.canAccept,
-            onReceive: config.hook,
-            priority: config.priority || 0,
-            serial: config.serial || false,
-          },
-        })),
-      };
+    if (this.manifestConfig.activityPub) {
+      manifest.activityPub = this.manifestConfig.activityPub;
     }
 
     return manifest;
@@ -848,9 +819,7 @@ ${exportsString}`;
       }`,
     );
     console.log(
-      `  🌐 ActivityPub configs: ${
-        this.manifestConfig?.activityPub?.length || 0
-      }`,
+      `  🌐 ActivityPub configs: ${this.manifestConfig?.activityPub ? 1 : 0}`,
     );
     console.log(
       `  🔐 Permissions: ${this.manifestConfig?.permissions?.length || 0}`,

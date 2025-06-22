@@ -246,25 +246,15 @@ UI HTMLコンテンツを設定します。
 
 ### ActivityPub メソッド
 
-#### `activityPub(config, canAccept?, hook?): this`
+#### `activityPub(config, hook?): this`
 
 ActivityPubフック処理を設定します。
 
 ```typescript
 .activityPub(
   {
-    accepts: ["Note"],
-    context: "https://www.w3.org/ns/activitystreams",
-    hooks: {
-      priority: 1,
-      serial: false,
-    },
+    objects: ["Note"],
   },
-  // canAccept関数（オプション）
-  (context: string, object: any) => {
-    return object.type === "Create" && object.object?.type === "Note";
-  },
-  // onReceiveフック（オプション）
   async (context: string, object: any) => {
     console.log("Note received:", object);
     return { processed: true };
@@ -590,19 +580,8 @@ const activityPubExtension = new FunctionBasedTakopack()
   // ActivityPub Note処理
   .activityPub(
     {
-      accepts: ["Note"],
-      context: "https://www.w3.org/ns/activitystreams",
-      hooks: {
-        priority: 1,
-      },
+      objects: ["Note"],
     },
-    // canAccept: Noteの受信可否判定
-    (context: string, object: any) => {
-      return object.type === "Create" &&
-        object.object?.type === "Note" &&
-        object.object?.content;
-    },
-    // onReceive: Note処理
     async (context: string, object: any) => {
       const note = object.object;
 

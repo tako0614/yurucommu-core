@@ -358,11 +358,17 @@ export class TakopackBuilder {
       console.log(`  File: ${analysis.filePath}`);
       console.log(`    JSDoc tags: ${analysis.jsDocTags.length}`);
       analysis.jsDocTags.forEach((tag) => {
-        console.log(`      @${tag.tag}: ${tag.value} (target: ${tag.targetFunction})`);
+        console.log(
+          `      @${tag.tag}: ${tag.value} (target: ${tag.targetFunction})`,
+        );
       });
       console.log(`    Decorators: ${analysis.decorators.length}`);
       analysis.decorators.forEach((decorator) => {
-        console.log(`      @${decorator.name}(${JSON.stringify(decorator.args)}) (target: ${decorator.targetFunction})`);
+        console.log(
+          `      @${decorator.name}(${
+            JSON.stringify(decorator.args)
+          }) (target: ${decorator.targetFunction})`,
+        );
       });
     });
 
@@ -410,21 +416,9 @@ export class TakopackBuilder {
           const object = typeof decorator.args[0] === "string"
             ? decorator.args[0]
             : "";
-          const options = (typeof decorator.args[1] === "object" &&
-              decorator.args[1] !== null)
-            ? decorator.args[1] as Record<string, unknown>
-            : {};
           activityPubConfigs.push({
-            context: "https://www.w3.org/ns/activitystreams",
-            accepts: [object],
-            hooks: {
-              canAccept: handlerName.startsWith("canAccept")
-                ? handlerName
-                : undefined,
-              onReceive: handlerName,
-              priority: options.priority as number,
-              serial: options.serial as boolean,
-            },
+            object,
+            hook: handlerName,
           });
         }
       });
@@ -435,7 +429,10 @@ export class TakopackBuilder {
       manifest.eventDefinitions = eventDefinitions;
     }
     if (activityPubConfigs.length > 0) {
-      manifest.activityPub = { objects: activityPubConfigs };
+      manifest.activityPub = {
+        objects: activityPubConfigs.map((c) => c.object),
+        hook: activityPubConfigs[0].hook,
+      };
     }
 
     return manifest;
@@ -619,9 +616,10 @@ export class TakopackBuilder {
     } catch {
       return 0;
     }
-  }  /**
+  } /**
    * JSDocタグからイベント名を抽出
    */
+
   private extractEventNameFromTag(value: string): string | null {
     console.log(`[DEBUG] extractEventNameFromTag - value: "${value}"`);
     // "("eventName", { ... })" の形式で抽出
@@ -630,15 +628,18 @@ export class TakopackBuilder {
     const result = match ? match[1] : null;
     console.log(`[DEBUG] extractEventNameFromTag - result: ${result}`);
     return result;
-  }  /**
+  } /**
    * イベント設定をパース
    */
+
   private parseEventConfig(
     value: string,
     targetFunction: string,
   ): EventDefinition | null {
     try {
-      console.log(`[DEBUG] parseEventConfig - value: "${value}", targetFunction: "${targetFunction}"`);
+      console.log(
+        `[DEBUG] parseEventConfig - value: "${value}", targetFunction: "${targetFunction}"`,
+      );
       // "("eventName", { ... })" の形式でパース
       const match = value.match(/^\("([^"']+)"(?:,\s*({.+}))?/);
       console.log(`[DEBUG] parseEventConfig - match: ${match}`);
@@ -653,18 +654,25 @@ export class TakopackBuilder {
           console.log(`[DEBUG] parseEventConfig - jsonString: ${jsonString}`);
           options = JSON.parse(jsonString);
         } catch (jsonError) {
-          console.log(`[DEBUG] parseEventConfig - JSON parse error: ${jsonError}`);
+          console.log(
+            `[DEBUG] parseEventConfig - JSON parse error: ${jsonError}`,
+          );
           // eval を使って JavaScript オブジェクトリテラルを評価
-          options = eval('(' + match[2] + ')');
+          options = eval("(" + match[2] + ")");
         }
       }
-      console.log(`[DEBUG] parseEventConfig - options: ${JSON.stringify(options)}`);
+      console.log(
+        `[DEBUG] parseEventConfig - options: ${JSON.stringify(options)}`,
+      );
 
       const result = {
-        source: (options.source as "client" | "server" | "background" | "ui") || "client",
+        source: (options.source as "client" | "server" | "background" | "ui") ||
+          "client",
         handler: targetFunction,
       };
-      console.log(`[DEBUG] parseEventConfig - result: ${JSON.stringify(result)}`);
+      console.log(
+        `[DEBUG] parseEventConfig - result: ${JSON.stringify(result)}`,
+      );
       return result;
     } catch (error) {
       console.log(`[DEBUG] parseEventConfig - error: ${error}`);
@@ -684,19 +692,9 @@ export class TakopackBuilder {
       if (!match) return null;
 
       const object = match[1];
-      const options = match[2] ? JSON.parse(match[2]) : {};
-
       return {
-        accepts: [object],
-        context: "https://www.w3.org/ns/activitystreams",
-        hooks: {
-          canAccept: targetFunction.startsWith("canAccept")
-            ? targetFunction
-            : undefined,
-          onReceive: targetFunction,
-          priority: options.priority,
-          serial: options.serial,
-        },
+        object,
+        hook: targetFunction,
       };
     } catch {
       return null;

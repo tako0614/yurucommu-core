@@ -160,7 +160,10 @@ export class VirtualEntryGenerator {
     const wrappers: string[] = [];
     const classMap = new Map<string, Set<string>>();
     const exportInfoMap = new Map<string, ExportInfo>();
-    const eventWrappers = new Map<string, { className?: string; handler: string }>();
+    const eventWrappers = new Map<
+      string,
+      { className?: string; handler: string }
+    >();
 
     analyses.forEach((analysis) => {
       // import文を収集
@@ -377,19 +380,10 @@ export class VirtualEntryGenerator {
       if (!match) return null;
 
       const object = match[1];
-      const options = match[2] ? JSON.parse(match[2]) : {};
 
       return {
-        accepts: [object],
-        context: "https://www.w3.org/ns/activitystreams",
-        hooks: {
-          canAccept: targetFunction.startsWith("canAccept")
-            ? targetFunction
-            : undefined,
-          onReceive: targetFunction,
-          priority: options.priority,
-          serial: options.serial,
-        },
+        object,
+        hook: targetFunction,
       };
     } catch {
       return null;
@@ -406,19 +400,10 @@ export class VirtualEntryGenerator {
     if (args.length === 0) return null;
 
     const object = args[0] as string;
-    const options = (args[1] as Record<string, unknown>) || {};
 
     return {
-      accepts: [object],
-      context: "https://www.w3.org/ns/activitystreams",
-      hooks: {
-        canAccept: targetFunction.startsWith("canAccept")
-          ? targetFunction
-          : undefined,
-        onReceive: targetFunction,
-        priority: options.priority as number,
-        serial: options.serial as boolean,
-      },
+      object,
+      hook: targetFunction,
     };
   }
 

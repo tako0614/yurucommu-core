@@ -134,16 +134,8 @@ export interface ExtensionManifest {
   apiVersion?: string;
   permissions?: string[];
   activityPub?: {
-    objects?: Array<{
-      accepts: string[];
-      context?: string;
-      hooks?: {
-        canAccept?: string;
-        onReceive?: string;
-        priority?: number;
-        serial?: boolean;
-      };
-    }>;
+    objects: string[];
+    hook: string;
   };
   eventDefinitions?: Record<string, {
     source: "client" | "server" | "background" | "ui";
