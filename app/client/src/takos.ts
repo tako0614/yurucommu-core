@@ -19,11 +19,14 @@ async function getFirebaseToken(): Promise<string | null> {
       return null;
     }
   })();
-  return firebaseTokenPromise;
+  return await firebaseTokenPromise;
 }
 
 interface TakosGlobals {
-  __takosEventDefs?: Record<string, Record<string, unknown>>;
+  __takosEventDefs?: Record<
+    string,
+    Record<string, { source?: string; handler?: string }>
+  >;
   __takosClientEvents?: Record<
     string,
     Record<string, (p: unknown) => Promise<unknown>>
@@ -208,8 +211,14 @@ export function createTakos(identifier: string) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   wsClient.addGlobalEventListener((ev) => {
     if (ev.type === "event") {
-      const set = listeners.get(ev.eventName);
-      set?.forEach((h) => h(ev.payload));
+      const { eventName, payload } = ev as unknown as {
+        eventName?: string;
+        payload?: unknown;
+      };
+      if (eventName) {
+        const set = listeners.get(eventName);
+        set?.forEach((h) => h(payload));
+      }
     }
   });
 
@@ -235,7 +244,9 @@ export function createTakos(identifier: string) {
       });
 
       const g = globalThis as TakosGlobals;
-      let defs = g.__takosEventDefs?.[identifier];
+      let defs = g.__takosEventDefs?.[identifier] as
+        | Record<string, { source?: string; handler?: string }>
+        | undefined;
       if (!defs) {
         try {
           const w = await loadExtensionWorker(identifier, takos);
@@ -246,7 +257,6 @@ export function createTakos(identifier: string) {
         }
       }
       const def = defs?.[name];
-      let w: ReturnType<typeof loadExtensionWorker> | undefined;
 
       if (def?.source === "server") {
         const raw = await call("extensions:invoke", {
@@ -259,7 +269,7 @@ export function createTakos(identifier: string) {
       }
 
       try {
-        w = await loadExtensionWorker(identifier, takos);
+        const w = await loadExtensionWorker(identifier, takos);
         const result = await w.callEvent(name, payload);
         if (
           def?.source === "client" ||
@@ -333,7 +343,9 @@ export function createTakos(identifier: string) {
           }
         }
         const g = globalThis as TakosGlobals;
-        let defs = g.__takosEventDefs?.[identifier];
+        let defs = g.__takosEventDefs?.[identifier] as
+          | Record<string, { source?: string; handler?: string }>
+          | undefined;
         if (!defs) {
           try {
             const w = await loadExtensionWorker(identifier, takos);

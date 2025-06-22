@@ -39,12 +39,7 @@ const builder = new FunctionBasedTakopack()
     <p>This is a basic test of the new API.</p>
   `)
   .activityPub({
-    context: "https://www.w3.org/ns/activitystreams",
-    object: "Note",
-    priority: 100,
-    serial: true,
-  }, (activity) => {
-    return !!activity;
+    objects: ["Note"],
   }, (activity) => {
     console.log("Received Activity:", activity);
     return activity;

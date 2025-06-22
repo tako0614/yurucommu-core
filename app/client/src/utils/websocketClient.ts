@@ -4,7 +4,10 @@ export interface WebSocketEvent {
   type: string;
   userId?: string;
   timestamp: number;
-  data: unknown;
+  data?: unknown;
+  eventName?: string;
+  payload?: unknown;
+  [key: string]: unknown;
 }
 
 export interface WebSocketEventHandler {

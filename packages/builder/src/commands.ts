@@ -148,13 +148,11 @@ export function hello(name: string): string {
   return \`Hello, \${name} from server!\`;
 }
 
-/** @activity("Note", { priority: 100 }) */
+/** @activity("Note") */
 export function onReceiveNote(ctx: string, note: any) {
   console.log("Received note:", note);
   return { status: "processed" };
-}
-
-export const canAcceptNote = (ctx: string, obj: any) => true;`;
+}`;
 
   const clientContent = `// Client-side function
 export function greet(): void {

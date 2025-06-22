@@ -8,6 +8,7 @@ const serviceAccountStr = Deno.env.get("SERVICE_ACCOUNT_JSON");
 const serviceAccount = serviceAccountStr ? JSON.parse(serviceAccountStr) : null;
 
 const runtimes = new Map<string, TakoPack>();
+const manifests = new Map<string, Record<string, unknown>>();
 
 export async function initExtensions() {
   const docs = await Extension.find();
@@ -84,6 +85,8 @@ export async function loadExtension(
 
     await pack.init();
 
+    manifests.set(doc.identifier, doc.manifest);
+
     // Forward client events to connected clients only
     pack.setClientPublish(
       async (
@@ -110,4 +113,35 @@ export async function loadExtension(
 
 export function getRuntime(id: string): TakoPack | undefined {
   return runtimes.get(id);
+}
+
+export function getManifest(id: string): Record<string, unknown> | undefined {
+  return manifests.get(id);
+}
+
+export async function runActivityPubHooks(
+  context: string,
+  object: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  let result = object;
+  for (const [id, pack] of runtimes) {
+    const manifest = manifests.get(id);
+    const ap = manifest?.activityPub as
+      | { objects: string[]; hook: string }
+      | undefined;
+    if (ap && ap.hook && Array.isArray(ap.objects)) {
+      const objType = result.type as string | undefined;
+      if (objType && ap.objects.includes(objType)) {
+        try {
+          const res = await pack.call(id, ap.hook, [context, result]);
+          if (res && typeof res === "object") {
+            result = res as Record<string, unknown>;
+          }
+        } catch (err) {
+          console.error(`ActivityPub hook failed for ${id}:`, err);
+        }
+      }
+    }
+  }
+  return result;
 }

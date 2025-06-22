@@ -1,7 +1,10 @@
 import type { createTakos } from "./takos.ts";
 
 interface TakosGlobals {
-  __takosEventDefs?: Record<string, Record<string, unknown>>;
+  __takosEventDefs?: Record<
+    string,
+    Record<string, { source?: string; handler?: string }>
+  >;
   __takosClientEvents?: Record<
     string,
     Record<string, (p: unknown) => Promise<unknown>>
@@ -18,17 +21,17 @@ const CLIENT_TAKOS_PATHS: string[][] = [
 ];
 
 class ExtensionWorker {
-  #reg: ServiceWorkerRegistration;
-  #port: MessagePort;
+  #reg!: ServiceWorkerRegistration;
+  #port!: MessagePort;
   #ready: Promise<void>;
   #pending = new Map<number, (v: unknown) => void>();
   #takos: ReturnType<typeof createTakos>;
-  #defs: Record<string, { handler?: string }>;
+  #defs: Record<string, { handler?: string; source?: string }>;
   #callId = 0;
   constructor(
     id: string,
     takos: ReturnType<typeof createTakos>,
-    defs: Record<string, { handler?: string }>,
+    defs: Record<string, { handler?: string; source?: string }>,
   ) {
     this.#takos = takos;
     this.#defs = defs;
@@ -147,12 +150,19 @@ class ExtensionWorker {
 const workers = new Map<string, ExtensionWorker>();
 const loadingWorkers = new Map<string, Promise<ExtensionWorker>>();
 
-async function fetchEventDefs(id: string): Promise<Record<string, unknown>> {
+async function fetchEventDefs(
+  id: string,
+): Promise<Record<string, { handler?: string; source?: string }>> {
   try {
     const res = await fetch(`/api/extensions/${id}/manifest.json`);
     if (res.ok) {
       const manifest = await res.json();
-      return (manifest?.eventDefinitions as Record<string, unknown>) || {};
+      return (
+        manifest?.eventDefinitions as Record<string, {
+          handler?: string;
+          source?: string;
+        }>
+      ) || {};
     }
   } catch {
     /* ignore */
@@ -170,7 +180,9 @@ export function loadExtensionWorker(
   const promise = (async () => {
     const host = globalThis as TakosGlobals;
     host.__takosEventDefs = host.__takosEventDefs || {};
-    let defs = host.__takosEventDefs[id];
+    let defs:
+      | Record<string, { handler?: string; source?: string }>
+      | undefined = host.__takosEventDefs[id];
     if (!defs) {
       defs = await fetchEventDefs(id);
       host.__takosEventDefs[id] = defs;
@@ -178,7 +190,7 @@ export function loadExtensionWorker(
     const w = new ExtensionWorker(
       id,
       takos,
-      defs as Record<string, { handler?: string }>,
+      defs,
     );
     await w.ready;
     workers.set(id, w);

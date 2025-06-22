@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { Env } from "./index.ts";
 import {
-  ActivityPubActor,
+  ActivityPubActor as _ActivityPubActor,
   ActivityPubObject,
   Community as _Community,
   Follow,
@@ -22,6 +22,7 @@ import {
   validateActivityPubObject as _validateActivityPubObject,
   verifyIncomingActivity,
 } from "./utils/activitypub.ts";
+import { runActivityPubHooks } from "./utils/extensionsRuntime.ts";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -128,6 +129,21 @@ app.post("/users/:username/inbox", async (c) => {
       isLocal: false,
       userId: account._id.toString(),
     });
+
+    const apContext = (activity as Record<string, unknown>)["@context"] ??
+      "https://www.w3.org/ns/activitystreams";
+    if (activity.object && typeof activity.object === "object") {
+      activity.object = await runActivityPubHooks(
+        (activity.object as Record<string, unknown>)["@context"] ?? apContext,
+        activity.object as Record<string, unknown>,
+      );
+    } else {
+      const processed = await runActivityPubHooks(
+        apContext,
+        activity as unknown as Record<string, unknown>,
+      );
+      Object.assign(activity, processed);
+    }
 
     // 標準的なアクティビティ処理
     switch (activity.type) {
@@ -252,6 +268,26 @@ app.post("/users/:username/outbox", async (c) => {
       userId: account._id.toString(),
     });
 
+    const context =
+      (processedActivity as Record<string, unknown>)["@context"] ??
+        "https://www.w3.org/ns/activitystreams";
+    if (
+      processedActivity.object &&
+      typeof processedActivity.object === "object"
+    ) {
+      processedActivity.object = await runActivityPubHooks(
+        (processedActivity.object as Record<string, unknown>)["@context"] ??
+          context,
+        processedActivity.object as Record<string, unknown>,
+      );
+    } else {
+      const processed = await runActivityPubHooks(
+        context,
+        processedActivity as unknown as Record<string, unknown>,
+      );
+      Object.assign(processedActivity, processed);
+    }
+
     // 配信先を計算
     const deliveryTargets = calculateDeliveryTargets(
       processedActivity,
@@ -374,6 +410,21 @@ app.post("/inbox", async (c) => {
       isLocal: false,
       // userIdは設定しない（共有inboxのため）
     });
+
+    const sharedCtx = (activity as Record<string, unknown>)["@context"] ??
+      "https://www.w3.org/ns/activitystreams";
+    if (activity.object && typeof activity.object === "object") {
+      activity.object = await runActivityPubHooks(
+        (activity.object as Record<string, unknown>)["@context"] ?? sharedCtx,
+        activity.object as Record<string, unknown>,
+      );
+    } else {
+      const processed = await runActivityPubHooks(
+        sharedCtx,
+        activity as unknown as Record<string, unknown>,
+      );
+      Object.assign(activity, processed);
+    }
 
     // 標準的なアクティビティ処理
     switch (activity.type) {

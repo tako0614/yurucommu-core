@@ -153,7 +153,8 @@ export interface ExtensionManifest {
   };
   eventDefinitions?: Record<string, EventDefinition>;
   activityPub?: {
-    objects: ActivityPubConfig[];
+    objects: string[];
+    hook: string;
   };
 }
 
@@ -163,14 +164,8 @@ export interface EventDefinition {
 }
 
 export interface ActivityPubConfig {
-  accepts: string[];
-  context: string;
-  hooks: {
-    canAccept?: string;
-    onReceive: string;
-    priority?: number;
-    serial?: boolean;
-  };
+  object: string;
+  hook: string;
 }
 
 /**
@@ -371,7 +366,10 @@ export interface Extension {
   version: string;
   isActive: boolean;
   activate(): Promise<{
-    publish(name: string, payload?: SerializableValue): Promise<SerializableValue>;
+    publish(
+      name: string,
+      payload?: SerializableValue,
+    ): Promise<SerializableValue>;
   }>;
 }
 
@@ -414,9 +412,14 @@ export interface TakosServerAPI extends TakosAPI {
   extensions: TakosExtensionsAPI;
   activateExtension(
     identifier: string,
-    ): Promise<
-      { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
-    >;
+  ): Promise<
+    {
+      publish(
+        name: string,
+        payload?: SerializableValue,
+      ): Promise<SerializableValue>;
+    } | undefined
+  >;
 }
 
 export interface TakosClientAPI extends TakosAPI {
@@ -425,7 +428,12 @@ export interface TakosClientAPI extends TakosAPI {
   activateExtension(
     identifier: string,
   ): Promise<
-    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+    {
+      publish(
+        name: string,
+        payload?: SerializableValue,
+      ): Promise<SerializableValue>;
+    } | undefined
   >;
 }
 
@@ -435,7 +443,12 @@ export interface TakosUIAPI {
   activateExtension(
     identifier: string,
   ): Promise<
-    { publish(name: string, payload?: SerializableValue): Promise<SerializableValue> } | undefined
+    {
+      publish(
+        name: string,
+        payload?: SerializableValue,
+      ): Promise<SerializableValue>;
+    } | undefined
   >;
   // UI環境では一部のAPIは制限される
 }
