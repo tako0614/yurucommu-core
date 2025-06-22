@@ -335,9 +335,9 @@ export interface TakosKVAPI {
 }
 
 export interface TakosActivityPubActorAPI {
-  read(userId: string): Promise<ActivityPubActor>;
-  update(userId: string, key: string, value: string): Promise<void>;
-  delete(userId: string, key: string): Promise<void>;
+  read(): Promise<ActivityPubActor>;
+  update(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 export interface TakosActivityPubPluginActorAPI {
@@ -349,10 +349,11 @@ export interface TakosActivityPubPluginActorAPI {
 }
 
 export interface TakosActivityPubAPI {
-  send(userId: string, activity: ActivityPubActivity): Promise<void>;
+  currentUser(): Promise<string>;
+  send(activity: ActivityPubActivity): Promise<void>;
   read(id: string): Promise<ActivityPubActivity>;
   delete(id: string): Promise<void>;
-  list(userId?: string): Promise<string[]>;
+  list(): Promise<string[]>;
   follow(followerId: string, followeeId: string): Promise<void>;
   unfollow(followerId: string, followeeId: string): Promise<void>;
   listFollowers(actorId: string): Promise<string[]>;
