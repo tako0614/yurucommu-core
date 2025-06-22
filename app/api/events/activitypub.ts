@@ -1,15 +1,17 @@
 import { z } from "zod";
 import { eventManager } from "../eventManager.ts";
 import {
-  ActivityPubActor,
+  ActivityPubActor as _ActivityPubActor,
   ActivityPubObject,
   Follow,
 } from "../models/activitypub.ts";
 import { Account } from "../models/account.ts";
 import { deliverActivity, getActor } from "../utils/activitypub.ts";
+import { runActivityPubHooks } from "../utils/extensionsRuntime.ts";
 import { getCookie } from "hono/cookie";
 import { Session } from "../models/sessions.ts";
 
+// deno-lint-ignore no-explicit-any
 async function requireAuth(c: any) {
   const sessionToken = getCookie(c, "session_token");
   if (!sessionToken) throw new Error("認証されていません");
@@ -52,6 +54,20 @@ eventManager.add(
       isLocal: true,
       userId: account._id.toString(),
     });
+
+    const ctx = (activity as Record<string, unknown>)["@context"] ??
+      "https://www.w3.org/ns/activitystreams";
+    if (activity.object && typeof activity.object === "object") {
+      await runActivityPubHooks(
+        (activity.object as Record<string, unknown>)["@context"] ?? ctx,
+        activity.object as Record<string, unknown>,
+      );
+    } else {
+      await runActivityPubHooks(
+        ctx,
+        activity as unknown as Record<string, unknown>,
+      );
+    }
 
     const deliveryTargets = new Set<string>();
     [...(activity.to || []), ...(activity.cc || [])].forEach((target) => {
@@ -104,7 +120,7 @@ eventManager.add(
     if (!activity) throw new Error("アクティビティが見つかりません");
     const account = await Account.findById(activity.userId);
     if (account) {
-      const delAct = {
+      const _delAct = {
         "@context": "https://www.w3.org/ns/activitystreams",
         type: "Delete",
         id:
@@ -167,6 +183,7 @@ eventManager.add(
     await requireAuth(c);
     const account = await Account.findById(userId);
     if (!account) throw new Error("アカウントが見つかりません");
+    // deno-lint-ignore no-explicit-any
     (account as any).activityPubActor[key] = value;
     account.markModified("activityPubActor");
     await account.save();
@@ -204,6 +221,12 @@ eventManager.add(
       isLocal: true,
       userId: followerAccount._id.toString(),
     });
+
+    await runActivityPubHooks(
+      (followActivity as Record<string, unknown>)["@context"] ??
+        "https://www.w3.org/ns/activitystreams",
+      followActivity as unknown as Record<string, unknown>,
+    );
     await Follow.create({
       follower: followerAccount.activityPubActor.id,
       following: followeeId,
@@ -263,6 +286,12 @@ eventManager.add(
         followerAccount.privateKeyPem,
       );
     }
+
+    await runActivityPubHooks(
+      (undoActivity as Record<string, unknown>)["@context"] ??
+        "https://www.w3.org/ns/activitystreams",
+      undoActivity as unknown as Record<string, unknown>,
+    );
     return { id: undoActivity.id };
   },
 );
