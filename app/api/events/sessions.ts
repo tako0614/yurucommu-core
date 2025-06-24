@@ -21,7 +21,7 @@ eventManager.add(
     }
 
     const sessionToken = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await Session.create({ token: sessionToken, expiresAt });
     setCookie(c, "session_token", sessionToken, {
       httpOnly: true,
