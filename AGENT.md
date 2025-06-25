@@ -46,7 +46,7 @@ Takopack Architecture
 │   ├── Worker: 実行時に動的作成
 │   └── Lifecycle: リクエスト単位で生成・破棄
 ├── Client Environment  
-│   ├── Runtime: Service Worker
+│   ├── Runtime: Service Worker(web) kotlin in rust in deno(tauri)
 │   ├── Worker: 実行時に動的作成
 │   └── Lifecycle: 必要時に生成・破棄
 └── UI Environment
