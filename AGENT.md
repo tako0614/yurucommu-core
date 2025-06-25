@@ -35,6 +35,47 @@ takos/
 - **目的**: 安全な権限ベースの拡張機能システム
 - **特徴**: VSCode風のAPIデザイン、サンドボックス実行
 
+#### 🏛️ Takopackアーキテクチャ
+
+Takopackは以下の3つの実行環境を持つマルチランタイムアーキテクチャを採用しています：
+
+```
+Takopack Architecture
+├── Server Environment
+│   ├── Runtime: Deno on Server
+│   ├── Worker: 実行時に動的作成
+│   └── Lifecycle: リクエスト単位で生成・破棄
+├── Client Environment  
+│   ├── Runtime: Service Worker
+│   ├── Worker: 実行時に動的作成
+│   └── Lifecycle: 必要時に生成・破棄
+└── UI Environment
+    ├── Runtime: iframe (サンドボックス)
+    ├── Isolation: 完全に分離された実行環境
+    └── Communication: postMessage API
+```
+
+##### 🖥️ Server Environment
+- **実行場所**: サーバーサイド（Deno）
+- **Worker作成**: 実行時のみにWorkerを動的作成
+- **用途**: API処理、データベース操作、外部サービス連携
+- **ライフサイクル**: リクエスト処理時に作成し、処理完了後に破棄
+- **セキュリティ**: Denoの権限システムによる制御
+
+##### 👤 Client Environment
+- **実行場所**: Service Worker
+- **Worker作成**: 実行時のみにWorkerを動的作成
+- **用途**: バックグラウンド処理、キャッシュ管理、オフライン対応
+- **ライフサイクル**: 必要時に作成し、アイドル時に破棄
+- **セキュリティ**: Service Workerのサンドボックス環境
+
+##### 🎨 UI Environment
+- **実行場所**: iframe内
+- **分離レベル**: 完全に分離されたサンドボックス環境
+- **用途**: ユーザーインターフェース、DOM操作
+- **通信**: postMessage APIによる安全な通信
+- **セキュリティ**: Same-Origin PolicyとCSPによる保護
+
 ### 2. ActivityPub Implementation
 - **場所**: `app/api/types/activitypub.ts`, `app/api/utils/activitypub.ts`
 - **目的**: 標準ActivityPubとカスタムオブジェクトの実装
@@ -129,4 +170,4 @@ cd app/api && deno task dev
 
 ---
 
-**最終更新**: 2025年6月18日
+**最終更新**: 2025年6月25日
