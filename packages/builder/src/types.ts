@@ -34,6 +34,7 @@ export interface ModuleAnalysis {
   imports: ImportInfo[];
   decorators: DecoratorInfo[];
   jsDocTags: JSDocTagInfo[];
+  methodCalls: MethodCallInfo[];
 }
 
 export interface ExportInfo {
@@ -69,9 +70,16 @@ export interface JSDocTagInfo {
   tag: string;
   value: string;
   targetFunction: string;
-  /** メソッドが属するクラス名 (あれば) */
   targetClass?: string;
   line: number;
+}
+
+export interface MethodCallInfo {
+  objectName: string;
+  methodName: string;
+  args: unknown[];
+  line: number;
+  column: number;
 }
 
 /**

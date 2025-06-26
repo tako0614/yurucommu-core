@@ -5,6 +5,7 @@ import type {
   ExportInfo,
   ImportInfo,
   JSDocTagInfo,
+  MethodCallInfo,
   ModuleAnalysis,
 } from "./types.ts";
 
@@ -41,12 +42,11 @@ export class ASTAnalyzer {
         },
         ecmaVersion: 2022,
         sourceType: "module",
-      });
-
-      const exports: ExportInfo[] = [];
+      });      const exports: ExportInfo[] = [];
       const imports: ImportInfo[] = [];
       const decorators: DecoratorInfo[] = [];
       const jsDocTags: JSDocTagInfo[] = [];
+      const methodCalls: MethodCallInfo[] = [];
 
       // ASTを走査
       this.traverseNode(ast, {
@@ -54,6 +54,7 @@ export class ASTAnalyzer {
         imports,
         decorators,
         jsDocTags,
+        methodCalls,
         comments: ast.comments || [],
       });
 
@@ -63,22 +64,22 @@ export class ASTAnalyzer {
         imports,
         decorators,
         jsDocTags,
+        methodCalls,
       };
     } catch (error) {
       const errorMessage = error instanceof Error
         ? error.message
         : String(error);
-      console.warn(`AST解析エラー (${filePath}):`, errorMessage);
-      return {
+      console.warn(`AST解析エラー (${filePath}):`, errorMessage);      return {
         filePath,
         exports: [],
         imports: [],
         decorators: [],
         jsDocTags: [],
+        methodCalls: [],
       };
     }
   }
-
   /**
    * ASTノードを再帰的に走査
    */
@@ -90,6 +91,7 @@ export class ASTAnalyzer {
       imports: ImportInfo[];
       decorators: DecoratorInfo[];
       jsDocTags: JSDocTagInfo[];
+      methodCalls: MethodCallInfo[];
       // deno-lint-ignore no-explicit-any
       comments: any[];
       currentClass?: string;
@@ -110,10 +112,11 @@ export class ASTAnalyzer {
     // デコレータの処理
     if (node.decorators?.length > 0) {
       this.handleDecorators(node, context);
-    }
-
-    // JSDocコメントの処理
+    }    // JSDocコメントの処理
     this.handleJSDocComments(node, context);
+
+    // メソッド呼び出しの処理
+    this.handleMethodCalls(node, context);
 
     // クラス宣言の場合はクラス名を保持してメソッドを走査
     if (node.type === AST_NODE_TYPES.ClassDeclaration && node.body) {
@@ -448,5 +451,49 @@ export class ASTAnalyzer {
       }) || [];
     }
     return [];
+  }
+
+  /**
+   * メソッド呼び出しの処理
+   */
+  private handleMethodCalls(
+    // deno-lint-ignore no-explicit-any
+    node: any,
+    context: {
+      methodCalls: MethodCallInfo[];
+    },
+  ): void {
+    // obj.method() の形式を検出
+    if (
+      node.type === AST_NODE_TYPES.CallExpression &&
+      node.callee?.type === AST_NODE_TYPES.MemberExpression &&      node.callee.object?.type === AST_NODE_TYPES.Identifier &&
+      node.callee.property?.type === AST_NODE_TYPES.Identifier
+    ) {
+      const objectName = node.callee.object.name;
+      const methodName = node.callee.property.name;
+      
+      // 引数を解析
+      const args: unknown[] = [];
+      if (node.arguments) {
+        // deno-lint-ignore no-explicit-any
+        node.arguments.forEach((arg: any) => {
+          if (arg.type === AST_NODE_TYPES.Literal) {
+            args.push(arg.value);
+          } else if (arg.type === AST_NODE_TYPES.Identifier) {
+            args.push(arg.name);
+          } else {
+            args.push(null); // 複雑な引数は null にする
+          }
+        });
+      }
+
+      context.methodCalls.push({
+        objectName,
+        methodName,
+        args,
+        line: node.loc?.start.line || 0,
+        column: node.loc?.start.column || 0,
+      });
+    }
   }
 }

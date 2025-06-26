@@ -1,6 +1,9 @@
-// Client layer API for layer communication testing
+// Client layer API for layer communication testing - Class-based API
 // deno-lint-ignore-file no-explicit-any
 const { takos } = globalThis as any;
+
+// クラスベースイベント定義をインポート
+import { Takos } from "../../../../packages/builder/src/classes.ts";
 
 interface EventPayload {
   message: string;
@@ -27,7 +30,6 @@ export function clientFunction(message: string) {
 // Test calling server function from client
 export async function testCallServer() {
   try {
-    // Since we can't directly call server functions from client, we use events
     await takos.events.publish("clientToServer", {
       message: "Hello from client!",
       timestamp: new Date().toISOString()
@@ -44,7 +46,6 @@ export async function testCallServer() {
 // Test calling UI function from client (via events since UI is browser-only)
 export async function testCallUI() {
   try {
-    // Since we can't directly call UI functions from client, we use events
     await takos.events.publish("clientToUI", {
       message: "Hello from client!",
       timestamp: new Date().toISOString()
@@ -58,92 +59,92 @@ export async function testCallUI() {
   }
 }
 
-// Send event to server
-export async function sendEventToServer() {
-  try {
-    const result = await takos.events.publish("clientToServer", {
-      message: "Hello from client via event!",
-      timestamp: new Date().toISOString(),
-      data: { test: true }
-    });
-    
-    console.log("[Client] Sent event to server, result:", result);
-    return result;
-  } catch (error) {
-    console.error("[Client] Error sending event to server:", error);
-    throw error;
-  }
-}
-
-// Event handler for receiving events from server
-export async function onServerToClient(payload: EventPayload) {
-  console.log("[Client] Received event from server:", payload);
-  
-  // Store the event in client KV for testing
-  await takos.kv.write("lastServerToClientEvent", payload);
-  
-  return { 
-    received: true, 
-    processedBy: "client",
-    originalPayload: payload,
-    timestamp: new Date().toISOString()
-  };
-}
-
-// Event handler for receiving events from UI
-export async function onUIToClient(payload: EventPayload) {
-  console.log("[Client] Received event from UI:", payload);
-  
-  // Store the event in client KV for testing
-  await takos.kv.write("lastUIToClientEvent", payload);
-  
-  return { 
-    received: true, 
-    processedBy: "client",
-    originalPayload: payload,
-    timestamp: new Date().toISOString()
-  };
-}
-
-// Get last received events for testing
-export async function getLastEvents() {
-  const serverEvent = await takos.kv.read("lastServerToClientEvent");
-  const uiEvent = await takos.kv.read("lastUIToClientEvent");
-  
-  return {
-    fromServer: serverEvent,
-    fromUI: uiEvent
-  };
-}
-
-// Test all communication patterns from client
-export async function testAllFromClient() {
+// Run comprehensive communication tests
+export async function testAllFromClient(): Promise<TestResults> {
   const results: TestResults = {
     callServer: null,
     callUI: null,
     errors: []
   };
-  
+
   try {
     results.callServer = await testCallServer();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    results.errors.push(`Server call error: ${errorMessage}`);
+    results.errors.push(`Server test failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  
+
   try {
     results.callUI = await testCallUI();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    results.errors.push(`UI call error: ${errorMessage}`);
+    results.errors.push(`UI test failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  
+
   return results;
 }
 
-// Event handler for triggering client tests from UI
-export async function onTriggerClientTests(payload: EventPayload) {
-  console.log("[Client] onTriggerClientTests called with payload:", payload);
+// Function to get the last few events from KV storage for demonstration
+export async function getLastEvents() {
+  try {
+    return {
+      lastServerEvent: await takos.kv.read("lastServerToClientEvent"),
+      lastUIEvent: await takos.kv.read("lastUIToClientEvent"),
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("[Client] Error getting last events:", error);
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// Client-side class-based event definitions
+export const clientTakos = new Takos();
+
+clientTakos.client("serverToClient", async (payload: unknown) => {
+  console.log("[Client] Received event from server:", payload);
+  
+  try {
+    await takos.kv.write("lastServerToClientEvent", payload);
+    
+    return {
+      received: true,
+      processedBy: "client",
+      originalPayload: payload,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("[Client] Error processing server event:", error);
+    return {
+      received: false,
+      error: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    };
+  }
+});
+
+clientTakos.client("uiToClient", async (payload: unknown) => {
+  console.log("[Client] Received event from UI:", payload);
+  
+  try {
+    await takos.kv.write("lastUIToClientEvent", payload);
+    
+    return {
+      received: true,
+      processedBy: "client", 
+      originalPayload: payload,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("[Client] Error processing UI event:", error);
+    return {
+      received: false,
+      error: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    };
+  }
+});
+
+clientTakos.client("runClientTests", async (payload: unknown) => {
+  console.log("[Client] Running tests requested from UI:", payload);
   
   try {
     const results = await testAllFromClient();
@@ -161,7 +162,6 @@ export async function onTriggerClientTests(payload: EventPayload) {
     console.error("[Client] Error running tests:", error);
     const errorResult = { error: error instanceof Error ? error.message : String(error) };
     
-    // Send error back to UI via event
     await takos.events.publish("clientTestResults", {
       results: errorResult,
       timestamp: new Date().toISOString()
@@ -169,11 +169,10 @@ export async function onTriggerClientTests(payload: EventPayload) {
     
     return errorResult;
   }
-}
+});
 
-// Event handler for getting client events from UI
-export async function onGetClientEvents(payload: EventPayload) {
-  console.log("[Client] onGetClientEvents called with payload:", payload);
+clientTakos.client("getClientEvents", async (payload: unknown) => {
+  console.log("[Client] Getting client events requested from UI:", payload);
   
   try {
     const events = await getLastEvents();
@@ -191,7 +190,6 @@ export async function onGetClientEvents(payload: EventPayload) {
     console.error("[Client] Error getting events:", error);
     const errorResult = { error: error instanceof Error ? error.message : String(error) };
     
-    // Send error back to UI via event
     await takos.events.publish("clientEventsResponse", {
       events: errorResult,
       timestamp: new Date().toISOString()
@@ -199,4 +197,4 @@ export async function onGetClientEvents(payload: EventPayload) {
     
     return errorResult;
   }
-}
+});

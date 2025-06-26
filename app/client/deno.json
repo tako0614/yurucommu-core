@@ -8,8 +8,7 @@
   "tasks": {
     "dev": "deno run -A --node-modules-dir npm:vite dev",
     "build": "deno run -A --node-modules-dir npm:vite build",
-    "preview": "deno run -A --node-modules-dir npm:vite preview",
-    "serve": "deno run --allow-net --allow-read https://deno.land/std@0.157.0/http/file_server.ts dist/"
+    "tauri": "deno run -A --node-modules-dir npm:tauri"
   },
   "imports": {
     "@hono/vite-dev-server": "npm:@hono/vite-dev-server@^0.19.0",

@@ -221,7 +221,6 @@ export function createTakos(identifier: string) {
       }
     }
   });
-
   const events = {
     publish: async (
       name: string,
@@ -234,6 +233,8 @@ export function createTakos(identifier: string) {
           options = { ...options, token };
         }
       }
+      
+      // ローカルリスナーへの通知
       const handlers = listeners.get(name);
       handlers?.forEach((h) => {
         try {
@@ -243,6 +244,7 @@ export function createTakos(identifier: string) {
         }
       });
 
+      // イベント定義の取得
       const g = globalThis as TakosGlobals;
       let defs = g.__takosEventDefs?.[identifier] as
         | Record<string, { source?: string; handler?: string }>
@@ -258,31 +260,49 @@ export function createTakos(identifier: string) {
       }
       const def = defs?.[name];
 
+      // サーバー専用イベントの場合はサーバーで実行
       if (def?.source === "server") {
-        const raw = await call("extensions:invoke", {
-          id: identifier,
-          fn: name,
-          args: [payload],
-          options,
-        });
-        return unwrapResult(raw);
+        try {
+          const raw = await call("extensions:invoke", {
+            id: identifier,
+            fn: name,
+            args: [payload],
+            options,
+          });
+          return unwrapResult(raw);
+        } catch (serverErr) {
+          console.error(`[Client] Server execution failed for ${name}:`, serverErr);
+          return {
+            success: false,
+            error: serverErr instanceof Error ? serverErr.message : String(serverErr),
+            timestamp: new Date().toISOString()
+          };
+        }
       }
 
+      // Service Workerでの実行を優先
       try {
         const w = await loadExtensionWorker(identifier, takos);
         const result = await w.callEvent(name, payload);
-        if (
-          def?.source === "client" ||
-          def?.source === "ui" ||
-          def?.source === "background"
-        ) {
+        
+        // 定義されたイベントまたは結果がundefinedでない場合はService Workerの結果を返す
+        if (def || result !== undefined) {
           return result;
         }
-        if (def) return result;
-      } catch (err) {
-        if (def) throw err;
+      } catch (workerErr) {
+        console.warn(`[Client] Service Worker execution failed for ${name}:`, workerErr);
+        
+        // 定義されたイベントの場合はエラーを返す
+        if (def) {
+          return {
+            success: false,
+            error: workerErr instanceof Error ? workerErr.message : String(workerErr),
+            timestamp: new Date().toISOString()
+          };
+        }
       }
 
+      // 定義されていないイベントの場合のみサーバーにフォールバック
       if (!def) {
         try {
           const raw = await call("extensions:invoke", {
@@ -292,15 +312,25 @@ export function createTakos(identifier: string) {
             options,
           });
           return unwrapResult(raw);
-        } catch (err) {
+        } catch (serverErr) {
+          console.error(`[Client] Server execution failed for ${name}:`, serverErr);
           if (
-            err instanceof Error && err.message.includes("function not found")
+            serverErr instanceof Error && serverErr.message.includes("function not found")
           ) {
-            return undefined;
+            return {
+              success: false,
+              error: `Function '${name}' not found in extension '${identifier}'`,
+              timestamp: new Date().toISOString()
+            };
           }
-          throw err;
+          return {
+            success: false,
+            error: serverErr instanceof Error ? serverErr.message : String(serverErr),
+            timestamp: new Date().toISOString()
+          };
         }
       }
+      
       return undefined;
     },
   };
@@ -329,8 +359,7 @@ export function createTakos(identifier: string) {
     version: "",
     get isActive() {
       return true;
-    },
-    activate: () => ({
+    },    activate: () => ({
       publish: async (
         name: string,
         payload?: unknown,
@@ -342,6 +371,8 @@ export function createTakos(identifier: string) {
             options = { ...options, token };
           }
         }
+        
+        // イベント定義の取得
         const g = globalThis as TakosGlobals;
         let defs = g.__takosEventDefs?.[identifier] as
           | Record<string, { source?: string; handler?: string }>
@@ -357,31 +388,49 @@ export function createTakos(identifier: string) {
         }
         const def = defs?.[name];
 
+        // サーバー専用イベントの場合はサーバーで実行
         if (def?.source === "server") {
-          const raw = await call("extensions:invoke", {
-            id: identifier,
-            fn: name,
-            args: [payload],
-            options,
-          });
-          return unwrapResult(raw);
+          try {
+            const raw = await call("extensions:invoke", {
+              id: identifier,
+              fn: name,
+              args: [payload],
+              options,
+            });
+            return unwrapResult(raw);
+          } catch (serverErr) {
+            console.error(`[Client] Server execution failed for ${name}:`, serverErr);
+            return {
+              success: false,
+              error: serverErr instanceof Error ? serverErr.message : String(serverErr),
+              timestamp: new Date().toISOString()
+            };
+          }
         }
 
+        // Service Workerでの実行を優先
         try {
           const w = await loadExtensionWorker(identifier, takos);
           const result = await w.callEvent(name, payload);
-          if (
-            def?.source === "client" ||
-            def?.source === "ui" ||
-            def?.source === "background"
-          ) {
+          
+          // 定義されたイベントまたは結果がundefinedでない場合はService Workerの結果を返す
+          if (def || result !== undefined) {
             return unwrapResult(result);
           }
-          if (def) return unwrapResult(result);
-        } catch (err) {
-          if (def) throw err;
+        } catch (workerErr) {
+          console.warn(`[Client] Service Worker execution failed for ${name}:`, workerErr);
+          
+          // 定義されたイベントの場合はエラーを返す
+          if (def) {
+            return {
+              success: false,
+              error: workerErr instanceof Error ? workerErr.message : String(workerErr),
+              timestamp: new Date().toISOString()
+            };
+          }
         }
 
+        // 定義されていないイベントの場合のみサーバーにフォールバック
         if (!def) {
           try {
             const raw = await call("extensions:invoke", {
@@ -391,15 +440,25 @@ export function createTakos(identifier: string) {
               options,
             });
             return unwrapResult(raw);
-          } catch (err) {
+          } catch (serverErr) {
+            console.error(`[Client] Server execution failed for ${name}:`, serverErr);
             if (
-              err instanceof Error && err.message.includes("function not found")
+              serverErr instanceof Error && serverErr.message.includes("function not found")
             ) {
-              return undefined;
+              return {
+                success: false,
+                error: `Function '${name}' not found in extension '${identifier}'`,
+                timestamp: new Date().toISOString()
+              };
             }
-            throw err;
+            return {
+              success: false,
+              error: serverErr instanceof Error ? serverErr.message : String(serverErr),
+              timestamp: new Date().toISOString()
+            };
           }
         }
+        
         return undefined;
       },
     }),
@@ -435,7 +494,6 @@ export function createTakos(identifier: string) {
     globalThis.addEventListener("hashchange", handler);
     return () => globalThis.removeEventListener("hashchange", handler);
   }
-
   const takos = {
     kv,
     cdn,
@@ -443,7 +501,31 @@ export function createTakos(identifier: string) {
     server,
     fetch: fetchFn,
     extensions,
-    activateExtension: extensionObj.activate,
+    activateExtension: async (id: string) => {
+      if (id === identifier) {
+        return extensionObj.activate();
+      }
+      // 他の拡張機能の場合は、server経由で取得を試みる
+      try {
+        const raw = await call("extensions:activate", { id });
+        if (!raw) return undefined;
+        
+        return {
+          publish: async (name: string, payload?: unknown, options?: { push?: boolean; token?: string }) => {
+            const invokeRaw = await call("extensions:invoke", {
+              id,
+              fn: name,
+              args: [payload],
+              options,
+            });
+            return unwrapResult(invokeRaw);
+          }
+        };
+      } catch (error) {
+        console.error(`Failed to activate extension ${id}:`, error);
+        return undefined;
+      }
+    },
     getURL,
     pushURL,
     setURL,

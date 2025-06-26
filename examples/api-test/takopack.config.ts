@@ -39,14 +39,15 @@ export default defineConfig({
       "apiTestClient", 
       "apiTestUI",
       "onActivityPubReceive",
-      "onTestEvent"
-    ],
-  },
-  
-  entries: {
+      "onTestEvent",
+      "testClientKV",
+      "testCDNOperations",
+      "testClientEvents",
+      "testClientExtensions",
+      "testClientFetch"    ],  },  entries: {
     server: ["src/server/api.ts"],
     client: ["src/client/api.ts"],
-    ui: ["src/ui/index.html"],
+    ui: ["src/ui/dist/client/index.html"],
   },
 
   build: {

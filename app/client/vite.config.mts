@@ -3,33 +3,27 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  server: {
-    port: 3000, // ここでポートを指定
-    strictPort: true, // 既に使われているポートならエラーにする
-    host: true, // ホスト名を解決可能にする
-    allowedHosts: ["dev.takos.jp", "localhost"],
-    proxy: {
-      "/api": {
-        target: "http://localhost:3001",
-        changeOrigin: true,
-        secure: false,
-        timeout: 5000,
-        configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            console.log("プロキシエラー:", err.message);
-          });
-        },
-      },
-    },
-  },
-  css: {
-    devSourcemap: false, // CSS ソースマップを無効化
-  },
-  build: {
-    sourcemap: false, // ビルド時のソースマップを無効化
-  },
   plugins: [
     solid(),
     tailwindcss(),
   ],
+
+  // Tauri開発向けの設定
+  // 1. Rustのエラーを見やすくするため、画面をクリアしない
+  clearScreen: false,
+  // 2. Tauriは固定ポートを期待するため、利用できない場合はエラーにする
+  server: {
+    port: 1420,
+    strictPort: true,
+  },
+  // 3. `TAURI_DEBUG` などの環境変数を利用するため
+  envPrefix: ["VITE_", "TAURI_"],
+  build: {
+    // Tauriはes2021をサポート
+    target: process.env.TAURI_PLATFORM ? "es2021" : "esnext",
+    // デバッグビルドでない場合はminifyする
+    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
+    // デバッグビルドの場合はソースマップを有効にする
+    sourcemap: !!process.env.TAURI_DEBUG,
+  },
 });

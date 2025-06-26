@@ -350,9 +350,7 @@ export class TakopackBuilder {
       analysis.exports.forEach((exp) => {
         if (exp.type === "class") exportedClassSet.add(exp.name);
       });
-    });
-
-    // デバッグ用: AST解析結果を出力
+    });    // デバッグ用: AST解析結果を出力
     console.log("🔍 AST Analysis Debug:");
     [...analyses.server, ...analyses.client].forEach((analysis) => {
       console.log(`  File: ${analysis.filePath}`);
@@ -370,59 +368,36 @@ export class TakopackBuilder {
           }) (target: ${decorator.targetFunction})`,
         );
       });
-    });
-
-    [...analyses.server, ...analyses.client].forEach((analysis) => {
-      analysis.jsDocTags.forEach((tag) => {
-        const handlerName = tag.targetFunction;
-        if (tag.tag === "event") {
-          const eventName = this.extractEventNameFromTag(tag.value);
-          const eventConfig = this.parseEventConfig(
-            tag.value,
-            handlerName,
-          );
-          if (eventName && eventConfig) {
-            eventDefinitions[eventName] = eventConfig;
-          }
-        } else if (tag.tag === "activity") {
-          const activityConfig = this.parseActivityConfig(
-            tag.value,
-            handlerName,
-          );
-          if (activityConfig) {
-            activityPubConfigs.push(activityConfig);
-          }
-        }
+      console.log(`    Exports: ${analysis.exports.length}`);
+      analysis.exports.forEach((exp) => {
+        console.log(
+          `      export ${exp.type} ${exp.name} ${exp.instanceOf ? `(instanceOf: ${exp.instanceOf})` : ''}`,
+        );
       });
+      console.log(`    Method calls: ${analysis.methodCalls.length}`);
+      analysis.methodCalls.forEach((call) => {
+        console.log(
+          `      ${call.objectName}.${call.methodName}(${call.args.join(', ')})`,
+        );
+      });    });
 
-      // デコレータから抽出
-      analysis.decorators.forEach((decorator) => {
-        const handlerName = decorator.targetFunction;
-        if (decorator.name === "event" && decorator.args.length > 0) {
-          const eventName = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
-          const options = (typeof decorator.args[1] === "object" &&
-              decorator.args[1] !== null)
-            ? (decorator.args[1] as Record<string, unknown>)
-            : {};
-          eventDefinitions[eventName] = {
-            source:
-              (options.source as "client" | "server" | "background" | "ui") ||
-              "client",
-            handler: handlerName,
-          };
-        } else if (decorator.name === "activity" && decorator.args.length > 0) {
-          const object = typeof decorator.args[0] === "string"
-            ? decorator.args[0]
-            : "";
-          activityPubConfigs.push({
-            object,
-            hook: handlerName,
-          });
-        }
-      });
-    });
+    // クラスベースのイベント定義のみをサポート（JSDoc/デコレータは廃止）
+    const hasEventDefinitions = this.extractEventDefinitionsFromClasses(analyses, eventDefinitions);
+    
+    // イベント定義が必須
+    if (!hasEventDefinitions) {
+      throw new Error(
+        `❌ No event definitions found. Event definitions using classes are required.\n\n` +
+        `Please use class-based event definitions in your client/server files:\n\n` +
+        `import { Takos } from "../../../../packages/builder/src/classes.ts";\n\n` +
+        `export const takos = new Takos();\n\n` +
+        `takos\n` +
+        `  .client("eventName", handlerFunction)\n` +
+        `  .server("serverEvent", serverHandler)\n` +
+        `  .ui("uiEvent", uiHandler);\n\n` +
+        `JSDoc-based event definitions (@event) and decorators are no longer supported.`
+      );
+    }
 
     // マニフェストに追加
     if (Object.keys(eventDefinitions).length > 0) {
@@ -618,20 +593,33 @@ export class TakopackBuilder {
     }
   } /**
    * JSDocタグからイベント名を抽出
-   */
-
-  private extractEventNameFromTag(value: string): string | null {
+   */  private extractEventNameFromTag(value: string): string | null {
     console.log(`[DEBUG] extractEventNameFromTag - value: "${value}"`);
-    // "("eventName", { ... })" の形式で抽出
+    
+    // まず複雑な形式 "("eventName", { ... })" を試す
     const match = value.match(/^\("([^"']+)"/);
-    console.log(`[DEBUG] extractEventNameFromTag - match: ${match}`);
-    const result = match ? match[1] : null;
-    console.log(`[DEBUG] extractEventNameFromTag - result: ${result}`);
-    return result;
-  } /**
+    console.log(`[DEBUG] extractEventNameFromTag - complex match: ${match}`);
+    
+    if (match) {
+      const result = match[1];
+      console.log(`[DEBUG] extractEventNameFromTag - complex result: ${result}`);
+      return result;
+    }
+    
+    // シンプルな形式 " eventName" を試す
+    const simpleMatch = value.trim();
+    console.log(`[DEBUG] extractEventNameFromTag - simple match: "${simpleMatch}"`);
+    
+    if (simpleMatch && !simpleMatch.includes("(") && !simpleMatch.includes("{")) {
+      console.log(`[DEBUG] extractEventNameFromTag - simple result: ${simpleMatch}`);
+      return simpleMatch;
+    }
+    
+    console.log(`[DEBUG] extractEventNameFromTag - no match found`);
+    return null;
+  }/**
    * イベント設定をパース
    */
-
   private parseEventConfig(
     value: string,
     targetFunction: string,
@@ -640,46 +628,64 @@ export class TakopackBuilder {
       console.log(
         `[DEBUG] parseEventConfig - value: "${value}", targetFunction: "${targetFunction}"`,
       );
-      // "("eventName", { ... })" の形式でパース
-      const match = value.match(/^\("([^"']+)"(?:,\s*({.+}))?/);
-      console.log(`[DEBUG] parseEventConfig - match: ${match}`);
-      if (!match) return null;
-
-      let options: Record<string, unknown> = {};
-      if (match[2]) {
-        try {
-          // JavaScriptオブジェクトリテラルをJSONに変換
-          const jsObjectString = match[2];
-          const jsonString = jsObjectString.replace(/(\w+):/g, '"$1":');
-          console.log(`[DEBUG] parseEventConfig - jsonString: ${jsonString}`);
-          options = JSON.parse(jsonString);
-        } catch (jsonError) {
-          console.log(
-            `[DEBUG] parseEventConfig - JSON parse error: ${jsonError}`,
-          );
-          // eval を使って JavaScript オブジェクトリテラルを評価
-          options = eval("(" + match[2] + ")");
+      
+      // まず複雑な形式 "("eventName", { ... })" を試す
+      const complexMatch = value.match(/^\("([^"']+)"(?:,\s*({.+}))?/);
+      console.log(`[DEBUG] parseEventConfig - complex match: ${complexMatch}`);
+      
+      if (complexMatch) {
+        let options: Record<string, unknown> = {};
+        if (complexMatch[2]) {
+          try {
+            // JavaScriptオブジェクトリテラルをJSONに変換
+            const jsObjectString = complexMatch[2];
+            const jsonString = jsObjectString.replace(/(\w+):/g, '"$1":');
+            console.log(`[DEBUG] parseEventConfig - jsonString: ${jsonString}`);
+            options = JSON.parse(jsonString);
+          } catch (jsonError) {
+            console.log(
+              `[DEBUG] parseEventConfig - JSON parse error: ${jsonError}`,
+            );
+            // eval を使って JavaScript オブジェクトリテラルを評価
+            options = eval("(" + complexMatch[2] + ")");
+          }
         }
-      }
-      console.log(
-        `[DEBUG] parseEventConfig - options: ${JSON.stringify(options)}`,
-      );
+        console.log(
+          `[DEBUG] parseEventConfig - options: ${JSON.stringify(options)}`,
+        );
 
-      const result = {
-        source: (options.source as "client" | "server" | "background" | "ui") ||
-          "client",
-        handler: targetFunction,
-      };
-      console.log(
-        `[DEBUG] parseEventConfig - result: ${JSON.stringify(result)}`,
-      );
-      return result;
+        const result = {
+          source: (options.source as "client" | "server" | "background" | "ui") ||
+            "client",
+          handler: targetFunction,
+        };
+        console.log(
+          `[DEBUG] parseEventConfig - complex result: ${JSON.stringify(result)}`,
+        );
+        return result;
+      }
+      
+      // シンプルな形式 " eventName" の場合はデフォルト設定を使用
+      const simpleValue = value.trim();
+      if (simpleValue && !simpleValue.includes("(") && !simpleValue.includes("{")) {
+        const result = {
+          source: "client" as const,
+          handler: targetFunction,
+        };
+        console.log(
+          `[DEBUG] parseEventConfig - simple result: ${JSON.stringify(result)}`,
+        );
+        return result;
+      }
+        console.log(`[DEBUG] parseEventConfig - no match found`);
+      return null;
     } catch (error) {
       console.log(`[DEBUG] parseEventConfig - error: ${error}`);
       return null;
     }
   }
 
+  /**
   /**
    * ActivityPub設定をパース
    */
@@ -816,5 +822,70 @@ export class TakopackBuilder {
     await Deno.writeFile(filePath, data);
 
     console.log(`📋 Generated unified type definitions: ${filePath}`);
+  }
+
+  /**
+   * Takopack拡張クラスかどうかを判定
+   */
+  private isTakopackExtensionClass(className: string): boolean {
+    const takopackClasses = [
+      "Takos",
+      "TakopackExtension", 
+      "ServerExtension",
+      "ClientExtension",
+      "UIExtension"
+    ];
+    return takopackClasses.includes(className);
+  }
+
+  /**
+   * クラスインスタンスからイベント定義を抽出
+   */
+  private extractEventDefinitionsFromClasses(
+    analyses: { server: ModuleAnalysis[]; client: ModuleAnalysis[] },
+    eventDefinitions: Record<string, EventDefinition>
+  ): boolean {
+    let hasDefinitions = false;
+    
+    [...analyses.server, ...analyses.client].forEach((analysis) => {
+      analysis.exports.forEach((exp) => {
+        if (exp.instanceOf && this.isTakopackExtensionClass(exp.instanceOf)) {
+          console.log(`✅ Found Takopack extension instance: ${exp.name} (${exp.instanceOf})`);
+          
+          // このインスタンスのメソッド呼び出しを探す
+          analysis.methodCalls.forEach((call) => {
+            if (call.objectName === exp.name) {
+              console.log(`🔧 Processing method call: ${call.objectName}.${call.methodName}(${call.args.join(', ')})`);
+              
+              // server, client, ui, background メソッドかどうかチェック
+              if (['server', 'client', 'ui', 'background'].includes(call.methodName)) {
+                const eventName = call.args[0] as string;
+                const handlerArg = call.args[1];
+                let handlerName = '';
+                
+                if (typeof handlerArg === 'string') {
+                  // 関数名が文字列で渡された場合
+                  handlerName = handlerArg;
+                } else {
+                  // 関数オブジェクトが渡された場合、その関数名を推測
+                  handlerName = 'anonymous';
+                }
+                
+                if (eventName) {
+                  eventDefinitions[eventName] = {
+                    source: call.methodName as "client" | "server" | "background" | "ui",
+                    handler: handlerName,
+                  };
+                  console.log(`✅ Registered event: ${eventName} -> ${handlerName} (${call.methodName})`);
+                  hasDefinitions = true;
+                }
+              }
+            }
+          });
+        }
+      });
+    });
+    
+    return hasDefinitions;
   }
 }
