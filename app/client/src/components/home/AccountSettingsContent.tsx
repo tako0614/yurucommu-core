@@ -19,6 +19,17 @@ const AccountSettingsContent: Component<{
   const selectedAccount = () =>
     props.accounts.find((account) => account.id === props.selectedAccountId);
 
+  // 選択中のアカウントを先頭に表示するために並び替え
+  const sortedAccounts = () => {
+    const selected = props.accounts.find((a) =>
+      a.id === props.selectedAccountId
+    );
+    const others = props.accounts.filter((a) =>
+      a.id !== props.selectedAccountId
+    );
+    return selected ? [selected, ...others] : others;
+  };
+
   // ローカル編集状態
   const [editingDisplayName, setEditingDisplayName] = createSignal("");
   const [editingUserName, setEditingUserName] = createSignal("");
@@ -148,14 +159,14 @@ const AccountSettingsContent: Component<{
 
         <div class="p-6">
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            <For each={props.accounts}>
+            <For each={sortedAccounts()}>
               {(account) => (
                 <button
                   type="button"
                   class={`group relative flex flex-col items-center p-4 rounded-xl transition-all duration-300 transform hover:scale-105 focus:scale-105 focus:outline-none focus:ring-2 focus:ring-teal-500/50 ${
                     props.selectedAccountId === account.id
-                      ? "bg-gradient-to-br from-teal-600/20 to-teal-700/20 ring-2 ring-teal-500/50 shadow-lg shadow-teal-500/10"
-                      : "bg-gray-800/30 hover:bg-gray-700/40 hover:shadow-lg"
+                      ? "bg-gradient-to-br from-teal-600/20 to-teal-700/20 ring-2 ring-teal-500/50 shadow-lg shadow-teal-500/10 scale-105"
+                      : "bg-gray-800/30 hover:bg-gray-700/40 hover:shadow-lg opacity-60"
                   }`}
                   onClick={() => props.setSelectedAccountId(account.id)}
                   aria-label={`${account.displayName}のアカウントを選択`}
@@ -164,7 +175,11 @@ const AccountSettingsContent: Component<{
                     <IconPreview
                       iconValue={account.avatarInitial}
                       displayNameValue={account.displayName}
-                      class="h-14 w-14 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 text-white flex items-center justify-center text-lg font-semibold shadow-lg"
+                      class={`rounded-full bg-gradient-to-br from-teal-500 to-teal-600 text-white flex items-center justify-center text-lg font-semibold shadow-lg ${
+                        props.selectedAccountId === account.id
+                          ? "h-16 w-16"
+                          : "h-14 w-14"
+                      }`}
                     />
                     {props.selectedAccountId === account.id && (
                       <div class="absolute -top-1 -right-1 w-5 h-5 bg-teal-400 rounded-full flex items-center justify-center">
