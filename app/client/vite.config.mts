@@ -20,7 +20,19 @@ export default defineConfig({
         target: "http://localhost:8000", // APIサーバーのポート
         changeOrigin: true,
       },
-    }
+      "/.well-known": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/users": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/inbox": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
   },
   // 3. `TAURI_DEBUG` などの環境変数を利用するため
   envPrefix: ["VITE_", "TAURI_"],
