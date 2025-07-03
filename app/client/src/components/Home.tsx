@@ -3,6 +3,7 @@ import {
   createEffect,
   createSignal,
   For,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -41,6 +42,15 @@ const AccountSettingsContent: Component<{
   const [hasChanges, setHasChanges] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isLoading, setIsLoading] = createSignal(false);
+  const [isSwitching, setIsSwitching] = createSignal(false);
+
+  // アカウントが切り替わった際のアニメーション用
+  createEffect(() => {
+    props.selectedAccountId;
+    setIsSwitching(true);
+    const t = setTimeout(() => setIsSwitching(false), 300);
+    onCleanup(() => clearTimeout(t));
+  });
 
   // 選択されたアカウントが変更されたときにローカル状態を更新
   createEffect(() => {
@@ -233,7 +243,11 @@ const AccountSettingsContent: Component<{
 
       {/* アカウント設定フォーム */}
       <Show when={selectedAccount()}>
-        <div class="bg-gradient-to-br from-[#1a1a1a] to-[#161616] rounded-2xl shadow-xl border border-gray-800/50 overflow-hidden animate-in slide-in-from-right-4 duration-500">
+        <div
+          class={`bg-gradient-to-br from-[#1a1a1a] to-[#161616] rounded-2xl shadow-xl border border-gray-800/50 overflow-hidden animate-in slide-in-from-right-4 duration-500 ${
+            isSwitching() ? "account-switch" : ""
+          }`}
+        >
           <div class="p-6 border-b border-gray-800/50">
             <h3 class="text-xl font-semibold text-gray-100">アカウント設定</h3>
             <p class="text-gray-400 mt-1">プロファイル情報を編集できます</p>
