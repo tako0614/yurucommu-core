@@ -208,17 +208,6 @@ export function Home() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveSection("microblog")}
-              class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === "microblog"
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "text-gray-400 hover:bg-gray-700/50"
-              }`}
-            >
-              マイクロブログ
-            </button>
-            <button
-              type="button"
               onClick={() => setActiveSection("settings")}
               class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
                 activeSection() === "settings"

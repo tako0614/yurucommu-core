@@ -151,13 +151,9 @@ input {
   background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
 }
 .l-header__ul-item a {
-  height: 100%;
+  display: block;
   width: 100%;
   padding: 12px;
-  display: block;
-  position: absolute;
-  top: 0;
-  left: 0;
 }
 @media screen and (min-width: 769px) {
   .l-header .is-inview {
