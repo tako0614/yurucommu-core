@@ -148,7 +148,7 @@ const AccountSettingsContent: Component<{
             </span>
           </div>
         </div>
-        
+
         <div class="p-6">
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             <For each={props.accounts}>
@@ -171,8 +171,16 @@ const AccountSettingsContent: Component<{
                     />
                     {props.selectedAccountId === account.id && (
                       <div class="absolute -top-1 -right-1 w-5 h-5 bg-teal-400 rounded-full flex items-center justify-center">
-                        <svg class="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 20 20">
-                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        <svg
+                          class="w-3 h-3 text-gray-900"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fill-rule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clip-rule="evenodd"
+                          />
                         </svg>
                       </div>
                     )}
@@ -196,8 +204,18 @@ const AccountSettingsContent: Component<{
               aria-label="新しいアカウントを追加"
             >
               <div class="h-14 w-14 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 group-hover:from-teal-500 group-hover:to-teal-600 flex items-center justify-center transition-all duration-300">
-                <svg class="h-6 w-6 text-gray-300 group-hover:text-white transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                <svg
+                  class="h-6 w-6 text-gray-300 group-hover:text-white transition-colors duration-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                  />
                 </svg>
               </div>
               <div class="mt-3 text-center">
@@ -217,7 +235,7 @@ const AccountSettingsContent: Component<{
             <h3 class="text-xl font-semibold text-gray-100">アカウント設定</h3>
             <p class="text-gray-400 mt-1">プロファイル情報を編集できます</p>
           </div>
-          
+
           <form class="p-6 space-y-6">
             {/* プロファイルヘッダー */}
             <div class="flex items-center space-x-6 p-6 bg-gray-800/20 rounded-xl">
@@ -228,8 +246,18 @@ const AccountSettingsContent: Component<{
                   class="h-20 w-20 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 text-white flex items-center justify-center text-2xl font-bold shadow-xl"
                 />
                 <div class="absolute -bottom-2 -right-2 w-8 h-8 bg-teal-500 rounded-full flex items-center justify-center shadow-lg">
-                  <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  <svg
+                    class="w-4 h-4 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -237,7 +265,9 @@ const AccountSettingsContent: Component<{
                 <h4 class="text-2xl font-bold text-gray-100">
                   {editingDisplayName() || "名前未設定"}
                 </h4>
-                <p class="text-lg text-gray-400">@{editingUserName() || "ユーザー名未設定"}</p>
+                <p class="text-lg text-gray-400">
+                  @{editingUserName() || "ユーザー名未設定"}
+                </p>
                 <div class="flex items-center mt-2 space-x-2">
                   <div class="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span class="text-sm text-gray-400">アクティブ</span>
@@ -248,7 +278,9 @@ const AccountSettingsContent: Component<{
             {/* フォームフィールド */}
             <div class="grid md:grid-cols-2 gap-6">
               <div class="space-y-2">
-                <label class="block text-sm font-medium text-gray-300">表示名</label>
+                <label class="block text-sm font-medium text-gray-300">
+                  表示名
+                </label>
                 <input
                   type="text"
                   class="w-full bg-gray-800/50 border border-gray-600/50 rounded-xl px-4 py-3 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-transparent transition-all duration-200"
@@ -260,11 +292,15 @@ const AccountSettingsContent: Component<{
                   }}
                 />
               </div>
-              
+
               <div class="space-y-2">
-                <label class="block text-sm font-medium text-gray-300">ユーザー名</label>
+                <label class="block text-sm font-medium text-gray-300">
+                  ユーザー名
+                </label>
                 <div class="relative">
-                  <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">@</span>
+                  <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                    @
+                  </span>
                   <input
                     type="text"
                     class="w-full bg-gray-800/50 border border-gray-600/50 rounded-xl pl-8 pr-4 py-3 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-transparent transition-all duration-200"
@@ -280,7 +316,9 @@ const AccountSettingsContent: Component<{
             </div>
 
             <div class="space-y-2">
-              <label class="block text-sm font-medium text-gray-300">プロフィール画像</label>
+              <label class="block text-sm font-medium text-gray-300">
+                プロフィール画像
+              </label>
               <div class="flex items-center space-x-4">
                 <input
                   type="file"
@@ -290,7 +328,8 @@ const AccountSettingsContent: Component<{
                 />
               </div>
               <p class="text-xs text-gray-400 bg-gray-800/20 p-3 rounded-lg">
-                💡 画像をアップロードすると、自動生成されるイニシャルの代わりに表示されます
+                💡
+                画像をアップロードすると、自動生成されるイニシャルの代わりに表示されます
               </p>
             </div>
 
@@ -306,22 +345,51 @@ const AccountSettingsContent: Component<{
                 onClick={handleSave}
                 disabled={!hasChanges() || isLoading()}
               >
-                {isLoading() ? (
-                  <>
-                    <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>保存中...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>{hasChanges() ? "変更を保存" : "保存済み"}</span>
-                  </>
-                )}
+                {isLoading()
+                  ? (
+                    <>
+                      <svg
+                        class="animate-spin h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          class="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          stroke-width="4"
+                        >
+                        </circle>
+                        <path
+                          class="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        >
+                        </path>
+                      </svg>
+                      <span>保存中...</span>
+                    </>
+                  )
+                  : (
+                    <>
+                      <svg
+                        class="w-4 h-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                      <span>{hasChanges() ? "変更を保存" : "保存済み"}</span>
+                    </>
+                  )}
               </button>
 
               <Show when={!showDeleteConfirm()}>
@@ -340,13 +408,27 @@ const AccountSettingsContent: Component<{
               <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-6 space-y-4 animate-in slide-in-from-top-4 duration-300">
                 <div class="flex items-center space-x-3">
                   <div class="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
-                    <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    <svg
+                      class="w-5 h-5 text-red-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                      />
                     </svg>
                   </div>
                   <div>
-                    <h4 class="text-lg font-semibold text-red-400">アカウントを削除</h4>
-                    <p class="text-sm text-gray-300">この操作は取り消すことができません</p>
+                    <h4 class="text-lg font-semibold text-red-400">
+                      アカウントを削除
+                    </h4>
+                    <p class="text-sm text-gray-300">
+                      この操作は取り消すことができません
+                    </p>
                   </div>
                 </div>
                 <div class="flex flex-col sm:flex-row gap-3">
@@ -390,7 +472,10 @@ const NotificationsContent: Component = () => {
         <div class="p-6 border-b border-gray-800/50">
           <div class="flex items-center justify-between">
             <h3 class="text-xl font-semibold text-gray-100">最近の通知</h3>
-            <button class="text-teal-400 hover:text-teal-300 text-sm font-medium transition-colors duration-200">
+            <button
+              type="button"
+              class="text-teal-400 hover:text-teal-300 text-sm font-medium transition-colors duration-200"
+            >
               すべてをクリア
             </button>
           </div>
@@ -400,14 +485,28 @@ const NotificationsContent: Component = () => {
           <div class="p-6 hover:bg-gray-800/20 transition-colors duration-200 border-l-4 border-teal-500">
             <div class="flex items-start space-x-4">
               <div class="w-10 h-10 bg-teal-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  class="w-5 h-5 text-teal-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between mb-2">
-                  <h4 class="text-lg font-semibold text-gray-100">システム通知</h4>
-                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">今日 12:30</span>
+                  <h4 class="text-lg font-semibold text-gray-100">
+                    システム通知
+                  </h4>
+                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">
+                    今日 12:30
+                  </span>
                 </div>
                 <p class="text-gray-300 text-sm leading-relaxed">
                   システムがアップデートされました。最新の機能をご利用いただけます。
@@ -419,14 +518,28 @@ const NotificationsContent: Component = () => {
           <div class="p-6 hover:bg-gray-800/20 transition-colors duration-200 border-l-4 border-green-500">
             <div class="flex items-start space-x-4">
               <div class="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                <svg
+                  class="w-5 h-5 text-green-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between mb-2">
-                  <h4 class="text-lg font-semibold text-gray-100">タスク完了</h4>
-                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">今日 09:15</span>
+                  <h4 class="text-lg font-semibold text-gray-100">
+                    タスク完了
+                  </h4>
+                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">
+                    今日 09:15
+                  </span>
                 </div>
                 <p class="text-gray-300 text-sm leading-relaxed">
                   データバックアップが正常に完了しました。
@@ -438,14 +551,26 @@ const NotificationsContent: Component = () => {
           <div class="p-6 hover:bg-gray-800/20 transition-colors duration-200 border-l-4 border-amber-500">
             <div class="flex items-start space-x-4">
               <div class="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <svg
+                  class="w-5 h-5 text-amber-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between mb-2">
                   <h4 class="text-lg font-semibold text-gray-100">警告</h4>
-                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">昨日 18:45</span>
+                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">
+                    昨日 18:45
+                  </span>
                 </div>
                 <p class="text-gray-300 text-sm leading-relaxed">
                   ディスク容量が90%を超えています。不要なファイルの削除を検討してください。
@@ -457,14 +582,28 @@ const NotificationsContent: Component = () => {
           <div class="p-6 hover:bg-gray-800/20 transition-colors duration-200 border-l-4 border-rose-500">
             <div class="flex items-start space-x-4">
               <div class="w-10 h-10 bg-rose-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  class="w-5 h-5 text-rose-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between mb-2">
-                  <h4 class="text-lg font-semibold text-gray-100">エラー通知</h4>
-                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">3日前</span>
+                  <h4 class="text-lg font-semibold text-gray-100">
+                    エラー通知
+                  </h4>
+                  <span class="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded-full">
+                    3日前
+                  </span>
                 </div>
                 <p class="text-gray-300 text-sm leading-relaxed">
                   拡張機能「拡張機能3」でエラーが発生しました。
@@ -475,7 +614,10 @@ const NotificationsContent: Component = () => {
         </div>
 
         <div class="p-6 border-t border-gray-800/50">
-          <button class="w-full py-3 px-4 text-sm font-medium text-gray-400 hover:text-gray-200 bg-transparent hover:bg-gray-800/30 border border-gray-600/30 hover:border-gray-500/50 rounded-xl transition-all duration-200">
+          <button
+            type="button"
+            class="w-full py-3 px-4 text-sm font-medium text-gray-400 hover:text-gray-200 bg-transparent hover:bg-gray-800/30 border border-gray-600/30 hover:border-gray-500/50 rounded-xl transition-all duration-200"
+          >
             すべての通知を表示
           </button>
         </div>
@@ -496,36 +638,21 @@ export function Home() {
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
     try {
-      const response = await fetch("/api/event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          events: [{
-            eventId: "accounts:list",
-            identifier: "takos",
-            payload: {},
-          }],
-        }),
-      });
+      const response = await fetch("/api/accounts");
       const results = await response.json();
-      if (results[0]?.success) {
-        setAccounts(results[0].result || []);
+      setAccounts(results || []);
 
-        // 選択中のIDを保持するか、初期選択を行う
-        if (preserveSelectedId) {
-          // 指定されたIDのアカウントが存在するかチェック
-          const accountExists = results[0].result?.some((acc: Account) =>
-            acc.id === preserveSelectedId
-          );
-          if (accountExists) {
-            setSelectedAccountId(preserveSelectedId);
-          } else if (results[0].result?.length > 0) {
-            setSelectedAccountId(results[0].result[0].id);
-          }
-        } else if (results[0].result?.length > 0 && !selectedAccountId()) {
-          // 初回読み込み時のみ最初のアカウントを選択
-          setSelectedAccountId(results[0].result[0].id);
+      if (preserveSelectedId) {
+        const accountExists = results.some((acc: Account) =>
+          acc.id === preserveSelectedId
+        );
+        if (accountExists) {
+          setSelectedAccountId(preserveSelectedId);
+        } else if (results.length > 0) {
+          setSelectedAccountId(results[0].id);
         }
+      } else if (results.length > 0 && !selectedAccountId()) {
+        setSelectedAccountId(results[0].id);
       }
     } catch (error) {
       console.error("Failed to load accounts:", error);
@@ -536,27 +663,15 @@ export function Home() {
   const addNewAccount = async () => {
     const username = `user${Date.now()}`;
     try {
-      const response = await fetch("/api/event", {
+      const response = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          events: [{
-            eventId: "accounts:create",
-            identifier: "takos",
-            payload: { username },
-          }],
-        }),
+        body: JSON.stringify({ username }),
       });
-      const results = await response.json();
-      if (results[0]?.success) {
-        const newAccountId = results[0].result.id;
-        await loadAccounts(newAccountId); // 新規作成されたアカウントを選択
-        setSelectedAccountId(newAccountId);
-      } else {
-        console.error(
-          results[0]?.error || "アカウントの作成に失敗しました",
-        );
-      }
+      const result = await response.json();
+      const newAccountId = result.id;
+      await loadAccounts(newAccountId);
+      setSelectedAccountId(newAccountId);
     } catch (error) {
       console.error("Failed to create account:", error);
     }
@@ -568,59 +683,49 @@ export function Home() {
       const currentAccount = accounts().find((acc) => acc.id === id);
       if (!currentAccount) return;
 
-      const payload: Record<string, unknown> = {
-        username: currentAccount.userName,
-      };
+      const payload: Record<string, unknown> = {};
 
       if (updates.userName) {
-        payload.newUsername = updates.userName;
+        payload.userName = updates.userName;
       }
 
       if (updates.displayName) {
-        payload.newDisplayName = updates.displayName;
+        payload.displayName = updates.displayName;
       }
 
       // アイコンの処理
       if (updates.avatarInitial !== undefined) { // editingIcon() が元の値から変更された場合
         if (isDataUrl(updates.avatarInitial)) {
-          payload.icon = updates.avatarInitial;
+          payload.avatarInitial = updates.avatarInitial;
         } else { // データURLでない場合、または画像がクリアされた場合を想定し、表示名からイニシャルを生成
           const baseDisplayName = updates.displayName ||
             currentAccount.displayName;
-          payload.icon = (baseDisplayName.charAt(0).toUpperCase() || "?")
-            .substring(0, 2);
+          payload.avatarInitial =
+            (baseDisplayName.charAt(0).toUpperCase() || "?")
+              .substring(0, 2);
         }
       } else if (updates.displayName) {
         // アイコンはファイルアップロード等で明示的に変更されなかったが、表示名が変更された場合
         // かつ、現在のアイコンがデータURLでない（つまりイニシャルである）場合のみ、イニシャルを更新
         if (!isDataUrl(currentAccount.avatarInitial)) {
-          payload.icon = (updates.displayName.charAt(0).toUpperCase() || "?")
-            .substring(0, 2);
+          payload.avatarInitial =
+            (updates.displayName.charAt(0).toUpperCase() || "?")
+              .substring(0, 2);
         }
         // 現在のアイコンが画像の場合は、表示名変更だけではアイコンは変更しない
       }
-      // payload.icon が未定義の場合、サーバー側はアイコンを変更しない
+      // payload.avatarInitial が未定義の場合、サーバー側はアイコンを変更しない
 
-      const response = await fetch("/api/event", {
-        method: "POST",
+      const response = await fetch(`/api/accounts/${id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          events: [{
-            eventId: "accounts:edit",
-            identifier: "takos",
-            payload,
-          }],
-        }),
+        body: JSON.stringify(payload),
       });
-      const results = await response.json();
-      if (results[0]?.success) {
-        const updatedAccountId = results[0].result.id;
-        await loadAccounts(updatedAccountId); // 更新されたアカウントを選択状態で保持
+      const result = await response.json();
+      if (result.id) {
+        await loadAccounts(result.id);
       } else {
-        console.error(
-          results[0]?.error || "アカウントの更新に失敗しました",
-        );
-        console.error("Update failed:", results[0]);
+        console.error("Update failed:", result);
       }
     } catch (error) {
       console.error("Failed to update account:", error);
@@ -633,24 +738,12 @@ export function Home() {
       const currentAccount = accounts().find((acc) => acc.id === id);
       if (!currentAccount) return;
 
-      const response = await fetch("/api/event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          events: [{
-            eventId: "accounts:delete",
-            identifier: "takos",
-            payload: { username: currentAccount.userName },
-          }],
-        }),
+      const response = await fetch(`/api/accounts/${id}`, {
+        method: "DELETE",
       });
 
-      const results = await response.json();
-      if (results[0]?.success) {
-        // アカウント一覧を再読み込み
+      if (response.ok) {
         await loadAccounts();
-
-        // 削除されたアカウントが選択されていた場合、別のアカウントを選択
         const remainingAccounts = accounts();
         if (remainingAccounts.length > 0) {
           setSelectedAccountId(remainingAccounts[0].id);
@@ -658,9 +751,7 @@ export function Home() {
           setSelectedAccountId("");
         }
       } else {
-        console.error(
-          results[0]?.error || "アカウントの削除に失敗しました",
-        );
+        console.error("アカウントの削除に失敗しました");
       }
     } catch (error) {
       console.error("Failed to delete account:", error);
@@ -713,33 +804,33 @@ export function Home() {
           <div class="flex space-x-1 bg-gray-800/50 p-1 rounded-full">
             <button
               type="button"
-              onClick={() => setActiveSection('account')}
+              onClick={() => setActiveSection("account")}
               class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === 'account'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:bg-gray-700/50'
+                activeSection() === "account"
+                  ? "bg-teal-600 text-white shadow-sm"
+                  : "text-gray-400 hover:bg-gray-700/50"
               }`}
             >
               アカウント管理
             </button>
             <button
               type="button"
-              onClick={() => setActiveSection('notifications')}
+              onClick={() => setActiveSection("notifications")}
               class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === 'notifications'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:bg-gray-700/50'
+                activeSection() === "notifications"
+                  ? "bg-teal-600 text-white shadow-sm"
+                  : "text-gray-400 hover:bg-gray-700/50"
               }`}
             >
               通知
             </button>
             <button
               type="button"
-              onClick={() => setActiveSection('settings')}
+              onClick={() => setActiveSection("settings")}
               class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === 'settings'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:bg-gray-700/50'
+                activeSection() === "settings"
+                  ? "bg-teal-600 text-white shadow-sm"
+                  : "text-gray-400 hover:bg-gray-700/50"
               }`}
             >
               設定
