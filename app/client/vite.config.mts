@@ -8,28 +8,37 @@ export default defineConfig({
     tailwindcss(),
   ],
 
-  // Tauri開発向けの設定
-  // 1. Rustのエラーを見やすくするため、画面をクリアしない
   clearScreen: false,
-  // 2. Tauriは固定ポートを期待するため、利用できない場合はエラーにする
+
   server: {
+    host: "0.0.0.0",
     port: 1420,
     strictPort: true,
+
+    // 外部アクセスを許可
+    // 追加：許可するホスト
+    allowedHosts: ["dev.takos.jp"],
+
+    // CORSでdev.takos.jpからのアクセスを許可
+    cors: {
+      origin: ["http://dev.takos.jp"],
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      credentials: true,
+    },
+
     proxy: {
       "/api": {
-        target: "http://localhost:8000", // APIサーバーのポート
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
-    }
+    },
   },
-  // 3. `TAURI_DEBUG` などの環境変数を利用するため
+
   envPrefix: ["VITE_", "TAURI_"],
+
   build: {
-    // Tauriはes2021をサポート
     target: process.env.TAURI_PLATFORM ? "es2021" : "esnext",
-    // デバッグビルドでない場合はminifyする
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
-    // デバッグビルドの場合はソースマップを有効にする
     sourcemap: !!process.env.TAURI_DEBUG,
   },
 });
