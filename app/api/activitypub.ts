@@ -17,7 +17,7 @@ app.get("/.well-known/webfinger", async (c) => {
     return c.json({ error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const domain = env["ACTIVITYPUB_DOMAIN"]
+  const domain = env["ACTIVITYPUB_DOMAIN"];
   if (host !== domain) {
     return c.json({ error: "Not found" }, 404);
   }
@@ -39,7 +39,7 @@ app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return c.json({ error: "Not found" }, 404);
-  const domain = new URL(c.req.url).host;
+  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 
   c.header("content-type", "application/activity+json");
   return c.json({
@@ -62,7 +62,7 @@ app.get("/users/:username", async (c) => {
 
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
-  const domain = new URL(c.req.url).host;
+  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
   const notes = await Note.find({ attributedTo: username }).sort({
     published: -1,
   }).lean();
@@ -95,7 +95,7 @@ app.post("/users/:username/outbox", async (c) => {
     cc: body.cc ?? [],
   });
   await note.save();
-  const domain = new URL(c.req.url).host;
+  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
   const activity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/notes/${note._id}`,
