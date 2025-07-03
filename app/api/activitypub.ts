@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import Account from "./models/account.ts";
 import Note from "./models/note.ts";
 import { deliverActivityPubObject } from "./utils/activitypub.ts";
+import { env } from "./utils/env.ts";
 
 const app = new Hono();
 
@@ -11,7 +12,7 @@ app.get("/.well-known/webfinger", async (c) => {
     return c.json({ error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const domain = new URL(c.req.url).host;
+  const domain = env["ACTIVITYPUB_DOMAIN"]
   if (host !== domain) {
     return c.json({ error: "Not found" }, 404);
   }
