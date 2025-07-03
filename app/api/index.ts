@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import login from "./login.ts";
 import session from "./session.ts";
 import accounts from "./accounts.ts";
+import notifications from "./notifications.ts";
 
 const env = await load();
 
@@ -15,5 +16,6 @@ const app = new Hono();
 app.route("/api", login);
 app.route("/api", session);
 app.route("/api", accounts);
+app.route("/api", notifications);
 
 Deno.serve(app.fetch);

@@ -8,4 +8,13 @@ export type Account = {
   following?: string[];
 };
 
+export type Notification = {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+  createdAt: string;
+};
+
 export const isDataUrl = (str: string) => str.startsWith("data:image/");
