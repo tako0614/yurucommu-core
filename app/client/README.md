@@ -10,6 +10,11 @@ Start a dev server:
 $ deno task dev
 ```
 
+The development server proxies API requests to `localhost:8000`. To allow
+Mastodon and other ActivityPub clients to reach your backend while using the
+Vite dev server, the proxy is also configured for `/.well-known`, `/users` and
+`/inbox` paths.
+
 ## Deploy
 
 Build production assets:
