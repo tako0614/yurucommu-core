@@ -1,8 +1,10 @@
 import { createSignal, onMount } from "solid-js";
+import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
+import { selectedAccountState } from "../states/account.ts";
 
 export function Home() {
   const [activeSection, setActiveSection] = createSignal("account");
@@ -10,8 +12,10 @@ export function Home() {
   // サンプルアカウントデータ
   const [accounts, setAccounts] = createSignal<Account[]>([]);
 
-  // 現在選択中のアカウントID
-  const [selectedAccountId, setSelectedAccountId] = createSignal("");
+  // 現在選択中のアカウントIDをグローバル状態として管理
+  const [selectedAccountId, setSelectedAccountId] = useAtom(
+    selectedAccountState,
+  );
 
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
