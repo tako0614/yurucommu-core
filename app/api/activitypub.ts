@@ -17,13 +17,14 @@ app.get("/.well-known/webfinger", async (c) => {
     return c.json({ error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const domain = env["ACTIVITYPUB_DOMAIN"];
-  if (host !== domain) {
+  const expected = env["ACTIVITYPUB_DOMAIN"];
+  if (expected && host !== expected) {
     return c.json({ error: "Not found" }, 404);
   }
+  const domain = expected ?? host;
   const account = await Account.findOne({ userName: username });
   if (!account) return c.json({ error: "Not found" }, 404);
-  return c.json({
+  const jrd = {
     subject: `acct:${username}@${domain}`,
     links: [
       {
@@ -32,6 +33,9 @@ app.get("/.well-known/webfinger", async (c) => {
         href: `https://${domain}/users/${username}`,
       },
     ],
+  };
+  return c.body(JSON.stringify(jrd), 200, {
+    "content-type": "application/jrd+json"
   });
 });
 
@@ -41,14 +45,23 @@ app.get("/users/:username", async (c) => {
   if (!account) return c.json({ error: "Not found" }, 404);
   const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 
-  c.header("content-type", "application/activity+json");
-  return c.json({
-    "@context": "https://www.w3.org/ns/activitystreams",
+  const actor = {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1"
+    ],
     id: `https://${domain}/users/${username}`,
     type: "Person",
     preferredUsername: account.userName,
     name: account.displayName,
-    inbox: `https://${domain}/inbox/${username}`,
+    summary: account.displayName,
+    url: `https://${domain}/@${username}`,
+    icon: {
+      type: "Image",
+      mediaType: "image/png",
+      url: `https://${domain}/users/${username}/avatar`
+    },
+    inbox: `https://${domain}/users/${username}/inbox`,
     outbox: `https://${domain}/users/${username}/outbox`,
     followers: `https://${domain}/users/${username}/followers`,
     following: `https://${domain}/users/${username}/following`,
@@ -57,6 +70,9 @@ app.get("/users/:username", async (c) => {
       owner: `https://${domain}/users/${username}`,
       publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
     },
+  };
+  return c.body(JSON.stringify(actor), 200, {
+    "content-type": "application/activity+json"
   });
 });
 
@@ -66,8 +82,7 @@ app.get("/users/:username/outbox", async (c) => {
   const notes = await Note.find({ attributedTo: username }).sort({
     published: -1,
   }).lean();
-  c.header("content-type", "application/activity+json");
-  return c.json({
+  const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
     type: "OrderedCollection",
@@ -79,6 +94,9 @@ app.get("/users/:username/outbox", async (c) => {
       content: n.content,
       published: n.published.toISOString(),
     })),
+  };
+  return c.body(JSON.stringify(outbox), 200, {
+    "content-type": "application/activity+json"
   });
 });
 
@@ -109,11 +127,12 @@ app.post("/users/:username/outbox", async (c) => {
       console.error("Delivery failed:", err);
     },
   );
-  c.header("content-type", "application/activity+json");
-  return c.json(activity, 201);
+  return c.body(JSON.stringify(activity), 201, {
+    "content-type": "application/activity+json"
+  });
 });
 
-app.post("/inbox/:username", async (c) => {
+app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ userName: username });
   if (!account) return c.json({ error: "Not found" }, 404);
@@ -141,7 +160,9 @@ app.post("/inbox/:username", async (c) => {
       },
     );
   }
-  return c.json({ status: "ok" });
+  return c.body(JSON.stringify({ status: "ok" }), 200, {
+    "content-type": "application/activity+json"
+  });
 });
 
 export default app;
