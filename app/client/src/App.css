@@ -8,8 +8,16 @@ body {
     Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body.dark {
   background-color: #1a1a1a;
   color: #f3f4f6;
+}
+
+body.light {
+  background-color: #ffffff;
+  color: #1a1a1a;
 }
 
 input::placeholder {
