@@ -6,6 +6,7 @@ import session from "./session.ts";
 import accounts from "./accounts.ts";
 import notifications from "./notifications.ts";
 import activitypub from "./activitypub.ts";
+import microblog from "./microblog.ts";
 
 const env = await load();
 
@@ -18,6 +19,7 @@ app.route("/api", login);
 app.route("/api", session);
 app.route("/api", accounts);
 app.route("/api", notifications);
+app.route("/api", microblog);
 app.route("/", activitypub);
 
 Deno.serve(app.fetch);
