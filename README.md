@@ -25,3 +25,20 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 cd app/api
 deno task dev
 ```
+
+## ActivityPub エンドポイント
+
+サーバーを起動すると以下の ActivityPub API が利用できます。
+
+- `/.well-known/webfinger` – WebFinger でアクターを検索
+- `/users/:username` – `Person` アクター情報を JSON-LD で返します
+- `/users/:username/outbox` – `Note` の投稿と取得
+
+`outbox` へ `POST` すると以下の形式でノートを作成できます。
+
+```json
+{
+  "type": "Note",
+  "content": "hello"
+}
+```
