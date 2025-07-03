@@ -33,6 +33,7 @@ deno task dev
 - `/.well-known/webfinger` – WebFinger でアクターを検索
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
+- `/inbox/:username` – ActivityPub 受信エンドポイント
 
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 
