@@ -10,19 +10,11 @@ export default function ChatHeader() {
         <ul class="l-header__ul">
           <div
             onClick={() => {
-              setSelectedApp("dashboard");
+              setSelectedApp("home");
             }}
             class="l-header__ul-item"
           >
-            <span class="m-auto">ダッシュボード</span>
-          </div>
-          <div
-            onClick={() => {
-              setSelectedApp("settings");
-            }}
-            class="l-header__ul-item"
-          >
-            <span class="m-auto">設定</span>
+            <span class="m-auto">Home</span>
           </div>
         </ul>
       </header>

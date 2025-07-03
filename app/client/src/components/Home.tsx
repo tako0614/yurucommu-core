@@ -6,6 +6,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { Setting } from "./Setting/index.tsx";
 
 // アカウントデータの型定義
 type Account = {
@@ -123,12 +124,12 @@ const AccountSettingsContent: Component<{
 
   return (
     <div class="space-y-5">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-lg font-medium text-gray-100">アカウント設定</h2>
-          <div class="text-teal-400 hover:underline cursor-pointer text-sm">
-            すべて表示
-          </div>
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-medium text-gray-100">アカウント設定</h2>
+        <div class="text-teal-400 hover:underline cursor-pointer text-sm">
+          すべて表示
         </div>
+      </div>
 
       {/* アカウント選択エリア */}
       <div class="bg-[#181918] rounded-lg shadow-md p-5 m-auto mb-2">
@@ -307,15 +308,15 @@ const AccountSettingsContent: Component<{
 };
 
 // 通知コンテンツコンポーネント
-const NotificationsContent: Component<{}> = (props) => {
+const NotificationsContent: Component = () => {
   return (
     <div class="space-y-4">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-lg font-medium text-gray-100">通知</h2>
-          <div class="text-teal-400 hover:underline cursor-pointer text-sm">
-            すべてをクリア
-          </div>
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-medium text-gray-100">通知</h2>
+        <div class="text-teal-400 hover:underline cursor-pointer text-sm">
+          すべてをクリア
         </div>
+      </div>
       <div class="space-y-3">
         <div class="bg-[#181918] p-3 rounded-lg shadow-sm border-l-3 border-teal-500/70">
           <div class="flex justify-between items-center mb-1">
@@ -644,20 +645,41 @@ export function Home() {
           <ul>
             <li>
               <button
+                type="button"
                 onClick={() => setActiveTab("account")}
                 class={`w-full text-left px-4 py-2 rounded-md transition-colors duration-200 ${
-                  activeTab() === "account" ? "bg-teal-600 text-white" : "hover:bg-gray-700"
-                }`}>
+                  activeTab() === "account"
+                    ? "bg-teal-600 text-white"
+                    : "hover:bg-gray-700"
+                }`}
+              >
                 アカウント
               </button>
             </li>
             <li class="mt-2">
               <button
+                type="button"
                 onClick={() => setActiveTab("notifications")}
                 class={`w-full text-left px-4 py-2 rounded-md transition-colors duration-200 ${
-                  activeTab() === "notifications" ? "bg-teal-600 text-white" : "hover:bg-gray-700"
-                }`}>
+                  activeTab() === "notifications"
+                    ? "bg-teal-600 text-white"
+                    : "hover:bg-gray-700"
+                }`}
+              >
                 通知
+              </button>
+            </li>
+            <li class="mt-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab("settings")}
+                class={`w-full text-left px-4 py-2 rounded-md transition-colors duration-200 ${
+                  activeTab() === "settings"
+                    ? "bg-teal-600 text-white"
+                    : "hover:bg-gray-700"
+                }`}
+              >
+                設定
               </button>
             </li>
           </ul>
@@ -678,6 +700,9 @@ export function Home() {
         </Show>
         <Show when={activeTab() === "notifications"}>
           <NotificationsContent />
+        </Show>
+        <Show when={activeTab() === "settings"}>
+          <Setting />
         </Show>
       </main>
     </div>
