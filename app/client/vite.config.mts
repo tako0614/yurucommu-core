@@ -31,6 +31,19 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
+
+      "/.well-known": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/users": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/inbox": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
     },
   },
 
