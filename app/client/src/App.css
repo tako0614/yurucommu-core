@@ -4,17 +4,8 @@ body {
   margin: 0;
   padding: 0;
   font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    "Open Sans",
-    "Helvetica Neue",
-    sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #1a1a1a;
@@ -48,4 +39,19 @@ button {
 .hover\:bg-purple-600:hover {
   background-color: #9333ea;
   box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+}
+
+@keyframes account-switch {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.account-switch {
+  animation: account-switch 0.3s ease-out;
 }
