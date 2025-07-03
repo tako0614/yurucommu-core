@@ -6,7 +6,6 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import ExtensionManager from "./ExtensionManager.tsx";
 
 // アカウントデータの型定義
 type Account = {
@@ -820,11 +819,6 @@ export function Dashboard() {
             {/* 通知セクション */}
             <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
               <NotificationsContent isMobileView={false} />
-            </div>
-
-            {/* Extensions */}
-            <div class="bg-[#181818]/90 rounded-lg shadow-md p-4 min-h-[600px]">
-              <ExtensionManager />
             </div>
           </div>
         </div>

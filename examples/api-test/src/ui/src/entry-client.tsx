@@ -1,6 +1,0 @@
-/* @refresh reload */
-import './index.css'
-import { hydrate } from 'solid-js/web'
-import App from './App.tsx'
-
-hydrate(() => <App />, document.getElementById('root') as HTMLElement)

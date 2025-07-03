@@ -15,6 +15,13 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8000", // APIサーバーのポート
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    }
   },
   // 3. `TAURI_DEBUG` などの環境変数を利用するため
   envPrefix: ["VITE_", "TAURI_"],

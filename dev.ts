@@ -3,8 +3,6 @@ import { TextLineStream } from "@std/streams/text-line-stream";
 const targetDirectories = [
     "app/api",
     "app/client",
-    "app/registry",
-    "app/registry_ui",
 ];
 
 async function runDevCommandInDir(dir: string): Promise<Deno.CommandStatus> {

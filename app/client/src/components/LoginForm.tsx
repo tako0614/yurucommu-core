@@ -21,23 +21,19 @@ export function LoginForm(props: LoginFormProps) {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/event", {
+      const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          events: [{
-            eventId: "sessions:login",
-            identifier: "takos",
-            payload: { password: password() },
-          }],
+          password: password(),
         }),
       });
 
       const results = await res.json();
-      if (results[0]?.success) {
+      if (results.success) {
         props.onLoginSuccess();
       } else {
-        setError(results[0]?.error || "ログインに失敗しました");
+        setError(results.error || "ログインに失敗しました");
       }
     } catch (err) {
       console.error("Login request failed:", err);

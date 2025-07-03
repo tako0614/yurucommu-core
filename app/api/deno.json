@@ -4,9 +4,6 @@
     "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
     "@std/fs": "jsr:@std/fs@^1.0.18",
     "@std/path": "jsr:@std/path@^1.1.0",
-    "@takopack/builder": "jsr:@takopack/builder@^4.0.1",
-    "@takopack/registry": "../../packages/registry/mod.ts",
-    "@takopack/unpack": "../../packages/unpack/mod.ts",
     "hono": "npm:hono@^4.7.11",
     "mongoose": "npm:mongoose@^8.15.1",
     "zod": "npm:zod@^3.25.56"
