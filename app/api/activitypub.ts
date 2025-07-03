@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import Note from "./models/note.ts";
-import { deliverActivityPubObject } from "./utils/activitypub.ts";
+import {
+  deliverActivityPubObject,
+  ensurePem,
+  verifyHttpSignature,
+} from "./utils/activitypub.ts";
+import { env } from "./utils/env.ts";
 
 const app = new Hono();
 
@@ -49,7 +54,7 @@ app.get("/users/:username", async (c) => {
     publicKey: {
       id: `https://${domain}/users/${username}#main-key`,
       owner: `https://${domain}/users/${username}`,
-      publicKeyPem: account.publicKey,
+      publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
     },
   });
 });
@@ -98,11 +103,44 @@ app.post("/users/:username/outbox", async (c) => {
     content: note.content,
     published: note.published.toISOString(),
   };
-  deliverActivityPubObject([...note.to, ...note.cc], activity).catch((err) => {
-    console.error("Delivery failed:", err);
-  });
+  deliverActivityPubObject([...note.to, ...note.cc], activity, username).catch(
+    (err) => {
+      console.error("Delivery failed:", err);
+    },
+  );
   c.header("content-type", "application/activity+json");
   return c.json(activity, 201);
+});
+
+app.post("/inbox/:username", async (c) => {
+  const username = c.req.param("username");
+  const account = await Account.findOne({ userName: username });
+  if (!account) return c.json({ error: "Not found" }, 404);
+  const bodyText = await c.req.text();
+  const verified = await verifyHttpSignature(c.req.raw, bodyText);
+  if (!verified) return c.json({ error: "Invalid signature" }, 401);
+  const activity = JSON.parse(bodyText);
+  if (activity.type === "Follow" && typeof activity.actor === "string") {
+    await Account.updateOne(
+      { userName: username },
+      { $addToSet: { followers: activity.actor } },
+    );
+    const accept = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${
+        env["ACTIVITYPUB_DOMAIN"]
+      }/activities/${crypto.randomUUID()}`,
+      type: "Accept",
+      actor: `https://${env["ACTIVITYPUB_DOMAIN"]}/users/${username}`,
+      object: activity,
+    };
+    deliverActivityPubObject([activity.actor], accept, username).catch(
+      (err) => {
+        console.error("Delivery failed:", err);
+      },
+    );
+  }
+  return c.json({ status: "ok" });
 });
 
 export default app;

@@ -11,6 +11,15 @@ function bufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function bufferToPem(
+  buffer: ArrayBuffer,
+  type: "PUBLIC KEY" | "PRIVATE KEY",
+): string {
+  const b64 = bufferToBase64(buffer);
+  const lines = b64.match(/.{1,64}/g)?.join("\n") ?? b64;
+  return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
+}
+
 async function generateKeyPair() {
   const keyPair = await crypto.subtle.generateKey(
     {
@@ -25,8 +34,8 @@ async function generateKeyPair() {
   const priv = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
   const pub = await crypto.subtle.exportKey("spki", keyPair.publicKey);
   return {
-    privateKey: bufferToBase64(priv),
-    publicKey: bufferToBase64(pub),
+    privateKey: bufferToPem(priv, "PRIVATE KEY"),
+    publicKey: bufferToPem(pub, "PUBLIC KEY"),
   };
 }
 
