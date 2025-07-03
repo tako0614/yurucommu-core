@@ -3,16 +3,13 @@ import { createSignal, createResource, For } from "solid-js";
 interface MicroblogPost {
   id: string;
   content: string;
-  authorId: string;
-  authorName: string;
+  author: string;
   createdAt: string;
-  likesCount: number;
-  isLiked: boolean;
 }
 
 const fetchPosts = async (): Promise<MicroblogPost[]> => {
   try {
-    const response = await fetch('/api/microblog/posts');
+    const response = await fetch('/api/microblog');
     if (!response.ok) {
       throw new Error('Failed to fetch posts');
     }
@@ -25,12 +22,12 @@ const fetchPosts = async (): Promise<MicroblogPost[]> => {
 
 const createPost = async (content: string): Promise<boolean> => {
   try {
-    const response = await fetch('/api/microblog/posts', {
+    const response = await fetch('/api/microblog', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ author: 'user', content }),
     });
     return response.ok;
   } catch (error) {
@@ -61,18 +58,6 @@ export function Microblog() {
     return new Date(dateString).toLocaleString('ja-JP');
   };
 
-  const handleLike = async (postId: string) => {
-    try {
-      const response = await fetch(`/api/microblog/posts/${postId}/like`, {
-        method: 'POST',
-      });
-      if (response.ok) {
-        refetch();
-      }
-    } catch (error) {
-      console.error('Error liking post:', error);
-    }
-  };
 
   return (
     <div class="min-h-screen text-white">
@@ -176,16 +161,15 @@ export function Microblog() {
                 <div class="flex space-x-3">
                   <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
                     <span class="text-white font-bold text-sm">
-                      {post.authorName.charAt(0).toUpperCase()}
+                      {post.author.charAt(0).toUpperCase()}
                     </span>
                   </div>
                   
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center space-x-2 mb-1">
                       <span class="font-bold text-white hover:underline cursor-pointer">
-                        {post.authorName}
+                        {post.author}
                       </span>
-                      <span class="text-gray-500">@{post.authorId}</span>
                       <span class="text-gray-500">·</span>
                       <span class="text-gray-500 text-sm">
                         {formatDate(post.createdAt)}
@@ -214,34 +198,6 @@ export function Microblog() {
                         </div>
                         <span class="text-sm">3</span>
                       </button>
-                      
-                      <button 
-                        type="button"
-                        class={`flex items-center space-x-2 transition-colors group ${
-                          post.isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-400'
-                        }`}
-                        onClick={() => handleLike(post.id)}
-                      >
-                        <div class={`p-2 rounded-full transition-colors ${
-                          post.isLiked ? 'bg-red-500/10' : 'group-hover:bg-red-400/10'
-                        }`}>
-                          <svg
-                            class="w-5 h-5"
-                            fill={post.isLiked ? "currentColor" : "none"}
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            stroke-width="2"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                            />
-                          </svg>
-                        </div>
-                        <span class="text-sm">{post.likesCount}</span>
-                      </button>
-                      
                       <button type="button" class="flex items-center space-x-2 text-gray-500 hover:text-blue-400 transition-colors group">
                         <div class="p-2 rounded-full group-hover:bg-blue-400/10 transition-colors">
                           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

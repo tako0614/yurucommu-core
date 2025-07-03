@@ -42,3 +42,10 @@ deno task dev
   "content": "hello"
 }
 ```
+
+## Microblog API
+
+簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
+
+- `GET /api/microblog` – 投稿を新しい順で取得
+- `POST /api/microblog` – 投稿を作成 (`{ "author": "user", "content": "hello" }`)
