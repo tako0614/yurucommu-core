@@ -17,12 +17,14 @@ app.get("/.well-known/webfinger", async (c) => {
     return c.json({ error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const domain = env["ACTIVITYPUB_DOMAIN"];
-  if (host !== domain) {
+  const expected = env["ACTIVITYPUB_DOMAIN"];
+  if (expected && host !== expected) {
     return c.json({ error: "Not found" }, 404);
   }
+  const domain = expected ?? host;
   const account = await Account.findOne({ userName: username });
   if (!account) return c.json({ error: "Not found" }, 404);
+  c.header("content-type", "application/jrd+json");
   return c.json({
     subject: `acct:${username}@${domain}`,
     links: [

@@ -21,6 +21,9 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 
 環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
 
+特に `ACTIVITYPUB_DOMAIN` は Mastodon など外部からアクセスされる公開ドメインを
+設定してください。未設定の場合はリクエストされたホスト名が利用されます。
+
 ```bash
 cd app/api
 deno task dev
