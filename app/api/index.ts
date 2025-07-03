@@ -3,6 +3,7 @@ import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
 import login from "./login.ts";
 import session from "./session.ts";
+import accounts from "./accounts.ts";
 
 const env = await load();
 
@@ -13,5 +14,6 @@ await mongoose.connect(env["MONGO_URI"])
 const app = new Hono();
 app.route("/api", login);
 app.route("/api", session);
+app.route("/api", accounts);
 
-Deno.serve(app.fetch)
+Deno.serve(app.fetch);
