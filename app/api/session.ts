@@ -4,7 +4,7 @@ import Session from "./models/session.ts";
 
 const app = new Hono();
 
-app.get("/status", async (c) => {
+app.get("/session/status", async (c) => {
     const sessionId = getCookie(c, "sessionId");
     if (!sessionId) {
         return c.json({ login: false });

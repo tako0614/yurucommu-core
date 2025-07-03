@@ -11,7 +11,7 @@ await mongoose.connect(env["MONGO_URI"])
   .catch((err: Error) => console.error("MongoDB connection error:", err));
 
 const app = new Hono();
-app.route("/api/login", login);
-app.route("/api/session", session);
+app.route("/api", login);
+app.route("/api", session);
 
 Deno.serve(app.fetch)

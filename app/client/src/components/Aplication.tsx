@@ -3,18 +3,22 @@ import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { Dashboard } from "./DashBoard.tsx";
 import { Setting } from "./Setting/index.tsx";
+import Header from "./header/header.tsx";
 
 export function Aplication() {
   const [selectedApp] = useAtom(selectedAppState);
 
   return (
     <>
-      <Show when={selectedApp() === "dashboard"}>
-        <Dashboard />
-      </Show>
-      <Show when={selectedApp() === "settings"}>
-        <Setting />
-      </Show>
+      <Header />
+      <main class="wrapper">
+        <Show when={selectedApp() === "dashboard"}>
+          <Dashboard />
+        </Show>
+        <Show when={selectedApp() === "settings"}>
+          <Setting />
+        </Show>
+      </main>
     </>
   );
 }

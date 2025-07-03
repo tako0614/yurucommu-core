@@ -43,6 +43,7 @@ app.post("/login", async (c) => {
             return c.json({ error: "Invalid password" }, 401);
         }
     } catch (error) {
+        console.error("Login error:", error);
         return c.json({ error: "Authentication failed" }, 500);
     }
 });

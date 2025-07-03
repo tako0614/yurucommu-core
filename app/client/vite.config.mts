@@ -19,7 +19,6 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8000", // APIサーバーのポート
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     }
   },
