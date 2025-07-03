@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import type { Document } from "mongoose";
+import { deliverActivityPubObject } from "./utils/activitypub.ts";
+import { env } from "./utils/env.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -177,6 +179,107 @@ app.delete("/accounts/:id/following", async (c) => {
     { new: true },
   );
   if (!account) return c.json({ error: "Account not found" }, 404);
+  return c.json({ following: account.following });
+});
+
+app.post("/accounts/:id/follow", async (c) => {
+  const id = c.req.param("id");
+  const { target } = await c.req.json();
+  if (typeof target !== "string") {
+    return c.json({ error: "Invalid body" }, 400);
+  }
+  const account = await Account.findByIdAndUpdate(
+    id,
+    { $addToSet: { following: target } },
+    { new: true },
+  );
+  if (!account) return c.json({ error: "Account not found" }, 404);
+
+  try {
+    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const actorId = `https://${domain}/users/${account.userName}`;
+    const targetUrl = new URL(target);
+    if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
+      const username = targetUrl.pathname.split("/")[2];
+      await Account.updateOne({ userName: username }, {
+        $addToSet: { followers: actorId },
+      });
+    } else {
+      const res = await fetch(target, {
+        headers: { accept: "application/activity+json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.inbox === "string") {
+          const follow = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: `https://${domain}/activities/${crypto.randomUUID()}`,
+            type: "Follow",
+            actor: actorId,
+            object: target,
+          };
+          deliverActivityPubObject([data.inbox], follow, account.userName)
+            .catch((err) => console.error("Delivery failed:", err));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Follow request failed:", err);
+  }
+
+  return c.json({ following: account.following });
+});
+
+app.delete("/accounts/:id/follow", async (c) => {
+  const id = c.req.param("id");
+  const { target } = await c.req.json();
+  if (typeof target !== "string") {
+    return c.json({ error: "Invalid body" }, 400);
+  }
+  const account = await Account.findByIdAndUpdate(
+    id,
+    { $pull: { following: target } },
+    { new: true },
+  );
+  if (!account) return c.json({ error: "Account not found" }, 404);
+
+  try {
+    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const actorId = `https://${domain}/users/${account.userName}`;
+    const targetUrl = new URL(target);
+    if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
+      const username = targetUrl.pathname.split("/")[2];
+      await Account.updateOne({ userName: username }, {
+        $pull: { followers: actorId },
+      });
+    } else {
+      const res = await fetch(target, {
+        headers: { accept: "application/activity+json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.inbox === "string") {
+          const undo = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: `https://${domain}/activities/${crypto.randomUUID()}`,
+            type: "Undo",
+            actor: actorId,
+            object: {
+              type: "Follow",
+              actor: actorId,
+              object: target,
+            },
+          };
+          deliverActivityPubObject([data.inbox], undo, account.userName).catch((
+            err,
+          ) => console.error("Delivery failed:", err));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Unfollow request failed:", err);
+  }
+
   return c.json({ following: account.following });
 });
 
