@@ -14,6 +14,8 @@ type Account = {
   userName: string;
   displayName: string;
   avatarInitial: string;
+  publicKey?: string;
+  followers?: string[];
 };
 
 // Helper function to check if a string is a data URL
