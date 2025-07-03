@@ -730,3 +730,189 @@ input {
 .animate-fadeIn {
   animation: fadeIn 0.2s ease-out forwards;
 }
+
+/* マイクロブログ用スタイル */
+.microblog-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.microblog-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.microblog-header h1 {
+  color: #333;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.post-form-container {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.post-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.post-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 15px;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.3s ease;
+}
+
+.post-textarea:focus {
+  outline: none;
+  border-color: #1da1f2;
+}
+
+.post-form-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.character-count {
+  color: #657786;
+  font-size: 0.9rem;
+}
+
+.post-button {
+  background: #1da1f2;
+  color: white;
+  border: none;
+  padding: 10px 25px;
+  border-radius: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.post-button:hover:not(:disabled) {
+  background: #1991db;
+}
+
+.post-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.posts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.post-item {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.post-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.post-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.post-author {
+  font-weight: bold;
+  color: #333;
+}
+
+.post-date {
+  color: #657786;
+  font-size: 0.9rem;
+}
+
+.post-content {
+  color: #333;
+  line-height: 1.6;
+  margin-bottom: 15px;
+  white-space: pre-wrap;
+}
+
+.post-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.like-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: #657786;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+}
+
+.like-button:hover {
+  background: #ffe6f0;
+  color: #e91e63;
+}
+
+.like-button.liked {
+  color: #e91e63;
+}
+
+.like-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.like-count {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 768px) {
+  .microblog-container {
+    padding: 15px;
+  }
+  
+  .post-form-container {
+    padding: 15px;
+  }
+  
+  .post-item {
+    padding: 15px;
+  }
+  
+  .post-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+  
+  .post-actions {
+    justify-content: center;
+  }
+}
