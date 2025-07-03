@@ -7,6 +7,7 @@ const accountSchema = new mongoose.Schema({
   privateKey: { type: String, default: "" },
   publicKey: { type: String, default: "" },
   followers: { type: [String], default: [] },
+  following: { type: [String], default: [] },
 });
 
 const Account = mongoose.model("Account", accountSchema);

@@ -37,6 +37,7 @@ interface AccountDoc extends Document {
   privateKey: string;
   publicKey: string;
   followers: string[];
+  following: string[];
 }
 
 const app = new Hono();
@@ -65,6 +66,7 @@ app.post("/accounts", async (c) => {
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
+    following: [],
   });
   await account.save();
   return c.json({
@@ -74,6 +76,7 @@ app.post("/accounts", async (c) => {
     avatarInitial: account.avatarInitial,
     publicKey: account.publicKey,
     followers: account.followers,
+    following: account.following,
   });
 });
 
@@ -89,6 +92,7 @@ app.get("/accounts/:id", async (c) => {
     privateKey: account.privateKey,
     publicKey: account.publicKey,
     followers: account.followers,
+    following: account.following,
   });
 });
 
@@ -104,6 +108,7 @@ app.put("/accounts/:id", async (c) => {
   if (updates.privateKey) data.privateKey = updates.privateKey;
   if (updates.publicKey) data.publicKey = updates.publicKey;
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
+  if (Array.isArray(updates.following)) data.following = updates.following;
 
   const account = await Account.findByIdAndUpdate(id, data, { new: true });
   if (!account) return c.json({ error: "Account not found" }, 404);
@@ -114,6 +119,7 @@ app.put("/accounts/:id", async (c) => {
     avatarInitial: account.avatarInitial,
     publicKey: account.publicKey,
     followers: account.followers,
+    following: account.following,
   });
 });
 
@@ -139,6 +145,30 @@ app.delete("/accounts/:id/followers", async (c) => {
   );
   if (!account) return c.json({ error: "Account not found" }, 404);
   return c.json({ followers: account.followers });
+});
+
+app.post("/accounts/:id/following", async (c) => {
+  const id = c.req.param("id");
+  const { target } = await c.req.json();
+  const account = await Account.findByIdAndUpdate(
+    id,
+    { $addToSet: { following: target } },
+    { new: true },
+  );
+  if (!account) return c.json({ error: "Account not found" }, 404);
+  return c.json({ following: account.following });
+});
+
+app.delete("/accounts/:id/following", async (c) => {
+  const id = c.req.param("id");
+  const { target } = await c.req.json();
+  const account = await Account.findByIdAndUpdate(
+    id,
+    { $pull: { following: target } },
+    { new: true },
+  );
+  if (!account) return c.json({ error: "Account not found" }, 404);
+  return c.json({ following: account.following });
 });
 
 app.delete("/accounts/:id", async (c) => {
