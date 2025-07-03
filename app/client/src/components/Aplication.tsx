@@ -1,8 +1,7 @@
 import { Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
-import { Dashboard } from "./DashBoard.tsx";
-import { Setting } from "./Setting/index.tsx";
+import { Home } from "./Home.tsx";
 import Header from "./header/header.tsx";
 
 export function Aplication() {
@@ -12,11 +11,8 @@ export function Aplication() {
     <>
       <Header />
       <main class="wrapper">
-        <Show when={selectedApp() === "dashboard"}>
-          <Dashboard />
-        </Show>
-        <Show when={selectedApp() === "settings"}>
-          <Setting />
+        <Show when={selectedApp() === "home"}>
+          <Home />
         </Show>
       </main>
     </>
