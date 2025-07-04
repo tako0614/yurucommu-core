@@ -54,9 +54,9 @@ interface AccountDoc extends Document {
 const app = new Hono();
 
 app.get("/accounts", async (c) => {
-  const list = await Account.find().lean<AccountDoc>();
-  const formatted = list.map((doc) => ({
-    id: doc._id.toString(),
+  const list = await Account.find().lean<AccountDoc[]>();
+  const formatted = list.map((doc: AccountDoc) => ({
+    id: String(doc._id),
     userName: doc.userName,
     displayName: doc.displayName,
     avatarInitial: doc.avatarInitial,
@@ -67,13 +67,25 @@ app.get("/accounts", async (c) => {
 app.post("/accounts", async (c) => {
   const { username, displayName, icon, privateKey, publicKey } = await c.req
     .json();
+  
+  // userName is required and cannot be changed after creation
+  if (!username || typeof username !== "string" || username.trim() === "") {
+    return c.json({ error: "Username is required and cannot be empty" }, 400);
+  }
+  
+  // Check if username already exists
+  const existingAccount = await Account.findOne({ userName: username.trim() });
+  if (existingAccount) {
+    return c.json({ error: "Username already exists" }, 409);
+  }
+  
   const keys = privateKey && publicKey
     ? { privateKey, publicKey }
     : await generateKeyPair();
   const account = new Account({
-    userName: username,
-    displayName: displayName ?? username,
-    avatarInitial: icon ?? username.charAt(0).toUpperCase().substring(0, 2),
+    userName: username.trim(),
+    displayName: displayName ?? username.trim(),
+    avatarInitial: icon ?? username.trim().charAt(0).toUpperCase().substring(0, 2),
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
@@ -81,7 +93,7 @@ app.post("/accounts", async (c) => {
   });
   await account.save();
   return c.json({
-    id: account._id.toString(),
+    id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
     avatarInitial: account.avatarInitial,
@@ -96,7 +108,7 @@ app.get("/accounts/:id", async (c) => {
   const account = await Account.findById(id).lean<AccountDoc>();
   if (!account) return c.json({ error: "Account not found" }, 404);
   return c.json({
-    id: account._id.toString(),
+    id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
     avatarInitial: account.avatarInitial,
@@ -111,7 +123,7 @@ app.put("/accounts/:id", async (c) => {
   const id = c.req.param("id");
   const updates = await c.req.json();
   const data: Record<string, unknown> = {};
-  if (updates.userName) data.userName = updates.userName;
+  // userName is immutable after creation - removed from update logic
   if (updates.displayName) data.displayName = updates.displayName;
   if (updates.avatarInitial !== undefined) {
     data.avatarInitial = updates.avatarInitial;
@@ -124,7 +136,7 @@ app.put("/accounts/:id", async (c) => {
   const account = await Account.findByIdAndUpdate(id, data, { new: true });
   if (!account) return c.json({ error: "Account not found" }, 404);
   return c.json({
-    id: account._id.toString(),
+    id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
     avatarInitial: account.avatarInitial,

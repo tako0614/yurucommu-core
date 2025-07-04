@@ -42,20 +42,33 @@ export function Home() {
   };
 
   // 新規アカウント追加機能
-  const addNewAccount = async () => {
-    const username = `user${Date.now()}`;
+  const addNewAccount = async (username: string, displayName?: string) => {
     try {
       const response = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ 
+          username: username.trim(),
+          displayName: displayName?.trim() || username.trim()
+        }),
       });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to create account");
+      }
+      
       const result = await response.json();
       const newAccountId = result.id;
       await loadAccounts(newAccountId);
       setSelectedAccountId(newAccountId);
+      return { success: true };
     } catch (error) {
       console.error("Failed to create account:", error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Unknown error occurred"
+      };
     }
   };
 
@@ -222,7 +235,7 @@ export function Home() {
       </header>
 
       {/* メインコンテンツ */}
-      <main class="flex-1 p-4 sm:p-6 md:p-8">
+      <main class="flex-1 p-0 sm:p-0 md:p-0">
         {renderContent()}
       </main>
     </div>
