@@ -47,6 +47,28 @@ export default function ChatHeader() {
               </svg>
             </a>
           </HeaderButton>
+                    <HeaderButton
+            page="chat"
+          >
+            <a>
+              <svg
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+                aria-labelledby="chatIconTitle"
+                stroke="#ffffff"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
+              >
+                <title id="chatIconTitle">Chat</title>
+                <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </a>
+          </HeaderButton>
           <HeaderButton
             page="microblog"
           >
@@ -67,6 +89,30 @@ export default function ChatHeader() {
               <title id="microblogIconTitle">Microblog</title>
               <path d="M4 21h16" />
               <path d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
+              </svg>
+            </a>
+          </HeaderButton>
+
+          <HeaderButton
+            page="videos"
+          >
+            <a>
+              <svg
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+                aria-labelledby="videosIconTitle"
+                stroke="#ffffff"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
+              >
+                <title id="videosIconTitle">Videos</title>
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
               </svg>
             </a>
           </HeaderButton>
