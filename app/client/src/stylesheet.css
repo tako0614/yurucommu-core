@@ -97,19 +97,6 @@ input {
   background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
   display: block;
   position: fixed;
-  z-index: 2;
-  transition: transform 0.3s cubic-bezier(0.07, 1.05, 0.59, 0.99);
-}
-@media screen and (max-width: 768px) {
-  .l-header.is-inview {
-    transform: translateY(100%);
-  }
-}
-
-.l-header {
-  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
-  display: block;
-  position: fixed;
   z-index: 4;
   transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
 }
@@ -155,11 +142,6 @@ input {
   width: 100%;
   padding: 12px;
 }
-@media screen and (min-width: 769px) {
-  .l-header .is-inview {
-    transform: translateY(100%);
-  }
-}
 
 @media (min-width: 769px) {
   .wrapper {
@@ -167,7 +149,8 @@ input {
     height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
     overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
   }
-  .l-header {
+  /* デスクトップ版ではチャット時でもヘッダーは表示されるのでno-headerクラスは無効 */
+  .l-header--desktop {
     width: 78px;
     height: 100%;
     padding: 50px 14px;
@@ -175,14 +158,14 @@ input {
     left: 0;
     right: 0;
   }
-  .l-header__ul {
+  .l-header--desktop .l-header__ul {
     flex-direction: column;
     overflow-y: auto; /* スクロールを有効化 */
     /* ヘッダーの上下padding (50px * 2) + ロゴの高さ (仮に40px) + ロゴのmargin-bottom (25px) を引いた値を最大高さとする */
     /* ロゴ画像の実際の高さや、ul自体のpadding/marginによって調整が必要 */
     max-height: calc(100vh - 100px - 40px - 25px);
   }
-  .l-header__ul-item {
+  .l-header--desktop .l-header__ul-item {
     width: 100%;
   }
 }
@@ -193,7 +176,11 @@ input {
     height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
     overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
   }
-  .l-header {
+  /* チャットページでヘッダーが非表示の場合はpaddingを削除（スマホ版のみ） */
+  .wrapper.no-header {
+    padding-bottom: 0;
+  }
+  .l-header--mobile {
     width: 100%;
     height: 64px;
     padding: 8px;
@@ -202,13 +189,13 @@ input {
     right: 0;
     display: flex;
   }
-  .l-header__ul {
+  .l-header--mobile .l-header__ul {
     width: 100%;
     justify-content: space-evenly;
     overflow-x: auto;
     white-space: nowrap;
   }
-  .l-header__ul-item {
+  .l-header--mobile .l-header__ul-item {
     height: 100%;
     aspect-ratio: 1/1;
   }

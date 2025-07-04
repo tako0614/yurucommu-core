@@ -1,7 +1,9 @@
 import { JSX } from "solid-js/jsx-runtime";
+import { Show, createSignal, onMount } from "solid-js";
 // Import atom state for navigation
 import { useAtom } from "solid-jotai";
 import { selectedAppState, AppPage } from "../../states/app.ts";
+import { selectedRoomState } from "../../states/chat.ts";
 
 const HeaderButton = (props: { page: AppPage; children: JSX.Element }) => {
   const [selectedApp, setSelectedApp] = useAtom(selectedAppState);
@@ -17,10 +19,32 @@ const HeaderButton = (props: { page: AppPage; children: JSX.Element }) => {
 }
 
 export default function ChatHeader() {
+  const [selectedApp] = useAtom(selectedAppState);
+  const [selectedRoom] = useAtom(selectedRoomState);
+  const [isMobile, setIsMobile] = createSignal(false);
+
+  // モバイルかどうかを判定
+  onMount(() => {
+    const checkMobile = () => {
+      setIsMobile(globalThis.innerWidth <= 768);
+    };
+    
+    checkMobile();
+    globalThis.addEventListener('resize', checkMobile);
+    
+    return () => globalThis.removeEventListener('resize', checkMobile);
+  });
+
+  // チャットページでヘッダーを非表示にするかどうかを判定
+  // スマホ版かつチャットページかつチャンネルが選択されている場合のみヘッダーを非表示
+  const shouldHideHeader = () => {
+    return selectedApp() === "chat" && isMobile() && selectedRoom() !== null;
+  };
+
   return (
-    <>
+    <Show when={!shouldHideHeader()}>
       <header
-        class="l-header"
+        class={`l-header ${isMobile() ? 'l-header--mobile' : 'l-header--desktop'}`}
         id="header"
       >
         <ul class="l-header__ul">
@@ -118,6 +142,6 @@ export default function ChatHeader() {
           </HeaderButton>
         </ul>
       </header>
-    </>
+    </Show>
   );
 }

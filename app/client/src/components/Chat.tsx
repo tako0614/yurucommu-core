@@ -1,4 +1,6 @@
 import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { useAtom } from "solid-jotai";
+import { selectedRoomState } from "../states/chat.ts";
 
 interface ChatMessage {
   id: string;
@@ -21,7 +23,7 @@ interface ChatRoom {
 }
 
 export function Chat() {
-  const [selectedRoom, setSelectedRoom] = createSignal<string | null>(null); // モバイル対応のため初期値をnullに
+  const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [newMessage, setNewMessage] = createSignal("");
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
@@ -126,6 +128,7 @@ export function Chat() {
   // チャット一覧に戻る（モバイル用）
   const backToRoomList = () => {
     setShowRoomList(true);
+    setSelectedRoom(null); // チャンネル選択状態をリセット
   };
 
   // イベントリスナーの設定
