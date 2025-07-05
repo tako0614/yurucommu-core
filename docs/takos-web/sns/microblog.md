@@ -82,6 +82,8 @@ POST /api/microblog/:id/retweet
 ## ActivityPub 配信
 
 作成した投稿は ActivityPub 経由でフォロワーのサーバーへ配信されます。
-外部から受信した ActivityPub オブジェクトは `/users/:username/inbox` に
-送られ、`ActivityPubObject` コレクションに `inboxUser` フィールド付きで
-保存されます。
+外部から受信した ActivityPub の `Create` Activity は `/users/:username/inbox`
+に送られ、そのオブジェクトが `ActivityPubObject` コレクションへ保存されます。そ
+れ以外の Activity は保存せず必要な処理のみ行います。 `inbox` の処理は Activity
+ごとにハンドラーが分かれているため、将来的に対応活
+動を増やしやすい構造になっています。

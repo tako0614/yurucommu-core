@@ -8,8 +8,6 @@ const activityPubObjectSchema = new mongoose.Schema({
   cc: { type: [String], default: [] },
   published: { type: Date, default: Date.now },
   extra: { type: mongoose.Schema.Types.Mixed, default: {} }, // type固有の追加情報
-  // Inbox 経由で受信した場合の保存先ユーザー名
-  inboxUser: { type: String },
   // 受信オブジェクトの生データ
   raw: { type: mongoose.Schema.Types.Mixed },
 });
