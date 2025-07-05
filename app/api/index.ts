@@ -7,6 +7,7 @@ import accounts from "./accounts.ts";
 import notifications from "./notifications.ts";
 import activitypub from "./activitypub.ts";
 import microblog from "./microblog.ts";
+import search from "./search.ts";
 
 const env = await load();
 
@@ -20,6 +21,7 @@ app.route("/api", session);
 app.route("/api", accounts);
 app.route("/api", notifications);
 app.route("/api", microblog);
+app.route("/api", search);
 app.route("/", activitypub);
 
 Deno.serve(app.fetch);

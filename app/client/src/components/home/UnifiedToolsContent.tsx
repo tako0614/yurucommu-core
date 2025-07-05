@@ -1,4 +1,6 @@
-import { createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
+import { useAtom } from "solid-jotai";
+import { selectedAccountState } from "../../states/account.ts";
 
 export interface User {
   id: string;
@@ -30,11 +32,13 @@ export interface Community {
 }
 
 export interface SearchResult {
-  type: 'user' | 'community' | 'post';
+  type: "user" | "community" | "post";
   id: string;
   title: string;
   subtitle: string;
   avatar?: string;
+  actor?: string;
+  origin?: string;
   metadata?: {
     followers?: number;
     members?: number;
@@ -55,7 +59,7 @@ const mockUsers: User[] = [
     followingCount: 340,
     isFollowing: false,
     isBlocked: false,
-    lastSeen: "2024-07-05T10:30:00Z"
+    lastSeen: "2024-07-05T10:30:00Z",
   },
   {
     id: "2",
@@ -67,7 +71,7 @@ const mockUsers: User[] = [
     followingCount: 456,
     isFollowing: true,
     isBlocked: false,
-    lastSeen: "2024-07-05T09:15:00Z"
+    lastSeen: "2024-07-05T09:15:00Z",
   },
   {
     id: "3",
@@ -79,8 +83,8 @@ const mockUsers: User[] = [
     followingCount: 180,
     isFollowing: false,
     isBlocked: false,
-    lastSeen: "2024-07-05T08:45:00Z"
-  }
+    lastSeen: "2024-07-05T08:45:00Z",
+  },
 ];
 
 const mockCommunities: Community[] = [
@@ -97,7 +101,7 @@ const mockCommunities: Community[] = [
     tags: ["プログラミング", "技術", "開発"],
     rules: ["相手を尊重する", "建設的な議論を心がける", "スパムは禁止"],
     createdAt: "2024-01-15T00:00:00Z",
-    moderators: ["admin", "tech_lead"]
+    moderators: ["admin", "tech_lead"],
   },
   {
     id: "2",
@@ -112,7 +116,7 @@ const mockCommunities: Community[] = [
     tags: ["デザイン", "UI", "UX", "グラフィック"],
     rules: ["作品には建設的なフィードバックを", "著作権を尊重する"],
     createdAt: "2024-02-20T00:00:00Z",
-    moderators: ["design_lead"]
+    moderators: ["design_lead"],
   },
   {
     id: "3",
@@ -127,7 +131,7 @@ const mockCommunities: Community[] = [
     tags: ["ゲーム開発", "インディー", "プログラミング"],
     rules: ["開発過程の共有を推奨", "他の開発者を支援する"],
     createdAt: "2024-03-05T00:00:00Z",
-    moderators: ["game_dev_master"]
+    moderators: ["game_dev_master"],
   },
   {
     id: "4",
@@ -142,87 +146,105 @@ const mockCommunities: Community[] = [
     tags: ["料理", "レシピ", "グルメ"],
     rules: ["レシピの外部流出禁止", "写真付きの投稿を推奨"],
     createdAt: "2024-04-10T00:00:00Z",
-    moderators: ["chef_secret"]
-  }
+    moderators: ["chef_secret"],
+  },
 ];
 
 export default function UnifiedToolsContent() {
-  const [activeTab, setActiveTab] = createSignal<'search' | 'users' | 'posts' | 'communities'>('search');
+  const [selectedAccountId] = useAtom(selectedAccountState);
+  const [activeTab, setActiveTab] = createSignal<
+    "search" | "users" | "posts" | "communities"
+  >("search");
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [searchType, setSearchType] = createSignal<'all' | 'users' | 'communities' | 'posts'>('all');
+  const [remoteServer, setRemoteServer] = createSignal("");
+  const [searchType, setSearchType] = createSignal<
+    "all" | "users" | "communities" | "posts"
+  >("all");
   const [users, setUsers] = createSignal<User[]>(mockUsers);
-  const [communities, setCommunities] = createSignal<Community[]>(mockCommunities);
+  const [communities, setCommunities] = createSignal<Community[]>(
+    mockCommunities,
+  );
 
-  // 検索結果の生成
-  const searchResults = () => {
-    const query = searchQuery().toLowerCase().trim();
-    if (!query) return [];
+  // 検索結果の取得
+  const [searchData, { refetch: _refetchSearch }] = createResource(
+    () => {
+      const q = searchQuery().trim();
+      if (!q) return null;
+      const base = `/api/search?q=${
+        encodeURIComponent(q)
+      }&type=${searchType()}`;
+      const server = remoteServer().trim();
+      return server ? `${base}&server=${encodeURIComponent(server)}` : base;
+    },
+    async (url) => {
+      if (!url) return [] as SearchResult[];
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return [] as SearchResult[];
+        return await res.json();
+      } catch {
+        return [] as SearchResult[];
+      }
+    },
+  );
 
-    const results: SearchResult[] = [];
+  const searchResults = () => searchData() ?? [];
 
-    if (searchType() === 'all' || searchType() === 'users') {
-      users().forEach(user => {
-        if (user.username.toLowerCase().includes(query) || 
-            user.displayName.toLowerCase().includes(query) ||
-            user.bio?.toLowerCase().includes(query)) {
-          results.push({
-            type: 'user',
-            id: user.id,
-            title: user.displayName,
-            subtitle: `@${user.username}`,
-            avatar: user.avatar || user.displayName.charAt(0),
-            metadata: {
-              followers: user.followerCount,
-              createdAt: user.lastSeen
-            }
-          });
-        }
-      });
-    }
-
-    if (searchType() === 'all' || searchType() === 'communities') {
-      communities().forEach(community => {
-        if (community.name.toLowerCase().includes(query) || 
-            community.description.toLowerCase().includes(query) ||
-            community.tags.some(tag => tag.toLowerCase().includes(query))) {
-          results.push({
-            type: 'community',
-            id: community.id,
-            title: community.name,
-            subtitle: community.description,
-            avatar: community.avatar || community.name.charAt(0),
-            metadata: {
-              members: community.memberCount,
-              createdAt: community.createdAt
-            }
-          });
-        }
-      });
-    }
-
-    return results.slice(0, 20); // 最大20件まで
+  const localActor = (name: string) => {
+    const { protocol, host } = globalThis.location;
+    return `${protocol}//${host}/users/${name}`;
   };
 
   // フォロー関連の処理
-  const handleFollow = (userId: string) => {
+  const handleFollow = async (actor: string, userId?: string) => {
     try {
-      // TODO: API呼び出し
-      console.log("Following user:", userId);
-      setUsers(prev => prev.map(user => 
-        user.id === userId ? { ...user, isFollowing: true, followerCount: user.followerCount + 1 } : user
-      ));
+      if (selectedAccountId()) {
+        await fetch(`/api/accounts/${selectedAccountId()}/follow`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: actor }),
+        });
+      }
+      if (userId) {
+        setUsers((prev) =>
+          prev.map((user) =>
+            user.id === userId
+              ? {
+                ...user,
+                isFollowing: true,
+                followerCount: user.followerCount + 1,
+              }
+              : user
+          )
+        );
+      }
     } catch (error) {
       console.error("Failed to follow user:", error);
     }
   };
 
-  const handleUnfollow = (userId: string) => {
+  const handleUnfollow = async (actor: string, userId?: string) => {
     try {
-      // TODO: API呼び出し
-      console.log("Unfollowing user:", userId);
-      setUsers(prev => prev.map(user => 
-        user.id === userId ? { ...user, isFollowing: false, followerCount: user.followerCount - 1 } : user
-      ));
+      if (selectedAccountId()) {
+        await fetch(`/api/accounts/${selectedAccountId()}/follow`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: actor }),
+        });
+      }
+      if (userId) {
+        setUsers((prev) =>
+          prev.map((user) =>
+            user.id === userId
+              ? {
+                ...user,
+                isFollowing: false,
+                followerCount: user.followerCount - 1,
+              }
+              : user
+          )
+        );
+      }
     } catch (error) {
       console.error("Failed to unfollow user:", error);
     }
@@ -233,9 +255,17 @@ export default function UnifiedToolsContent() {
     try {
       // TODO: API呼び出し
       console.log("Joining community:", communityId);
-      setCommunities(prev => prev.map(community => 
-        community.id === communityId ? { ...community, isJoined: true, memberCount: community.memberCount + 1 } : community
-      ));
+      setCommunities((prev) =>
+        prev.map((community) =>
+          community.id === communityId
+            ? {
+              ...community,
+              isJoined: true,
+              memberCount: community.memberCount + 1,
+            }
+            : community
+        )
+      );
     } catch (error) {
       console.error("Failed to join community:", error);
     }
@@ -245,9 +275,17 @@ export default function UnifiedToolsContent() {
     try {
       // TODO: API呼び出し
       console.log("Leaving community:", communityId);
-      setCommunities(prev => prev.map(community => 
-        community.id === communityId ? { ...community, isJoined: false, memberCount: community.memberCount - 1 } : community
-      ));
+      setCommunities((prev) =>
+        prev.map((community) =>
+          community.id === communityId
+            ? {
+              ...community,
+              isJoined: false,
+              memberCount: community.memberCount - 1,
+            }
+            : community
+        )
+      );
     } catch (error) {
       console.error("Failed to leave community:", error);
     }
@@ -265,7 +303,7 @@ export default function UnifiedToolsContent() {
       month: "short",
       day: "numeric",
       hour: "2-digit",
-      minute: "2-digit"
+      minute: "2-digit",
     });
   };
 
@@ -283,7 +321,10 @@ export default function UnifiedToolsContent() {
         <div class="flex space-x-1 bg-gray-800/50 p-1 rounded-full">
           <button
             type="button"
-            onClick={() => setActiveTab("search")}
+            onClick={() => {
+              setActiveTab("search");
+              setSearchType("all");
+            }}
             class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
               activeTab() === "search"
                 ? "bg-blue-600 text-white shadow-sm"
@@ -294,7 +335,10 @@ export default function UnifiedToolsContent() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("users")}
+            onClick={() => {
+              setActiveTab("users");
+              setSearchType("users");
+            }}
             class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
               activeTab() === "users"
                 ? "bg-blue-600 text-white shadow-sm"
@@ -305,7 +349,10 @@ export default function UnifiedToolsContent() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("posts")}
+            onClick={() => {
+              setActiveTab("posts");
+              setSearchType("posts");
+            }}
             class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
               activeTab() === "posts"
                 ? "bg-blue-600 text-white shadow-sm"
@@ -316,7 +363,10 @@ export default function UnifiedToolsContent() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("communities")}
+            onClick={() => {
+              setActiveTab("communities");
+              setSearchType("communities");
+            }}
             class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
               activeTab() === "communities"
                 ? "bg-blue-600 text-white shadow-sm"
@@ -343,8 +393,40 @@ export default function UnifiedToolsContent() {
                     onInput={(e) => setSearchQuery(e.currentTarget.value)}
                     class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
+                <div class="relative">
+                  <input
+                    type="text"
+                    placeholder="リモートサーバー (例: example.com)"
+                    value={remoteServer()}
+                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
+                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -360,77 +442,123 @@ export default function UnifiedToolsContent() {
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                         <div class="flex items-center justify-between">
                           <div class="flex items-center space-x-3">
-                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center text-white font-semibold">
-                              {result.avatar || result.title.charAt(0)}
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                              <Show
+                                when={result.avatar}
+                                fallback={result.title.charAt(0)}
+                              >
+                                <img
+                                  src={result.avatar!}
+                                  alt="avatar"
+                                  class="w-full h-full object-cover"
+                                />
+                              </Show>
                             </div>
                             <div>
                               <div class="flex items-center space-x-2">
-                                <h4 class="font-semibold text-gray-200">{result.title}</h4>
-                                <span class={`px-2 py-1 rounded-full text-xs ${
-                                  result.type === 'user' ? 'bg-green-600/20 text-green-400' :
-                                  result.type === 'community' ? 'bg-blue-600/20 text-blue-400' :
-                                  'bg-yellow-600/20 text-yellow-400'
-                                }`}>
-                                  {result.type === 'user' ? 'ユーザー' : 
-                                   result.type === 'community' ? 'コミュニティ' : '投稿'}
+                                <h4 class="font-semibold text-gray-200">
+                                  {result.title}
+                                </h4>
+                                <span
+                                  class={`px-2 py-1 rounded-full text-xs ${
+                                    result.type === "user"
+                                      ? "bg-green-600/20 text-green-400"
+                                      : result.type === "community"
+                                      ? "bg-blue-600/20 text-blue-400"
+                                      : "bg-yellow-600/20 text-yellow-400"
+                                  }`}
+                                >
+                                  {result.type === "user"
+                                    ? "ユーザー"
+                                    : result.type === "community"
+                                    ? "コミュニティ"
+                                    : "投稿"}
                                 </span>
                               </div>
-                              <p class="text-sm text-gray-400 truncate max-w-md">{result.subtitle}</p>
+                              <p class="text-sm text-gray-400 truncate max-w-md">
+                                {result.subtitle}
+                              </p>
                               <Show when={result.metadata}>
                                 <div class="flex items-center space-x-4 mt-1 text-xs text-gray-500">
                                   <Show when={result.metadata!.followers}>
-                                    <span>{formatNumber(result.metadata!.followers!)} フォロワー</span>
+                                    <span>
+                                      {formatNumber(
+                                        result.metadata!.followers!,
+                                      )} フォロワー
+                                    </span>
                                   </Show>
                                   <Show when={result.metadata!.members}>
-                                    <span>{formatNumber(result.metadata!.members!)} メンバー</span>
+                                    <span>
+                                      {formatNumber(result.metadata!.members!)}
+                                      {" "}
+                                      メンバー
+                                    </span>
                                   </Show>
                                 </div>
                               </Show>
                             </div>
                           </div>
                           <div class="flex space-x-2">
-                            <Show when={result.type === 'user'}>
+                            <Show when={result.type === "user"}>
                               {(() => {
-                                const user = users().find(u => u.id === result.id);
-                                return user?.isFollowing ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUnfollow(result.id)}
-                                    class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    フォロー中
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleFollow(result.id)}
-                                    class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    フォロー
-                                  </button>
+                                const user = users().find((u) =>
+                                  u.id === result.id
                                 );
+                                return user?.isFollowing
+                                  ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUnfollow(
+                                          result.actor || "",
+                                          result.id,
+                                        )}
+                                      class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                                    >
+                                      フォロー中
+                                    </button>
+                                  )
+                                  : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleFollow(
+                                          result.actor || "",
+                                          result.id,
+                                        )}
+                                      class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                                    >
+                                      フォロー
+                                    </button>
+                                  );
                               })()}
                             </Show>
-                            <Show when={result.type === 'community'}>
+                            <Show when={result.type === "community"}>
                               {(() => {
-                                const community = communities().find(c => c.id === result.id);
-                                return community?.isJoined ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleLeaveCommunity(result.id)}
-                                    class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    参加中
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleJoinCommunity(result.id)}
-                                    class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    参加
-                                  </button>
+                                const community = communities().find((c) =>
+                                  c.id === result.id
                                 );
+                                return community?.isJoined
+                                  ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleLeaveCommunity(result.id)}
+                                      class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                                    >
+                                      参加中
+                                    </button>
+                                  )
+                                  : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleJoinCommunity(result.id)}
+                                      class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
+                                    >
+                                      参加
+                                    </button>
+                                  );
                               })()}
                             </Show>
                           </div>
@@ -440,8 +568,18 @@ export default function UnifiedToolsContent() {
                   </For>
                   <Show when={searchResults().length === 0}>
                     <div class="text-center py-8 text-gray-400">
-                      <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      <svg
+                        class="w-12 h-12 mx-auto mb-4 opacity-50"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
                       </svg>
                       <p>検索結果が見つかりませんでした</p>
                     </div>
@@ -466,8 +604,40 @@ export default function UnifiedToolsContent() {
                     onInput={(e) => setSearchQuery(e.currentTarget.value)}
                     class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
+                  </svg>
+                </div>
+                <div class="relative">
+                  <input
+                    type="text"
+                    placeholder="リモートサーバー (例: example.com)"
+                    value={remoteServer()}
+                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
+                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -477,52 +647,89 @@ export default function UnifiedToolsContent() {
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">ユーザー一覧</h3>
               <div class="space-y-2">
-                <For each={users().filter(user => 
-                  !searchQuery() || 
-                  user.username.toLowerCase().includes(searchQuery().toLowerCase()) ||
-                  user.displayName.toLowerCase().includes(searchQuery().toLowerCase()) ||
-                  user.bio?.toLowerCase().includes(searchQuery().toLowerCase())
-                )}>
+                <For
+                  each={users().filter((user) =>
+                    !searchQuery() ||
+                    user.username.toLowerCase().includes(
+                      searchQuery().toLowerCase(),
+                    ) ||
+                    user.displayName.toLowerCase().includes(
+                      searchQuery().toLowerCase(),
+                    ) ||
+                    user.bio?.toLowerCase().includes(
+                      searchQuery().toLowerCase(),
+                    )
+                  )}
+                >
                   {(user) => (
                     <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                       <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-3">
-                          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold">
-                            {user.avatar || user.displayName.charAt(0)}
+                          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                            <Show
+                              when={user.avatar}
+                              fallback={user.displayName.charAt(0)}
+                            >
+                              <img
+                                src={user.avatar!}
+                                alt="avatar"
+                                class="w-full h-full object-cover"
+                              />
+                            </Show>
                           </div>
                           <div>
                             <div class="flex items-center space-x-2">
-                              <h4 class="font-semibold text-gray-200">{user.displayName}</h4>
-                              <span class="text-sm text-gray-400">@{user.username}</span>
+                              <h4 class="font-semibold text-gray-200">
+                                {user.displayName}
+                              </h4>
+                              <span class="text-sm text-gray-400">
+                                @{user.username}
+                              </span>
                             </div>
                             <p class="text-sm text-gray-400 mt-1">{user.bio}</p>
                             <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                              <span>{formatNumber(user.followerCount)} フォロワー</span>
-                              <span>{formatNumber(user.followingCount)} フォロー中</span>
+                              <span>
+                                {formatNumber(user.followerCount)} フォロワー
+                              </span>
+                              <span>
+                                {formatNumber(user.followingCount)} フォロー中
+                              </span>
                               <Show when={user.lastSeen}>
-                                <span>最終アクティブ: {formatDate(user.lastSeen!)}</span>
+                                <span>
+                                  最終アクティブ: {formatDate(user.lastSeen!)}
+                                </span>
                               </Show>
                             </div>
                           </div>
                         </div>
                         <div class="flex space-x-2">
-                          {user.isFollowing ? (
-                            <button
-                              type="button"
-                              onClick={() => handleUnfollow(user.id)}
-                              class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                            >
-                              フォロー中
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleFollow(user.id)}
-                              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
-                            >
-                              フォロー
-                            </button>
-                          )}
+                          {user.isFollowing
+                            ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUnfollow(
+                                    localActor(user.username),
+                                    user.id,
+                                  )}
+                                class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                フォロー中
+                              </button>
+                            )
+                            : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleFollow(
+                                    localActor(user.username),
+                                    user.id,
+                                  )}
+                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                フォロー
+                              </button>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -547,8 +754,18 @@ export default function UnifiedToolsContent() {
                     onInput={(e) => setSearchQuery(e.currentTarget.value)}
                     class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -557,13 +774,41 @@ export default function UnifiedToolsContent() {
             {/* 投稿検索結果 */}
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">投稿検索</h3>
-              <div class="text-center py-12 text-gray-400">
-                <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
-                </svg>
-                <h4 class="text-lg font-medium mb-2">投稿検索機能</h4>
-                <p class="text-sm">投稿検索機能は近日実装予定です。<br />ハッシュタグや投稿内容での検索が可能になります。</p>
-              </div>
+              <Show
+                when={searchResults().filter((r) => r.type === "post").length >
+                  0}
+                fallback={
+                  <div class="text-center py-8 text-gray-400">
+                    <svg
+                      class="w-12 h-12 mx-auto mb-4 opacity-50"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                    <p>検索結果が見つかりませんでした</p>
+                  </div>
+                }
+              >
+                <div class="space-y-2">
+                  <For each={searchResults().filter((r) => r.type === "post")}>
+                    {(post) => (
+                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
+                        <p class="text-gray-200 mb-1">{post.title}</p>
+                        <span class="text-xs text-gray-400">
+                          {post.subtitle}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </div>
         </Show>
@@ -582,8 +827,40 @@ export default function UnifiedToolsContent() {
                     onInput={(e) => setSearchQuery(e.currentTarget.value)}
                     class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
+                <div class="relative">
+                  <input
+                    type="text"
+                    placeholder="リモートサーバー (例: example.com)"
+                    value={remoteServer()}
+                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
+                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <svg
+                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -591,35 +868,64 @@ export default function UnifiedToolsContent() {
 
             {/* コミュニティ一覧 */}
             <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-gray-200">コミュニティ一覧</h3>
+              <h3 class="text-lg font-semibold text-gray-200">
+                コミュニティ一覧
+              </h3>
               <div class="space-y-3">
-                <For each={communities().filter(community => 
-                  !searchQuery() ||
-                  community.name.toLowerCase().includes(searchQuery().toLowerCase()) ||
-                  community.description.toLowerCase().includes(searchQuery().toLowerCase()) ||
-                  community.tags.some(tag => tag.toLowerCase().includes(searchQuery().toLowerCase()))
-                )}>
+                <For
+                  each={communities().filter((community) =>
+                    !searchQuery() ||
+                    community.name.toLowerCase().includes(
+                      searchQuery().toLowerCase(),
+                    ) ||
+                    community.description.toLowerCase().includes(
+                      searchQuery().toLowerCase(),
+                    ) ||
+                    community.tags.some((tag) =>
+                      tag.toLowerCase().includes(searchQuery().toLowerCase())
+                    )
+                  )}
+                >
                   {(community) => (
                     <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                       <div class="flex items-start justify-between">
                         <div class="flex items-start space-x-3 flex-1">
-                          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold">
-                            {community.avatar || community.name.charAt(0)}
+                          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                            <Show
+                              when={community.avatar}
+                              fallback={community.name.charAt(0)}
+                            >
+                              <img
+                                src={community.avatar!}
+                                alt="avatar"
+                                class="w-full h-full object-cover"
+                              />
+                            </Show>
                           </div>
                           <div class="flex-1">
                             <div class="flex items-center space-x-2 mb-1">
-                              <h4 class="font-semibold text-gray-200">{community.name}</h4>
+                              <h4 class="font-semibold text-gray-200">
+                                {community.name}
+                              </h4>
                               <Show when={community.isPrivate}>
                                 <span class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded-full text-xs">
                                   プライベート
                                 </span>
                               </Show>
                             </div>
-                            <p class="text-sm text-gray-400 mb-2">{community.description}</p>
+                            <p class="text-sm text-gray-400 mb-2">
+                              {community.description}
+                            </p>
                             <div class="flex items-center space-x-4 text-xs text-gray-500 mb-2">
-                              <span>{formatNumber(community.memberCount)} メンバー</span>
-                              <span>{formatNumber(community.postCount)} 投稿</span>
-                              <span>作成: {formatDate(community.createdAt)}</span>
+                              <span>
+                                {formatNumber(community.memberCount)} メンバー
+                              </span>
+                              <span>
+                                {formatNumber(community.postCount)} 投稿
+                              </span>
+                              <span>
+                                作成: {formatDate(community.createdAt)}
+                              </span>
                             </div>
                             <div class="flex flex-wrap gap-1">
                               <For each={community.tags}>
@@ -633,23 +939,27 @@ export default function UnifiedToolsContent() {
                           </div>
                         </div>
                         <div class="flex flex-col space-y-2 ml-4">
-                          {community.isJoined ? (
-                            <button
-                              type="button"
-                              onClick={() => handleLeaveCommunity(community.id)}
-                              class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                            >
-                              参加中
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleJoinCommunity(community.id)}
-                              class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
-                            >
-                              参加
-                            </button>
-                          )}
+                          {community.isJoined
+                            ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleLeaveCommunity(community.id)}
+                                class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                参加中
+                              </button>
+                            )
+                            : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleJoinCommunity(community.id)}
+                                class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                参加
+                              </button>
+                            )}
                         </div>
                       </div>
                     </div>
