@@ -36,7 +36,9 @@ deno task dev
 - `/.well-known/webfinger` – WebFinger でアクターを検索
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
-- `/inbox/:username` – ActivityPub 受信エンドポイント
+- `/users/:username/inbox` – ActivityPub
+  受信エンドポイント（受信したオブジェクトは `ActivityPubObject`
+  コレクションに保存）
 
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 
@@ -56,3 +58,5 @@ deno task dev
   (`{ "author": "user", "content": "hello" }`)
 - `PUT /api/microblog/:id` – 投稿を更新 (`{ "content": "edited" }`)
 - `DELETE /api/microblog/:id` – 投稿を削除
+- `POST /api/microblog/:id/like` – いいねを追加
+- `POST /api/microblog/:id/retweet` – リツイートを追加

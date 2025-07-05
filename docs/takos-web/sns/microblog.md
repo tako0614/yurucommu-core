@@ -19,7 +19,9 @@ GET /api/microblog
     "id": "<id>",
     "author": "user",
     "content": "hello",
-    "createdAt": "2025-01-01T00:00:00.000Z"
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "likes": 0,
+    "retweets": 0
   }
 ]
 ```
@@ -60,3 +62,26 @@ DELETE /api/microblog/:id
 ```
 
 削除に成功すると `{ "success": true }` を返します。
+
+## いいね
+
+```
+POST /api/microblog/:id/like
+```
+
+指定した投稿のいいね数を1増やします。レスポンスは更新後の`likes`数です。
+
+## リツイート
+
+```
+POST /api/microblog/:id/retweet
+```
+
+リツイート数を1増やします。レスポンスは更新後の`retweets`数です。
+
+## ActivityPub 配信
+
+作成した投稿は ActivityPub 経由でフォロワーのサーバーへ配信されます。
+外部から受信した ActivityPub オブジェクトは `/users/:username/inbox` に
+送られ、`ActivityPubObject` コレクションに `inboxUser` フィールド付きで
+保存されます。
