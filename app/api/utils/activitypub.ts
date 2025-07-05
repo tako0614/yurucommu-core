@@ -260,6 +260,44 @@ export async function fetchActorInbox(
   return null;
 }
 
+export interface ActivityPubActor {
+  id: string;
+  preferredUsername?: string;
+  name?: string;
+  icon?: { url?: string };
+}
+
+export async function resolveActor(
+  username: string,
+  domain: string,
+): Promise<ActivityPubActor | null> {
+  try {
+    const resource = `acct:${username}@${domain}`;
+    const url = `https://${domain}/.well-known/webfinger?resource=${
+      encodeURIComponent(resource)
+    }`;
+    const wfRes = await fetch(url, {
+      headers: {
+        Accept: "application/jrd+json, application/json",
+      },
+    });
+    if (!wfRes.ok) return null;
+    const jrd = await wfRes.json();
+    const selfLink = jrd.links?.find((l: { rel?: string; type?: string }) =>
+      l.rel === "self" && l.type === "application/activity+json"
+    );
+    if (!selfLink?.href) return null;
+    const actorRes = await fetch(selfLink.href, {
+      headers: { Accept: "application/activity+json" },
+    });
+    if (!actorRes.ok) return null;
+    return await actorRes.json();
+  } catch {
+    /* ignore */
+    return null;
+  }
+}
+
 export function getDomain(c: { req: { url: string } }): string {
   return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 }
