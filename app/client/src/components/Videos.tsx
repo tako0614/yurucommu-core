@@ -216,98 +216,100 @@ export function Videos() {
   });
 
   return (
-    <div class="h-screen bg-[#121212] flex">
+    <div class="h-screen bg-[#0f0f0f] flex">
       {/* 投稿モーダル */}
       <Show when={showUploadModal()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div class="bg-[#1a1a1a] rounded-lg p-6 w-full max-w-md mx-4">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-bold text-white">動画をアップロード</h3>
+        <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div class="bg-[#212121] rounded-xl p-6 w-full max-w-lg mx-4 shadow-2xl border border-gray-700">
+            <div class="flex items-center justify-between mb-6">
+              <h3 class="text-xl font-semibold text-white">動画をアップロード</h3>
               <button 
                 type="button"
                 onClick={() => setShowUploadModal(false)}
-                class="text-gray-400 hover:text-white"
+                class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-700 transition-colors"
               >
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             
-            <div class="space-y-4">
+            <div class="space-y-5">
               {/* ファイル選択 */}
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
+                <label class="block text-sm font-medium text-gray-300 mb-3">
                   動画ファイル
                 </label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleFileUpload}
-                  class="w-full px-3 py-2 bg-[#2a2a2a] border border-gray-700 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer hover:file:bg-blue-700"
-                />
+                <div class="relative">
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileUpload}
+                    class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-red-600 file:text-white file:font-medium file:cursor-pointer hover:file:bg-red-700 hover:border-gray-500 transition-colors"
+                  />
+                </div>
               </div>
               
               {/* 動画タイプ選択 */}
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
+                <label class="block text-sm font-medium text-gray-300 mb-3">
                   動画タイプ
                 </label>
-                <div class="flex space-x-4">
-                  <label class="flex items-center">
+                <div class="flex space-x-6">
+                  <label class="flex items-center cursor-pointer">
                     <input
                       type="radio"
                       name="videoType"
                       checked={!uploadForm().isShort}
                       onChange={() => setUploadForm(prev => ({ ...prev, isShort: false }))}
-                      class="mr-2"
+                      class="mr-3 w-4 h-4 text-red-600 bg-gray-700 border-gray-600 focus:ring-red-500"
                     />
-                    <span class="text-white">長尺動画</span>
+                    <span class="text-white font-medium">長尺動画</span>
                   </label>
-                  <label class="flex items-center">
+                  <label class="flex items-center cursor-pointer">
                     <input
                       type="radio"
                       name="videoType"
                       checked={uploadForm().isShort}
                       onChange={() => setUploadForm(prev => ({ ...prev, isShort: true }))}
-                      class="mr-2"
+                      class="mr-3 w-4 h-4 text-red-600 bg-gray-700 border-gray-600 focus:ring-red-500"
                     />
-                    <span class="text-white">縦型ショート</span>
+                    <span class="text-white font-medium">YouTube Shorts</span>
                   </label>
                 </div>
               </div>
               
               {/* タイトル */}
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  タイトル *
+                <label class="block text-sm font-medium text-gray-300 mb-3">
+                  タイトル <span class="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={uploadForm().title}
                   onInput={(e) => setUploadForm(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="動画のタイトルを入力"
-                  class="w-full px-3 py-2 bg-[#2a2a2a] border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="動画のタイトルを入力してください"
+                  class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-red-500 focus:border-red-500 hover:border-gray-500 transition-colors"
                 />
               </div>
               
               {/* 説明 */}
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
+                <label class="block text-sm font-medium text-gray-300 mb-3">
                   説明
                 </label>
                 <textarea
                   value={uploadForm().description}
                   onInput={(e) => setUploadForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="動画の説明を入力"
-                  rows="3"
-                  class="w-full px-3 py-2 bg-[#2a2a2a] border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  placeholder="動画の説明を入力してください"
+                  rows="4"
+                  class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-red-500 focus:border-red-500 hover:border-gray-500 transition-colors resize-none"
                 />
               </div>
               
               {/* ハッシュタグ */}
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
+                <label class="block text-sm font-medium text-gray-300 mb-3">
                   ハッシュタグ
                 </label>
                 <input
@@ -315,16 +317,16 @@ export function Videos() {
                   value={uploadForm().hashtags}
                   onInput={(e) => setUploadForm(prev => ({ ...prev, hashtags: e.target.value }))}
                   placeholder="#タグ1 #タグ2 #タグ3"
-                  class="w-full px-3 py-2 bg-[#2a2a2a] border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-red-500 focus:border-red-500 hover:border-gray-500 transition-colors"
                 />
               </div>
               
               {/* アクションボタン */}
-              <div class="flex space-x-3 pt-4">
+              <div class="flex space-x-4 pt-6">
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  class="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                  class="flex-1 px-6 py-3 bg-transparent border border-gray-600 hover:border-gray-500 text-white rounded-lg transition-colors font-medium"
                 >
                   キャンセル
                 </button>
@@ -332,7 +334,7 @@ export function Videos() {
                   type="button"
                   onClick={submitUpload}
                   disabled={!uploadForm().file || !uploadForm().title.trim()}
-                  class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                  class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium shadow-lg"
                 >
                   アップロード
                 </button>
@@ -344,61 +346,111 @@ export function Videos() {
 
       {/* YouTube風タイムライン表示 */}
       <Show when={currentView() === "timeline"}>
-        <div class="flex-1 overflow-y-auto bg-[#121212]">
+        <div class="flex-1 overflow-y-auto bg-[#0f0f0f]">
           {/* ヘッダー */}
-          <div class="sticky top-0 z-10 bg-[#121212] border-b border-gray-800 p-4">
-            <div class="flex items-center justify-between">
-              <h1 class="text-2xl font-bold text-white">動画</h1>
+          <div class="sticky top-0 z-10 bg-[#0f0f0f]/95 backdrop-blur-sm border-b border-gray-800/50 px-6 py-4">
+            <div class="flex items-center justify-between max-w-screen-2xl mx-auto">
+              <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-3">
+                  <div class="w-8 h-8 bg-red-600 rounded flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                  </div>
+                  <h1 class="text-xl font-normal text-white">動画</h1>
+                </div>
+                <div class="hidden md:flex bg-[#181818] rounded-full px-4 py-2 border border-gray-700">
+                  <input 
+                    type="text" 
+                    placeholder="検索" 
+                    class="bg-transparent text-white placeholder-gray-400 outline-none w-96"
+                  />
+                  <button type="button" class="ml-3 text-gray-400 hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
               <div class="flex items-center space-x-3">
                 <button 
                   type="button"
                   onClick={() => setShowUploadModal(true)}
-                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+                  class="flex items-center space-x-2 px-4 py-2 bg-transparent border border-gray-600 hover:border-gray-500 text-white rounded-full transition-colors"
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
-                  <span>動画を投稿</span>
+                  <span class="hidden sm:inline">作成</span>
                 </button>
                 <button 
                   type="button"
                   onClick={() => setCurrentView("shorts")}
-                  class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                  class="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full transition-colors"
                 >
-                  ショート表示
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4V2a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v2h4a1 1 0 0 1 0 2h-1v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6H3a1 1 0 0 1 0-2h4z"/>
+                  </svg>
+                  <span class="hidden sm:inline">Shorts</span>
                 </button>
               </div>
             </div>
           </div>
           
-          <div class="max-w-7xl mx-auto p-6">
+          <div class="max-w-screen-2xl mx-auto px-6 py-6">
+            {/* カテゴリタブ */}
+            <div class="flex space-x-3 mb-6 overflow-x-auto pb-2">
+              {["すべて", "音楽", "ゲーム", "ニュース", "スポーツ", "学習", "料理", "旅行", "技術", "映画"].map((category) => (
+                <button
+                  type="button"
+                  class={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                    category === "すべて" 
+                      ? "bg-white text-black" 
+                      : "bg-[#1f1f1f] text-white hover:bg-[#2f2f2f]"
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+            
             {/* ショート動画セクション */}
             <Show when={shortVideos().length > 0}>
               <div class="mb-8">
                 <div class="flex items-center justify-between mb-4">
-                  <h2 class="text-xl font-bold text-white">ショート動画</h2>
+                  <div class="flex items-center space-x-2">
+                    <div class="w-6 h-6 bg-red-600 rounded flex items-center justify-center">
+                      <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                    </div>
+                    <h2 class="text-xl font-medium text-white">Shorts</h2>
+                  </div>
                   <button 
                     type="button"
                     onClick={() => setCurrentView("shorts")}
-                    class="text-blue-400 hover:text-blue-300 text-sm"
+                    class="text-[#3ea6ff] hover:text-blue-300 text-sm font-medium flex items-center space-x-1"
                   >
-                    すべて見る
+                    <span>すべて表示</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
                   </button>
                 </div>
-                <div class="flex space-x-4 overflow-x-auto pb-4">
-                  <For each={shortVideos().slice(0, 6)}>
+                <div class="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide">
+                  <For each={shortVideos().slice(0, 8)}>
                     {(video) => (
                       <div 
-                        class="flex-shrink-0 w-40 cursor-pointer"
+                        class="flex-shrink-0 w-40 cursor-pointer group"
                         onClick={() => {
                           setSelectedShortIndex(shortVideos().findIndex(v => v.id === video.id));
                           setCurrentView("shorts");
                         }}
                       >
-                        <div class="relative aspect-[9/16] bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg overflow-hidden mb-2">
+                        <div class="relative aspect-[9/16] bg-gradient-to-br from-red-500 via-pink-500 to-purple-600 rounded-xl overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200">
                           <div class="absolute inset-0 flex items-center justify-center">
                             <div class="text-center">
-                              <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-2 mx-auto">
+                              <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-2 mx-auto group-hover:bg-white/30 transition-colors">
                                 <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
                                   <path d="M8 5v14l11-7z"/>
                                 </svg>
@@ -406,14 +458,14 @@ export function Videos() {
                               <span class="text-white text-lg">{video.authorAvatar}</span>
                             </div>
                           </div>
-                          <div class="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1 rounded">
+                          <div class="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-medium">
                             {video.duration}
                           </div>
-                          <div class="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded-full">
+                          <div class="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded font-medium">
                             Shorts
                           </div>
                         </div>
-                        <h3 class="text-white text-sm font-medium line-clamp-2 mb-1">
+                        <h3 class="text-white text-sm font-medium line-clamp-2 mb-1 group-hover:text-gray-300">
                           {video.title}
                         </h3>
                         <p class="text-gray-400 text-xs">
@@ -428,40 +480,56 @@ export function Videos() {
             
             {/* 長尺動画セクション */}
             <div>
-              <h2 class="text-xl font-bold text-white mb-4">おすすめ動画</h2>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <h2 class="text-xl font-medium text-white mb-4">あなたへのおすすめ</h2>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                 <For each={videos().filter(v => !v.isShort)}>
                   {(video) => (
                     <div 
-                      class="bg-[#1a1a1a] rounded-lg overflow-hidden hover:bg-[#2a2a2a] transition-colors cursor-pointer"
+                      class="group cursor-pointer"
                       onClick={() => {
                         // 長尺動画の詳細表示や再生処理をここに追加
                         console.log("Video clicked:", video.id);
                       }}
                     >
-                      <div class="relative aspect-video bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-                        <div class="text-center">
-                          <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-2 mx-auto">
-                            <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 5v14l11-7z"/>
-                            </svg>
+                      <div class="relative aspect-video bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-xl overflow-hidden mb-3 group-hover:rounded-lg transition-all duration-200">
+                        <div class="absolute inset-0 flex items-center justify-center">
+                          <div class="text-center">
+                            <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-2 mx-auto group-hover:bg-white/30 transition-colors">
+                              <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                              </svg>
+                            </div>
+                            <span class="text-white text-lg">{video.authorAvatar}</span>
                           </div>
-                          <span class="text-white text-lg">{video.authorAvatar}</span>
                         </div>
-                        <div class="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                        <div class="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-medium">
                           {video.duration}
                         </div>
+                        {/* ホバー時のプレビューオーバーレイ */}
+                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-200"></div>
                       </div>
-                      <div class="p-4">
-                        <h3 class="text-white font-medium mb-2 line-clamp-2">
-                          {video.title}
-                        </h3>
-                        <p class="text-gray-400 text-sm mb-1">
-                          {video.author}
-                        </p>
-                        <div class="text-gray-500 text-xs">
-                          {formatNumber(video.views)} 回視聴 • {formatTime(video.timestamp)}
+                      <div class="flex space-x-3">
+                        <div class="flex-shrink-0 w-9 h-9 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                          <span class="text-sm">{video.authorAvatar}</span>
                         </div>
+                        <div class="flex-1 min-w-0">
+                          <h3 class="text-white font-medium mb-1 line-clamp-2 text-sm leading-5 group-hover:text-gray-300">
+                            {video.title}
+                          </h3>
+                          <p class="text-gray-400 text-xs mb-1 hover:text-gray-300 cursor-pointer">
+                            {video.author}
+                          </p>
+                          <div class="text-gray-400 text-xs flex items-center space-x-1">
+                            <span>{formatNumber(video.views)} 回視聴</span>
+                            <span>•</span>
+                            <span>{formatTime(video.timestamp)}</span>
+                          </div>
+                        </div>
+                        <button type="button" class="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white p-1">
+                          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -481,21 +549,21 @@ export function Videos() {
                 {(() => {
                   const currentShort = shortVideos()[selectedShortIndex()];
                   return currentShort ? (
-                    <div class="relative w-[365px] h-[650px] bg-gray-900 rounded-lg overflow-hidden">
-                      <div class="absolute inset-0 bg-gradient-to-br from-purple-600 via-blue-600 to-green-500 flex items-center justify-center">
+                    <div class="relative w-[360px] h-[640px] bg-gray-900 rounded-lg overflow-hidden shadow-2xl">
+                      <div class="absolute inset-0 bg-gradient-to-br from-red-500 via-pink-500 to-purple-600 flex items-center justify-center">
                         <div class="text-center">
                           <div class="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mb-4 mx-auto">
                             <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M8 5v14l11-7z"/>
                             </svg>
                           </div>
-                          <p class="text-white font-medium">{currentShort.title}</p>
+                          <p class="text-white font-medium text-lg">{currentShort.title}</p>
                           <p class="text-white/70 text-sm mt-1">{currentShort.duration}</p>
                         </div>
                       </div>
                       
-                      {/* 動画情報 */}
-                      <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+                      {/* 動画情報オーバーレイ */}
+                      <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4">
                         <div class="flex items-center space-x-3 mb-3">
                           <div class="w-10 h-10 bg-gradient-to-br from-pink-500 to-orange-500 rounded-full flex items-center justify-center">
                             <span class="text-lg">{currentShort.authorAvatar}</span>
@@ -504,17 +572,17 @@ export function Videos() {
                             <p class="text-white font-medium">{currentShort.author}</p>
                             <p class="text-white/70 text-sm">{formatTime(currentShort.timestamp)}</p>
                           </div>
-                          <button type="button" class="bg-red-600 hover:bg-red-700 text-white px-4 py-1 rounded-full text-sm font-medium transition-colors">
-                            フォロー
+                          <button type="button" class="bg-white text-black px-4 py-1.5 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors">
+                            チャンネル登録
                           </button>
                         </div>
                         <div class="mb-3">
-                          <p class="text-white text-sm mb-2">{currentShort.description}</p>
+                          <p class="text-white text-sm mb-2 line-clamp-3">{currentShort.description}</p>
                           <Show when={currentShort.hashtags}>
                             <div class="flex flex-wrap gap-2">
                               <For each={currentShort.hashtags}>
                                 {(hashtag) => (
-                                  <span class="text-blue-300 text-sm cursor-pointer hover:underline">
+                                  <span class="text-[#3ea6ff] text-sm cursor-pointer hover:underline">
                                     {hashtag}
                                   </span>
                                 )}
@@ -522,8 +590,20 @@ export function Videos() {
                             </div>
                           </Show>
                         </div>
-                        <div class="text-white/70 text-sm">
-                          {formatNumber(currentShort.views)} 回視聴 • {formatNumber(currentShort.likes)} いいね
+                        <div class="flex items-center space-x-4 text-white/70 text-sm">
+                          <div class="flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                              <path fill-rule="evenodd" d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span>{formatNumber(currentShort.views)}</span>
+                          </div>
+                          <div class="flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M7.493 18.75c-.425 0-.82-.236-.975-.632A7.48 7.48 0 016 15.375c0-1.75.599-3.358 1.602-4.634.151-.192.373-.309.6-.397.473-.183.89-.514 1.212-.924a9.042 9.042 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75 2.25 2.25 0 012.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558-.645 1.05-1.09 1.453-.812.736-1.35 1.83-1.35 3.027 0 .99.284 1.914.781 2.688.56.87 1.284 1.414 2.118 1.414.394 0 .74.215.925.563.188.35.102.777-.18 1.051l-1.432 1.368c-.296.283-.66.451-1.062.451H9.493z"/>
+                            </svg>
+                            <span>{formatNumber(currentShort.likes)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -531,51 +611,63 @@ export function Videos() {
                 })()}
 
                 {/* 右側のアクションボタン */}
-                <div class="absolute right-4 bottom-20 flex flex-col space-y-6">
-                  <button type="button" class="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors">
-                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                    </svg>
-                  </button>
+                <div class="absolute right-6 bottom-24 flex flex-col space-y-4">
                   <div class="text-center">
-                    <button type="button" class="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors mb-1">
-                      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    <button type="button" class="w-12 h-12 bg-[#272727] backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors mb-2">
+                      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
                       </svg>
                     </button>
-                    <span class="text-white text-xs">
+                    <span class="text-white text-xs block">
                       {(() => {
                         const currentShort = shortVideos()[selectedShortIndex()];
                         return currentShort ? formatNumber(currentShort.likes) : "0";
                       })()}
                     </span>
                   </div>
-                  <button type="button" class="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors">
+                  
+                  <div class="text-center">
+                    <button type="button" class="w-12 h-12 bg-[#272727] backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors mb-2">
+                      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </button>
+                    <span class="text-white text-xs block">132</span>
+                  </div>
+                  
+                  <button type="button" class="w-12 h-12 bg-[#272727] backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
                     </svg>
                   </button>
-                  <button type="button" class="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors">
+                  
+                  <button type="button" class="w-12 h-12 bg-[#272727] backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                  </button>
+                  
+                  <button type="button" class="w-12 h-12 bg-[#272727] backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                     </svg>
                   </button>
                 </div>
 
                 {/* 縦スクロールナビゲーション */}
-                <div class="absolute right-8 top-1/2 transform -translate-y-1/2 flex flex-col space-y-4">
+                <div class="absolute right-8 top-1/2 transform -translate-y-1/2 flex flex-col space-y-3">
                   <button 
                     type="button"
                     onClick={() => handleShortsScroll("up")}
                     disabled={selectedShortIndex() === 0}
-                    class="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="w-10 h-10 bg-[#272727]/80 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
                     </svg>
                   </button>
                   <div class="text-center">
-                    <div class="text-white text-xs bg-black/50 rounded px-2 py-1">
+                    <div class="text-white text-xs bg-black/60 rounded-full px-2 py-1 backdrop-blur-sm">
                       {selectedShortIndex() + 1} / {shortVideos().length}
                     </div>
                   </div>
@@ -583,7 +675,7 @@ export function Videos() {
                     type="button"
                     onClick={() => handleShortsScroll("down")}
                     disabled={selectedShortIndex() === shortVideos().length - 1}
-                    class="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="w-10 h-10 bg-[#272727]/80 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -592,16 +684,28 @@ export function Videos() {
                 </div>
 
                 {/* 戻るボタン */}
-                <div class="absolute top-4 left-4">
+                <div class="absolute top-6 left-6">
                   <button 
                     type="button"
                     onClick={() => setCurrentView("timeline")}
-                    class="w-10 h-10 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+                    class="w-10 h-10 bg-[#272727]/80 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-[#3f3f3f] transition-colors"
                   >
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
                   </button>
+                </div>
+                
+                {/* YouTubeロゴ */}
+                <div class="absolute top-6 left-1/2 transform -translate-x-1/2">
+                  <div class="flex items-center space-x-2 bg-black/40 backdrop-blur-sm rounded-full px-4 py-2">
+                    <div class="w-6 h-6 bg-red-600 rounded flex items-center justify-center">
+                      <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                      </svg>
+                    </div>
+                    <span class="text-white text-sm font-medium">Shorts</span>
+                  </div>
                 </div>
               </div>
             </Show>

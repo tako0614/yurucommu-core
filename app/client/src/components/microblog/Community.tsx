@@ -1,9 +1,7 @@
-import { createSignal, For } from "solid-js";
-import type { Community, CommunityPost } from "./types";
+import { For } from "solid-js";
+import type { Community, CommunityPost } from "./types.ts";
 
 export function CommunityView(props: {
-  showCommunityManagement: boolean;
-  setShowCommunityManagement: (show: boolean) => void;
   showCommunityView: boolean;
   setShowCommunityView: (show: boolean) => void;
   selectedCommunity: Community | null;
@@ -33,98 +31,6 @@ export function CommunityView(props: {
 }) {
   return (
     <>
-      {/* コミュニティ管理ビュー（管理ボタンが押された時のみ表示） */}
-      {props.showCommunityManagement && (
-        <div class="p-4">
-          <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => props.setShowCommunityManagement(false)}
-                class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800 transition-colors"
-              >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </button>
-              <h2 class="text-2xl font-bold">コミュニティ管理</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => props.setShowCreateCommunity(true)}
-              class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full font-medium transition-colors"
-            >
-              新規作成
-            </button>
-          </div>
-
-          {/* コミュニティ一覧 */}
-          <div class="space-y-4">
-            <For each={props.communities}>
-              {(community) => (
-                <div class="bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-700 transition-colors">
-                  <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                      <div class="flex items-center space-x-3 mb-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-                          <span class="text-white font-bold text-lg">
-                            {community.name.charAt(0)}
-                          </span>
-                        </div>
-                        <div>
-                          <h3 class="text-lg font-bold text-white hover:text-blue-400 cursor-pointer" 
-                              onClick={() => props.handleSelectCommunity(community)}>
-                            {community.name}
-                          </h3>
-                          <div class="flex items-center space-x-4 text-sm text-gray-400">
-                            <span>{community.memberCount.toLocaleString()} メンバー</span>
-                            <span>{community.postCount.toLocaleString()} 投稿</span>
-                            {community.isPrivate && (
-                              <span class="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full text-xs">
-                                非公開
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <p class="text-gray-300 mb-3">{community.description}</p>
-                      <div class="flex flex-wrap gap-2">
-                        <For each={community.tags}>
-                          {(tag) => (
-                            <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full text-xs">
-                              #{tag}
-                            </span>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                    <div class="ml-4">
-                      {community.isJoined ? (
-                        <button
-                          type="button"
-                          onClick={() => props.handleLeaveCommunity(community.id)}
-                          class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                        >
-                          参加中
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => props.handleJoinCommunity(community.id)}
-                          class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                        >
-                          参加する
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      )}
-
       {/* コミュニティビュー（コミュニティタブが選択された時のみ表示） */}
       {props.showCommunityView && !props.selectedCommunity && (
         <div class="p-4">

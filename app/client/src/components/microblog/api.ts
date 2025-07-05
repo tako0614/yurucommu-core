@@ -1,4 +1,4 @@
-import type { MicroblogPost, Story } from "./types";
+import type { MicroblogPost, Story } from "./types.ts";
 
 export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   try {

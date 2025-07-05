@@ -8,8 +8,6 @@ import type { MicroblogPost, Story, Community, CommunityPost } from "./microblog
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
   const [tab, setTab] = createSignal<'recommend' | 'following' | 'community'>('recommend');
-  // コミュニティ管理表示
-  const [showCommunityManagement, setShowCommunityManagement] = createSignal(false);
   const [newPostContent, setNewPostContent] = createSignal("");
   const [showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
@@ -376,7 +374,7 @@ export function Microblog() {
               </div>
             </div>
             {/* タブ */}
-            <div class="flex gap-1 justify-center">
+            <div class="flex gap-4 justify-center">
               <button 
                 type="button" 
                 class={`tab-btn ${tab()==='recommend' ? 'tab-btn-active' : ''}`} 
@@ -398,20 +396,11 @@ export function Microblog() {
               >
                 コミュニティ
               </button>
-              <button 
-                type="button" 
-                class="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-3 py-2 rounded-lg text-sm transition-all duration-200 ml-4" 
-                onClick={() => setShowCommunityManagement(true)}
-              >
-                管理
-              </button>
             </div>
           </div>
         </div>
         <div class="max-w-2xl mx-auto">
           <CommunityView
-            showCommunityManagement={showCommunityManagement()}
-            setShowCommunityManagement={setShowCommunityManagement}
             showCommunityView={showCommunityView()}
             setShowCommunityView={setShowCommunityView}
             selectedCommunity={selectedCommunity()}
@@ -440,7 +429,7 @@ export function Microblog() {
             formatDate={formatDate}
           />
 
-          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
             <StoryTray
               stories={stories() || []}
               refetchStories={refetchStories}
@@ -448,7 +437,7 @@ export function Microblog() {
             />
           )}
 
-          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
             <PostList
               posts={filteredPosts()}
               tab={tab()}
@@ -483,7 +472,7 @@ export function Microblog() {
         />
 
         {/* フローティング投稿ボタン（おすすめ・フォロー中・コミュニティタブの時のみ表示） */}
-        {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+        {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
           <button
             type="button"
             onClick={() => setShowPostForm(true)}

@@ -1,6 +1,6 @@
 import { createSignal, For } from "solid-js";
-import type { MicroblogPost } from "./types";
-import { createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost } from "./api";
+import type { MicroblogPost } from "./types.ts";
+import { createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost } from "./api.ts";
 
 export function PostList(props: {
   posts: MicroblogPost[];
