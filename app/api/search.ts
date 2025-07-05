@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
-import { env } from "./utils/env.ts";
+import { getDomain } from "./utils/activitypub.ts";
 
 interface SearchResult {
   type: "user" | "post";
@@ -31,7 +31,7 @@ app.get("/search", async (c) => {
     })
       .limit(20)
       .lean();
-    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const domain = getDomain(c);
     for (const u of users) {
       results.push({
         type: "user",
@@ -49,7 +49,7 @@ app.get("/search", async (c) => {
     const posts = await ActivityPubObject.find({ type: "Note", content: regex })
       .limit(20)
       .lean();
-    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const domain = getDomain(c);
     for (const p of posts) {
       results.push({
         type: "post",

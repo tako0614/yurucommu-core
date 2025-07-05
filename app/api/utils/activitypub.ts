@@ -196,3 +196,184 @@ export async function verifyHttpSignature(
   );
   return verified;
 }
+
+export function createFollowActivity(
+  domain: string,
+  actor: string,
+  target: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/activities/${crypto.randomUUID()}`,
+    type: "Follow",
+    actor,
+    object: target,
+  };
+}
+
+export function createUndoFollowActivity(
+  domain: string,
+  actor: string,
+  target: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/activities/${crypto.randomUUID()}`,
+    type: "Undo",
+    actor,
+    object: {
+      type: "Follow",
+      actor,
+      object: target,
+    },
+  };
+}
+
+export function createAcceptActivity(
+  domain: string,
+  actor: string,
+  object: unknown,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/activities/${crypto.randomUUID()}`,
+    type: "Accept",
+    actor,
+    object,
+  };
+}
+
+export async function fetchActorInbox(
+  actorUrl: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(actorUrl, {
+      headers: { accept: "application/activity+json" },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.inbox === "string") return data.inbox;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function getDomain(c: { req: { url: string } }): string {
+  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+}
+
+export function jsonResponse(
+  // deno-lint-ignore no-explicit-any
+  c: any,
+  // deno-lint-ignore no-explicit-any
+  data: any,
+  status = 200,
+  contentType = "application/json",
+) {
+  return c.body(JSON.stringify(data), status, {
+    "content-type": contentType,
+  });
+}
+
+export function createActor(
+  domain: string,
+  account: { userName: string; displayName: string; publicKey: string },
+) {
+  return {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1",
+    ],
+    id: `https://${domain}/users/${account.userName}`,
+    type: "Person",
+    preferredUsername: account.userName,
+    name: account.displayName,
+    summary: account.displayName,
+    url: `https://${domain}/@${account.userName}`,
+    icon: {
+      type: "Image",
+      mediaType: "image/png",
+      url: `https://${domain}/users/${account.userName}/avatar`,
+    },
+    inbox: `https://${domain}/users/${account.userName}/inbox`,
+    outbox: `https://${domain}/users/${account.userName}/outbox`,
+    followers: `https://${domain}/users/${account.userName}/followers`,
+    following: `https://${domain}/users/${account.userName}/following`,
+    publicKey: {
+      id: `https://${domain}/users/${account.userName}#main-key`,
+      owner: `https://${domain}/users/${account.userName}`,
+      publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
+    },
+  };
+}
+
+export function buildActivityFromStored(
+  obj: {
+    _id: unknown;
+    type: string;
+    content: string;
+    published: unknown;
+    extra: Record<string, unknown>;
+  },
+  domain: string,
+  username: string,
+  withContext = false,
+) {
+  const base = {
+    id: `https://${domain}/objects/${obj._id}`,
+    type: obj.type,
+    attributedTo: `https://${domain}/users/${username}`,
+    content: obj.content,
+    published: obj.published instanceof Date
+      ? obj.published.toISOString()
+      : obj.published,
+    ...obj.extra,
+  };
+  return withContext
+    ? { "@context": "https://www.w3.org/ns/activitystreams", ...base }
+    : base;
+}
+
+// ---- 将来の機能向けユーティリティ ----
+
+/** ActivityPub 用の ID を生成する */
+export function createActivityId(domain: string, path = "activities") {
+  return `https://${domain}/${path}/${crypto.randomUUID()}`;
+}
+
+/** オブジェクト ID を生成する */
+export function createObjectId(domain: string, path = "objects") {
+  return `https://${domain}/${path}/${crypto.randomUUID()}`;
+}
+
+/** Add Activity を生成する */
+export function createAddActivity(
+  domain: string,
+  actor: string,
+  object: unknown,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Add",
+    actor,
+    object,
+  };
+}
+
+/** Remove Activity を生成する */
+export function createRemoveActivity(
+  domain: string,
+  actor: string,
+  object: unknown,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Remove",
+    actor,
+    object,
+  };
+}

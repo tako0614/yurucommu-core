@@ -1,8 +1,14 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import type { Document } from "mongoose";
-import { deliverActivityPubObject } from "./utils/activitypub.ts";
-import { env } from "./utils/env.ts";
+import {
+  createFollowActivity,
+  createUndoFollowActivity,
+  deliverActivityPubObject,
+  fetchActorInbox,
+  getDomain,
+  jsonResponse,
+} from "./utils/activitypub.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -53,16 +59,6 @@ interface AccountDoc extends Document {
 
 const app = new Hono();
 
-function getDomain(c: any) {
-  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
-}
-
-function jsonResponse(c: any, data: any, status = 200, contentType = "application/json") {
-  return c.body(JSON.stringify(data), status, {
-    "content-type": contentType
-  });
-}
-
 app.get("/accounts", async (c) => {
   const list = await Account.find().lean<AccountDoc[]>();
   const formatted = list.map((doc: AccountDoc) => ({
@@ -77,25 +73,28 @@ app.get("/accounts", async (c) => {
 app.post("/accounts", async (c) => {
   const { username, displayName, icon, privateKey, publicKey } = await c.req
     .json();
-  
+
   // userName is required and cannot be changed after creation
   if (!username || typeof username !== "string" || username.trim() === "") {
-    return jsonResponse(c, { error: "Username is required and cannot be empty" }, 400);
+    return jsonResponse(c, {
+      error: "Username is required and cannot be empty",
+    }, 400);
   }
-  
+
   // Check if username already exists
   const existingAccount = await Account.findOne({ userName: username.trim() });
   if (existingAccount) {
     return jsonResponse(c, { error: "Username already exists" }, 409);
   }
-  
+
   const keys = privateKey && publicKey
     ? { privateKey, publicKey }
     : await generateKeyPair();
   const account = new Account({
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
-    avatarInitial: icon ?? username.trim().charAt(0).toUpperCase().substring(0, 2),
+    avatarInitial: icon ??
+      username.trim().charAt(0).toUpperCase().substring(0, 2),
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
@@ -225,7 +224,7 @@ app.post("/accounts/:id/follow", async (c) => {
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
   try {
-    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const domain = getDomain(c);
     const actorId = `https://${domain}/users/${userName}`;
     const targetUrl = new URL(target);
     if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
@@ -234,22 +233,11 @@ app.post("/accounts/:id/follow", async (c) => {
         $addToSet: { followers: actorId },
       });
     } else {
-      const res = await fetch(target, {
-        headers: { accept: "application/activity+json" },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.inbox === "string") {
-          const follow = {
-            "@context": "https://www.w3.org/ns/activitystreams",
-            id: `https://${domain}/activities/${crypto.randomUUID()}`,
-            type: "Follow",
-            actor: actorId,
-            object: target,
-          };
-          deliverActivityPubObject([data.inbox], follow, userName)
-            .catch((err) => console.error("Delivery failed:", err));
-        }
+      const inbox = await fetchActorInbox(target);
+      if (inbox) {
+        const follow = createFollowActivity(domain, actorId, target);
+        deliverActivityPubObject([inbox], follow, userName)
+          .catch((err) => console.error("Delivery failed:", err));
       }
     }
   } catch (err) {
@@ -273,7 +261,7 @@ app.delete("/accounts/:id/follow", async (c) => {
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
   try {
-    const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+    const domain = getDomain(c);
     const actorId = `https://${domain}/users/${account.userName}`;
     const targetUrl = new URL(target);
     if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
@@ -282,27 +270,12 @@ app.delete("/accounts/:id/follow", async (c) => {
         $pull: { followers: actorId },
       });
     } else {
-      const res = await fetch(target, {
-        headers: { accept: "application/activity+json" },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.inbox === "string") {
-          const undo = {
-            "@context": "https://www.w3.org/ns/activitystreams",
-            id: `https://${domain}/activities/${crypto.randomUUID()}`,
-            type: "Undo",
-            actor: actorId,
-            object: {
-              type: "Follow",
-              actor: actorId,
-              object: target,
-            },
-          };
-          deliverActivityPubObject([data.inbox], undo, account.userName).catch((
-            err,
-          ) => console.error("Delivery failed:", err));
-        }
+      const inbox = await fetchActorInbox(target);
+      if (inbox) {
+        const undo = createUndoFollowActivity(domain, actorId, target);
+        deliverActivityPubObject([inbox], undo, account.userName).catch(
+          (err) => console.error("Delivery failed:", err),
+        );
       }
     }
   } catch (err) {
