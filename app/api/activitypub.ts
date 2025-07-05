@@ -58,6 +58,31 @@ app.get("/users/:username", async (c) => {
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
 
+app.get("/users/:username/avatar", async (c) => {
+  const username = c.req.param("username");
+  const account = await Account.findOne({ userName: username }).lean();
+  if (!account) return c.body("Not Found", 404);
+
+  let icon = account.avatarInitial ||
+    username.charAt(0).toUpperCase().substring(0, 2);
+
+  if (icon.startsWith("data:image/")) {
+    const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    if (match) {
+      const [, type, data] = match;
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return c.body(bytes, 200, { "content-type": type });
+    }
+  }
+
+  icon = icon.slice(0, 2).toUpperCase();
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">${icon}</text></svg>`;
+  return c.body(svg, 200, { "content-type": "image/svg+xml" });
+});
+
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
   const domain = getDomain(c);
@@ -82,7 +107,7 @@ app.get("/users/:username/outbox", async (c) => {
       )
     ),
   };
-  console.log(outbox)
+  console.log(outbox);
   return jsonResponse(c, outbox, 200, "application/activity+json");
 });
 
