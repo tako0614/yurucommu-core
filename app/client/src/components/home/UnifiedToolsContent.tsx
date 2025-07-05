@@ -168,23 +168,36 @@ export default function UnifiedToolsContent() {
     {},
   );
 
+  const placeholder = () => {
+    switch (activeTab()) {
+      case "users":
+        return "ユーザー検索... (外部ユーザーは username@example.com 形式)";
+      case "posts":
+        return "投稿内容、ハッシュタグで検索...";
+      case "communities":
+        return "コミュニティ名、説明、タグで検索...";
+      default:
+        return "検索... (外部ユーザーは username@example.com 形式で入力)";
+    }
+  };
+
   // 検索クエリの解析
   const parseSearchQuery = (query: string) => {
     const trimmed = query.trim();
-    if (trimmed.includes('@')) {
-      const parts = trimmed.split('@');
+    if (trimmed.includes("@")) {
+      const parts = trimmed.split("@");
       if (parts.length === 2 && parts[1]) {
         return {
           searchTerm: parts[0],
           server: parts[1],
-          isRemote: true
+          isRemote: true,
         };
       }
     }
     return {
       searchTerm: trimmed,
       server: null,
-      isRemote: false
+      isRemote: false,
     };
   };
 
@@ -193,15 +206,7 @@ export default function UnifiedToolsContent() {
     () => {
       const q = searchQuery().trim();
       if (!q) return null;
-      
-      const parsed = parseSearchQuery(q);
-      if (parsed.isRemote && parsed.server) {
-        const base = `/api/search?q=${encodeURIComponent(parsed.searchTerm)}&type=${searchType()}`;
-        return `${base}&server=${encodeURIComponent(parsed.server)}`;
-      } else if (!parsed.isRemote) {
-        return `/api/search?q=${encodeURIComponent(parsed.searchTerm)}&type=${searchType()}`;
-      }
-      return null;
+      return `/api/search?q=${encodeURIComponent(q)}&type=${searchType()}`;
     },
     async (url) => {
       if (!url) return [] as SearchResult[];
@@ -221,7 +226,7 @@ export default function UnifiedToolsContent() {
     if (!query) return [];
 
     const parsed = parseSearchQuery(query);
-    
+
     if (parsed.isRemote) {
       // リモート検索の場合は API 結果のみ
       return searchData() ?? [];
@@ -233,11 +238,15 @@ export default function UnifiedToolsContent() {
       // ユーザーのキャッシュから検索
       if (searchType() === "all" || searchType() === "users") {
         const filteredUsers = users().filter((user) =>
-          user.username.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
-          user.displayName.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          user.username.toLowerCase().includes(
+            parsed.searchTerm.toLowerCase(),
+          ) ||
+          user.displayName.toLowerCase().includes(
+            parsed.searchTerm.toLowerCase(),
+          ) ||
           user.bio?.toLowerCase().includes(parsed.searchTerm.toLowerCase())
         );
-        
+
         for (const user of filteredUsers) {
           localResults.push({
             type: "user",
@@ -248,7 +257,7 @@ export default function UnifiedToolsContent() {
             origin: globalThis.location.host,
             metadata: {
               followers: user.followerCount,
-            }
+            },
           });
         }
       }
@@ -256,8 +265,12 @@ export default function UnifiedToolsContent() {
       // コミュニティのキャッシュから検索
       if (searchType() === "all" || searchType() === "communities") {
         const filteredCommunities = communities().filter((community) =>
-          community.name.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
-          community.description.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          community.name.toLowerCase().includes(
+            parsed.searchTerm.toLowerCase(),
+          ) ||
+          community.description.toLowerCase().includes(
+            parsed.searchTerm.toLowerCase(),
+          ) ||
           community.tags.some((tag) =>
             tag.toLowerCase().includes(parsed.searchTerm.toLowerCase())
           )
@@ -272,7 +285,7 @@ export default function UnifiedToolsContent() {
             origin: globalThis.location.host,
             metadata: {
               members: community.memberCount,
-            }
+            },
           });
         }
       }
@@ -280,11 +293,15 @@ export default function UnifiedToolsContent() {
       // ローカル結果と API 結果を統合（重複排除）
       const combined = [...localResults];
       for (const apiResult of apiResults) {
-        if (!combined.find(local => local.id === apiResult.id && local.type === apiResult.type)) {
+        if (
+          !combined.find((local) =>
+            local.id === apiResult.id && local.type === apiResult.type
+          )
+        ) {
           combined.push(apiResult);
         }
       }
-      
+
       return combined;
     }
   };
@@ -485,39 +502,34 @@ export default function UnifiedToolsContent() {
       </div>
 
       <div class="max-w-4xl mx-auto">
+        <div class="bg-gray-800/50 rounded-xl p-6 mb-6">
+          <div class="relative">
+            <input
+              type="text"
+              placeholder={placeholder()}
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <svg
+              class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+        </div>
+
         {/* 総合検索タブ */}
         <Show when={activeTab() === "search"}>
           <div class="space-y-6">
-            {/* 検索バー */}
-            <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="relative">
-                <input
-                  type="text"
-                  placeholder="検索... (外部ユーザーは username@example.com 形式で入力)"
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <svg
-                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-              <div class="mt-2 text-xs text-gray-400">
-                <p>• 通常検索: ローカルキャッシュ + API検索</p>
-                <p>• 外部検索: username@example.com 形式で外部サーバーのユーザーを検索</p>
-              </div>
-            </div>
-
             {/* 検索結果 */}
             <Show when={searchQuery()}>
               <div class="space-y-3">
@@ -682,47 +694,19 @@ export default function UnifiedToolsContent() {
         {/* ユーザータブ */}
         <Show when={activeTab() === "users"}>
           <div class="space-y-6">
-            {/* ユーザー検索バー */}
-            <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="relative">
-                <input
-                  type="text"
-                  placeholder="ユーザー検索... (外部ユーザーは username@example.com 形式)"
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <svg
-                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                  />
-                </svg>
-              </div>
-              <div class="mt-2 text-xs text-gray-400">
-                <p>• 通常検索: ローカルユーザー + API検索</p>
-                <p>• 外部検索: username@example.com 形式で外部サーバーのユーザーを検索</p>
-              </div>
-            </div>
-
             {/* ユーザー一覧 */}
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">ユーザー一覧</h3>
               <div class="space-y-2">
                 <For
-                  each={searchResults().filter((result: SearchResult) => result.type === "user")}
+                  each={searchResults().filter((result: SearchResult) =>
+                    result.type === "user"
+                  )}
                 >
                   {(result: SearchResult) => {
                     // ローカルユーザーの詳細情報を取得
-                    const localUser = users().find(u => u.id === result.id);
-                    
+                    const localUser = users().find((u) => u.id === result.id);
+
                     return (
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                         <div class="flex items-center justify-between">
@@ -744,7 +728,7 @@ export default function UnifiedToolsContent() {
                                 <h4 class="font-semibold text-gray-200">
                                   {result.title}
                                 </h4>
-                                <Show when={result.origin && result.origin !== globalThis.location.host}>
+                                <Show when={result.origin}>
                                   <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
                                     {result.origin}
                                   </span>
@@ -754,48 +738,69 @@ export default function UnifiedToolsContent() {
                                 {result.subtitle}
                               </p>
                               <Show when={localUser?.bio}>
-                                <p class="text-sm text-gray-400 mt-1">{localUser!.bio}</p>
+                                <p class="text-sm text-gray-400 mt-1">
+                                  {localUser!.bio}
+                                </p>
                               </Show>
                               <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                                <Show when={result.metadata?.followers || localUser?.followerCount}>
+                                <Show
+                                  when={result.metadata?.followers ||
+                                    localUser?.followerCount}
+                                >
                                   <span>
-                                    {formatNumber(result.metadata?.followers || localUser?.followerCount || 0)} フォロワー
+                                    {formatNumber(
+                                      result.metadata?.followers ||
+                                        localUser?.followerCount || 0,
+                                    )} フォロワー
                                   </span>
                                 </Show>
                                 <Show when={localUser?.followingCount}>
-                                  <span>{formatNumber(localUser!.followingCount)} フォロー中</span>
+                                  <span>
+                                    {formatNumber(localUser!.followingCount)}
+                                    {" "}
+                                    フォロー中
+                                  </span>
                                 </Show>
                                 <Show when={localUser?.lastSeen}>
-                                  <span>最終アクティブ: {formatDate(localUser!.lastSeen!)}</span>
+                                  <span>
+                                    最終アクティブ:{" "}
+                                    {formatDate(localUser!.lastSeen!)}
+                                  </span>
                                 </Show>
                               </div>
                             </div>
                           </div>
                           <div class="flex space-x-2">
                             <Show when={result.actor}>
-                              {(localUser && 
-                                (followStatus()[result.actor!] ?? localUser.isFollowing)
-                              ) ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUnfollow(result.actor!, localUser?.id)
-                                  }
-                                  class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                >
-                                  フォロー中
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleFollow(result.actor!, localUser?.id)
-                                  }
-                                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
-                                >
-                                  フォロー
-                                </button>
-                              )}
+                              {(localUser &&
+                                  (followStatus()[result.actor!] ??
+                                    localUser.isFollowing))
+                                ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUnfollow(
+                                        result.actor!,
+                                        localUser?.id,
+                                      )}
+                                    class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                                  >
+                                    フォロー中
+                                  </button>
+                                )
+                                : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleFollow(
+                                        result.actor!,
+                                        localUser?.id,
+                                      )}
+                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                                  >
+                                    フォロー
+                                  </button>
+                                )}
                             </Show>
                           </div>
                         </div>
@@ -803,7 +808,11 @@ export default function UnifiedToolsContent() {
                     );
                   }}
                 </For>
-                <Show when={searchResults().filter((result: SearchResult) => result.type === "user").length === 0}>
+                <Show
+                  when={searchResults().filter((result: SearchResult) =>
+                    result.type === "user"
+                  ).length === 0}
+                >
                   <div class="text-center py-8 text-gray-400">
                     <svg
                       class="w-12 h-12 mx-auto mb-4 opacity-50"
@@ -829,35 +838,6 @@ export default function UnifiedToolsContent() {
         {/* 投稿タブ */}
         <Show when={activeTab() === "posts"}>
           <div class="space-y-6">
-            {/* 投稿検索バー */}
-            <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="relative">
-                <input
-                  type="text"
-                  placeholder="投稿内容、ハッシュタグで検索..."
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <svg
-                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z"
-                  />
-                </svg>
-              </div>
-              <div class="mt-2 text-xs text-gray-400">
-                <p>• ローカル投稿 + API検索</p>
-              </div>
-            </div>
-
             {/* 投稿検索結果 */}
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">投稿検索</h3>
@@ -909,35 +889,6 @@ export default function UnifiedToolsContent() {
         {/* コミュニティタブ */}
         <Show when={activeTab() === "communities"}>
           <div class="space-y-6">
-            {/* コミュニティ検索バー */}
-            <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="relative">
-                <input
-                  type="text"
-                  placeholder="コミュニティ名、説明、タグで検索..."
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <svg
-                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-              <div class="mt-2 text-xs text-gray-400">
-                <p>• ローカルコミュニティ + API検索</p>
-              </div>
-            </div>
-
             {/* コミュニティ一覧 */}
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">
@@ -945,12 +896,16 @@ export default function UnifiedToolsContent() {
               </h3>
               <div class="space-y-3">
                 <For
-                  each={searchResults().filter((result: SearchResult) => result.type === "community")}
+                  each={searchResults().filter((result: SearchResult) =>
+                    result.type === "community"
+                  )}
                 >
                   {(result: SearchResult) => {
                     // ローカルコミュニティの詳細情報を取得
-                    const localCommunity = communities().find(c => c.id === result.id);
-                    
+                    const localCommunity = communities().find((c) =>
+                      c.id === result.id
+                    );
+
                     return (
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                         <div class="flex items-start justify-between">
@@ -977,7 +932,7 @@ export default function UnifiedToolsContent() {
                                     プライベート
                                   </span>
                                 </Show>
-                                <Show when={result.origin && result.origin !== globalThis.location.host}>
+                                <Show when={result.origin}>
                                   <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
                                     {result.origin}
                                   </span>
@@ -987,19 +942,28 @@ export default function UnifiedToolsContent() {
                                 {result.subtitle}
                               </p>
                               <div class="flex items-center space-x-4 text-xs text-gray-500 mb-2">
-                                <Show when={result.metadata?.members || localCommunity?.memberCount}>
+                                <Show
+                                  when={result.metadata?.members ||
+                                    localCommunity?.memberCount}
+                                >
                                   <span>
-                                    {formatNumber(result.metadata?.members || localCommunity?.memberCount || 0)} メンバー
+                                    {formatNumber(
+                                      result.metadata?.members ||
+                                        localCommunity?.memberCount || 0,
+                                    )} メンバー
                                   </span>
                                 </Show>
                                 <Show when={localCommunity?.postCount}>
                                   <span>
-                                    {formatNumber(localCommunity!.postCount)} 投稿
+                                    {formatNumber(localCommunity!.postCount)}
+                                    {" "}
+                                    投稿
                                   </span>
                                 </Show>
                                 <Show when={localCommunity?.createdAt}>
                                   <span>
-                                    作成: {formatDate(localCommunity!.createdAt)}
+                                    作成:{" "}
+                                    {formatDate(localCommunity!.createdAt)}
                                   </span>
                                 </Show>
                               </div>
@@ -1046,7 +1010,11 @@ export default function UnifiedToolsContent() {
                     );
                   }}
                 </For>
-                <Show when={searchResults().filter((result: SearchResult) => result.type === "community").length === 0}>
+                <Show
+                  when={searchResults().filter((result: SearchResult) =>
+                    result.type === "community"
+                  ).length === 0}
+                >
                   <div class="text-center py-8 text-gray-400">
                     <svg
                       class="w-12 h-12 mx-auto mb-4 opacity-50"

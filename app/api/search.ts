@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
-import { getDomain } from "./utils/activitypub.ts";
+import { getDomain, resolveActor } from "./utils/activitypub.ts";
 
 interface SearchResult {
   type: "user" | "post";
@@ -17,10 +17,18 @@ interface SearchResult {
 const app = new Hono();
 
 app.get("/search", async (c) => {
-  const q = c.req.query("q")?.trim();
+  let q = c.req.query("q")?.trim();
   const type = c.req.query("type") ?? "all";
-  const server = c.req.query("server");
+  let server = c.req.query("server");
   if (!q) return c.json([]);
+
+  if (!server && q.includes("@")) {
+    const parts = q.split("@");
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      q = parts[0];
+      server = parts[1];
+    }
+  }
 
   const regex = new RegExp(q, "i");
   const results: SearchResult[] = [];
@@ -63,19 +71,38 @@ app.get("/search", async (c) => {
   }
 
   if (server) {
+    let remoteResults: SearchResult[] = [];
     try {
       const url = `https://${server}/api/search?q=${
         encodeURIComponent(q)
       }&type=${type}`;
       const res = await fetch(url);
       if (res.ok) {
-        const remote: SearchResult[] = await res.json();
-        for (const r of remote) {
+        remoteResults = await res.json<SearchResult[]>();
+        for (const r of remoteResults) {
           results.push({ ...r, origin: server });
         }
       }
     } catch {
       /* ignore */
+    }
+
+    if (
+      (type === "all" || type === "users") &&
+      !remoteResults.some((r) => r.type === "user")
+    ) {
+      const actor = await resolveActor(q, server);
+      if (actor) {
+        results.push({
+          type: "user",
+          id: actor.id,
+          title: actor.name ?? actor.preferredUsername ?? q,
+          subtitle: `@${actor.preferredUsername ?? q}`,
+          avatar: actor.icon?.url,
+          actor: actor.id,
+          origin: server,
+        });
+      }
     }
   }
 
