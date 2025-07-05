@@ -1,8 +1,8 @@
 import { JSX } from "solid-js/jsx-runtime";
-import { Show, createSignal, onMount } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 // Import atom state for navigation
 import { useAtom } from "solid-jotai";
-import { selectedAppState, AppPage } from "../../states/app.ts";
+import { AppPage, selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
 
 const HeaderButton = (props: { page: AppPage; children: JSX.Element }) => {
@@ -10,13 +10,15 @@ const HeaderButton = (props: { page: AppPage; children: JSX.Element }) => {
 
   return (
     <li
-      class={`l-header__ul-item ${selectedApp() === props.page ? 'is-active' : ''}`}
+      class={`l-header__ul-item ${
+        selectedApp() === props.page ? "is-active" : ""
+      }`}
       onClick={() => setSelectedApp(props.page)}
     >
       {props.children}
     </li>
   );
-}
+};
 
 export default function ChatHeader() {
   const [selectedApp] = useAtom(selectedAppState);
@@ -28,11 +30,11 @@ export default function ChatHeader() {
     const checkMobile = () => {
       setIsMobile(globalThis.innerWidth <= 768);
     };
-    
+
     checkMobile();
-    globalThis.addEventListener('resize', checkMobile);
-    
-    return () => globalThis.removeEventListener('resize', checkMobile);
+    globalThis.addEventListener("resize", checkMobile);
+
+    return () => globalThis.removeEventListener("resize", checkMobile);
   });
 
   // チャットページでヘッダーを非表示にするかどうかを判定
@@ -44,13 +46,13 @@ export default function ChatHeader() {
   return (
     <Show when={!shouldHideHeader()}>
       <header
-        class={`l-header ${isMobile() ? 'l-header--mobile' : 'l-header--desktop'}`}
+        class={`l-header ${
+          isMobile() ? "l-header--mobile" : "l-header--desktop"
+        }`}
         id="header"
       >
         <ul class="l-header__ul">
-          <HeaderButton
-            page="home"
-          >
+          <HeaderButton page="home">
             <a>
               <svg
                 role="img"
@@ -71,9 +73,7 @@ export default function ChatHeader() {
               </svg>
             </a>
           </HeaderButton>
-                    <HeaderButton
-            page="chat"
-          >
+          <HeaderButton page="chat">
             <a>
               <svg
                 role="img"
@@ -94,9 +94,7 @@ export default function ChatHeader() {
             </a>
           </HeaderButton>
 
-          <HeaderButton
-            page="tools"
-          >
+          <HeaderButton page="tools">
             <a>
               <svg
                 role="img"
@@ -117,33 +115,29 @@ export default function ChatHeader() {
             </a>
           </HeaderButton>
 
-          <HeaderButton
-            page="microblog"
-          >
+          <HeaderButton page="microblog">
             <a>
               <svg
-              role="img"
-              xmlns="http://www.w3.org/2000/svg"
-              width="100%"
-              height="100%"
-              viewBox="0 0 24 24"
-              aria-labelledby="microblogIconTitle"
-              stroke="#ffffff"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              fill="none"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+                aria-labelledby="microblogIconTitle"
+                stroke="#ffffff"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
               >
-              <title id="microblogIconTitle">Microblog</title>
-              <path d="M4 21h16" />
-              <path d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
+                <title id="microblogIconTitle">Microblog</title>
+                <path d="M4 21h16" />
+                <path d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
               </svg>
             </a>
           </HeaderButton>
 
-          <HeaderButton
-            page="videos"
-          >
+          <HeaderButton page="videos">
             <a>
               <svg
                 role="img"

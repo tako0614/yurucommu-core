@@ -50,7 +50,9 @@ export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   }
 };
 
-export const fetchFollowingPosts = async (username: string): Promise<MicroblogPost[]> => {
+export const fetchFollowingPosts = async (
+  username: string,
+): Promise<MicroblogPost[]> => {
   try {
     const response = await fetch(`/api/users/${username}/timeline`);
     if (!response.ok) {
@@ -144,7 +146,11 @@ export const fetchCommunityPosts = async (communityId: string) => {
   }
 };
 
-export const createCommunityPost = async (communityId: string, content: string, author: string) => {
+export const createCommunityPost = async (
+  communityId: string,
+  content: string,
+  author: string,
+) => {
   try {
     const response = await fetch(`/api/communities/${communityId}/posts`, {
       method: "POST",
@@ -160,11 +166,17 @@ export const createCommunityPost = async (communityId: string, content: string, 
   }
 };
 
-export const likeCommunityPost = async (communityId: string, postId: string) => {
+export const likeCommunityPost = async (
+  communityId: string,
+  postId: string,
+) => {
   try {
-    const response = await fetch(`/api/communities/${communityId}/posts/${postId}/like`, {
-      method: "POST",
-    });
+    const response = await fetch(
+      `/api/communities/${communityId}/posts/${postId}/like`,
+      {
+        method: "POST",
+      },
+    );
     if (!response.ok) return null;
     const data = await response.json();
     return typeof data.likes === "number" ? data.likes : null;
@@ -176,7 +188,9 @@ export const likeCommunityPost = async (communityId: string, postId: string) => 
 
 export const searchUsers = async (query: string) => {
   try {
-    const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch(
+      `/api/users/search?q=${encodeURIComponent(query)}`,
+    );
     if (!response.ok) {
       throw new Error("Failed to search users");
     }
@@ -187,7 +201,10 @@ export const searchUsers = async (query: string) => {
   }
 };
 
-export const followUser = async (username: string, followerUsername: string) => {
+export const followUser = async (
+  username: string,
+  followerUsername: string,
+) => {
   try {
     const response = await fetch(`/api/users/${username}/follow`, {
       method: "POST",
@@ -203,7 +220,10 @@ export const followUser = async (username: string, followerUsername: string) => 
   }
 };
 
-export const unfollowUser = async (username: string, followerUsername: string) => {
+export const unfollowUser = async (
+  username: string,
+  followerUsername: string,
+) => {
   try {
     const response = await fetch(`/api/users/${username}/unfollow`, {
       method: "POST",

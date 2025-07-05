@@ -32,7 +32,9 @@ app.post("/notifications", async (c) => {
 
 app.put("/notifications/:id/read", async (c) => {
   const id = c.req.param("id");
-  const n = await Notification.findByIdAndUpdate(id, { read: true }, { new: true });
+  const n = await Notification.findByIdAndUpdate(id, { read: true }, {
+    new: true,
+  });
   if (!n) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });

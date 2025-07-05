@@ -2,7 +2,8 @@
 
 ## 概要
 
-Takopack 3.0では、シンプルで型安全なクラスベースAPIを使用してイベントを定義します。JSDocやデコレータベースの定義は廃止され、クラスインスタンスによる登録のみがサポートされます。
+Takopack
+3.0では、シンプルで型安全なクラスベースAPIを使用してイベントを定義します。JSDocやデコレータベースの定義は廃止され、クラスインスタンスによる登録のみがサポートされます。
 
 ## 基本的な使用方法
 
@@ -24,6 +25,7 @@ takos.client("eventName", (payload: unknown) => {
 ### 2. 各レイヤーでの実装例
 
 #### Client レイヤー (`src/client/events.ts`)
+
 ```typescript
 import { Takos } from "../../../../packages/builder/src/classes.ts";
 
@@ -41,6 +43,7 @@ clientTakos.client("serverToClient", (payload: unknown) => {
 ```
 
 #### Server レイヤー (`src/server/events.ts`)
+
 ```typescript
 import { Takos } from "../../../../packages/builder/src/classes.ts";
 
@@ -60,11 +63,13 @@ serverTakos.server("uiToServer", (payload: unknown) => {
 ## 重要なポイント
 
 ### ✅ 推奨される書き方
+
 - クラスインスタンスを`export`する
 - イベントハンドラーは匿名関数またはアロー関数で直接登録
 - 個別のハンドラー関数は`export`しない
 
 ### ❌ 廃止された書き方
+
 ```typescript
 // ❌ JSDoc方式 (もう使えません)
 /**
@@ -73,7 +78,7 @@ serverTakos.server("uiToServer", (payload: unknown) => {
 export function myHandler() {}
 
 // ❌ デコレータ方式 (もう使えません)
-@event("myEvent")
+
 export function myHandler() {}
 
 // ❌ 個別ハンドラーのexport (推奨しません)
@@ -101,7 +106,7 @@ takos.client("myEvent", myHandler);
       "handler": "anonymous"
     },
     "clientToServer": {
-      "source": "server", 
+      "source": "server",
       "handler": "anonymous"
     }
   }

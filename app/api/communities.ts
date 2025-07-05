@@ -19,8 +19,8 @@ app.get("/communities", async (c) => {
         const extra = community.extra as Record<string, unknown>;
         const members = extra?.members as string[] | undefined;
         const memberCount = members?.length || 0;
-        const communityId = typeof community._id === "string" 
-          ? community._id 
+        const communityId = typeof community._id === "string"
+          ? community._id
           : (community._id as { toString: () => string })?.toString() || "";
         const postCount = await ActivityPubObject.countDocuments({
           type: "CommunityPost",
@@ -35,14 +35,16 @@ app.get("/communities", async (c) => {
           banner: (community.extra as Record<string, unknown>)?.banner || "",
           memberCount,
           postCount,
-          isPrivate: (community.extra as Record<string, unknown>)?.isPrivate || false,
+          isPrivate: (community.extra as Record<string, unknown>)?.isPrivate ||
+            false,
           tags: (community.extra as Record<string, unknown>)?.tags || [],
           rules: (community.extra as Record<string, unknown>)?.rules || [],
           createdAt: community.published,
-          moderators: (community.extra as Record<string, unknown>)?.moderators || [],
+          moderators:
+            (community.extra as Record<string, unknown>)?.moderators || [],
           domain,
         };
-      })
+      }),
     );
 
     return c.json(formatted);
@@ -56,7 +58,8 @@ app.get("/communities", async (c) => {
 app.post("/communities", async (c) => {
   try {
     const domain = getDomain(c);
-    const { name, description, isPrivate, tags, avatar, banner } = await c.req.json();
+    const { name, description, isPrivate, tags, avatar, banner } = await c.req
+      .json();
 
     if (typeof name !== "string" || !name.trim()) {
       return c.json({ error: "Community name is required" }, 400);
@@ -138,11 +141,13 @@ app.get("/communities/:id", async (c) => {
       banner: (community.extra as Record<string, unknown>)?.banner || "",
       memberCount,
       postCount,
-      isPrivate: (community.extra as Record<string, unknown>)?.isPrivate || false,
+      isPrivate: (community.extra as Record<string, unknown>)?.isPrivate ||
+        false,
       tags: (community.extra as Record<string, unknown>)?.tags || [],
       rules: (community.extra as Record<string, unknown>)?.rules || [],
       createdAt: community.published,
-      moderators: (community.extra as Record<string, unknown>)?.moderators || [],
+      moderators: (community.extra as Record<string, unknown>)?.moderators ||
+        [],
       domain,
     });
   } catch (error) {
@@ -200,7 +205,7 @@ app.post("/communities/:id/leave", async (c) => {
 
     const extra = community.extra as Record<string, unknown>;
     const members = (extra.members as string[]) || [];
-    const updatedMembers = members.filter(member => member !== username);
+    const updatedMembers = members.filter((member) => member !== username);
 
     extra.members = updatedMembers;
     community.extra = extra;
@@ -218,7 +223,7 @@ app.get("/communities/:id/posts", async (c) => {
   try {
     const domain = getDomain(c);
     const communityId = c.req.param("id");
-    
+
     const posts = await ActivityPubObject.find({
       type: "CommunityPost",
       "extra.communityId": communityId,
@@ -226,12 +231,13 @@ app.get("/communities/:id/posts", async (c) => {
 
     const formatted = await Promise.all(
       posts.map(async (post: Record<string, unknown>) => {
-        const account = await Account.findOne({ userName: post.attributedTo }).lean();
-        
-        const postId = typeof post._id === "string" 
-          ? post._id 
+        const account = await Account.findOne({ userName: post.attributedTo })
+          .lean();
+
+        const postId = typeof post._id === "string"
+          ? post._id
           : (post._id as { toString: () => string })?.toString() || "";
-        
+
         return {
           id: postId,
           communityId,
@@ -246,7 +252,7 @@ app.get("/communities/:id/posts", async (c) => {
           isPinned: (post.extra as Record<string, unknown>)?.isPinned || false,
           domain,
         };
-      })
+      }),
     );
 
     return c.json(formatted);
@@ -313,7 +319,7 @@ app.post("/communities/:id/posts", async (c) => {
 app.post("/communities/:communityId/posts/:postId/like", async (c) => {
   try {
     const postId = c.req.param("postId");
-    
+
     const post = await ActivityPubObject.findByIdAndUpdate(postId, {
       $inc: { "extra.likes": 1 },
     }, { new: true });
@@ -322,7 +328,9 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
       return c.json({ error: "Post not found" }, 404);
     }
 
-    return c.json({ likes: (post.extra as Record<string, unknown>)?.likes || 0 });
+    return c.json({
+      likes: (post.extra as Record<string, unknown>)?.likes || 0,
+    });
   } catch (error) {
     console.error("Error liking community post:", error);
     return c.json({ error: "Failed to like post" }, 500);

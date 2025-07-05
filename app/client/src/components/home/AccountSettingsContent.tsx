@@ -1,17 +1,14 @@
-import {
-  Component,
-  createEffect,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { Account, isDataUrl } from "./types.ts";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
   selectedAccountId: string;
   setSelectedAccountId: (id: string) => void;
-  addNewAccount: (username: string, displayName?: string) => Promise<{ success: boolean; error?: string }>;
+  addNewAccount: (
+    username: string,
+    displayName?: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   updateAccount: (id: string, updates: Partial<Account>) => void;
   deleteAccount: (id: string) => void;
 }> = (props) => {
@@ -118,7 +115,7 @@ const AccountSettingsContent: Component<{
   const [newAccountForm, setNewAccountForm] = createSignal({
     username: "",
     displayName: "",
-    error: ""
+    error: "",
   });
 
   const handleCreateNewAccount = async () => {
@@ -133,7 +130,10 @@ const AccountSettingsContent: Component<{
       setShowNewAccountModal(false);
       setNewAccountForm({ username: "", displayName: "", error: "" });
     } else {
-      setNewAccountForm({ ...form, error: result.error || "アカウント作成に失敗しました" });
+      setNewAccountForm({
+        ...form,
+        error: result.error || "アカウント作成に失敗しました",
+      });
     }
   };
 
@@ -144,13 +144,15 @@ const AccountSettingsContent: Component<{
         <div>
           {/* カバー画像エリア */}
           <div class="relative">
-            <div class="h-48 md:h-64 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500"></div>
-            
+            <div class="h-48 md:h-64 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500">
+            </div>
+
             {/* プロフィール画像 */}
             <div class="absolute -bottom-16 max-w-4xl mx-auto left-0 right-0 px-4 md:px-8">
               <button
                 type="button"
-                onClick={() => isEditing() && document.getElementById('file-input')?.click()}
+                onClick={() =>
+                  isEditing() && document.getElementById("file-input")?.click()}
                 class="relative group focus:outline-none block"
                 disabled={!isEditing()}
               >
@@ -161,9 +163,24 @@ const AccountSettingsContent: Component<{
                 />
                 <Show when={isEditing()}>
                   <div class="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                    <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <svg
+                      class="w-8 h-8 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                      />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
                     </svg>
                   </div>
                 </Show>
@@ -199,11 +216,13 @@ const AccountSettingsContent: Component<{
                   @{editingUserName() || "ユーザー名未設定"}
                 </p>
               </Show>
-              
+
               <Show when={isEditing()}>
                 <div class="space-y-4 max-w-md">
                   <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">表示名</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">
+                      表示名
+                    </label>
                     <input
                       type="text"
                       class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -216,16 +235,22 @@ const AccountSettingsContent: Component<{
                     />
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">ユーザー名（変更不可）</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">
+                      ユーザー名（変更不可）
+                    </label>
                     <div class="relative">
-                      <span class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">@</span>
+                      <span class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
+                        @
+                      </span>
                       <div class="w-full bg-gray-800/50 border border-gray-600 rounded-lg pl-8 pr-4 py-3 text-gray-400 cursor-not-allowed">
                         {editingUserName() || "ユーザー名未設定"}
                       </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1">ユーザー名はアカウント作成後は変更できません</p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      ユーザー名はアカウント作成後は変更できません
+                    </p>
                   </div>
-                  
+
                   {/* 編集時のボタン */}
                   <div class="flex space-x-3 mt-6">
                     <button
@@ -289,12 +314,15 @@ const AccountSettingsContent: Component<{
               </Show>
               <Show when={isEditing()}>
                 <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">自己紹介</label>
+                  <label class="block text-sm font-medium text-gray-300 mb-2">
+                    自己紹介
+                  </label>
                   <textarea
                     class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                     placeholder="自己紹介を書いてみましょう..."
                     rows={4}
-                  ></textarea>
+                  >
+                  </textarea>
                 </div>
               </Show>
             </div>
@@ -303,12 +331,26 @@ const AccountSettingsContent: Component<{
             <Show when={isEditing() && showDeleteConfirm()}>
               <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 space-y-3 mb-6">
                 <div class="flex items-center space-x-2">
-                  <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  <svg
+                    class="w-5 h-5 text-red-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+                    />
                   </svg>
-                  <h4 class="font-medium text-red-400">アカウントを削除しますか？</h4>
+                  <h4 class="font-medium text-red-400">
+                    アカウントを削除しますか？
+                  </h4>
                 </div>
-                <p class="text-sm text-red-300">この操作は取り消せません。すべてのデータが失われます。</p>
+                <p class="text-sm text-red-300">
+                  この操作は取り消せません。すべてのデータが失われます。
+                </p>
                 <div class="flex space-x-3">
                   <button
                     type="button"
@@ -348,18 +390,42 @@ const AccountSettingsContent: Component<{
               <details class="group">
                 <summary class="flex items-center justify-between cursor-pointer text-gray-400 hover:text-gray-300 transition-colors duration-200 text-sm font-medium">
                   <div class="flex items-center space-x-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    <svg
+                      class="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+                      />
                     </svg>
                     <span>アカウントを切り替え ({props.accounts.length})</span>
                   </div>
-                  <svg class="w-4 h-4 transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  <svg
+                    class="w-4 h-4 transition-transform duration-200 group-open:rotate-180"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M19 9l-7 7-7-7"
+                    />
                   </svg>
                 </summary>
-                
+
                 <div class="mt-4 space-y-2">
-                  <For each={props.accounts.filter(a => a.id !== props.selectedAccountId)}>
+                  <For
+                    each={props.accounts.filter((a) =>
+                      a.id !== props.selectedAccountId
+                    )}
+                  >
                     {(account) => (
                       <button
                         type="button"
@@ -375,29 +441,53 @@ const AccountSettingsContent: Component<{
                           <p class="text-sm font-medium text-gray-300 group-hover:text-white transition-colors duration-200 truncate">
                             {account.displayName}
                           </p>
-                          <p class="text-xs text-gray-500 truncate">@{account.userName}</p>
+                          <p class="text-xs text-gray-500 truncate">
+                            @{account.userName}
+                          </p>
                         </div>
-                        <svg class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        <svg
+                          class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors duration-200"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M9 5l7 7-7 7"
+                          />
                         </svg>
                       </button>
                     )}
                   </For>
-                      <button
-                  type="button"
-                  onClick={() => setShowNewAccountModal(true)}
-                  class="w-full flex items-center space-x-3 p-3 rounded-lg border border-dashed border-gray-700/50 hover:border-gray-600/50 hover:bg-gray-800/20 text-left transition-all duration-200 group"
-                >
+                  <button
+                    type="button"
+                    onClick={() => setShowNewAccountModal(true)}
+                    class="w-full flex items-center space-x-3 p-3 rounded-lg border border-dashed border-gray-700/50 hover:border-gray-600/50 hover:bg-gray-800/20 text-left transition-all duration-200 group"
+                  >
                     <div class="h-8 w-8 rounded-full bg-gray-800/50 group-hover:bg-gray-700/50 flex items-center justify-center flex-shrink-0 transition-all duration-200">
-                      <svg class="h-4 w-4 text-gray-500 group-hover:text-gray-400 transition-colors duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      <svg
+                        class="h-4 w-4 text-gray-500 group-hover:text-gray-400 transition-colors duration-200"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                        />
                       </svg>
                     </div>
                     <div>
                       <p class="text-sm font-medium text-gray-400 group-hover:text-gray-300 transition-colors duration-200">
                         新しいアカウントを追加
                       </p>
-                      <p class="text-xs text-gray-600">別のアカウントでログイン</p>
+                      <p class="text-xs text-gray-600">
+                        別のアカウントでログイン
+                      </p>
                     </div>
                   </button>
                 </div>
@@ -412,55 +502,69 @@ const AccountSettingsContent: Component<{
         <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div class="bg-gray-900 rounded-lg max-w-md w-full p-6 space-y-4">
             <h3 class="text-xl font-bold text-white">新しいアカウントを作成</h3>
-            
+
             <div class="space-y-4">
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">ユーザー名 *</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                  ユーザー名 *
+                </label>
                 <div class="relative">
-                  <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">@</span>
+                  <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                    @
+                  </span>
                   <input
                     type="text"
                     class="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="ユーザー名を入力"
                     value={newAccountForm().username}
-                    onInput={(e) => setNewAccountForm({
-                      ...newAccountForm(),
-                      username: e.currentTarget.value,
-                      error: ""
-                    })}
+                    onInput={(e) =>
+                      setNewAccountForm({
+                        ...newAccountForm(),
+                        username: e.currentTarget.value,
+                        error: "",
+                      })}
                   />
                 </div>
-                <p class="text-xs text-gray-500 mt-1">ユーザー名は作成後変更できません</p>
+                <p class="text-xs text-gray-500 mt-1">
+                  ユーザー名は作成後変更できません
+                </p>
               </div>
-              
+
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">表示名</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                  表示名
+                </label>
                 <input
                   type="text"
                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="表示名を入力（省略可）"
                   value={newAccountForm().displayName}
-                  onInput={(e) => setNewAccountForm({
-                    ...newAccountForm(),
-                    displayName: e.currentTarget.value,
-                    error: ""
-                  })}
+                  onInput={(e) =>
+                    setNewAccountForm({
+                      ...newAccountForm(),
+                      displayName: e.currentTarget.value,
+                      error: "",
+                    })}
                 />
               </div>
-              
+
               <Show when={newAccountForm().error}>
                 <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                   <p class="text-sm text-red-400">{newAccountForm().error}</p>
                 </div>
               </Show>
             </div>
-            
+
             <div class="flex space-x-3 pt-4">
               <button
                 type="button"
                 onClick={() => {
                   setShowNewAccountModal(false);
-                  setNewAccountForm({ username: "", displayName: "", error: "" });
+                  setNewAccountForm({
+                    username: "",
+                    displayName: "",
+                    error: "",
+                  });
                 }}
                 class="flex-1 py-2 px-4 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors"
               >

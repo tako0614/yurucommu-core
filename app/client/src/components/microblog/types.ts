@@ -1,4 +1,3 @@
-
 export interface MicroblogPost {
   id: string;
   content: string;
@@ -23,7 +22,7 @@ export interface Story {
   author: string;
   content: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'video';
+  mediaType?: "image" | "video";
   createdAt: string;
   expiresAt: string;
   views: number;

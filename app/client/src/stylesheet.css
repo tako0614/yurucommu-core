@@ -881,21 +881,21 @@ input {
   .microblog-container {
     padding: 15px;
   }
-  
+
   .post-form-container {
     padding: 15px;
   }
-  
+
   .post-item {
     padding: 15px;
   }
-  
+
   .post-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 5px;
   }
-  
+
   .post-actions {
     justify-content: center;
   }

@@ -7,7 +7,9 @@
 ## ✅ 移行完了済みプロジェクト
 
 ### 1. `examples/api-test`
+
 **変更前 (JSDoc + 個別関数export)**:
+
 ```typescript
 /**
  * @event serverToClient
@@ -18,6 +20,7 @@ export function onServerToClient(payload: EventPayload) {
 ```
 
 **変更後 (シンプルなクラスベースAPI)**:
+
 ```typescript
 import { Takos } from "../../../../packages/builder/src/classes.ts";
 
@@ -30,11 +33,13 @@ takos.client("serverToClient", (payload: unknown) => {
 ```
 
 ### 2. `examples/layer-communication-test`
+
 同様にJSDocベースからクラスベースAPIに完全移行。
 
 ## 🚀 新しいAPI仕様
 
 ### シンプルな記法
+
 ```typescript
 // 1. Takosクラスをインポート
 import { Takos } from "../../../../packages/builder/src/classes.ts";
@@ -55,6 +60,7 @@ takos.server("serverEvent", (payload: unknown) => {
 ## 🔧 ビルド結果
 
 ### api-test
+
 ```
 ✅ Found Takopack extension instance: serverTakos (Takos)
 ✅ Registered event: clientToServer -> anonymous (server)
@@ -68,6 +74,7 @@ takos.server("serverEvent", (payload: unknown) => {
 ```
 
 ### layer-communication-test
+
 ```
 ✅ Found Takopack extension instance: clientTakos (Takos)
 ✅ Registered event: serverToClient -> anonymous (client)
@@ -101,8 +108,8 @@ takos.server("serverEvent", (payload: unknown) => {
  */
 export function handler() {}
 
-// ❌ デコレータ方式  
-@event("eventName")
+// ❌ デコレータ方式
+
 export function handler() {}
 
 // ❌ 個別ハンドラーexport (推奨しません)
@@ -126,4 +133,5 @@ takos.client("eventName", handler);
 - より高度な型安全性の実装
 - 開発者向けガイドとベストプラクティスの整備
 
-すべてのexampleプロジェクトでJSDoc/デコレータ方式を完全に削除し、シンプルで統一されたクラスベースAPIに移行が完了しました！ 🎉
+すべてのexampleプロジェクトでJSDoc/デコレータ方式を完全に削除し、シンプルで統一されたクラスベースAPIに移行が完了しました！
+🎉

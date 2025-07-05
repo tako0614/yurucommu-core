@@ -1,4 +1,4 @@
-import { Show, createSignal, onMount } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
@@ -19,17 +19,18 @@ export function Application() {
     const checkMobile = () => {
       setIsMobile(globalThis.innerWidth <= 768);
     };
-    
+
     checkMobile();
-    globalThis.addEventListener('resize', checkMobile);
-    
-    return () => globalThis.removeEventListener('resize', checkMobile);
+    globalThis.addEventListener("resize", checkMobile);
+
+    return () => globalThis.removeEventListener("resize", checkMobile);
   });
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成
   const wrapperClass = () => {
     const baseClass = "wrapper";
-    const isHeaderHidden = selectedApp() === "chat" && isMobile() && selectedRoom() !== null;
+    const isHeaderHidden = selectedApp() === "chat" && isMobile() &&
+      selectedRoom() !== null;
     return isHeaderHidden ? `${baseClass} no-header` : baseClass;
   };
 

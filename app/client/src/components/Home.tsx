@@ -4,11 +4,14 @@ import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
-import { accounts as accountsAtom, activeAccountId } from "../states/account.ts";
+import {
+  accounts as accountsAtom,
+  activeAccountId,
+} from "../states/account.ts";
 
 export function Home() {
   const [activeSection, setActiveSection] = createSignal("account");
-  
+
   // スワイプ機能用の状態
   const [touchStartX, setTouchStartX] = createSignal(0);
   const [touchStartY, setTouchStartY] = createSignal(0);
@@ -17,7 +20,7 @@ export function Home() {
 
   // セクションの順序を定義
   const sections = ["account", "notifications", "settings"];
-  
+
   // スワイプ検知の最小距離とY軸の許容範囲
   const MIN_SWIPE_DISTANCE = 50;
   const MAX_Y_VARIANCE = 100;
@@ -25,16 +28,16 @@ export function Home() {
   // スワイプによるセクション切り替え
   const handleSwipe = (direction: "left" | "right") => {
     if (!isSwipeEnabled()) return;
-    
+
     const currentIndex = sections.indexOf(activeSection());
     let newIndex = currentIndex;
-    
+
     if (direction === "left" && currentIndex < sections.length - 1) {
       newIndex = currentIndex + 1;
     } else if (direction === "right" && currentIndex > 0) {
       newIndex = currentIndex - 1;
     }
-    
+
     if (newIndex !== currentIndex) {
       setActiveSection(sections[newIndex]);
     }
@@ -49,16 +52,16 @@ export function Home() {
 
   const handleTouchEnd = (e: TouchEvent) => {
     if (!isSwipeEnabled()) return;
-    
+
     const touchEndX = e.changedTouches[0].clientX;
     const touchEndY = e.changedTouches[0].clientY;
-    
+
     const deltaX = touchEndX - touchStartX();
     const deltaY = touchEndY - touchStartY();
-    
+
     // Y軸の移動が大きすぎる場合はスワイプとみなさない（スクロール操作の可能性）
     if (Math.abs(deltaY) > MAX_Y_VARIANCE) return;
-    
+
     // 最小スワイプ距離をチェック
     if (Math.abs(deltaX) > MIN_SWIPE_DISTANCE) {
       if (deltaX > 0) {
@@ -106,17 +109,17 @@ export function Home() {
       const response = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           username: username.trim(),
-          displayName: displayName?.trim() || username.trim()
+          displayName: displayName?.trim() || username.trim(),
         }),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || "Failed to create account");
       }
-      
+
       const result = await response.json();
       const newAccountId = result.id;
       await loadAccounts(newAccountId);
@@ -124,9 +127,11 @@ export function Home() {
       return { success: true };
     } catch (error) {
       console.error("Failed to create account:", error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : "Unknown error occurred"
+      return {
+        success: false,
+        error: error instanceof Error
+          ? error.message
+          : "Unknown error occurred",
       };
     }
   };
@@ -214,23 +219,27 @@ export function Home() {
 
   onMount(() => {
     loadAccounts();
-    
+
     // タッチイベントリスナーを追加
     const addTouchListeners = () => {
       if (mainContentRef) {
-        mainContentRef.addEventListener('touchstart', handleTouchStart, { passive: true });
-        mainContentRef.addEventListener('touchend', handleTouchEnd, { passive: true });
+        mainContentRef.addEventListener("touchstart", handleTouchStart, {
+          passive: true,
+        });
+        mainContentRef.addEventListener("touchend", handleTouchEnd, {
+          passive: true,
+        });
       }
     };
-    
+
     // DOMが準備できたら追加
     setTimeout(addTouchListeners, 100);
-    
+
     // クリーンアップ関数
     return () => {
       if (mainContentRef) {
-        mainContentRef.removeEventListener('touchstart', handleTouchStart);
-        mainContentRef.removeEventListener('touchend', handleTouchEnd);
+        mainContentRef.removeEventListener("touchstart", handleTouchStart);
+        mainContentRef.removeEventListener("touchend", handleTouchEnd);
       }
     };
   });
@@ -310,16 +319,14 @@ export function Home() {
             </button>
           </div>
         </div>
-        
+
         {/* スワイプインジケーター */}
         <div class="flex justify-center pb-2">
           <div class="flex space-x-2">
             {sections.map((section) => (
               <div
                 class={`w-2 h-2 rounded-full transition-all duration-200 ${
-                  activeSection() === section
-                    ? "bg-teal-400"
-                    : "bg-gray-600"
+                  activeSection() === section ? "bg-teal-400" : "bg-gray-600"
                 }`}
               />
             ))}
@@ -328,7 +335,7 @@ export function Home() {
       </header>
 
       {/* メインコンテンツ */}
-      <main 
+      <main
         ref={mainContentRef}
         class="flex-1 p-0 sm:p-0 md:p-0 touch-pan-y select-none"
       >

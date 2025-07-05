@@ -218,7 +218,7 @@ export async function verifyHttpSignature(
       if (h === "(request-target)") {
         // request-targetにクエリパラメータも含める
         value = `${req.method.toLowerCase()} ${url.pathname}${url.search}`;
-              } else if (h === "host") {
+      } else if (h === "host") {
         // リバースプロキシ環境では x-forwarded-host を優先
         value = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
       } else if (h === "content-length") {

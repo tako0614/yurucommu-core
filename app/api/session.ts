@@ -5,26 +5,26 @@ import Session from "./models/session.ts";
 const app = new Hono();
 
 app.get("/session/status", async (c) => {
-    const sessionId = getCookie(c, "sessionId");
-    if (!sessionId) {
-        return c.json({ login: false });
-    }
+  const sessionId = getCookie(c, "sessionId");
+  if (!sessionId) {
+    return c.json({ login: false });
+  }
 
-    try {
-        const session = await Session.findOne({ sessionId });
-        if (session && session.expiresAt > new Date()) {
-            return c.json({ login: true });
-        } else {
-            if (session) {
-                // Clean up expired session
-                await Session.deleteOne({ sessionId });
-            }
-            return c.json({ login: false });
-        }
-    } catch (error) {
-        console.error("Session status check failed:", error);
-        return c.json({ login: false, error: "Server error" }, 500);
+  try {
+    const session = await Session.findOne({ sessionId });
+    if (session && session.expiresAt > new Date()) {
+      return c.json({ login: true });
+    } else {
+      if (session) {
+        // Clean up expired session
+        await Session.deleteOne({ sessionId });
+      }
+      return c.json({ login: false });
     }
+  } catch (error) {
+    console.error("Session status check failed:", error);
+    return c.json({ login: false, error: "Server error" }, 500);
+  }
 });
 
 export default app;

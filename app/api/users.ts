@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
-import { getDomain, createFollowActivity, createUndoFollowActivity, deliverActivityPubObject, fetchActorInbox } from "./utils/activitypub.ts";
+import {
+  createFollowActivity,
+  createUndoFollowActivity,
+  deliverActivityPubObject,
+  fetchActorInbox,
+  getDomain,
+} from "./utils/activitypub.ts";
 
 const app = new Hono();
 
@@ -97,7 +103,9 @@ app.post("/users/:username/follow", async (c) => {
     }
 
     // 既にフォローしているかチェック
-    const isAlreadyFollowing = followerUser.following?.includes(`https://${domain}/users/${targetUsername}`) || false;
+    const isAlreadyFollowing = followerUser.following?.includes(
+      `https://${domain}/users/${targetUsername}`,
+    ) || false;
     if (isAlreadyFollowing) {
       return c.json({ error: "Already following this user" }, 409);
     }
@@ -105,19 +113,21 @@ app.post("/users/:username/follow", async (c) => {
     // フォロー関係を更新
     await Account.updateOne(
       { userName: followerUsername },
-      { $addToSet: { following: `https://${domain}/users/${targetUsername}` } }
+      { $addToSet: { following: `https://${domain}/users/${targetUsername}` } },
     );
 
     await Account.updateOne(
       { userName: targetUsername },
-      { $addToSet: { followers: `https://${domain}/users/${followerUsername}` } }
+      {
+        $addToSet: { followers: `https://${domain}/users/${followerUsername}` },
+      },
     );
 
     // ActivityPub Follow アクティビティを作成・配信
     const followActivity = createFollowActivity(
       domain,
       `https://${domain}/users/${followerUsername}`,
-      `https://${domain}/users/${targetUsername}`
+      `https://${domain}/users/${targetUsername}`,
     );
 
     // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
@@ -144,19 +154,19 @@ app.post("/users/:username/unfollow", async (c) => {
     // フォロー関係を削除
     await Account.updateOne(
       { userName: followerUsername },
-      { $pull: { following: `https://${domain}/users/${targetUsername}` } }
+      { $pull: { following: `https://${domain}/users/${targetUsername}` } },
     );
 
     await Account.updateOne(
       { userName: targetUsername },
-      { $pull: { followers: `https://${domain}/users/${followerUsername}` } }
+      { $pull: { followers: `https://${domain}/users/${followerUsername}` } },
     );
 
     // ActivityPub Undo Follow アクティビティを作成・配信
     const undoFollowActivity = createUndoFollowActivity(
       domain,
       `https://${domain}/users/${followerUsername}`,
-      `https://${domain}/users/${targetUsername}`
+      `https://${domain}/users/${targetUsername}`,
     );
 
     // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
@@ -188,7 +198,9 @@ app.get("/users/:username/followers", async (c) => {
         // ローカルユーザーの場合
         if (followerUrl.includes(domain)) {
           const followerUsername = followerUrl.split("/").pop();
-          const followerUser = await Account.findOne({ userName: followerUsername }).lean();
+          const followerUser = await Account.findOne({
+            userName: followerUsername,
+          }).lean();
           if (followerUser) {
             followerData.push({
               userName: followerUser.userName,
@@ -240,7 +252,9 @@ app.get("/users/:username/following", async (c) => {
         // ローカルユーザーの場合
         if (followingUrl.includes(domain)) {
           const followingUsername = followingUrl.split("/").pop();
-          const followingUser = await Account.findOne({ userName: followingUsername }).lean();
+          const followingUser = await Account.findOne({
+            userName: followingUsername,
+          }).lean();
           if (followingUser) {
             followingData.push({
               userName: followingUser.userName,
@@ -286,8 +300,8 @@ app.get("/users/:username/timeline", async (c) => {
 
     const following = user.following || [];
     const followingUsernames = following
-      .filter(url => url.includes(domain))
-      .map(url => url.split("/").pop())
+      .filter((url: string | string[]) => url.includes(domain))
+      .map((url: string) => url.split("/").pop())
       .filter(Boolean);
 
     // フォロー中ユーザーの投稿を取得
@@ -298,11 +312,12 @@ app.get("/users/:username/timeline", async (c) => {
 
     const formatted = await Promise.all(
       posts.map(async (post: Record<string, unknown>) => {
-        const account = await Account.findOne({ userName: post.attributedTo }).lean();
-        
+        const account = await Account.findOne({ userName: post.attributedTo })
+          .lean();
+
         return {
-          id: typeof post._id === "string" 
-            ? post._id 
+          id: typeof post._id === "string"
+            ? post._id
             : (post._id as { toString: () => string })?.toString() || "",
           userName: post.attributedTo,
           displayName: account?.displayName || post.attributedTo,
@@ -314,7 +329,7 @@ app.get("/users/:username/timeline", async (c) => {
           replies: 0, // TODO: 返信数の実装
           domain,
         };
-      })
+      }),
     );
 
     return c.json(formatted);

@@ -1,11 +1,18 @@
 import { createSignal, For } from "solid-js";
 import type { MicroblogPost } from "./types.ts";
-import { createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost } from "./api.ts";
+import {
+  _replyToPost,
+  createPost,
+  deletePost,
+  likePost,
+  retweetPost,
+  updatePost,
+} from "./api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 
 type PostItemProps = {
   post: MicroblogPost;
-  tab: 'recommend' | 'following' | 'community';
+  tab: "recommend" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
   handleLike: (postId: string) => void;
@@ -15,7 +22,16 @@ type PostItemProps = {
 };
 
 function PostItem(props: PostItemProps) {
-  const { post, tab, handleReply, handleRetweet, handleLike, handleEdit, handleDelete, formatDate } = props;
+  const {
+    post,
+    tab,
+    handleReply,
+    handleRetweet,
+    handleLike,
+    handleEdit,
+    handleDelete,
+    formatDate,
+  } = props;
   return (
     <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
       <div class="flex space-x-3">
@@ -65,12 +81,14 @@ function PostItem(props: PostItemProps) {
               </div>
               <span class="text-sm">{post.replies || 0}</span>
             </button>
-            {tab !== 'community' && (
+            {tab !== "community" && (
               <button
                 type="button"
                 onClick={() => handleRetweet(post.id)}
                 class={`flex items-center space-x-2 transition-colors group ${
-                  post.isRetweeted ? "text-green-400" : "text-gray-500 hover:text-green-400"
+                  post.isRetweeted
+                    ? "text-green-400"
+                    : "text-gray-500 hover:text-green-400"
                 }`}
               >
                 <div class="p-2 rounded-full group-hover:bg-green-400/10 transition-colors">
@@ -95,7 +113,9 @@ function PostItem(props: PostItemProps) {
               type="button"
               onClick={() => handleLike(post.id)}
               class={`flex items-center space-x-2 transition-colors group ${
-                post.isLiked ? "text-red-400" : "text-gray-500 hover:text-red-400"
+                post.isLiked
+                  ? "text-red-400"
+                  : "text-gray-500 hover:text-red-400"
               }`}
             >
               <div class="p-2 rounded-full group-hover:bg-red-400/10 transition-colors">
@@ -115,7 +135,7 @@ function PostItem(props: PostItemProps) {
               </div>
               <span class="text-sm">{post.likes || 0}</span>
             </button>
-            {tab === 'community' && (
+            {tab === "community" && (
               <div class="flex items-center space-x-2 text-purple-400">
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3z" />
@@ -194,7 +214,7 @@ function PostItem(props: PostItemProps) {
 
 export function PostList(props: {
   posts: MicroblogPost[];
-  tab: 'recommend' | 'following' | 'community';
+  tab: "recommend" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
   handleLike: (postId: string) => void;
@@ -228,10 +248,23 @@ export function PostForm(props: {
   newPostContent: string;
   setNewPostContent: (content: string) => void;
   handleSubmit: (e: Event) => void;
-  currentUser?: { userName: string; avatar?: string; };
+  currentUser?: { userName: string; avatar?: string };
 }) {
   const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
-  const emojis = ["😀", "😂", "🥰", "😎", "🤔", "👍", "❤️", "🔥", "✨", "🎉", "💯", "🚀"];
+  const emojis = [
+    "😀",
+    "😂",
+    "🥰",
+    "😎",
+    "🤔",
+    "👍",
+    "❤️",
+    "🔥",
+    "✨",
+    "🎉",
+    "💯",
+    "🚀",
+  ];
 
   const insertEmoji = (emoji: string) => {
     props.setNewPostContent(props.newPostContent + emoji);
@@ -251,11 +284,15 @@ export function PostForm(props: {
                 class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800"
               >
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clip-rule="evenodd"
+                  />
                 </svg>
               </button>
             </div>
-            
+
             <form onSubmit={props.handleSubmit} class="space-y-4">
               <div class="flex space-x-3">
                 <UserAvatar
@@ -266,7 +303,8 @@ export function PostForm(props: {
                 <div class="flex-1">
                   <textarea
                     value={props.newPostContent}
-                    onInput={(e) => props.setNewPostContent(e.currentTarget.value)}
+                    onInput={(e) =>
+                      props.setNewPostContent(e.currentTarget.value)}
                     placeholder=""
                     maxlength={280}
                     class="w-full bg-transparent text-xl placeholder-gray-500 resize-none border-none outline-none"
@@ -365,7 +403,9 @@ export function PostForm(props: {
                             stroke="currentColor"
                             stroke-width="2"
                             fill="none"
-                            stroke-dasharray={`${(props.newPostContent.length / 280) * 88} 88`}
+                            stroke-dasharray={`${
+                              (props.newPostContent.length / 280) * 88
+                            } 88`}
                             class={props.newPostContent.length > 260
                               ? "text-red-400"
                               : props.newPostContent.length > 240
@@ -384,7 +424,8 @@ export function PostForm(props: {
                   <button
                     type="submit"
                     class={`px-6 py-2 rounded-full font-bold transition-all duration-200 ${
-                      !props.newPostContent.trim() || props.newPostContent.length > 280
+                      !props.newPostContent.trim() ||
+                        props.newPostContent.length > 280
                         ? "bg-blue-400/50 text-white/50 cursor-not-allowed"
                         : "bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
                     }`}

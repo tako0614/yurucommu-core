@@ -60,13 +60,20 @@ export function CommunityView(props: {
                           size="w-12 h-12"
                         />
                         <div>
-                          <h3 class="text-lg font-bold text-white hover:text-blue-400 cursor-pointer" 
-                              onClick={() => props.handleSelectCommunity(community)}>
+                          <h3
+                            class="text-lg font-bold text-white hover:text-blue-400 cursor-pointer"
+                            onClick={() =>
+                              props.handleSelectCommunity(community)}
+                          >
                             {community.name}
                           </h3>
                           <div class="flex items-center space-x-4 text-sm text-gray-400">
-                            <span>{community.memberCount.toLocaleString()} メンバー</span>
-                            <span>{community.postCount.toLocaleString()} 投稿</span>
+                            <span>
+                              {community.memberCount.toLocaleString()} メンバー
+                            </span>
+                            <span>
+                              {community.postCount.toLocaleString()} 投稿
+                            </span>
                             {community.isPrivate && (
                               <span class="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full text-xs">
                                 非公開
@@ -87,23 +94,27 @@ export function CommunityView(props: {
                       </div>
                     </div>
                     <div class="ml-4">
-                      {community.isJoined ? (
-                        <button
-                          type="button"
-                          onClick={() => props.handleLeaveCommunity(community.id)}
-                          class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                        >
-                          参加中
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => props.handleJoinCommunity(community.id)}
-                          class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                        >
-                          参加する
-                        </button>
-                      )}
+                      {community.isJoined
+                        ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.handleLeaveCommunity(community.id)}
+                            class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
+                          >
+                            参加中
+                          </button>
+                        )
+                        : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.handleJoinCommunity(community.id)}
+                            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
+                          >
+                            参加する
+                          </button>
+                        )}
                     </div>
                   </div>
                 </div>
@@ -119,8 +130,9 @@ export function CommunityView(props: {
           {/* コミュニティヘッダー */}
           <div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 mb-6">
             {/* バナー */}
-            <div class="h-32 bg-gradient-to-r from-purple-600 to-pink-600"></div>
-            
+            <div class="h-32 bg-gradient-to-r from-purple-600 to-pink-600">
+            </div>
+
             {/* コミュニティ情報 */}
             <div class="p-6">
               <div class="flex items-start justify-between">
@@ -131,43 +143,76 @@ export function CommunityView(props: {
                     </span>
                   </div>
                   <div>
-                    <h2 class="text-2xl font-bold text-white">{props.selectedCommunity!.name}</h2>
+                    <h2 class="text-2xl font-bold text-white">
+                      {props.selectedCommunity!.name}
+                    </h2>
                     <div class="flex items-center space-x-4 text-sm text-gray-400 mt-1">
-                      <span>{props.selectedCommunity!.memberCount.toLocaleString()} メンバー</span>
-                      <span>{props.selectedCommunity!.postCount.toLocaleString()} 投稿</span>
+                      <span>
+                        {props.selectedCommunity!.memberCount.toLocaleString()}
+                        {" "}
+                        メンバー
+                      </span>
+                      <span>
+                        {props.selectedCommunity!.postCount.toLocaleString()}
+                        {" "}
+                        投稿
+                      </span>
                     </div>
                   </div>
                 </div>
                 <div class="flex items-center space-x-2">
                   <button
                     type="button"
-                    onClick={() => {props.setSelectedCommunity(null); props.setShowCommunityView(true);}}
+                    onClick={() => {
+                      props.setSelectedCommunity(null);
+                      props.setShowCommunityView(true);
+                    }}
                     class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800 transition-colors"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    <svg
+                      class="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                      />
                     </svg>
                   </button>
-                  {props.selectedCommunity!.isJoined ? (
-                    <button
-                      type="button"
-                      onClick={() => props.handleLeaveCommunity(props.selectedCommunity!.id)}
-                      class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                    >
-                      参加中
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => props.handleJoinCommunity(props.selectedCommunity!.id)}
-                      class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                    >
-                      参加する
-                    </button>
-                  )}
+                  {props.selectedCommunity!.isJoined
+                    ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          props.handleLeaveCommunity(
+                            props.selectedCommunity!.id,
+                          )}
+                        class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
+                      >
+                        参加中
+                      </button>
+                    )
+                    : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          props.handleJoinCommunity(
+                            props.selectedCommunity!.id,
+                          )}
+                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
+                      >
+                        参加する
+                      </button>
+                    )}
                 </div>
               </div>
-              <p class="text-gray-300 mt-4">{props.selectedCommunity!.description}</p>
+              <p class="text-gray-300 mt-4">
+                {props.selectedCommunity!.description}
+              </p>
               <div class="flex flex-wrap gap-2 mt-4">
                 <For each={props.selectedCommunity!.tags}>
                   {(tag) => (
@@ -182,14 +227,30 @@ export function CommunityView(props: {
 
           {/* コミュニティ投稿 */}
           <div class="space-y-4">
-            <For each={props.communityPosts.filter(post => post.communityId === props.selectedCommunity!.id)}>
+            <For
+              each={props.communityPosts.filter((post) =>
+                post.communityId === props.selectedCommunity!.id
+              )}
+            >
               {(post) => (
-                <div class={`bg-gray-900 rounded-xl p-6 border border-gray-800 ${post.isPinned ? 'border-yellow-500/50' : ''}`}>
+                <div
+                  class={`bg-gray-900 rounded-xl p-6 border border-gray-800 ${
+                    post.isPinned ? "border-yellow-500/50" : ""
+                  }`}
+                >
                   {post.isPinned && (
                     <div class="flex items-center space-x-2 mb-3 text-yellow-400">
-                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <svg
+                        class="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
                         <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
-                        <path fill-rule="evenodd" d="M3 8a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
+                        <path
+                          fill-rule="evenodd"
+                          d="M3 8a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
+                          clip-rule="evenodd"
+                        />
                         <path d="M8 15v-2a1 1 0 112 0v2h2a1 1 0 110 2H8a1 1 0 110-2h0z" />
                       </svg>
                       <span class="text-sm font-medium">ピン留め投稿</span>
@@ -203,17 +264,25 @@ export function CommunityView(props: {
                     />
                     <div class="flex-1">
                       <div class="flex items-center space-x-2 mb-2">
-                        <span class="font-bold text-white">{post.userName}</span>
+                        <span class="font-bold text-white">
+                          {post.userName}
+                        </span>
                         <span class="text-gray-500">·</span>
-                        <span class="text-gray-500 text-sm">{props.formatDate(post.createdAt)}</span>
+                        <span class="text-gray-500 text-sm">
+                          {props.formatDate(post.createdAt)}
+                        </span>
                       </div>
-                      <div class="text-white mb-4 leading-relaxed">{post.content}</div>
+                      <div class="text-white mb-4 leading-relaxed">
+                        {post.content}
+                      </div>
                       <div class="flex items-center space-x-6">
                         <button
                           type="button"
                           onClick={() => props.handleLikeCommunityPost(post.id)}
                           class={`flex items-center space-x-2 transition-colors group ${
-                            post.isLiked ? "text-red-400" : "text-gray-500 hover:text-red-400"
+                            post.isLiked
+                              ? "text-red-400"
+                              : "text-gray-500 hover:text-red-400"
                           }`}
                         >
                           <div class="p-2 rounded-full group-hover:bg-red-400/10 transition-colors">

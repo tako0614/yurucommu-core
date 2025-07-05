@@ -1,4 +1,4 @@
-import { createSignal, Show, For, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { darkModeState, languageState } from "../states/settings.ts";
 import { activeAccount, activeAccountId } from "../states/account.ts";
@@ -8,15 +8,17 @@ export function Settings() {
   const [language, setLanguage] = useAtom(languageState);
   const [act, setAct] = useAtom(activeAccount);
   const [actId, setActId] = useAtom(activeAccountId);
-  const [activeTab, setActiveTab] = createSignal<"profile" | "appearance" | "privacy" | "notifications" | "account">("profile");
-  
+  const [activeTab, setActiveTab] = createSignal<
+    "profile" | "appearance" | "privacy" | "notifications" | "account"
+  >("profile");
+
   const [profileData, setProfileData] = createSignal({
     username: "user123",
     displayName: "太郎 田中",
     bio: "ActivityPubでつながる一人用SNSを楽しんでいます！",
     location: "東京, 日本",
     website: "https://example.com",
-    avatar: "👤"
+    avatar: "👤",
   });
 
   const [notificationSettings, setNotificationSettings] = createSignal({
@@ -25,7 +27,7 @@ export function Settings() {
     reposts: false,
     follows: true,
     messages: true,
-    email: false
+    email: false,
   });
 
   const [following, setFollowing] = createSignal<string[]>([]);
@@ -52,7 +54,7 @@ export function Settings() {
         body: JSON.stringify({ target: followTarget() }),
       });
       if (res.ok) {
-        setFollowing(prev => [...prev, followTarget()]);
+        setFollowing((prev) => [...prev, followTarget()]);
         setFollowTarget("");
       }
     }
@@ -67,7 +69,7 @@ export function Settings() {
         body: JSON.stringify({ target }),
       });
       if (res.ok) {
-        setFollowing(prev => prev.filter(t => t !== target));
+        setFollowing((prev) => prev.filter((t) => t !== target));
       }
     }
   };
@@ -87,7 +89,7 @@ export function Settings() {
     { id: "appearance", name: "外観", icon: "🎨" },
     { id: "privacy", name: "プライバシー", icon: "🔒" },
     { id: "notifications", name: "通知", icon: "🔔" },
-    { id: "account", name: "アカウント", icon: "⚙️" }
+    { id: "account", name: "アカウント", icon: "⚙️" },
   ] as const;
 
   return (
@@ -95,7 +97,9 @@ export function Settings() {
       <div class="max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <div class="mb-6">
           <h1 class="text-3xl font-bold text-gray-900 dark:text-white">設定</h1>
-          <p class="mt-2 text-gray-600 dark:text-gray-400">アカウントと環境設定を管理</p>
+          <p class="mt-2 text-gray-600 dark:text-gray-400">
+            アカウントと環境設定を管理
+          </p>
         </div>
 
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
@@ -125,7 +129,9 @@ export function Settings() {
               <Show when={activeTab() === "profile"}>
                 <div class="space-y-6">
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">プロフィール設定</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      プロフィール設定
+                    </h2>
                   </div>
 
                   <div class="flex items-center space-x-6 mb-6">
@@ -133,7 +139,10 @@ export function Settings() {
                       {profileData().avatar}
                     </div>
                     <div>
-                      <button type="button" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                      <button
+                        type="button"
+                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                      >
                         アバターを変更
                       </button>
                       <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">
@@ -150,7 +159,11 @@ export function Settings() {
                       <input
                         type="text"
                         value={profileData().username}
-                        onInput={(e) => setProfileData(prev => ({ ...prev, username: e.target.value }))}
+                        onInput={(e) =>
+                          setProfileData((prev) => ({
+                            ...prev,
+                            username: e.target.value,
+                          }))}
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
@@ -162,7 +175,11 @@ export function Settings() {
                       <input
                         type="text"
                         value={profileData().displayName}
-                        onInput={(e) => setProfileData(prev => ({ ...prev, displayName: e.target.value }))}
+                        onInput={(e) =>
+                          setProfileData((prev) => ({
+                            ...prev,
+                            displayName: e.target.value,
+                          }))}
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
@@ -173,7 +190,11 @@ export function Settings() {
                       </label>
                       <textarea
                         value={profileData().bio}
-                        onInput={(e) => setProfileData(prev => ({ ...prev, bio: e.target.value }))}
+                        onInput={(e) =>
+                          setProfileData((prev) => ({
+                            ...prev,
+                            bio: e.target.value,
+                          }))}
                         rows="3"
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
@@ -186,7 +207,11 @@ export function Settings() {
                       <input
                         type="text"
                         value={profileData().location}
-                        onInput={(e) => setProfileData(prev => ({ ...prev, location: e.target.value }))}
+                        onInput={(e) =>
+                          setProfileData((prev) => ({
+                            ...prev,
+                            location: e.target.value,
+                          }))}
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
@@ -198,7 +223,11 @@ export function Settings() {
                       <input
                         type="url"
                         value={profileData().website}
-                        onInput={(e) => setProfileData(prev => ({ ...prev, website: e.target.value }))}
+                        onInput={(e) =>
+                          setProfileData((prev) => ({
+                            ...prev,
+                            website: e.target.value,
+                          }))}
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
@@ -219,7 +248,9 @@ export function Settings() {
               <Show when={activeTab() === "appearance"}>
                 <div class="space-y-6">
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">外観設定</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      外観設定
+                    </h2>
                   </div>
 
                   <div class="space-y-4">
@@ -237,8 +268,11 @@ export function Settings() {
                               : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
                           }`}
                         >
-                          <div class="w-full h-16 bg-white rounded-lg mb-3 border shadow-sm"></div>
-                          <span class="text-sm font-medium text-gray-900 dark:text-white">ライトモード</span>
+                          <div class="w-full h-16 bg-white rounded-lg mb-3 border shadow-sm">
+                          </div>
+                          <span class="text-sm font-medium text-gray-900 dark:text-white">
+                            ライトモード
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -249,8 +283,11 @@ export function Settings() {
                               : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
                           }`}
                         >
-                          <div class="w-full h-16 bg-gray-800 rounded-lg mb-3 border"></div>
-                          <span class="text-sm font-medium text-gray-900 dark:text-white">ダークモード</span>
+                          <div class="w-full h-16 bg-gray-800 rounded-lg mb-3 border">
+                          </div>
+                          <span class="text-sm font-medium text-gray-900 dark:text-white">
+                            ダークモード
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -277,11 +314,15 @@ export function Settings() {
               <Show when={activeTab() === "notifications"}>
                 <div class="space-y-6">
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">通知設定</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      通知設定
+                    </h2>
                   </div>
 
                   <div class="space-y-4">
-                    {Object.entries(notificationSettings()).map(([key, value]) => (
+                    {Object.entries(notificationSettings()).map((
+                      [key, value],
+                    ) => (
                       <div class="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
                         <div>
                           <h4 class="text-sm font-medium text-gray-900 dark:text-white">
@@ -293,7 +334,8 @@ export function Settings() {
                             {key === "email" && "メール通知"}
                           </h4>
                           <p class="text-sm text-gray-500 dark:text-gray-400">
-                            {key === "mentions" && "あなたがメンションされたとき"}
+                            {key === "mentions" &&
+                              "あなたがメンションされたとき"}
                             {key === "likes" && "投稿にいいねがついたとき"}
                             {key === "reposts" && "投稿がリポストされたとき"}
                             {key === "follows" && "新しいフォロワー"}
@@ -305,10 +347,15 @@ export function Settings() {
                           <input
                             type="checkbox"
                             checked={value}
-                            onChange={(e) => setNotificationSettings(prev => ({ ...prev, [key]: e.target.checked }))}
+                            onChange={(e) =>
+                              setNotificationSettings((prev) => ({
+                                ...prev,
+                                [key]: e.target.checked,
+                              }))}
                             class="sr-only peer"
                           />
-                          <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                          <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                          </div>
                         </label>
                       </div>
                     ))}
@@ -319,12 +366,16 @@ export function Settings() {
               <Show when={activeTab() === "account"}>
                 <div class="space-y-6">
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">アカウント管理</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      アカウント管理
+                    </h2>
                   </div>
 
                   <div class="space-y-6">
                     <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                      <h3 class="text-lg font-medium text-green-900 dark:text-green-100 mb-2">フォロー管理</h3>
+                      <h3 class="text-lg font-medium text-green-900 dark:text-green-100 mb-2">
+                        フォロー管理
+                      </h3>
                       <div class="flex gap-2 mb-2">
                         <input
                           type="text"
@@ -360,7 +411,9 @@ export function Settings() {
                     </div>
 
                     <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                      <h3 class="text-lg font-medium text-blue-900 dark:text-blue-100 mb-2">データのエクスポート</h3>
+                      <h3 class="text-lg font-medium text-blue-900 dark:text-blue-100 mb-2">
+                        データのエクスポート
+                      </h3>
                       <p class="text-blue-700 dark:text-blue-300 mb-4">
                         すべての投稿、設定、データをダウンロードできます
                       </p>
@@ -374,7 +427,9 @@ export function Settings() {
                     </div>
 
                     <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                      <h3 class="text-lg font-medium text-yellow-900 dark:text-yellow-100 mb-2">パスワード変更</h3>
+                      <h3 class="text-lg font-medium text-yellow-900 dark:text-yellow-100 mb-2">
+                        パスワード変更
+                      </h3>
                       <p class="text-yellow-700 dark:text-yellow-300 mb-4">
                         定期的なパスワード変更をお勧めします
                       </p>
@@ -387,7 +442,9 @@ export function Settings() {
                     </div>
 
                     <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                      <h3 class="text-lg font-medium text-red-900 dark:text-red-100 mb-2">アカウント削除</h3>
+                      <h3 class="text-lg font-medium text-red-900 dark:text-red-100 mb-2">
+                        アカウント削除
+                      </h3>
                       <p class="text-red-700 dark:text-red-300 mb-4">
                         アカウントを削除すると、すべてのデータが永久に失われます
                       </p>
@@ -405,40 +462,61 @@ export function Settings() {
               <Show when={activeTab() === "privacy"}>
                 <div class="space-y-6">
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">プライバシー設定</h2>
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      プライバシー設定
+                    </h2>
                   </div>
 
                   <div class="space-y-4">
                     <div class="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700">
                       <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">プロフィールの公開</h4>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">他のユーザーがあなたのプロフィールを表示できます</p>
+                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+                          プロフィールの公開
+                        </h4>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          他のユーザーがあなたのプロフィールを表示できます
+                        </p>
                       </div>
                       <label class="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" checked class="sr-only peer" />
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                        </div>
                       </label>
                     </div>
 
                     <div class="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700">
                       <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">検索での表示</h4>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">検索結果にあなたのプロフィールが表示されます</p>
+                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+                          検索での表示
+                        </h4>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          検索結果にあなたのプロフィールが表示されます
+                        </p>
                       </div>
                       <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={false} class="sr-only peer" />
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          class="sr-only peer"
+                        />
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                        </div>
                       </label>
                     </div>
 
                     <div class="flex items-center justify-between py-3">
                       <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">アクティビティ状況</h4>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">最後にオンラインだった時間を表示</p>
+                        <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+                          アクティビティ状況
+                        </h4>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          最後にオンラインだった時間を表示
+                        </p>
                       </div>
                       <label class="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" checked class="sr-only peer" />
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                        </div>
                       </label>
                     </div>
                   </div>
