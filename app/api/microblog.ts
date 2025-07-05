@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
-import { getDomain } from "./utils/activitypub.ts";
+import {
+  buildActivityFromStored,
+  deliverActivityPubObject,
+  fetchActorInbox,
+  getDomain,
+} from "./utils/activitypub.ts";
 
 const app = new Hono();
 
@@ -26,6 +31,8 @@ app.get("/microblog", async (c) => {
         authorAvatar: account?.avatarInitial || "",
         content: doc.content,
         createdAt: doc.published,
+        likes: (doc.extra as Record<string, unknown>)?.likes ?? 0,
+        retweets: (doc.extra as Record<string, unknown>)?.retweets ?? 0,
         domain,
       };
     }),
@@ -43,8 +50,39 @@ app.post("/microblog", async (c) => {
     type: "Note",
     attributedTo: author,
     content,
+    extra: { likes: 0, retweets: 0 },
   });
   await post.save();
+  try {
+    const account = await Account.findOne({ userName: author }).lean();
+    const followers = account?.followers ?? [];
+    const inboxes: string[] = [];
+    for (const f of followers) {
+      try {
+        const url = new URL(f);
+        if (url.host === domain && url.pathname.startsWith("/users/")) {
+          continue;
+        }
+        const inbox = await fetchActorInbox(f);
+        if (inbox) inboxes.push(inbox);
+      } catch (_) {
+        continue;
+      }
+    }
+    if (inboxes.length > 0) {
+      const activity = buildActivityFromStored(
+        { ...post.toObject(), content: post.content ?? "" },
+        domain,
+        author,
+        true,
+      );
+      deliverActivityPubObject(inboxes, activity, author).catch((err) => {
+        console.error("Delivery failed:", err);
+      });
+    }
+  } catch (err) {
+    console.error("activitypub delivery error:", err);
+  }
   const account = await Account.findOne({ userName: post.attributedTo }).lean();
   return c.json({
     id: post._id.toString(),
@@ -53,6 +91,8 @@ app.post("/microblog", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
+    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
+    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
     domain,
   }, 201);
 });
@@ -70,6 +110,8 @@ app.get("/microblog/:id", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
+    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
+    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
     domain,
   });
 });
@@ -93,7 +135,29 @@ app.put("/microblog/:id", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
+    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
+    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
     domain,
+  });
+});
+
+app.post("/microblog/:id/like", async (c) => {
+  const id = c.req.param("id");
+  const post = await ActivityPubObject.findByIdAndUpdate(id, {
+    $inc: { "extra.likes": 1 },
+  }, { new: true });
+  if (!post) return c.json({ error: "Not found" }, 404);
+  return c.json({ likes: (post.extra as Record<string, unknown>)?.likes ?? 0 });
+});
+
+app.post("/microblog/:id/retweet", async (c) => {
+  const id = c.req.param("id");
+  const post = await ActivityPubObject.findByIdAndUpdate(id, {
+    $inc: { "extra.retweets": 1 },
+  }, { new: true });
+  if (!post) return c.json({ error: "Not found" }, 404);
+  return c.json({
+    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
   });
 });
 

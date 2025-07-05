@@ -1,12 +1,17 @@
-import type { MicroblogPost, Story, ActivityPubObject } from "./types.ts";
+import type { ActivityPubObject, MicroblogPost, Story } from "./types.ts";
 
 /**
  * ActivityPub Object（Note, Story, etc.）を取得
  */
-export const fetchActivityPubObjects = async (username: string, type?: string): Promise<ActivityPubObject[]> => {
+export const fetchActivityPubObjects = async (
+  username: string,
+  type?: string,
+): Promise<ActivityPubObject[]> => {
   try {
     const url = type
-      ? `/users/${encodeURIComponent(username)}/outbox?type=${encodeURIComponent(type)}`
+      ? `/users/${encodeURIComponent(username)}/outbox?type=${
+        encodeURIComponent(type)
+      }`
       : `/users/${encodeURIComponent(username)}/outbox`;
     const response = await fetch(url);
     if (!response.ok) {
@@ -14,7 +19,7 @@ export const fetchActivityPubObjects = async (username: string, type?: string): 
     }
     const data = await response.json();
     if (data && Array.isArray(data.orderedItems)) {
-      return data.orderedItems.map((item: any) => ({
+      return data.orderedItems.map((item: Record<string, unknown>) => ({
         id: item.id,
         type: item.type,
         attributedTo: item.attributedTo,
@@ -45,7 +50,10 @@ export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   }
 };
 
-export const createPost = async (content: string, author: string): Promise<boolean> => {
+export const createPost = async (
+  content: string,
+  author: string,
+): Promise<boolean> => {
   try {
     const response = await fetch("/api/microblog", {
       method: "POST",
@@ -61,7 +69,10 @@ export const createPost = async (content: string, author: string): Promise<boole
   }
 };
 
-export const updatePost = async (id: string, content: string): Promise<boolean> => {
+export const updatePost = async (
+  id: string,
+  content: string,
+): Promise<boolean> => {
   try {
     const response = await fetch(`/api/microblog/${id}`, {
       method: "PUT",
@@ -89,31 +100,38 @@ export const deletePost = async (id: string): Promise<boolean> => {
   }
 };
 
-export const likePost = async (id: string): Promise<boolean> => {
+export const likePost = async (id: string): Promise<number | null> => {
   try {
     const response = await fetch(`/api/microblog/${id}/like`, {
       method: "POST",
     });
-    return response.ok;
+    if (!response.ok) return null;
+    const data = await response.json();
+    return typeof data.likes === "number" ? data.likes : null;
   } catch (error) {
     console.error("Error liking post:", error);
-    return false;
+    return null;
   }
 };
 
-export const retweetPost = async (id: string): Promise<boolean> => {
+export const retweetPost = async (id: string): Promise<number | null> => {
   try {
     const response = await fetch(`/api/microblog/${id}/retweet`, {
       method: "POST",
     });
-    return response.ok;
+    if (!response.ok) return null;
+    const data = await response.json();
+    return typeof data.retweets === "number" ? data.retweets : null;
   } catch (error) {
     console.error("Error retweeting post:", error);
-    return false;
+    return null;
   }
 };
 
-export const _replyToPost = async (parentId: string, content: string): Promise<boolean> => {
+export const _replyToPost = async (
+  parentId: string,
+  content: string,
+): Promise<boolean> => {
   try {
     const response = await fetch("/api/microblog", {
       method: "POST",
@@ -142,20 +160,26 @@ export const fetchStories = async (): Promise<Story[]> => {
   }
 };
 
-export const createStory = async (content: string, mediaUrl?: string, mediaType?: 'image' | 'video', backgroundColor?: string, textColor?: string): Promise<boolean> => {
+export const createStory = async (
+  content: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video",
+  backgroundColor?: string,
+  textColor?: string,
+): Promise<boolean> => {
   try {
     const response = await fetch("/api/stories", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ 
-        author: "user", 
-        content, 
-        mediaUrl, 
-        mediaType, 
-        backgroundColor, 
-        textColor 
+      body: JSON.stringify({
+        author: "user",
+        content,
+        mediaUrl,
+        mediaType,
+        backgroundColor,
+        textColor,
       }),
     });
     return response.ok;
