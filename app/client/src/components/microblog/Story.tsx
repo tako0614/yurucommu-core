@@ -1,6 +1,7 @@
 import { createSignal, For } from "solid-js";
 import type { Story } from "./types.ts";
 import { createStory, viewStory, deleteStory } from "./api.ts";
+import { UserAvatar } from "./UserAvatar.tsx";
 
 export function StoryTray(props: {
   stories: Story[];
@@ -71,13 +72,14 @@ export function StoryTray(props: {
                 <div class={`w-16 h-16 rounded-full p-0.5 ${story.isViewed ? 'bg-gray-600' : 'bg-gradient-to-tr from-yellow-400 via-red-500 to-pink-500'}`}>
                   <div class="w-full h-full bg-black rounded-full flex items-center justify-center overflow-hidden">
                     {story.mediaUrl ? (
-                      <img src={story.mediaUrl} alt="" class="w-full h-full object-cover" />
+                      <img src={story.mediaUrl} alt="" class="w-full h-full object-cover rounded-full" />
                     ) : (
-                      <div 
-                        class="w-full h-full flex items-center justify-center text-white font-bold text-sm"
-                        style={`background: ${story.backgroundColor || '#1DA1F2'}`}
-                      >
-                        {story.author.charAt(0).toUpperCase()}
+                      <div class="w-full h-full rounded-full overflow-hidden">
+                        <UserAvatar
+                          username={story.author}
+                          size="w-full h-full"
+                          className="border-0"
+                        />
                       </div>
                     )}
                   </div>

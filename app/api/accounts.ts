@@ -182,6 +182,13 @@ app.post("/accounts/:id/following", async (c) => {
   return c.json({ following: account.following });
 });
 
+app.get("/accounts/:id/following", async (c) => {
+  const id = c.req.param("id");
+  const account = await Account.findById(id).lean<AccountDoc>();
+  if (!account) return c.json({ error: "Account not found" }, 404);
+  return c.json({ following: account.following });
+});
+
 app.delete("/accounts/:id/following", async (c) => {
   const id = c.req.param("id");
   const { target } = await c.req.json();
@@ -196,8 +203,8 @@ app.delete("/accounts/:id/following", async (c) => {
 
 app.post("/accounts/:id/follow", async (c) => {
   const id = c.req.param("id");
-  const { target } = await c.req.json();
-  if (typeof target !== "string") {
+  const { target, userName } = await c.req.json();
+  if (typeof target !== "string" || typeof userName !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
   const account = await Account.findByIdAndUpdate(
@@ -209,7 +216,7 @@ app.post("/accounts/:id/follow", async (c) => {
 
   try {
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
-    const actorId = `https://${domain}/users/${account.userName}`;
+    const actorId = `https://${domain}/users/${userName}`;
     const targetUrl = new URL(target);
     if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
       const username = targetUrl.pathname.split("/")[2];
@@ -230,7 +237,7 @@ app.post("/accounts/:id/follow", async (c) => {
             actor: actorId,
             object: target,
           };
-          deliverActivityPubObject([data.inbox], follow, account.userName)
+          deliverActivityPubObject([data.inbox], follow, userName)
             .catch((err) => console.error("Delivery failed:", err));
         }
       }

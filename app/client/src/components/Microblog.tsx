@@ -1,4 +1,6 @@
 import { createResource, createSignal } from "solid-js";
+import { useAtom } from "solid-jotai";
+import { activeAccount } from "../states/account.ts";
 import { CommunityView } from "./microblog/Community.tsx";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostList, PostForm } from "./microblog/Post.tsx";
@@ -7,6 +9,7 @@ import type { MicroblogPost, Story, Community, CommunityPost } from "./microblog
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
+  const [account] = useAtom(activeAccount);
   const [tab, setTab] = createSignal<'recommend' | 'following' | 'community'>('recommend');
   const [newPostContent, setNewPostContent] = createSignal("");
   const [showPostForm, setShowPostForm] = createSignal(false);
@@ -83,7 +86,9 @@ export function Microblog() {
       id: "1",
       communityId: "1",
       content: "TypeScriptの新機能について議論しませんか？特にtemplate literal typesが面白いと思います。",
-      author: "dev_user",
+      userName: "dev_user",
+      displayName: "dev_user",
+      authorAvatar: "https://i.pravatar.cc/150?img=1",
       createdAt: "2024-07-05T10:30:00Z",
       likes: 15,
       comments: 8,
@@ -94,7 +99,9 @@ export function Microblog() {
       id: "2",
       communityId: "1", 
       content: "Denoの最新アップデートでパフォーマンスが大幅に改善されましたね。みなさんはもう試されましたか？",
-      author: "deno_fan",
+      userName: "deno_fan",
+      displayName: "deno_fan",
+      authorAvatar: "https://i.pravatar.cc/150?img=2",
       createdAt: "2024-07-05T09:15:00Z",
       likes: 23,
       comments: 12,
@@ -105,7 +112,9 @@ export function Microblog() {
       id: "3",
       communityId: "2",
       content: "今期のアニメでおすすめはありますか？特に異世界系で面白いのがあったら教えてください！",
-      author: "anime_lover",
+      userName: "anime_lover",
+      displayName: "anime_lover",
+      authorAvatar: "https://i.pravatar.cc/150?img=3",
       createdAt: "2024-07-05T08:45:00Z",
       likes: 8,
       comments: 15,
@@ -116,7 +125,9 @@ export function Microblog() {
       id: "4",
       communityId: "3",
       content: "簡単で美味しいパスタレシピを共有します！トマトとバジルの基本パスタです 🍝",
-      author: "chef_master",
+      userName: "chef_master",
+      displayName: "chef_master",
+      authorAvatar: "https://i.pravatar.cc/150?img=4",
       createdAt: "2024-07-05T07:20:00Z",
       likes: 32,
       comments: 7,
@@ -127,7 +138,9 @@ export function Microblog() {
       id: "5",
       communityId: "1",
       content: "ReactからSolidJSに移行を検討中です。パフォーマンスの違いを実感した方いますか？",
-      author: "frontend_dev",
+      userName: "frontend_dev",
+      displayName: "frontend_dev",
+      authorAvatar: "https://i.pravatar.cc/150?img=5",
       createdAt: "2024-07-05T06:50:00Z",
       likes: 19,
       comments: 11,
@@ -141,7 +154,9 @@ export function Microblog() {
     {
       id: "follow_1",
       content: "今日は良い天気ですね！散歩に行ってきます 🌞",
-      author: "friend_user",
+      userName: "friend_user",
+      displayName: "friend_user",
+      authorAvatar: "https://i.pravatar.cc/150?img=6",
       createdAt: "2024-07-05T11:00:00Z",
       likes: 5,
       retweets: 2,
@@ -152,7 +167,9 @@ export function Microblog() {
     {
       id: "follow_2",
       content: "新しいプロジェクトを始めました！がんばります💪",
-      author: "colleague_dev",
+      userName: "colleague_dev",
+      displayName: "colleague_dev",
+      authorAvatar: "https://i.pravatar.cc/150?img=7",
       createdAt: "2024-07-05T10:45:00Z",
       likes: 12,
       retweets: 4,
@@ -246,7 +263,9 @@ export function Microblog() {
       const communityPostsConverted: MicroblogPost[] = (communityPosts() || []).map(post => ({
         id: post.id,
         content: post.content,
-        author: post.author,
+        userName: post.userName,
+        displayName: post.displayName,
+        authorAvatar: post.authorAvatar, // ダミーのアバターURL
         createdAt: post.createdAt,
         likes: post.likes,
         retweets: 0,
@@ -263,7 +282,7 @@ export function Microblog() {
     if (!query) return postsToFilter;
     return postsToFilter.filter(post => 
       post.content.toLowerCase().includes(query) ||
-      post.author.toLowerCase().includes(query) ||
+      post.userName.toLowerCase().includes(query) ||
       (post.hashtags && post.hashtags.some(tag => tag.toLowerCase().includes(query)))
     );
   };
@@ -273,7 +292,13 @@ export function Microblog() {
     const content = newPostContent().trim();
     if (!content) return;
 
-    const success = await createPost(content);
+    const user = account();
+    if (!user) {
+      alert("アカウントが選択されていません");
+      return;
+    }
+
+    const success = await createPost(content, user.userName);
     if (success) {
       setNewPostContent("");
       setShowPostForm(false);
@@ -469,6 +494,7 @@ export function Microblog() {
           newPostContent={newPostContent()}
           setNewPostContent={setNewPostContent}
           handleSubmit={handleSubmit}
+          currentUser={account() || undefined}
         />
 
         {/* フローティング投稿ボタン（おすすめ・フォロー中・コミュニティタブの時のみ表示） */}

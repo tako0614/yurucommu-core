@@ -2,7 +2,9 @@
 export interface MicroblogPost {
   id: string;
   content: string;
-  author: string;
+  userName: string;
+  displayName: string;
+  authorAvatar?: string;
   createdAt: string;
   likes: number;
   retweets: number;
@@ -13,6 +15,7 @@ export interface MicroblogPost {
   hashtags?: string[];
   mentions?: string[];
   parentId?: string; // 返信の場合の親投稿ID
+  domain?: string;
 }
 
 export interface Story {
@@ -49,11 +52,14 @@ export interface CommunityPost {
   id: string;
   communityId: string;
   content: string;
-  author: string;
+  userName: string;
+  displayName: string;
+  authorAvatar?: string;
   createdAt: string;
   likes: number;
   comments: number;
   isLiked?: boolean;
   images?: string[];
   isPinned?: boolean;
+  domain?: string;
 }
