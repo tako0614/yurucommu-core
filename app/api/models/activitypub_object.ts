@@ -10,7 +10,15 @@ const activityPubObjectSchema = new mongoose.Schema({
   extra: { type: mongoose.Schema.Types.Mixed, default: {} }, // type固有の追加情報
 });
 
-const ActivityPubObject = mongoose.model("ActivityPubObject", activityPubObjectSchema);
+// Story の期限切れ自動削除用 TTL インデックス
+activityPubObjectSchema.index({ "extra.expiresAt": 1 }, {
+  expireAfterSeconds: 0,
+});
+
+const ActivityPubObject = mongoose.model(
+  "ActivityPubObject",
+  activityPubObjectSchema,
+);
 
 export default ActivityPubObject;
 export { activityPubObjectSchema };

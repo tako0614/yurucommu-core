@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
-import Microblog from "./models/microblog.ts";
+import ActivityPubObject from "./models/activitypub_object.ts";
 import { env } from "./utils/env.ts";
 
 interface SearchResult {
@@ -46,7 +46,7 @@ app.get("/search", async (c) => {
   }
 
   if (type === "all" || type === "posts") {
-    const posts = await Microblog.find({ content: regex })
+    const posts = await ActivityPubObject.find({ type: "Note", content: regex })
       .limit(20)
       .lean();
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
@@ -55,8 +55,8 @@ app.get("/search", async (c) => {
         type: "post",
         id: String(p._id),
         title: p.content.slice(0, 80),
-        subtitle: p.author,
-        metadata: { createdAt: p.createdAt },
+        subtitle: p.attributedTo,
+        metadata: { createdAt: p.published },
         origin: domain,
       });
     }
