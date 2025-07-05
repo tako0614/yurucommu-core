@@ -31,11 +31,11 @@ async function signRequest(
   const host = parsedUrl.host;
   const date = new Date().toUTCString();
   const encoder = new TextEncoder();
-  
+
   // Content-Lengthヘッダーを追加
   const bodyBytes = encoder.encode(body);
   const contentLength = bodyBytes.length.toString();
-  
+
   const digestValue = arrayBufferToBase64(
     await crypto.subtle.digest("SHA-256", bodyBytes),
   );
@@ -50,11 +50,11 @@ async function signRequest(
   headers.set("user-agent", "Takos/1.0 (ActivityPub)");
 
   // request-targetの正確な構築（パスとクエリを含む）
-  const requestTarget = `${method.toLowerCase()} ${parsedUrl.pathname}${parsedUrl.search}`;
-  
+  const requestTarget =
+    `${method.toLowerCase()} ${parsedUrl.pathname}${parsedUrl.search}`;
+
   // 署名文字列の構築（ヘッダーの順序が重要）
-  const signingString =
-    `(request-target): ${requestTarget}\n` +
+  const signingString = `(request-target): ${requestTarget}\n` +
     `host: ${host}\n` +
     `date: ${date}\n` +
     `digest: ${digest}\n` +
@@ -64,7 +64,7 @@ async function signRequest(
   // 秘密鍵の正規化
   const normalizedPrivateKey = ensurePem(account.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
-  
+
   const key = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
@@ -72,17 +72,17 @@ async function signRequest(
     false,
     ["sign"],
   );
-  
+
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
     key,
     encoder.encode(signingString),
   );
-  
+
   const signatureB64 = arrayBufferToBase64(signature);
   const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
-  
+
   // 署名ヘッダーの構築（ヘッダーリストの順序を保持）
   headers.set(
     "signature",
@@ -145,7 +145,10 @@ export function ensurePem(
 function parseSignatureHeader(header: string): Record<string, string> {
   const params: Record<string, string> = {};
   for (const part of header.split(",")) {
-    const [k, v] = part.trim().split("=");
+    const eqIndex = part.indexOf("=");
+    if (eqIndex === -1) continue;
+    const k = part.slice(0, eqIndex).trim();
+    const v = part.slice(eqIndex + 1).trim();
     params[k] = v.replace(/^"|"$/g, "");
   }
   return params;
@@ -161,12 +164,12 @@ export async function verifyHttpSignature(
       console.log("No signature header found");
       return false;
     }
-    
+
     console.log(`Full signature header: ${signatureHeader}`);
-    
+
     const params = parseSignatureHeader(signatureHeader);
     const publicKeyUrl = params.keyId;
-    
+
     if (!publicKeyUrl) {
       console.log("No keyId found in signature header");
       return false;
@@ -176,30 +179,32 @@ export async function verifyHttpSignature(
     try {
       console.log(`Fetching public key from: ${publicKeyUrl}`);
       const res = await fetch(publicKeyUrl, {
-        headers: { 
+        headers: {
           accept: "application/activity+json, application/ld+json",
-          "user-agent": "Takos/1.0 (ActivityPub)"
+          "user-agent": "Takos/1.0 (ActivityPub)",
         },
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         // より堅牢な公開鍵の取得
-        publicKeyPem = data.publicKey?.publicKeyPem ?? 
-                     data.publicKeyPem ?? 
-                     "";
+        publicKeyPem = data.publicKey?.publicKeyPem ??
+          data.publicKeyPem ??
+          "";
         console.log(`Public key fetched, length: ${publicKeyPem.length}`);
         console.log(`Raw public key: ${JSON.stringify(publicKeyPem)}`);
         console.log(`Actor data: ${JSON.stringify(data, null, 2)}`);
       } else {
-        console.log(`Failed to fetch public key: ${res.status} ${res.statusText}`);
+        console.log(
+          `Failed to fetch public key: ${res.status} ${res.statusText}`,
+        );
         return false;
       }
     } catch (error) {
       console.log(`Error fetching public key: ${error}`);
       return false;
     }
-    
+
     if (!publicKeyPem) {
       console.log("No public key found in response");
       return false;
@@ -213,7 +218,9 @@ export async function verifyHttpSignature(
         await crypto.subtle.digest("SHA-256", encoder.encode(body)),
       );
       if (digestHeader !== `SHA-256=${expectedDigest}`) {
-        console.log(`Digest mismatch. Expected: SHA-256=${expectedDigest}, Got: ${digestHeader}`);
+        console.log(
+          `Digest mismatch. Expected: SHA-256=${expectedDigest}, Got: ${digestHeader}`,
+        );
         return false;
       }
       console.log("Digest verification passed");
@@ -222,7 +229,7 @@ export async function verifyHttpSignature(
     const headersList = params.headers.split(" ");
     const url = new URL(req.url);
     const lines: string[] = [];
-    
+
     for (const h of headersList) {
       let value: string | null = null;
       if (h === "(request-target)") {
@@ -242,23 +249,27 @@ export async function verifyHttpSignature(
       lines.push(`${h}: ${value}`);
       console.log(`Header ${h}: ${value}`);
     }
-    
+
     const signingString = lines.join("\n");
     console.log(`Headers order from signature: ${params.headers}`);
     console.log(`Signing string:\n${signingString}`);
 
     // 公開鍵の正規化（すでにPEM形式の場合はそのまま使用）
-    const normalizedPublicKey = publicKeyPem.includes("BEGIN PUBLIC KEY") 
-      ? publicKeyPem 
+    const normalizedPublicKey = publicKeyPem.includes("BEGIN PUBLIC KEY")
+      ? publicKeyPem
       : ensurePem(publicKeyPem, "PUBLIC KEY");
     console.log(`Normalized public key: ${normalizedPublicKey}`);
-    
+
     const encoder = new TextEncoder();
     const keyData = pemToArrayBuffer(normalizedPublicKey);
-    
+
     console.log(`Key data length: ${keyData.byteLength}`);
-    console.log(`Key data (first 50 bytes): ${Array.from(new Uint8Array(keyData.slice(0, 50)))}`);
-    
+    console.log(
+      `Key data (first 50 bytes): ${
+        Array.from(new Uint8Array(keyData.slice(0, 50)))
+      }`,
+    );
+
     const key = await crypto.subtle.importKey(
       "spki",
       keyData,
@@ -266,29 +277,36 @@ export async function verifyHttpSignature(
       false,
       ["verify"],
     );
-    
+
     console.log(`Key imported successfully`);
-    
+
     const signatureBytes = base64ToArrayBuffer(params.signature);
     console.log(`Signature bytes length: ${signatureBytes.byteLength}`);
-    console.log(`Signature bytes (first 20 bytes): ${Array.from(new Uint8Array(signatureBytes.slice(0, 20)))}`);
-    
+    console.log(
+      `Signature bytes (first 20 bytes): ${
+        Array.from(new Uint8Array(signatureBytes.slice(0, 20)))
+      }`,
+    );
+
     const signingStringBytes = encoder.encode(signingString);
-    console.log(`Signing string bytes length: ${signingStringBytes.byteLength}`);
-    console.log(`Signing string bytes (first 50 bytes): ${Array.from(signingStringBytes.slice(0, 50))}`);
-    
+    console.log(
+      `Signing string bytes length: ${signingStringBytes.byteLength}`,
+    );
+    console.log(
+      `Signing string bytes (first 50 bytes): ${
+        Array.from(signingStringBytes.slice(0, 50))
+      }`,
+    );
+
     const verified = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5",
       key,
       signatureBytes,
       signingStringBytes,
     );
-    
+
     console.log(`Signature verification result: ${verified}`);
-    
-    // TODO: 署名検証の問題を解決するまで一時的にtrueを返す
-    console.log("WARNING: Signature verification temporarily bypassed for debugging");
-    return true;
+    return verified;
   } catch (error) {
     console.error("Error in verifyHttpSignature:", error);
     return false;
