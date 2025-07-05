@@ -3,19 +3,37 @@ import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { CommunityView } from "./microblog/Community.tsx";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
-import { PostList, PostForm } from "./microblog/Post.tsx";
-import { fetchPosts, fetchStories, createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost, viewStory, deleteStory } from "./microblog/api.ts";
-import type { MicroblogPost, Story, Community, CommunityPost } from "./microblog/types.ts";
+import { PostForm, PostList } from "./microblog/Post.tsx";
+import {
+  _replyToPost,
+  createPost,
+  deletePost,
+  deleteStory,
+  fetchPosts,
+  fetchStories,
+  likePost,
+  retweetPost,
+  updatePost,
+  viewStory,
+} from "./microblog/api.ts";
+import type {
+  Community,
+  CommunityPost,
+  MicroblogPost,
+  Story,
+} from "./microblog/types.ts";
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
   const [account] = useAtom(activeAccount);
-  const [tab, setTab] = createSignal<'recommend' | 'following' | 'community'>('recommend');
+  const [tab, setTab] = createSignal<"recommend" | "following" | "community">(
+    "recommend",
+  );
   const [newPostContent, setNewPostContent] = createSignal("");
   const [showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [posts, { refetch }] = createResource(fetchPosts);
+  const [posts, { mutate, refetch }] = createResource(fetchPosts);
   // ストーリー
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
@@ -23,7 +41,9 @@ export function Microblog() {
   const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
   // コミュニティ
   const [showCommunityView, setShowCommunityView] = createSignal(false);
-  const [selectedCommunity, setSelectedCommunity] = createSignal<Community | null>(null);
+  const [selectedCommunity, setSelectedCommunity] = createSignal<
+    Community | null
+  >(null);
   const [showCreateCommunity, setShowCreateCommunity] = createSignal(false);
   const [communityName, setCommunityName] = createSignal("");
   const [communityDescription, setCommunityDescription] = createSignal("");
@@ -46,10 +66,10 @@ export function Microblog() {
       tags: ["プログラミング", "技術", "開発"],
       rules: ["相手を尊重する", "建設的な議論を心がける", "スパムは禁止"],
       createdAt: "2024-01-15T00:00:00Z",
-      moderators: ["admin", "tech_lead"]
+      moderators: ["admin", "tech_lead"],
     },
     {
-      id: "2", 
+      id: "2",
       name: "アニメ・漫画",
       description: "アニメや漫画の感想・考察を共有しよう",
       avatar: "",
@@ -61,7 +81,7 @@ export function Microblog() {
       tags: ["アニメ", "漫画", "エンタメ"],
       rules: ["ネタバレ注意", "作品への敬意を忘れずに"],
       createdAt: "2024-02-01T00:00:00Z",
-      moderators: ["anime_mod"]
+      moderators: ["anime_mod"],
     },
     {
       id: "3",
@@ -76,8 +96,8 @@ export function Microblog() {
       tags: ["料理", "レシピ", "グルメ"],
       rules: ["レシピは詳細に", "写真の投稿を推奨"],
       createdAt: "2024-03-10T00:00:00Z",
-      moderators: ["chef_master"]
-    }
+      moderators: ["chef_master"],
+    },
   ]);
 
   // ダミーコミュニティ投稿データ
@@ -85,7 +105,8 @@ export function Microblog() {
     {
       id: "1",
       communityId: "1",
-      content: "TypeScriptの新機能について議論しませんか？特にtemplate literal typesが面白いと思います。",
+      content:
+        "TypeScriptの新機能について議論しませんか？特にtemplate literal typesが面白いと思います。",
       userName: "dev_user",
       displayName: "dev_user",
       authorAvatar: "https://i.pravatar.cc/150?img=1",
@@ -93,12 +114,13 @@ export function Microblog() {
       likes: 15,
       comments: 8,
       isLiked: false,
-      isPinned: true
+      isPinned: true,
     },
     {
       id: "2",
-      communityId: "1", 
-      content: "Denoの最新アップデートでパフォーマンスが大幅に改善されましたね。みなさんはもう試されましたか？",
+      communityId: "1",
+      content:
+        "Denoの最新アップデートでパフォーマンスが大幅に改善されましたね。みなさんはもう試されましたか？",
       userName: "deno_fan",
       displayName: "deno_fan",
       authorAvatar: "https://i.pravatar.cc/150?img=2",
@@ -106,12 +128,13 @@ export function Microblog() {
       likes: 23,
       comments: 12,
       isLiked: true,
-      isPinned: false
+      isPinned: false,
     },
     {
       id: "3",
       communityId: "2",
-      content: "今期のアニメでおすすめはありますか？特に異世界系で面白いのがあったら教えてください！",
+      content:
+        "今期のアニメでおすすめはありますか？特に異世界系で面白いのがあったら教えてください！",
       userName: "anime_lover",
       displayName: "anime_lover",
       authorAvatar: "https://i.pravatar.cc/150?img=3",
@@ -119,12 +142,13 @@ export function Microblog() {
       likes: 8,
       comments: 15,
       isLiked: false,
-      isPinned: false
+      isPinned: false,
     },
     {
       id: "4",
       communityId: "3",
-      content: "簡単で美味しいパスタレシピを共有します！トマトとバジルの基本パスタです 🍝",
+      content:
+        "簡単で美味しいパスタレシピを共有します！トマトとバジルの基本パスタです 🍝",
       userName: "chef_master",
       displayName: "chef_master",
       authorAvatar: "https://i.pravatar.cc/150?img=4",
@@ -132,12 +156,13 @@ export function Microblog() {
       likes: 32,
       comments: 7,
       isLiked: true,
-      isPinned: false
+      isPinned: false,
     },
     {
       id: "5",
       communityId: "1",
-      content: "ReactからSolidJSに移行を検討中です。パフォーマンスの違いを実感した方いますか？",
+      content:
+        "ReactからSolidJSに移行を検討中です。パフォーマンスの違いを実感した方いますか？",
       userName: "frontend_dev",
       displayName: "frontend_dev",
       authorAvatar: "https://i.pravatar.cc/150?img=5",
@@ -145,8 +170,8 @@ export function Microblog() {
       likes: 19,
       comments: 11,
       isLiked: false,
-      isPinned: false
-    }
+      isPinned: false,
+    },
   ]);
 
   // ダミーフォロー中投稿データ
@@ -162,7 +187,7 @@ export function Microblog() {
       retweets: 2,
       replies: 3,
       isLiked: true,
-      hashtags: ["散歩", "天気"]
+      hashtags: ["散歩", "天気"],
     },
     {
       id: "follow_2",
@@ -174,8 +199,8 @@ export function Microblog() {
       likes: 12,
       retweets: 4,
       replies: 7,
-      hashtags: ["プロジェクト", "開発"]
-    }
+      hashtags: ["プロジェクト", "開発"],
+    },
   ]);
 
   // コミュニティ関連のハンドラー
@@ -195,7 +220,7 @@ export function Microblog() {
     console.log("Creating community:", {
       name: communityName(),
       description: communityDescription(),
-      isPrivate: communityIsPrivate()
+      isPrivate: communityIsPrivate(),
     });
     setShowCreateCommunity(false);
   };
@@ -228,7 +253,9 @@ export function Microblog() {
 
   const previousStory = () => {
     const storiesArray = stories() || [];
-    const prevIndex = currentStoryIndex() === 0 ? storiesArray.length - 1 : currentStoryIndex() - 1;
+    const prevIndex = currentStoryIndex() === 0
+      ? storiesArray.length - 1
+      : currentStoryIndex() - 1;
     setCurrentStoryIndex(prevIndex);
     setSelectedStory(storiesArray[prevIndex]);
   };
@@ -252,38 +279,40 @@ export function Microblog() {
   const filteredPosts = () => {
     const query = searchQuery().toLowerCase();
     let postsToFilter: MicroblogPost[] = [];
-    
+
     // タブに応じて投稿を選択
-    if (tab() === 'recommend') {
+    if (tab() === "recommend") {
       postsToFilter = posts() || [];
-    } else if (tab() === 'following') {
+    } else if (tab() === "following") {
       postsToFilter = followingPosts() || [];
-    } else if (tab() === 'community') {
+    } else if (tab() === "community") {
       // コミュニティタブの場合はコミュニティ投稿をMicroblogPost形式に変換
-      const communityPostsConverted: MicroblogPost[] = (communityPosts() || []).map(post => ({
-        id: post.id,
-        content: post.content,
-        userName: post.userName,
-        displayName: post.displayName,
-        authorAvatar: post.authorAvatar, // ダミーのアバターURL
-        createdAt: post.createdAt,
-        likes: post.likes,
-        retweets: 0,
-        replies: post.comments,
-        isLiked: post.isLiked,
-        hashtags: [],
-        mentions: []
-      }));
+      const communityPostsConverted: MicroblogPost[] = (communityPosts() || [])
+        .map((post) => ({
+          id: post.id,
+          content: post.content,
+          userName: post.userName,
+          displayName: post.displayName,
+          authorAvatar: post.authorAvatar, // ダミーのアバターURL
+          createdAt: post.createdAt,
+          likes: post.likes,
+          retweets: 0,
+          replies: post.comments,
+          isLiked: post.isLiked,
+          hashtags: [],
+          mentions: [],
+        }));
       postsToFilter = communityPostsConverted;
     } else {
       postsToFilter = [];
     }
-    
+
     if (!query) return postsToFilter;
-    return postsToFilter.filter(post => 
+    return postsToFilter.filter((post) =>
       post.content.toLowerCase().includes(query) ||
       post.userName.toLowerCase().includes(query) ||
-      (post.hashtags && post.hashtags.some(tag => tag.toLowerCase().includes(query)))
+      (post.hashtags &&
+        post.hashtags.some((tag) => tag.toLowerCase().includes(query)))
     );
   };
 
@@ -309,16 +338,22 @@ export function Microblog() {
   };
 
   const handleLike = async (id: string) => {
-    const success = await likePost(id);
-    if (success) {
-      refetch();
+    const likes = await likePost(id);
+    if (likes !== null) {
+      mutate((prev) =>
+        prev?.map((p) => p.id === id ? { ...p, likes, isLiked: true } : p)
+      );
     }
   };
 
   const handleRetweet = async (id: string) => {
-    const success = await retweetPost(id);
-    if (success) {
-      refetch();
+    const retweets = await retweetPost(id);
+    if (retweets !== null) {
+      mutate((prev) =>
+        prev?.map((p) =>
+          p.id === id ? { ...p, retweets, isRetweeted: true } : p
+        )
+      );
     }
   };
 
@@ -356,7 +391,8 @@ export function Microblog() {
 
   return (
     <>
-      <style>{`
+      <style>
+        {`
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .tab-btn { 
@@ -378,7 +414,8 @@ export function Microblog() {
         .tab-btn-active:hover {
           background: rgba(59, 130, 246, 0.15);
         }
-      `}</style>
+      `}
+      </style>
       <div class="min-h-screen text-white relative">
         {/* ヘッダー + タブ */}
         <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
@@ -393,31 +430,57 @@ export function Microblog() {
                   onInput={(e) => setSearchQuery(e.currentTarget.value)}
                   class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <svg class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg
+                  class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
                 </svg>
               </div>
             </div>
             {/* タブ */}
             <div class="flex gap-4 justify-center">
-              <button 
-                type="button" 
-                class={`tab-btn ${tab()==='recommend' ? 'tab-btn-active' : ''}`} 
-                onClick={() => {setTab('recommend'); setShowCommunityView(false);}}
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "recommend" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("recommend");
+                  setShowCommunityView(false);
+                }}
               >
                 おすすめ
               </button>
-              <button 
-                type="button" 
-                class={`tab-btn ${tab()==='following' ? 'tab-btn-active' : ''}`} 
-                onClick={() => {setTab('following'); setShowCommunityView(false);}}
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "following" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("following");
+                  setShowCommunityView(false);
+                }}
               >
                 フォロー中
               </button>
-              <button 
-                type="button" 
-                class={`tab-btn ${tab()==='community' ? 'tab-btn-active' : ''}`} 
-                onClick={() => { setTab('community'); setShowCommunityView(false); setSelectedCommunity(null); }}
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "community" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("community");
+                  setShowCommunityView(false);
+                  setSelectedCommunity(null);
+                }}
               >
                 コミュニティ
               </button>
@@ -454,7 +517,8 @@ export function Microblog() {
             formatDate={formatDate}
           />
 
-          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
+          {(tab() === "recommend" || tab() === "following" ||
+            tab() === "community") && (
             <StoryTray
               stories={stories() || []}
               refetchStories={refetchStories}
@@ -462,7 +526,8 @@ export function Microblog() {
             />
           )}
 
-          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
+          {(tab() === "recommend" || tab() === "following" ||
+            tab() === "community") && (
             <PostList
               posts={filteredPosts()}
               tab={tab()}
@@ -498,14 +563,25 @@ export function Microblog() {
         />
 
         {/* フローティング投稿ボタン（おすすめ・フォロー中・コミュニティタブの時のみ表示） */}
-        {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && (
+        {(tab() === "recommend" || tab() === "following" ||
+          tab() === "community") && (
           <button
             type="button"
             onClick={() => setShowPostForm(true)}
             class="fixed bottom-6 right-6 z-30 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
           >
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              />
             </svg>
           </button>
         )}

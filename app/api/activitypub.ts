@@ -72,7 +72,11 @@ app.get("/users/:username/outbox", async (c) => {
     totalItems: objects.length,
     // deno-lint-ignore no-explicit-any
     orderedItems: objects.map((n: any) =>
-      buildActivityFromStored({ ...n, content: n.content ?? "" }, domain, username)
+      buildActivityFromStored(
+        { ...n, content: n.content ?? "" },
+        domain,
+        username,
+      )
     ),
   };
   return jsonResponse(c, outbox, 200, "application/activity+json");
@@ -118,6 +122,12 @@ app.post("/users/:username/inbox", async (c) => {
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
   if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const activity = JSON.parse(bodyText);
+  await ActivityPubObject.create({
+    type: activity.type || "Activity",
+    attributedTo: typeof activity.actor === "string" ? activity.actor : "",
+    inboxUser: username,
+    raw: activity,
+  });
   if (activity.type === "Follow" && typeof activity.actor === "string") {
     await Account.updateOne(
       { userName: username },
