@@ -72,7 +72,7 @@ app.get("/users/:username/outbox", async (c) => {
     totalItems: objects.length,
     // deno-lint-ignore no-explicit-any
     orderedItems: objects.map((n: any) =>
-      buildActivityFromStored(n, domain, username)
+      buildActivityFromStored({ ...n, content: n.content ?? "" }, domain, username)
     ),
   };
   return jsonResponse(c, outbox, 200, "application/activity+json");
@@ -94,8 +94,9 @@ app.post("/users/:username/outbox", async (c) => {
   });
   await object.save();
   const domain = getDomain(c);
+  // contentをstringに変換して渡す
   const activity = buildActivityFromStored(
-    object,
+    { ...object.toObject(), content: object.content ?? "" },
     domain,
     username,
     true,
