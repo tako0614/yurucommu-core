@@ -1,23 +1,39 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import Story from "./models/story.ts";
+import ActivityPubObject from "./models/activitypub_object.ts";
 
 const app = new Hono();
 
 // CORSミドルウェア
-app.use("/api/stories/*", cors({
-  origin: "*",
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization"],
-}));
+app.use(
+  "/api/stories/*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 // ストーリー一覧取得
 app.get("/api/stories", async (c) => {
   try {
-    const stories = await Story.find({
-      expiresAt: { $gt: new Date() }
-    }).sort({ createdAt: -1 });
-    return c.json(stories);
+    const stories = await ActivityPubObject.find({
+      type: "Story",
+      "extra.expiresAt": { $gt: new Date() },
+    }).sort({ published: -1 }).lean();
+    const formatted = stories.map((s: Record<string, unknown>) => ({
+      id: s._id.toString(),
+      author: s.attributedTo,
+      content: s.content,
+      mediaUrl: s.extra.mediaUrl,
+      mediaType: s.extra.mediaType,
+      backgroundColor: s.extra.backgroundColor,
+      textColor: s.extra.textColor,
+      createdAt: s.published,
+      expiresAt: s.extra.expiresAt,
+      views: s.extra.views,
+    }));
+    return c.json(formatted);
   } catch (error) {
     console.error("Error fetching stories:", error);
     return c.json({ error: "Failed to fetch stories" }, 500);
@@ -28,7 +44,8 @@ app.get("/api/stories", async (c) => {
 app.post("/api/stories", async (c) => {
   try {
     const body = await c.req.json();
-    const { author, content, mediaUrl, mediaType, backgroundColor, textColor } = body;
+    const { author, content, mediaUrl, mediaType, backgroundColor, textColor } =
+      body;
 
     if (!author || !content) {
       return c.json({ error: "Author and content are required" }, 400);
@@ -38,20 +55,34 @@ app.post("/api/stories", async (c) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    const story = new Story({
-      author,
+    const story = new ActivityPubObject({
+      type: "Story",
+      attributedTo: author,
       content,
-      mediaUrl,
-      mediaType,
-      backgroundColor: backgroundColor || "#1DA1F2",
-      textColor: textColor || "#FFFFFF",
-      expiresAt,
-      views: 0,
-      createdAt: new Date(),
+      published: new Date(),
+      extra: {
+        mediaUrl,
+        mediaType,
+        backgroundColor: backgroundColor || "#1DA1F2",
+        textColor: textColor || "#FFFFFF",
+        expiresAt,
+        views: 0,
+      },
     });
 
     await story.save();
-    return c.json(story, 201);
+    return c.json({
+      id: story._id.toString(),
+      author: story.attributedTo,
+      content: story.content,
+      mediaUrl: story.extra.mediaUrl,
+      mediaType: story.extra.mediaType,
+      backgroundColor: story.extra.backgroundColor,
+      textColor: story.extra.textColor,
+      createdAt: story.published,
+      expiresAt: story.extra.expiresAt,
+      views: story.extra.views,
+    }, 201);
   } catch (error) {
     console.error("Error creating story:", error);
     return c.json({ error: "Failed to create story" }, 500);
@@ -62,17 +93,28 @@ app.post("/api/stories", async (c) => {
 app.post("/api/stories/:id/view", async (c) => {
   try {
     const id = c.req.param("id");
-    const story = await Story.findByIdAndUpdate(
+    const story = await ActivityPubObject.findByIdAndUpdate(
       id,
-      { $inc: { views: 1 } },
-      { new: true }
-    );
+      { $inc: { "extra.views": 1 } },
+      { new: true },
+    ).lean();
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
     }
 
-    return c.json(story);
+    return c.json({
+      id: story._id.toString(),
+      author: story.attributedTo,
+      content: story.content,
+      mediaUrl: story.extra.mediaUrl,
+      mediaType: story.extra.mediaType,
+      backgroundColor: story.extra.backgroundColor,
+      textColor: story.extra.textColor,
+      createdAt: story.published,
+      expiresAt: story.extra.expiresAt,
+      views: story.extra.views,
+    });
   } catch (error) {
     console.error("Error viewing story:", error);
     return c.json({ error: "Failed to view story" }, 500);
@@ -83,7 +125,7 @@ app.post("/api/stories/:id/view", async (c) => {
 app.delete("/api/stories/:id", async (c) => {
   try {
     const id = c.req.param("id");
-    const story = await Story.findByIdAndDelete(id);
+    const story = await ActivityPubObject.findByIdAndDelete(id);
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -99,13 +141,14 @@ app.delete("/api/stories/:id", async (c) => {
 // 期限切れストーリーのクリーンアップ（定期実行用）
 app.delete("/api/stories/cleanup", async (c) => {
   try {
-    const result = await Story.deleteMany({
-      expiresAt: { $lt: new Date() }
+    const result = await ActivityPubObject.deleteMany({
+      type: "Story",
+      "extra.expiresAt": { $lt: new Date() },
     });
-    
-    return c.json({ 
-      message: "Cleanup completed", 
-      deletedCount: result.deletedCount 
+
+    return c.json({
+      message: "Cleanup completed",
+      deletedCount: result.deletedCount,
     });
   } catch (error) {
     console.error("Error cleaning up expired stories:", error);
