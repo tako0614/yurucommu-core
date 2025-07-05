@@ -1,14 +1,60 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, For, createResource } from "solid-js";
 import type { MicroblogPost } from "./types.ts";
-import {
-  _replyToPost,
-  createPost,
-  deletePost,
-  likePost,
-  retweetPost,
-  updatePost,
-} from "./api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
+import { fetchActivityPubActor, getCachedUserInfo } from "./api.ts";
+
+// ユーザー情報を整理する関数
+function formatUserInfo(post: MicroblogPost) {
+  // displayNameが空文字列やundefinedの場合、userNameから適切な表示名を生成
+  let displayName = post.displayName;
+  if (!displayName || displayName.trim() === "") {
+    // userNameがURLの場合、ドメイン部分を除いてユーザー名を抽出
+    if (post.userName.includes("@")) {
+      displayName = post.userName.split("@")[0];
+    } else if (post.userName.startsWith("http")) {
+      // URLの場合、最後のパス部分を使用
+      const urlParts = post.userName.split("/");
+      displayName = urlParts[urlParts.length - 1] || "External User";
+    } else {
+      displayName = post.userName;
+    }
+  }
+
+  // domainの処理：自サーバーと外部サーバーを適切に区別
+  let domain = post.domain;
+  let userName = post.userName;
+  
+  if (post.userName.includes("@")) {
+    // userName が user@domain 形式の場合
+    const parts = post.userName.split("@");
+    userName = parts[0];
+    if (!domain && parts.length > 1) {
+      domain = parts[1];
+    }
+  } else if (post.userName.startsWith("http")) {
+    // userNameがURLの場合、ドメインを抽出
+    try {
+      const url = new URL(post.userName);
+      domain = url.hostname;
+      // URLの最後の部分をユーザー名として使用
+      const pathParts = url.pathname.split("/");
+      userName = pathParts[pathParts.length - 1] || userName;
+    } catch {
+      // URL解析に失敗した場合のフォールバック
+      domain = "external";
+    }
+  }
+
+  // 自サーバーのドメインかどうかを判定（実際のサーバードメインに置き換えてください）
+  const isLocalUser = !domain || domain === globalThis.location?.hostname || domain === "localhost";
+  
+  return {
+    displayName,
+    userName: isLocalUser ? userName : `${userName}@${domain}`,
+    domain: isLocalUser ? "" : domain,
+    isLocalUser
+  };
+}
 
 type PostItemProps = {
   post: MicroblogPost;
@@ -32,24 +78,69 @@ function PostItem(props: PostItemProps) {
     handleDelete,
     formatDate,
   } = props;
+
+  // ユーザー情報を整理
+  const userInfo = formatUserInfo(post);
+
+  // 外部ユーザーの追加情報を取得
+  const [externalUserInfo] = createResource(
+    () => {
+      if (!userInfo.isLocalUser && post.userName && post.userName.startsWith("http")) {
+        // まずキャッシュを確認
+        const cached = getCachedUserInfo(post.userName);
+        if (cached) {
+          return Promise.resolve(cached);
+        }
+        // キャッシュにない場合はAPIから取得
+        return fetchActivityPubActor(post.userName);
+      }
+      return Promise.resolve(null);
+    }
+  );
+
+  // 最終的な表示情報を決定
+  const finalUserInfo = () => {
+    const external = externalUserInfo();
+    if (!userInfo.isLocalUser && external) {
+      return {
+        ...userInfo,
+        displayName: external.displayName || userInfo.displayName,
+        authorAvatar: external.avatarUrl || post.authorAvatar,
+      };
+    }
+    return {
+      ...userInfo,
+      authorAvatar: post.authorAvatar,
+    };
+  };
+
   return (
     <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <UserAvatar
-            avatarUrl={post.authorAvatar}
-            username={post.userName}
+            avatarUrl={finalUserInfo().authorAvatar}
+            username={finalUserInfo().userName}
             size="w-12 h-12"
+            isExternal={!userInfo.isLocalUser}
           />
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-2 mb-1">
             <span class="font-bold text-white hover:underline cursor-pointer">
-              {post.displayName}
+              {finalUserInfo().displayName}
             </span>
             <span class="text-gray-500 ml-2">
-              @{post.userName}@{post.domain}
+              @{finalUserInfo().userName}
             </span>
+            {!userInfo.isLocalUser && userInfo.domain && (
+              <>
+                <span class="text-gray-600">·</span>
+                <span class="text-gray-400 text-sm bg-gray-800 px-2 py-1 rounded-full">
+                  {userInfo.domain}
+                </span>
+              </>
+            )}
             <span class="text-gray-500">·</span>
             <span class="text-gray-500 text-sm">
               {formatDate(post.createdAt)}

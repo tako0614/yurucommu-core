@@ -133,4 +133,46 @@ app.post("/users/:username/inbox", async (c) => {
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
+// ActivityPub アクタープロキシ（外部ユーザー情報取得用）
+app.get("/activitypub/actor-proxy", async (c) => {
+  try {
+    const actorUrl = c.req.query("url");
+    if (!actorUrl || typeof actorUrl !== "string") {
+      return c.json({ error: "Actor URL is required" }, 400);
+    }
+
+    // URLの検証
+    try {
+      new URL(actorUrl);
+    } catch {
+      return c.json({ error: "Invalid URL" }, 400);
+    }
+
+    // ActivityPub Accept ヘッダーでリクエスト
+    const response = await fetch(actorUrl, {
+      headers: {
+        "Accept": "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+        "User-Agent": "Takos ActivityPub Client/1.0",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch actor: ${response.status}`);
+    }
+
+    const actor = await response.json();
+    
+    // 必要な情報のみを返す（セキュリティのため）
+    return c.json({
+      name: actor.name || "",
+      preferredUsername: actor.preferredUsername || "",
+      icon: actor.icon || null,
+      summary: actor.summary || "",
+    });
+  } catch (error) {
+    console.error("Error proxying ActivityPub actor:", error);
+    return c.json({ error: "Failed to fetch actor information" }, 500);
+  }
+});
+
 export default app;

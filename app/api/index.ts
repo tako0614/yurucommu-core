@@ -26,6 +26,7 @@ app.route("/api", microblog);
 app.route("/api", search);
 app.route("/api", communities);
 app.route("/api", users);
+app.route("/api", activitypub); // ActivityPubプロキシAPI用
 app.route("/", activitypub);
 
 Deno.serve(app.fetch);

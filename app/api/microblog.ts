@@ -17,16 +17,50 @@ app.get("/microblog", async (c) => {
   }).lean();
   const formatted = await Promise.all(
     list.map(async (doc: Record<string, unknown>) => {
+      // ローカルユーザーの場合はDBから取得
       const account = await Account.findOne({ userName: doc.attributedTo })
         .lean();
-      // attributedToがURLならそこからドメイン抽出
-      let userName = doc.attributedTo;
+      
+      let userName = doc.attributedTo as string;
+      let displayName = userName;
+      let authorAvatar = "";
       let postDomain = domain;
-      if (typeof userName === "string" && userName.startsWith("http")) {
+      
+      if (account) {
+        // ローカルユーザーの場合
+        displayName = account.displayName || userName;
+        authorAvatar = account.avatarInitial || "";
+      } else if (typeof userName === "string" && userName.startsWith("http")) {
+        // 外部ユーザーの場合（ActivityPub URL）
         try {
-          postDomain = new URL(userName).host;
-        } catch {}
+          const url = new URL(userName);
+          postDomain = url.hostname;
+          
+          // URLから適切なユーザー名を抽出
+          const pathParts = url.pathname.split("/");
+          const extractedUsername = pathParts[pathParts.length - 1] || 
+                                   pathParts[pathParts.length - 2] || 
+                                   "external_user";
+          
+          userName = extractedUsername;
+          displayName = extractedUsername; // 外部ユーザーの場合、displayNameは後で取得する仕組みが必要
+          
+          // ActivityPubオブジェクトの追加情報から取得を試みる
+          if (doc.extra && typeof doc.extra === "object") {
+            const extra = doc.extra as Record<string, unknown>;
+            if (extra.actorInfo && typeof extra.actorInfo === "object") {
+              const actorInfo = extra.actorInfo as Record<string, unknown>;
+              displayName = (actorInfo.name as string) || 
+                           (actorInfo.preferredUsername as string) || 
+                           displayName;
+              authorAvatar = (actorInfo.icon as string) || "";
+            }
+          }
+        } catch {
+          postDomain = "external";
+        }
       }
+      
       return {
         id: typeof doc._id === "string"
           ? doc._id
@@ -34,13 +68,14 @@ app.get("/microblog", async (c) => {
               "toString" in doc._id
           ? (doc._id as { toString: () => string }).toString()
           : "",
-        userName: doc.attributedTo,
-        displayName: account?.displayName || doc.attributedTo,
-        authorAvatar: account?.avatarInitial || "",
+        userName: userName,
+        displayName: displayName,
+        authorAvatar: authorAvatar,
         content: doc.content,
         createdAt: doc.published,
         likes: (doc.extra as Record<string, unknown>)?.likes ?? 0,
         retweets: (doc.extra as Record<string, unknown>)?.retweets ?? 0,
+        replies: (doc.extra as Record<string, unknown>)?.replies ?? 0,
         domain: postDomain,
       };
     }),
@@ -92,15 +127,26 @@ app.post("/microblog", async (c) => {
     console.error("activitypub delivery error:", err);
   }
   const account = await Account.findOne({ userName: post.attributedTo }).lean();
+  
+  const userName = post.attributedTo as string;
+  let displayName = userName;
+  let authorAvatar = "";
+  
+  if (account) {
+    displayName = account.displayName || userName;
+    authorAvatar = account.avatarInitial || "";
+  }
+  
   return c.json({
     id: post._id.toString(),
-    userName: post.attributedTo,
-    displayName: account?.displayName || post.attributedTo,
-    authorAvatar: account?.avatarInitial || "",
+    userName: userName,
+    displayName: displayName,
+    authorAvatar: authorAvatar,
     content: post.content,
     createdAt: post.published,
     likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
     retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
+    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
     domain,
   }, 201);
 });
@@ -110,16 +156,28 @@ app.get("/microblog/:id", async (c) => {
   const id = c.req.param("id");
   const post = await ActivityPubObject.findById(id).lean();
   if (!post) return c.json({ error: "Not found" }, 404);
+  
   const account = await Account.findOne({ userName: post.attributedTo }).lean();
+  
+  const userName = post.attributedTo as string;
+  let displayName = userName;
+  let authorAvatar = "";
+  
+  if (account) {
+    displayName = account.displayName || userName;
+    authorAvatar = account.avatarInitial || "";
+  }
+  
   return c.json({
     id: post._id.toString(),
-    userName: post.attributedTo,
-    displayName: account?.displayName || post.attributedTo,
-    authorAvatar: account?.avatarInitial || "",
+    userName: userName,
+    displayName: displayName,
+    authorAvatar: authorAvatar,
     content: post.content,
     createdAt: post.published,
     likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
     retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
+    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
     domain,
   });
 });
@@ -135,16 +193,28 @@ app.put("/microblog/:id", async (c) => {
     new: true,
   });
   if (!post) return c.json({ error: "Not found" }, 404);
+  
   const account = await Account.findOne({ userName: post.attributedTo }).lean();
+  
+  const userName = post.attributedTo as string;
+  let displayName = userName;
+  let authorAvatar = "";
+  
+  if (account) {
+    displayName = account.displayName || userName;
+    authorAvatar = account.avatarInitial || "";
+  }
+  
   return c.json({
     id: post._id.toString(),
-    userName: post.attributedTo,
-    displayName: account?.displayName || post.attributedTo,
-    authorAvatar: account?.avatarInitial || "",
+    userName: userName,
+    displayName: displayName,
+    authorAvatar: authorAvatar,
     content: post.content,
     createdAt: post.published,
     likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
     retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
+    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
     domain,
   });
 });

@@ -401,3 +401,73 @@ export const deleteStory = async (id: string): Promise<boolean> => {
     return false;
   }
 };
+
+// ユーザー情報を取得
+export const fetchUserProfile = async (username: string) => {
+  try {
+    const response = await fetch(`/api/users/${encodeURIComponent(username)}`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch user profile");
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    return null;
+  }
+};
+
+// 外部ユーザーの情報をキャッシュする機能
+const userInfoCache = new Map<string, {
+  displayName: string;
+  avatarUrl?: string;
+  timestamp: number;
+}>();
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5分
+
+export const getCachedUserInfo = (actorUrl: string) => {
+  const cached = userInfoCache.get(actorUrl);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached;
+  }
+  return null;
+};
+
+export const setCachedUserInfo = (actorUrl: string, displayName: string, avatarUrl?: string) => {
+  userInfoCache.set(actorUrl, {
+    displayName,
+    avatarUrl,
+    timestamp: Date.now(),
+  });
+};
+
+// ActivityPub ユーザー情報を取得（外部ユーザー用）
+export const fetchActivityPubActor = async (actorUrl: string) => {
+  try {
+    // まずキャッシュから確認
+    const cached = getCachedUserInfo(actorUrl);
+    if (cached) {
+      return cached;
+    }
+
+    // プロキシ経由でActivityPubアクターを取得
+    const response = await fetch(`/api/activitypub/actor-proxy?url=${encodeURIComponent(actorUrl)}`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch ActivityPub actor");
+    }
+    
+    const actor = await response.json();
+    const displayName = actor.name || actor.preferredUsername || "External User";
+    const avatarUrl = typeof actor.icon === "object" && actor.icon?.url ? 
+                     actor.icon.url : 
+                     typeof actor.icon === "string" ? actor.icon : undefined;
+
+    // キャッシュに保存
+    setCachedUserInfo(actorUrl, displayName, avatarUrl);
+    
+    return { displayName, avatarUrl };
+  } catch (error) {
+    console.error("Error fetching ActivityPub actor:", error);
+    return null;
+  }
+};
