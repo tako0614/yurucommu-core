@@ -63,157 +63,9 @@ export function Microblog() {
   const [communityBanner, setCommunityBanner] = createSignal("");
   const [communityTags, setCommunityTags] = createSignal("");
   const [communityIsPrivate, setCommunityIsPrivate] = createSignal(false);
-  // コミュニティデータ
-  const [communities] = createSignal<Community[]>([
-    {
-      id: "1",
-      name: "技術討論",
-      description: "プログラミングや最新技術について議論する場所",
-      avatar: "",
-      banner: "",
-      memberCount: 1250,
-      postCount: 3420,
-      isJoined: true,
-      isPrivate: false,
-      tags: ["プログラミング", "技術", "開発"],
-      rules: ["相手を尊重する", "建設的な議論を心がける", "スパムは禁止"],
-      createdAt: "2024-01-15T00:00:00Z",
-      moderators: ["admin", "tech_lead"],
-    },
-    {
-      id: "2",
-      name: "アニメ・漫画",
-      description: "アニメや漫画の感想・考察を共有しよう",
-      avatar: "",
-      banner: "",
-      memberCount: 2100,
-      postCount: 8750,
-      isJoined: false,
-      isPrivate: false,
-      tags: ["アニメ", "漫画", "エンタメ"],
-      rules: ["ネタバレ注意", "作品への敬意を忘れずに"],
-      createdAt: "2024-02-01T00:00:00Z",
-      moderators: ["anime_mod"],
-    },
-    {
-      id: "3",
-      name: "料理レシピ",
-      description: "美味しい料理のレシピを共有するコミュニティ",
-      avatar: "",
-      banner: "",
-      memberCount: 890,
-      postCount: 1560,
-      isJoined: true,
-      isPrivate: false,
-      tags: ["料理", "レシピ", "グルメ"],
-      rules: ["レシピは詳細に", "写真の投稿を推奨"],
-      createdAt: "2024-03-10T00:00:00Z",
-      moderators: ["chef_master"],
-    },
-  ]);
-
-  // ダミーコミュニティ投稿データ
-  const [communityPosts] = createSignal<CommunityPost[]>([
-    {
-      id: "1",
-      communityId: "1",
-      content:
-        "TypeScriptの新機能について議論しませんか？特にtemplate literal typesが面白いと思います。",
-      userName: "dev_user",
-      displayName: "dev_user",
-      authorAvatar: "https://i.pravatar.cc/150?img=1",
-      createdAt: "2024-07-05T10:30:00Z",
-      likes: 15,
-      comments: 8,
-      isLiked: false,
-      isPinned: true,
-    },
-    {
-      id: "2",
-      communityId: "1",
-      content:
-        "Denoの最新アップデートでパフォーマンスが大幅に改善されましたね。みなさんはもう試されましたか？",
-      userName: "deno_fan",
-      displayName: "deno_fan",
-      authorAvatar: "https://i.pravatar.cc/150?img=2",
-      createdAt: "2024-07-05T09:15:00Z",
-      likes: 23,
-      comments: 12,
-      isLiked: true,
-      isPinned: false,
-    },
-    {
-      id: "3",
-      communityId: "2",
-      content:
-        "今期のアニメでおすすめはありますか？特に異世界系で面白いのがあったら教えてください！",
-      userName: "anime_lover",
-      displayName: "anime_lover",
-      authorAvatar: "https://i.pravatar.cc/150?img=3",
-      createdAt: "2024-07-05T08:45:00Z",
-      likes: 8,
-      comments: 15,
-      isLiked: false,
-      isPinned: false,
-    },
-    {
-      id: "4",
-      communityId: "3",
-      content:
-        "簡単で美味しいパスタレシピを共有します！トマトとバジルの基本パスタです 🍝",
-      userName: "chef_master",
-      displayName: "chef_master",
-      authorAvatar: "https://i.pravatar.cc/150?img=4",
-      createdAt: "2024-07-05T07:20:00Z",
-      likes: 32,
-      comments: 7,
-      isLiked: true,
-      isPinned: false,
-    },
-    {
-      id: "5",
-      communityId: "1",
-      content:
-        "ReactからSolidJSに移行を検討中です。パフォーマンスの違いを実感した方いますか？",
-      userName: "frontend_dev",
-      displayName: "frontend_dev",
-      authorAvatar: "https://i.pravatar.cc/150?img=5",
-      createdAt: "2024-07-05T06:50:00Z",
-      likes: 19,
-      comments: 11,
-      isLiked: false,
-      isPinned: false,
-    },
-  ]);
-
-  // ダミーフォロー中投稿データ
-  const [followingPosts] = createSignal<MicroblogPost[]>([
-    {
-      id: "follow_1",
-      content: "今日は良い天気ですね！散歩に行ってきます 🌞",
-      userName: "friend_user",
-      displayName: "friend_user",
-      authorAvatar: "https://i.pravatar.cc/150?img=6",
-      createdAt: "2024-07-05T11:00:00Z",
-      likes: 5,
-      retweets: 2,
-      replies: 3,
-      isLiked: true,
-      hashtags: ["散歩", "天気"],
-    },
-    {
-      id: "follow_2",
-      content: "新しいプロジェクトを始めました！がんばります💪",
-      userName: "colleague_dev",
-      displayName: "colleague_dev",
-      authorAvatar: "https://i.pravatar.cc/150?img=7",
-      createdAt: "2024-07-05T10:45:00Z",
-      likes: 12,
-      retweets: 4,
-      replies: 7,
-      hashtags: ["プロジェクト", "開発"],
-    },
-  ]);
+  // コミュニティデータはAPIから取得（communitiesData）
+  // コミュニティ投稿は各コミュニティの詳細取得時にAPIから取得する想定
+  // フォロー中投稿もAPIから取得（followingTimelinePosts）
 
   // コミュニティ関連のハンドラー
   const handleJoinCommunity = (communityId: string) => {
@@ -296,25 +148,11 @@ export function Microblog() {
     if (tab() === "recommend") {
       postsToFilter = posts() || [];
     } else if (tab() === "following") {
-      postsToFilter = followingPosts() || [];
+      postsToFilter = followingTimelinePosts() || [];
     } else if (tab() === "community") {
-      // コミュニティタブの場合はコミュニティ投稿をMicroblogPost形式に変換
-      const communityPostsConverted: MicroblogPost[] = (communityPosts() || [])
-        .map((post) => ({
-          id: post.id,
-          content: post.content,
-          userName: post.userName,
-          displayName: post.displayName,
-          authorAvatar: post.authorAvatar, // ダミーのアバターURL
-          createdAt: post.createdAt,
-          likes: post.likes,
-          retweets: 0,
-          replies: post.comments,
-          isLiked: post.isLiked,
-          hashtags: [],
-          mentions: [],
-        }));
-      postsToFilter = communityPostsConverted;
+      // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
+      // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
+      postsToFilter = [];
     } else {
       postsToFilter = [];
     }
@@ -519,8 +357,8 @@ export function Microblog() {
             setCommunityTags={setCommunityTags}
             communityIsPrivate={communityIsPrivate()}
             setCommunityIsPrivate={setCommunityIsPrivate}
-            communities={communities()}
-            communityPosts={communityPosts()}
+            communities={communitiesData() || []}
+            communityPosts={[]}
             handleJoinCommunity={handleJoinCommunity}
             handleLeaveCommunity={handleLeaveCommunity}
             handleCreateCommunity={handleCreateCommunity}

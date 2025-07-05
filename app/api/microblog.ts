@@ -19,6 +19,14 @@ app.get("/microblog", async (c) => {
     list.map(async (doc: Record<string, unknown>) => {
       const account = await Account.findOne({ userName: doc.attributedTo })
         .lean();
+      // attributedToがURLならそこからドメイン抽出
+      let userName = doc.attributedTo;
+      let postDomain = domain;
+      if (typeof userName === "string" && userName.startsWith("http")) {
+        try {
+          postDomain = new URL(userName).host;
+        } catch {}
+      }
       return {
         id: typeof doc._id === "string"
           ? doc._id
@@ -33,7 +41,7 @@ app.get("/microblog", async (c) => {
         createdAt: doc.published,
         likes: (doc.extra as Record<string, unknown>)?.likes ?? 0,
         retweets: (doc.extra as Record<string, unknown>)?.retweets ?? 0,
-        domain,
+        domain: postDomain,
       };
     }),
   );
