@@ -36,9 +36,10 @@ deno task dev
 - `/.well-known/webfinger` – WebFinger でアクターを検索
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
-- `/users/:username/inbox` – ActivityPub
-  受信エンドポイント（受信したオブジェクトは `ActivityPubObject`
-  コレクションに保存）
+- `/users/:username/inbox` – ActivityPub 受信エンドポイント。`Create` Activity
+  の場合はオブジェクトを `ActivityPubObject` として保存し、他の Activity
+  は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
+  新しい Activity を追加しやすくしています。
 
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 

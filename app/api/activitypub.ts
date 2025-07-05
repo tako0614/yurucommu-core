@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 
+import { activityHandlers } from "./activity_handlers.ts";
+
 import {
   buildActivityFromStored,
-  createAcceptActivity,
   createActor,
   deliverActivityPubObject,
   getDomain,
@@ -124,28 +125,9 @@ app.post("/users/:username/inbox", async (c) => {
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
   if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const activity = JSON.parse(bodyText);
-  await ActivityPubObject.create({
-    type: activity.type || "Activity",
-    attributedTo: typeof activity.actor === "string" ? activity.actor : "",
-    inboxUser: username,
-    raw: activity,
-  });
-  if (activity.type === "Follow" && typeof activity.actor === "string") {
-    await Account.updateOne(
-      { userName: username },
-      { $addToSet: { followers: activity.actor } },
-    );
-    const domain = getDomain(c);
-    const accept = createAcceptActivity(
-      domain,
-      `https://${domain}/users/${username}`,
-      activity,
-    );
-    deliverActivityPubObject([activity.actor], accept, username).catch(
-      (err) => {
-        console.error("Delivery failed:", err);
-      },
-    );
+  const handler = activityHandlers[activity.type];
+  if (handler) {
+    await handler(activity, username, c);
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
