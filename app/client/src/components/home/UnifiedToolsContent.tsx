@@ -442,8 +442,17 @@ export default function UnifiedToolsContent() {
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                         <div class="flex items-center justify-between">
                           <div class="flex items-center space-x-3">
-                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center text-white font-semibold">
-                              {result.avatar || result.title.charAt(0)}
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                              <Show
+                                when={result.avatar}
+                                fallback={result.title.charAt(0)}
+                              >
+                                <img
+                                  src={result.avatar!}
+                                  alt="avatar"
+                                  class="w-full h-full object-cover"
+                                />
+                              </Show>
                             </div>
                             <div>
                               <div class="flex items-center space-x-2">
@@ -656,8 +665,17 @@ export default function UnifiedToolsContent() {
                     <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                       <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-3">
-                          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold">
-                            {user.avatar || user.displayName.charAt(0)}
+                          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                            <Show
+                              when={user.avatar}
+                              fallback={user.displayName.charAt(0)}
+                            >
+                              <img
+                                src={user.avatar!}
+                                alt="avatar"
+                                class="w-full h-full object-cover"
+                              />
+                            </Show>
                           </div>
                           <div>
                             <div class="flex items-center space-x-2">
@@ -872,8 +890,17 @@ export default function UnifiedToolsContent() {
                     <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                       <div class="flex items-start justify-between">
                         <div class="flex items-start space-x-3 flex-1">
-                          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold">
-                            {community.avatar || community.name.charAt(0)}
+                          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                            <Show
+                              when={community.avatar}
+                              fallback={community.name.charAt(0)}
+                            >
+                              <img
+                                src={community.avatar!}
+                                alt="avatar"
+                                class="w-full h-full object-cover"
+                              />
+                            </Show>
                           </div>
                           <div class="flex-1">
                             <div class="flex items-center space-x-2 mb-1">
