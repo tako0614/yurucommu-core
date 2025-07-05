@@ -161,23 +161,18 @@ export async function verifyHttpSignature(
   try {
     const signatureHeader = req.headers.get("signature");
     if (!signatureHeader) {
-      console.log("No signature header found");
       return false;
     }
-
-    console.log(`Full signature header: ${signatureHeader}`);
 
     const params = parseSignatureHeader(signatureHeader);
     const publicKeyUrl = params.keyId;
 
     if (!publicKeyUrl) {
-      console.log("No keyId found in signature header");
       return false;
     }
 
     let publicKeyPem = "";
     try {
-      console.log(`Fetching public key from: ${publicKeyUrl}`);
       const res = await fetch(publicKeyUrl, {
         headers: {
           accept: "application/activity+json, application/ld+json",
@@ -191,22 +186,14 @@ export async function verifyHttpSignature(
         publicKeyPem = data.publicKey?.publicKeyPem ??
           data.publicKeyPem ??
           "";
-        console.log(`Public key fetched, length: ${publicKeyPem.length}`);
-        console.log(`Raw public key: ${JSON.stringify(publicKeyPem)}`);
-        console.log(`Actor data: ${JSON.stringify(data, null, 2)}`);
       } else {
-        console.log(
-          `Failed to fetch public key: ${res.status} ${res.statusText}`,
-        );
         return false;
       }
-    } catch (error) {
-      console.log(`Error fetching public key: ${error}`);
+    } catch (_error) {
       return false;
     }
 
     if (!publicKeyPem) {
-      console.log("No public key found in response");
       return false;
     }
 
@@ -218,12 +205,8 @@ export async function verifyHttpSignature(
         await crypto.subtle.digest("SHA-256", encoder.encode(body)),
       );
       if (digestHeader !== `SHA-256=${expectedDigest}`) {
-        console.log(
-          `Digest mismatch. Expected: SHA-256=${expectedDigest}, Got: ${digestHeader}`,
-        );
         return false;
       }
-      console.log("Digest verification passed");
     }
 
     const headersList = params.headers.split(" ");
@@ -235,6 +218,9 @@ export async function verifyHttpSignature(
       if (h === "(request-target)") {
         // request-targetにクエリパラメータも含める
         value = `${req.method.toLowerCase()} ${url.pathname}${url.search}`;
+              } else if (h === "host") {
+        // リバースプロキシ環境では x-forwarded-host を優先
+        value = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
       } else if (h === "content-length") {
         // Content-Lengthは実際のボディの長さを使用
         const encoder = new TextEncoder();
@@ -243,32 +229,20 @@ export async function verifyHttpSignature(
         value = req.headers.get(h);
       }
       if (value === null) {
-        console.log(`Missing header: ${h}`);
         return false;
       }
       lines.push(`${h}: ${value}`);
-      console.log(`Header ${h}: ${value}`);
     }
 
     const signingString = lines.join("\n");
-    console.log(`Headers order from signature: ${params.headers}`);
-    console.log(`Signing string:\n${signingString}`);
 
     // 公開鍵の正規化（すでにPEM形式の場合はそのまま使用）
     const normalizedPublicKey = publicKeyPem.includes("BEGIN PUBLIC KEY")
       ? publicKeyPem
       : ensurePem(publicKeyPem, "PUBLIC KEY");
-    console.log(`Normalized public key: ${normalizedPublicKey}`);
 
     const encoder = new TextEncoder();
     const keyData = pemToArrayBuffer(normalizedPublicKey);
-
-    console.log(`Key data length: ${keyData.byteLength}`);
-    console.log(
-      `Key data (first 50 bytes): ${
-        Array.from(new Uint8Array(keyData.slice(0, 50)))
-      }`,
-    );
 
     const key = await crypto.subtle.importKey(
       "spki",
@@ -278,25 +252,8 @@ export async function verifyHttpSignature(
       ["verify"],
     );
 
-    console.log(`Key imported successfully`);
-
     const signatureBytes = base64ToArrayBuffer(params.signature);
-    console.log(`Signature bytes length: ${signatureBytes.byteLength}`);
-    console.log(
-      `Signature bytes (first 20 bytes): ${
-        Array.from(new Uint8Array(signatureBytes.slice(0, 20)))
-      }`,
-    );
-
     const signingStringBytes = encoder.encode(signingString);
-    console.log(
-      `Signing string bytes length: ${signingStringBytes.byteLength}`,
-    );
-    console.log(
-      `Signing string bytes (first 50 bytes): ${
-        Array.from(signingStringBytes.slice(0, 50))
-      }`,
-    );
 
     const verified = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5",
@@ -304,8 +261,6 @@ export async function verifyHttpSignature(
       signatureBytes,
       signingStringBytes,
     );
-
-    console.log(`Signature verification result: ${verified}`);
     return verified;
   } catch (error) {
     console.error("Error in verifyHttpSignature:", error);
