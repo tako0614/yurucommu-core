@@ -1,10 +1,13 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, For, onMount } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { darkModeState, languageState } from "../states/settings.ts";
+import { activeAccount, activeAccountId } from "../states/account.ts";
 
 export function Settings() {
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
+  const [act, setAct] = useAtom(activeAccount);
+  const [actId, setActId] = useAtom(activeAccountId);
   const [activeTab, setActiveTab] = createSignal<"profile" | "appearance" | "privacy" | "notifications" | "account">("profile");
   
   const [profileData, setProfileData] = createSignal({
@@ -24,6 +27,50 @@ export function Settings() {
     messages: true,
     email: false
   });
+
+  const [following, setFollowing] = createSignal<string[]>([]);
+  const [followTarget, setFollowTarget] = createSignal("");
+
+  onMount(async () => {
+    const id = actId();
+    if (id) {
+      const res = await fetch(`/api/accounts/${id}/following`);
+      if (res.ok) {
+        const data = await res.json();
+        setFollowing(data.following);
+      }
+    }
+  });
+
+  const handleFollow = async () => {
+    const id = actId();
+    const user = act();
+    if (id && user && followTarget()) {
+      const res = await fetch(`/api/accounts/${id}/follow`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: followTarget() }),
+      });
+      if (res.ok) {
+        setFollowing(prev => [...prev, followTarget()]);
+        setFollowTarget("");
+      }
+    }
+  };
+
+  const handleUnfollow = async (target: string) => {
+    const id = actId();
+    if (id) {
+      const res = await fetch(`/api/accounts/${id}/follow`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target }),
+      });
+      if (res.ok) {
+        setFollowing(prev => prev.filter(t => t !== target));
+      }
+    }
+  };
 
   const saveProfile = () => {
     // プロフィール保存ロジック
@@ -276,6 +323,42 @@ export function Settings() {
                   </div>
 
                   <div class="space-y-6">
+                    <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                      <h3 class="text-lg font-medium text-green-900 dark:text-green-100 mb-2">フォロー管理</h3>
+                      <div class="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={followTarget()}
+                          onInput={(e) => setFollowTarget(e.target.value)}
+                          placeholder="フォローするユーザーのID (例: @user@example.com)"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleFollow}
+                          class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                        >
+                          フォロー
+                        </button>
+                      </div>
+                      <ul class="space-y-2">
+                        <For each={following()}>
+                          {(target) => (
+                            <li class="flex items-center justify-between">
+                              <span>{target}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleUnfollow(target)}
+                                class="text-red-500 hover:text-red-700"
+                              >
+                                アンフォロー
+                              </button>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </div>
+
                     <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                       <h3 class="text-lg font-medium text-blue-900 dark:text-blue-100 mb-2">データのエクスポート</h3>
                       <p class="text-blue-700 dark:text-blue-300 mb-4">

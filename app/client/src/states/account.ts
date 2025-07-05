@@ -1,4 +1,21 @@
 import { atom } from "solid-jotai";
 
-// 現在選択中のアカウントIDを管理する状態
-export const selectedAccountState = atom<string>("");
+export interface Account {
+  id: string;
+  userName: string;
+  displayName: string;
+  avatarInitial: string;
+  publicKey: string;
+  followers: string[];
+  following: string[];
+}
+
+export const accounts = atom<Account[]>([]);
+export const activeAccountId = atom<string | null>(null);
+
+export const activeAccount = atom((get) => {
+  const accs = get(accounts);
+  const id = get(activeAccountId);
+  if (!id) return null;
+  return accs.find((a) => a.id === id) ?? null;
+});

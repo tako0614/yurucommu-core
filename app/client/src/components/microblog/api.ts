@@ -13,14 +13,14 @@ export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   }
 };
 
-export const createPost = async (content: string): Promise<boolean> => {
+export const createPost = async (content: string, author: string): Promise<boolean> => {
   try {
     const response = await fetch("/api/microblog", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ author: "user", content }),
+      body: JSON.stringify({ author, content }),
     });
     return response.ok;
   } catch (error) {

@@ -1,5 +1,6 @@
 import { For } from "solid-js";
 import type { Community, CommunityPost } from "./types.ts";
+import { UserAvatar } from "./UserAvatar.tsx";
 
 export function CommunityView(props: {
   showCommunityView: boolean;
@@ -53,11 +54,11 @@ export function CommunityView(props: {
                   <div class="flex items-start justify-between">
                     <div class="flex-1">
                       <div class="flex items-center space-x-3 mb-3">
-                        <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-                          <span class="text-white font-bold text-lg">
-                            {community.name.charAt(0)}
-                          </span>
-                        </div>
+                        <UserAvatar
+                          avatarUrl={community.avatar}
+                          username={community.name}
+                          size="w-12 h-12"
+                        />
                         <div>
                           <h3 class="text-lg font-bold text-white hover:text-blue-400 cursor-pointer" 
                               onClick={() => props.handleSelectCommunity(community)}>
@@ -195,14 +196,14 @@ export function CommunityView(props: {
                     </div>
                   )}
                   <div class="flex space-x-3">
-                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span class="text-white font-bold text-sm">
-                        {post.author.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
+                    <UserAvatar
+                      avatarUrl={post.authorAvatar}
+                      username={post.userName}
+                      size="w-10 h-10"
+                    />
                     <div class="flex-1">
                       <div class="flex items-center space-x-2 mb-2">
-                        <span class="font-bold text-white">{post.author}</span>
+                        <span class="font-bold text-white">{post.userName}</span>
                         <span class="text-gray-500">·</span>
                         <span class="text-gray-500 text-sm">{props.formatDate(post.createdAt)}</span>
                       </div>

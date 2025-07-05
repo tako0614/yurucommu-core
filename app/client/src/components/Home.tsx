@@ -4,7 +4,7 @@ import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
-import { selectedAccountState } from "../states/account.ts";
+import { accounts as accountsAtom, activeAccountId } from "../states/account.ts";
 
 export function Home() {
   const [activeSection, setActiveSection] = createSignal("account");
@@ -69,12 +69,11 @@ export function Home() {
     }
   };
 
-  // サンプルアカウントデータ
-  const [accounts, setAccounts] = createSignal<Account[]>([]);
+  const [accounts, setAccounts] = useAtom(accountsAtom);
 
   // 現在選択中のアカウントIDをグローバル状態として管理
-  const [selectedAccountId, setSelectedAccountId] = useAtom(
-    selectedAccountState,
+  const [actId, setActId] = useAtom(
+    activeAccountId,
   );
 
   // APIでアカウント一覧を取得
@@ -89,12 +88,12 @@ export function Home() {
           acc.id === preserveSelectedId
         );
         if (accountExists) {
-          setSelectedAccountId(preserveSelectedId);
+          setActId(preserveSelectedId);
         } else if (results.length > 0) {
-          setSelectedAccountId(results[0].id);
+          setActId(results[0].id);
         }
-      } else if (results.length > 0 && !selectedAccountId()) {
-        setSelectedAccountId(results[0].id);
+      } else if (results.length > 0 && !actId()) {
+        setActId(results[0].id);
       }
     } catch (error) {
       console.error("Failed to load accounts:", error);
@@ -121,7 +120,7 @@ export function Home() {
       const result = await response.json();
       const newAccountId = result.id;
       await loadAccounts(newAccountId);
-      setSelectedAccountId(newAccountId);
+      setActId(newAccountId);
       return { success: true };
     } catch (error) {
       console.error("Failed to create account:", error);
@@ -201,9 +200,9 @@ export function Home() {
         await loadAccounts();
         const remainingAccounts = accounts();
         if (remainingAccounts.length > 0) {
-          setSelectedAccountId(remainingAccounts[0].id);
+          setActId(remainingAccounts[0].id);
         } else {
-          setSelectedAccountId("");
+          setActId("");
         }
       } else {
         console.error("アカウントの削除に失敗しました");
@@ -242,8 +241,8 @@ export function Home() {
         return (
           <AccountSettingsContent
             accounts={accounts()}
-            selectedAccountId={selectedAccountId()}
-            setSelectedAccountId={setSelectedAccountId}
+            selectedAccountId={actId() || ""}
+            setSelectedAccountId={setActId}
             addNewAccount={addNewAccount}
             updateAccount={updateAccount}
             deleteAccount={deleteAccount}

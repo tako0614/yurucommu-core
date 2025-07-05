@@ -1,6 +1,7 @@
 import { createSignal, For } from "solid-js";
 import type { MicroblogPost } from "./types.ts";
 import { createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost } from "./api.ts";
+import { UserAvatar } from "./UserAvatar.tsx";
 
 export function PostList(props: {
   posts: MicroblogPost[];
@@ -18,16 +19,21 @@ export function PostList(props: {
         {(post) => (
           <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
           <div class="flex space-x-3">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
-              <span class="text-white font-bold text-sm">
-                {post.author.charAt(0).toUpperCase()}
-              </span>
+            <div class="flex-shrink-0">
+              <UserAvatar 
+                avatarUrl={post.authorAvatar} 
+                username={post.author} 
+                size="w-12 h-12" 
+              />
             </div>
 
             <div class="flex-1 min-w-0">
               <div class="flex items-center space-x-2 mb-1">
                 <span class="font-bold text-white hover:underline cursor-pointer">
-                  {post.author}
+                  {post.displayName}
+                </span>
+                <span class="text-gray-500 ml-2">
+                  @{post.userName}@{post.domain}
                 </span>
                 <span class="text-gray-500">·</span>
                 <span class="text-gray-500 text-sm">
@@ -206,6 +212,7 @@ export function PostForm(props: {
   newPostContent: string;
   setNewPostContent: (content: string) => void;
   handleSubmit: (e: Event) => void;
+  currentUser?: { userName: string; avatar?: string; };
 }) {
   const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
   const emojis = ["😀", "😂", "🥰", "😎", "🤔", "👍", "❤️", "🔥", "✨", "🎉", "💯", "🚀"];
@@ -235,19 +242,11 @@ export function PostForm(props: {
             
             <form onSubmit={props.handleSubmit} class="space-y-4">
               <div class="flex space-x-3">
-                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                  <svg
-                    class="w-6 h-6 text-white"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </div>
+                <UserAvatar
+                  avatarUrl={props.currentUser?.avatar}
+                  username={props.currentUser?.userName || "User"}
+                  size="w-12 h-12"
+                />
                 <div class="flex-1">
                   <textarea
                     value={props.newPostContent}
