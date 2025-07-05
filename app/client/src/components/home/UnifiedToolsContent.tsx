@@ -1,6 +1,6 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { activeAccountId } from "../../states/account.ts";
+import { activeAccount, activeAccountId } from "../../states/account.ts";
 
 export interface User {
   id: string;
@@ -152,6 +152,7 @@ const mockCommunities: Community[] = [
 
 export default function UnifiedToolsContent() {
   const [selectedAccountId] = useAtom(activeAccountId);
+  const [currentAccount] = useAtom(activeAccount);
   const [activeTab, setActiveTab] = createSignal<
     "search" | "users" | "posts" | "communities"
   >("search");
@@ -163,6 +164,9 @@ export default function UnifiedToolsContent() {
   const [users, setUsers] = createSignal<User[]>(mockUsers);
   const [communities, setCommunities] = createSignal<Community[]>(
     mockCommunities,
+  );
+  const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
+    {},
   );
 
   // 検索結果の取得
@@ -202,7 +206,10 @@ export default function UnifiedToolsContent() {
         await fetch(`/api/accounts/${selectedAccountId()}/follow`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target: actor }),
+          body: JSON.stringify({
+            target: actor,
+            userName: currentAccount()?.userName ?? "",
+          }),
         });
       }
       if (userId) {
@@ -218,6 +225,7 @@ export default function UnifiedToolsContent() {
           )
         );
       }
+      setFollowStatus((prev) => ({ ...prev, [actor]: true }));
     } catch (error) {
       console.error("Failed to follow user:", error);
     }
@@ -245,6 +253,7 @@ export default function UnifiedToolsContent() {
           )
         );
       }
+      setFollowStatus((prev) => ({ ...prev, [actor]: false }));
     } catch (error) {
       console.error("Failed to unfollow user:", error);
     }
@@ -504,7 +513,10 @@ export default function UnifiedToolsContent() {
                                 const user = users().find((u) =>
                                   u.id === result.id
                                 );
-                                return user?.isFollowing
+                                const followed =
+                                  followStatus()[result.actor ?? ""] ??
+                                    user?.isFollowing;
+                                return followed
                                   ? (
                                     <button
                                       type="button"
@@ -703,7 +715,10 @@ export default function UnifiedToolsContent() {
                           </div>
                         </div>
                         <div class="flex space-x-2">
-                          {user.isFollowing
+                          {(
+                              followStatus()[localActor(user.username)] ??
+                                user.isFollowing
+                            )
                             ? (
                               <button
                                 type="button"
@@ -775,7 +790,9 @@ export default function UnifiedToolsContent() {
             <div class="space-y-3">
               <h3 class="text-lg font-semibold text-gray-200">投稿検索</h3>
               <Show
-                when={searchResults().filter((r: SearchResult) => r.type === "post").length >
+                when={searchResults().filter((r: SearchResult) =>
+                  r.type === "post"
+                ).length >
                   0}
                 fallback={
                   <div class="text-center py-8 text-gray-400">
@@ -797,7 +814,11 @@ export default function UnifiedToolsContent() {
                 }
               >
                 <div class="space-y-2">
-                  <For each={searchResults().filter((r: SearchResult) => r.type === "post")}>
+                  <For
+                    each={searchResults().filter((r: SearchResult) =>
+                      r.type === "post"
+                    )}
+                  >
                     {(post) => (
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
                         <p class="text-gray-200 mb-1">{post.title}</p>
