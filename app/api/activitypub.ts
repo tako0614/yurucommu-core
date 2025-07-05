@@ -14,6 +14,8 @@ import {
 import { env } from "./utils/env.ts";
 
 const app = new Hono();
+import { logger } from 'hono/logger'
+app.use(logger())
 
 app.get("/.well-known/webfinger", async (c) => {
   const resource = c.req.query("resource");

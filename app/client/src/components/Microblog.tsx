@@ -11,6 +11,8 @@ import {
   deleteStory,
   fetchPosts,
   fetchStories,
+  fetchFollowingPosts,
+  fetchCommunities,
   likePost,
   retweetPost,
   updatePost,
@@ -34,6 +36,13 @@ export function Microblog() {
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [posts, { mutate, refetch }] = createResource(fetchPosts);
+  // フォロー中投稿の取得
+  const [followingTimelinePosts, { refetch: refetchFollowing }] = createResource(() => {
+    const user = account();
+    return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
+  });
+  // コミュニティデータをAPIから取得
+  const [communitiesData, { refetch: refetchCommunities }] = createResource(fetchCommunities);
   // ストーリー
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
