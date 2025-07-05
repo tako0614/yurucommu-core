@@ -53,6 +53,16 @@ interface AccountDoc extends Document {
 
 const app = new Hono();
 
+function getDomain(c: any) {
+  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+}
+
+function jsonResponse(c: any, data: any, status = 200, contentType = "application/json") {
+  return c.body(JSON.stringify(data), status, {
+    "content-type": contentType
+  });
+}
+
 app.get("/accounts", async (c) => {
   const list = await Account.find().lean<AccountDoc[]>();
   const formatted = list.map((doc: AccountDoc) => ({
@@ -61,7 +71,7 @@ app.get("/accounts", async (c) => {
     displayName: doc.displayName,
     avatarInitial: doc.avatarInitial,
   }));
-  return c.json(formatted);
+  return jsonResponse(c, formatted);
 });
 
 app.post("/accounts", async (c) => {
@@ -70,13 +80,13 @@ app.post("/accounts", async (c) => {
   
   // userName is required and cannot be changed after creation
   if (!username || typeof username !== "string" || username.trim() === "") {
-    return c.json({ error: "Username is required and cannot be empty" }, 400);
+    return jsonResponse(c, { error: "Username is required and cannot be empty" }, 400);
   }
   
   // Check if username already exists
   const existingAccount = await Account.findOne({ userName: username.trim() });
   if (existingAccount) {
-    return c.json({ error: "Username already exists" }, 409);
+    return jsonResponse(c, { error: "Username already exists" }, 409);
   }
   
   const keys = privateKey && publicKey
@@ -92,7 +102,7 @@ app.post("/accounts", async (c) => {
     following: [],
   });
   await account.save();
-  return c.json({
+  return jsonResponse(c, {
     id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
@@ -106,8 +116,8 @@ app.post("/accounts", async (c) => {
 app.get("/accounts/:id", async (c) => {
   const id = c.req.param("id");
   const account = await Account.findById(id).lean<AccountDoc>();
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, {
     id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
@@ -134,8 +144,8 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.following)) data.following = updates.following;
 
   const account = await Account.findByIdAndUpdate(id, data, { new: true });
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, {
     id: String(account._id),
     userName: account.userName,
     displayName: account.displayName,
@@ -154,8 +164,8 @@ app.post("/accounts/:id/followers", async (c) => {
     { $addToSet: { followers: follower } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ followers: account.followers });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { followers: account.followers });
 });
 
 app.delete("/accounts/:id/followers", async (c) => {
@@ -166,8 +176,8 @@ app.delete("/accounts/:id/followers", async (c) => {
     { $pull: { followers: follower } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ followers: account.followers });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { followers: account.followers });
 });
 
 app.post("/accounts/:id/following", async (c) => {
@@ -178,15 +188,15 @@ app.post("/accounts/:id/following", async (c) => {
     { $addToSet: { following: target } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ following: account.following });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { following: account.following });
 });
 
 app.get("/accounts/:id/following", async (c) => {
   const id = c.req.param("id");
   const account = await Account.findById(id).lean<AccountDoc>();
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ following: account.following });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { following: account.following });
 });
 
 app.delete("/accounts/:id/following", async (c) => {
@@ -197,22 +207,22 @@ app.delete("/accounts/:id/following", async (c) => {
     { $pull: { following: target } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ following: account.following });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { following: account.following });
 });
 
 app.post("/accounts/:id/follow", async (c) => {
   const id = c.req.param("id");
   const { target, userName } = await c.req.json();
   if (typeof target !== "string" || typeof userName !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
+    return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const account = await Account.findByIdAndUpdate(
     id,
     { $addToSet: { following: target } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
   try {
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
@@ -246,21 +256,21 @@ app.post("/accounts/:id/follow", async (c) => {
     console.error("Follow request failed:", err);
   }
 
-  return c.json({ following: account.following });
+  return jsonResponse(c, { following: account.following });
 });
 
 app.delete("/accounts/:id/follow", async (c) => {
   const id = c.req.param("id");
   const { target } = await c.req.json();
   if (typeof target !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
+    return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const account = await Account.findByIdAndUpdate(
     id,
     { $pull: { following: target } },
     { new: true },
   );
-  if (!account) return c.json({ error: "Account not found" }, 404);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
   try {
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
@@ -299,14 +309,14 @@ app.delete("/accounts/:id/follow", async (c) => {
     console.error("Unfollow request failed:", err);
   }
 
-  return c.json({ following: account.following });
+  return jsonResponse(c, { following: account.following });
 });
 
 app.delete("/accounts/:id", async (c) => {
   const id = c.req.param("id");
   const account = await Account.findByIdAndDelete(id);
-  if (!account) return c.json({ error: "Account not found" }, 404);
-  return c.json({ success: true });
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  return jsonResponse(c, { success: true });
 });
 
 export default app;

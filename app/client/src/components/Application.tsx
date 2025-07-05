@@ -9,7 +9,7 @@ import { Videos } from "./Videos.tsx";
 import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 
-export function Aplication() {
+export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [isMobile, setIsMobile] = createSignal(false);

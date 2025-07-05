@@ -63,3 +63,17 @@ export interface CommunityPost {
   isPinned?: boolean;
   domain?: string;
 }
+
+/**
+ * ActivityPub Object 汎用型
+ */
+export interface ActivityPubObject {
+  id: string;
+  type: string; // Note, Image, Article, Story, CommunityPost など
+  attributedTo: string;
+  content?: string;
+  to?: string[];
+  cc?: string[];
+  published: string;
+  extra?: Record<string, any>;
+}

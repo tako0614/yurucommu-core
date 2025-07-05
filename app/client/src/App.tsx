@@ -3,7 +3,7 @@ import { useAtom } from "solid-jotai";
 import { loginState } from "./states/session.ts";
 import { darkModeState, languageState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
-import { Aplication } from "./components/Aplication.tsx";
+import { Application } from "./components/Application.tsx";
 import "./App.css";
 import "./stylesheet.css";
 
@@ -53,7 +53,7 @@ function App() {
       when={isLoggedIn()}
       fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
     >
-      <Aplication />
+      <Application />
     </Show>
   );
 }

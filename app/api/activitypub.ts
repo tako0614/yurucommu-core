@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
-import Note from "./models/note.ts";
+import ActivityPubObject from "./models/activitypub_object.ts";
 
 import {
   deliverActivityPubObject,
@@ -10,6 +10,16 @@ import {
 import { env } from "./utils/env.ts";
 
 const app = new Hono();
+
+function getDomain(c: any) {
+  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+}
+
+function jsonResponse(c: any, data: any, status = 200, contentType = "application/activity+json") {
+  return c.body(JSON.stringify(data), status, {
+    "content-type": contentType
+  });
+}
 
 app.get("/.well-known/webfinger", async (c) => {
   const resource = c.req.query("resource");
@@ -34,16 +44,14 @@ app.get("/.well-known/webfinger", async (c) => {
       },
     ],
   };
-  return c.body(JSON.stringify(jrd), 200, {
-    "content-type": "application/jrd+json"
-  });
+  return jsonResponse(c, jrd, 200, "application/jrd+json");
 });
 
 app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return c.json({ error: "Not found" }, 404);
-  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+  const domain = getDomain(c);
 
   const actor = {
     "@context": [
@@ -71,65 +79,66 @@ app.get("/users/:username", async (c) => {
       publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
     },
   };
-  return c.body(JSON.stringify(actor), 200, {
-    "content-type": "application/activity+json"
-  });
+  return jsonResponse(c, actor);
 });
 
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
-  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
-  const notes = await Note.find({ attributedTo: username }).sort({
+  const domain = getDomain(c);
+  const type = c.req.query("type");
+  const query: any = { attributedTo: username };
+  if (type) query.type = type;
+  const objects = await ActivityPubObject.find(query).sort({
     published: -1,
   }).lean();
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
     type: "OrderedCollection",
-    totalItems: notes.length,
-    orderedItems: notes.map((n) => ({
-      id: `https://${domain}/notes/${n._id}`,
-      type: "Note",
+    totalItems: objects.length,
+    orderedItems: objects.map((n: any) => ({
+      id: `https://${domain}/objects/${n._id}`,
+      type: n.type,
       attributedTo: `https://${domain}/users/${username}`,
       content: n.content,
-      published: n.published.toISOString(),
+      published: n.published instanceof Date ? n.published.toISOString() : n.published,
+      ...n.extra,
     })),
   };
-  return c.body(JSON.stringify(outbox), 200, {
-    "content-type": "application/activity+json"
-  });
+  return jsonResponse(c, outbox);
 });
 
 app.post("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
   const body = await c.req.json();
-  if (body.type !== "Note" || typeof body.content !== "string") {
+  if (typeof body.type !== "string" || typeof body.content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const note = new Note({
+  const object = new ActivityPubObject({
+    type: body.type,
     attributedTo: username,
     content: body.content,
     to: body.to ?? [],
     cc: body.cc ?? [],
+    extra: body.extra ?? {},
   });
-  await note.save();
-  const domain = env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+  await object.save();
+  const domain = getDomain(c);
   const activity = {
     "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/notes/${note._id}`,
-    type: "Note",
+    id: `https://${domain}/objects/${object._id}`,
+    type: object.type,
     attributedTo: `https://${domain}/users/${username}`,
-    content: note.content,
-    published: note.published.toISOString(),
+    content: object.content,
+    published: object.published instanceof Date ? object.published.toISOString() : object.published,
+    ...object.extra,
   };
-  deliverActivityPubObject([...note.to, ...note.cc], activity, username).catch(
+  deliverActivityPubObject([...object.to, ...object.cc], activity, username).catch(
     (err) => {
       console.error("Delivery failed:", err);
     },
   );
-  return c.body(JSON.stringify(activity), 201, {
-    "content-type": "application/activity+json"
-  });
+  return jsonResponse(c, activity, 201);
 });
 
 app.post("/users/:username/inbox", async (c) => {
@@ -145,13 +154,12 @@ app.post("/users/:username/inbox", async (c) => {
       { userName: username },
       { $addToSet: { followers: activity.actor } },
     );
+    const domain = getDomain(c);
     const accept = {
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `https://${
-        env["ACTIVITYPUB_DOMAIN"]
-      }/activities/${crypto.randomUUID()}`,
+      id: `https://${domain}/activities/${crypto.randomUUID()}`,
       type: "Accept",
-      actor: `https://${env["ACTIVITYPUB_DOMAIN"]}/users/${username}`,
+      actor: `https://${domain}/users/${username}`,
       object: activity,
     };
     deliverActivityPubObject([activity.actor], accept, username).catch(
@@ -160,9 +168,7 @@ app.post("/users/:username/inbox", async (c) => {
       },
     );
   }
-  return c.body(JSON.stringify({ status: "ok" }), 200, {
-    "content-type": "application/activity+json"
-  });
+  return jsonResponse(c, { status: "ok" });
 });
 
 export default app;

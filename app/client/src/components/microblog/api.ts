@@ -1,4 +1,36 @@
-import type { MicroblogPost, Story } from "./types.ts";
+import type { MicroblogPost, Story, ActivityPubObject } from "./types.ts";
+
+/**
+ * ActivityPub Object（Note, Story, etc.）を取得
+ */
+export const fetchActivityPubObjects = async (username: string, type?: string): Promise<ActivityPubObject[]> => {
+  try {
+    const url = type
+      ? `/users/${encodeURIComponent(username)}/outbox?type=${encodeURIComponent(type)}`
+      : `/users/${encodeURIComponent(username)}/outbox`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("Failed to fetch ActivityPub objects");
+    }
+    const data = await response.json();
+    if (data && Array.isArray(data.orderedItems)) {
+      return data.orderedItems.map((item: any) => ({
+        id: item.id,
+        type: item.type,
+        attributedTo: item.attributedTo,
+        content: item.content,
+        to: item.to,
+        cc: item.cc,
+        published: item.published,
+        extra: item.extra,
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error("Error fetching ActivityPub objects:", error);
+    return [];
+  }
+};
 
 export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   try {
