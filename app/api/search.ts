@@ -54,7 +54,7 @@ app.get("/search", async (c) => {
       results.push({
         type: "post",
         id: String(p._id),
-        title: p.content.slice(0, 80),
+        title: (p.content ?? "").slice(0, 80),
         subtitle: p.attributedTo,
         metadata: { createdAt: p.published },
         origin: domain,

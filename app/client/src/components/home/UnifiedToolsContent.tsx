@@ -157,7 +157,6 @@ export default function UnifiedToolsContent() {
     "search" | "users" | "posts" | "communities"
   >("search");
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [remoteServer, setRemoteServer] = createSignal("");
   const [searchType, setSearchType] = createSignal<
     "all" | "users" | "communities" | "posts"
   >("all");
@@ -169,16 +168,40 @@ export default function UnifiedToolsContent() {
     {},
   );
 
+  // 検索クエリの解析
+  const parseSearchQuery = (query: string) => {
+    const trimmed = query.trim();
+    if (trimmed.includes('@')) {
+      const parts = trimmed.split('@');
+      if (parts.length === 2 && parts[1]) {
+        return {
+          searchTerm: parts[0],
+          server: parts[1],
+          isRemote: true
+        };
+      }
+    }
+    return {
+      searchTerm: trimmed,
+      server: null,
+      isRemote: false
+    };
+  };
+
   // 検索結果の取得
   const [searchData, { refetch: _refetchSearch }] = createResource(
     () => {
       const q = searchQuery().trim();
       if (!q) return null;
-      const base = `/api/search?q=${
-        encodeURIComponent(q)
-      }&type=${searchType()}`;
-      const server = remoteServer().trim();
-      return server ? `${base}&server=${encodeURIComponent(server)}` : base;
+      
+      const parsed = parseSearchQuery(q);
+      if (parsed.isRemote && parsed.server) {
+        const base = `/api/search?q=${encodeURIComponent(parsed.searchTerm)}&type=${searchType()}`;
+        return `${base}&server=${encodeURIComponent(parsed.server)}`;
+      } else if (!parsed.isRemote) {
+        return `/api/search?q=${encodeURIComponent(parsed.searchTerm)}&type=${searchType()}`;
+      }
+      return null;
     },
     async (url) => {
       if (!url) return [] as SearchResult[];
@@ -192,7 +215,81 @@ export default function UnifiedToolsContent() {
     },
   );
 
-  const searchResults = () => searchData() ?? [];
+  // フィルタリングされた結果（リモート検索時は API 結果、ローカル検索時はキャッシュ + API 結果）
+  const getFilteredResults = () => {
+    const query = searchQuery().trim();
+    if (!query) return [];
+
+    const parsed = parseSearchQuery(query);
+    
+    if (parsed.isRemote) {
+      // リモート検索の場合は API 結果のみ
+      return searchData() ?? [];
+    } else {
+      // ローカル検索の場合はキャッシュ + API 結果を統合
+      const apiResults = searchData() ?? [];
+      const localResults: SearchResult[] = [];
+
+      // ユーザーのキャッシュから検索
+      if (searchType() === "all" || searchType() === "users") {
+        const filteredUsers = users().filter((user) =>
+          user.username.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          user.displayName.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          user.bio?.toLowerCase().includes(parsed.searchTerm.toLowerCase())
+        );
+        
+        for (const user of filteredUsers) {
+          localResults.push({
+            type: "user",
+            id: user.id,
+            title: user.displayName,
+            subtitle: `@${user.username}`,
+            actor: localActor(user.username),
+            origin: globalThis.location.host,
+            metadata: {
+              followers: user.followerCount,
+            }
+          });
+        }
+      }
+
+      // コミュニティのキャッシュから検索
+      if (searchType() === "all" || searchType() === "communities") {
+        const filteredCommunities = communities().filter((community) =>
+          community.name.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          community.description.toLowerCase().includes(parsed.searchTerm.toLowerCase()) ||
+          community.tags.some((tag) =>
+            tag.toLowerCase().includes(parsed.searchTerm.toLowerCase())
+          )
+        );
+
+        for (const community of filteredCommunities) {
+          localResults.push({
+            type: "community",
+            id: community.id,
+            title: community.name,
+            subtitle: community.description,
+            origin: globalThis.location.host,
+            metadata: {
+              members: community.memberCount,
+            }
+          });
+        }
+      }
+
+      // ローカル結果と API 結果を統合（重複排除）
+      const combined = [...localResults];
+      for (const apiResult of apiResults) {
+        if (!combined.find(local => local.id === apiResult.id && local.type === apiResult.type)) {
+          combined.push(apiResult);
+        }
+      }
+      
+      return combined;
+    }
+  };
+
+  const searchResults = () => getFilteredResults();
 
   const localActor = (name: string) => {
     const { protocol, host } = globalThis.location;
@@ -393,51 +490,31 @@ export default function UnifiedToolsContent() {
           <div class="space-y-6">
             {/* 検索バー */}
             <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="space-y-4">
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="ユーザー、コミュニティ、投稿を検索..."
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div class="relative">
+                <input
+                  type="text"
+                  placeholder="検索... (外部ユーザーは username@example.com 形式で入力)"
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg
+                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                   />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                </div>
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="リモートサーバー (例: example.com)"
-                    value={remoteServer()}
-                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                    />
-                  </svg>
-                </div>
+                </svg>
+              </div>
+              <div class="mt-2 text-xs text-gray-400">
+                <p>• 通常検索: ローカルキャッシュ + API検索</p>
+                <p>• 外部検索: username@example.com 形式で外部サーバーのユーザーを検索</p>
               </div>
             </div>
 
@@ -607,51 +684,31 @@ export default function UnifiedToolsContent() {
           <div class="space-y-6">
             {/* ユーザー検索バー */}
             <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="space-y-4">
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="ユーザー名、表示名、プロフィールで検索..."
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div class="relative">
+                <input
+                  type="text"
+                  placeholder="ユーザー検索... (外部ユーザーは username@example.com 形式)"
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg
+                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                   />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                    />
-                  </svg>
-                </div>
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="リモートサーバー (例: example.com)"
-                    value={remoteServer()}
-                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                    />
-                  </svg>
-                </div>
+                </svg>
+              </div>
+              <div class="mt-2 text-xs text-gray-400">
+                <p>• 通常検索: ローカルユーザー + API検索</p>
+                <p>• 外部検索: username@example.com 形式で外部サーバーのユーザーを検索</p>
               </div>
             </div>
 
@@ -660,96 +717,110 @@ export default function UnifiedToolsContent() {
               <h3 class="text-lg font-semibold text-gray-200">ユーザー一覧</h3>
               <div class="space-y-2">
                 <For
-                  each={users().filter((user) =>
-                    !searchQuery() ||
-                    user.username.toLowerCase().includes(
-                      searchQuery().toLowerCase(),
-                    ) ||
-                    user.displayName.toLowerCase().includes(
-                      searchQuery().toLowerCase(),
-                    ) ||
-                    user.bio?.toLowerCase().includes(
-                      searchQuery().toLowerCase(),
-                    )
-                  )}
+                  each={searchResults().filter((result: SearchResult) => result.type === "user")}
                 >
-                  {(user) => (
-                    <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-3">
-                          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold overflow-hidden">
-                            <Show
-                              when={user.avatar}
-                              fallback={user.displayName.charAt(0)}
-                            >
-                              <img
-                                src={user.avatar!}
-                                alt="avatar"
-                                class="w-full h-full object-cover"
-                              />
-                            </Show>
-                          </div>
-                          <div>
-                            <div class="flex items-center space-x-2">
-                              <h4 class="font-semibold text-gray-200">
-                                {user.displayName}
-                              </h4>
-                              <span class="text-sm text-gray-400">
-                                @{user.username}
-                              </span>
-                            </div>
-                            <p class="text-sm text-gray-400 mt-1">{user.bio}</p>
-                            <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                              <span>
-                                {formatNumber(user.followerCount)} フォロワー
-                              </span>
-                              <span>
-                                {formatNumber(user.followingCount)} フォロー中
-                              </span>
-                              <Show when={user.lastSeen}>
-                                <span>
-                                  最終アクティブ: {formatDate(user.lastSeen!)}
-                                </span>
+                  {(result: SearchResult) => {
+                    // ローカルユーザーの詳細情報を取得
+                    const localUser = users().find(u => u.id === result.id);
+                    
+                    return (
+                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
+                        <div class="flex items-center justify-between">
+                          <div class="flex items-center space-x-3">
+                            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                              <Show
+                                when={result.avatar || localUser?.avatar}
+                                fallback={result.title.charAt(0)}
+                              >
+                                <img
+                                  src={result.avatar || localUser?.avatar!}
+                                  alt="avatar"
+                                  class="w-full h-full object-cover"
+                                />
                               </Show>
                             </div>
+                            <div>
+                              <div class="flex items-center space-x-2">
+                                <h4 class="font-semibold text-gray-200">
+                                  {result.title}
+                                </h4>
+                                <Show when={result.origin && result.origin !== globalThis.location.host}>
+                                  <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
+                                    {result.origin}
+                                  </span>
+                                </Show>
+                              </div>
+                              <p class="text-sm text-gray-400">
+                                {result.subtitle}
+                              </p>
+                              <Show when={localUser?.bio}>
+                                <p class="text-sm text-gray-400 mt-1">{localUser!.bio}</p>
+                              </Show>
+                              <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                                <Show when={result.metadata?.followers || localUser?.followerCount}>
+                                  <span>
+                                    {formatNumber(result.metadata?.followers || localUser?.followerCount || 0)} フォロワー
+                                  </span>
+                                </Show>
+                                <Show when={localUser?.followingCount}>
+                                  <span>{formatNumber(localUser!.followingCount)} フォロー中</span>
+                                </Show>
+                                <Show when={localUser?.lastSeen}>
+                                  <span>最終アクティブ: {formatDate(localUser!.lastSeen!)}</span>
+                                </Show>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="flex space-x-2">
+                            <Show when={result.actor}>
+                              {(localUser && 
+                                (followStatus()[result.actor!] ?? localUser.isFollowing)
+                              ) ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUnfollow(result.actor!, localUser?.id)
+                                  }
+                                  class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                                >
+                                  フォロー中
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleFollow(result.actor!, localUser?.id)
+                                  }
+                                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                                >
+                                  フォロー
+                                </button>
+                              )}
+                            </Show>
                           </div>
                         </div>
-                        <div class="flex space-x-2">
-                          {(
-                              followStatus()[localActor(user.username)] ??
-                                user.isFollowing
-                            )
-                            ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleUnfollow(
-                                    localActor(user.username),
-                                    user.id,
-                                  )}
-                                class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                フォロー中
-                              </button>
-                            )
-                            : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleFollow(
-                                    localActor(user.username),
-                                    user.id,
-                                  )}
-                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                フォロー
-                              </button>
-                            )}
-                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
+                <Show when={searchResults().filter((result: SearchResult) => result.type === "user").length === 0}>
+                  <div class="text-center py-8 text-gray-400">
+                    <svg
+                      class="w-12 h-12 mx-auto mb-4 opacity-50"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                      />
+                    </svg>
+                    <p>ユーザーが見つかりませんでした</p>
+                  </div>
+                </Show>
               </div>
             </div>
           </div>
@@ -760,29 +831,30 @@ export default function UnifiedToolsContent() {
           <div class="space-y-6">
             {/* 投稿検索バー */}
             <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="space-y-4">
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="投稿内容、ハッシュタグで検索..."
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div class="relative">
+                <input
+                  type="text"
+                  placeholder="投稿内容、ハッシュタグで検索..."
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg
+                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z"
                   />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z"
-                    />
-                  </svg>
-                </div>
+                </svg>
+              </div>
+              <div class="mt-2 text-xs text-gray-400">
+                <p>• ローカル投稿 + API検索</p>
               </div>
             </div>
 
@@ -839,51 +911,30 @@ export default function UnifiedToolsContent() {
           <div class="space-y-6">
             {/* コミュニティ検索バー */}
             <div class="bg-gray-800/50 rounded-xl p-6">
-              <div class="space-y-4">
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="コミュニティ名、説明、タグで検索..."
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div class="relative">
+                <input
+                  type="text"
+                  placeholder="コミュニティ名、説明、タグで検索..."
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg
+                  class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                   />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                </div>
-                <div class="relative">
-                  <input
-                    type="text"
-                    placeholder="リモートサーバー (例: example.com)"
-                    value={remoteServer()}
-                    onInput={(e) => setRemoteServer(e.currentTarget.value)}
-                    class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <svg
-                    class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                    />
-                  </svg>
-                </div>
+                </svg>
+              </div>
+              <div class="mt-2 text-xs text-gray-400">
+                <p>• ローカルコミュニティ + API検索</p>
               </div>
             </div>
 
@@ -894,98 +945,125 @@ export default function UnifiedToolsContent() {
               </h3>
               <div class="space-y-3">
                 <For
-                  each={communities().filter((community) =>
-                    !searchQuery() ||
-                    community.name.toLowerCase().includes(
-                      searchQuery().toLowerCase(),
-                    ) ||
-                    community.description.toLowerCase().includes(
-                      searchQuery().toLowerCase(),
-                    ) ||
-                    community.tags.some((tag) =>
-                      tag.toLowerCase().includes(searchQuery().toLowerCase())
-                    )
-                  )}
+                  each={searchResults().filter((result: SearchResult) => result.type === "community")}
                 >
-                  {(community) => (
-                    <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
-                      <div class="flex items-start justify-between">
-                        <div class="flex items-start space-x-3 flex-1">
-                          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold overflow-hidden">
-                            <Show
-                              when={community.avatar}
-                              fallback={community.name.charAt(0)}
-                            >
-                              <img
-                                src={community.avatar!}
-                                alt="avatar"
-                                class="w-full h-full object-cover"
-                              />
-                            </Show>
-                          </div>
-                          <div class="flex-1">
-                            <div class="flex items-center space-x-2 mb-1">
-                              <h4 class="font-semibold text-gray-200">
-                                {community.name}
-                              </h4>
-                              <Show when={community.isPrivate}>
-                                <span class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded-full text-xs">
-                                  プライベート
-                                </span>
+                  {(result: SearchResult) => {
+                    // ローカルコミュニティの詳細情報を取得
+                    const localCommunity = communities().find(c => c.id === result.id);
+                    
+                    return (
+                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
+                        <div class="flex items-start justify-between">
+                          <div class="flex items-start space-x-3 flex-1">
+                            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold overflow-hidden">
+                              <Show
+                                when={result.avatar || localCommunity?.avatar}
+                                fallback={result.title.charAt(0)}
+                              >
+                                <img
+                                  src={result.avatar || localCommunity?.avatar!}
+                                  alt="avatar"
+                                  class="w-full h-full object-cover"
+                                />
                               </Show>
                             </div>
-                            <p class="text-sm text-gray-400 mb-2">
-                              {community.description}
-                            </p>
-                            <div class="flex items-center space-x-4 text-xs text-gray-500 mb-2">
-                              <span>
-                                {formatNumber(community.memberCount)} メンバー
-                              </span>
-                              <span>
-                                {formatNumber(community.postCount)} 投稿
-                              </span>
-                              <span>
-                                作成: {formatDate(community.createdAt)}
-                              </span>
-                            </div>
-                            <div class="flex flex-wrap gap-1">
-                              <For each={community.tags}>
-                                {(tag) => (
-                                  <span class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded-full text-xs">
-                                    #{tag}
+                            <div class="flex-1">
+                              <div class="flex items-center space-x-2 mb-1">
+                                <h4 class="font-semibold text-gray-200">
+                                  {result.title}
+                                </h4>
+                                <Show when={localCommunity?.isPrivate}>
+                                  <span class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded-full text-xs">
+                                    プライベート
                                   </span>
-                                )}
-                              </For>
+                                </Show>
+                                <Show when={result.origin && result.origin !== globalThis.location.host}>
+                                  <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
+                                    {result.origin}
+                                  </span>
+                                </Show>
+                              </div>
+                              <p class="text-sm text-gray-400 mb-2">
+                                {result.subtitle}
+                              </p>
+                              <div class="flex items-center space-x-4 text-xs text-gray-500 mb-2">
+                                <Show when={result.metadata?.members || localCommunity?.memberCount}>
+                                  <span>
+                                    {formatNumber(result.metadata?.members || localCommunity?.memberCount || 0)} メンバー
+                                  </span>
+                                </Show>
+                                <Show when={localCommunity?.postCount}>
+                                  <span>
+                                    {formatNumber(localCommunity!.postCount)} 投稿
+                                  </span>
+                                </Show>
+                                <Show when={localCommunity?.createdAt}>
+                                  <span>
+                                    作成: {formatDate(localCommunity!.createdAt)}
+                                  </span>
+                                </Show>
+                              </div>
+                              <Show when={localCommunity?.tags}>
+                                <div class="flex flex-wrap gap-1">
+                                  <For each={localCommunity!.tags}>
+                                    {(tag: string) => (
+                                      <span class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded-full text-xs">
+                                        #{tag}
+                                      </span>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
                             </div>
                           </div>
-                        </div>
-                        <div class="flex flex-col space-y-2 ml-4">
-                          {community.isJoined
-                            ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleLeaveCommunity(community.id)}
-                                class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                参加中
-                              </button>
-                            )
-                            : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleJoinCommunity(community.id)}
-                                class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                参加
-                              </button>
-                            )}
+                          <div class="flex flex-col space-y-2 ml-4">
+                            <Show when={localCommunity}>
+                              {localCommunity!.isJoined
+                                ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleLeaveCommunity(localCommunity!.id)}
+                                    class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                                  >
+                                    参加中
+                                  </button>
+                                )
+                                : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleJoinCommunity(localCommunity!.id)}
+                                    class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
+                                  >
+                                    参加
+                                  </button>
+                                )}
+                            </Show>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
+                <Show when={searchResults().filter((result: SearchResult) => result.type === "community").length === 0}>
+                  <div class="text-center py-8 text-gray-400">
+                    <svg
+                      class="w-12 h-12 mx-auto mb-4 opacity-50"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
+                    </svg>
+                    <p>コミュニティが見つかりませんでした</p>
+                  </div>
+                </Show>
               </div>
             </div>
           </div>
