@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
-import { env } from "./utils/env.ts";
+import { getDomain } from "./utils/activitypub.ts";
 
 const app = new Hono();
 
 app.get("/microblog", async (c) => {
+  const domain = getDomain(c);
   const list = await ActivityPubObject.find({ type: "Note" }).sort({
     published: -1,
   }).lean();
@@ -25,7 +26,7 @@ app.get("/microblog", async (c) => {
         authorAvatar: account?.avatarInitial || "",
         content: doc.content,
         createdAt: doc.published,
-        domain: env.ACTIVITYPUB_DOMAIN,
+        domain,
       };
     }),
   );
@@ -33,6 +34,7 @@ app.get("/microblog", async (c) => {
 });
 
 app.post("/microblog", async (c) => {
+  const domain = getDomain(c);
   const { author, content } = await c.req.json();
   if (typeof author !== "string" || typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
@@ -51,11 +53,12 @@ app.post("/microblog", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
-    domain: env.ACTIVITYPUB_DOMAIN,
+    domain,
   }, 201);
 });
 
 app.get("/microblog/:id", async (c) => {
+  const domain = getDomain(c);
   const id = c.req.param("id");
   const post = await ActivityPubObject.findById(id).lean();
   if (!post) return c.json({ error: "Not found" }, 404);
@@ -67,11 +70,12 @@ app.get("/microblog/:id", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
-    domain: env.ACTIVITYPUB_DOMAIN,
+    domain,
   });
 });
 
 app.put("/microblog/:id", async (c) => {
+  const domain = getDomain(c);
   const id = c.req.param("id");
   const { content } = await c.req.json();
   if (typeof content !== "string") {
@@ -89,7 +93,7 @@ app.put("/microblog/:id", async (c) => {
     authorAvatar: account?.avatarInitial || "",
     content: post.content,
     createdAt: post.published,
-    domain: env.ACTIVITYPUB_DOMAIN,
+    domain,
   });
 });
 
