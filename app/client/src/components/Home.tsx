@@ -8,6 +8,66 @@ import { selectedAccountState } from "../states/account.ts";
 
 export function Home() {
   const [activeSection, setActiveSection] = createSignal("account");
+  
+  // スワイプ機能用の状態
+  const [touchStartX, setTouchStartX] = createSignal(0);
+  const [touchStartY, setTouchStartY] = createSignal(0);
+  const [isSwipeEnabled, setIsSwipeEnabled] = createSignal(true);
+  let mainContentRef: HTMLElement | undefined;
+
+  // セクションの順序を定義
+  const sections = ["account", "notifications", "settings"];
+  
+  // スワイプ検知の最小距離とY軸の許容範囲
+  const MIN_SWIPE_DISTANCE = 50;
+  const MAX_Y_VARIANCE = 100;
+
+  // スワイプによるセクション切り替え
+  const handleSwipe = (direction: "left" | "right") => {
+    if (!isSwipeEnabled()) return;
+    
+    const currentIndex = sections.indexOf(activeSection());
+    let newIndex = currentIndex;
+    
+    if (direction === "left" && currentIndex < sections.length - 1) {
+      newIndex = currentIndex + 1;
+    } else if (direction === "right" && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    }
+    
+    if (newIndex !== currentIndex) {
+      setActiveSection(sections[newIndex]);
+    }
+  };
+
+  // タッチイベントハンドラー
+  const handleTouchStart = (e: TouchEvent) => {
+    if (!isSwipeEnabled()) return;
+    setTouchStartX(e.touches[0].clientX);
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    if (!isSwipeEnabled()) return;
+    
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    
+    const deltaX = touchEndX - touchStartX();
+    const deltaY = touchEndY - touchStartY();
+    
+    // Y軸の移動が大きすぎる場合はスワイプとみなさない（スクロール操作の可能性）
+    if (Math.abs(deltaY) > MAX_Y_VARIANCE) return;
+    
+    // 最小スワイプ距離をチェック
+    if (Math.abs(deltaX) > MIN_SWIPE_DISTANCE) {
+      if (deltaX > 0) {
+        handleSwipe("right"); // 右にスワイプ（前のセクション）
+      } else {
+        handleSwipe("left"); // 左にスワイプ（次のセクション）
+      }
+    }
+  };
 
   // サンプルアカウントデータ
   const [accounts, setAccounts] = createSignal<Account[]>([]);
@@ -155,6 +215,25 @@ export function Home() {
 
   onMount(() => {
     loadAccounts();
+    
+    // タッチイベントリスナーを追加
+    const addTouchListeners = () => {
+      if (mainContentRef) {
+        mainContentRef.addEventListener('touchstart', handleTouchStart, { passive: true });
+        mainContentRef.addEventListener('touchend', handleTouchEnd, { passive: true });
+      }
+    };
+    
+    // DOMが準備できたら追加
+    setTimeout(addTouchListeners, 100);
+    
+    // クリーンアップ関数
+    return () => {
+      if (mainContentRef) {
+        mainContentRef.removeEventListener('touchstart', handleTouchStart);
+        mainContentRef.removeEventListener('touchend', handleTouchEnd);
+      }
+    };
   });
 
   const renderContent = () => {
@@ -232,11 +311,31 @@ export function Home() {
             </button>
           </div>
         </div>
+        
+        {/* スワイプインジケーター */}
+        <div class="flex justify-center pb-2">
+          <div class="flex space-x-2">
+            {sections.map((section) => (
+              <div
+                class={`w-2 h-2 rounded-full transition-all duration-200 ${
+                  activeSection() === section
+                    ? "bg-teal-400"
+                    : "bg-gray-600"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
       </header>
 
       {/* メインコンテンツ */}
-      <main class="flex-1 p-0 sm:p-0 md:p-0">
-        {renderContent()}
+      <main 
+        ref={mainContentRef}
+        class="flex-1 p-0 sm:p-0 md:p-0 touch-pan-y select-none"
+      >
+        <div class="relative overflow-hidden">
+          {renderContent()}
+        </div>
       </main>
     </div>
   );

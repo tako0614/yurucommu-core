@@ -1,242 +1,26 @@
-import { createResource, createSignal, For } from "solid-js";
-
-interface MicroblogPost {
-  id: string;
-  content: string;
-  author: string;
-  createdAt: string;
-  likes: number;
-  retweets: number;
-  replies: number;
-  isLiked?: boolean;
-  isRetweeted?: boolean;
-  images?: string[];
-  hashtags?: string[];
-  mentions?: string[];
-  parentId?: string; // 返信の場合の親投稿ID
-}
-
-interface Story {
-  id: string;
-  author: string;
-  content: string;
-  mediaUrl?: string;
-  mediaType?: 'image' | 'video';
-  createdAt: string;
-  expiresAt: string;
-  views: number;
-  isViewed?: boolean;
-  backgroundColor?: string;
-  textColor?: string;
-}
-
-interface Community {
-  id: string;
-  name: string;
-  description: string;
-  avatar?: string;
-  banner?: string;
-  memberCount: number;
-  postCount: number;
-  isJoined?: boolean;
-  isPrivate?: boolean;
-  tags?: string[];
-  rules?: string[];
-  createdAt: string;
-  moderators?: string[];
-}
-
-interface CommunityPost {
-  id: string;
-  communityId: string;
-  content: string;
-  author: string;
-  createdAt: string;
-  likes: number;
-  comments: number;
-  isLiked?: boolean;
-  images?: string[];
-  isPinned?: boolean;
-}
-
-const fetchPosts = async (): Promise<MicroblogPost[]> => {
-  try {
-    const response = await fetch("/api/microblog");
-    if (!response.ok) {
-      throw new Error("Failed to fetch posts");
-    }
-    return await response.json();
-  } catch (error) {
-    console.error("Error fetching posts:", error);
-    return [];
-  }
-};
-
-const createPost = async (content: string): Promise<boolean> => {
-  try {
-    const response = await fetch("/api/microblog", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ author: "user", content }),
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error creating post:", error);
-    return false;
-  }
-};
-
-const updatePost = async (id: string, content: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/microblog/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content }),
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error updating post:", error);
-    return false;
-  }
-};
-
-const deletePost = async (id: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/microblog/${id}`, {
-      method: "DELETE",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error deleting post:", error);
-    return false;
-  }
-};
-
-const likePost = async (id: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/microblog/${id}/like`, {
-      method: "POST",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error liking post:", error);
-    return false;
-  }
-};
-
-const retweetPost = async (id: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/microblog/${id}/retweet`, {
-      method: "POST",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error retweeting post:", error);
-    return false;
-  }
-};
-
-const _replyToPost = async (parentId: string, content: string): Promise<boolean> => {
-  try {
-    const response = await fetch("/api/microblog", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ author: "user", content, parentId }),
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error replying to post:", error);
-    return false;
-  }
-};
-
-const fetchStories = async (): Promise<Story[]> => {
-  try {
-    const response = await fetch("/api/stories");
-    if (!response.ok) {
-      throw new Error("Failed to fetch stories");
-    }
-    return await response.json();
-  } catch (error) {
-    console.error("Error fetching stories:", error);
-    return [];
-  }
-};
-
-const createStory = async (content: string, mediaUrl?: string, mediaType?: 'image' | 'video', backgroundColor?: string, textColor?: string): Promise<boolean> => {
-  try {
-    const response = await fetch("/api/stories", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
-        author: "user", 
-        content, 
-        mediaUrl, 
-        mediaType, 
-        backgroundColor, 
-        textColor 
-      }),
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error creating story:", error);
-    return false;
-  }
-};
-
-const viewStory = async (id: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/stories/${id}/view`, {
-      method: "POST",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error viewing story:", error);
-    return false;
-  }
-};
-
-const deleteStory = async (id: string): Promise<boolean> => {
-  try {
-    const response = await fetch(`/api/stories/${id}`, {
-      method: "DELETE",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error deleting story:", error);
-    return false;
-  }
-};
+import { createResource, createSignal } from "solid-js";
+import { CommunityView } from "./microblog/Community.tsx";
+import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
+import { PostList, PostForm } from "./microblog/Post.tsx";
+import { fetchPosts, fetchStories, createPost, updatePost, deletePost, likePost, retweetPost, _replyToPost, viewStory, deleteStory } from "./microblog/api.ts";
+import type { MicroblogPost, Story, Community, CommunityPost } from "./microblog/types.ts";
 
 export function Microblog() {
+  // タブ切り替え: "recommend" | "following" | "community"
+  const [tab, setTab] = createSignal<'recommend' | 'following' | 'community'>('recommend');
+  // コミュニティ管理表示
+  const [showCommunityManagement, setShowCommunityManagement] = createSignal(false);
   const [newPostContent, setNewPostContent] = createSignal("");
   const [showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
-  const [_selectedEmoji, _setSelectedEmoji] = createSignal("");
-  const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [posts, { refetch }] = createResource(fetchPosts);
-  
-  // ストーリー関連の状態
+  // ストーリー
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
-  const [showStoryForm, setShowStoryForm] = createSignal(false);
-  const [storyContent, setStoryContent] = createSignal("");
-  const [storyMediaUrl, setStoryMediaUrl] = createSignal("");
-  const [storyBackgroundColor, setStoryBackgroundColor] = createSignal("#1DA1F2");
-  const [storyTextColor, setStoryTextColor] = createSignal("#FFFFFF");
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
   const [showStoryViewer, setShowStoryViewer] = createSignal(false);
   const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
-
-  // コミュニティ関連の状態
+  // コミュニティ
   const [showCommunityView, setShowCommunityView] = createSignal(false);
   const [selectedCommunity, setSelectedCommunity] = createSignal<Community | null>(null);
   const [showCreateCommunity, setShowCreateCommunity] = createSignal(false);
@@ -246,8 +30,7 @@ export function Microblog() {
   const [communityBanner, setCommunityBanner] = createSignal("");
   const [communityTags, setCommunityTags] = createSignal("");
   const [communityIsPrivate, setCommunityIsPrivate] = createSignal(false);
-
-  // ダミーコミュニティデータ
+  // コミュニティデータ
   const [communities] = createSignal<Community[]>([
     {
       id: "1",
@@ -319,16 +102,66 @@ export function Microblog() {
       comments: 12,
       isLiked: true,
       isPinned: false
+    },
+    {
+      id: "3",
+      communityId: "2",
+      content: "今期のアニメでおすすめはありますか？特に異世界系で面白いのがあったら教えてください！",
+      author: "anime_lover",
+      createdAt: "2024-07-05T08:45:00Z",
+      likes: 8,
+      comments: 15,
+      isLiked: false,
+      isPinned: false
+    },
+    {
+      id: "4",
+      communityId: "3",
+      content: "簡単で美味しいパスタレシピを共有します！トマトとバジルの基本パスタです 🍝",
+      author: "chef_master",
+      createdAt: "2024-07-05T07:20:00Z",
+      likes: 32,
+      comments: 7,
+      isLiked: true,
+      isPinned: false
+    },
+    {
+      id: "5",
+      communityId: "1",
+      content: "ReactからSolidJSに移行を検討中です。パフォーマンスの違いを実感した方いますか？",
+      author: "frontend_dev",
+      createdAt: "2024-07-05T06:50:00Z",
+      likes: 19,
+      comments: 11,
+      isLiked: false,
+      isPinned: false
     }
   ]);
 
-  const emojis = ["😀", "😂", "🥰", "😎", "🤔", "👍", "❤️", "🔥", "✨", "🎉", "💯", "🚀"];
-
-  const storyBackgroundColors = [
-    "#1DA1F2", "#E91E63", "#9C27B0", "#673AB7", "#3F51B5", 
-    "#2196F3", "#00BCD4", "#009688", "#4CAF50", "#FF9800", 
-    "#FF5722", "#795548", "#607D8B", "#000000"
-  ];
+  // ダミーフォロー中投稿データ
+  const [followingPosts] = createSignal<MicroblogPost[]>([
+    {
+      id: "follow_1",
+      content: "今日は良い天気ですね！散歩に行ってきます 🌞",
+      author: "friend_user",
+      createdAt: "2024-07-05T11:00:00Z",
+      likes: 5,
+      retweets: 2,
+      replies: 3,
+      isLiked: true,
+      hashtags: ["散歩", "天気"]
+    },
+    {
+      id: "follow_2",
+      content: "新しいプロジェクトを始めました！がんばります💪",
+      author: "colleague_dev",
+      createdAt: "2024-07-05T10:45:00Z",
+      likes: 12,
+      retweets: 4,
+      replies: 7,
+      hashtags: ["プロジェクト", "開発"]
+    }
+  ]);
 
   // コミュニティ関連のハンドラー
   const handleJoinCommunity = (communityId: string) => {
@@ -363,29 +196,6 @@ export function Microblog() {
   };
 
   // ストーリー関連のハンドラー
-  const handleCreateStory = async (e: Event) => {
-    e.preventDefault();
-    const content = storyContent().trim();
-    if (!content) return;
-
-    const success = await createStory(
-      content, 
-      storyMediaUrl() || undefined, 
-      undefined, 
-      storyBackgroundColor(), 
-      storyTextColor()
-    );
-    
-    if (success) {
-      setStoryContent("");
-      setStoryMediaUrl("");
-      setShowStoryForm(false);
-      refetchStories();
-    } else {
-      alert("ストーリーの作成に失敗しました");
-    }
-  };
-
   const handleViewStory = async (story: Story, index: number) => {
     await viewStory(story.id);
     setSelectedStory(story);
@@ -426,8 +236,34 @@ export function Microblog() {
 
   const filteredPosts = () => {
     const query = searchQuery().toLowerCase();
-    if (!query) return posts() || [];
-    return (posts() || []).filter(post => 
+    let postsToFilter: MicroblogPost[] = [];
+    
+    // タブに応じて投稿を選択
+    if (tab() === 'recommend') {
+      postsToFilter = posts() || [];
+    } else if (tab() === 'following') {
+      postsToFilter = followingPosts() || [];
+    } else if (tab() === 'community') {
+      // コミュニティタブの場合はコミュニティ投稿をMicroblogPost形式に変換
+      const communityPostsConverted: MicroblogPost[] = (communityPosts() || []).map(post => ({
+        id: post.id,
+        content: post.content,
+        author: post.author,
+        createdAt: post.createdAt,
+        likes: post.likes,
+        retweets: 0,
+        replies: post.comments,
+        isLiked: post.isLiked,
+        hashtags: [],
+        mentions: []
+      }));
+      postsToFilter = communityPostsConverted;
+    } else {
+      postsToFilter = [];
+    }
+    
+    if (!query) return postsToFilter;
+    return postsToFilter.filter(post => 
       post.content.toLowerCase().includes(query) ||
       post.author.toLowerCase().includes(query) ||
       (post.hashtags && post.hashtags.some(tag => tag.toLowerCase().includes(query)))
@@ -468,11 +304,6 @@ export function Microblog() {
     setShowPostForm(true);
   };
 
-  const insertEmoji = (emoji: string) => {
-    setNewPostContent(newPostContent() + emoji);
-    setShowEmojiPicker(false);
-  };
-
   const handleEdit = async (id: string, current: string) => {
     const content = prompt("編集内容を入力してください", current);
     if (content === null) return;
@@ -503,1000 +334,166 @@ export function Microblog() {
   return (
     <>
       <style>{`
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .tab-btn { 
+          @apply px-4 py-2 font-medium transition-all duration-200 ease-in-out;
+          border-radius: 8px;
+          background: transparent;
+          color: #9ca3af;
+          border-bottom: 2px solid transparent;
         }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
+        .tab-btn:hover {
+          color: #d1d5db;
+          background: rgba(75, 85, 99, 0.3);
+        }
+        .tab-btn-active { 
+          color: #ffffff;
+          background: rgba(59, 130, 246, 0.1);
+          border-bottom-color: #3b82f6;
+        }
+        .tab-btn-active:hover {
+          background: rgba(59, 130, 246, 0.15);
         }
       `}</style>
       <div class="min-h-screen text-white relative">
-      {/* ヘッダー */}
-      <div class="sticky top-0 z-10 backdrop-blur-md border-b border-gray-800">
-        <div class="max-w-2xl mx-auto px-4 py-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center space-x-4">
-              <h1 class="text-xl font-bold">ホーム</h1>
-              <button
-                type="button"
-                onClick={() => setShowCommunityView(!showCommunityView())}
-                class="text-blue-400 hover:text-blue-300 font-medium transition-colors"
+        {/* ヘッダー + タブ */}
+        <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
+          <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <h1 class="text-xl font-bold">マイクロブログ</h1>
+              <div class="relative">
+                <input
+                  type="text"
+                  placeholder="投稿・ユーザー・タグ検索"
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+            {/* タブ */}
+            <div class="flex gap-1 justify-center">
+              <button 
+                type="button" 
+                class={`tab-btn ${tab()==='recommend' ? 'tab-btn-active' : ''}`} 
+                onClick={() => {setTab('recommend'); setShowCommunityView(false);}}
+              >
+                おすすめ
+              </button>
+              <button 
+                type="button" 
+                class={`tab-btn ${tab()==='following' ? 'tab-btn-active' : ''}`} 
+                onClick={() => {setTab('following'); setShowCommunityView(false);}}
+              >
+                フォロー中
+              </button>
+              <button 
+                type="button" 
+                class={`tab-btn ${tab()==='community' ? 'tab-btn-active' : ''}`} 
+                onClick={() => { setTab('community'); setShowCommunityView(false); setSelectedCommunity(null); }}
               >
                 コミュニティ
               </button>
-            </div>
-            <div class="relative">
-              <input
-                type="text"
-                placeholder="投稿を検索..."
-                value={searchQuery()}
-                onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <svg
-                class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+              <button 
+                type="button" 
+                class="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-3 py-2 rounded-lg text-sm transition-all duration-200 ml-4" 
+                onClick={() => setShowCommunityManagement(true)}
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
+                管理
+              </button>
             </div>
           </div>
         </div>
-      </div>
+        <div class="max-w-2xl mx-auto">
+          <CommunityView
+            showCommunityManagement={showCommunityManagement()}
+            setShowCommunityManagement={setShowCommunityManagement}
+            showCommunityView={showCommunityView()}
+            setShowCommunityView={setShowCommunityView}
+            selectedCommunity={selectedCommunity()}
+            setSelectedCommunity={setSelectedCommunity}
+            showCreateCommunity={showCreateCommunity()}
+            setShowCreateCommunity={setShowCreateCommunity}
+            communityName={communityName()}
+            setCommunityName={setCommunityName}
+            communityDescription={communityDescription()}
+            setCommunityDescription={setCommunityDescription}
+            communityAvatar={communityAvatar()}
+            setCommunityAvatar={setCommunityAvatar}
+            communityBanner={communityBanner()}
+            setCommunityBanner={setCommunityBanner}
+            communityTags={communityTags()}
+            setCommunityTags={setCommunityTags}
+            communityIsPrivate={communityIsPrivate()}
+            setCommunityIsPrivate={setCommunityIsPrivate}
+            communities={communities()}
+            communityPosts={communityPosts()}
+            handleJoinCommunity={handleJoinCommunity}
+            handleLeaveCommunity={handleLeaveCommunity}
+            handleCreateCommunity={handleCreateCommunity}
+            handleSelectCommunity={handleSelectCommunity}
+            handleLikeCommunityPost={handleLikeCommunityPost}
+            formatDate={formatDate}
+          />
 
-      <div class="max-w-2xl mx-auto">
-        {/* コミュニティビュー */}
-        {showCommunityView() && !selectedCommunity() && (
-          <div class="p-4">
-            <div class="flex items-center justify-between mb-6">
-              <h2 class="text-2xl font-bold">コミュニティ</h2>
-              <button
-                type="button"
-                onClick={() => setShowCreateCommunity(true)}
-                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full font-medium transition-colors"
-              >
-                新規作成
-              </button>
-            </div>
+          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+            <StoryTray
+              stories={stories() || []}
+              refetchStories={refetchStories}
+              handleViewStory={handleViewStory}
+            />
+          )}
 
-            {/* コミュニティ一覧 */}
-            <div class="space-y-4">
-              <For each={communities()}>
-                {(community) => (
-                  <div class="bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-700 transition-colors">
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <div class="flex items-center space-x-3 mb-3">
-                          <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-                            <span class="text-white font-bold text-lg">
-                              {community.name.charAt(0)}
-                            </span>
-                          </div>
-                          <div>
-                            <h3 class="text-lg font-bold text-white hover:text-blue-400 cursor-pointer" 
-                                onClick={() => handleSelectCommunity(community)}>
-                              {community.name}
-                            </h3>
-                            <div class="flex items-center space-x-4 text-sm text-gray-400">
-                              <span>{community.memberCount.toLocaleString()} メンバー</span>
-                              <span>{community.postCount.toLocaleString()} 投稿</span>
-                              {community.isPrivate && (
-                                <span class="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full text-xs">
-                                  非公開
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <p class="text-gray-300 mb-3">{community.description}</p>
-                        <div class="flex flex-wrap gap-2">
-                          <For each={community.tags}>
-                            {(tag) => (
-                              <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full text-xs">
-                                #{tag}
-                              </span>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                      <div class="ml-4">
-                        {community.isJoined ? (
-                          <button
-                            type="button"
-                            onClick={() => handleLeaveCommunity(community.id)}
-                            class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                          >
-                            参加中
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleJoinCommunity(community.id)}
-                            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                          >
-                            参加する
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-        )}
-
-        {/* 個別コミュニティビュー */}
-        {showCommunityView() && selectedCommunity() && (
-          <div class="p-4">
-            {/* コミュニティヘッダー */}
-            <div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 mb-6">
-              {/* バナー */}
-              <div class="h-32 bg-gradient-to-r from-purple-600 to-pink-600"></div>
-              
-              {/* コミュニティ情報 */}
-              <div class="p-6">
-                <div class="flex items-start justify-between">
-                  <div class="flex items-center space-x-4">
-                    <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center -mt-8 border-4 border-gray-900">
-                      <span class="text-white font-bold text-xl">
-                        {selectedCommunity()!.name.charAt(0)}
-                      </span>
-                    </div>
-                    <div>
-                      <h2 class="text-2xl font-bold text-white">{selectedCommunity()!.name}</h2>
-                      <div class="flex items-center space-x-4 text-sm text-gray-400 mt-1">
-                        <span>{selectedCommunity()!.memberCount.toLocaleString()} メンバー</span>
-                        <span>{selectedCommunity()!.postCount.toLocaleString()} 投稿</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => {setSelectedCommunity(null); setShowCommunityView(true);}}
-                      class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800 transition-colors"
-                    >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                      </svg>
-                    </button>
-                    {selectedCommunity()!.isJoined ? (
-                      <button
-                        type="button"
-                        onClick={() => handleLeaveCommunity(selectedCommunity()!.id)}
-                        class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                      >
-                        参加中
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleJoinCommunity(selectedCommunity()!.id)}
-                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm transition-colors"
-                      >
-                        参加する
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <p class="text-gray-300 mt-4">{selectedCommunity()!.description}</p>
-                <div class="flex flex-wrap gap-2 mt-4">
-                  <For each={selectedCommunity()!.tags}>
-                    {(tag) => (
-                      <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full text-xs">
-                        #{tag}
-                      </span>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </div>
-
-            {/* コミュニティ投稿 */}
-            <div class="space-y-4">
-              <For each={communityPosts().filter(post => post.communityId === selectedCommunity()!.id)}>
-                {(post) => (
-                  <div class={`bg-gray-900 rounded-xl p-6 border border-gray-800 ${post.isPinned ? 'border-yellow-500/50' : ''}`}>
-                    {post.isPinned && (
-                      <div class="flex items-center space-x-2 mb-3 text-yellow-400">
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
-                          <path fill-rule="evenodd" d="M3 8a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
-                          <path d="M8 15v-2a1 1 0 112 0v2h2a1 1 0 110 2H8a1 1 0 110-2h0z" />
-                        </svg>
-                        <span class="text-sm font-medium">ピン留め投稿</span>
-                      </div>
-                    )}
-                    <div class="flex space-x-3">
-                      <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span class="text-white font-bold text-sm">
-                          {post.author.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <div class="flex-1">
-                        <div class="flex items-center space-x-2 mb-2">
-                          <span class="font-bold text-white">{post.author}</span>
-                          <span class="text-gray-500">·</span>
-                          <span class="text-gray-500 text-sm">{formatDate(post.createdAt)}</span>
-                        </div>
-                        <div class="text-white mb-4 leading-relaxed">{post.content}</div>
-                        <div class="flex items-center space-x-6">
-                          <button
-                            type="button"
-                            onClick={() => handleLikeCommunityPost(post.id)}
-                            class={`flex items-center space-x-2 transition-colors group ${
-                              post.isLiked ? "text-red-400" : "text-gray-500 hover:text-red-400"
-                            }`}
-                          >
-                            <div class="p-2 rounded-full group-hover:bg-red-400/10 transition-colors">
-                              <svg
-                                class="w-5 h-5"
-                                fill={post.isLiked ? "currentColor" : "none"}
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                                />
-                              </svg>
-                            </div>
-                            <span class="text-sm">{post.likes}</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="flex items-center space-x-2 text-gray-500 hover:text-blue-400 transition-colors group"
-                          >
-                            <div class="p-2 rounded-full group-hover:bg-blue-400/10 transition-colors">
-                              <svg
-                                class="w-5 h-5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                                />
-                              </svg>
-                            </div>
-                            <span class="text-sm">{post.comments}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-        )}        {/* ストーリーエリア（通常投稿ビューの時のみ表示） */}
-        {!showCommunityView() && (
-          <div class="border-b border-gray-800 py-4 px-4">
-            <div class="flex items-center space-x-4 overflow-x-auto scrollbar-hide">
-              {/* ストーリー作成ボタン */}
-              <button
-                type="button"
-                onClick={() => setShowStoryForm(true)}
-                class="flex-shrink-0 flex flex-col items-center space-y-2 cursor-pointer"
-              >
-                <div class="w-16 h-16 border-2 border-dashed border-gray-600 rounded-full flex items-center justify-center hover:border-blue-400 transition-colors">
-                  <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </div>
-                <span class="text-xs text-gray-400">ストーリー</span>
-              </button>
-
-              {/* ストーリー一覧 */}
-              <For each={stories()}>
-                {(story, index) => (
-                  <button
-                    type="button"
-                    onClick={() => handleViewStory(story, index())}
-                    class="flex-shrink-0 flex flex-col items-center space-y-2 cursor-pointer group"
-                  >
-                    <div class={`w-16 h-16 rounded-full p-0.5 ${story.isViewed ? 'bg-gray-600' : 'bg-gradient-to-tr from-yellow-400 via-red-500 to-pink-500'}`}>
-                      <div class="w-full h-full bg-black rounded-full flex items-center justify-center overflow-hidden">
-                        {story.mediaUrl ? (
-                          <img src={story.mediaUrl} alt="" class="w-full h-full object-cover" />
-                        ) : (
-                          <div 
-                            class="w-full h-full flex items-center justify-center text-white font-bold text-sm"
-                            style={`background: ${story.backgroundColor || '#1DA1F2'}`}
-                          >
-                            {story.author.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <span class="text-xs text-gray-400 group-hover:text-white transition-colors max-w-16 truncate">
-                      {story.author}
-                    </span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-        )}
-        {/* ストーリー作成フォーム（モーダル形式） */}
-        {showStoryForm() && (
-          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div class="bg-gray-900 rounded-xl p-6 w-full max-w-lg mx-4 border border-gray-700">
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-bold">新しいストーリー</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowStoryForm(false)}
-                  class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800"
-                >
-                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-              </div>
-              
-              <form onSubmit={handleCreateStory} class="space-y-4">
-                {/* プレビュー */}
-                <div 
-                  class="aspect-[9/16] rounded-xl p-4 flex flex-col justify-center items-center text-center relative overflow-hidden"
-                  style={`background: ${storyBackgroundColor()}; color: ${storyTextColor()}`}
-                >
-                  {storyMediaUrl() && (
-                    <img src={storyMediaUrl()} alt="" class="absolute inset-0 w-full h-full object-cover" />
-                  )}
-                  <div class="relative z-10">
-                    <div class="text-lg font-bold mb-2">
-                      {storyContent() || "ここにテキストが表示されます"}
-                    </div>
-                  </div>
-                </div>
-
-                {/* テキスト入力 */}
-                <textarea
-                  value={storyContent()}
-                  onInput={(e) => setStoryContent(e.currentTarget.value)}
-                  placeholder="ストーリーに何か書いてみましょう..."
-                  maxlength={200}
-                  class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 resize-none border border-gray-700 focus:border-blue-500 outline-none"
-                  rows={3}
-                />
-
-                {/* 背景色選択 */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">背景色</label>
-                  <div class="flex space-x-2 flex-wrap gap-2">
-                    <For each={storyBackgroundColors}>
-                      {(color) => (
-                        <button
-                          type="button"
-                          onClick={() => setStoryBackgroundColor(color)}
-                          class={`w-8 h-8 rounded-full border-2 ${storyBackgroundColor() === color ? 'border-white' : 'border-gray-600'}`}
-                          style={`background: ${color}`}
-                        />
-                      )}
-                    </For>
-                  </div>
-                </div>
-
-                {/* テキスト色選択 */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">テキスト色</label>
-                  <div class="flex space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setStoryTextColor("#FFFFFF")}
-                      class={`w-8 h-8 rounded-full border-2 ${storyTextColor() === "#FFFFFF" ? 'border-blue-500' : 'border-gray-600'} bg-white`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setStoryTextColor("#000000")}
-                      class={`w-8 h-8 rounded-full border-2 ${storyTextColor() === "#000000" ? 'border-blue-500' : 'border-gray-600'} bg-black`}
-                    />
-                  </div>
-                </div>
-
-                {/* メディアURL */}
-                <input
-                  type="url"
-                  value={storyMediaUrl()}
-                  onInput={(e) => setStoryMediaUrl(e.currentTarget.value)}
-                  placeholder="画像URLを入力（オプション）"
-                  class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                />
-
-                <div class="flex items-center justify-between">
-                  <span class="text-sm text-gray-500">
-                    {storyContent().length}/200
-                  </span>
-                  <button
-                    type="submit"
-                    class={`px-6 py-2 rounded-full font-bold transition-all duration-200 ${
-                      !storyContent().trim() || storyContent().length > 200
-                        ? "bg-blue-400/50 text-white/50 cursor-not-allowed"
-                        : "bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
-                    }`}
-                    disabled={!storyContent().trim() || storyContent().length > 200}
-                  >
-                    ストーリーを作成
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ツイートフォーム（モーダル形式） */}
-        {showPostForm() && (
-          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div class="bg-gray-900 rounded-xl p-6 w-full max-w-lg mx-4 border border-gray-700">
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-bold">新しいツイート</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowPostForm(false)}
-                  class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800"
-                >
-                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-              </div>
-              
-              <form onSubmit={handleSubmit} class="space-y-4">
-                <div class="flex space-x-3">
-                  <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                    <svg
-                      class="w-6 h-6 text-white"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fill-rule="evenodd"
-                        d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-                        clip-rule="evenodd"
-                      />
-                    </svg>
-                  </div>
-                  <div class="flex-1">
-                    <textarea
-                      value={newPostContent()}
-                      onInput={(e) => setNewPostContent(e.currentTarget.value)}
-                      placeholder=""
-                      maxlength={280}
-                      class="w-full bg-transparent text-xl placeholder-gray-500 resize-none border-none outline-none"
-                      rows={4}
-                    />
-                  </div>
-                </div>
-
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center space-x-4">
-                    <button
-                      type="button"
-                      class="text-blue-400 hover:bg-blue-400/10 p-2 rounded-full transition-colors"
-                    >
-                      <svg
-                        class="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </button>
-                    <div class="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowEmojiPicker(!showEmojiPicker())}
-                        class="text-blue-400 hover:bg-blue-400/10 p-2 rounded-full transition-colors"
-                      >
-                        <svg
-                          class="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </button>
-                      {showEmojiPicker() && (
-                        <div class="absolute bottom-full mb-2 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700 grid grid-cols-6 gap-2">
-                          <For each={emojis}>
-                            {(emoji) => (
-                              <button
-                                type="button"
-                                onClick={() => insertEmoji(emoji)}
-                                class="text-xl hover:bg-gray-700 p-1 rounded transition-colors"
-                              >
-                                {emoji}
-                              </button>
-                            )}
-                          </For>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div class="flex items-center space-x-3">
-                    <span
-                      class={`text-sm ${
-                        newPostContent().length > 260
-                          ? "text-red-400"
-                          : newPostContent().length > 240
-                          ? "text-yellow-400"
-                          : "text-gray-500"
-                      }`}
-                    >
-                      {newPostContent().length > 0 && (
-                        <div class="relative w-8 h-8">
-                          <svg
-                            class="w-8 h-8 transform -rotate-90"
-                            viewBox="0 0 32 32"
-                          >
-                            <circle
-                              cx="16"
-                              cy="16"
-                              r="14"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              fill="none"
-                              class="text-gray-700"
-                            />
-                            <circle
-                              cx="16"
-                              cy="16"
-                              r="14"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              fill="none"
-                              stroke-dasharray={`${
-                                (newPostContent().length / 280) * 88
-                              } 88`}
-                              class={newPostContent().length > 260
-                                ? "text-red-400"
-                                : newPostContent().length > 240
-                                ? "text-yellow-400"
-                                : "text-blue-400"}
-                            />
-                          </svg>
-                          {newPostContent().length > 240 && (
-                            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold">
-                              {280 - newPostContent().length}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </span>
-                    <button
-                      type="submit"
-                      class={`px-6 py-2 rounded-full font-bold transition-all duration-200 ${
-                        !newPostContent().trim() || newPostContent().length > 280
-                          ? "bg-blue-400/50 text-white/50 cursor-not-allowed"
-                          : "bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
-                      }`}
-                      disabled={!newPostContent().trim() ||
-                        newPostContent().length > 280}
-                    >
-                      ツイートする
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* コミュニティ作成フォーム（モーダル形式） */}
-        {showCreateCommunity() && (
-          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div class="bg-gray-900 rounded-xl p-6 w-full max-w-lg mx-4 border border-gray-700">
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-bold">新しいコミュニティを作成</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateCommunity(false)}
-                  class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800"
-                >
-                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-              </div>
-              
-              <form onSubmit={handleCreateCommunity} class="space-y-4">
-                {/* コミュニティ名 */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">コミュニティ名</label>
-                  <input
-                    type="text"
-                    value={communityName()}
-                    onInput={(e) => setCommunityName(e.currentTarget.value)}
-                    placeholder="コミュニティの名前を入力"
-                    class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                    required
-                  />
-                </div>
-
-                {/* 説明 */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">説明</label>
-                  <textarea
-                    value={communityDescription()}
-                    onInput={(e) => setCommunityDescription(e.currentTarget.value)}
-                    placeholder="コミュニティの説明を入力"
-                    class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                    rows={3}
-                    required
-                  />
-                </div>
-
-                {/* アバターURL */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">アバター画像URL（オプション）</label>
-                  <input
-                    type="url"
-                    value={communityAvatar()}
-                    onInput={(e) => setCommunityAvatar(e.currentTarget.value)}
-                    placeholder="https://example.com/avatar.jpg"
-                    class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                  />
-                </div>
-
-                {/* バナーURL */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">バナー画像URL（オプション）</label>
-                  <input
-                    type="url"
-                    value={communityBanner()}
-                    onInput={(e) => setCommunityBanner(e.currentTarget.value)}
-                    placeholder="https://example.com/banner.jpg"
-                    class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                  />
-                </div>
-
-                {/* タグ */}
-                <div>
-                  <label class="block text-sm font-medium text-gray-300 mb-2">タグ（カンマ区切り）</label>
-                  <input
-                    type="text"
-                    value={communityTags()}
-                    onInput={(e) => setCommunityTags(e.currentTarget.value)}
-                    placeholder="技術, プログラミング, 開発"
-                    class="w-full bg-gray-800 rounded-lg p-3 text-white placeholder-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                  />
-                </div>
-
-                {/* 非公開設定 */}
-                <div class="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="private-community"
-                    checked={communityIsPrivate()}
-                    onChange={(e) => setCommunityIsPrivate(e.currentTarget.checked)}
-                    class="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500"
-                  />
-                  <label for="private-community" class="text-sm text-gray-300">
-                    非公開コミュニティにする
-                  </label>
-                </div>
-
-                <div class="flex items-center justify-end space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateCommunity(false)}
-                    class="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    type="submit"
-                    class={`px-6 py-2 rounded-full font-bold transition-all duration-200 ${
-                      !communityName().trim() || !communityDescription().trim()
-                        ? "bg-blue-400/50 text-white/50 cursor-not-allowed"
-                        : "bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
-                    }`}
-                    disabled={!communityName().trim() || !communityDescription().trim()}
-                  >
-                    作成
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* 投稿一覧（通常ビューの時のみ表示） */}
-        {!showCommunityView() && (
-          <div class="divide-y divide-gray-800">
-            <For each={filteredPosts()}>
-              {(post) => (
-                <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
-                <div class="flex space-x-3">
-                  <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span class="text-white font-bold text-sm">
-                      {post.author.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center space-x-2 mb-1">
-                      <span class="font-bold text-white hover:underline cursor-pointer">
-                        {post.author}
-                      </span>
-                      <span class="text-gray-500">·</span>
-                      <span class="text-gray-500 text-sm">
-                        {formatDate(post.createdAt)}
-                      </span>
-                    </div>
-
-                    <div class="text-white mb-3 leading-relaxed">
-                      {post.content}
-                    </div>
-
-                    <div class="flex items-center justify-between max-w-md">
-                      <button
-                        type="button"
-                        onClick={() => handleReply(post.id)}
-                        class="flex items-center space-x-2 text-gray-500 hover:text-blue-400 transition-colors group"
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-blue-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                            />
-                          </svg>
-                        </div>
-                        <span class="text-sm">{post.replies || 0}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRetweet(post.id)}
-                        class={`flex items-center space-x-2 transition-colors group ${
-                          post.isRetweeted ? "text-green-400" : "text-gray-500 hover:text-green-400"
-                        }`}
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-green-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
-                        </div>
-                        <span class="text-sm">{post.retweets || 0}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleLike(post.id)}
-                        class={`flex items-center space-x-2 transition-colors group ${
-                          post.isLiked ? "text-red-400" : "text-gray-500 hover:text-red-400"
-                        }`}
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-red-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill={post.isLiked ? "currentColor" : "none"}
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                            />
-                          </svg>
-                        </div>
-                        <span class="text-sm">{post.likes || 0}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        class="flex items-center space-x-2 text-gray-500 hover:text-blue-400 transition-colors group"
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-blue-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z"
-                            />
-                          </svg>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(post.id, post.content)}
-                        class="flex items-center space-x-2 text-gray-500 hover:text-yellow-400 transition-colors group"
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-yellow-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M4 21h16M4 17l6-6M16 5l3 3-6 6-3-3-6 6"
-                            />
-                          </svg>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(post.id)}
-                        class="flex items-center space-x-2 text-gray-500 hover:text-red-400 transition-colors group"
-                      >
-                        <div class="p-2 rounded-full group-hover:bg-red-400/10 transition-colors">
-                          <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7z"
-                            />
-                          </svg>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </For>
-          </div>
-        )}
-      </div>
-
-      {/* ストーリー視聴モーダル */}
-      {showStoryViewer() && selectedStory() && (
-        <div class="fixed inset-0 bg-black z-50 flex items-center justify-center">
-          <div class="relative w-full max-w-sm h-full">
-            {/* 進行状況バー */}
-            <div class="absolute top-4 left-4 right-4 z-20 flex space-x-1">
-              <For each={stories()}>
-                {(_, index) => (
-                  <div class="flex-1 h-1 bg-gray-600 rounded">
-                    <div 
-                      class={`h-full bg-white rounded transition-all duration-300 ${
-                        index() < currentStoryIndex() ? 'w-full' : 
-                        index() === currentStoryIndex() ? 'w-full' : 'w-0'
-                      }`}
-                    />
-                  </div>
-                )}
-              </For>
-            </div>
-
-            {/* ストーリーコンテンツ */}
-            <div class="w-full h-full relative">
-              {selectedStory()!.mediaUrl && (
-                <img 
-                  src={selectedStory()!.mediaUrl} 
-                  alt="" 
-                  class="w-full h-full object-cover"
-                />
-              )}
-              <div 
-                class="absolute inset-0 flex flex-col justify-end p-6"
-                style={
-                  !selectedStory()!.mediaUrl ? 
-                  `background-color: ${selectedStory()!.backgroundColor};` +
-                  `color: ${selectedStory()!.textColor};` :
-                  "background: linear-gradient(transparent, rgba(0,0,0,0.7))"
-                }
-              >
-                <div class="text-white">
-                  <div class="flex items-center space-x-2 mb-2">
-                    <span class="font-bold text-lg">{selectedStory()!.author}</span>
-                    <span class="text-sm opacity-75">
-                      {formatDate(selectedStory()!.createdAt)}
-                    </span>
-                  </div>
-                  <div class="text-lg leading-relaxed">
-                    {selectedStory()!.content}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ナビゲーションエリア */}
-            <div class="absolute inset-0 flex">
-              <button
-                type="button"
-                onClick={previousStory}
-                class="flex-1 opacity-0 hover:opacity-10 bg-black transition-opacity"
-              />
-              <button
-                type="button"
-                onClick={nextStory}
-                class="flex-1 opacity-0 hover:opacity-10 bg-black transition-opacity"
-              />
-            </div>
-
-            {/* 閉じるボタン */}
-            <button
-              type="button"
-              onClick={closeStoryViewer}
-              class="absolute top-4 right-4 z-20 text-white p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
-            >
-              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
-            </button>
-
-            {/* 削除ボタン（自分のストーリーの場合） */}
-            {selectedStory()!.author === "user" && (
-              <button
-                type="button"
-                onClick={() => handleDeleteStory(selectedStory()!.id)}
-                class="absolute bottom-4 right-4 z-20 text-white p-2 rounded-full bg-red-500/50 hover:bg-red-500/70 transition-colors"
-              >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            )}
-          </div>
+          {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+            <PostList
+              posts={filteredPosts()}
+              tab={tab()}
+              handleReply={handleReply}
+              handleRetweet={handleRetweet}
+              handleLike={handleLike}
+              handleEdit={handleEdit}
+              handleDelete={handleDelete}
+              formatDate={formatDate}
+            />
+          )}
         </div>
-      )}
+
+        <StoryViewer
+          showStoryViewer={showStoryViewer()}
+          selectedStory={selectedStory()}
+          stories={stories() || []}
+          currentStoryIndex={currentStoryIndex()}
+          previousStory={previousStory}
+          nextStory={nextStory}
+          closeStoryViewer={closeStoryViewer}
+          handleDeleteStory={handleDeleteStory}
+          formatDate={formatDate}
+        />
+
+        <PostForm
+          showPostForm={showPostForm()}
+          setShowPostForm={setShowPostForm}
+          newPostContent={newPostContent()}
+          setNewPostContent={setNewPostContent}
+          handleSubmit={handleSubmit}
+        />
+
+        {/* フローティング投稿ボタン（おすすめ・フォロー中・コミュニティタブの時のみ表示） */}
+        {(tab() === 'recommend' || tab() === 'following' || tab() === 'community') && !showCommunityManagement() && (
+          <button
+            type="button"
+            onClick={() => setShowPostForm(true)}
+            class="fixed bottom-6 right-6 z-30 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+          >
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
       </div>
     </>
   );

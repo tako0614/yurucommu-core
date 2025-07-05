@@ -142,13 +142,13 @@ export function Chat() {
   });
 
   return (
-    <div class="flex h-screen bg-[#121212] relative">
+    <div class="flex h-full max-h-screen bg-[#121212] relative">
       {/* サイドバー - チャットルーム一覧 (デスクトップ常時表示 / モバイル条件表示) */}
       <div class={`${
         isMobile() 
           ? (showRoomList() ? "w-full" : "hidden") 
           : "w-80"
-      } bg-[#1a1a1a] border-r border-gray-800 flex flex-col transition-all duration-300`}>
+      } bg-[#1a1a1a] border-r border-gray-800 flex flex-col h-full transition-all duration-300`}>
         <div class="p-4 border-b border-gray-800">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-white">チャット</h2>
@@ -277,7 +277,7 @@ export function Chat() {
         isMobile() 
           ? (showRoomList() ? "hidden" : "w-full") 
           : "flex-1"
-      } flex flex-col transition-all duration-300`}>
+      } flex flex-col h-full transition-all duration-300`}>
         <Show when={selectedRoom()}>
           {/* チャットヘッダー */}
           <div class="p-4 bg-[#1a1a1a] border-b border-gray-800">
@@ -340,7 +340,7 @@ export function Chat() {
           </div>
 
           {/* メッセージエリア */}
-          <div class="flex-1 overflow-y-auto p-4 bg-[#121212]">
+          <div class="flex-1 overflow-y-auto p-4 bg-[#121212] min-h-0">
             <div class="space-y-4">
               <For each={messages()}>
                 {(message) => (
@@ -434,7 +434,7 @@ export function Chat() {
         </Show>
 
         <Show when={!selectedRoom()}>
-          <div class="flex-1 flex items-center justify-center bg-[#121212]">
+          <div class="flex-1 flex items-center justify-center bg-[#121212] min-h-0">
             <div class="text-center px-4">
               <div class="w-16 h-16 bg-[#2a2a2a] rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
