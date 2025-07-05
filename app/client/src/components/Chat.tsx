@@ -142,7 +142,7 @@ export function Chat() {
   });
 
   return (
-    <div class="flex h-full max-h-screen bg-[#121212] relative">
+    <div class="flex h-full">
       {/* サイドバー - チャットルーム一覧 (デスクトップ常時表示 / モバイル条件表示) */}
       <div class={`${
         isMobile() 

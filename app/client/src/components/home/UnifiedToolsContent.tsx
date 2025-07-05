@@ -270,7 +270,7 @@ export default function UnifiedToolsContent() {
   };
 
   return (
-    <div class="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+    <div class="h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       <div class="text-center space-y-2">
         <h2 class="text-3xl font-bold text-gray-100">検索</h2>
         <p class="text-gray-400 max-w-2xl mx-auto">

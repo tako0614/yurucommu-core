@@ -36,7 +36,7 @@ export function Aplication() {
   return (
     <>
       <Header />
-      <main class={wrapperClass()}>
+      <main class={`${wrapperClass()} h-screen overflow-y-auto`}>
         <Show when={selectedApp() === "home"}>
           <Home />
         </Show>
@@ -47,7 +47,7 @@ export function Aplication() {
           <Chat />
         </Show>
         <Show when={selectedApp() === "tools"}>
-          <div class="min-h-screen bg-[#121212] text-gray-100">
+          <div class="text-gray-100">
             <div class="p-6">
               <UnifiedToolsContent />
             </div>

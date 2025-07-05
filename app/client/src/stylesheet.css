@@ -146,6 +146,7 @@ input {
 @media (min-width: 769px) {
   .wrapper {
     padding-left: 78px;
+    box-sizing: border-box;
     height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
     overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
   }
@@ -173,7 +174,7 @@ input {
   .wrapper {
     padding: 0; /* 既存のpadding:0を維持しつつ、必要なpaddingを追加 */
     padding-bottom: 64px; /* スマホ版ヘッダーの高さ分 */
-    height: 100vh; /* MainContentが画面の高さいっぱいに広がるように */
+    height: calc(100vh - 64px); /* ヘッダー分を引いた高さに調整 */
     overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
   }
   /* チャットページでヘッダーが非表示の場合はpaddingを削除（スマホ版のみ） */
