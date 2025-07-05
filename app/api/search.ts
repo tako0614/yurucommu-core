@@ -78,7 +78,7 @@ app.get("/search", async (c) => {
       }&type=${type}`;
       const res = await fetch(url);
       if (res.ok) {
-        remoteResults = await res.json<SearchResult[]>();
+        remoteResults = await res.json();
         for (const r of remoteResults) {
           results.push({ ...r, origin: server });
         }
