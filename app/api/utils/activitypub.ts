@@ -32,9 +32,8 @@ async function signRequest(
   const date = new Date().toUTCString();
   const encoder = new TextEncoder();
 
-  // Content-Lengthヘッダーを追加
+  // Content-Lengthはfetchが自動で付与するため署名対象から除外
   const bodyBytes = encoder.encode(body);
-  const contentLength = bodyBytes.length.toString();
 
   const digestValue = arrayBufferToBase64(
     await crypto.subtle.digest("SHA-256", bodyBytes),
@@ -46,7 +45,6 @@ async function signRequest(
   headers.set("date", date);
   headers.set("digest", digest);
   headers.set("content-type", "application/activity+json");
-  headers.set("content-length", contentLength);
   headers.set("user-agent", "Takos/1.0 (ActivityPub)");
 
   // request-targetの正確な構築（パスとクエリを含む）
@@ -58,8 +56,7 @@ async function signRequest(
     `host: ${host}\n` +
     `date: ${date}\n` +
     `digest: ${digest}\n` +
-    `content-type: application/activity+json\n` +
-    `content-length: ${contentLength}`;
+    `content-type: application/activity+json`;
 
   // 秘密鍵の正規化
   const normalizedPrivateKey = ensurePem(account.privateKey, "PRIVATE KEY");
@@ -86,7 +83,7 @@ async function signRequest(
   // 署名ヘッダーの構築（ヘッダーリストの順序を保持）
   headers.set(
     "signature",
-    `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest content-type content-length",signature="${signatureB64}"`,
+    `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest content-type",signature="${signatureB64}"`,
   );
 
   return headers;
