@@ -158,6 +158,46 @@ app.post("/users/:username/inbox", async (c) => {
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
+app.get("/users/:username/followers", async (c) => {
+  const username = c.req.param("username");
+  const account = await Account.findOne({ userName: username }).lean();
+  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+  const domain = getDomain(c);
+  const list = account.followers ?? [];
+  return jsonResponse(
+    c,
+    {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/users/${username}/followers`,
+      type: "OrderedCollection",
+      totalItems: list.length,
+      orderedItems: list,
+    },
+    200,
+    "application/activity+json",
+  );
+});
+
+app.get("/users/:username/following", async (c) => {
+  const username = c.req.param("username");
+  const account = await Account.findOne({ userName: username }).lean();
+  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+  const domain = getDomain(c);
+  const list = account.following ?? [];
+  return jsonResponse(
+    c,
+    {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/users/${username}/following`,
+      type: "OrderedCollection",
+      totalItems: list.length,
+      orderedItems: list,
+    },
+    200,
+    "application/activity+json",
+  );
+});
+
 // ActivityPub アクタープロキシ（外部ユーザー情報取得用）
 app.get("/activitypub/actor-proxy", async (c) => {
   try {
@@ -176,7 +216,8 @@ app.get("/activitypub/actor-proxy", async (c) => {
     // ActivityPub Accept ヘッダーでリクエスト
     const response = await fetch(actorUrl, {
       headers: {
-        "Accept": "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+        "Accept":
+          'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
         "User-Agent": "Takos ActivityPub Client/1.0",
       },
     });
@@ -186,7 +227,7 @@ app.get("/activitypub/actor-proxy", async (c) => {
     }
 
     const actor = await response.json();
-    
+
     // 必要な情報のみを返す（セキュリティのため）
     return c.json({
       name: actor.name || "",
