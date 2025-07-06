@@ -35,7 +35,8 @@ async function signAndSend(
   );
   const digest = `SHA-256=${digestValue}`;
 
-  const signingString = `(request-target): post ${parsedUrl.pathname}\n` +
+  const fullPath = parsedUrl.pathname + parsedUrl.search;
+  const signingString = `(request-target): post ${fullPath}\n` +
     `host: ${host}\n` +
     `date: ${date}\n` +
     `digest: ${digest}`;
@@ -61,7 +62,7 @@ async function signAndSend(
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
 
   const headers = new Headers({
-    "Host": host,
+    // Host ヘッダーは fetch には渡さない（署名用には残す）
     "Date": date,
     "Digest": digest,
     "Signature":
@@ -111,16 +112,21 @@ export async function sendActivityPubObject(
 }
 
 export async function deliverActivityPubObject(
-  inboxes: string[],
+  targets: string[],
   object: unknown,
   actor: string,
 ): Promise<void> {
-  const deliveryPromises = inboxes.map(inbox => {
-    if (inbox.startsWith("http")) {
-      // Individual errors are caught within sendActivityPubObject, so we can just fire and forget here.
-      return sendActivityPubObject(inbox, object, actor).catch(err => {
-        console.error(`Failed to deliver to ${inbox}`, err);
-      });
+  const deliveryPromises = targets.map(async iri => {
+    if (iri.startsWith("http")) {
+      try {
+        const { inbox, sharedInbox } = await resolveRemoteActor(iri);
+        const target = sharedInbox ?? inbox;
+        return sendActivityPubObject(target, object, actor).catch(err => {
+          console.error(`Failed to deliver to ${iri}`, err);
+        });
+      } catch (err) {
+        console.error(`Failed to resolve remote actor for ${iri}`, err);
+      }
     }
     return Promise.resolve();
   });
@@ -343,13 +349,8 @@ export async function fetchActorInbox(
   actorUrl: string,
 ): Promise<string | null> {
   try {
-    const res = await fetch(actorUrl, {
-      headers: { accept: "application/activity+json" },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (typeof data.inbox === "string") return data.inbox;
-    }
+    const data = await fetchJson(actorUrl);
+    if (typeof data.inbox === "string") return data.inbox;
   } catch {
     /* ignore */
   }
@@ -363,35 +364,41 @@ export interface ActivityPubActor {
   icon?: { url?: string };
 }
 
+/**
+ * acct:username@domain 形式からWebFinger経由で正規のActor URLを解決し、ActivityPub Actor情報を取得する。
+ * Mastodon等で /users/xxx が404になるのは「ローカルユーザーでないため正常」。
+ * 必ずWebFingerでActor URLを発見し、そのURLにAcceptヘッダーを厳密に付与して取得するのが正規ルート。
+ * @param acct 例: "takoserver@dev.takos.jp"
+ */
+export async function resolveActorFromAcct(acct: string): Promise<ActivityPubActor | null> {
+  const [username, domain] = acct.split("@");
+  if (!username || !domain) return null;
+  const resource = `acct:${username}@${domain}`;
+  const wfUrl = `https://${domain}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`;
+  const wfRes = await fetch(wfUrl, {
+    headers: { Accept: "application/jrd+json" },
+  });
+  if (!wfRes.ok) return null;
+  const jrd = await wfRes.json();
+  const self = jrd.links?.find((l: { rel?: string; type?: string }) =>
+    l.rel === "self" && l.type === "application/activity+json"
+  );
+  if (!self?.href) return null;
+  const actorRes = await fetch(self.href, {
+    headers: { Accept: 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"' },
+  });
+  if (!actorRes.ok) return null;
+  return await actorRes.json();
+}
+
+/**
+ * 旧API: username, domain指定のまま残すが内部でacct形式に変換して新APIを利用
+ */
 export async function resolveActor(
   username: string,
   domain: string,
 ): Promise<ActivityPubActor | null> {
-  try {
-    const resource = `acct:${username}@${domain}`;
-    const url = `https://${domain}/.well-known/webfinger?resource=${
-      encodeURIComponent(resource)
-    }`;
-    const wfRes = await fetch(url, {
-      headers: {
-        Accept: "application/jrd+json, application/json",
-      },
-    });
-    if (!wfRes.ok) return null;
-    const jrd = await wfRes.json();
-    const selfLink = jrd.links?.find((l: { rel?: string; type?: string }) =>
-      l.rel === "self" && l.type === "application/activity+json"
-    );
-    if (!selfLink?.href) return null;
-    const actorRes = await fetch(selfLink.href, {
-      headers: { Accept: "application/activity+json" },
-    });
-    if (!actorRes.ok) return null;
-    return await actorRes.json();
-  } catch {
-    /* ignore */
-    return null;
-  }
+  return resolveActorFromAcct(`${username}@${domain}`);
 }
 
 export function getDomain(
@@ -533,8 +540,13 @@ export function createCreateActivity(
 
 /* ===== ActivityPub主要実装互換ユーティリティ ===== */
 
-/** Acceptヘッダーを強制するfetchJson */
-export async function fetchJson(url: string, init: RequestInit = {}) {
+/**
+ * Acceptヘッダーを必ず付与してJSON取得
+ * Misskey/Mastodon/Pleroma等の404/406対策
+ * @param url 取得先URL
+ * @param init fetch初期化オプション
+ */
+export async function fetchJson(url: string, init: RequestInit = {}): Promise<any> {
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {
     headers.set(
@@ -543,11 +555,16 @@ export async function fetchJson(url: string, init: RequestInit = {}) {
     );
   }
   const res = await fetch(url, { ...init, headers });
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`fetchJson: ${url} ${res.status} ${res.statusText} ${text}`);
+  }
   return await res.json();
 }
 
-/** inbox/sharedInbox抽出・優先 resolveActor */
+/**
+ * ActivityPubリモートアクター情報
+ */
 export interface RemoteActor {
   id: string;
   inbox: string;
@@ -555,12 +572,17 @@ export interface RemoteActor {
   publicKeyId: string;
 }
 
+/**
+ * アクターIRIからinbox/sharedInbox等を抽出
+ * sharedInbox > inbox > ldp:inbox の順で優先
+ * @param actorIri アクターIRI
+ */
 export async function resolveRemoteActor(actorIri: string): Promise<RemoteActor> {
   const actor = await fetchJson(actorIri);
 
-  const inbox =
+  const inbox: string | undefined =
     actor.endpoints?.sharedInbox ?? actor.inbox ?? actor["ldp:inbox"];
-  if (!inbox) throw new Error("inbox not found in actor document");
+  if (!inbox) throw new Error("resolveRemoteActor: inbox not found in actor document");
 
   return {
     id: actor.id,
@@ -570,12 +592,17 @@ export async function resolveRemoteActor(actorIri: string): Promise<RemoteActor>
   };
 }
 
-/** inbox系限定POST deliver */
+/**
+ * ActivityPub配信（inbox/sharedInbox限定POST）
+ * @param activity 配信するActivityPubオブジェクト
+ * @param recipientActorIri 配信先アクターIRI
+ * @param sign HTTP Signature生成関数（Host/Date/Signature付与用）
+ */
 export async function deliver(
   activity: unknown,
   recipientActorIri: string,
   sign: (options: { url: string; headers: Headers }) => string,
-) {
+): Promise<void> {
   const actor = await resolveRemoteActor(recipientActorIri);
   const target = actor.sharedInbox ?? actor.inbox;
 
@@ -594,6 +621,7 @@ export async function deliver(
   });
 
   if (!res.ok) {
-    throw new Error(`Delivery failed ${res.status} ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`deliver: ${target} ${res.status} ${res.statusText} ${text}`);
   }
 }
