@@ -22,41 +22,49 @@
 **作成ファイル**: `app/api/user-info.ts`
 
 新しいAPIエンドポイント:
+
 - `GET /api/user-info/:identifier` - 単一ユーザー情報取得
 - `POST /api/user-info/batch` - 複数ユーザー情報バッチ取得
 
 ### 3. 既存APIの改修
 
 #### microblog.ts
+
 - 重複するユーザー情報取得ロジックを削除
 - 共通サービスの`getUserInfo`、`getUserInfoBatch`、`formatUserInfoForPost`を使用
 - バッチ処理により投稿一覧取得のパフォーマンスを向上
 
 改修されたエンドポイント:
+
 - `GET /api/microblog` - 投稿一覧取得
 - `POST /api/microblog` - 新規投稿作成
 - `GET /api/microblog/:id` - 単一投稿取得
 - `PUT /api/microblog/:id` - 投稿更新
 
 #### users.ts
+
 - タイムライン取得機能でバッチ処理を使用
 
 改修されたエンドポイント:
+
 - `GET /api/users/:username/timeline` - フォロー中ユーザーの投稿取得
 
 ## 技術的改善点
 
 ### パフォーマンス最適化
+
 - **バッチ処理**: 複数ユーザー情報を一度に取得
 - **データベースクエリ最適化**: `$in`演算子を使用した効率的なクエリ
 - **キャッシュ機能**: 同一リクエスト内でのユーザー情報キャッシュ
 
 ### コード品質向上
+
 - **DRY原則**: 重複コードの削除
 - **単一責任原則**: ユーザー情報取得ロジックの分離
 - **型安全性**: TypeScriptインターフェースによる型定義
 
 ### 保守性向上
+
 - **共通化**: ユーザー情報取得ロジックの一元管理
 - **拡張性**: 新しい機能追加時の容易な対応
 - **テスタビリティ**: 分離されたサービスによるテストの容易化
@@ -76,6 +84,7 @@ app/api/
 ## 使用例
 
 ### 単一ユーザー情報取得
+
 ```typescript
 import { getUserInfo } from "./services/user-info.ts";
 
@@ -83,6 +92,7 @@ const userInfo = await getUserInfo("username", "example.com");
 ```
 
 ### 複数ユーザー情報バッチ取得
+
 ```typescript
 import { getUserInfoBatch } from "./services/user-info.ts";
 
@@ -90,6 +100,7 @@ const userInfos = await getUserInfoBatch(["user1", "user2"], "example.com");
 ```
 
 ### APIエンドポイント使用
+
 ```bash
 # 単一ユーザー情報取得
 GET /api/user-info/username

@@ -9,8 +9,8 @@ import {
   getDomain,
 } from "./utils/activitypub.ts";
 import {
-  getUserInfoBatch,
   formatUserInfoForPost,
+  getUserInfoBatch,
 } from "./services/user-info.ts";
 
 const app = new Hono();
@@ -315,13 +315,15 @@ app.get("/users/:username/timeline", async (c) => {
     }).sort({ published: -1 }).limit(50).lean();
 
     // ユーザー情報をバッチで取得
-    const identifiers = posts.map(post => post.attributedTo as string);
+    const identifiers = posts.map((post) => post.attributedTo as string);
     const userInfos = await getUserInfoBatch(identifiers, domain);
-    
-    const formatted = posts.map((post: Record<string, unknown>, index: number) => {
-      const userInfo = userInfos[index];
-      return formatUserInfoForPost(userInfo, post);
-    });
+
+    const formatted = posts.map(
+      (post: Record<string, unknown>, index: number) => {
+        const userInfo = userInfos[index];
+        return formatUserInfoForPost(userInfo, post);
+      },
+    );
 
     return c.json(formatted);
   } catch (error) {

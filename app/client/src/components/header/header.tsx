@@ -94,27 +94,27 @@ export default function ChatHeader() {
             </a>
           </HeaderButton>
 
-            <HeaderButton page="tools">
+          <HeaderButton page="tools">
             <a>
               <svg
-              role="img"
-              xmlns="http://www.w3.org/2000/svg"
-              width="100%"
-              height="100%"
-              viewBox="0 0 24 24"
-              aria-labelledby="searchIconTitle"
-              stroke="#ffffff"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              fill="none"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+                aria-labelledby="searchIconTitle"
+                stroke="#ffffff"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
               >
-              <title id="searchIconTitle">Search</title>
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
+                <title id="searchIconTitle">Search</title>
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
               </svg>
             </a>
-            </HeaderButton>
+          </HeaderButton>
 
           <HeaderButton page="microblog">
             <a>

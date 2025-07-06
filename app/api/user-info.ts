@@ -1,9 +1,6 @@
 import { Hono } from "hono";
 import { getDomain } from "./utils/activitypub.ts";
-import {
-  getUserInfo,
-  getUserInfoBatch,
-} from "./services/user-info.ts";
+import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
 const app = new Hono();
 
@@ -12,13 +9,13 @@ app.get("/user-info/:identifier", async (c) => {
   try {
     const domain = getDomain(c);
     const identifier = c.req.param("identifier");
-    
+
     if (!identifier) {
       return c.json({ error: "User identifier is required" }, 400);
     }
 
     const userInfo = await getUserInfo(identifier, domain);
-    
+
     return c.json(userInfo);
   } catch (error) {
     console.error("Error fetching user info:", error);
@@ -31,7 +28,7 @@ app.post("/user-info/batch", async (c) => {
   try {
     const domain = getDomain(c);
     const { identifiers } = await c.req.json();
-    
+
     if (!Array.isArray(identifiers) || identifiers.length === 0) {
       return c.json({ error: "Valid identifiers array is required" }, 400);
     }
@@ -42,7 +39,7 @@ app.post("/user-info/batch", async (c) => {
     }
 
     const userInfos = await getUserInfoBatch(identifiers, domain);
-    
+
     return c.json(userInfos);
   } catch (error) {
     console.error("Error fetching user info batch:", error);

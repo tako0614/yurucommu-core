@@ -1,5 +1,11 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
+
+// 型定義用のimport
+import type { InferSchemaType } from "mongoose";
+import type { activityPubObjectSchema } from "./models/activitypub_object.ts";
+
+type ActivityPubObjectType = InferSchemaType<typeof activityPubObjectSchema>;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
@@ -18,7 +24,7 @@ import {
 // --- Helper Functions ---
 
 async function deliverPostToFollowers(
-  post: ActivityPubObject,
+  post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
 ) {
@@ -41,11 +47,21 @@ async function deliverPostToFollowers(
       }),
     );
 
-    const validInboxes = followerInboxes.filter((inbox): inbox is string => !!inbox);
+    const validInboxes = followerInboxes.filter((inbox): inbox is string =>
+      typeof inbox === "string" && !!inbox
+    );
 
     if (validInboxes.length > 0) {
+      const baseObj = post.toObject();
       const noteObject = buildActivityFromStored(
-        { ...post.toObject(), content: post.content ?? "" },
+        {
+          ...baseObj,
+          content: typeof post.content === "string" ? post.content : "",
+          _id: String(baseObj._id),
+          type: typeof baseObj.type === "string" ? baseObj.type : "Note",
+          published: typeof baseObj.published === "string" ? baseObj.published : new Date().toISOString(),
+          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null && !Array.isArray(baseObj.extra)) ? baseObj.extra as Record<string, unknown> : {},
+        },
         domain,
         author,
         false,
@@ -74,10 +90,10 @@ app.get("/microblog", async (c) => {
   }).lean();
 
   // ユーザー情報をバッチで取得
-  const identifiers = list.map((doc) => doc.attributedTo as string);
+  const identifiers = list.map((doc: any) => doc.attributedTo as string);
   const userInfos = await getUserInfoBatch(identifiers, domain);
 
-  const formatted = list.map((doc: Record<string, unknown>, index: number) => {
+  const formatted = list.map((doc: any, index: number) => {
     const userInfo = userInfos[index];
     return formatUserInfoForPost(userInfo, doc);
   });
@@ -103,8 +119,8 @@ app.post("/microblog", async (c) => {
   // Fire-and-forget the delivery process
   deliverPostToFollowers(post, author, domain);
 
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(formatUserInfoForPost(userInfo, post), 201);
+  const userInfo = await getUserInfo((post.attributedTo as string), domain);
+  return c.json(formatUserInfoForPost(userInfo, post.toObject()), 201);
 });
 
 app.get("/microblog/:id", async (c) => {
@@ -114,9 +130,8 @@ app.get("/microblog/:id", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // 共通ユーザー情報取得サービスを使用
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-
-  return c.json(formatUserInfoForPost(userInfo, post));
+  const userInfo = await getUserInfo((post.attributedTo as string), domain);
+  return c.json(formatUserInfoForPost(userInfo, post as Record<string, unknown>));
 });
 
 app.put("/microblog/:id", async (c) => {
@@ -134,7 +149,7 @@ app.put("/microblog/:id", async (c) => {
   // 共通ユーザー情報取得サービスを使用
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
 
-  return c.json(formatUserInfoForPost(userInfo, post));
+  return c.json(formatUserInfoForPost(userInfo, post.toObject()));
 });
 
 app.post("/microblog/:id/like", async (c) => {

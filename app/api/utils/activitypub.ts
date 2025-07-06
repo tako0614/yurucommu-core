@@ -77,7 +77,7 @@ async function signAndSend(
     headers,
     body,
   });
-  console.log(res)
+  console.log(res);
   // Log the response status and body for debugging
   const responseBody = await res.text();
   console.log(`Response from ${inboxUrl}: ${res.status} ${res.statusText}`);
@@ -116,12 +116,12 @@ export async function deliverActivityPubObject(
   object: unknown,
   actor: string,
 ): Promise<void> {
-  const deliveryPromises = targets.map(async iri => {
+  const deliveryPromises = targets.map(async (iri) => {
     if (iri.startsWith("http")) {
       try {
         const { inbox, sharedInbox } = await resolveRemoteActor(iri);
         const target = sharedInbox ?? inbox;
-        return sendActivityPubObject(target, object, actor).catch(err => {
+        return sendActivityPubObject(target, object, actor).catch((err) => {
           console.error(`Failed to deliver to ${iri}`, err);
         });
       } catch (err) {
@@ -362,6 +362,7 @@ export interface ActivityPubActor {
   preferredUsername?: string;
   name?: string;
   icon?: { url?: string };
+  summary?: string;
 }
 
 /**
@@ -370,11 +371,15 @@ export interface ActivityPubActor {
  * 必ずWebFingerでActor URLを発見し、そのURLにAcceptヘッダーを厳密に付与して取得するのが正規ルート。
  * @param acct 例: "takoserver@dev.takos.jp"
  */
-export async function resolveActorFromAcct(acct: string): Promise<ActivityPubActor | null> {
+export async function resolveActorFromAcct(
+  acct: string,
+): Promise<ActivityPubActor | null> {
   const [username, domain] = acct.split("@");
   if (!username || !domain) return null;
   const resource = `acct:${username}@${domain}`;
-  const wfUrl = `https://${domain}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`;
+  const wfUrl = `https://${domain}/.well-known/webfinger?resource=${
+    encodeURIComponent(resource)
+  }`;
   const wfRes = await fetch(wfUrl, {
     headers: { Accept: "application/jrd+json" },
   });
@@ -385,7 +390,10 @@ export async function resolveActorFromAcct(acct: string): Promise<ActivityPubAct
   );
   if (!self?.href) return null;
   const actorRes = await fetch(self.href, {
-    headers: { Accept: 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"' },
+    headers: {
+      Accept:
+        'application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+    },
   });
   if (!actorRes.ok) return null;
   return await actorRes.json();
@@ -546,7 +554,10 @@ export function createCreateActivity(
  * @param url 取得先URL
  * @param init fetch初期化オプション
  */
-export async function fetchJson(url: string, init: RequestInit = {}): Promise<any> {
+export async function fetchJson(
+  url: string,
+  init: RequestInit = {},
+): Promise<any> {
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {
     headers.set(
@@ -557,7 +568,9 @@ export async function fetchJson(url: string, init: RequestInit = {}): Promise<an
   const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`fetchJson: ${url} ${res.status} ${res.statusText} ${text}`);
+    throw new Error(
+      `fetchJson: ${url} ${res.status} ${res.statusText} ${text}`,
+    );
   }
   return await res.json();
 }
@@ -577,12 +590,16 @@ export interface RemoteActor {
  * sharedInbox > inbox > ldp:inbox の順で優先
  * @param actorIri アクターIRI
  */
-export async function resolveRemoteActor(actorIri: string): Promise<RemoteActor> {
+export async function resolveRemoteActor(
+  actorIri: string,
+): Promise<RemoteActor> {
   const actor = await fetchJson(actorIri);
 
-  const inbox: string | undefined =
-    actor.endpoints?.sharedInbox ?? actor.inbox ?? actor["ldp:inbox"];
-  if (!inbox) throw new Error("resolveRemoteActor: inbox not found in actor document");
+  const inbox: string | undefined = actor.endpoints?.sharedInbox ??
+    actor.inbox ?? actor["ldp:inbox"];
+  if (!inbox) {
+    throw new Error("resolveRemoteActor: inbox not found in actor document");
+  }
 
   return {
     id: actor.id,
@@ -622,6 +639,8 @@ export async function deliver(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`deliver: ${target} ${res.status} ${res.statusText} ${text}`);
+    throw new Error(
+      `deliver: ${target} ${res.status} ${res.statusText} ${text}`,
+    );
   }
 }

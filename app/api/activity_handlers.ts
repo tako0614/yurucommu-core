@@ -25,9 +25,9 @@ async function saveObject(
       actorInfo = {
         name: actorObj.name,
         preferredUsername: actorObj.preferredUsername,
-        icon: typeof actorObj.icon === "object" && actorObj.icon !== null ? 
-              (actorObj.icon as Record<string, unknown>).url : 
-              actorObj.icon,
+        icon: typeof actorObj.icon === "object" && actorObj.icon !== null
+          ? (actorObj.icon as Record<string, unknown>).url
+          : actorObj.icon,
         summary: actorObj.summary,
       };
     }
@@ -41,10 +41,11 @@ async function saveObject(
     content: obj.content,
     to: Array.isArray(obj.to) ? obj.to : [],
     cc: Array.isArray(obj.cc) ? obj.cc : [],
-    published: obj.published && typeof obj.published === "string" ? 
-               new Date(obj.published) : new Date(),
+    published: obj.published && typeof obj.published === "string"
+      ? new Date(obj.published)
+      : new Date(),
     raw: obj,
-    extra: { 
+    extra: {
       ...(obj.extra ?? {}),
       actorInfo: Object.keys(actorInfo).length > 0 ? actorInfo : undefined,
     },
@@ -75,7 +76,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       { userName: username },
       { $addToSet: { followers: activity.actor } },
     );
-    const domain = getDomain(c as { req: { url: string; }; });
+    const domain = getDomain(c as { req: { url: string } });
     const accept = createAcceptActivity(
       domain,
       `https://${domain}/users/${username}`,
