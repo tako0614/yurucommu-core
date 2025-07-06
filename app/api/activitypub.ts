@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
+import Group from "./models/group.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
@@ -30,6 +31,22 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
   const domain = expected ?? host;
+  if (username.startsWith("!")) {
+    const gname = username.slice(1);
+    const group = await Group.findOne({ name: gname });
+    if (!group) return jsonResponse(c, { error: "Not found" }, 404);
+    const jrd = {
+      subject: `acct:!${gname}@${domain}`,
+      links: [
+        {
+          rel: "self",
+          type: "application/activity+json",
+          href: `https://${domain}/groups/${gname}`,
+        },
+      ],
+    };
+    return jsonResponse(c, jrd, 200, "application/jrd+json");
+  }
   const account = await Account.findOne({ userName: username });
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
