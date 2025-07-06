@@ -1,5 +1,6 @@
 import Account from "../models/account.ts";
 import RemoteActor from "../models/remote_actor.ts";
+import { resolveActor } from "../utils/activitypub.ts";
 
 export interface UserInfo {
   userName: string;
@@ -83,6 +84,35 @@ export async function getUserInfo(
     // ローカルユーザーの場合
     displayName = account.displayName || userName;
     authorAvatar = account.avatarInitial || "";
+  } else if (identifier.includes("@") && !identifier.startsWith("http")) {
+    // user@domain 形式の外部ユーザー
+    isLocal = false;
+    const [name, host] = identifier.split("@");
+    userName = name;
+    userDomain = host;
+    const actor = await resolveActor(name, host);
+    if (actor) {
+      displayName = actor.name ?? actor.preferredUsername ?? userName;
+      const icon = actor.icon;
+      if (icon) {
+        authorAvatar = typeof icon === "object" && icon !== null
+          ? (icon as { url?: string }).url ?? ""
+          : typeof icon === "string"
+          ? icon
+          : "";
+      }
+      await RemoteActor.findOneAndUpdate(
+        { actorUrl: actor.id },
+        {
+          name: actor.name || "",
+          preferredUsername: actor.preferredUsername || "",
+          icon: actor.icon || null,
+          summary: actor.summary || "",
+          cachedAt: new Date(),
+        },
+        { upsert: true },
+      );
+    }
   } else if (typeof identifier === "string" && identifier.startsWith("http")) {
     // 外部ユーザーの場合（ActivityPub URL）
     isLocal = false;
@@ -141,7 +171,7 @@ export async function getUserInfoBatch(
 
   // ローカルユーザーをバッチで取得
   const localUsernames = uniqueIdentifiers.filter((id) =>
-    !id.startsWith("http")
+    !id.startsWith("http") && !id.includes("@")
   );
   if (localUsernames.length > 0) {
     const accounts = await Account.find({ userName: { $in: localUsernames } })
