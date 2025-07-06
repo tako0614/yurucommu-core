@@ -5,6 +5,7 @@ const app = new Hono();
 
 app.get("/notifications", async (c) => {
   const list = await Notification.find().sort({ createdAt: -1 }).lean();
+  // deno-lint-ignore no-explicit-any
   const formatted = list.map((doc: any) => ({
     id: doc._id.toString(),
     title: doc.title,
