@@ -1,7 +1,12 @@
-import { createSignal, For, createResource } from "solid-js";
+import { createResource, createSignal, For } from "solid-js";
+import { sanitizeHTML } from "../../utils/sanitize.ts";
 import type { MicroblogPost } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
-import { fetchActivityPubActor, getCachedUserInfo, type UserInfo } from "./api.ts";
+import {
+  fetchActivityPubActor,
+  getCachedUserInfo,
+  type UserInfo as _UserInfo,
+} from "./api.ts";
 
 // ユーザー情報を整理する関数
 function formatUserInfo(post: MicroblogPost) {
@@ -23,7 +28,7 @@ function formatUserInfo(post: MicroblogPost) {
   // domainの処理：自サーバーと外部サーバーを適切に区別
   let domain = post.domain;
   let userName = post.userName;
-  
+
   if (post.userName.includes("@")) {
     // userName が user@domain 形式の場合
     const parts = post.userName.split("@");
@@ -46,13 +51,14 @@ function formatUserInfo(post: MicroblogPost) {
   }
 
   // 自サーバーのドメインかどうかを判定（実際のサーバードメインに置き換えてください）
-  const isLocalUser = !domain || domain === globalThis.location?.hostname || domain === "localhost";
-  
+  const isLocalUser = !domain || domain === globalThis.location?.hostname ||
+    domain === "localhost";
+
   return {
     displayName,
     userName: isLocalUser ? userName : `${userName}@${domain}`,
     domain: isLocalUser ? "" : domain,
-    isLocalUser
+    isLocalUser,
   };
 }
 
@@ -83,9 +89,17 @@ function PostItem(props: PostItemProps) {
   const userInfo = formatUserInfo(post);
 
   // 外部ユーザーの追加情報を取得
-  const [externalUserInfo] = createResource(
+  type ExternalInfo = {
+    displayName: string;
+    avatarUrl?: string;
+    authorAvatar?: string;
+  };
+  const [externalUserInfo] = createResource<ExternalInfo | null>(
     () => {
-      if (!userInfo.isLocalUser && post.userName && post.userName.startsWith("http")) {
+      if (
+        !userInfo.isLocalUser && post.userName &&
+        post.userName.startsWith("http")
+      ) {
         // まずキャッシュを確認
         const cached = getCachedUserInfo(post.userName);
         if (cached) {
@@ -95,7 +109,7 @@ function PostItem(props: PostItemProps) {
         return fetchActivityPubActor(post.userName);
       }
       return Promise.resolve(null);
-    }
+    },
   );
 
   // 最終的な表示情報を決定
@@ -103,9 +117,9 @@ function PostItem(props: PostItemProps) {
     const external = externalUserInfo();
     if (!userInfo.isLocalUser && external) {
       // UserInfo型の場合とlegacy形式の場合を適切に処理
-      const avatar = typeof external === 'object' && 'authorAvatar' in external 
-        ? external.authorAvatar 
-        : (external as any).avatarUrl;
+      const avatar = "authorAvatar" in external
+        ? external.authorAvatar
+        : external.avatarUrl;
       return {
         ...userInfo,
         displayName: external.displayName || userInfo.displayName,
@@ -150,9 +164,10 @@ function PostItem(props: PostItemProps) {
               {formatDate(post.createdAt)}
             </span>
           </div>
-          <div class="text-white mb-3 leading-relaxed">
-            {post.content}
-          </div>
+          <div
+            class="text-white mb-3 leading-relaxed"
+            innerHTML={sanitizeHTML(post.content)}
+          />
           <div class="flex items-center justify-between max-w-md">
             <button
               type="button"
