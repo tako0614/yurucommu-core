@@ -460,6 +460,25 @@ export function createActor(
   };
 }
 
+export function createGroupActor(
+  domain: string,
+  group: { name: string; description: string },
+) {
+  return {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1",
+    ],
+    id: `https://${domain}/groups/${group.name}`,
+    type: "Group",
+    name: group.name,
+    summary: group.description,
+    inbox: `https://${domain}/groups/${group.name}/inbox`,
+    outbox: `https://${domain}/groups/${group.name}/outbox`,
+    followers: `https://${domain}/groups/${group.name}/followers`,
+  };
+}
+
 export function buildActivityFromStored(
   obj: {
     _id: unknown;
