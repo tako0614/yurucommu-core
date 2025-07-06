@@ -11,6 +11,50 @@ import {
 
 const app = new Hono();
 
+async function fetchExternalActorInfo(actorUrl: string) {
+  let actor = await RemoteActor.findOne({ actorUrl }).lean();
+  if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
+    try {
+      const res = await fetch(actorUrl, {
+        headers: {
+          "Accept":
+            'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+          "User-Agent": "Takos ActivityPub Client/1.0",
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await RemoteActor.findOneAndUpdate(
+          { actorUrl },
+          {
+            name: data.name || "",
+            preferredUsername: data.preferredUsername || "",
+            icon: data.icon || null,
+            summary: data.summary || "",
+            cachedAt: new Date(),
+          },
+          { upsert: true },
+        );
+        actor = await RemoteActor.findOne({ actorUrl }).lean();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!actor) return null;
+  const avatar = actor.icon
+    ? typeof actor.icon === "object" && actor.icon !== null
+      ? (actor.icon as Record<string, string>).url ?? ""
+      : (actor.icon as string)
+    : "";
+  return {
+    displayName: (actor.name as string) ||
+      (actor.preferredUsername as string) ||
+      "",
+    avatar,
+  };
+}
+
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
   const list = await ActivityPubObject.find({ type: "Note" }).sort({
@@ -57,21 +101,14 @@ app.get("/microblog", async (c) => {
               authorAvatar = (actorInfo.icon as string) || "";
             }
           }
-          // キャッシュされた外部アクター情報を利用
+          // キャッシュがない場合は外部から取得
           if (!authorAvatar || !displayName) {
-            const cached = await RemoteActor.findOne({
-              actorUrl: doc.attributedTo,
-            }).lean();
-            if (cached) {
-              displayName = (cached.name || cached.preferredUsername ||
-                displayName) as string;
-              if (cached.icon) {
-                authorAvatar =
-                  typeof cached.icon === "object" && cached.icon !== null
-                    ? (cached.icon as Record<string, string>).url ??
-                      authorAvatar
-                    : (cached.icon as string);
-              }
+            const info = await fetchExternalActorInfo(
+              doc.attributedTo as string,
+            );
+            if (info) {
+              displayName = info.displayName || displayName;
+              if (!authorAvatar) authorAvatar = info.avatar;
             }
           }
         } catch {
@@ -154,15 +191,10 @@ app.post("/microblog", async (c) => {
     displayName = account.displayName || userName;
     authorAvatar = account.avatarInitial || "";
   } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const cached = await RemoteActor.findOne({ actorUrl: userName }).lean();
-    if (cached) {
-      displayName =
-        (cached.name || cached.preferredUsername || displayName) as string;
-      if (cached.icon) {
-        authorAvatar = typeof cached.icon === "object" && cached.icon !== null
-          ? (cached.icon as Record<string, string>).url ?? authorAvatar
-          : (cached.icon as string);
-      }
+    const info = await fetchExternalActorInfo(userName);
+    if (info) {
+      displayName = info.displayName || displayName;
+      if (!authorAvatar) authorAvatar = info.avatar;
     }
   }
 
@@ -196,15 +228,10 @@ app.get("/microblog/:id", async (c) => {
     displayName = account.displayName || userName;
     authorAvatar = account.avatarInitial || "";
   } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const cached = await RemoteActor.findOne({ actorUrl: userName }).lean();
-    if (cached) {
-      displayName =
-        (cached.name || cached.preferredUsername || displayName) as string;
-      if (cached.icon) {
-        authorAvatar = typeof cached.icon === "object" && cached.icon !== null
-          ? (cached.icon as Record<string, string>).url ?? authorAvatar
-          : (cached.icon as string);
-      }
+    const info = await fetchExternalActorInfo(userName);
+    if (info) {
+      displayName = info.displayName || displayName;
+      if (!authorAvatar) authorAvatar = info.avatar;
     }
   }
 
@@ -244,15 +271,10 @@ app.put("/microblog/:id", async (c) => {
     displayName = account.displayName || userName;
     authorAvatar = account.avatarInitial || "";
   } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const cached = await RemoteActor.findOne({ actorUrl: userName }).lean();
-    if (cached) {
-      displayName =
-        (cached.name || cached.preferredUsername || displayName) as string;
-      if (cached.icon) {
-        authorAvatar = typeof cached.icon === "object" && cached.icon !== null
-          ? (cached.icon as Record<string, string>).url ?? authorAvatar
-          : (cached.icon as string);
-      }
+    const info = await fetchExternalActorInfo(userName);
+    if (info) {
+      displayName = info.displayName || displayName;
+      if (!authorAvatar) authorAvatar = info.avatar;
     }
   }
 
