@@ -268,75 +268,75 @@ export function Microblog() {
       </style>
       <div class="min-h-screen text-white relative">
         {/* ヘッダー + タブ */}
-        <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
-          <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
-            <div class="flex items-center justify-between">
-              <h1 class="text-xl font-bold">マイクロブログ</h1>
-              <div class="relative">
-                <input
-                  type="text"
-                  placeholder="投稿・ユーザー・タグ検索"
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
+        <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            {/* <h1 class="text-xl font-bold">マイクロブログ</h1> 削除 */}
+            <div class="flex justify-end w-full relative">
+              <input
+                type="text"
+                placeholder="投稿・ユーザー・タグ検索"
+                value={searchQuery()}
+                onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <svg
+                class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                 />
-                <svg
-                  class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-            </div>
-            {/* タブ */}
-            <div class="flex gap-4 justify-center">
-              <button
-                type="button"
-                class={`tab-btn ${
-                  tab() === "recommend" ? "tab-btn-active" : ""
-                }`}
-                onClick={() => {
-                  setTab("recommend");
-                  setShowCommunityView(false);
-                }}
-              >
-                おすすめ
-              </button>
-              <button
-                type="button"
-                class={`tab-btn ${
-                  tab() === "following" ? "tab-btn-active" : ""
-                }`}
-                onClick={() => {
-                  setTab("following");
-                  setShowCommunityView(false);
-                }}
-              >
-                フォロー中
-              </button>
-              <button
-                type="button"
-                class={`tab-btn ${
-                  tab() === "community" ? "tab-btn-active" : ""
-                }`}
-                onClick={() => {
-                  setTab("community");
-                  setShowCommunityView(false);
-                  setSelectedCommunity(null);
-                }}
-              >
-                コミュニティ
-              </button>
+              </svg>
             </div>
           </div>
+          {/* タブ */}
+          <div class="flex gap-4 justify-center">
+            <button
+              type="button"
+              class={`tab-btn ${
+                tab() === "recommend" ? "tab-btn-active" : ""
+              }`}
+              onClick={() => {
+                setTab("recommend");
+                setShowCommunityView(false);
+              }}
+            >
+              おすすめ
+            </button>
+            <button
+              type="button"
+              class={`tab-btn ${
+                tab() === "following" ? "tab-btn-active" : ""
+              }`}
+              onClick={() => {
+                setTab("following");
+                setShowCommunityView(false);
+              }}
+            >
+              フォロー中
+            </button>
+            <button
+              type="button"
+              class={`tab-btn ${
+                tab() === "community" ? "tab-btn-active" : ""
+              }`}
+              onClick={() => {
+                setTab("community");
+                setShowCommunityView(false);
+                setSelectedCommunity(null);
+              }}
+            >
+              コミュニティ
+            </button>
+          </div>
         </div>
+      </div>
         <div class="max-w-2xl mx-auto">
           <CommunityView
             showCommunityView={showCommunityView()}
