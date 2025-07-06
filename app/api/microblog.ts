@@ -1,140 +1,36 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
-import RemoteActor from "./models/remote_actor.ts";
 import {
   buildActivityFromStored,
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
+import {
+  getUserInfo,
+  getUserInfoBatch,
+  formatUserInfoForPost,
+} from "./services/user-info.ts";
 
 const app = new Hono();
 
-async function fetchExternalActorInfo(actorUrl: string) {
-  let actor = await RemoteActor.findOne({ actorUrl }).lean();
-  if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
-    try {
-      const res = await fetch(actorUrl, {
-        headers: {
-          "Accept":
-            'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-          "User-Agent": "Takos ActivityPub Client/1.0",
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        await RemoteActor.findOneAndUpdate(
-          { actorUrl },
-          {
-            name: data.name || "",
-            preferredUsername: data.preferredUsername || "",
-            icon: data.icon || null,
-            summary: data.summary || "",
-            cachedAt: new Date(),
-          },
-          { upsert: true },
-        );
-        actor = await RemoteActor.findOne({ actorUrl }).lean();
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!actor) return null;
-  const avatar = actor.icon
-    ? typeof actor.icon === "object" && actor.icon !== null
-      ? (actor.icon as Record<string, string>).url ?? ""
-      : (actor.icon as string)
-    : "";
-  return {
-    displayName: (actor.name as string) ||
-      (actor.preferredUsername as string) ||
-      "",
-    avatar,
-  };
-}
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
   const list = await ActivityPubObject.find({ type: "Note" }).sort({
     published: -1,
   }).lean();
-  const formatted = await Promise.all(
-    list.map(async (doc: Record<string, unknown>) => {
-      // ローカルユーザーの場合はDBから取得
-      const account = await Account.findOne({ userName: doc.attributedTo })
-        .lean();
-
-      let userName = doc.attributedTo as string;
-      let displayName = userName;
-      let authorAvatar = "";
-      let postDomain = domain;
-
-      if (account) {
-        // ローカルユーザーの場合
-        displayName = account.displayName || userName;
-        authorAvatar = account.avatarInitial || "";
-      } else if (typeof userName === "string" && userName.startsWith("http")) {
-        // 外部ユーザーの場合（ActivityPub URL）
-        try {
-          const url = new URL(userName);
-          postDomain = url.hostname;
-
-          // URLから適切なユーザー名を抽出
-          const pathParts = url.pathname.split("/");
-          const extractedUsername = pathParts[pathParts.length - 1] ||
-            pathParts[pathParts.length - 2] ||
-            "external_user";
-
-          userName = extractedUsername;
-          displayName = extractedUsername; // 外部ユーザーの場合、displayNameは後で取得する仕組みが必要
-
-          // ActivityPubオブジェクトの追加情報から取得を試みる
-          if (doc.extra && typeof doc.extra === "object") {
-            const extra = doc.extra as Record<string, unknown>;
-            if (extra.actorInfo && typeof extra.actorInfo === "object") {
-              const actorInfo = extra.actorInfo as Record<string, unknown>;
-              displayName = (actorInfo.name as string) ||
-                (actorInfo.preferredUsername as string) ||
-                displayName;
-              authorAvatar = (actorInfo.icon as string) || "";
-            }
-          }
-          // キャッシュがない場合は外部から取得
-          if (!authorAvatar || !displayName) {
-            const info = await fetchExternalActorInfo(
-              doc.attributedTo as string,
-            );
-            if (info) {
-              displayName = info.displayName || displayName;
-              if (!authorAvatar) authorAvatar = info.avatar;
-            }
-          }
-        } catch {
-          postDomain = "external";
-        }
-      }
-
-      return {
-        id: typeof doc._id === "string"
-          ? doc._id
-          : typeof doc._id === "object" && doc._id !== null &&
-              "toString" in doc._id
-          ? (doc._id as { toString: () => string }).toString()
-          : "",
-        userName: userName,
-        displayName: displayName,
-        authorAvatar: authorAvatar,
-        content: doc.content,
-        createdAt: doc.published,
-        likes: (doc.extra as Record<string, unknown>)?.likes ?? 0,
-        retweets: (doc.extra as Record<string, unknown>)?.retweets ?? 0,
-        replies: (doc.extra as Record<string, unknown>)?.replies ?? 0,
-        domain: postDomain,
-      };
-    }),
-  );
+  
+  // ユーザー情報をバッチで取得
+  const identifiers = list.map(doc => doc.attributedTo as string);
+  const userInfos = await getUserInfoBatch(identifiers, domain);
+  
+  const formatted = list.map((doc: Record<string, unknown>, index: number) => {
+    const userInfo = userInfos[index];
+    return formatUserInfoForPost(userInfo, doc);
+  });
+  
   return c.json(formatted);
 });
 
@@ -181,35 +77,11 @@ app.post("/microblog", async (c) => {
   } catch (err) {
     console.error("activitypub delivery error:", err);
   }
-  const account = await Account.findOne({ userName: post.attributedTo }).lean();
-
-  const userName = post.attributedTo as string;
-  let displayName = userName;
-  let authorAvatar = "";
-
-  if (account) {
-    displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "";
-  } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const info = await fetchExternalActorInfo(userName);
-    if (info) {
-      displayName = info.displayName || displayName;
-      if (!authorAvatar) authorAvatar = info.avatar;
-    }
-  }
-
-  return c.json({
-    id: post._id.toString(),
-    userName: userName,
-    displayName: displayName,
-    authorAvatar: authorAvatar,
-    content: post.content,
-    createdAt: post.published,
-    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
-    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
-    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
-    domain,
-  }, 201);
+  
+  // 共通ユーザー情報取得サービスを使用
+  const userInfo = await getUserInfo(post.attributedTo as string, domain);
+  
+  return c.json(formatUserInfoForPost(userInfo, post), 201);
 });
 
 app.get("/microblog/:id", async (c) => {
@@ -218,35 +90,10 @@ app.get("/microblog/:id", async (c) => {
   const post = await ActivityPubObject.findById(id).lean();
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const account = await Account.findOne({ userName: post.attributedTo }).lean();
-
-  const userName = post.attributedTo as string;
-  let displayName = userName;
-  let authorAvatar = "";
-
-  if (account) {
-    displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "";
-  } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const info = await fetchExternalActorInfo(userName);
-    if (info) {
-      displayName = info.displayName || displayName;
-      if (!authorAvatar) authorAvatar = info.avatar;
-    }
-  }
-
-  return c.json({
-    id: post._id.toString(),
-    userName: userName,
-    displayName: displayName,
-    authorAvatar: authorAvatar,
-    content: post.content,
-    createdAt: post.published,
-    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
-    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
-    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
-    domain,
-  });
+  // 共通ユーザー情報取得サービスを使用
+  const userInfo = await getUserInfo(post.attributedTo as string, domain);
+  
+  return c.json(formatUserInfoForPost(userInfo, post));
 });
 
 app.put("/microblog/:id", async (c) => {
@@ -261,35 +108,10 @@ app.put("/microblog/:id", async (c) => {
   });
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const account = await Account.findOne({ userName: post.attributedTo }).lean();
-
-  const userName = post.attributedTo as string;
-  let displayName = userName;
-  let authorAvatar = "";
-
-  if (account) {
-    displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "";
-  } else if (typeof userName === "string" && userName.startsWith("http")) {
-    const info = await fetchExternalActorInfo(userName);
-    if (info) {
-      displayName = info.displayName || displayName;
-      if (!authorAvatar) authorAvatar = info.avatar;
-    }
-  }
-
-  return c.json({
-    id: post._id.toString(),
-    userName: userName,
-    displayName: displayName,
-    authorAvatar: authorAvatar,
-    content: post.content,
-    createdAt: post.published,
-    likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
-    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
-    replies: (post.extra as Record<string, unknown>)?.replies ?? 0,
-    domain,
-  });
+  // 共通ユーザー情報取得サービスを使用
+  const userInfo = await getUserInfo(post.attributedTo as string, domain);
+  
+  return c.json(formatUserInfoForPost(userInfo, post));
 });
 
 app.post("/microblog/:id/like", async (c) => {

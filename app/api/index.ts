@@ -10,6 +10,7 @@ import microblog from "./microblog.ts";
 import search from "./search.ts";
 import communities from "./communities.ts";
 import users from "./users.ts";
+import userInfo from "./user-info.ts";
 
 const env = await load();
 
@@ -26,6 +27,7 @@ app.route("/api", microblog);
 app.route("/api", search);
 app.route("/api", communities);
 app.route("/api", users);
+app.route("/api", userInfo);
 app.route("/api", activitypub); // ActivityPubプロキシAPI用
 app.route("/", activitypub);
 

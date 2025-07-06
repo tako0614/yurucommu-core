@@ -1,7 +1,7 @@
 import { createSignal, For, createResource } from "solid-js";
 import type { MicroblogPost } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
-import { fetchActivityPubActor, getCachedUserInfo } from "./api.ts";
+import { fetchActivityPubActor, getCachedUserInfo, type UserInfo } from "./api.ts";
 
 // ユーザー情報を整理する関数
 function formatUserInfo(post: MicroblogPost) {
@@ -102,10 +102,14 @@ function PostItem(props: PostItemProps) {
   const finalUserInfo = () => {
     const external = externalUserInfo();
     if (!userInfo.isLocalUser && external) {
+      // UserInfo型の場合とlegacy形式の場合を適切に処理
+      const avatar = typeof external === 'object' && 'authorAvatar' in external 
+        ? external.authorAvatar 
+        : (external as any).avatarUrl;
       return {
         ...userInfo,
         displayName: external.displayName || userInfo.displayName,
-        authorAvatar: external.avatarUrl || post.authorAvatar,
+        authorAvatar: avatar || post.authorAvatar,
       };
     }
     return {

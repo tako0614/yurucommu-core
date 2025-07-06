@@ -416,29 +416,119 @@ export const fetchUserProfile = async (username: string) => {
   }
 };
 
-// 外部ユーザーの情報をキャッシュする機能
-const userInfoCache = new Map<string, {
+// ユーザー情報の型定義
+export interface UserInfo {
+  userName: string;
   displayName: string;
-  avatarUrl?: string;
+  authorAvatar: string;
+  domain: string;
+  isLocal: boolean;
+}
+
+// ユーザー情報キャッシュ
+const userInfoCache = new Map<string, {
+  userInfo: UserInfo;
   timestamp: number;
 }>();
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5分
 
-export const getCachedUserInfo = (actorUrl: string) => {
-  const cached = userInfoCache.get(actorUrl);
+export const getCachedUserInfo = (identifier: string): UserInfo | null => {
+  const cached = userInfoCache.get(identifier);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached;
+    return cached.userInfo;
   }
   return null;
 };
 
-export const setCachedUserInfo = (actorUrl: string, displayName: string, avatarUrl?: string) => {
-  userInfoCache.set(actorUrl, {
-    displayName,
-    avatarUrl,
+export const setCachedUserInfo = (identifier: string, userInfo: UserInfo) => {
+  userInfoCache.set(identifier, {
+    userInfo,
     timestamp: Date.now(),
   });
+};
+
+// 新しい共通ユーザー情報取得API
+export const fetchUserInfo = async (identifier: string): Promise<UserInfo | null> => {
+  try {
+    // まずキャッシュから確認
+    const cached = getCachedUserInfo(identifier);
+    if (cached) {
+      return cached;
+    }
+
+    const response = await fetch(`/api/user-info/${encodeURIComponent(identifier)}`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch user info");
+    }
+    
+    const userInfo = await response.json();
+    
+    // キャッシュに保存
+    setCachedUserInfo(identifier, userInfo);
+    
+    return userInfo;
+  } catch (error) {
+    console.error("Error fetching user info:", error);
+    return null;
+  }
+};
+
+// バッチでユーザー情報を取得
+export const fetchUserInfoBatch = async (identifiers: string[]): Promise<UserInfo[]> => {
+  try {
+    // キャッシュから取得できるものをチェック
+    const cached: UserInfo[] = [];
+    const uncached: string[] = [];
+    
+    for (const identifier of identifiers) {
+      const cachedInfo = getCachedUserInfo(identifier);
+      if (cachedInfo) {
+        cached.push(cachedInfo);
+      } else {
+        uncached.push(identifier);
+      }
+    }
+
+    // キャッシュにないものをAPIから取得
+    let fetchedInfos: UserInfo[] = [];
+    if (uncached.length > 0) {
+      const response = await fetch('/api/user-info/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ identifiers: uncached }),
+      });
+      
+      if (response.ok) {
+        fetchedInfos = await response.json();
+        
+        // 取得した情報をキャッシュに保存
+        fetchedInfos.forEach((info, index) => {
+          setCachedUserInfo(uncached[index], info);
+        });
+      }
+    }
+
+    // 元の順序で結果を並べ替え
+    const result: UserInfo[] = [];
+    let cachedIndex = 0;
+    let fetchedIndex = 0;
+    
+    for (const identifier of identifiers) {
+      if (getCachedUserInfo(identifier)) {
+        result.push(cached[cachedIndex++]);
+      } else {
+        result.push(fetchedInfos[fetchedIndex++]);
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error("Error fetching user info batch:", error);
+    return [];
+  }
 };
 
 // ActivityPub ユーザー情報を取得（外部ユーザー用）
@@ -462,8 +552,15 @@ export const fetchActivityPubActor = async (actorUrl: string) => {
                      actor.icon.url : 
                      typeof actor.icon === "string" ? actor.icon : undefined;
 
-    // キャッシュに保存
-    setCachedUserInfo(actorUrl, displayName, avatarUrl);
+    // 新しいUserInfo形式でキャッシュに保存
+    const userInfo: UserInfo = {
+      userName: actor.preferredUsername || "external_user",
+      displayName,
+      authorAvatar: avatarUrl || "",
+      domain: new URL(actorUrl).hostname,
+      isLocal: false,
+    };
+    setCachedUserInfo(actorUrl, userInfo);
     
     return { displayName, avatarUrl };
   } catch (error) {

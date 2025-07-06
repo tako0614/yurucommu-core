@@ -8,6 +8,10 @@ import {
   fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
+import {
+  getUserInfoBatch,
+  formatUserInfoForPost,
+} from "./services/user-info.ts";
 
 const app = new Hono();
 
@@ -310,27 +314,14 @@ app.get("/users/:username/timeline", async (c) => {
       attributedTo: { $in: followingUsernames },
     }).sort({ published: -1 }).limit(50).lean();
 
-    const formatted = await Promise.all(
-      posts.map(async (post: Record<string, unknown>) => {
-        const account = await Account.findOne({ userName: post.attributedTo })
-          .lean();
-
-        return {
-          id: typeof post._id === "string"
-            ? post._id
-            : (post._id as { toString: () => string })?.toString() || "",
-          userName: post.attributedTo,
-          displayName: account?.displayName || post.attributedTo,
-          authorAvatar: account?.avatarInitial || "",
-          content: post.content,
-          createdAt: post.published,
-          likes: (post.extra as Record<string, unknown>)?.likes || 0,
-          retweets: (post.extra as Record<string, unknown>)?.retweets || 0,
-          replies: 0, // TODO: 返信数の実装
-          domain,
-        };
-      }),
-    );
+    // ユーザー情報をバッチで取得
+    const identifiers = posts.map(post => post.attributedTo as string);
+    const userInfos = await getUserInfoBatch(identifiers, domain);
+    
+    const formatted = posts.map((post: Record<string, unknown>, index: number) => {
+      const userInfo = userInfos[index];
+      return formatUserInfoForPost(userInfo, post);
+    });
 
     return c.json(formatted);
   } catch (error) {
