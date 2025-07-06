@@ -74,5 +74,6 @@ export interface ActivityPubObject {
   to?: string[];
   cc?: string[];
   published: string;
+  // deno-lint-ignore no-explicit-any
   extra?: Record<string, any>;
 }

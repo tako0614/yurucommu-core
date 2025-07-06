@@ -4,8 +4,6 @@ import ActivityPubObject from "./models/activitypub_object.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
-  deliverActivityPubObject,
-  fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
 import {
@@ -128,7 +126,7 @@ app.post("/users/:username/follow", async (c) => {
     );
 
     // ActivityPub Follow アクティビティを作成・配信
-    const followActivity = createFollowActivity(
+    const _followActivity = createFollowActivity(
       domain,
       `https://${domain}/users/${followerUsername}`,
       `https://${domain}/users/${targetUsername}`,
@@ -167,7 +165,7 @@ app.post("/users/:username/unfollow", async (c) => {
     );
 
     // ActivityPub Undo Follow アクティビティを作成・配信
-    const undoFollowActivity = createUndoFollowActivity(
+    const _undoFollowActivity = createUndoFollowActivity(
       domain,
       `https://${domain}/users/${followerUsername}`,
       `https://${domain}/users/${targetUsername}`,

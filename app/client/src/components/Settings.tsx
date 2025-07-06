@@ -6,8 +6,8 @@ import { activeAccount, activeAccountId } from "../states/account.ts";
 export function Settings() {
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
-  const [act, setAct] = useAtom(activeAccount);
-  const [actId, setActId] = useAtom(activeAccountId);
+  const [act, _setAct] = useAtom(activeAccount);
+  const [actId, _setActId] = useAtom(activeAccountId);
   const [activeTab, setActiveTab] = createSignal<
     "profile" | "appearance" | "privacy" | "notifications" | "account"
   >("profile");

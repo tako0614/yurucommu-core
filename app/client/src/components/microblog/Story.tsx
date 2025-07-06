@@ -1,6 +1,6 @@
 import { createSignal, For } from "solid-js";
 import type { Story } from "./types.ts";
-import { createStory, deleteStory, viewStory } from "./api.ts";
+import { createStory } from "./api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 
 export function StoryTray(props: {

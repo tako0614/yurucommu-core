@@ -15,7 +15,7 @@ export function Home() {
   // スワイプ機能用の状態
   const [touchStartX, setTouchStartX] = createSignal(0);
   const [touchStartY, setTouchStartY] = createSignal(0);
-  const [isSwipeEnabled, setIsSwipeEnabled] = createSignal(true);
+  const [isSwipeEnabled, _setIsSwipeEnabled] = createSignal(true);
   let mainContentRef: HTMLElement | undefined;
 
   // セクションの順序を定義

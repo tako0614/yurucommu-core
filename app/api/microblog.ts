@@ -90,10 +90,10 @@ app.get("/microblog", async (c) => {
   }).lean();
 
   // ユーザー情報をバッチで取得
-  const identifiers = list.map((doc: any) => doc.attributedTo as string);
+  const identifiers = list.map((doc: ActivityPubObjectType) => doc.attributedTo as string);
   const userInfos = await getUserInfoBatch(identifiers, domain);
 
-  const formatted = list.map((doc: any, index: number) => {
+  const formatted = list.map((doc: ActivityPubObjectType, index: number) => {
     const userInfo = userInfos[index];
     return formatUserInfoForPost(userInfo, doc);
   });

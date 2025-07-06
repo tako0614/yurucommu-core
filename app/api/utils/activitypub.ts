@@ -349,7 +349,7 @@ export async function fetchActorInbox(
   actorUrl: string,
 ): Promise<string | null> {
   try {
-    const data = await fetchJson(actorUrl);
+    const data = await fetchJson<{ inbox?: string }>(actorUrl);
     if (typeof data.inbox === "string") return data.inbox;
   } catch {
     /* ignore */
@@ -402,7 +402,7 @@ export async function resolveActorFromAcct(
 /**
  * 旧API: username, domain指定のまま残すが内部でacct形式に変換して新APIを利用
  */
-export async function resolveActor(
+export function resolveActor(
   username: string,
   domain: string,
 ): Promise<ActivityPubActor | null> {
@@ -554,10 +554,10 @@ export function createCreateActivity(
  * @param url 取得先URL
  * @param init fetch初期化オプション
  */
-export async function fetchJson(
+export async function fetchJson<T = unknown>(
   url: string,
   init: RequestInit = {},
-): Promise<any> {
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {
     headers.set(
@@ -590,22 +590,34 @@ export interface RemoteActor {
  * sharedInbox > inbox > ldp:inbox の順で優先
  * @param actorIri アクターIRI
  */
+interface RemoteActorDocument {
+  id: string;
+  inbox?: string;
+  "ldp:inbox"?: string;
+  endpoints?: { sharedInbox?: string };
+  publicKey?: { id?: string };
+  publicKeyId?: string;
+}
 export async function resolveRemoteActor(
   actorIri: string,
 ): Promise<RemoteActor> {
-  const actor = await fetchJson(actorIri);
+  const actor = await fetchJson<RemoteActorDocument>(actorIri);
 
-  const inbox: string | undefined = actor.endpoints?.sharedInbox ??
+  const inbox = actor.endpoints?.sharedInbox ??
     actor.inbox ?? actor["ldp:inbox"];
   if (!inbox) {
     throw new Error("resolveRemoteActor: inbox not found in actor document");
   }
 
+  const publicKeyId = actor.publicKey?.id ?? actor.publicKeyId;
+  if (!publicKeyId) {
+    throw new Error("resolveRemoteActor: publicKeyId not found in actor document");
+  }
   return {
     id: actor.id,
-    inbox,
+    inbox: inbox as string,
     sharedInbox: actor.endpoints?.sharedInbox,
-    publicKeyId: actor.publicKey?.id ?? actor.publicKeyId,
+    publicKeyId,
   };
 }
 
