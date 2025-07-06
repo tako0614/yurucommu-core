@@ -178,58 +178,30 @@ app.post("/users/:username/inbox", async (c) => {
 
 app.get("/users/:username/followers", async (c) => {
   const username = c.req.param("username");
-  const account = await Account.findOne({ userName: username }).lean();
-  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
-  const domain = getDomain(c);
-  const list = account.followers ?? [];
-  const baseId = `https://${domain}/users/${username}/followers`;
-  return jsonResponse(
-    c,
-    {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: baseId,
-      type: "OrderedCollection",
-      totalItems: list.length,
-      first: `${baseId}?page=1`,
-    },
-    200,
-    "application/activity+json",
-  );
-});
-
-app.get("/users/:username/followers", async (c) => {
-  // ページネーション対応
-  const username = c.req.param("username");
   const page = c.req.query("page");
-  if (!page) return; // 通常のコレクションレスポンスは上で返す
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.followers ?? [];
   const baseId = `https://${domain}/users/${username}/followers`;
-  return jsonResponse(
-    c,
-    {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${baseId}?page=1`,
-      type: "OrderedCollectionPage",
-      partOf: baseId,
-      orderedItems: list,
-      next: null,
-      prev: null,
-    },
-    200,
-    "application/activity+json",
-  );
-});
 
-app.get("/users/:username/following", async (c) => {
-  const username = c.req.param("username");
-  const account = await Account.findOne({ userName: username }).lean();
-  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
-  const domain = getDomain(c);
-  const list = account.following ?? [];
-  const baseId = `https://${domain}/users/${username}/following`;
+  if (page) {
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `${baseId}?page=1`,
+        type: "OrderedCollectionPage",
+        partOf: baseId,
+        orderedItems: list,
+        next: null,
+        prev: null,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
+
   return jsonResponse(
     c,
     {
@@ -245,25 +217,39 @@ app.get("/users/:username/following", async (c) => {
 });
 
 app.get("/users/:username/following", async (c) => {
-  // ページネーション対応
   const username = c.req.param("username");
   const page = c.req.query("page");
-  if (!page) return; // 通常のコレクションレスポンスは上で返す
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.following ?? [];
   const baseId = `https://${domain}/users/${username}/following`;
+
+  if (page) {
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `${baseId}?page=1`,
+        type: "OrderedCollectionPage",
+        partOf: baseId,
+        orderedItems: list,
+        next: null,
+        prev: null,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
+
   return jsonResponse(
     c,
     {
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${baseId}?page=1`,
-      type: "OrderedCollectionPage",
-      partOf: baseId,
-      orderedItems: list,
-      next: null,
-      prev: null,
+      id: baseId,
+      type: "OrderedCollection",
+      totalItems: list.length,
+      first: `${baseId}?page=1`,
     },
     200,
     "application/activity+json",
