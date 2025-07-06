@@ -3,6 +3,7 @@ import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
+  createCreateActivity,
   createLikeActivity,
   deliverActivityPubObject,
   fetchActorInbox,
@@ -13,6 +14,56 @@ import {
   getUserInfo,
   getUserInfoBatch,
 } from "./services/user-info.ts";
+
+// --- Helper Functions ---
+
+async function deliverPostToFollowers(
+  post: ActivityPubObject,
+  author: string,
+  domain: string,
+) {
+  try {
+    const account = await Account.findOne({ userName: author }).lean();
+    if (!account || !account.followers) return;
+
+    const followerInboxes = await Promise.all(
+      account.followers.map(async (followerUrl) => {
+        try {
+          // Avoid delivering to local users via HTTP
+          const url = new URL(followerUrl);
+          if (url.host === domain && url.pathname.startsWith("/users/")) {
+            return null;
+          }
+          return await fetchActorInbox(followerUrl);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const validInboxes = followerInboxes.filter((inbox): inbox is string => !!inbox);
+
+    if (validInboxes.length > 0) {
+      const noteObject = buildActivityFromStored(
+        { ...post.toObject(), content: post.content ?? "" },
+        domain,
+        author,
+        false,
+      );
+      const createActivity = createCreateActivity(
+        domain,
+        `https://${domain}/users/${author}`,
+        noteObject,
+      );
+      // Fire-and-forget delivery
+      deliverActivityPubObject(validInboxes, createActivity, author);
+    }
+  } catch (err) {
+    console.error("ActivityPub delivery error:", err);
+  }
+}
+
+// --- Hono App ---
 
 const app = new Hono();
 
@@ -40,6 +91,7 @@ app.post("/microblog", async (c) => {
   if (typeof author !== "string" || typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
+
   const post = new ActivityPubObject({
     type: "Note",
     attributedTo: author,
@@ -47,40 +99,11 @@ app.post("/microblog", async (c) => {
     extra: { likes: 0, retweets: 0 },
   });
   await post.save();
-  try {
-    const account = await Account.findOne({ userName: author }).lean();
-    const followers = account?.followers ?? [];
-    const inboxes: string[] = [];
-    for (const f of followers) {
-      try {
-        const url = new URL(f);
-        if (url.host === domain && url.pathname.startsWith("/users/")) {
-          continue;
-        }
-        const inbox = await fetchActorInbox(f);
-        if (inbox) inboxes.push(inbox);
-      } catch (_) {
-        continue;
-      }
-    }
-    if (inboxes.length > 0) {
-      const activity = buildActivityFromStored(
-        { ...post.toObject(), content: post.content ?? "" },
-        domain,
-        author,
-        true,
-      );
-      deliverActivityPubObject(inboxes, activity, author).catch((err) => {
-        console.error("Delivery failed:", err);
-      });
-    }
-  } catch (err) {
-    console.error("activitypub delivery error:", err);
-  }
 
-  // 共通ユーザー情報取得サービスを使用
+  // Fire-and-forget the delivery process
+  deliverPostToFollowers(post, author, domain);
+
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
-
   return c.json(formatUserInfoForPost(userInfo, post), 201);
 });
 

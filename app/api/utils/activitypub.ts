@@ -20,48 +20,28 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-async function signRequest(
-  url: string,
-  method: string,
+async function signAndSend(
+  inboxUrl: string,
   body: string,
   account: { userName: string; privateKey: string },
-): Promise<Headers> {
-  const headers = new Headers();
-  const parsedUrl = new URL(url);
-  const host = parsedUrl.host;
+): Promise<Response> {
+  const parsedUrl = new URL(inboxUrl);
+  const host = parsedUrl.hostname;
   const date = new Date().toUTCString();
   const encoder = new TextEncoder();
 
-  // Content-Lengthはfetchが自動で付与するため署名対象から除外
-  const bodyBytes = encoder.encode(body);
-
   const digestValue = arrayBufferToBase64(
-    await crypto.subtle.digest("SHA-256", bodyBytes),
+    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
   );
   const digest = `SHA-256=${digestValue}`;
 
-  // 必要なヘッダーをセット
-  headers.set("host", host);
-  headers.set("date", date);
-  headers.set("digest", digest);
-  headers.set("content-type", "application/activity+json");
-  headers.set("user-agent", "Takos/1.0 (ActivityPub)");
-
-  // request-targetの正確な構築（パスとクエリを含む）
-  const requestTarget =
-    `${method.toLowerCase()} ${parsedUrl.pathname}${parsedUrl.search}`;
-
-  // 署名文字列の構築（ヘッダーの順序が重要）
-  const signingString = `(request-target): ${requestTarget}\n` +
+  const signingString = `(request-target): post ${parsedUrl.pathname}\n` +
     `host: ${host}\n` +
     `date: ${date}\n` +
-    `digest: ${digest}\n` +
-    `content-type: application/activity+json`;
+    `digest: ${digest}`;
 
-  // 秘密鍵の正規化
   const normalizedPrivateKey = ensurePem(account.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
-
   const key = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
@@ -80,13 +60,34 @@ async function signRequest(
   const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
 
-  // 署名ヘッダーの構築（ヘッダーリストの順序を保持）
-  headers.set(
-    "signature",
-    `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest content-type",signature="${signatureB64}"`,
-  );
+  const headers = new Headers({
+    "Host": host,
+    "Date": date,
+    "Digest": digest,
+    "Signature":
+      `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
+    "Accept": "application/activity+json",
+    "Content-Type": "application/activity+json",
+    "User-Agent": `Takos/1.0 (+https://${domain}/)`,
+  });
 
-  return headers;
+  const res = await fetch(inboxUrl, {
+    method: "POST",
+    headers,
+    body,
+  });
+  console.log(res)
+  // Log the response status and body for debugging
+  const responseBody = await res.text();
+  console.log(`Response from ${inboxUrl}: ${res.status} ${res.statusText}`);
+  console.log(`Response body: ${responseBody}`);
+
+  // Return a new response object because the body has been consumed
+  return new Response(responseBody, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
 }
 
 export async function sendActivityPubObject(
@@ -97,16 +98,11 @@ export async function sendActivityPubObject(
   const body = JSON.stringify(object);
   const account = await Account.findOne({ userName: actor }).lean();
   if (!account) throw new Error("actor not found");
-  const headers = await signRequest(inboxUrl, "POST", body, {
-    userName: actor,
-    privateKey: account.privateKey,
-  });
 
   try {
-    return await fetch(inboxUrl, {
-      method: "POST",
-      headers,
-      body,
+    return await signAndSend(inboxUrl, body, {
+      userName: actor,
+      privateKey: account.privateKey,
     });
   } catch (err) {
     console.error(`Failed to send ActivityPub object to ${inboxUrl}:`, err);
@@ -119,15 +115,16 @@ export async function deliverActivityPubObject(
   object: unknown,
   actor: string,
 ): Promise<void> {
-  for (const inbox of inboxes) {
+  const deliveryPromises = inboxes.map(inbox => {
     if (inbox.startsWith("http")) {
-      try {
-        await sendActivityPubObject(inbox, object, actor);
-      } catch (_) {
-        /* ignore individual errors */
-      }
+      // Individual errors are caught within sendActivityPubObject, so we can just fire and forget here.
+      return sendActivityPubObject(inbox, object, actor).catch(err => {
+        console.error(`Failed to deliver to ${inbox}`, err);
+      });
     }
-  }
+    return Promise.resolve();
+  });
+  await Promise.all(deliveryPromises);
 }
 
 export function ensurePem(
@@ -171,10 +168,7 @@ export async function verifyHttpSignature(
     let publicKeyPem = "";
     try {
       const res = await fetch(publicKeyUrl, {
-        headers: {
-          accept: "application/activity+json, application/ld+json",
-          "user-agent": "Takos/1.0 (ActivityPub)",
-        },
+        headers: { accept: "application/activity+json, application/ld+json" },
       });
 
       if (res.ok) {
@@ -400,7 +394,9 @@ export async function resolveActor(
   }
 }
 
-export function getDomain(c: { req: { url: string } }): string {
+export function getDomain(
+  c: { req: { url: string } },
+): string {
   return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 }
 
@@ -516,4 +512,88 @@ export function createRemoveActivity(
     actor,
     object,
   };
+}
+
+/** Create Activity を生成する */
+export function createCreateActivity(
+  domain: string,
+  actor: string,
+  object: unknown,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Create",
+    actor,
+    object,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [`https://${domain}/users/${actor.split("/").pop()}/followers`],
+  };
+}
+
+/* ===== ActivityPub主要実装互換ユーティリティ ===== */
+
+/** Acceptヘッダーを強制するfetchJson */
+export async function fetchJson(url: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (!headers.has("Accept")) {
+    headers.set(
+      "Accept",
+      'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+    );
+  }
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  return await res.json();
+}
+
+/** inbox/sharedInbox抽出・優先 resolveActor */
+export interface RemoteActor {
+  id: string;
+  inbox: string;
+  sharedInbox?: string;
+  publicKeyId: string;
+}
+
+export async function resolveRemoteActor(actorIri: string): Promise<RemoteActor> {
+  const actor = await fetchJson(actorIri);
+
+  const inbox =
+    actor.endpoints?.sharedInbox ?? actor.inbox ?? actor["ldp:inbox"];
+  if (!inbox) throw new Error("inbox not found in actor document");
+
+  return {
+    id: actor.id,
+    inbox,
+    sharedInbox: actor.endpoints?.sharedInbox,
+    publicKeyId: actor.publicKey?.id ?? actor.publicKeyId,
+  };
+}
+
+/** inbox系限定POST deliver */
+export async function deliver(
+  activity: unknown,
+  recipientActorIri: string,
+  sign: (options: { url: string; headers: Headers }) => string,
+) {
+  const actor = await resolveRemoteActor(recipientActorIri);
+  const target = actor.sharedInbox ?? actor.inbox;
+
+  const headers = new Headers({
+    "Content-Type": "application/activity+json",
+    Host: new URL(target).host,
+    Date: new Date().toUTCString(),
+  });
+
+  headers.set("Signature", sign({ url: target, headers }));
+
+  const res = await fetch(target, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(activity),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Delivery failed ${res.status} ${res.statusText}`);
+  }
 }
