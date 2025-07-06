@@ -59,8 +59,13 @@ async function deliverPostToFollowers(
           content: typeof post.content === "string" ? post.content : "",
           _id: String(baseObj._id),
           type: typeof baseObj.type === "string" ? baseObj.type : "Note",
-          published: typeof baseObj.published === "string" ? baseObj.published : new Date().toISOString(),
-          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null && !Array.isArray(baseObj.extra)) ? baseObj.extra as Record<string, unknown> : {},
+          published: typeof baseObj.published === "string"
+            ? baseObj.published
+            : new Date().toISOString(),
+          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+              !Array.isArray(baseObj.extra))
+            ? baseObj.extra as Record<string, unknown>
+            : {},
         },
         domain,
         author,
@@ -90,7 +95,9 @@ app.get("/microblog", async (c) => {
   }).lean();
 
   // ユーザー情報をバッチで取得
-  const identifiers = list.map((doc: ActivityPubObjectType) => doc.attributedTo as string);
+  const identifiers = list.map((doc: ActivityPubObjectType) =>
+    doc.attributedTo as string
+  );
   const userInfos = await getUserInfoBatch(identifiers, domain);
 
   const formatted = list.map((doc: ActivityPubObjectType, index: number) => {
@@ -119,7 +126,7 @@ app.post("/microblog", async (c) => {
   // Fire-and-forget the delivery process
   deliverPostToFollowers(post, author, domain);
 
-  const userInfo = await getUserInfo((post.attributedTo as string), domain);
+  const userInfo = await getUserInfo(post.attributedTo as string, domain);
   return c.json(formatUserInfoForPost(userInfo, post.toObject()), 201);
 });
 
@@ -130,8 +137,10 @@ app.get("/microblog/:id", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // 共通ユーザー情報取得サービスを使用
-  const userInfo = await getUserInfo((post.attributedTo as string), domain);
-  return c.json(formatUserInfoForPost(userInfo, post as Record<string, unknown>));
+  const userInfo = await getUserInfo(post.attributedTo as string, domain);
+  return c.json(
+    formatUserInfoForPost(userInfo, post as Record<string, unknown>),
+  );
 });
 
 app.put("/microblog/:id", async (c) => {

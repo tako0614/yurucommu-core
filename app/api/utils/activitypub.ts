@@ -611,7 +611,9 @@ export async function resolveRemoteActor(
 
   const publicKeyId = actor.publicKey?.id ?? actor.publicKeyId;
   if (!publicKeyId) {
-    throw new Error("resolveRemoteActor: publicKeyId not found in actor document");
+    throw new Error(
+      "resolveRemoteActor: publicKeyId not found in actor document",
+    );
   }
   return {
     id: actor.id,
