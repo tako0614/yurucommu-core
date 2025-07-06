@@ -117,16 +117,22 @@ export async function deliverActivityPubObject(
   actor: string,
 ): Promise<void> {
   const deliveryPromises = targets.map(async (iri) => {
-    if (iri.startsWith("http")) {
-      try {
-        const { inbox, sharedInbox } = await resolveRemoteActor(iri);
-        const target = sharedInbox ?? inbox;
-        return sendActivityPubObject(target, object, actor).catch((err) => {
-          console.error(`Failed to deliver to ${iri}`, err);
-        });
-      } catch (err) {
-        console.error(`Failed to resolve remote actor for ${iri}`, err);
-      }
+    // 受信箱URLが直に渡ってきた場合はそのままPOST
+    if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
+      return sendActivityPubObject(iri, object, actor).catch((err) => {
+        console.error(`Failed to deliver to inbox URL ${iri}`, err);
+      });
+    }
+
+    // それ以外はActor IRIとして解決
+    try {
+      const { inbox, sharedInbox } = await resolveRemoteActor(iri);
+      const target = sharedInbox ?? inbox;
+      return sendActivityPubObject(target, object, actor).catch((err) => {
+        console.error(`Failed to deliver to ${iri}`, err);
+      });
+    } catch (err) {
+      console.error(`Failed to resolve remote actor for ${iri}`, err);
     }
     return Promise.resolve();
   });
