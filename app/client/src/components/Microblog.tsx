@@ -18,12 +18,7 @@ import {
   updatePost,
   viewStory,
 } from "./microblog/api.ts";
-import type {
-  Community,
-  CommunityPost,
-  MicroblogPost,
-  Story,
-} from "./microblog/types.ts";
+import type { Community, MicroblogPost, Story } from "./microblog/types.ts";
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
@@ -37,13 +32,13 @@ export function Microblog() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [posts, { mutate, refetch }] = createResource(fetchPosts);
   // フォロー中投稿の取得
-  const [followingTimelinePosts, { refetch: refetchFollowing }] =
+  const [followingTimelinePosts, { refetch: _refetchFollowing }] =
     createResource(() => {
       const user = account();
       return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
     });
   // コミュニティデータをAPIから取得
-  const [communitiesData, { refetch: refetchCommunities }] = createResource(
+  const [communitiesData, { refetch: _refetchCommunities }] = createResource(
     fetchCommunities,
   );
   // ストーリー
@@ -188,7 +183,9 @@ export function Microblog() {
   };
 
   const handleLike = async (id: string) => {
-    const likes = await likePost(id);
+    const user = account();
+    if (!user) return;
+    const likes = await likePost(id, user.userName);
     if (likes !== null) {
       mutate((prev) =>
         prev?.map((p) => p.id === id ? { ...p, likes, isLiked: true } : p)
@@ -268,75 +265,75 @@ export function Microblog() {
       </style>
       <div class="min-h-screen text-white relative">
         {/* ヘッダー + タブ */}
-      <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
-        <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            {/* <h1 class="text-xl font-bold">マイクロブログ</h1> 削除 */}
-            <div class="flex justify-end w-full relative">
-              <input
-                type="text"
-                placeholder="投稿・ユーザー・タグ検索"
-                value={searchQuery()}
-                onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <svg
-                class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
+          <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              {/* <h1 class="text-xl font-bold">マイクロブログ</h1> 削除 */}
+              <div class="flex justify-end w-full relative">
+                <input
+                  type="text"
+                  placeholder="投稿・ユーザー・タグ検索"
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-              </svg>
+                <svg
+                  class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+            </div>
+            {/* タブ */}
+            <div class="flex gap-4 justify-center">
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "recommend" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("recommend");
+                  setShowCommunityView(false);
+                }}
+              >
+                おすすめ
+              </button>
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "following" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("following");
+                  setShowCommunityView(false);
+                }}
+              >
+                フォロー中
+              </button>
+              <button
+                type="button"
+                class={`tab-btn ${
+                  tab() === "community" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("community");
+                  setShowCommunityView(false);
+                  setSelectedCommunity(null);
+                }}
+              >
+                コミュニティ
+              </button>
             </div>
           </div>
-          {/* タブ */}
-          <div class="flex gap-4 justify-center">
-            <button
-              type="button"
-              class={`tab-btn ${
-                tab() === "recommend" ? "tab-btn-active" : ""
-              }`}
-              onClick={() => {
-                setTab("recommend");
-                setShowCommunityView(false);
-              }}
-            >
-              おすすめ
-            </button>
-            <button
-              type="button"
-              class={`tab-btn ${
-                tab() === "following" ? "tab-btn-active" : ""
-              }`}
-              onClick={() => {
-                setTab("following");
-                setShowCommunityView(false);
-              }}
-            >
-              フォロー中
-            </button>
-            <button
-              type="button"
-              class={`tab-btn ${
-                tab() === "community" ? "tab-btn-active" : ""
-              }`}
-              onClick={() => {
-                setTab("community");
-                setShowCommunityView(false);
-                setSelectedCommunity(null);
-              }}
-            >
-              コミュニティ
-            </button>
-          </div>
         </div>
-      </div>
         <div class="max-w-2xl mx-auto">
           <CommunityView
             showCommunityView={showCommunityView()}
