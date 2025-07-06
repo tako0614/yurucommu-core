@@ -1,5 +1,6 @@
 import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { Account, isDataUrl } from "./types.ts";
+import { fetchUserProfile } from "../microblog/api.ts";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
@@ -23,6 +24,11 @@ const AccountSettingsContent: Component<{
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isLoading, setIsLoading] = createSignal(false);
 
+  // 投稿数やフォロワー数などの統計情報
+  const [postCount, setPostCount] = createSignal(0);
+  const [followingCount, setFollowingCount] = createSignal(0);
+  const [followerCount, setFollowerCount] = createSignal(0);
+
   // 選択されたアカウントが変更されたときにローカル状態を更新
   createEffect(() => {
     const account = selectedAccount();
@@ -31,6 +37,23 @@ const AccountSettingsContent: Component<{
       setEditingUserName(account.userName);
       setEditingIcon(account.avatarInitial); // avatarInitialはデータURLまたはサーバーからの初期値
       setHasChanges(false);
+      // ユーザー統計情報を取得
+      fetchUserProfile(account.userName).then((data) => {
+        if (data) {
+          setPostCount(data.postCount ?? 0);
+          setFollowingCount(data.followingCount ?? 0);
+          setFollowerCount(data.followersCount ?? 0);
+        } else {
+          setPostCount(0);
+          setFollowingCount(0);
+          setFollowerCount(0);
+        }
+      }).catch((err) => {
+        console.error("failed to load profile", err);
+        setPostCount(0);
+        setFollowingCount(0);
+        setFollowerCount(0);
+      });
     }
   });
 
@@ -290,15 +313,19 @@ const AccountSettingsContent: Component<{
             {/* フォロー/フォロワー統計（SNS風） */}
             <div class="flex space-x-6 mb-8">
               <div class="text-center">
-                <div class="text-xl font-bold text-white">42</div>
+                <div class="text-xl font-bold text-white">{postCount()}</div>
                 <div class="text-sm text-gray-400">投稿</div>
               </div>
               <div class="text-center">
-                <div class="text-xl font-bold text-white">128</div>
+                <div class="text-xl font-bold text-white">
+                  {followingCount()}
+                </div>
                 <div class="text-sm text-gray-400">フォロー中</div>
               </div>
               <div class="text-center">
-                <div class="text-xl font-bold text-white">256</div>
+                <div class="text-xl font-bold text-white">
+                  {followerCount()}
+                </div>
                 <div class="text-sm text-gray-400">フォロワー</div>
               </div>
             </div>
