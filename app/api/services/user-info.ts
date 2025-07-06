@@ -140,10 +140,13 @@ export async function getUserInfoBatch(
   const uniqueIdentifiers = [...new Set(identifiers)];
 
   // ローカルユーザーをバッチで取得
-  const localUsernames = uniqueIdentifiers.filter(id => !id.startsWith("http"));
+  const localUsernames = uniqueIdentifiers.filter((id) =>
+    !id.startsWith("http")
+  );
   if (localUsernames.length > 0) {
-    const accounts = await Account.find({ userName: { $in: localUsernames } }).lean();
-    const accountMap = new Map(accounts.map(acc => [acc.userName, acc]));
+    const accounts = await Account.find({ userName: { $in: localUsernames } })
+      .lean();
+    const accountMap = new Map(accounts.map((acc) => [acc.userName, acc]));
 
     for (const username of localUsernames) {
       const account = accountMap.get(username);
@@ -161,10 +164,14 @@ export async function getUserInfoBatch(
   }
 
   // 外部ユーザーをバッチで取得
-  const externalUrls = uniqueIdentifiers.filter(id => id.startsWith("http"));
+  const externalUrls = uniqueIdentifiers.filter((id) => id.startsWith("http"));
   if (externalUrls.length > 0) {
-    const remoteActors = await RemoteActor.find({ actorUrl: { $in: externalUrls } }).lean();
-    const actorMap = new Map(remoteActors.map(actor => [actor.actorUrl, actor]));
+    const remoteActors = await RemoteActor.find({
+      actorUrl: { $in: externalUrls },
+    }).lean();
+    const actorMap = new Map(
+      remoteActors.map((actor) => [actor.actorUrl, actor]),
+    );
 
     for (const url of externalUrls) {
       const actor = actorMap.get(url);
@@ -224,7 +231,10 @@ export async function getUserInfoBatch(
 /**
  * ユーザー情報をフォーマットしてレスポンス形式に変換する
  */
-export function formatUserInfoForPost(userInfo: UserInfo, postData: any) {
+export function formatUserInfoForPost(
+  userInfo: UserInfo,
+  postData: Record<string, unknown>,
+) {
   return {
     id: typeof postData._id === "string"
       ? postData._id
@@ -237,7 +247,10 @@ export function formatUserInfoForPost(userInfo: UserInfo, postData: any) {
     authorAvatar: userInfo.authorAvatar,
     content: postData.content,
     createdAt: postData.published,
-    likes: (postData.extra as Record<string, unknown>)?.likes ?? 0,
+    likes: Array.isArray((postData.extra as Record<string, unknown>)?.likedBy)
+      ? ((postData.extra as Record<string, unknown>).likedBy as unknown[])
+        .length
+      : (postData.extra as Record<string, unknown>)?.likes ?? 0,
     retweets: (postData.extra as Record<string, unknown>)?.retweets ?? 0,
     replies: (postData.extra as Record<string, unknown>)?.replies ?? 0,
     domain: userInfo.domain,

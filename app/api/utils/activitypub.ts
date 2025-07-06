@@ -314,6 +314,40 @@ export function createAcceptActivity(
   };
 }
 
+// Like Activity を生成
+export function createLikeActivity(
+  domain: string,
+  actor: string,
+  object: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/activities/${crypto.randomUUID()}`,
+    type: "Like",
+    actor,
+    object,
+  };
+}
+
+// Undo Like Activity を生成
+export function createUndoLikeActivity(
+  domain: string,
+  actor: string,
+  object: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/activities/${crypto.randomUUID()}`,
+    type: "Undo",
+    actor,
+    object: {
+      type: "Like",
+      actor,
+      object,
+    },
+  };
+}
+
 export async function fetchActorInbox(
   actorUrl: string,
 ): Promise<string | null> {
