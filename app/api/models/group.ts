@@ -4,6 +4,8 @@ const groupSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   description: { type: String, default: "" },
   followers: { type: [String], default: [] },
+  isPrivate: { type: Boolean, default: false },
+  pendingFollowers: { type: [String], default: [] },
 });
 
 const Group = mongoose.model("Group", groupSchema);

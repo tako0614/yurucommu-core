@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import Group from "./models/group.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import {
+  createAcceptActivity,
+  createAnnounceActivity,
   createGroupActor,
+  deliverActivityPubObject,
   getDomain,
   jsonResponse,
   verifyHttpSignature,
@@ -53,9 +56,35 @@ app.post("/groups/:name/inbox", async (c) => {
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
   if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const activity = JSON.parse(bodyText);
+  const domain = getDomain(c);
+
+  if (activity.type === "Follow" && typeof activity.actor === "string") {
+    const actor = activity.actor;
+    if (group.isPrivate) {
+      await Group.updateOne({ name }, {
+        $addToSet: { pendingFollowers: actor },
+      });
+    } else {
+      await Group.updateOne({ name }, { $addToSet: { followers: actor } });
+      const accept = createAcceptActivity(
+        domain,
+        `https://${domain}/groups/${name}`,
+        activity,
+      );
+      deliverActivityPubObject([actor], accept, "system").catch((err) => {
+        console.error("Delivery failed:", err);
+      });
+    }
+    return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
+  }
+
   if (activity.type === "Create" && typeof activity.object === "object") {
+    const actor = typeof activity.actor === "string" ? activity.actor : "";
+    if (!group.followers.includes(actor)) {
+      return jsonResponse(c, { error: "Forbidden" }, 403);
+    }
     const obj = activity.object as Record<string, unknown>;
-    await ActivityPubObject.create({
+    const stored = await ActivityPubObject.create({
       type: (obj.type as string) ?? "Note",
       attributedTo: `!${name}`,
       content: (obj.content as string) ?? "",
@@ -67,7 +96,19 @@ app.post("/groups/:name/inbox", async (c) => {
       raw: obj,
       extra: {},
     });
+    const announce = createAnnounceActivity(
+      domain,
+      `https://${domain}/groups/${name}`,
+      `https://${domain}/objects/${stored._id}`,
+    );
+    deliverActivityPubObject(group.followers, announce, "system").catch(
+      (err) => {
+        console.error("Delivery failed:", err);
+      },
+    );
+    return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
+
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 

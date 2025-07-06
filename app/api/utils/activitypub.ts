@@ -565,6 +565,21 @@ export function createCreateActivity(
   };
 }
 
+/** Announce Activity を生成する */
+export function createAnnounceActivity(
+  domain: string,
+  actor: string,
+  object: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Announce",
+    actor,
+    object,
+  };
+}
+
 /* ===== ActivityPub主要実装互換ユーティリティ ===== */
 
 /**
