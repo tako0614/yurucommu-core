@@ -1,0 +1,81 @@
+/* チャット入力エリアのスタイリング */
+.p-talk-chat-send {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.p-talk-chat-send__form {
+  display: flex;
+  flex-direction: column;
+}
+
+.p-talk-chat-send__msg {
+  position: relative;
+  width: 100%;
+  background-color: #2a2a2a;
+  border-radius: 8px;
+  border: 1px solid #444;
+}
+
+.p-talk-chat-send__dummy {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.p-talk-chat-send__textarea {
+  resize: none;
+  background-color: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  min-height: 40px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.p-talk-chat-send__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: #555;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.p-talk-chat-send__button svg {
+  width: 20px;
+  height: 20px;
+  fill: #ccc;
+}
+
+.p-talk-chat-send__button.is-active {
+  background-color: #2563eb;
+}
+
+.p-talk-chat-send__button.is-active svg {
+  fill: white;
+}
+
+/* レスポンシブデザイン調整 */
+@media (max-width: 640px) {
+  .p-talk-chat-send {
+    padding: 8px;
+  }
+
+  .p-talk-chat-send__textarea {
+    min-height: 36px;
+  }
+}

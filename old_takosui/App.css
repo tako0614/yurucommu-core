@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+.p-talk-list-rooms__ul {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.p-talk-list-rooms__ul::-webkit-scrollbar {
+  display: none;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 4px solid #ffffff;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@layer utilities {
+  @keyframes shimmer {
+    100% {
+      transform: translateX(200%);
+    }
+  }
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0.6;
+      transform: translateY(5px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+}
+
+/* メッセージアニメーション用スタイル */
+.message-container {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.message-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* スムーズスクロール */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* ローディングアニメーション */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.slide-up {
+  animation: slideUp 0.5s ease forwards;
+}
+
+.scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 送信中メッセージのスタイル */
+.sending-message {
+  opacity: 0.75;
+  transition: all 0.3s ease;
+}
+
+.sending-message.error {
+  border-left: 2px solid #f56565;
+  background-color: rgba(245, 101, 101, 0.1);
+}
+
+.sending-message .message-status {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.upload-progress-container {
+  margin-top: 8px;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.2s ease-out;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.sending-indicator {
+  animation: pulse 1.5s infinite;
+}
+
+.tui-image-editor-container {
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.tui-image-editor-main {
+  height: 100% !important;
+}
+
+.tui-image-editor-main-container {
+  height: 100% !important;
+}
+
+/* ツールバーボタンのスタイル強化 */
+.toolbar-button {
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.2s;
+}
+
+.toolbar-button:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+  transform: scale(1.05);
+}
