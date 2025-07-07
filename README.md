@@ -40,6 +40,8 @@ deno task dev
   の場合はオブジェクトを `ActivityPubObject` として保存し、他の Activity
   は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
   新しい Activity を追加しやすくしています。
+- `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
+  Activity をそれぞれの inbox 処理へ振り分けます。
 
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 
@@ -66,7 +68,7 @@ deno task dev
 
 takos では ActivityPub の Group
 アクターを利用して複数ユーザーで投稿を共有できます。グループアクターは
-`GET /groups/:name` で取得できます。
+`GET /communities/:name` で取得できます。
 
 ### WebFinger での発見例
 
@@ -85,7 +87,7 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
     {
       "rel": "self",
       "type": "application/activity+json",
-      "href": "https://takos.example/groups/team"
+      "href": "https://takos.example/communities/team"
     }
   ]
 }
@@ -93,7 +95,7 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 
 ### 参加 (Follow) 手順
 
-1. `/groups/:name/inbox` へ `Follow` Activity を送信します。
+1. `/communities/:name/inbox` へ `Follow` Activity を送信します。
 2. 非公開グループでは `pendingFollowers`
    に追加され、承認後フォロワーとなります。公開グループの場合はすぐに `Accept`
    が返送され `followers` に登録されます。
@@ -105,3 +107,16 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 2. グループはその投稿を対象とした `Announce` Activity
    を生成し、フォロワーへ配信します。
 3. フォロワーは受信した `Announce` から投稿を取得できます。
+4. `outbox` や `followers` コレクションは `?page=1` のようにページ指定
+   で順次取得可能です。
+
+### モデレーション API
+
+- `POST /api/communities/:communityId/posts/:postId/remove`
+  グループ管理者が投稿を削除し、`Remove` Activity を配信します。
+- `POST /api/communities/:id/block` 特定ユーザーを BAN し、`Block` Activity
+  を送信します。
+- `GET  /api/communities/:id/pending-followers` 未承認フォロワー一覧を取得。
+- `POST /api/communities/:id/pending-followers/approve` 承認して `Accept`
+  を送信。
+- `POST /api/communities/:id/pending-followers/reject` フォロー申請を拒否。

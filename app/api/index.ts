@@ -12,6 +12,7 @@ import communities from "./communities.ts";
 import users from "./users.ts";
 import userInfo from "./user-info.ts";
 import group from "./group.ts";
+import rootInbox from "./root_inbox.ts";
 
 const env = await load();
 
@@ -30,8 +31,8 @@ app.route("/api", communities);
 app.route("/api", users);
 app.route("/api", userInfo);
 app.route("/api", activitypub); // ActivityPubプロキシAPI用
-app.route("/api", group);
 app.route("/", activitypub);
 app.route("/", group);
+app.route("/", rootInbox);
 
 Deno.serve(app.fetch);

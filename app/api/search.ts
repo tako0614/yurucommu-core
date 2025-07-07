@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
+import Group from "./models/group.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
 
 interface SearchResult {
@@ -71,12 +72,11 @@ app.get("/search", async (c) => {
   }
 
   if (type === "all" || type === "communities") {
-    const communities = await ActivityPubObject.find({
-      type: "Community",
+    const communities = await Group.find({
       $or: [
-        { "extra.name": regex },
-        { content: regex }
-      ]
+        { name: regex },
+        { description: regex },
+      ],
     })
       .limit(20)
       .lean();
@@ -85,11 +85,10 @@ app.get("/search", async (c) => {
       results.push({
         type: "community",
         id: String(com._id),
-        title: (com.extra && typeof com.extra === "object" && "name" in com.extra) ? (com.extra as any).name || "" : "",
-        subtitle: com.content || "",
-        avatar: (com.extra && typeof com.extra === "object" && "avatar" in com.extra) ? (com.extra as any).avatar || "" : "",
+        title: com.name,
+        subtitle: com.description,
         origin: domain,
-        metadata: { createdAt: com.published },
+        metadata: {},
       });
     }
   }

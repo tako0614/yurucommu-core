@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import type { Community, CommunityPost } from "./types.ts";
+import type { Community, Note } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 
 export function CommunityView(props: {
@@ -22,7 +22,7 @@ export function CommunityView(props: {
   communityIsPrivate: boolean;
   setCommunityIsPrivate: (isPrivate: boolean) => void;
   communities: Community[];
-  communityPosts: CommunityPost[];
+  communityPosts: Note[];
   handleJoinCommunity: (communityId: string) => void;
   handleLeaveCommunity: (communityId: string) => void;
   handleCreateCommunity: (e: Event) => void;
@@ -33,7 +33,7 @@ export function CommunityView(props: {
   return (
     <>
       {/* コミュニティビュー（コミュニティタブが選択された時のみ表示） */}
-      {(
+      {
         <div class="p-4">
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-2xl font-bold">コミュニティ</h2>
@@ -122,10 +122,10 @@ export function CommunityView(props: {
             </For>
           </div>
         </div>
-      )}
+      }
 
       {/* 個別コミュニティビュー */}
-      {(
+      {
         <div class="p-4">
           {/* コミュニティヘッダー */}
           <div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 mb-6">
@@ -331,7 +331,7 @@ export function CommunityView(props: {
             </For>
           </div>
         </div>
-      )}
+      }
     </>
   );
 }

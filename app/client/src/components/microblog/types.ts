@@ -47,7 +47,7 @@ export interface Community {
   moderators?: string[];
 }
 
-export interface CommunityPost {
+export interface Note {
   id: string;
   communityId: string;
   content: string;
@@ -68,7 +68,7 @@ export interface CommunityPost {
  */
 export interface ActivityPubObject {
   id: string;
-  type: string; // Note, Image, Article, Story, CommunityPost など
+  type: string; // Note, Image, Article, Story など
   attributedTo: string;
   content?: string;
   to?: string[];
