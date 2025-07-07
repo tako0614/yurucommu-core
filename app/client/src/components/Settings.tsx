@@ -51,7 +51,10 @@ export function Settings() {
       const res = await fetch(`/api/accounts/${id}/follow`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ target: followTarget() }),
+        body: JSON.stringify({
+          target: followTarget(),
+          userName: user.userName,
+        }),
       });
       if (res.ok) {
         setFollowing((prev) => [...prev, followTarget()]);
