@@ -374,8 +374,8 @@ export function Microblog() {
         <div class="fixed bottom-0 left-0 w-full z-40 bg-gray-900/95 border-t border-gray-800">
           <div class="max-w-2xl mx-auto px-4 py-3">
             <PostForm
-              showPostForm={true}
-              setShowPostForm={() => {}}
+              showPostForm={showPostForm()}
+              setShowPostForm={setShowPostForm}
               newPostContent={newPostContent()}
               setNewPostContent={setNewPostContent}
               handleSubmit={handleSubmit}
