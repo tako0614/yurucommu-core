@@ -80,6 +80,12 @@ export function Chat() {
   );
   let poller: number | undefined;
 
+  const isUrl = (value?: string): boolean => {
+    return value
+      ? value.startsWith("http://") || value.startsWith("https://")
+      : false;
+  };
+
   const loadGroupStates = async () => {
     try {
       const stored = await loadMLSGroupStates();
@@ -395,8 +401,16 @@ export function Chat() {
                 >
                   <div class="flex items-center space-x-3">
                     <div class="relative">
-                      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold">
-                        {room.avatar}
+                      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden">
+                        {isUrl(room.avatar)
+                          ? (
+                            <img
+                              src={room.avatar}
+                              alt="avatar"
+                              class="w-full h-full object-cover rounded-full"
+                            />
+                          )
+                          : room.avatar}
                       </div>
                       <Show when={room.isOnline}>
                         <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 border-2 border-[#1a1a1a] rounded-full">
@@ -445,8 +459,16 @@ export function Chat() {
                 >
                   <div class="flex items-center space-x-3">
                     <div class="relative">
-                      <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center text-sm font-bold">
-                        {room.avatar}
+                      <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden">
+                        {isUrl(room.avatar)
+                          ? (
+                            <img
+                              src={room.avatar}
+                              alt="avatar"
+                              class="w-full h-full object-cover rounded-full"
+                            />
+                          )
+                          : room.avatar}
                       </div>
                       <Show when={room.isOnline}>
                         <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 border-2 border-[#1a1a1a] rounded-full">
@@ -627,8 +649,16 @@ export function Chat() {
                       }`}
                     >
                       <Show when={!message.isMe}>
-                        <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                          {message.avatar}
+                        <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 overflow-hidden">
+                          {isUrl(message.avatar)
+                            ? (
+                              <img
+                                src={message.avatar}
+                                alt="avatar"
+                                class="w-full h-full object-cover rounded-full"
+                              />
+                            )
+                            : message.avatar}
                         </div>
                       </Show>
                       <div
