@@ -85,8 +85,6 @@ export function Home() {
       const response = await fetch("/api/accounts");
       const results = await response.json();
       setAccounts(results || []);
-      localStorage.setItem("takos-accounts", JSON.stringify(results || []));
-
       if (preserveSelectedId) {
         const accountExists = results.some((acc: Account) =>
           acc.id === preserveSelectedId
@@ -219,22 +217,7 @@ export function Home() {
   };
 
   onMount(() => {
-    const saved = localStorage.getItem("takos-accounts");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Account[];
-        setAccounts(parsed);
-        if (!actId() && parsed.length > 0) {
-          setActId(parsed[0].id);
-        }
-      } catch (err) {
-        console.error("Failed to parse stored accounts:", err);
-        loadAccounts();
-      }
-    } else {
       loadAccounts();
-    }
-
     // タッチイベントリスナーを追加
     const addTouchListeners = () => {
       if (mainContentRef) {

@@ -370,10 +370,8 @@ export function Microblog() {
           formatDate={formatDate}
         />
 
-        {/* 投稿フォームを常に下部に固定表示 */}
-        <div class="fixed bottom-0 left-0 w-full z-40 bg-gray-900/95 border-t border-gray-800">
-          <div class="max-w-2xl mx-auto px-4 py-3">
-            <PostForm
+        {/* 投稿フォーム 
+                    <PostForm
               showPostForm={showPostForm()}
               setShowPostForm={setShowPostForm}
               newPostContent={newPostContent()}
@@ -381,8 +379,8 @@ export function Microblog() {
               handleSubmit={handleSubmit}
               currentUser={account() || undefined}
             />
-          </div>
-        </div>
+        */}
+
       </div>
     </>
   );
