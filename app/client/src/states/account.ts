@@ -14,26 +14,24 @@ const STORAGE_KEY = "takos-active-account-id";
 
 export const accounts = atom<Account[]>([]);
 
-// Create an atom for the active account ID with localStorage persistence.
+// 選択中アカウントIDの初期値を localStorage から取得
 const initialAccountId = localStorage.getItem(STORAGE_KEY);
-export const activeAccountId = atom<string | null>(initialAccountId);
 
-activeAccountId.onMount = (set) => {
-  const storedId = localStorage.getItem(STORAGE_KEY);
-  if (storedId) {
-    set(storedId);
-  }
-};
+// 内部用のAtom
+const baseActiveAccountId = atom<string | null>(initialAccountId);
 
-// A derived atom to write to localStorage whenever the activeAccountId changes.
-atom((get) => {
-  const id = get(activeAccountId);
-  if (id) {
-    localStorage.setItem(STORAGE_KEY, id);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-});
+// 書き込み時にlocalStorageへ保存するAtom
+export const activeAccountId = atom(
+  (get) => get(baseActiveAccountId),
+  (_get, set, newId: string | null) => {
+    set(baseActiveAccountId, newId);
+    if (newId) {
+      localStorage.setItem(STORAGE_KEY, newId);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  },
+);
 
 export const activeAccount = atom((get) => {
   const accs = get(accounts);
