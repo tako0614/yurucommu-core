@@ -132,15 +132,16 @@ export function Chat() {
       });
       if (res.ok) {
         const infos = await res.json() as UserInfo[];
-        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
+        const rooms = infos.reduce<ChatRoom[]>((acc, info) => {
           if (!info.isLocal) return acc;
+          const localName = info.userName;
           acc.push({
-            id: ids[idx],
-            name: info.displayName || info.userName,
-            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+            id: localName,
+            name: info.displayName || localName,
+            avatar: info.authorAvatar || localName.charAt(0).toUpperCase(),
             unreadCount: 0,
             type: "dm",
-            members: [ids[idx]],
+            members: [localName],
           });
           return acc;
         }, []);
