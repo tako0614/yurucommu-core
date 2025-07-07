@@ -224,10 +224,14 @@ export function Chat() {
       saveGroupStates();
     }
     const cipher = await encryptGroupMessage(group, text);
-    await sendEncryptedMessage(user.userName, {
+    const success = await sendEncryptedMessage(user.userName, {
       to: room.members,
       content: cipher,
     });
+    if (!success) {
+      alert("メッセージの送信に失敗しました");
+      return;
+    }
     setNewMessage("");
     loadMessages();
   };
