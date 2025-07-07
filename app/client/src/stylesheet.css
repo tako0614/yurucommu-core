@@ -75,6 +75,15 @@ html, body {
   background-size: cover;
   background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
   color: #ffffff; /* ホワイトモード廃止: 基本文字色変更 */
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+}
+#root {
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
 }
 
 ::-webkit-scrollbar {
@@ -172,14 +181,23 @@ input {
 }
 @media (max-width: 768px) {
   .wrapper {
-    padding: 0; /* 既存のpadding:0を維持しつつ、必要なpaddingを追加 */
-    padding-bottom: 64px; /* スマホ版ヘッダーの高さ分 */
-    height: calc(100vh - 64px); /* ヘッダー分を引いた高さに調整 */
-    overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
+    padding: 0 !important;
+    padding-bottom: 64px !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
+    overflow-x: clip !important;
   }
-  /* チャットページでヘッダーが非表示の場合はpaddingを削除（スマホ版のみ） */
   .wrapper.no-header {
-    padding-bottom: 0;
+    padding-bottom: 0 !important;
+  }
+  main.wrapper, main.wrapper.no-header {
+    min-height: 100dvh !important;
+    height: 100dvh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
   }
   .l-header--mobile {
     width: 100%;
@@ -197,7 +215,7 @@ input {
     white-space: nowrap;
   }
   .l-header--mobile .l-header__ul-item {
-    height: 100%;
+    height: 48px;
     aspect-ratio: 1/1;
   }
 }
@@ -212,16 +230,14 @@ input {
 }
 @media screen and (max-width: 768px) {
   .p-talk {
-    overflow-x: hidden;
-    width: fit-content;
+    min-height: 100dvh !important;
+    height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: clip !important;
     transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
   }
 }
-@media screen and (max-width: 768px) {
-  .p-talk.is-inview {
-    transform: translateX(-50%);
-  }
-}
+
 .p-talk-list {
   padding: 12px 12px 76px;
   background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
@@ -283,8 +299,14 @@ input {
 }
 @media screen and (max-width: 768px) {
   .p-talk-chat {
-    width: 100vw;
-    padding: 0;
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    padding: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: #1e1e1e;
   }
 }
 .p-talk-chat-container {
@@ -705,8 +727,54 @@ input {
 /* モバイルでの表示調整 */
 @media screen and (max-width: 768px) {
   .p-talk {
+    width: 200vw;
+    min-height: 100dvh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: row;
+    transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
+  }
+  .p-talk.is-inview {
+    transform: translateX(-100vw);
+  }
+  .p-talk-list {
     width: 100vw;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-width: 100vw;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 3;
+  }
+  .p-talk-chat {
+    width: 100vw;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-width: 100vw;
+    padding: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #1e1e1e;
+    z-index: 3;
+  }
+  .p-talk-chat-container {
+    min-height: 100dvh;
+    height: 100dvh;
+    background: #1e1e1e;
+    display: flex;
     flex-direction: column;
+    position: relative;
+  }
+  .wrapper {
+    padding: 0 !important;
+    padding-bottom: 64px !important;
+    min-height: 100dvh !important;
+    height: 100dvh !important;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+  .wrapper.no-header {
+    padding-bottom: 0 !important;
   }
 }
 

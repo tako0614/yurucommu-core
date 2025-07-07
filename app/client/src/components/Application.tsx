@@ -37,7 +37,7 @@ export function Application() {
   return (
     <>
       <Header />
-      <main class={`${wrapperClass()} h-screen overflow-y-auto`}>
+      <main class={wrapperClass()}>
         <Show when={selectedApp() === "home"}>
           <Home />
         </Show>

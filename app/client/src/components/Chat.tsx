@@ -285,6 +285,7 @@ export function Chat() {
 
   // モバイルでの部屋選択時の動作
   const selectRoom = (roomId: string) => {
+    console.log("selected room:", roomId); // for debug
     setSelectedRoom(roomId);
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
@@ -347,8 +348,8 @@ export function Chat() {
 
   return (
     <>
-      <div class="w-full h-screen overflow-y-hidden">
-        <main
+      <div class="w-full h-screen overflow-hidden">
+        <div
           class={`p-talk ${
             isMobile() ? (showRoomList() ? "" : "is-inview") : ""
           } flex`}
@@ -441,7 +442,7 @@ export function Chat() {
                     <Show when={isMobile()}>
                       <button
                         type="button"
-                        class="p-talk-chat-prev"
+                        class="h-full"
                         onClick={backToRoomList}
                       >
                         <svg
@@ -699,7 +700,7 @@ export function Chat() {
               </div>
             </Show>
           </div>
-        </main>
+        </div>
       </div>
     </>
   );
