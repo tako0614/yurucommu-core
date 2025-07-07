@@ -9,6 +9,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { activeAccount } from "../states/account.ts";
+import type { UserInfo } from "./microblog/api.ts";
 import {
   addKeyPackage,
   fetchEncryptedMessages,
@@ -130,19 +131,19 @@ export function Chat() {
         body: JSON.stringify({ identifiers: ids }),
       });
       if (res.ok) {
-        const infos = await res.json() as {
-          userName: string;
-          displayName?: string;
-          authorAvatar?: string;
-        }[];
-        const rooms = infos.map((info, idx: number) => ({
-          id: ids[idx],
-          name: info.displayName ?? info.userName,
-          avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
-          unreadCount: 0,
-          type: "dm" as const,
-          members: [ids[idx]],
-        }));
+        const infos = await res.json() as UserInfo[];
+        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
+          if (!info.isLocal) return acc;
+          acc.push({
+            id: ids[idx],
+            name: info.displayName || info.userName,
+            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+            unreadCount: 0,
+            type: "dm",
+            members: [ids[idx]],
+          });
+          return acc;
+        }, []);
         setChatRooms(rooms);
       }
     } catch (err) {
