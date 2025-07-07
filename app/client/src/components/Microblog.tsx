@@ -37,7 +37,7 @@ export function Microblog() {
       return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
     });
   // コミュニティデータをAPIから取得
-  const [communitiesData, { refetch: _refetchCommunities }] = createResource(
+  const [_communitiesData, { refetch: _refetchCommunities }] = createResource(
     fetchCommunities,
   );
   // ストーリー
@@ -46,33 +46,33 @@ export function Microblog() {
   const [showStoryViewer, setShowStoryViewer] = createSignal(false);
   const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
   // コミュニティ
-  const [showCommunityView, setShowCommunityView] = createSignal(false);
-  const [selectedCommunity, setSelectedCommunity] = createSignal<
+  const [_showCommunityView, _setShowCommunityView] = createSignal(false);
+  const [_selectedCommunity, _setSelectedCommunity] = createSignal<
     Community | null
   >(null);
-  const [showCreateCommunity, setShowCreateCommunity] = createSignal(false);
-  const [communityName, setCommunityName] = createSignal("");
-  const [communityDescription, setCommunityDescription] = createSignal("");
-  const [communityAvatar, setCommunityAvatar] = createSignal("");
-  const [communityBanner, setCommunityBanner] = createSignal("");
-  const [communityTags, setCommunityTags] = createSignal("");
-  const [communityIsPrivate, setCommunityIsPrivate] = createSignal(false);
+  const [_showCreateCommunity, _setShowCreateCommunity] = createSignal(false);
+  const [_communityName, _setCommunityName] = createSignal("");
+  const [_communityDescription, _setCommunityDescription] = createSignal("");
+  const [_communityAvatar, _setCommunityAvatar] = createSignal("");
+  const [_communityBanner, _setCommunityBanner] = createSignal("");
+  const [_communityTags, _setCommunityTags] = createSignal("");
+  const [_communityIsPrivate, _setCommunityIsPrivate] = createSignal(false);
   // コミュニティデータはAPIから取得（communitiesData）
   // コミュニティ投稿は各コミュニティの詳細取得時にAPIから取得する想定
   // フォロー中投稿もAPIから取得（followingTimelinePosts）
 
   // コミュニティ関連のハンドラー
-  const handleJoinCommunity = (communityId: string) => {
+  const _handleJoinCommunity = (communityId: string) => {
     // TODO: API call to join community
     console.log("Joining community:", communityId);
   };
 
-  const handleLeaveCommunity = (communityId: string) => {
+  const _handleLeaveCommunity = (communityId: string) => {
     // TODO: API call to leave community
     console.log("Leaving community:", communityId);
   };
 
-  const handleCreateCommunity = (e: Event) => {
+  const _handleCreateCommunity = (e: Event) => {
     e.preventDefault();
     // TODO: API call to create community
     console.log("Creating community:", {
@@ -83,12 +83,12 @@ export function Microblog() {
     setShowCreateCommunity(false);
   };
 
-  const handleSelectCommunity = (community: Community) => {
+  const _handleSelectCommunity = (community: Community) => {
     setSelectedCommunity(community);
     setShowCommunityView(true);
   };
 
-  const handleLikeCommunityPost = (postId: string) => {
+  const _handleLikeCommunityPost = (postId: string) => {
     // TODO: API call to like community post
     console.log("Liking community post:", postId);
   };
@@ -334,7 +334,6 @@ export function Microblog() {
           </div>
         </div>
         <div class="max-w-2xl mx-auto">
-
           {(tab() === "recommend" || tab() === "following" ||
             tab() === "community") && (
             <StoryTray

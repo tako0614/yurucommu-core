@@ -12,6 +12,7 @@ import communities from "./communities.ts";
 import users from "./users.ts";
 import userInfo from "./user-info.ts";
 import group from "./group.ts";
+import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 
@@ -38,5 +39,6 @@ app.route("/", nodeinfo);
 app.route("/", e2ee);
 app.route("/", activitypub);
 app.route("/", group);
+app.route("/", rootInbox);
 
 Deno.serve(app.fetch);

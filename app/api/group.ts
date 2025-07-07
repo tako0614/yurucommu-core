@@ -5,7 +5,7 @@ import {
   createAcceptActivity,
   createAnnounceActivity,
   createGroupActor,
-  deliverActivityPubObject,
+  deliverActivityPubObjectFromUrl,
   getDomain,
   jsonResponse,
   verifyHttpSignature,
@@ -25,7 +25,7 @@ function buildGroupActivity(
   return {
     id: `https://${domain}/objects/${obj._id}`,
     type: obj.type,
-    attributedTo: `https://${domain}/groups/${name}`,
+    attributedTo: `https://${domain}/communities/${name}`,
     content: obj.content,
     published: obj.published instanceof Date
       ? obj.published.toISOString()
@@ -36,7 +36,7 @@ function buildGroupActivity(
 
 const app = new Hono();
 
-app.get("/groups/:name", async (c) => {
+app.get("/communities/:name", async (c) => {
   const name = c.req.param("name");
   const group = await Group.findOne({ name }).lean();
   if (!group) return jsonResponse(c, { error: "Not found" }, 404);
@@ -44,11 +44,14 @@ app.get("/groups/:name", async (c) => {
   const actor = createGroupActor(domain, {
     name: group.name,
     description: group.description,
+    avatar: group.avatar,
+    publicKey: group.publicKey,
+    sharedInbox: `https://${domain}/inbox`,
   });
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
 
-app.post("/groups/:name/inbox", async (c) => {
+app.post("/communities/:name/inbox", async (c) => {
   const name = c.req.param("name");
   const group = await Group.findOne({ name });
   if (!group) return jsonResponse(c, { error: "Not found" }, 404);
@@ -60,6 +63,9 @@ app.post("/groups/:name/inbox", async (c) => {
 
   if (activity.type === "Follow" && typeof activity.actor === "string") {
     const actor = activity.actor;
+    if (group.banned.includes(actor)) {
+      return jsonResponse(c, { error: "Forbidden" }, 403);
+    }
     if (group.isPrivate) {
       await Group.updateOne({ name }, {
         $addToSet: { pendingFollowers: actor },
@@ -68,10 +74,17 @@ app.post("/groups/:name/inbox", async (c) => {
       await Group.updateOne({ name }, { $addToSet: { followers: actor } });
       const accept = createAcceptActivity(
         domain,
-        `https://${domain}/groups/${name}`,
+        `https://${domain}/communities/${name}`,
         activity,
       );
-      deliverActivityPubObject([actor], accept, "system").catch((err) => {
+      deliverActivityPubObjectFromUrl(
+        [actor],
+        accept,
+        {
+          id: `https://${domain}/communities/${name}`,
+          privateKey: group.privateKey,
+        },
+      ).catch((err) => {
         console.error("Delivery failed:", err);
       });
     }
@@ -80,7 +93,7 @@ app.post("/groups/:name/inbox", async (c) => {
 
   if (activity.type === "Create" && typeof activity.object === "object") {
     const actor = typeof activity.actor === "string" ? activity.actor : "";
-    if (!group.followers.includes(actor)) {
+    if (!group.followers.includes(actor) || group.banned.includes(actor)) {
       return jsonResponse(c, { error: "Forbidden" }, 403);
     }
     const obj = activity.object as Record<string, unknown>;
@@ -98,50 +111,104 @@ app.post("/groups/:name/inbox", async (c) => {
     });
     const announce = createAnnounceActivity(
       domain,
-      `https://${domain}/groups/${name}`,
+      `https://${domain}/communities/${name}`,
       `https://${domain}/objects/${stored._id}`,
     );
-    deliverActivityPubObject(group.followers, announce, "system").catch(
-      (err) => {
-        console.error("Delivery failed:", err);
+    deliverActivityPubObjectFromUrl(
+      group.followers,
+      announce,
+      {
+        id: `https://${domain}/communities/${name}`,
+        privateKey: group.privateKey,
       },
-    );
+    ).catch((err) => {
+      console.error("Delivery failed:", err);
+    });
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
 
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
-app.get("/groups/:name/outbox", async (c) => {
+app.get("/communities/:name/outbox", async (c) => {
   const name = c.req.param("name");
   const domain = getDomain(c);
+  const page = parseInt(c.req.query("page") || "0");
   const objects = await ActivityPubObject.find({ attributedTo: `!${name}` })
-    .sort({
-      published: -1,
-    }).lean();
-  const outbox = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/groups/${name}/outbox`,
-    type: "OrderedCollection",
-    totalItems: objects.length,
-    orderedItems: objects.map((n) =>
-      buildGroupActivity(
-        { ...n, content: n.content ?? "" },
-        domain,
-        name,
-      )
-    ),
-  };
-  return jsonResponse(c, outbox, 200, "application/activity+json");
+    .sort({ published: -1 }).lean();
+  const baseId = `https://${domain}/communities/${name}/outbox`;
+
+  const PAGE_SIZE = 20;
+  if (page) {
+    const start = (page - 1) * PAGE_SIZE;
+    const items = objects.slice(start, start + PAGE_SIZE);
+    const next = start + PAGE_SIZE < objects.length
+      ? `${baseId}?page=${page + 1}`
+      : null;
+    const prev = page > 1 ? `${baseId}?page=${page - 1}` : null;
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `${baseId}?page=${page}`,
+        type: "OrderedCollectionPage",
+        partOf: baseId,
+        orderedItems: items.map((n) =>
+          buildGroupActivity({ ...n, content: n.content ?? "" }, domain, name)
+        ),
+        next,
+        prev,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
+
+  return jsonResponse(
+    c,
+    {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: baseId,
+      type: "OrderedCollection",
+      totalItems: objects.length,
+      first: `${baseId}?page=1`,
+    },
+    200,
+    "application/activity+json",
+  );
 });
 
-app.get("/groups/:name/followers", async (c) => {
+app.get("/communities/:name/followers", async (c) => {
   const name = c.req.param("name");
+  const page = parseInt(c.req.query("page") || "0");
   const group = await Group.findOne({ name }).lean();
   if (!group) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = group.followers ?? [];
-  const baseId = `https://${domain}/groups/${name}/followers`;
+  const baseId = `https://${domain}/communities/${name}/followers`;
+  const PAGE_SIZE = 50;
+  if (page) {
+    const start = (page - 1) * PAGE_SIZE;
+    const items = list.slice(start, start + PAGE_SIZE);
+    const next = start + PAGE_SIZE < list.length
+      ? `${baseId}?page=${page + 1}`
+      : null;
+    const prev = page > 1 ? `${baseId}?page=${page - 1}` : null;
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `${baseId}?page=${page}`,
+        type: "OrderedCollectionPage",
+        partOf: baseId,
+        orderedItems: items,
+        next,
+        prev,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
   return jsonResponse(
     c,
     {
@@ -149,7 +216,7 @@ app.get("/groups/:name/followers", async (c) => {
       id: baseId,
       type: "OrderedCollection",
       totalItems: list.length,
-      orderedItems: list,
+      first: `${baseId}?page=1`,
     },
     200,
     "application/activity+json",

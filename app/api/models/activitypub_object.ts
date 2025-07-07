@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const activityPubObjectSchema = new mongoose.Schema({
-  type: { type: String, required: true }, // Note, Image, Article, Story, CommunityPost など
+  type: { type: String, required: true }, // Note, Image, Article, Story など
   attributedTo: { type: String, required: true },
   content: { type: String },
   to: { type: [String], default: [] },

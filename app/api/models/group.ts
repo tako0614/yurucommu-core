@@ -6,7 +6,16 @@ const groupSchema = new mongoose.Schema({
   followers: { type: [String], default: [] },
   isPrivate: { type: Boolean, default: false },
   pendingFollowers: { type: [String], default: [] },
-});
+  avatar: { type: String, default: "" },
+  banner: { type: String, default: "" },
+  tags: { type: [String], default: [] },
+  rules: { type: [String], default: [] },
+  members: { type: [String], default: [] },
+  moderators: { type: [String], default: [] },
+  banned: { type: [String], default: [] },
+  privateKey: { type: String, default: "" },
+  publicKey: { type: String, default: "" },
+}, { timestamps: true });
 
 const Group = mongoose.model("Group", groupSchema);
 

@@ -1,7 +1,47 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
-import { getDomain } from "./utils/activitypub.ts";
+import Group from "./models/group.ts";
+import {
+  createBlockActivity,
+  createRemoveActivity,
+  deliverActivityPubObjectFromUrl,
+  getDomain,
+} from "./utils/activitypub.ts";
+
+function bufferToBase64(buffer: ArrayBuffer): string {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function bufferToPem(buffer: ArrayBuffer, type: "PUBLIC KEY" | "PRIVATE KEY") {
+  const b64 = bufferToBase64(buffer);
+  const lines = b64.match(/.{1,64}/g)?.join("\n") ?? b64;
+  return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
+}
+
+async function generateKeyPair() {
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSA-PSS",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const priv = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+  const pub = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+  return {
+    privateKey: bufferToPem(priv, "PRIVATE KEY"),
+    publicKey: bufferToPem(pub, "PUBLIC KEY"),
+  };
+}
 
 const app = new Hono();
 
@@ -9,39 +49,34 @@ const app = new Hono();
 app.get("/communities", async (c) => {
   try {
     const domain = getDomain(c);
-    const communities = await ActivityPubObject.find({
-      type: "Community",
-    }).sort({ published: -1 }).lean();
+    const communities = await Group.find().sort({ name: 1 }).lean();
 
     const formatted = await Promise.all(
       communities.map(async (community: Record<string, unknown>) => {
-        // メンバー数とポスト数を計算
-        const extra = community.extra as Record<string, unknown>;
-        const members = extra?.members as string[] | undefined;
-        const memberCount = members?.length || 0;
+        const memberCount = Array.isArray(community.members)
+          ? community.members.length
+          : 0;
         const communityId = typeof community._id === "string"
           ? community._id
           : (community._id as { toString: () => string })?.toString() || "";
         const postCount = await ActivityPubObject.countDocuments({
-          type: "CommunityPost",
+          type: "Note",
           "extra.communityId": communityId,
         });
 
         return {
           id: communityId,
-          name: (community.extra as Record<string, unknown>)?.name || "",
-          description: community.content || "",
-          avatar: (community.extra as Record<string, unknown>)?.avatar || "",
-          banner: (community.extra as Record<string, unknown>)?.banner || "",
+          name: community.name,
+          description: community.description,
+          avatar: community.avatar || "",
+          banner: community.banner || "",
           memberCount,
           postCount,
-          isPrivate: (community.extra as Record<string, unknown>)?.isPrivate ||
-            false,
-          tags: (community.extra as Record<string, unknown>)?.tags || [],
-          rules: (community.extra as Record<string, unknown>)?.rules || [],
-          createdAt: community.published,
-          moderators:
-            (community.extra as Record<string, unknown>)?.moderators || [],
+          isPrivate: community.isPrivate,
+          tags: community.tags || [],
+          rules: community.rules || [],
+          createdAt: community.createdAt,
+          moderators: community.moderators || [],
           domain,
         };
       }),
@@ -66,32 +101,28 @@ app.post("/communities", async (c) => {
     }
 
     // 同名のコミュニティが存在するかチェック
-    const existingCommunity = await ActivityPubObject.findOne({
-      type: "Community",
-      "extra.name": name,
-    });
+    const existingCommunity = await Group.findOne({ name });
 
     if (existingCommunity) {
       return c.json({ error: "Community with this name already exists" }, 409);
     }
 
-    const community = new ActivityPubObject({
-      type: "Community",
-      attributedTo: "system", // システムが作成
-      content: description || "",
-      extra: {
-        name,
-        avatar: avatar || "",
-        banner: banner || "",
-        isPrivate: isPrivate || false,
-        tags: tags || [],
-        rules: [],
-        members: [],
-        moderators: [],
-      },
-    });
+    const keys = await generateKeyPair();
 
-    await community.save();
+    const community = await Group.create({
+      name,
+      description: description || "",
+      isPrivate: isPrivate || false,
+      avatar: avatar || "",
+      banner: banner || "",
+      tags: tags || [],
+      rules: [],
+      members: [],
+      moderators: [],
+      banned: [],
+      privateKey: keys.privateKey,
+      publicKey: keys.publicKey,
+    });
 
     return c.json({
       id: community._id.toString(),
@@ -104,7 +135,7 @@ app.post("/communities", async (c) => {
       isPrivate: isPrivate || false,
       tags: tags || [],
       rules: [],
-      createdAt: community.published,
+      createdAt: community.createdAt,
       moderators: [],
       domain,
     }, 201);
@@ -119,35 +150,32 @@ app.get("/communities/:id", async (c) => {
   try {
     const domain = getDomain(c);
     const id = c.req.param("id");
-    const community = await ActivityPubObject.findById(id).lean();
+    const community = await Group.findById(id).lean();
 
-    if (!community || community.type !== "Community") {
+    if (!community) {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const extra = community.extra as Record<string, unknown>;
-    const members = extra?.members as string[] | undefined;
+    const members = community.members as string[] | undefined;
     const memberCount = members?.length || 0;
     const postCount = await ActivityPubObject.countDocuments({
-      type: "CommunityPost",
+      type: "Note",
       "extra.communityId": id,
     });
 
     return c.json({
       id: community._id.toString(),
-      name: (community.extra as Record<string, unknown>)?.name || "",
-      description: community.content || "",
-      avatar: (community.extra as Record<string, unknown>)?.avatar || "",
-      banner: (community.extra as Record<string, unknown>)?.banner || "",
+      name: community.name,
+      description: community.description,
+      avatar: community.avatar || "",
+      banner: community.banner || "",
       memberCount,
       postCount,
-      isPrivate: (community.extra as Record<string, unknown>)?.isPrivate ||
-        false,
-      tags: (community.extra as Record<string, unknown>)?.tags || [],
-      rules: (community.extra as Record<string, unknown>)?.rules || [],
-      createdAt: community.published,
-      moderators: (community.extra as Record<string, unknown>)?.moderators ||
-        [],
+      isPrivate: community.isPrivate,
+      tags: community.tags || [],
+      rules: community.rules || [],
+      createdAt: community.createdAt,
+      moderators: community.moderators || [],
       domain,
     });
   } catch (error) {
@@ -166,18 +194,18 @@ app.post("/communities/:id/join", async (c) => {
       return c.json({ error: "Username is required" }, 400);
     }
 
-    const community = await ActivityPubObject.findById(id);
-    if (!community || community.type !== "Community") {
+    const community = await Group.findById(id);
+    if (!community) {
       return c.json({ error: "Community not found" }, 404);
     }
-
-    const extra = community.extra as Record<string, unknown>;
-    const members = (extra.members as string[]) || [];
+    if (community.banned.includes(username)) {
+      return c.json({ error: "Banned" }, 403);
+    }
+    const members = community.members as string[] || [];
 
     if (!members.includes(username)) {
       members.push(username);
-      extra.members = members;
-      community.extra = extra;
+      community.members = members;
       await community.save();
     }
 
@@ -198,17 +226,15 @@ app.post("/communities/:id/leave", async (c) => {
       return c.json({ error: "Username is required" }, 400);
     }
 
-    const community = await ActivityPubObject.findById(id);
-    if (!community || community.type !== "Community") {
+    const community = await Group.findById(id);
+    if (!community) {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const extra = community.extra as Record<string, unknown>;
-    const members = (extra.members as string[]) || [];
+    const members = community.members as string[] || [];
     const updatedMembers = members.filter((member) => member !== username);
 
-    extra.members = updatedMembers;
-    community.extra = extra;
+    community.members = updatedMembers;
     await community.save();
 
     return c.json({ success: true, memberCount: updatedMembers.length });
@@ -225,7 +251,7 @@ app.get("/communities/:id/posts", async (c) => {
     const communityId = c.req.param("id");
 
     const posts = await ActivityPubObject.find({
-      type: "CommunityPost",
+      type: "Note",
       "extra.communityId": communityId,
     }).sort({ published: -1 }).lean();
 
@@ -274,13 +300,13 @@ app.post("/communities/:id/posts", async (c) => {
     }
 
     // コミュニティが存在するかチェック
-    const community = await ActivityPubObject.findById(communityId);
-    if (!community || community.type !== "Community") {
+    const community = await Group.findById(communityId);
+    if (!community) {
       return c.json({ error: "Community not found" }, 404);
     }
 
     const post = new ActivityPubObject({
-      type: "CommunityPost",
+      type: "Note",
       attributedTo: author,
       content,
       extra: {
@@ -324,7 +350,7 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
       $inc: { "extra.likes": 1 },
     }, { new: true });
 
-    if (!post || post.type !== "CommunityPost") {
+    if (!post || post.type !== "Note") {
       return c.json({ error: "Post not found" }, 404);
     }
 
@@ -334,6 +360,188 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
   } catch (error) {
     console.error("Error liking community post:", error);
     return c.json({ error: "Failed to like post" }, 500);
+  }
+});
+
+// コミュニティ投稿削除（モデレーター専用）
+app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
+  try {
+    const domain = getDomain(c);
+    const communityId = c.req.param("communityId");
+    const postId = c.req.param("postId");
+    const { username } = await c.req.json();
+
+    if (typeof username !== "string") {
+      return c.json({ error: "Username is required" }, 400);
+    }
+
+    const community = await Group.findById(communityId);
+    if (!community) return c.json({ error: "Community not found" }, 404);
+
+    if (!community.moderators.includes(username)) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const post = await ActivityPubObject.findById(postId);
+    if (!post) return c.json({ error: "Post not found" }, 404);
+
+    await post.deleteOne();
+
+    const objectUrl = typeof post.raw?.id === "string"
+      ? post.raw.id as string
+      : `https://${domain}/objects/${post._id}`;
+
+    const remove = createRemoveActivity(
+      domain,
+      `https://${domain}/communities/${community.name}`,
+      objectUrl,
+    );
+    deliverActivityPubObjectFromUrl(
+      community.followers,
+      remove,
+      {
+        id: `https://${domain}/communities/${community.name}`,
+        privateKey: community.privateKey,
+      },
+    ).catch((err) => {
+      console.error("Delivery failed:", err);
+    });
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error removing community post:", error);
+    return c.json({ error: "Failed to remove post" }, 500);
+  }
+});
+
+// 未承認フォロワー一覧取得
+app.get("/communities/:id/pending-followers", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const community = await Group.findById(id).lean();
+    if (!community) return c.json({ error: "Community not found" }, 404);
+    return c.json({ pending: community.pendingFollowers || [] });
+  } catch (error) {
+    console.error("Error fetching pending followers:", error);
+    return c.json({ error: "Failed" }, 500);
+  }
+});
+
+// フォロワー承認
+app.post("/communities/:id/pending-followers/approve", async (c) => {
+  try {
+    const domain = getDomain(c);
+    const id = c.req.param("id");
+    const { username, actor } = await c.req.json();
+    if (typeof username !== "string" || typeof actor !== "string") {
+      return c.json({ error: "Invalid body" }, 400);
+    }
+    const community = await Group.findById(id);
+    if (!community) return c.json({ error: "Community not found" }, 404);
+    if (!community.moderators.includes(username)) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    if (!community.pendingFollowers.includes(actor)) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    community.pendingFollowers = community.pendingFollowers.filter((a) =>
+      a !== actor
+    );
+    community.followers.push(actor);
+    await community.save();
+    const accept = createAcceptActivity(
+      domain,
+      `https://${domain}/communities/${community.name}`,
+      {
+        type: "Follow",
+        actor,
+        object: `https://${domain}/communities/${community.name}`,
+      },
+    );
+    await deliverActivityPubObjectFromUrl(
+      [actor],
+      accept,
+      {
+        id: `https://${domain}/communities/${community.name}`,
+        privateKey: community.privateKey,
+      },
+    );
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error approving follower:", error);
+    return c.json({ error: "Failed" }, 500);
+  }
+});
+
+// フォロワー拒否
+app.post("/communities/:id/pending-followers/reject", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const { username, actor } = await c.req.json();
+    if (typeof username !== "string" || typeof actor !== "string") {
+      return c.json({ error: "Invalid body" }, 400);
+    }
+    const community = await Group.findById(id);
+    if (!community) return c.json({ error: "Community not found" }, 404);
+    if (!community.moderators.includes(username)) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    community.pendingFollowers = community.pendingFollowers.filter((a) =>
+      a !== actor
+    );
+    await community.save();
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error rejecting follower:", error);
+    return c.json({ error: "Failed" }, 500);
+  }
+});
+
+// ユーザーBAN（モデレーター専用）
+app.post("/communities/:id/block", async (c) => {
+  try {
+    const domain = getDomain(c);
+    const id = c.req.param("id");
+    const { username, target } = await c.req.json();
+
+    if (typeof username !== "string" || typeof target !== "string") {
+      return c.json({ error: "Invalid body" }, 400);
+    }
+
+    const community = await Group.findById(id);
+    if (!community) return c.json({ error: "Community not found" }, 404);
+
+    if (!community.moderators.includes(username)) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    if (!community.banned.includes(target)) {
+      community.banned.push(target);
+    }
+    community.followers = community.followers.filter((f) => f !== target);
+    community.members = community.members.filter((m) => m !== target);
+    await community.save();
+
+    const block = createBlockActivity(
+      domain,
+      `https://${domain}/communities/${community.name}`,
+      target,
+    );
+    deliverActivityPubObjectFromUrl(
+      [target],
+      block,
+      {
+        id: `https://${domain}/communities/${community.name}`,
+        privateKey: community.privateKey,
+      },
+    ).catch((err) => {
+      console.error("Delivery failed:", err);
+    });
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error blocking user:", error);
+    return c.json({ error: "Failed to block user" }, 500);
   }
 });
 

@@ -42,7 +42,7 @@ app.get("/.well-known/webfinger", async (c) => {
         {
           rel: "self",
           type: "application/activity+json",
-          href: `https://${domain}/groups/${gname}`,
+          href: `https://${domain}/communities/${gname}`,
         },
       ],
     };

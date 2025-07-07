@@ -62,15 +62,21 @@ async function signAndSend(
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
 
   const headers = new Headers({
-    // Host ヘッダーは fetch には渡さない（署名用には残す）
     "Date": date,
     "Digest": digest,
-    "Signature":
-      `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
     "Accept": "application/activity+json",
     "Content-Type": "application/activity+json",
     "User-Agent": `Takos/1.0 (+https://${domain}/)`,
   });
+  headers.set(
+    "Signature",
+    `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
+  );
+  headers.append("Signature", `sig1=:${signatureB64}:`);
+  headers.set(
+    "Signature-Input",
+    `sig1="(request-target) host date digest";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
+  );
 
   const res = await fetch(inboxUrl, {
     method: "POST",
@@ -139,6 +145,88 @@ export async function deliverActivityPubObject(
   await Promise.all(deliveryPromises);
 }
 
+async function signAndSendFromUrl(
+  inboxUrl: string,
+  body: string,
+  actor: { id: string; privateKey: string },
+): Promise<Response> {
+  const parsedUrl = new URL(inboxUrl);
+  const host = parsedUrl.hostname;
+  const date = new Date().toUTCString();
+  const encoder = new TextEncoder();
+
+  const digestValue = arrayBufferToBase64(
+    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
+  );
+  const digest = `SHA-256=${digestValue}`;
+
+  const fullPath = parsedUrl.pathname + parsedUrl.search;
+  const signingString = `(request-target): post ${fullPath}\n` +
+    `host: ${host}\n` +
+    `date: ${date}\n` +
+    `digest: ${digest}`;
+
+  const normalizedPrivateKey = ensurePem(actor.privateKey, "PRIVATE KEY");
+  const keyData = pemToArrayBuffer(normalizedPrivateKey);
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    keyData,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    encoder.encode(signingString),
+  );
+  const signatureB64 = arrayBufferToBase64(signature);
+
+  const headers = new Headers({
+    Date: date,
+    Digest: digest,
+    Accept: "application/activity+json",
+    "Content-Type": "application/activity+json",
+  });
+  headers.set(
+    "Signature",
+    `keyId="${actor.id}#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
+  );
+  headers.append("Signature", `sig1=:${signatureB64}:`);
+  headers.set(
+    "Signature-Input",
+    `sig1="(request-target) host date digest";keyid="${actor.id}#main-key";alg="rsa-v1_5-sha256"`,
+  );
+
+  return await fetch(inboxUrl, { method: "POST", headers, body });
+}
+
+export async function deliverActivityPubObjectFromUrl(
+  targets: string[],
+  object: unknown,
+  actor: { id: string; privateKey: string },
+): Promise<void> {
+  const body = JSON.stringify(object);
+  const promises = targets.map(async (iri) => {
+    let target = iri;
+    if (!iri.endsWith("/inbox") && !iri.endsWith("/sharedInbox")) {
+      try {
+        const { inbox, sharedInbox } = await resolveRemoteActor(iri);
+        target = sharedInbox ?? inbox;
+      } catch {
+        return;
+      }
+    }
+    try {
+      await signAndSendFromUrl(target, body, actor);
+    } catch (err) {
+      console.error("Delivery failed:", err);
+    }
+  });
+  await Promise.all(promises);
+}
+
 export function ensurePem(
   key: string,
   type: "PUBLIC KEY" | "PRIVATE KEY",
@@ -166,11 +254,22 @@ export async function verifyHttpSignature(
 ): Promise<boolean> {
   try {
     const signatureHeader = req.headers.get("signature");
-    if (!signatureHeader) {
-      return false;
+    let params: Record<string, string>;
+    if (signatureHeader) {
+      params = parseSignatureHeader(signatureHeader);
+    } else {
+      const sigInput = req.headers.get("signature-input");
+      const sig = req.headers.get("signature");
+      if (!sigInput || !sig) return false;
+      const match = sigInput.match(/([^=]+)="([^"]+)".*keyid="([^"]+)"/);
+      if (!match) return false;
+      const label = match[1];
+      params = {
+        headers: match[2],
+        signature: sig.match(new RegExp(label + "=:(.+):"))?.[1] ?? "",
+        keyId: match[3],
+      };
     }
-
-    const params = parseSignatureHeader(signatureHeader);
     const publicKeyUrl = params.keyId;
 
     if (!publicKeyUrl) {
@@ -468,21 +567,47 @@ export function createActor(
 
 export function createGroupActor(
   domain: string,
-  group: { name: string; description: string },
+  group: {
+    name: string;
+    description: string;
+    avatar?: string;
+    publicKey: string;
+    sharedInbox?: string;
+  },
 ) {
-  return {
+  const base = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       "https://w3id.org/security/v1",
     ],
-    id: `https://${domain}/groups/${group.name}`,
+    id: `https://${domain}/communities/${group.name}`,
     type: "Group",
+    preferredUsername: group.name,
     name: group.name,
     summary: group.description,
-    inbox: `https://${domain}/groups/${group.name}/inbox`,
-    outbox: `https://${domain}/groups/${group.name}/outbox`,
-    followers: `https://${domain}/groups/${group.name}/followers`,
-  };
+    inbox: `https://${domain}/communities/${group.name}/inbox`,
+    outbox: `https://${domain}/communities/${group.name}/outbox`,
+    followers: `https://${domain}/communities/${group.name}/followers`,
+    publicKey: {
+      id: `https://${domain}/communities/${group.name}#main-key`,
+      owner: `https://${domain}/communities/${group.name}`,
+      publicKeyPem: ensurePem(group.publicKey, "PUBLIC KEY"),
+    },
+  } as Record<string, unknown>;
+
+  if (group.avatar) {
+    base.icon = {
+      type: "Image",
+      mediaType: "image/png",
+      url: group.avatar,
+    };
+  }
+
+  if (group.sharedInbox) {
+    base.endpoints = { sharedInbox: group.sharedInbox };
+  }
+
+  return base;
 }
 
 export function buildActivityFromStored(
@@ -554,6 +679,21 @@ export function createRemoveActivity(
   };
 }
 
+/** Block Activity を生成する */
+export function createBlockActivity(
+  domain: string,
+  actor: string,
+  object: string,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Block",
+    actor,
+    object,
+  };
+}
+
 /** Delete Activity を生成する */
 export function createDeleteActivity(
   domain: string,
@@ -612,7 +752,18 @@ export function createAnnounceActivity(
 export async function fetchJson<T = unknown>(
   url: string,
   init: RequestInit = {},
+  signer?: { id: string; privateKey: string },
 ): Promise<T> {
+  if (!signer) {
+    const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
+    const sys = await Account.findOne({ userName: "system" }).lean();
+    if (sys) {
+      signer = {
+        id: `https://${domain}/users/system`,
+        privateKey: sys.privateKey,
+      };
+    }
+  }
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {
     headers.set(
@@ -620,7 +771,43 @@ export async function fetchJson<T = unknown>(
       'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
     );
   }
-  const res = await fetch(url, { ...init, headers });
+  const signedInit = { ...init, headers };
+  if (signer) {
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.hostname;
+    const date = new Date().toUTCString();
+    const fullPath = parsedUrl.pathname + parsedUrl.search;
+    const signingString = `(request-target): get ${fullPath}\n` +
+      `host: ${host}\n` +
+      `date: ${date}`;
+    const normalizedPrivateKey = ensurePem(signer.privateKey, "PRIVATE KEY");
+    const keyData = pemToArrayBuffer(normalizedPrivateKey);
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      keyData,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const encoder = new TextEncoder();
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      encoder.encode(signingString),
+    );
+    const signatureB64 = arrayBufferToBase64(signature);
+    headers.set("Date", date);
+    headers.set(
+      "Signature",
+      `keyId="${signer.id}#main-key",algorithm="rsa-sha256",headers="(request-target) host date",signature="${signatureB64}"`,
+    );
+    headers.append("Signature", `sig1=:${signatureB64}:`);
+    headers.set(
+      "Signature-Input",
+      `sig1="(request-target) host date";keyid="${signer.id}#main-key";alg="rsa-v1_5-sha256"`,
+    );
+  }
+  const res = await fetch(url, signedInit);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
