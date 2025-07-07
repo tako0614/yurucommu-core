@@ -16,6 +16,7 @@ import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
+import videos from "./videos.ts";
 
 const env = await load();
 
@@ -29,6 +30,7 @@ app.route("/api", session);
 app.route("/api", accounts);
 app.route("/api", notifications);
 app.route("/api", microblog);
+app.route("/api", videos);
 app.route("/api", search);
 app.route("/api", communities);
 app.route("/api", relays);

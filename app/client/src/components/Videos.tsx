@@ -1,19 +1,12 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-
-interface Video {
-  id: string;
-  title: string;
-  author: string;
-  authorAvatar: string;
-  thumbnail: string;
-  duration: string;
-  views: number;
-  likes: number;
-  timestamp: Date;
-  isShort: boolean;
-  description?: string;
-  hashtags?: string[];
-}
+import {
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { createVideo, fetchVideos } from "./videos/api.ts";
 
 export function Videos() {
   const [currentView, setCurrentView] = createSignal<"timeline" | "shorts">(
@@ -29,82 +22,10 @@ export function Videos() {
     file: null as File | null,
   });
 
-  const [videos, setVideos] = createSignal<Video[]>([
-    {
-      id: "1",
-      title: "美しい夕日のタイムラプス",
-      author: "NatureFilms",
-      authorAvatar: "🌅",
-      thumbnail: "/api/placeholder/400/225",
-      duration: "2:34",
-      views: 12400,
-      likes: 1200,
-      timestamp: new Date(Date.now() - 3600000),
-      isShort: false,
-      description: "美しい夕日の風景をタイムラプスで撮影しました。",
-      hashtags: ["#nature", "#sunset", "#timelapse"],
-    },
-    {
-      id: "2",
-      title: "料理のコツ",
-      author: "CookingMaster",
-      authorAvatar: "👨‍🍳",
-      thumbnail: "/api/placeholder/225/400",
-      duration: "0:45",
-      views: 8900,
-      likes: 890,
-      timestamp: new Date(Date.now() - 7200000),
-      isShort: true,
-      description:
-        "簡単で美味しい料理のコツを紹介！\n\n材料:\n- 玉ねぎ 1個\n- 塩 少々\n- 胡椒 少々",
-      hashtags: ["#cooking", "#recipe", "#shorts"],
-    },
-    {
-      id: "3",
-      title: "プログラミング入門",
-      author: "CodeTeacher",
-      authorAvatar: "💻",
-      thumbnail: "/api/placeholder/225/400",
-      duration: "1:20",
-      views: 15600,
-      likes: 2300,
-      timestamp: new Date(Date.now() - 10800000),
-      isShort: true,
-      description: "プログラミングの基礎を短時間で学ぼう！",
-      hashtags: ["#programming", "#coding", "#tutorial"],
-    },
-    {
-      id: "4",
-      title: "可愛い猫の動画",
-      author: "CatLover",
-      authorAvatar: "🐱",
-      thumbnail: "/api/placeholder/225/400",
-      duration: "0:30",
-      views: 45600,
-      likes: 5200,
-      timestamp: new Date(Date.now() - 14400000),
-      isShort: true,
-      description: "うちの猫ちゃんが可愛すぎる件について",
-      hashtags: ["#cat", "#cute", "#pets"],
-    },
-    {
-      id: "5",
-      title: "ダンスチャレンジ",
-      author: "DanceQueen",
-      authorAvatar: "💃",
-      thumbnail: "/api/placeholder/225/400",
-      duration: "1:00",
-      views: 23400,
-      likes: 3100,
-      timestamp: new Date(Date.now() - 18000000),
-      isShort: true,
-      description: "最新のダンストレンドに挑戦！",
-      hashtags: ["#dance", "#challenge", "#trending"],
-    },
-  ]);
+  const [videos, { mutate: setVideos }] = createResource(fetchVideos);
 
-  const shortVideos = () => videos().filter((v) => v.isShort);
-  const _longVideos = () => videos().filter((v) => !v.isShort);
+  const shortVideos = () => (videos() || []).filter((v) => v.isShort);
+  const _longVideos = () => (videos() || []).filter((v) => !v.isShort);
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -112,7 +33,8 @@ export function Videos() {
     return num.toString();
   };
 
-  const formatTime = (date: Date) => {
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -136,28 +58,21 @@ export function Videos() {
     }
   };
 
-  const submitUpload = () => {
+  const submitUpload = async () => {
     const form = uploadForm();
-    if (!form.file || !form.title.trim()) return;
+    if (!form.title.trim()) return;
 
-    // 新しい動画データを作成
-    const newVideo: Video = {
-      id: String(Date.now()),
-      title: form.title,
+    const newVideo = await createVideo({
       author: "あなた",
-      authorAvatar: "😊",
-      thumbnail: "/api/placeholder/" + (form.isShort ? "225/400" : "400/225"),
-      duration: form.isShort ? "0:30" : "5:00", // 実際の実装では動画ファイルから取得
-      views: 0,
-      likes: 0,
-      timestamp: new Date(),
-      isShort: form.isShort,
+      title: form.title,
       description: form.description,
       hashtags: form.hashtags.split(" ").filter((tag) => tag.startsWith("#")),
-    };
+      isShort: form.isShort,
+      duration: form.isShort ? "0:30" : "5:00",
+    });
+    if (!newVideo) return;
 
-    // 動画リストに追加（実際の実装ではAPIに送信）
-    setVideos((prev) => [newVideo, ...prev]);
+    setVideos((prev) => prev ? [newVideo, ...prev] : [newVideo]);
 
     // フォームをリセット
     setUploadForm({
@@ -363,7 +278,7 @@ export function Videos() {
                 <button
                   type="button"
                   onClick={submitUpload}
-                  disabled={!uploadForm().file || !uploadForm().title.trim()}
+                  disabled={!uploadForm().title.trim()}
                   class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium shadow-lg"
                 >
                   アップロード
@@ -584,7 +499,7 @@ export function Videos() {
                 あなたへのおすすめ
               </h2>
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                <For each={videos().filter((v) => !v.isShort)}>
+                <For each={_longVideos()}>
                   {(video) => (
                     <div
                       class="group cursor-pointer"
