@@ -1,4 +1,10 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
 
@@ -167,6 +173,26 @@ export default function UnifiedToolsContent() {
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
   );
+
+  createEffect(() => {
+    const id = selectedAccountId();
+    if (!id) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/accounts/${id}/following`);
+        if (res.ok) {
+          const data = await res.json();
+          const map: Record<string, boolean> = {};
+          for (const actor of data.following as string[]) {
+            map[actor] = true;
+          }
+          setFollowStatus((prev) => ({ ...map, ...prev }));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  });
 
   const placeholder = () => {
     switch (activeTab()) {
