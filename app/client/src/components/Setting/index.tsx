@@ -1,5 +1,6 @@
 import { useAtom } from "solid-jotai";
 import { darkModeState, languageState } from "../../states/settings.ts";
+import RelaySettings from "./RelaySettings.tsx";
 
 export function Setting() {
   const [darkMode, setDarkMode] = useAtom(darkModeState);
@@ -29,6 +30,7 @@ export function Setting() {
           <option value="en">English</option>
         </select>
       </div>
+      <RelaySettings />
     </div>
   );
 }
