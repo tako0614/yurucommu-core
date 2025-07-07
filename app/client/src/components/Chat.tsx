@@ -538,8 +538,16 @@ export function Chat() {
                     </svg>
                   </button>
                 </Show>
-                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                  {selectedRoomInfo()?.avatar}
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold overflow-hidden">
+                  {isUrl(selectedRoomInfo()?.avatar)
+                    ? (
+                      <img
+                        src={selectedRoomInfo()?.avatar}
+                        alt="avatar"
+                        class="w-full h-full object-cover rounded-full"
+                      />
+                    )
+                    : selectedRoomInfo()?.avatar}
                 </div>
                 <div>
                   <h3 class="text-lg font-semibold text-white">
