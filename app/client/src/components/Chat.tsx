@@ -80,6 +80,14 @@ export function Chat() {
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
   let poller: number | undefined;
+  let textareaRef: HTMLTextAreaElement | undefined;
+
+  const adjustHeight = () => {
+    if (textareaRef) {
+      textareaRef.style.height = "auto";
+      textareaRef.style.height = `${textareaRef.scrollHeight}px`;
+    }
+  };
 
   const isUrl = (value?: string): boolean => {
     if (!value) return false;
@@ -300,6 +308,7 @@ export function Chat() {
     loadGroupStates();
     ensureKeyPair();
     loadMessages();
+    adjustHeight();
   });
 
   createEffect(() => {
@@ -325,6 +334,11 @@ export function Chat() {
     saveGroupStates();
   });
 
+  createEffect(() => {
+    newMessage();
+    adjustHeight();
+  });
+
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
     if (poller) clearInterval(poller);
@@ -332,7 +346,6 @@ export function Chat() {
 
   return (
     <>
-      <ChatHeader />
       <div class="wrapper w-full">
         <main
           class={`p-talk ${
@@ -383,110 +396,169 @@ export function Chat() {
             </div>
           </div>
           <div class="p-talk-chat">
-            <div class="p-talk-chat-container min-h-dvh flex flex-col">
-              <div
-                class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`}
-                id="chatHeader"
-              >
-                <div class="flex items-center gap-2 p-4">
-                  <Show when={isMobile()}>
+            <Show
+              when={selectedRoom()}
+              fallback={
+                <div class="flex-1 flex items-center justify-center bg-[#121212] min-h-0">
+                  <div class="text-center px-4">
+                    <div class="w-16 h-16 bg-[#2a2a2a] rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg
+                        class="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                        />
+                      </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-white mb-2">
+                      {isMobile() ? "チャンネルを選択" : "チャンネルを選択"}
+                    </h3>
+                    <p class="text-gray-400 text-sm">
+                      {isMobile()
+                        ? "左上のメニューからチャンネルを選択してください"
+                        : "左のサイドバーからチャンネルを選択して会話を開始しましょう"}
+                    </p>
+                  </div>
+                </div>
+              }
+            >
+              <div class="p-talk-chat-container min-h-dvh flex flex-col">
+                <div
+                  class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`}
+                  id="chatHeader"
+                >
+                  <div class="flex items-center gap-2 p-4">
+                    <Show when={isMobile()}>
+                      <button
+                        type="button"
+                        class="p-talk-chat-prev"
+                        onClick={backToRoomList}
+                      >
+                        <svg
+                          role="img"
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          stroke="#ffffff"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          fill="none"
+                          class="w-5 h-5"
+                        >
+                          <polyline points="14 18 8 12 14 6" />
+                        </svg>
+                      </button>
+                    </Show>
+                    <h2>{selectedRoomInfo()?.name}</h2>
+                  </div>
+                </div>
+                <div class="p-talk-chat-main flex-grow overflow-y-auto">
+                  <ul class="p-talk-chat-main__ul">
+                    <For each={messages()}>
+                      {(message, i) => {
+                        const prev = messages()[i() - 1];
+                        const isPrimary = !prev ||
+                          prev.author !== message.author;
+                        const cls = `c-talk-chat ${
+                          message.isMe ? "self" : "other"
+                        } ${isPrimary ? "primary" : "subsequent"}`;
+                        return (
+                          <li class={cls}>
+                            <div class="c-talk-chat-box">
+                              <Show when={!message.isMe && isPrimary}>
+                                <div class="c-talk-chat-icon">
+                                  {isUrl(message.avatar)
+                                    ? <img src={message.avatar} alt="avatar" />
+                                    : message.avatar}
+                                </div>
+                              </Show>
+                              <div class="c-talk-chat-right">
+                                <Show when={!message.isMe && isPrimary}>
+                                  <p class="c-talk-chat-name">
+                                    {message.displayName}
+                                  </p>
+                                </Show>
+                                <div class="flex items-end">
+                                  <Show when={message.isMe}>
+                                    <span class="text-xs text-gray-500 mr-2">
+                                      {message.timestamp.toLocaleTimeString(
+                                        [],
+                                        {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        },
+                                      )}
+                                    </span>
+                                  </Show>
+                                  <div class="c-talk-chat-msg">
+                                    <p>{message.content}</p>
+                                  </div>
+                                  <Show when={!message.isMe}>
+                                    <span class="text-xs text-gray-500 ml-2">
+                                      {message.timestamp.toLocaleTimeString(
+                                        [],
+                                        {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        },
+                                      )}
+                                    </span>
+                                  </Show>
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      }}
+                    </For>
+                  </ul>
+                </div>
+                <div class="p-talk-chat-send">
+                  <div class="p-talk-chat-send__form">
+                    <div class="p-talk-chat-send__msg">
+                      <label for="msg" />
+                      <textarea
+                        id="msg"
+                        class="p-talk-chat-send__textarea"
+                        rows="1"
+                        ref={(el) => (textareaRef = el)}
+                        value={newMessage()}
+                        onInput={(e) => {
+                          setNewMessage(e.target.value);
+                          adjustHeight();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            sendMessage();
+                          }
+                        }}
+                      />
+                    </div>
                     <button
                       type="button"
-                      class="p-talk-chat-prev"
-                      onClick={backToRoomList}
+                      class={`p-talk-chat-send__button ${
+                        newMessage().trim() ? "is-active" : ""
+                      }`}
+                      onClick={sendMessage}
+                      disabled={!newMessage().trim()}
                     >
-                      <svg
-                        role="img"
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        stroke="#ffffff"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        fill="none"
-                        class="w-5 h-5"
-                      >
-                        <polyline points="14 18 8 12 14 6" />
+                      <svg viewBox="0 0 24 24">
+                        <g>
+                          <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        </g>
                       </svg>
                     </button>
-                  </Show>
-                  <h2>{selectedRoomInfo()?.name}</h2>
-                </div>
-              </div>
-              <div class="p-talk-chat-main flex-grow overflow-y-auto">
-                <ul class="p-talk-chat-main__ul">
-                  <For each={messages()}>
-                    {(message) => (
-                      <li
-                        class={`c-talk-chat ${message.isMe ? "self" : "other"}`}
-                      >
-                        <div class="c-talk-chat-box">
-                          <Show when={!message.isMe}>
-                            <div class="c-talk-chat-icon">
-                              {isUrl(message.avatar)
-                                ? <img src={message.avatar} alt="avatar" />
-                                : message.avatar}
-                            </div>
-                          </Show>
-                          <div class="c-talk-chat-right">
-                            <Show when={!message.isMe}>
-                              <p class="c-talk-chat-name">
-                                {message.displayName}
-                              </p>
-                            </Show>
-                            <div class="c-talk-chat-msg">
-                              <p>{message.content}</p>
-                            </div>
-                          </div>
-                        </div>
-                        <p class="c-talk-chat-date">
-                          <span class="c-talk-chat-date-box">
-                            {message.timestamp.toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </p>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </div>
-              <div class="p-talk-chat-send">
-                <div class="p-talk-chat-send__form">
-                  <div class="p-talk-chat-send__msg">
-                    <label for="msg" />
-                    <textarea
-                      id="msg"
-                      class="p-talk-chat-send__textarea"
-                      rows="1"
-                      value={newMessage()}
-                      onInput={(e) => setNewMessage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          sendMessage();
-                        }
-                      }}
-                    />
                   </div>
-                  <button
-                    type="button"
-                    class={`p-talk-chat-send__button ${
-                      newMessage().trim() ? "is-active" : ""
-                    }`}
-                    onClick={sendMessage}
-                    disabled={!newMessage().trim()}
-                  >
-                    <svg viewBox="0 0 24 24">
-                      <g>
-                        <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </g>
-                    </svg>
-                  </button>
                 </div>
               </div>
-            </div>
+            </Show>
           </div>
         </main>
       </div>
