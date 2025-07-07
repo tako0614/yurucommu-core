@@ -11,8 +11,20 @@ export interface Account {
 }
 
 const STORAGE_KEY = "takos-active-account-id";
+const ACCOUNTS_KEY = "takos-accounts";
 
-export const accounts = atom<Account[]>([]);
+const savedAccounts = localStorage.getItem(ACCOUNTS_KEY);
+export const accounts = atom<Account[]>(
+  savedAccounts ? JSON.parse(savedAccounts) as Account[] : [],
+);
+
+export const setAccounts = atom(
+  (get) => get(accounts),
+  (_get, set, newAccounts: Account[]) => {
+    set(accounts, newAccounts);
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(newAccounts));
+  },
+);
 
 // 選択中アカウントIDの初期値を localStorage から取得
 const initialAccountId = localStorage.getItem(STORAGE_KEY);
