@@ -120,4 +120,9 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 - `GET  /api/communities/:id/pending-followers` 未承認フォロワー一覧を取得。
 - `POST /api/communities/:id/pending-followers/approve` 承認して `Accept`
   を送信。
-- `POST /api/communities/:id/pending-followers/reject` フォロー申請を拒否。
+  - `POST /api/communities/:id/pending-followers/reject` フォロー申請を拒否。
+
+## クライアントでのデータ保存
+
+チャット機能で利用するMLS関連データは、ブラウザのIndexedDBに保存します。データベースは
+アカウントIDごとに分割されており、別アカウントの情報が混在しないようになっています。
