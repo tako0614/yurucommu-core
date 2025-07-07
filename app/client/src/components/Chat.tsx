@@ -37,6 +37,7 @@ import {
   saveMLSGroupStates,
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
+import ChatHeader from "./header/header.tsx";
 
 interface ChatMessage {
   id: string;
