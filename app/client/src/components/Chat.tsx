@@ -347,12 +347,12 @@ export function Chat() {
     <>
       <div class="w-full h-screen overflow-y-hidden">
         <main
-          class={`p-talk ${
-            isMobile() ? (showRoomList() ? "" : "is-inview") : ""
-          } flex`}
+          class={`p-talk ${isMobile() ? (showRoomList() ? "" : "is-inview") : ""} flex`}
           id="chatmain"
         >
+          {/* ...existing code... (room list, chat header, message list) ... */}
           <div class="p-talk-list min-h-screen">
+            {/* ...existing code... */}
             <div class="p-talk-list-title">チャット</div>
             <div class="p-talk-list-search">
               <input type="text" placeholder="チャンネルを検索..." />
@@ -362,9 +362,7 @@ export function Chat() {
                 <For each={chatRooms()}>
                   {(room) => (
                     <li
-                      class={`c-talk-rooms ${
-                        selectedRoom() === room.id ? "is-active" : ""
-                      }`}
+                      class={`c-talk-rooms ${selectedRoom() === room.id ? "is-active" : ""}`}
                     >
                       <button type="button" onClick={() => selectRoom(room.id)}>
                         <span class="c-talk-rooms-icon">
@@ -396,7 +394,7 @@ export function Chat() {
             <Show
               when={selectedRoom()}
               fallback={
-                <div class="flex-1 flex items-center justify-center bg-[#121212] min-h-0">
+                <div class="flex-1 flex items-center justify-center bg-[#121212] min-h-0 h-full">
                   <div class="text-center px-4">
                     <div class="w-16 h-16 bg-[#2a2a2a] rounded-full flex items-center justify-center mx-auto mb-4">
                       <svg
@@ -426,10 +424,8 @@ export function Chat() {
               }
             >
               <div class="p-talk-chat-container min-h-dvh flex flex-col">
-                <div
-                  class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`}
-                  id="chatHeader"
-                >
+                {/* ...existing code... (chat header, message list) ... */}
+                <div class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`} id="chatHeader">
                   <div class="flex items-center gap-2 p-4">
                     <Show when={isMobile()}>
                       <button
@@ -460,11 +456,8 @@ export function Chat() {
                     <For each={messages()}>
                       {(message, i) => {
                         const prev = messages()[i() - 1];
-                        const isPrimary = !prev ||
-                          prev.author !== message.author;
-                        const cls = `c-talk-chat ${
-                          message.isMe ? "self" : "other"
-                        } ${isPrimary ? "primary" : "subsequent"}`;
+                        const isPrimary = !prev || prev.author !== message.author;
+                        const cls = `c-talk-chat ${message.isMe ? "self" : "other"} ${isPrimary ? "primary" : "subsequent"}`;
                         return (
                           <li class={cls}>
                             <div class="c-talk-chat-box">
@@ -522,44 +515,134 @@ export function Chat() {
                     </For>
                   </ul>
                 </div>
-                <div class="p-talk-chat-send">
-                  <div class="p-talk-chat-send__form">
-                    <div class="p-talk-chat-send__msg">
-                      <label for="msg" />
-                      <textarea
-                        id="msg"
-                        class="p-talk-chat-send__textarea"
-                        rows="1"
-                        ref={(el) => (textareaRef = el)}
-                        value={newMessage()}
-                        onInput={(e) => {
-                          setNewMessage(e.target.value);
-                          adjustHeight();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            sendMessage();
-                          }
-                        }}
-                      />
+                {/* --- ここから送信UIをold_takosui/send.tsx風に --- */}
+                <div class="p-talk-chat-send relative bg-[#1e1e1e] py-1 px-2" style={{ "padding-bottom": "calc(env(safe-area-inset-bottom, 4px) + 4px)" }}>
+                  <form class="p-talk-chat-send__form m-0" onSubmit={e => e.preventDefault()}>
+                    <div class="p-talk-chat-send__msg flex items-center gap-1">
+                      <div class="p-talk-chat-send__dummy" aria-hidden="true" style="min-width:0;">
+                        {newMessage().split("\n").map((row) => (
+                          <>
+                            {row}
+                            <br />
+                          </>
+                        ))}
+                      </div>
+                      <label class="flex-1">
+                        <textarea
+                          id="msg"
+                          class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
+                          rows="1"
+                          ref={(el) => (textareaRef = el)}
+                          value={newMessage()}
+                          placeholder="メッセージを入力"
+                          style="min-height:32px;max-height:80px;"
+                          onInput={(e) => {
+                            setNewMessage(e.target.value);
+                            adjustHeight();
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              sendMessage();
+                            }
+                          }}
+                        />
+                      </label>
                     </div>
-                    <button
-                      type="button"
-                      class={`p-talk-chat-send__button ${
-                        newMessage().trim() ? "is-active" : ""
-                      }`}
-                      onClick={sendMessage}
-                      disabled={!newMessage().trim()}
-                    >
-                      <svg viewBox="0 0 24 24">
-                        <g>
-                          <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                        </g>
-                      </svg>
-                    </button>
-                  </div>
+                    <div class="flex items-center gap-1 mt-1">
+                      {/* 暗号化状態インジケーター（ダミー/本来は状態管理で切り替え） */}
+                      <div
+                        class="flex items-center px-2 py-0.5 rounded-full text-xs bg-green-700 bg-opacity-25 text-green-400"
+                        title="暗号化オン (クリックで切り替え)"
+                        style="cursor: pointer; min-height:28px;"
+                        // onClick={toggleEncryption}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          class="h-3.5 w-3.5 mr-1"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fill-rule="evenodd"
+                            d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                            clip-rule="evenodd"
+                          />
+                        </svg>
+                        暗号化
+                      </div>
+                      {/* メニューボタン（ダミー/本来はメニュー展開） */}
+                      <div class="relative">
+                        <div
+                          class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+                          // onClick={toggleMenu}
+                          title="メニューを開く"
+                          style="min-height:28px;"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                        </div>
+                      </div>
+                      {/* 画像ボタン（ダミー/本来は画像送信） */}
+                      <div
+                        class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+                        // onClick={handleMediaSelect}
+                        title="写真・動画を送信"
+                        style="min-height:28px;"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                          <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                      </div>
+                      {/* 送信ボタン */}
+                      <div
+                        class={newMessage().trim() ? "p-talk-chat-send__button is-active" : "p-talk-chat-send__button"}
+                        onClick={sendMessage}
+                        style="min-height:28px;"
+                      >
+                        <svg
+                          width="800px"
+                          height="800px"
+                          viewBox="0 0 28 28"
+                          version="1.1"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <g stroke="none" stroke-width="1" fill="none">
+                            <g fill="#000000">
+                              <path d="M3.78963301,2.77233335 L24.8609339,12.8499121 C25.4837277,13.1477699 25.7471402,13.8941055 25.4492823,14.5168992 C25.326107,14.7744476 25.1184823,14.9820723 24.8609339,15.1052476 L3.78963301,25.1828263 C3.16683929,25.4806842 2.42050372,25.2172716 2.12264586,24.5944779 C1.99321184,24.3238431 1.96542524,24.015685 2.04435886,23.7262618 L4.15190935,15.9983421 C4.204709,15.8047375 4.36814355,15.6614577 4.56699265,15.634447 L14.7775879,14.2474874 C14.8655834,14.2349166 14.938494,14.177091 14.9721837,14.0981464 L14.9897199,14.0353553 C15.0064567,13.9181981 14.9390703,13.8084248 14.8334007,13.7671556 L14.7775879,13.7525126 L4.57894108,12.3655968 C4.38011873,12.3385589 4.21671819,12.1952832 4.16392965,12.0016992 L2.04435886,4.22889788 C1.8627142,3.56286745 2.25538645,2.87569101 2.92141688,2.69404635 C3.21084015,2.61511273 3.51899823,2.64289932 3.78963301,2.77233335 Z">
+                              </path>
+                            </g>
+                          </g>
+                        </svg>
+                      </div>
+                    </div>
+                  </form>
                 </div>
+                {/* --- 送信UIここまで --- */}
               </div>
             </Show>
           </div>
