@@ -61,9 +61,17 @@ const AccountSettingsContent: Component<{
         displayName: selectedAccount()?.displayName || username,
         authorAvatar: selectedAccount()?.avatarInitial || "",
         createdAt: o.published,
-        likes: typeof (o.extra as Record<string, unknown>)?.likes === "number" ? (o.extra as Record<string, unknown>)?.likes as number : 0,
-        retweets: typeof (o.extra as Record<string, unknown>)?.retweets === "number" ? (o.extra as Record<string, unknown>)?.retweets as number : 0,
-        replies: typeof (o.extra as Record<string, unknown>)?.replies === "number" ? (o.extra as Record<string, unknown>)?.replies as number : 0,
+        likes: typeof (o.extra as Record<string, unknown>)?.likes === "number"
+          ? (o.extra as Record<string, unknown>)?.likes as number
+          : 0,
+        retweets:
+          typeof (o.extra as Record<string, unknown>)?.retweets === "number"
+            ? (o.extra as Record<string, unknown>)?.retweets as number
+            : 0,
+        replies:
+          typeof (o.extra as Record<string, unknown>)?.replies === "number"
+            ? (o.extra as Record<string, unknown>)?.replies as number
+            : 0,
       }));
     },
   );
@@ -439,11 +447,23 @@ const AccountSettingsContent: Component<{
             </Show>
             {/* フォロー中モーダル */}
             <Show when={showFollowingModal()}>
-              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowFollowingModal(false)}>
-                <div class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+              <div
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+                onClick={() => setShowFollowingModal(false)}
+              >
+                <div
+                  class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-white">フォロー中</h3>
-                    <button class="text-gray-400 hover:text-white" onClick={() => setShowFollowingModal(false)}>×</button>
+                    <button
+                      type="button"
+                      class="text-gray-400 hover:text-white"
+                      onClick={() => setShowFollowingModal(false)}
+                    >
+                      ×
+                    </button>
                   </div>
                   <div class="space-y-2">
                     <For each={followingList() || []}>
@@ -454,7 +474,9 @@ const AccountSettingsContent: Component<{
                             username={u.userName}
                             size="w-8 h-8"
                           />
-                          <span class="text-sm text-white">{u.displayName}</span>
+                          <span class="text-sm text-white">
+                            {u.displayName}
+                          </span>
                         </div>
                       )}
                     </For>
@@ -464,11 +486,23 @@ const AccountSettingsContent: Component<{
             </Show>
             {/* フォロワーモーダル */}
             <Show when={showFollowersModal()}>
-              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowFollowersModal(false)}>
-                <div class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+              <div
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+                onClick={() => setShowFollowersModal(false)}
+              >
+                <div
+                  class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-white">フォロワー</h3>
-                    <button class="text-gray-400 hover:text-white" onClick={() => setShowFollowersModal(false)}>×</button>
+                    <button
+                      type="button"
+                      class="text-gray-400 hover:text-white"
+                      onClick={() => setShowFollowersModal(false)}
+                    >
+                      ×
+                    </button>
                   </div>
                   <div class="space-y-2">
                     <For each={followers() || []}>
@@ -479,7 +513,9 @@ const AccountSettingsContent: Component<{
                             username={u.userName}
                             size="w-8 h-8"
                           />
-                          <span class="text-sm text-white">{u.displayName}</span>
+                          <span class="text-sm text-white">
+                            {u.displayName}
+                          </span>
                         </div>
                       )}
                     </For>
