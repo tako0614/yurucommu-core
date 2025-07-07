@@ -114,29 +114,44 @@ export async function getUserInfo(
       );
     }
   } else if (typeof identifier === "string" && identifier.startsWith("http")) {
-    // 外部ユーザーの場合（ActivityPub URL）
-    isLocal = false;
     try {
       const url = new URL(identifier);
-      userDomain = url.hostname;
-
-      // URLから適切なユーザー名を抽出
       const pathParts = url.pathname.split("/");
       const extractedUsername = pathParts[pathParts.length - 1] ||
         pathParts[pathParts.length - 2] ||
         "external_user";
 
       userName = extractedUsername;
-      displayName = extractedUsername;
 
-      // 外部アクター情報を取得
-      const info = await fetchExternalActorInfo(identifier);
-      if (info) {
-        displayName = info.displayName || displayName;
-        authorAvatar = info.avatar;
+      if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+        // ローカルユーザーを URL で指定した場合
+        const localAccount = await Account.findOne({
+          userName: extractedUsername,
+        }).lean();
+        if (localAccount) {
+          displayName = localAccount.displayName || extractedUsername;
+          authorAvatar = localAccount.avatarInitial || "";
+        } else {
+          displayName = extractedUsername;
+        }
+        userDomain = domain;
+        isLocal = true;
+      } else {
+        // 外部ユーザーの場合（ActivityPub URL）
+        userDomain = url.hostname;
+        isLocal = false;
+
+        const info = await fetchExternalActorInfo(identifier);
+        if (info) {
+          displayName = info.displayName || extractedUsername;
+          authorAvatar = info.avatar;
+        } else {
+          displayName = extractedUsername;
+        }
       }
     } catch {
       userDomain = "external";
+      isLocal = false;
     }
   }
 
@@ -170,31 +185,52 @@ export async function getUserInfoBatch(
   const uniqueIdentifiers = [...new Set(identifiers)];
 
   // ローカルユーザーをバッチで取得
-  const localUsernames = uniqueIdentifiers.filter((id) =>
-    !id.startsWith("http") && !id.includes("@")
-  );
-  if (localUsernames.length > 0) {
-    const accounts = await Account.find({ userName: { $in: localUsernames } })
-      .lean();
+  const localIds: { id: string; username: string }[] = [];
+  for (const id of uniqueIdentifiers) {
+    if (!id.startsWith("http") && !id.includes("@")) {
+      localIds.push({ id, username: id });
+    } else if (id.startsWith("http")) {
+      try {
+        const urlObj = new URL(id);
+        if (
+          urlObj.hostname === domain && urlObj.pathname.startsWith("/users/")
+        ) {
+          const parts = urlObj.pathname.split("/");
+          const uname = parts[parts.length - 1] || parts[parts.length - 2];
+          if (uname) localIds.push({ id, username: uname });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  if (localIds.length > 0) {
+    const accounts = await Account.find({
+      userName: { $in: localIds.map((l) => l.username) },
+    }).lean();
     const accountMap = new Map(accounts.map((acc) => [acc.userName, acc]));
 
-    for (const username of localUsernames) {
-      const account = accountMap.get(username);
+    for (const entry of localIds) {
+      const account = accountMap.get(entry.username);
       if (account) {
         const userInfo: UserInfo = {
-          userName: username,
-          displayName: account.displayName || username,
+          userName: entry.username,
+          displayName: account.displayName || entry.username,
           authorAvatar: account.avatarInitial || "",
           domain,
           isLocal: true,
         };
-        cache[username] = userInfo;
+        cache[entry.id] = userInfo;
       }
     }
   }
 
   // 外部ユーザーをバッチで取得
-  const externalUrls = uniqueIdentifiers.filter((id) => id.startsWith("http"));
+  const processedLocalIds = new Set(localIds.map((l) => l.id));
+  const externalUrls = uniqueIdentifiers.filter((id) =>
+    id.startsWith("http") && !processedLocalIds.has(id)
+  );
   if (externalUrls.length > 0) {
     const remoteActors = await RemoteActor.find({
       actorUrl: { $in: externalUrls },
