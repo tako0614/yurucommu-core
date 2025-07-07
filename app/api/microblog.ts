@@ -15,6 +15,7 @@ import {
   fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
+import authRequired from "./utils/auth.ts";
 import {
   formatUserInfoForPost,
   getUserInfo,
@@ -87,6 +88,7 @@ async function deliverPostToFollowers(
 // --- Hono App ---
 
 const app = new Hono();
+app.use("*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);

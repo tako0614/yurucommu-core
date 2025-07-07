@@ -10,8 +10,10 @@ import {
   formatUserInfoForPost,
   getUserInfoBatch,
 } from "./services/user-info.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("*", authRequired);
 
 // ユーザー検索
 app.get("/users/search", async (c) => {

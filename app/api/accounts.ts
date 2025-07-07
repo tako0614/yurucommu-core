@@ -9,6 +9,7 @@ import {
   getDomain,
   jsonResponse,
 } from "./utils/activitypub.ts";
+import authRequired from "./utils/auth.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -58,6 +59,7 @@ interface AccountDoc extends Document {
 }
 
 const app = new Hono();
+app.use("*", authRequired);
 
 app.get("/accounts", async (c) => {
   const list = await Account.find().lean<AccountDoc[]>();

@@ -3,6 +3,7 @@ import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Group from "./models/group.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
+import authRequired from "./utils/auth.ts";
 
 interface SearchResult {
   type: "user" | "post" | "community";
@@ -16,6 +17,7 @@ interface SearchResult {
 }
 
 const app = new Hono();
+app.use("*", authRequired);
 
 app.get("/search", async (c) => {
   let q = c.req.query("q")?.trim();
