@@ -562,6 +562,8 @@ export function createActor(
       owner: `https://${domain}/users/${account.userName}`,
       publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
     },
+    // 任意の拡張プロパティ
+    keyPackages: undefined as unknown,
   };
 }
 

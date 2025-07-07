@@ -5,6 +5,7 @@ import Group from "./models/group.ts";
 import {
   createBlockActivity,
   createRemoveActivity,
+  createAcceptActivity,
   deliverActivityPubObjectFromUrl,
   getDomain,
 } from "./utils/activitypub.ts";

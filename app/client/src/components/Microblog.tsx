@@ -76,16 +76,16 @@ export function Microblog() {
     e.preventDefault();
     // TODO: API call to create community
     console.log("Creating community:", {
-      name: communityName(),
-      description: communityDescription(),
-      isPrivate: communityIsPrivate(),
+      name: _communityName(),
+      description: _communityDescription(),
+      isPrivate: _communityIsPrivate(),
     });
-    setShowCreateCommunity(false);
+    _setShowCreateCommunity(false);
   };
 
   const _handleSelectCommunity = (community: Community) => {
-    setSelectedCommunity(community);
-    setShowCommunityView(true);
+    _setSelectedCommunity(community);
+    _setShowCommunityView(true);
   };
 
   const _handleLikeCommunityPost = (postId: string) => {
@@ -300,7 +300,7 @@ export function Microblog() {
                 }`}
                 onClick={() => {
                   setTab("recommend");
-                  setShowCommunityView(false);
+                  _setShowCommunityView(false);
                 }}
               >
                 おすすめ
@@ -312,7 +312,7 @@ export function Microblog() {
                 }`}
                 onClick={() => {
                   setTab("following");
-                  setShowCommunityView(false);
+                  _setShowCommunityView(false);
                 }}
               >
                 フォロー中
@@ -324,8 +324,8 @@ export function Microblog() {
                 }`}
                 onClick={() => {
                   setTab("community");
-                  setShowCommunityView(false);
-                  setSelectedCommunity(null);
+                  _setShowCommunityView(false);
+                  _setSelectedCommunity(null);
                 }}
               >
                 コミュニティ
