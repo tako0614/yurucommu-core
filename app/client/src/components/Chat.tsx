@@ -266,7 +266,14 @@ export function Chat() {
   });
 
   createEffect(() => {
+    account();
     loadRooms();
+  });
+
+  createEffect(() => {
+    selectedRoom();
+    groups();
+    account();
     loadMessages();
   });
 
