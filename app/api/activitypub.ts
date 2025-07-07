@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
+import KeyPackage from "./models/key_package.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
 import RemoteActor from "./models/remote_actor.ts";
@@ -73,6 +74,15 @@ app.get("/users/:username", async (c) => {
     displayName: account.displayName,
     publicKey: account.publicKey,
   });
+  const packages = await KeyPackage.find({ userName: username }).lean();
+  actor.keyPackages = {
+    type: "Collection",
+    id: `https://${domain}/users/${username}/keyPackages`,
+    totalItems: packages.length,
+    items: packages.map((p) =>
+      `https://${domain}/users/${username}/keyPackage/${p._id}`
+    ),
+  };
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
 

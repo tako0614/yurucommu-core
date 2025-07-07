@@ -694,6 +694,21 @@ export function createBlockActivity(
   };
 }
 
+/** Delete Activity を生成する */
+export function createDeleteActivity(
+  domain: string,
+  actor: string,
+  object: unknown,
+) {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createActivityId(domain),
+    type: "Delete",
+    actor,
+    object,
+  };
+}
+
 /** Create Activity を生成する */
 export function createCreateActivity(
   domain: string,

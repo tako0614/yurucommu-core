@@ -13,6 +13,8 @@ import users from "./users.ts";
 import userInfo from "./user-info.ts";
 import group from "./group.ts";
 import rootInbox from "./root_inbox.ts";
+import nodeinfo from "./nodeinfo.ts";
+import e2ee from "./e2ee.ts";
 
 const env = await load();
 
@@ -30,7 +32,11 @@ app.route("/api", search);
 app.route("/api", communities);
 app.route("/api", users);
 app.route("/api", userInfo);
+app.route("/api", e2ee);
 app.route("/api", activitypub); // ActivityPubプロキシAPI用
+app.route("/api", group);
+app.route("/", nodeinfo);
+app.route("/", e2ee);
 app.route("/", activitypub);
 app.route("/", group);
 app.route("/", rootInbox);
