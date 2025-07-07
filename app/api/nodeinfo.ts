@@ -3,8 +3,10 @@ import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import { getDomain } from "./utils/activitypub.ts";
 import { env } from "./utils/env.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("*", authRequired);
 
 app.get("/.well-known/nodeinfo", (c) => {
   const domain = getDomain(c);

@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import ActivityPubObject from "./models/activitypub_object.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("*", authRequired);
 
 // CORSミドルウェア
 app.use(

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import Notification from "./models/notification.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("*", authRequired);
 
 app.get("/notifications", async (c) => {
   const list = await Notification.find().sort({ createdAt: -1 }).lean();

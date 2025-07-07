@@ -8,6 +8,7 @@ import {
   deliverActivityPubObjectFromUrl,
   getDomain,
 } from "./utils/activitypub.ts";
+import authRequired from "./utils/auth.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -44,6 +45,7 @@ async function generateKeyPair() {
 }
 
 const app = new Hono();
+app.use("*", authRequired);
 
 // コミュニティ一覧取得
 app.get("/communities", async (c) => {

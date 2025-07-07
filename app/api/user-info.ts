@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { getDomain } from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("*", authRequired);
 
 // 単一ユーザー情報取得API
 app.get("/user-info/:identifier", async (c) => {
