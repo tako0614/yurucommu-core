@@ -1,6 +1,19 @@
-import { Component, createEffect, createSignal, For, Show } from "solid-js";
+import {
+  Component,
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { Account, isDataUrl } from "./types.ts";
-import { fetchUserProfile } from "../microblog/api.ts";
+import {
+  fetchActivityPubObjects,
+  fetchFollowers,
+  fetchFollowing,
+  fetchUserProfile,
+} from "../microblog/api.ts";
+import { PostList, UserAvatar } from "../microblog/Post.tsx";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
@@ -29,10 +42,50 @@ const AccountSettingsContent: Component<{
   const [followingCount, setFollowingCount] = createSignal(0);
   const [followerCount, setFollowerCount] = createSignal(0);
 
+  const [activeView, setActiveView] = createSignal<
+    "profile" | "posts" | "following" | "followers"
+  >("profile");
+
+  const [posts] = createResource(
+    () => selectedAccount()?.userName,
+    async (username) => {
+      if (!username) return [];
+      const objs = await fetchActivityPubObjects(username, "Note");
+      return objs.map((o) => ({
+        id: o.id,
+        content: o.content ?? "",
+        userName: username,
+        displayName: selectedAccount()?.displayName || username,
+        authorAvatar: selectedAccount()?.avatarInitial || "",
+        createdAt: o.published,
+        likes: (o.extra as Record<string, unknown>)?.likes ?? 0,
+        retweets: (o.extra as Record<string, unknown>)?.retweets ?? 0,
+        replies: (o.extra as Record<string, unknown>)?.replies ?? 0,
+      }));
+    },
+  );
+
+  const [followers] = createResource(
+    () => selectedAccount()?.userName,
+    async (username) => {
+      if (!username) return [];
+      return await fetchFollowers(username);
+    },
+  );
+
+  const [followingList] = createResource(
+    () => selectedAccount()?.userName,
+    async (username) => {
+      if (!username) return [];
+      return await fetchFollowing(username);
+    },
+  );
+
   // 選択されたアカウントが変更されたときにローカル状態を更新
   createEffect(() => {
     const account = selectedAccount();
     if (account) {
+      setActiveView("profile");
       setEditingDisplayName(account.displayName);
       setEditingUserName(account.userName);
       setEditingIcon(account.avatarInitial); // avatarInitialはデータURLまたはサーバーからの初期値
@@ -312,22 +365,34 @@ const AccountSettingsContent: Component<{
 
             {/* フォロー/フォロワー統計（SNS風） */}
             <div class="flex space-x-6 mb-8">
-              <div class="text-center">
+              <button
+                type="button"
+                onClick={() => setActiveView("posts")}
+                class="text-center"
+              >
                 <div class="text-xl font-bold text-white">{postCount()}</div>
                 <div class="text-sm text-gray-400">投稿</div>
-              </div>
-              <div class="text-center">
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView("following")}
+                class="text-center"
+              >
                 <div class="text-xl font-bold text-white">
                   {followingCount()}
                 </div>
                 <div class="text-sm text-gray-400">フォロー中</div>
-              </div>
-              <div class="text-center">
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView("followers")}
+                class="text-center"
+              >
                 <div class="text-xl font-bold text-white">
                   {followerCount()}
                 </div>
                 <div class="text-sm text-gray-400">フォロワー</div>
-              </div>
+              </button>
             </div>
 
             {/* バイオ/自己紹介エリア */}
@@ -353,6 +418,54 @@ const AccountSettingsContent: Component<{
                 </div>
               </Show>
             </div>
+
+            {/* 投稿・フォロー一覧表示 */}
+            <Show when={activeView() === "posts"}>
+              <div class="mb-8">
+                <PostList
+                  posts={posts() || []}
+                  tab="recommend"
+                  handleReply={() => {}}
+                  handleRetweet={() => {}}
+                  handleLike={() => {}}
+                  handleEdit={() => {}}
+                  handleDelete={() => {}}
+                  formatDate={(d) => new Date(d).toLocaleString("ja-JP")}
+                />
+              </div>
+            </Show>
+            <Show when={activeView() === "following"}>
+              <div class="space-y-2 mb-8">
+                <For each={followingList() || []}>
+                  {(u) => (
+                    <div class="flex items-center space-x-3">
+                      <UserAvatar
+                        avatarUrl={u.avatarInitial}
+                        username={u.userName}
+                        size="w-8 h-8"
+                      />
+                      <span class="text-sm text-white">{u.displayName}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={activeView() === "followers"}>
+              <div class="space-y-2 mb-8">
+                <For each={followers() || []}>
+                  {(u) => (
+                    <div class="flex items-center space-x-3">
+                      <UserAvatar
+                        avatarUrl={u.avatarInitial}
+                        username={u.userName}
+                        size="w-8 h-8"
+                      />
+                      <span class="text-sm text-white">{u.displayName}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
 
             {/* 削除確認（編集時のみ） */}
             <Show when={isEditing() && showDeleteConfirm()}>
