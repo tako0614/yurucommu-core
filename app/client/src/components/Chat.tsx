@@ -404,9 +404,14 @@ export function Chat() {
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between">
-                        <p class="text-sm font-medium truncate">
-                          # {room.name}
-                        </p>
+                        <div class="min-w-0">
+                          <p class="text-sm font-medium truncate">
+                            # {room.name}
+                          </p>
+                          <p class="text-xs text-gray-400 truncate">
+                            {room.userName}@{room.domain}
+                          </p>
+                        </div>
                         <Show when={room.unreadCount > 0}>
                           <span class="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[1rem] text-center">
                             {room.unreadCount}
@@ -449,9 +454,14 @@ export function Chat() {
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between">
-                        <p class="text-sm font-medium truncate">
-                          {room.name}
-                        </p>
+                        <div class="min-w-0">
+                          <p class="text-sm font-medium truncate">
+                            {room.name}
+                          </p>
+                          <p class="text-xs text-gray-400 truncate">
+                            {room.userName}@{room.domain}
+                          </p>
+                        </div>
                         <Show when={room.unreadCount > 0}>
                           <span class="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[1rem] text-center">
                             {room.unreadCount}
