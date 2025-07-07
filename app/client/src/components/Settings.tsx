@@ -32,6 +32,10 @@ export function Settings() {
 
   const [following, setFollowing] = createSignal<string[]>([]);
   const [followTarget, setFollowTarget] = createSignal("");
+  const [relays, setRelays] = createSignal<{ id: string; inboxUrl: string }[]>(
+    [],
+  );
+  const [relayUrl, setRelayUrl] = createSignal("");
 
   onMount(async () => {
     const id = actId();
@@ -41,6 +45,11 @@ export function Settings() {
         const data = await res.json();
         setFollowing(data.following);
       }
+    }
+    const r = await fetch("/api/relays");
+    if (r.ok) {
+      const data = await r.json();
+      setRelays(data.relays);
     }
   });
 
@@ -74,6 +83,27 @@ export function Settings() {
       if (res.ok) {
         setFollowing((prev) => prev.filter((t) => t !== target));
       }
+    }
+  };
+
+  const addRelay = async () => {
+    if (!relayUrl()) return;
+    const res = await fetch("/api/relays", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inboxUrl: relayUrl() }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setRelays((prev) => [...prev, data]);
+      setRelayUrl("");
+    }
+  };
+
+  const removeRelay = async (id: string) => {
+    const res = await fetch(`/api/relays/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setRelays((prev) => prev.filter((r) => r.id !== id));
     }
   };
 
@@ -406,6 +436,44 @@ export function Settings() {
                                 class="text-red-500 hover:text-red-700"
                               >
                                 アンフォロー
+                              </button>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </div>
+
+                    <div class="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                      <h3 class="text-lg font-medium text-purple-900 dark:text-purple-100 mb-2">
+                        リレーサーバー
+                      </h3>
+                      <div class="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={relayUrl()}
+                          onInput={(e) => setRelayUrl(e.currentTarget.value)}
+                          placeholder="https://relay.example.com/inbox"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={addRelay}
+                          class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                        >
+                          追加
+                        </button>
+                      </div>
+                      <ul class="space-y-2">
+                        <For each={relays()}>
+                          {(r) => (
+                            <li class="flex items-center justify-between">
+                              <span>{r.inboxUrl}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeRelay(r.id)}
+                                class="text-red-500 hover:text-red-700"
+                              >
+                                削除
                               </button>
                             </li>
                           )}

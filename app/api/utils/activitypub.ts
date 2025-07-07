@@ -1,4 +1,5 @@
 import Account from "../models/account.ts";
+import Relay from "../models/relay.ts";
 import { env } from "./env.ts";
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -122,7 +123,11 @@ export async function deliverActivityPubObject(
   object: unknown,
   actor: string,
 ): Promise<void> {
-  const deliveryPromises = targets.map(async (iri) => {
+  const relayDocs = await Relay.find().lean<{ inboxUrl: string }[]>();
+  const relays = relayDocs.map((r) => r.inboxUrl);
+  const allTargets = [...targets, ...relays];
+
+  const deliveryPromises = allTargets.map(async (iri) => {
     // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
       return sendActivityPubObject(iri, object, actor).catch((err) => {
