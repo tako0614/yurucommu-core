@@ -13,7 +13,8 @@ import {
   fetchFollowing,
   fetchUserProfile,
 } from "../microblog/api.ts";
-import { PostList, UserAvatar } from "../microblog/Post.tsx";
+import { PostList } from "../microblog/Post.tsx";
+import { UserAvatar } from "../microblog/UserAvatar.tsx";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
@@ -58,9 +59,9 @@ const AccountSettingsContent: Component<{
         displayName: selectedAccount()?.displayName || username,
         authorAvatar: selectedAccount()?.avatarInitial || "",
         createdAt: o.published,
-        likes: (o.extra as Record<string, unknown>)?.likes ?? 0,
-        retweets: (o.extra as Record<string, unknown>)?.retweets ?? 0,
-        replies: (o.extra as Record<string, unknown>)?.replies ?? 0,
+        likes: typeof (o.extra as Record<string, unknown>)?.likes === "number" ? (o.extra as Record<string, unknown>)?.likes as number : 0,
+        retweets: typeof (o.extra as Record<string, unknown>)?.retweets === "number" ? (o.extra as Record<string, unknown>)?.retweets as number : 0,
+        replies: typeof (o.extra as Record<string, unknown>)?.replies === "number" ? (o.extra as Record<string, unknown>)?.replies as number : 0,
       }));
     },
   );
