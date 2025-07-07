@@ -5,6 +5,11 @@ export interface MLSKeyPair {
   privateKey: CryptoKey;
 }
 
+export interface StoredMLSKeyPair {
+  publicKey: string;
+  privateKey: JsonWebKey;
+}
+
 /**
  * ECDHで鍵ペアを生成する
  */
@@ -17,6 +22,46 @@ export const generateMLSKeyPair = async (): Promise<MLSKeyPair> => {
   const raw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
   const pub = btoa(String.fromCharCode(...new Uint8Array(raw)));
   return { publicKey: pub, privateKey: keyPair.privateKey };
+};
+
+export const exportKeyPair = async (
+  pair: MLSKeyPair,
+): Promise<StoredMLSKeyPair> => {
+  const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  return { publicKey: pair.publicKey, privateKey: jwk };
+};
+
+export const importKeyPair = async (
+  data: StoredMLSKeyPair,
+): Promise<MLSKeyPair> => {
+  const priv = await crypto.subtle.importKey(
+    "jwk",
+    data.privateKey,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveKey"],
+  );
+  return { publicKey: data.publicKey, privateKey: priv };
+};
+
+export const deriveMLSSecret = async (
+  privateKey: CryptoKey,
+  publicKeyB64: string,
+): Promise<CryptoKey> => {
+  const pub = await crypto.subtle.importKey(
+    "raw",
+    b64ToBuf(publicKeyB64),
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    [],
+  );
+  return await crypto.subtle.deriveKey(
+    { name: "ECDH", public: pub },
+    privateKey,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
 };
 
 /**
@@ -88,4 +133,37 @@ export const decryptGroupMessage = async (
   } catch {
     return null;
   }
+};
+
+export interface StoredMLSGroupState {
+  members: string[];
+  epoch: number;
+  secret: string;
+}
+
+/**
+ * グループ状態を永続化できる形に変換
+ */
+export const exportGroupState = async (
+  group: MLSGroupState,
+): Promise<StoredMLSGroupState> => {
+  const raw = await crypto.subtle.exportKey("raw", group.secret);
+  const b64 = bufToB64(raw);
+  return { members: group.members, epoch: group.epoch, secret: b64 };
+};
+
+/**
+ * 永続化されたグループ状態から復元
+ */
+export const importGroupState = async (
+  data: StoredMLSGroupState,
+): Promise<MLSGroupState> => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    b64ToBuf(data.secret),
+    { name: "AES-GCM" },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  return { members: data.members, epoch: data.epoch, secret: key };
 };

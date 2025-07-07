@@ -181,7 +181,16 @@ app.post("/users/:user/messages", async (c) => {
 
 app.get("/users/:user/messages", async (c) => {
   const user = c.req.param("user");
-  const list = await EncryptedMessage.find({ to: user }).sort({ createdAt: -1 })
+  const partner = c.req.query("with");
+  const condition = partner
+    ? {
+      $or: [
+        { from: partner, to: user },
+        { from: user, to: partner },
+      ],
+    }
+    : { to: user };
+  const list = await EncryptedMessage.find(condition).sort({ createdAt: 1 })
     .lean();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),

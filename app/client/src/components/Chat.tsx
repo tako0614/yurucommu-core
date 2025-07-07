@@ -1,6 +1,40 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
+import { activeAccount } from "../states/account.ts";
+import {
+  addKeyPackage,
+  fetchEncryptedMessages,
+  fetchKeyPackages,
+  sendEncryptedMessage,
+} from "./e2ee/api.ts";
+import {
+  decryptGroupMessage,
+  deriveMLSSecret,
+  encryptGroupMessage,
+  exportGroupState,
+  exportKeyPair,
+  generateMLSKeyPair,
+  importGroupState,
+  importKeyPair,
+  MLSGroupState,
+  MLSKeyPair,
+  StoredMLSGroupState,
+  StoredMLSKeyPair,
+} from "./e2ee/mls.ts";
+import {
+  loadMLSGroupStates,
+  loadMLSKeyPair,
+  saveMLSGroupStates,
+  saveMLSKeyPair,
+} from "./e2ee/storage.ts";
 
 interface ChatMessage {
   id: string;
@@ -20,96 +54,166 @@ interface ChatRoom {
   isOnline?: boolean;
   avatar?: string;
   type: "dm" | "group";
+  members: string[];
 }
 
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
+  const [account] = useAtom(activeAccount);
   const [newMessage, setNewMessage] = createSignal("");
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
-  const [chatRooms] = createSignal<ChatRoom[]>([
-    {
-      id: "1",
-      name: "一般",
-      lastMessage: "こんにちは皆さん！",
-      unreadCount: 3,
-      isOnline: true,
-      avatar: "🌟",
-      type: "group",
-    },
-    {
-      id: "2",
-      name: "雑談",
-      lastMessage: "これ見て...",
-      unreadCount: 0,
-      isOnline: false,
-      avatar: "🎮",
-      type: "group",
-    },
-    {
-      id: "3",
-      name: "テック談義",
-      lastMessage: "新しいフレームワークがリリース",
-      unreadCount: 7,
-      isOnline: true,
-      avatar: "💻",
-      type: "group",
-    },
-    {
-      id: "4",
-      name: "田中太郎",
-      lastMessage: "明日の会議について",
-      unreadCount: 1,
-      isOnline: true,
-      avatar: "�",
-      type: "dm",
-    },
-  ]);
+  const [chatRooms, setChatRooms] = createSignal<ChatRoom[]>([]);
 
-  const [messages] = createSignal<ChatMessage[]>([
-    {
-      id: "1",
-      author: "田中太郎",
-      content: "おはようございます！",
-      timestamp: new Date(Date.now() - 300000),
-      type: "text",
-      avatar: "👤",
-      isMe: false,
-    },
-    {
-      id: "2",
-      author: "私",
-      content: "おはようございます！今日もよろしくお願いします",
-      timestamp: new Date(Date.now() - 240000),
-      type: "text",
-      avatar: "😊",
-      isMe: true,
-    },
-    {
-      id: "3",
-      author: "田中太郎",
-      content: "新機能の実装進捗はいかがですか？",
-      timestamp: new Date(Date.now() - 120000),
-      type: "text",
-      avatar: "👤",
-      isMe: false,
-    },
-    {
-      id: "4",
-      author: "私",
-      content: "順調に進んでいます！午後には完成予定です",
-      timestamp: new Date(),
-      type: "text",
-      avatar: "�",
-      isMe: true,
-    },
-  ]);
+  const [messages, setMessages] = createSignal<ChatMessage[]>([]);
+  const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
+  const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
+  let poller: number | undefined;
 
-  const sendMessage = () => {
-    if (newMessage().trim()) {
-      // メッセージ送信ロジック
-      setNewMessage("");
+  const loadGroupStates = async () => {
+    try {
+      const stored = await loadMLSGroupStates();
+      const map: Record<string, MLSGroupState> = {};
+      for (const [id, data] of Object.entries(stored)) {
+        map[id] = await importGroupState(data);
+      }
+      setGroups(map);
+    } catch (err) {
+      console.error("Failed to load group states", err);
     }
+  };
+
+  const saveGroupStates = async () => {
+    const current = groups();
+    const obj: Record<string, StoredMLSGroupState> = {};
+    for (const [id, g] of Object.entries(current)) {
+      obj[id] = await exportGroupState(g);
+    }
+    await saveMLSGroupStates(obj);
+  };
+
+  const ensureKeyPair = async () => {
+    let pair = keyPair();
+    const user = account();
+    if (!user) return null;
+    if (!pair) {
+      const stored = await loadMLSKeyPair();
+      if (stored) {
+        pair = await importKeyPair(stored as StoredMLSKeyPair);
+      } else {
+        pair = await generateMLSKeyPair();
+        await saveMLSKeyPair(await exportKeyPair(pair));
+        await addKeyPackage(user.userName, { content: pair.publicKey });
+      }
+      setKeyPair(pair);
+    }
+    return pair;
+  };
+
+  const loadRooms = async () => {
+    const user = account();
+    if (!user) return;
+    const ids = Array.from(new Set([...user.followers, ...user.following]));
+    if (ids.length === 0) {
+      setChatRooms([]);
+      return;
+    }
+    try {
+      const res = await fetch("/api/user-info/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifiers: ids }),
+      });
+      if (res.ok) {
+        const infos = await res.json() as {
+          userName: string;
+          displayName?: string;
+          authorAvatar?: string;
+        }[];
+        const rooms = infos.map((info, idx: number) => ({
+          id: ids[idx],
+          name: info.displayName ?? info.userName,
+          avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+          unreadCount: 0,
+          type: "dm" as const,
+          members: [ids[idx]],
+        }));
+        setChatRooms(rooms);
+      }
+    } catch (err) {
+      console.error("Failed to load rooms", err);
+    }
+  };
+
+  const loadMessages = async () => {
+    const roomId = selectedRoom();
+    const user = account();
+    if (!roomId || !user) return;
+    let group = groups()[roomId];
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room) return;
+    if (!group) {
+      const kp = await ensureKeyPair();
+      if (!kp) return;
+      const partnerKeys = await fetchKeyPackages(room.members[0]);
+      const partnerPub = partnerKeys[0]?.content;
+      if (!partnerPub) return;
+      const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
+      group = {
+        members: [user.userName, ...room.members],
+        epoch: Date.now(),
+        secret,
+      };
+      setGroups({ ...groups(), [roomId]: group });
+      saveGroupStates();
+    }
+    const list = await fetchEncryptedMessages(user.userName, room.members[0]);
+    const msgs: ChatMessage[] = [];
+    for (const m of list) {
+      const plain = await decryptGroupMessage(group!, m.content);
+      msgs.push({
+        id: m.id,
+        author: m.from,
+        content: plain ?? "",
+        timestamp: new Date(m.createdAt),
+        type: "text",
+        isMe: m.from === user.userName,
+        avatar: room.avatar,
+      });
+    }
+    setMessages(msgs);
+  };
+
+  const sendMessage = async () => {
+    const text = newMessage().trim();
+    const roomId = selectedRoom();
+    const user = account();
+    if (!text || !roomId || !user) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room) return;
+    let group = groups()[roomId];
+    if (!group) {
+      const kp = await ensureKeyPair();
+      if (!kp) return;
+      const partnerKeys = await fetchKeyPackages(room.members[0]);
+      const partnerPub = partnerKeys[0]?.content;
+      if (!partnerPub) return;
+      const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
+      group = {
+        members: [user.userName, ...room.members],
+        epoch: Date.now(),
+        secret,
+      };
+      setGroups({ ...groups(), [roomId]: group });
+      saveGroupStates();
+    }
+    const cipher = await encryptGroupMessage(group, text);
+    await sendEncryptedMessage(user.userName, {
+      to: room.members,
+      content: cipher,
+    });
+    setNewMessage("");
+    loadMessages();
   };
 
   // 画面サイズ検出
@@ -123,22 +227,47 @@ export function Chat() {
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
     }
+    loadMessages();
+    if (poller) clearInterval(poller);
+    poller = setInterval(loadMessages, 5000);
   };
 
   // チャット一覧に戻る（モバイル用）
   const backToRoomList = () => {
     setShowRoomList(true);
     setSelectedRoom(null); // チャンネル選択状態をリセット
+    if (poller) clearInterval(poller);
   };
 
   // イベントリスナーの設定
   onMount(() => {
     checkMobile();
     globalThis.addEventListener("resize", checkMobile);
+    loadRooms();
+    loadGroupStates();
+    ensureKeyPair();
+    loadMessages();
+  });
+
+  createEffect(() => {
+    loadRooms();
+    loadMessages();
+  });
+
+  createEffect(() => {
+    account();
+    loadGroupStates();
+    ensureKeyPair();
+  });
+
+  createEffect(() => {
+    groups();
+    saveGroupStates();
   });
 
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
+    if (poller) clearInterval(poller);
   });
 
   return (
