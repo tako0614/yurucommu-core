@@ -37,7 +37,6 @@ import {
   saveMLSGroupStates,
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
-import ChatHeader from "./header/header.tsx";
 
 interface ChatMessage {
   id: string;
@@ -100,8 +99,10 @@ export function Chat() {
   };
 
   const loadGroupStates = async () => {
+    const user = account();
+    if (!user) return;
     try {
-      const stored = await loadMLSGroupStates();
+      const stored = await loadMLSGroupStates(user.id);
       const map: Record<string, MLSGroupState> = {};
       for (const [id, data] of Object.entries(stored)) {
         map[id] = await importGroupState(data);
@@ -113,12 +114,14 @@ export function Chat() {
   };
 
   const saveGroupStates = async () => {
+    const user = account();
+    if (!user) return;
     const current = groups();
     const obj: Record<string, StoredMLSGroupState> = {};
     for (const [id, g] of Object.entries(current)) {
       obj[id] = await exportGroupState(g);
     }
-    await saveMLSGroupStates(obj);
+    await saveMLSGroupStates(user.id, obj);
   };
 
   const ensureKeyPair = async () => {
@@ -126,12 +129,12 @@ export function Chat() {
     const user = account();
     if (!user) return null;
     if (!pair) {
-      const stored = await loadMLSKeyPair();
+      const stored = await loadMLSKeyPair(user.id);
       if (stored) {
         pair = await importKeyPair(stored as StoredMLSKeyPair);
       } else {
         pair = await generateMLSKeyPair();
-        await saveMLSKeyPair(await exportKeyPair(pair));
+        await saveMLSKeyPair(user.id, await exportKeyPair(pair));
         await addKeyPackage(user.userName, { content: pair.publicKey });
       }
       setKeyPair(pair);
@@ -205,7 +208,6 @@ export function Chat() {
       if (!kp) return;
       const partnerPub = await getPartnerKey(room.members[0]);
       if (!partnerPub) {
-   
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
@@ -347,7 +349,9 @@ export function Chat() {
     <>
       <div class="w-full h-screen overflow-y-hidden">
         <main
-          class={`p-talk ${isMobile() ? (showRoomList() ? "" : "is-inview") : ""} flex`}
+          class={`p-talk ${
+            isMobile() ? (showRoomList() ? "" : "is-inview") : ""
+          } flex`}
           id="chatmain"
         >
           {/* ...existing code... (room list, chat header, message list) ... */}
@@ -362,11 +366,15 @@ export function Chat() {
                 <For each={chatRooms()}>
                   {(room) => (
                     <li
-                      class={`c-talk-rooms ${selectedRoom() === room.id ? "is-active" : ""}`}
+                      class={`c-talk-rooms ${
+                        selectedRoom() === room.id ? "is-active" : ""
+                      }`}
                     >
                       <button type="button" onClick={() => selectRoom(room.id)}>
                         <span class="c-talk-rooms-icon">
-                          {isUrl(room.avatar) || (typeof room.avatar === "string" && room.avatar.startsWith("data:image/"))
+                          {isUrl(room.avatar) ||
+                              (typeof room.avatar === "string" &&
+                                room.avatar.startsWith("data:image/"))
                             ? <img src={room.avatar} alt="avatar" />
                             : room.avatar}
                         </span>
@@ -425,7 +433,10 @@ export function Chat() {
             >
               <div class="p-talk-chat-container min-h-dvh flex flex-col">
                 {/* ...existing code... (chat header, message list) ... */}
-                <div class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`} id="chatHeader">
+                <div
+                  class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`}
+                  id="chatHeader"
+                >
                   <div class="flex items-center gap-2 p-4">
                     <Show when={isMobile()}>
                       <button
@@ -456,15 +467,28 @@ export function Chat() {
                     <For each={messages()}>
                       {(message, i) => {
                         const prev = messages()[i() - 1];
-                        const isPrimary = !prev || prev.author !== message.author;
-                        const cls = `c-talk-chat ${message.isMe ? "self" : "other"} ${isPrimary ? "primary" : "subsequent"}`;
+                        const isPrimary = !prev ||
+                          prev.author !== message.author;
+                        const cls = `c-talk-chat ${
+                          message.isMe ? "self" : "other"
+                        } ${isPrimary ? "primary" : "subsequent"}`;
                         return (
                           <li class={cls}>
                             <div class="c-talk-chat-box">
                               <Show when={!message.isMe && isPrimary}>
                                 <div class="c-talk-chat-icon">
-                                  {isUrl(message.avatar) || (typeof message.avatar === "string" && message.avatar.startsWith("data:image/"))
-                                    ? <img src={message.avatar} alt="avatar" class="rounded-full" />
+                                  {isUrl(message.avatar) ||
+                                      (typeof message.avatar === "string" &&
+                                        message.avatar.startsWith(
+                                          "data:image/",
+                                        ))
+                                    ? (
+                                      <img
+                                        src={message.avatar}
+                                        alt="avatar"
+                                        class="rounded-full"
+                                      />
+                                    )
                                     : message.avatar}
                                 </div>
                               </Show>
@@ -487,11 +511,17 @@ export function Chat() {
                                     </span>
                                   </Show>
                                   <div class="c-talk-chat-msg">
-                                    <Show when={message.type === "image"} fallback={<p>{message.content}</p>}>
+                                    <Show
+                                      when={message.type === "image"}
+                                      fallback={<p>{message.content}</p>}
+                                    >
                                       <img
                                         src={`data:image/*;base64,${message.content}`}
                                         alt="image"
-                                        style={{ "max-width": "200px", "max-height": "200px" }}
+                                        style={{
+                                          "max-width": "200px",
+                                          "max-height": "200px",
+                                        }}
                                       />
                                     </Show>
                                   </div>
@@ -516,10 +546,23 @@ export function Chat() {
                   </ul>
                 </div>
                 {/* --- ここから送信UIをold_takosui/send.tsx風に --- */}
-                <div class="p-talk-chat-send relative bg-[#1e1e1e] py-1 px-2" style={{ "padding-bottom": "calc(env(safe-area-inset-bottom, 4px) + 4px)" }}>
-                  <form class="p-talk-chat-send__form m-0" onSubmit={e => e.preventDefault()}>
+                <div
+                  class="p-talk-chat-send relative bg-[#1e1e1e] py-1 px-2"
+                  style={{
+                    "padding-bottom":
+                      "calc(env(safe-area-inset-bottom, 4px) + 4px)",
+                  }}
+                >
+                  <form
+                    class="p-talk-chat-send__form m-0"
+                    onSubmit={(e) => e.preventDefault()}
+                  >
                     <div class="p-talk-chat-send__msg flex items-center gap-1">
-                      <div class="p-talk-chat-send__dummy" aria-hidden="true" style="min-width:0;">
+                      <div
+                        class="p-talk-chat-send__dummy"
+                        aria-hidden="true"
+                        style="min-width:0;"
+                      >
                         {newMessage().split("\n").map((row) => (
                           <>
                             {row}
@@ -613,14 +656,24 @@ export function Chat() {
                           stroke-linecap="round"
                           stroke-linejoin="round"
                         >
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                          <rect
+                            x="3"
+                            y="3"
+                            width="18"
+                            height="18"
+                            rx="2"
+                            ry="2"
+                          >
+                          </rect>
                           <circle cx="8.5" cy="8.5" r="1.5"></circle>
                           <polyline points="21 15 16 10 5 21"></polyline>
                         </svg>
                       </div>
                       {/* 送信ボタン */}
                       <div
-                        class={newMessage().trim() ? "p-talk-chat-send__button is-active" : "p-talk-chat-send__button"}
+                        class={newMessage().trim()
+                          ? "p-talk-chat-send__button is-active"
+                          : "p-talk-chat-send__button"}
                         onClick={sendMessage}
                         style="min-height:28px;"
                       >

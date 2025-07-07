@@ -1,12 +1,13 @@
 import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
 
-const DB_NAME = "takos";
+const DB_VERSION = 2;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPair";
 
-function openDB(): Promise<IDBDatabase> {
+function openDB(accountId: string): Promise<IDBDatabase> {
+  const name = `takos_${accountId}`;
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -21,10 +22,10 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export const loadMLSGroupStates = async (): Promise<
-  Record<string, StoredMLSGroupState>
-> => {
-  const db = await openDB();
+export const loadMLSGroupStates = async (
+  accountId: string,
+): Promise<Record<string, StoredMLSGroupState>> => {
+  const db = await openDB(accountId);
   const tx = db.transaction(STORE_NAME, "readonly");
   const store = tx.objectStore(STORE_NAME);
   return await new Promise((resolve, reject) => {
@@ -44,9 +45,10 @@ export const loadMLSGroupStates = async (): Promise<
 };
 
 export const saveMLSGroupStates = async (
+  accountId: string,
   states: Record<string, StoredMLSGroupState>,
 ): Promise<void> => {
-  const db = await openDB();
+  const db = await openDB(accountId);
   const tx = db.transaction(STORE_NAME, "readwrite");
   const store = tx.objectStore(STORE_NAME);
   store.clear();
@@ -59,8 +61,10 @@ export const saveMLSGroupStates = async (
   });
 };
 
-export const loadMLSKeyPair = async (): Promise<StoredMLSKeyPair | null> => {
-  const db = await openDB();
+export const loadMLSKeyPair = async (
+  accountId: string,
+): Promise<StoredMLSKeyPair | null> => {
+  const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readonly");
   const store = tx.objectStore(KEY_STORE);
   return await new Promise((resolve, reject) => {
@@ -71,9 +75,10 @@ export const loadMLSKeyPair = async (): Promise<StoredMLSKeyPair | null> => {
 };
 
 export const saveMLSKeyPair = async (
+  accountId: string,
   pair: StoredMLSKeyPair,
 ): Promise<void> => {
-  const db = await openDB();
+  const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readwrite");
   const store = tx.objectStore(KEY_STORE);
   store.put(pair, "key");
