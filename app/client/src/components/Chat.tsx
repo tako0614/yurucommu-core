@@ -1,5 +1,6 @@
 import {
   createEffect,
+  createMemo,
   createSignal,
   For,
   onCleanup,
@@ -74,6 +75,9 @@ export function Chat() {
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
   const partnerKeyCache = new Map<string, string | null>();
+  const selectedRoomInfo = createMemo(() =>
+    chatRooms().find((r) => r.id === selectedRoom()) ?? null
+  );
   let poller: number | undefined;
 
   const loadGroupStates = async () => {
@@ -502,15 +506,16 @@ export function Chat() {
                   </button>
                 </Show>
                 <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                  {chatRooms().find((r) => r.id === selectedRoom())?.avatar}
+                  {selectedRoomInfo()?.avatar}
                 </div>
                 <div>
                   <h3 class="text-lg font-semibold text-white">
-                    {chatRooms().find((r) => r.id === selectedRoom())?.name}
+                    {selectedRoomInfo()?.name}
                   </h3>
                   <p class="text-sm text-gray-400">
-                    {chatRooms().find((r) => r.id === selectedRoom())?.userName}
-                    @{chatRooms().find((r) => r.id === selectedRoom())?.domain}
+                    {selectedRoomInfo()
+                      ? `${selectedRoomInfo()?.userName}@${selectedRoomInfo()?.domain}`
+                      : ""}
                   </p>
                 </div>
               </div>
