@@ -66,7 +66,7 @@ export const encryptGroupMessage = async (
     group.secret,
     strToBuf(plaintext),
   );
-  return `${bufToB64(iv)}:${bufToB64(enc)}`;
+  return `${bufToB64(iv.buffer)}:${bufToB64(enc)}`;
 };
 
 /**

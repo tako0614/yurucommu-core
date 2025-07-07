@@ -23,18 +23,36 @@ app.get("/api/stories", async (c) => {
       type: "Story",
       "extra.expiresAt": { $gt: new Date() },
     }).sort({ published: -1 }).lean();
-    const formatted = stories.map((s: Record<string, unknown>) => ({
-      id: s._id.toString(),
-      author: s.attributedTo,
-      content: s.content,
-      mediaUrl: s.extra.mediaUrl,
-      mediaType: s.extra.mediaType,
-      backgroundColor: s.extra.backgroundColor,
-      textColor: s.extra.textColor,
-      createdAt: s.published,
-      expiresAt: s.extra.expiresAt,
-      views: s.extra.views,
-    }));
+type Story = {
+  _id: { toString(): string };
+  attributedTo: string;
+  content: string;
+  published: string | Date;
+  extra: {
+    mediaUrl?: string;
+    mediaType?: string;
+    backgroundColor?: string;
+    textColor?: string;
+    expiresAt?: string | Date;
+    views?: number;
+  };
+};
+
+const formatted = stories.map((s) => {
+  const story = s as Story;
+  return {
+    id: story._id.toString(),
+    author: story.attributedTo,
+    content: story.content,
+    mediaUrl: story.extra.mediaUrl,
+    mediaType: story.extra.mediaType,
+    backgroundColor: story.extra.backgroundColor,
+    textColor: story.extra.textColor,
+    createdAt: story.published,
+    expiresAt: story.extra.expiresAt,
+    views: story.extra.views,
+  };
+});
     return c.json(formatted);
   } catch (error) {
     console.error("Error fetching stories:", error);
