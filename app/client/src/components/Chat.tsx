@@ -81,9 +81,13 @@ export function Chat() {
   let poller: number | undefined;
 
   const isUrl = (value?: string): boolean => {
-    return value
-      ? value.startsWith("http://") || value.startsWith("https://")
-      : false;
+    if (!value) return false;
+    try {
+      const url = new URL(value.trim());
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
   };
 
   const loadGroupStates = async () => {
