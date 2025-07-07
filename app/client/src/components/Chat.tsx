@@ -40,6 +40,8 @@ import {
 interface ChatMessage {
   id: string;
   author: string;
+  displayName: string;
+  address: string;
   content: string;
   timestamp: Date;
   type: "text" | "image" | "file";
@@ -50,6 +52,8 @@ interface ChatMessage {
 interface ChatRoom {
   id: string;
   name: string;
+  userName: string;
+  domain: string;
   lastMessage?: string;
   unreadCount: number;
   isOnline?: boolean;
@@ -149,6 +153,8 @@ export function Chat() {
           acc.push({
             id: localName,
             name: info.displayName || localName,
+            userName: localName,
+            domain: info.domain,
             avatar: info.authorAvatar || localName.charAt(0).toUpperCase(),
             unreadCount: 0,
             type: "dm",
@@ -191,13 +197,18 @@ export function Chat() {
     const msgs: ChatMessage[] = [];
     for (const m of list) {
       const plain = await decryptGroupMessage(group!, m.content);
+      const isMe = m.from === user.userName;
+      const displayName = isMe ? user.displayName || user.userName : room.name;
+      const domain = isMe ? globalThis.location.hostname : room.domain;
       msgs.push({
         id: m.id,
         author: m.from,
+        displayName,
+        address: `${m.from}@${domain}`,
         content: plain ?? "",
         timestamp: new Date(m.createdAt),
         type: "text",
-        isMe: m.from === user.userName,
+        isMe,
         avatar: room.avatar,
       });
     }
@@ -495,17 +506,11 @@ export function Chat() {
                 </div>
                 <div>
                   <h3 class="text-lg font-semibold text-white">
-                    {chatRooms().find((r) => r.id === selectedRoom())?.type ===
-                        "group"
-                      ? "# "
-                      : ""}
                     {chatRooms().find((r) => r.id === selectedRoom())?.name}
                   </h3>
                   <p class="text-sm text-gray-400">
-                    {chatRooms().find((r) => r.id === selectedRoom())?.type ===
-                        "group"
-                      ? "3 メンバー, 2 オンライン"
-                      : "オンライン"}
+                    {chatRooms().find((r) => r.id === selectedRoom())?.userName}
+                    @{chatRooms().find((r) => r.id === selectedRoom())?.domain}
                   </p>
                 </div>
               </div>
@@ -618,7 +623,10 @@ export function Chat() {
                         <Show when={!message.isMe}>
                           <div class="flex items-center space-x-2 mb-1">
                             <span class="text-sm font-medium text-white">
-                              {message.author}
+                              {message.displayName}
+                            </span>
+                            <span class="text-xs text-gray-400">
+                              {message.address}
                             </span>
                             <span class="text-xs text-gray-500">
                               {message.timestamp.toLocaleTimeString([], {
