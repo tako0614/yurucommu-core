@@ -97,9 +97,13 @@ export const sendEncryptedMessage = async (
 
 export const fetchEncryptedMessages = async (
   user: string,
+  partner?: string,
 ): Promise<EncryptedMessage[]> => {
   try {
-    const res = await fetch(`/api/users/${encodeURIComponent(user)}/messages`);
+    const url = `/api/users/${encodeURIComponent(user)}/messages${
+      partner ? `?with=${encodeURIComponent(partner)}` : ""
+    }`;
+    const res = await fetch(url);
     if (!res.ok) {
       throw new Error("Failed to fetch messages");
     }
