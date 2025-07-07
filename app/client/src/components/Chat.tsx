@@ -174,7 +174,10 @@ export function Chat() {
       const kp = await ensureKeyPair();
       if (!kp) return;
       const partnerPub = await getPartnerKey(room.members[0]);
-      if (!partnerPub) return;
+      if (!partnerPub) {
+        alert("相手が鍵を登録していないため、メッセージを送れません");
+        return;
+      }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
         members: [user.userName, ...room.members],
@@ -213,7 +216,10 @@ export function Chat() {
       const kp = await ensureKeyPair();
       if (!kp) return;
       const partnerPub = await getPartnerKey(room.members[0]);
-      if (!partnerPub) return;
+      if (!partnerPub) {
+        alert("相手が鍵を登録していないため、メッセージを送れません");
+        return;
+      }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
         members: [user.userName, ...room.members],
