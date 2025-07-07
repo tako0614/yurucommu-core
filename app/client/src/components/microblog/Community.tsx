@@ -33,7 +33,7 @@ export function CommunityView(props: {
   return (
     <>
       {/* コミュニティビュー（コミュニティタブが選択された時のみ表示） */}
-      {props.showCommunityView && !props.selectedCommunity && (
+      {(
         <div class="p-4">
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-2xl font-bold">コミュニティ</h2>
@@ -125,7 +125,7 @@ export function CommunityView(props: {
       )}
 
       {/* 個別コミュニティビュー */}
-      {props.showCommunityView && props.selectedCommunity && (
+      {(
         <div class="p-4">
           {/* コミュニティヘッダー */}
           <div class="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 mb-6">

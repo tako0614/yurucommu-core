@@ -1,7 +1,6 @@
 import { createResource, createSignal } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
-import { CommunityView } from "./microblog/Community.tsx";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import {
@@ -335,34 +334,6 @@ export function Microblog() {
           </div>
         </div>
         <div class="max-w-2xl mx-auto">
-          <CommunityView
-            showCommunityView={showCommunityView()}
-            setShowCommunityView={setShowCommunityView}
-            selectedCommunity={selectedCommunity()}
-            setSelectedCommunity={setSelectedCommunity}
-            showCreateCommunity={showCreateCommunity()}
-            setShowCreateCommunity={setShowCreateCommunity}
-            communityName={communityName()}
-            setCommunityName={setCommunityName}
-            communityDescription={communityDescription()}
-            setCommunityDescription={setCommunityDescription}
-            communityAvatar={communityAvatar()}
-            setCommunityAvatar={setCommunityAvatar}
-            communityBanner={communityBanner()}
-            setCommunityBanner={setCommunityBanner}
-            communityTags={communityTags()}
-            setCommunityTags={setCommunityTags}
-            communityIsPrivate={communityIsPrivate()}
-            setCommunityIsPrivate={setCommunityIsPrivate}
-            communities={communitiesData() || []}
-            communityPosts={[]}
-            handleJoinCommunity={handleJoinCommunity}
-            handleLeaveCommunity={handleLeaveCommunity}
-            handleCreateCommunity={handleCreateCommunity}
-            handleSelectCommunity={handleSelectCommunity}
-            handleLikeCommunityPost={handleLikeCommunityPost}
-            formatDate={formatDate}
-          />
 
           {(tab() === "recommend" || tab() === "following" ||
             tab() === "community") && (
