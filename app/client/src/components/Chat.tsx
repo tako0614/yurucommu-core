@@ -69,6 +69,7 @@ export function Chat() {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
+  const partnerKeyCache = new Map<string, string | null>();
   let poller: number | undefined;
 
   const loadGroupStates = async () => {
@@ -109,6 +110,16 @@ export function Chat() {
       setKeyPair(pair);
     }
     return pair;
+  };
+
+  const getPartnerKey = async (userName: string) => {
+    if (partnerKeyCache.has(userName)) {
+      return partnerKeyCache.get(userName);
+    }
+    const keys = await fetchKeyPackages(userName);
+    const pub = keys[0]?.content ?? null;
+    partnerKeyCache.set(userName, pub);
+    return pub;
   };
 
   const loadRooms = async () => {
@@ -162,8 +173,7 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) return;
-      const partnerKeys = await fetchKeyPackages(room.members[0]);
-      const partnerPub = partnerKeys[0]?.content;
+      const partnerPub = await getPartnerKey(room.members[0]);
       if (!partnerPub) return;
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
@@ -202,8 +212,7 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) return;
-      const partnerKeys = await fetchKeyPackages(room.members[0]);
-      const partnerPub = partnerKeys[0]?.content;
+      const partnerPub = await getPartnerKey(room.members[0]);
       if (!partnerPub) return;
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
