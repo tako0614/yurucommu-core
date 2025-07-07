@@ -224,7 +224,7 @@ input {
 }
 .p-talk-list {
   padding: 12px 12px 76px;
-  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
+  background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
   z-index: 3;
 }
 @media screen and (min-width: 1053px) {

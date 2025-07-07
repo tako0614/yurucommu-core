@@ -205,7 +205,7 @@ export function Chat() {
       if (!kp) return;
       const partnerPub = await getPartnerKey(room.members[0]);
       if (!partnerPub) {
-        alert("相手が鍵を登録していないため、メッセージを送れません");
+   
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
@@ -252,7 +252,6 @@ export function Chat() {
       if (!kp) return;
       const partnerPub = await getPartnerKey(room.members[0]);
       if (!partnerPub) {
-        alert("相手が鍵を登録していないため、メッセージを送れません");
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
@@ -346,7 +345,7 @@ export function Chat() {
 
   return (
     <>
-      <div class="wrapper w-full">
+      <div class="w-full h-screen overflow-y-hidden">
         <main
           class={`p-talk ${
             isMobile() ? (showRoomList() ? "" : "is-inview") : ""
@@ -369,11 +368,9 @@ export function Chat() {
                     >
                       <button type="button" onClick={() => selectRoom(room.id)}>
                         <span class="c-talk-rooms-icon">
-                          {isUrl(room.avatar)
+                          {isUrl(room.avatar) || (typeof room.avatar === "string" && room.avatar.startsWith("data:image/"))
                             ? <img src={room.avatar} alt="avatar" />
-                            : (
-                              room.avatar
-                            )}
+                            : room.avatar}
                         </span>
                         <span class="c-talk-rooms-box">
                           <span class="c-talk-rooms-name">
@@ -458,7 +455,7 @@ export function Chat() {
                     <h2>{selectedRoomInfo()?.name}</h2>
                   </div>
                 </div>
-                <div class="p-talk-chat-main flex-grow overflow-y-auto">
+                <div class="p-talk-chat-main flex-grow overflow-y-auto pt-[48px]">
                   <ul class="p-talk-chat-main__ul">
                     <For each={messages()}>
                       {(message, i) => {
@@ -473,8 +470,8 @@ export function Chat() {
                             <div class="c-talk-chat-box">
                               <Show when={!message.isMe && isPrimary}>
                                 <div class="c-talk-chat-icon">
-                                  {isUrl(message.avatar)
-                                    ? <img src={message.avatar} alt="avatar" />
+                                  {isUrl(message.avatar) || (typeof message.avatar === "string" && message.avatar.startsWith("data:image/"))
+                                    ? <img src={message.avatar} alt="avatar" class="rounded-full" />
                                     : message.avatar}
                                 </div>
                               </Show>
@@ -497,7 +494,13 @@ export function Chat() {
                                     </span>
                                   </Show>
                                   <div class="c-talk-chat-msg">
-                                    <p>{message.content}</p>
+                                    <Show when={message.type === "image"} fallback={<p>{message.content}</p>}>
+                                      <img
+                                        src={`data:image/*;base64,${message.content}`}
+                                        alt="image"
+                                        style={{ "max-width": "200px", "max-height": "200px" }}
+                                      />
+                                    </Show>
                                   </div>
                                   <Show when={!message.isMe}>
                                     <span class="text-xs text-gray-500 ml-2">
