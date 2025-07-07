@@ -113,7 +113,12 @@ export function Chat() {
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
-    const ids = Array.from(new Set([...user.followers, ...user.following]));
+    const ids = Array.from(
+      new Set([
+        ...(user.followers ?? []),
+        ...(user.following ?? []),
+      ]),
+    );
     if (ids.length === 0) {
       setChatRooms([]);
       return;

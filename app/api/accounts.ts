@@ -68,6 +68,9 @@ app.get("/accounts", async (c) => {
     userName: doc.userName,
     displayName: doc.displayName,
     avatarInitial: doc.avatarInitial,
+    publicKey: doc.publicKey,
+    followers: doc.followers,
+    following: doc.following,
   }));
   return jsonResponse(c, formatted);
 });
