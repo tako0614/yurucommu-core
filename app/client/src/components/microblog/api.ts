@@ -584,3 +584,31 @@ export const fetchActivityPubActor = async (actorUrl: string) => {
     return null;
   }
 };
+
+// 指定ユーザーのフォロワー一覧を取得
+export const fetchFollowers = async (username: string) => {
+  try {
+    const res = await fetch(
+      `/api/users/${encodeURIComponent(username)}/followers`,
+    );
+    if (!res.ok) throw new Error("Failed to fetch followers");
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching followers:", error);
+    return [];
+  }
+};
+
+// 指定ユーザーのフォロー中一覧を取得
+export const fetchFollowing = async (username: string) => {
+  try {
+    const res = await fetch(
+      `/api/users/${encodeURIComponent(username)}/following`,
+    );
+    if (!res.ok) throw new Error("Failed to fetch following");
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching following:", error);
+    return [];
+  }
+};
