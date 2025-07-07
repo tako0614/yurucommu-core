@@ -4,7 +4,7 @@ import ActivityPubObject from "./models/activitypub_object.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
 
 interface SearchResult {
-  type: "user" | "post";
+  type: "user" | "post" | "community";
   id: string;
   title: string;
   subtitle: string;
@@ -66,6 +66,30 @@ app.get("/search", async (c) => {
         subtitle: p.attributedTo,
         metadata: { createdAt: p.published },
         origin: domain,
+      });
+    }
+  }
+
+  if (type === "all" || type === "communities") {
+    const communities = await ActivityPubObject.find({
+      type: "Community",
+      $or: [
+        { "extra.name": regex },
+        { content: regex }
+      ]
+    })
+      .limit(20)
+      .lean();
+    const domain = getDomain(c);
+    for (const com of communities) {
+      results.push({
+        type: "community",
+        id: String(com._id),
+        title: (com.extra && typeof com.extra === "object" && "name" in com.extra) ? (com.extra as any).name || "" : "",
+        subtitle: com.content || "",
+        avatar: (com.extra && typeof com.extra === "object" && "avatar" in com.extra) ? (com.extra as any).avatar || "" : "",
+        origin: domain,
+        metadata: { createdAt: com.published },
       });
     }
   }
