@@ -370,38 +370,19 @@ export function Microblog() {
           formatDate={formatDate}
         />
 
-        <PostForm
-          showPostForm={showPostForm()}
-          setShowPostForm={setShowPostForm}
-          newPostContent={newPostContent()}
-          setNewPostContent={setNewPostContent}
-          handleSubmit={handleSubmit}
-          currentUser={account() || undefined}
-        />
-
-        {/* フローティング投稿ボタン（おすすめ・フォロー中・コミュニティタブの時のみ表示） */}
-        {(tab() === "recommend" || tab() === "following" ||
-          tab() === "community") && (
-          <button
-            type="button"
-            onClick={() => setShowPostForm(true)}
-            class="fixed bottom-6 right-6 z-30 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
-          >
-            <svg
-              class="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-          </button>
-        )}
+        {/* 投稿フォームを常に下部に固定表示 */}
+        <div class="fixed bottom-0 left-0 w-full z-40 bg-gray-900/95 border-t border-gray-800">
+          <div class="max-w-2xl mx-auto px-4 py-3">
+            <PostForm
+              showPostForm={true}
+              setShowPostForm={() => {}}
+              newPostContent={newPostContent()}
+              setNewPostContent={setNewPostContent}
+              handleSubmit={handleSubmit}
+              currentUser={account() || undefined}
+            />
+          </div>
+        </div>
       </div>
     </>
   );

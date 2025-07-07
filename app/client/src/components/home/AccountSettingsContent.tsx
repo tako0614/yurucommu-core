@@ -46,6 +46,8 @@ const AccountSettingsContent: Component<{
   const [activeView, setActiveView] = createSignal<
     "profile" | "posts" | "following" | "followers"
   >("profile");
+  const [showFollowingModal, setShowFollowingModal] = createSignal(false);
+  const [showFollowersModal, setShowFollowersModal] = createSignal(false);
 
   const [posts] = createResource(
     () => selectedAccount()?.userName,
@@ -376,7 +378,7 @@ const AccountSettingsContent: Component<{
               </button>
               <button
                 type="button"
-                onClick={() => setActiveView("following")}
+                onClick={() => setShowFollowingModal(true)}
                 class="text-center"
               >
                 <div class="text-xl font-bold text-white">
@@ -386,7 +388,7 @@ const AccountSettingsContent: Component<{
               </button>
               <button
                 type="button"
-                onClick={() => setActiveView("followers")}
+                onClick={() => setShowFollowersModal(true)}
                 class="text-center"
               >
                 <div class="text-xl font-bold text-white">
@@ -435,36 +437,54 @@ const AccountSettingsContent: Component<{
                 />
               </div>
             </Show>
-            <Show when={activeView() === "following"}>
-              <div class="space-y-2 mb-8">
-                <For each={followingList() || []}>
-                  {(u) => (
-                    <div class="flex items-center space-x-3">
-                      <UserAvatar
-                        avatarUrl={u.avatarInitial}
-                        username={u.userName}
-                        size="w-8 h-8"
-                      />
-                      <span class="text-sm text-white">{u.displayName}</span>
-                    </div>
-                  )}
-                </For>
+            {/* フォロー中モーダル */}
+            <Show when={showFollowingModal()}>
+              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowFollowingModal(false)}>
+                <div class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+                  <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold text-white">フォロー中</h3>
+                    <button class="text-gray-400 hover:text-white" onClick={() => setShowFollowingModal(false)}>×</button>
+                  </div>
+                  <div class="space-y-2">
+                    <For each={followingList() || []}>
+                      {(u) => (
+                        <div class="flex items-center space-x-3">
+                          <UserAvatar
+                            avatarUrl={u.avatarInitial}
+                            username={u.userName}
+                            size="w-8 h-8"
+                          />
+                          <span class="text-sm text-white">{u.displayName}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
               </div>
             </Show>
-            <Show when={activeView() === "followers"}>
-              <div class="space-y-2 mb-8">
-                <For each={followers() || []}>
-                  {(u) => (
-                    <div class="flex items-center space-x-3">
-                      <UserAvatar
-                        avatarUrl={u.avatarInitial}
-                        username={u.userName}
-                        size="w-8 h-8"
-                      />
-                      <span class="text-sm text-white">{u.displayName}</span>
-                    </div>
-                  )}
-                </For>
+            {/* フォロワーモーダル */}
+            <Show when={showFollowersModal()}>
+              <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowFollowersModal(false)}>
+                <div class="bg-gray-900 rounded-lg p-6 max-w-sm w-full max-h-[70vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+                  <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold text-white">フォロワー</h3>
+                    <button class="text-gray-400 hover:text-white" onClick={() => setShowFollowersModal(false)}>×</button>
+                  </div>
+                  <div class="space-y-2">
+                    <For each={followers() || []}>
+                      {(u) => (
+                        <div class="flex items-center space-x-3">
+                          <UserAvatar
+                            avatarUrl={u.avatarInitial}
+                            username={u.userName}
+                            size="w-8 h-8"
+                          />
+                          <span class="text-sm text-white">{u.displayName}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
               </div>
             </Show>
 
