@@ -255,12 +255,16 @@ export function Chat() {
     let group = groups()[roomId];
     if (!group) {
       const kp = await ensureKeyPair();
-      if (!kp) return;
+      if (!kp) {
+        alert("鍵情報が取得できないため送信できません");
+        return;
+      }
       const partnerPub = await getPartnerKey(
         room.members[0],
         room.domain,
       );
       if (!partnerPub) {
+        alert("鍵情報が取得できないため送信できません");
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
