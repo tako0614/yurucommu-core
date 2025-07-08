@@ -15,6 +15,7 @@ import {
   fetchJson,
   getDomain,
   resolveActor,
+  type ActivityPubActor,
 } from "./utils/activitypub.ts";
 import RemoteActor from "./models/remote_actor.ts";
 
@@ -30,12 +31,12 @@ async function resolveActorCached(acct: string) {
     actorUrl: { $regex: hostRegex },
   }).lean();
 
-  let actor: { keyPackages?: string | { id?: string }; id: string } | null =
+  let actor: (ActivityPubActor & { keyPackages?: string | { id?: string } }) | null =
     null;
   if (cached) {
     try {
       actor = await fetchJson<
-        { keyPackages?: string | { id?: string }; id: string }
+        ActivityPubActor & { keyPackages?: string | { id?: string } }
       >(
         cached.actorUrl,
       );
@@ -45,10 +46,7 @@ async function resolveActorCached(acct: string) {
   }
 
   if (!actor) {
-    actor = await resolveActor(name, host) as {
-      keyPackages?: string | { id?: string };
-      id: string;
-    } | null;
+    actor = await resolveActor(name, host) as (ActivityPubActor & { keyPackages?: string | { id?: string } }) | null;
     if (actor) {
       await RemoteActor.findOneAndUpdate(
         { actorUrl: actor.id },
