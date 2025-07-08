@@ -126,12 +126,17 @@ export function Chat() {
     await saveMLSGroupStates(user.id, obj);
   };
 
+  const [isGeneratingKeyPair, setIsGeneratingKeyPair] = createSignal(false);
+
   const ensureKeyPair = async () => {
+    if (isGeneratingKeyPair()) return;
+
     let pair = keyPair();
     const user = account();
     console.log(pair);
     if (!user) return null;
     if (!pair) {
+      setIsGeneratingKeyPair(true);
       try {
         const stored = await loadMLSKeyPair(user.id);
         if (stored) {
@@ -151,25 +156,26 @@ export function Chat() {
           );
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
+          setIsGeneratingKeyPair(false);
           return null;
         }
       }
       setKeyPair(pair);
+      setIsGeneratingKeyPair(false);
     }
     return pair;
   };
 
   const getPartnerKey = async (userName: string, domain?: string) => {
-    const keyId = domain
-      ? `${userName}@${domain}`
-      : `${userName}@${globalThis.location.hostname}`;
+    const effectiveDomain = domain ?? globalThis.location.hostname;
+    const keyId = `${userName}@${effectiveDomain}`;
     if (partnerKeyCache.has(keyId)) {
       const cached = partnerKeyCache.get(keyId);
       return cached;
     }
     const keys = await fetchKeyPackages(
       userName,
-      domain ?? globalThis.location.hostname,
+      effectiveDomain,
     );
     const pub = keys[0]?.content ?? null;
     partnerKeyCache.set(keyId, pub);

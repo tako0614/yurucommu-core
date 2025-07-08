@@ -271,10 +271,10 @@ app.get("/users/:user/messages", async (c) => {
   const partnerActorObj = partnerAcct
     ? await resolveActorCached(partnerAcct)
     : null;
-  const partnerActor = partnerActorObj?.id ??
-    (partnerUser && partnerDomain
-      ? `https://${partnerDomain}/users/${partnerUser}`
-      : undefined);
+  let partnerActor = partnerActorObj?.id;
+  if (!partnerActor && partnerUser && partnerDomain) {
+    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
+  }
 
   const condition = partnerAcct
     ? {
