@@ -241,31 +241,33 @@ export function Chat() {
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
       : `${partnerUser}@${globalThis.location.hostname}`;
-    if (useEncryption()) {
-      let group = groups()[roomId];
-      if (!group) {
-        const kp = await ensureKeyPair();
-        if (!kp) return;
+    const encryptedMsgs: ChatMessage[] = [];
+    let group = groups()[roomId];
+    if (!group) {
+      const kp = await ensureKeyPair();
+      if (kp) {
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
-        if (!partnerPub) return;
-        const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-        group = { members: room.members, epoch: Date.now(), secret };
-        setGroups({ ...groups(), [roomId]: group });
-        saveGroupStates();
+        if (partnerPub) {
+          const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
+          group = { members: room.members, epoch: Date.now(), secret };
+          setGroups({ ...groups(), [roomId]: group });
+          saveGroupStates();
+        }
       }
+    }
+    if (group) {
       const list = await fetchEncryptedMessages(
         `${user.userName}@${globalThis.location.hostname}`,
         partner,
       );
-      const msgs: ChatMessage[] = [];
       for (const m of list) {
-        const plain = await decryptGroupMessage(group!, m.content);
+        const plain = await decryptGroupMessage(group, m.content);
         const fullId = `${user.userName}@${globalThis.location.hostname}`;
         const isMe = m.from === fullId;
         const displayName = isMe
           ? user.displayName || user.userName
           : room.name;
-        msgs.push({
+        encryptedMsgs.push({
           id: m.id,
           author: m.from,
           displayName,
@@ -277,32 +279,31 @@ export function Chat() {
           avatar: room.avatar,
         });
       }
-      setMessages(msgs);
-    } else {
-      const list = await fetchPublicMessages(
-        `${user.userName}@${globalThis.location.hostname}`,
-        partner,
-      );
-      const msgs = list.map((m) => {
-        const fullId = `${user.userName}@${globalThis.location.hostname}`;
-        const isMe = m.from === fullId;
-        const displayName = isMe
-          ? user.displayName || user.userName
-          : room.name;
-        return {
-          id: m.id,
-          author: m.from,
-          displayName,
-          address: m.from,
-          content: m.content,
-          timestamp: new Date(m.createdAt),
-          type: "text",
-          isMe,
-          avatar: room.avatar,
-        } as ChatMessage;
-      });
-      setMessages(msgs);
     }
+    const publicList = await fetchPublicMessages(
+      `${user.userName}@${globalThis.location.hostname}`,
+      partner,
+    );
+    const publicMsgs = publicList.map((m) => {
+      const fullId = `${user.userName}@${globalThis.location.hostname}`;
+      const isMe = m.from === fullId;
+      const displayName = isMe ? user.displayName || user.userName : room.name;
+      return {
+        id: m.id,
+        author: m.from,
+        displayName,
+        address: m.from,
+        content: m.content,
+        timestamp: new Date(m.createdAt),
+        type: "text",
+        isMe,
+        avatar: room.avatar,
+      } as ChatMessage;
+    });
+    const msgs = [...encryptedMsgs, ...publicMsgs].sort((a, b) =>
+      a.timestamp.getTime() - b.timestamp.getTime()
+    );
+    setMessages(msgs);
   };
 
   const sendMessage = async () => {
