@@ -127,6 +127,7 @@ export function Chat() {
   const ensureKeyPair = async () => {
     let pair = keyPair();
     const user = account();
+    console.log(pair);
     if (!user) return null;
     if (!pair) {
       try {
@@ -156,6 +157,7 @@ export function Chat() {
   const getPartnerKey = async (userName: string, domain?: string) => {
     const keyId = domain ? `${userName}@${domain}` : userName;
     if (partnerKeyCache.has(keyId)) {
+      console.log("getPartnerKeyテスト", keyId, partnerKeyCache.get(keyId));
       return partnerKeyCache.get(keyId);
     }
     const keys = await fetchKeyPackages(userName, domain);
@@ -267,7 +269,7 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) {
-        alert("鍵情報が取得できないため送信できません");
+        alert("鍵情報が取得できないため送信できません1");
         return;
       }
       const partnerPub = await getPartnerKey(
@@ -275,7 +277,7 @@ export function Chat() {
         room.domain,
       );
       if (!partnerPub) {
-        alert("鍵情報が取得できないため送信できません");
+        alert("鍵情報が取得できないため送信できません2");
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
