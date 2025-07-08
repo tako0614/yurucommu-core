@@ -16,6 +16,56 @@ import {
   getDomain,
   resolveActor,
 } from "./utils/activitypub.ts";
+import RemoteActor from "./models/remote_actor.ts";
+
+async function resolveActorCached(acct: string) {
+  const [name, host] = acct.split("@");
+  if (!name || !host) return null;
+
+  const hostRegex = new RegExp(
+    `^https?://${host.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}/`,
+  );
+  const cached = await RemoteActor.findOne({
+    preferredUsername: name,
+    actorUrl: { $regex: hostRegex },
+  }).lean();
+
+  let actor: { keyPackages?: string | { id?: string }; id: string } | null =
+    null;
+  if (cached) {
+    try {
+      actor = await fetchJson<
+        { keyPackages?: string | { id?: string }; id: string }
+      >(
+        cached.actorUrl,
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!actor) {
+    actor = await resolveActor(name, host) as {
+      keyPackages?: string | { id?: string };
+      id: string;
+    } | null;
+    if (actor) {
+      await RemoteActor.findOneAndUpdate(
+        { actorUrl: actor.id },
+        {
+          name: actor.name || "",
+          preferredUsername: actor.preferredUsername || "",
+          icon: actor.icon || null,
+          summary: actor.summary || "",
+          cachedAt: new Date(),
+        },
+        { upsert: true },
+      );
+    }
+  }
+
+  return actor;
+}
 
 const app = new Hono();
 app.use("*", authRequired);
@@ -51,48 +101,42 @@ async function deliverToFollowers(
 }
 
 app.get("/users/:user/keyPackages", async (c) => {
-  const user = c.req.param("user");
+  const acct = c.req.param("user");
   const domain = getDomain(c);
 
-  // user@domain や URL で指定された場合はリモートから取得
-  if (user.includes("@") || user.startsWith("http")) {
-    let actorUrl = "";
-    if (user.startsWith("http")) {
-      actorUrl = user;
-    } else {
-      const [name, host] = user.split("@");
-      const actor = await resolveActor(name, host);
-      if (!actor) return c.json({ type: "Collection", items: [] });
-      actorUrl = actor.id;
-    }
-
-    try {
-      const actor = await fetchJson<{ keyPackages?: string | { id?: string } }>(
-        actorUrl,
-      );
-      const kpUrl = typeof actor.keyPackages === "string"
-        ? actor.keyPackages
-        : actor.keyPackages?.id;
-      if (!kpUrl) return c.json({ type: "Collection", items: [] });
-      const col = await fetchJson<{ items?: unknown[] }>(kpUrl);
-      const items = Array.isArray(col.items) ? col.items : [];
-      return c.json({ type: "Collection", items });
-    } catch (_err) {
-      console.error("remote keyPackages fetch failed", _err);
-      return c.json({ type: "Collection", items: [] });
-    }
+  const [user, host] = acct.split("@");
+  if (!user || !host) {
+    return c.json({ error: "invalid user format" }, 400);
   }
 
-  const list = await KeyPackage.find({ userName: user }).lean();
-  const items = list.map((doc) => ({
-    id: `https://${domain}/users/${user}/keyPackage/${doc._id}`,
-    type: "KeyPackage",
-    content: doc.content,
-    mediaType: doc.mediaType,
-    encoding: doc.encoding,
-    createdAt: doc.createdAt,
-  }));
-  return c.json({ type: "Collection", items });
+  if (host === domain) {
+    const list = await KeyPackage.find({ userName: user }).lean();
+    const items = list.map((doc) => ({
+      id: `https://${domain}/users/${user}/keyPackage/${doc._id}`,
+      type: "KeyPackage",
+      content: doc.content,
+      mediaType: doc.mediaType,
+      encoding: doc.encoding,
+      createdAt: doc.createdAt,
+    }));
+    return c.json({ type: "Collection", items });
+  }
+
+  const actor = await resolveActorCached(acct);
+  if (!actor) return c.json({ type: "Collection", items: [] });
+  const kpUrl = typeof actor.keyPackages === "string"
+    ? actor.keyPackages
+    : actor.keyPackages?.id;
+  if (!kpUrl) return c.json({ type: "Collection", items: [] });
+
+  try {
+    const col = await fetchJson<{ items?: unknown[] }>(kpUrl);
+    const items = Array.isArray(col.items) ? col.items : [];
+    return c.json({ type: "Collection", items });
+  } catch (_err) {
+    console.error("remote keyPackages fetch failed", _err);
+    return c.json({ type: "Collection", items: [] });
+  }
 });
 
 app.get("/users/:user/keyPackage/:keyId", async (c) => {
