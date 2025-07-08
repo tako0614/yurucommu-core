@@ -215,13 +215,17 @@ app.delete("/users/:user/keyPackages/:keyId", async (c) => {
 });
 
 app.post("/users/:user/messages", async (c) => {
-  const sender = c.req.param("user");
+  const acct = c.req.param("user");
+  const [sender, senderDomain] = acct.split("@");
+  if (!sender || !senderDomain) {
+    return c.json({ error: "invalid user format" }, 400);
+  }
   const { to, content, mediaType, encoding } = await c.req.json();
   if (!Array.isArray(to) || typeof content !== "string") {
     return c.json({ error: "invalid body" }, 400);
   }
   const msg = await EncryptedMessage.create({
-    from: sender,
+    from: acct,
     to,
     content,
     mediaType: mediaType ?? "message/mls",
@@ -231,7 +235,7 @@ app.post("/users/:user/messages", async (c) => {
   const actorId = `https://${domain}/users/${sender}`;
   const object = await ActivityPubObject.create({
     type: "PrivateMessage",
-    attributedTo: sender,
+    attributedTo: acct,
     content,
     to,
     extra: { mediaType: msg.mediaType, encoding: msg.encoding },
@@ -256,16 +260,20 @@ app.post("/users/:user/messages", async (c) => {
 });
 
 app.get("/users/:user/messages", async (c) => {
-  const user = c.req.param("user");
-  const partner = c.req.query("with");
-  const condition = partner
+  const acct = c.req.param("user");
+  const [user, userDomain] = acct.split("@");
+  if (!user || !userDomain) {
+    return c.json({ error: "invalid user format" }, 400);
+  }
+  const partnerAcct = c.req.query("with");
+  const condition = partnerAcct
     ? {
       $or: [
-        { from: partner, to: user },
-        { from: user, to: partner },
+        { from: partnerAcct, to: acct },
+        { from: acct, to: partnerAcct },
       ],
     }
-    : { to: user };
+    : { to: acct };
   const list = await EncryptedMessage.find(condition).sort({ createdAt: 1 })
     .lean();
   const messages = list.map((doc) => ({

@@ -2,7 +2,7 @@ import { createResource, createSignal } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
-import { PostForm, PostList } from "./microblog/Post.tsx";
+import { PostForm as _PostForm, PostList } from "./microblog/Post.tsx";
 import {
   _replyToPost,
   createPost,
@@ -26,7 +26,7 @@ export function Microblog() {
     "recommend",
   );
   const [newPostContent, setNewPostContent] = createSignal("");
-  const [showPostForm, setShowPostForm] = createSignal(false);
+  const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [posts, { mutate, refetch }] = createResource(fetchPosts);
@@ -160,7 +160,7 @@ export function Microblog() {
     );
   };
 
-  const handleSubmit = async (e: Event) => {
+  const _handleSubmit = async (e: Event) => {
     e.preventDefault();
     const content = newPostContent().trim();
     if (!content) return;
@@ -370,7 +370,8 @@ export function Microblog() {
           formatDate={formatDate}
         />
 
-        {/* 投稿フォーム 
+        {
+          /* 投稿フォーム
                     <PostForm
               showPostForm={showPostForm()}
               setShowPostForm={setShowPostForm}
@@ -379,8 +380,8 @@ export function Microblog() {
               handleSubmit={handleSubmit}
               currentUser={account() || undefined}
             />
-        */}
-
+        */
+        }
       </div>
     </>
   );
