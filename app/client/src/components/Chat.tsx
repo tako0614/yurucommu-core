@@ -80,6 +80,7 @@ export function Chat() {
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
   const [useEncryption, setUseEncryption] = createSignal(true);
+  const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const partnerKeyCache = new Map<string, string | null>();
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
@@ -249,10 +250,13 @@ export function Chat() {
       if (kp) {
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
         if (partnerPub) {
+          setPartnerHasKey(true);
           const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
           group = { members: room.members, epoch: Date.now(), secret };
           setGroups({ ...groups(), [roomId]: group });
           saveGroupStates();
+        } else {
+          setPartnerHasKey(false);
         }
       }
     }
@@ -319,19 +323,24 @@ export function Chat() {
       if (!group) {
         const kp = await ensureKeyPair();
         if (!kp) {
-          alert("鍵情報が取得できないため送信できません1");
+          alert("鍵情報が取得できないため送信できません");
           return;
         }
         const [partnerUser, partnerDomain] = splitActor(room.members[0]);
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
         if (!partnerPub) {
-          alert("鍵情報が取得できないため送信できません2");
+          setPartnerHasKey(false);
           return;
         }
+        setPartnerHasKey(true);
         const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
         group = { members: room.members, epoch: Date.now(), secret };
         setGroups({ ...groups(), [roomId]: group });
         saveGroupStates();
+      }
+      if (!group) {
+        setPartnerHasKey(false);
+        return;
       }
       const cipher = await encryptGroupMessage(group, text);
       const success = await sendEncryptedMessage(
@@ -372,6 +381,7 @@ export function Chat() {
   // モバイルでの部屋選択時の動作
   const selectRoom = (roomId: string) => {
     console.log("selected room:", roomId); // for debug
+    setPartnerHasKey(true);
     setSelectedRoom(roomId);
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
@@ -640,78 +650,111 @@ export function Chat() {
                       "calc(env(safe-area-inset-bottom, 4px) + 4px)",
                   }}
                 >
-                  <form
-                    class="p-talk-chat-send__form m-0"
-                    onSubmit={(e) => e.preventDefault()}
+                  <Show
+                    when={useEncryption() ? partnerHasKey() : true}
+                    fallback={
+                      <div class="text-center py-4">
+                        <p class="text-gray-400 text-sm">
+                          このユーザーは暗号化された会話に対応していません。
+                        </p>
+                      </div>
+                    }
                   >
-                    <div class="p-talk-chat-send__msg flex items-center gap-1">
-                      <div
-                        class="p-talk-chat-send__dummy"
-                        aria-hidden="true"
-                        style="min-width:0;"
-                      >
-                        {newMessage().split("\n").map((row) => (
-                          <>
-                            {row}
-                            <br />
-                          </>
-                        ))}
-                      </div>
-                      <label class="flex-1">
-                        <textarea
-                          id="msg"
-                          class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
-                          rows="1"
-                          ref={(el) => (textareaRef = el)}
-                          value={newMessage()}
-                          placeholder="メッセージを入力"
-                          style="min-height:32px;max-height:80px;"
-                          onInput={(e) => {
-                            setNewMessage(e.target.value);
-                            adjustHeight();
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              sendMessage();
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                    <div class="flex items-center gap-1 mt-1">
-                      <div
-                        class={`flex items-center px-2 py-0.5 rounded-full text-xs ${
-                          useEncryption()
-                            ? "bg-green-700 bg-opacity-25 text-green-400"
-                            : "bg-gray-700 bg-opacity-25 text-gray-300"
-                        }`}
-                        title={useEncryption()
-                          ? "暗号化オン (クリックで切り替え)"
-                          : "暗号化オフ (クリックで切り替え)"}
-                        style="cursor: pointer; min-height:28px;"
-                        onClick={toggleEncryption}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          class="h-3.5 w-3.5 mr-1"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
+                    <form
+                      class="p-talk-chat-send__form m-0"
+                      onSubmit={(e) => e.preventDefault()}
+                    >
+                      <div class="p-talk-chat-send__msg flex items-center gap-1">
+                        <div
+                          class="p-talk-chat-send__dummy"
+                          aria-hidden="true"
+                          style="min-width:0;"
                         >
-                          <path
-                            fill-rule="evenodd"
-                            d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                            clip-rule="evenodd"
+                          {newMessage().split("\n").map((row) => (
+                            <>
+                              {row}
+                              <br />
+                            </>
+                          ))}
+                        </div>
+                        <label class="flex-1">
+                          <textarea
+                            id="msg"
+                            class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
+                            rows="1"
+                            ref={(el) => (textareaRef = el)}
+                            value={newMessage()}
+                            placeholder="メッセージを入力"
+                            style="min-height:32px;max-height:80px;"
+                            onInput={(e) => {
+                              setNewMessage(e.target.value);
+                              adjustHeight();
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage();
+                              }
+                            }}
                           />
-                        </svg>
-                        {useEncryption() ? "暗号化" : "平文"}
+                        </label>
                       </div>
-                      {/* メニューボタン（ダミー/本来はメニュー展開） */}
-                      <div class="relative">
+                      <div class="flex items-center gap-1 mt-1">
+                        <div
+                          class={`flex items-center px-2 py-0.5 rounded-full text-xs ${
+                            useEncryption()
+                              ? "bg-green-700 bg-opacity-25 text-green-400"
+                              : "bg-gray-700 bg-opacity-25 text-gray-300"
+                          }`}
+                          title={useEncryption()
+                            ? "暗号化オン (クリックで切り替え)"
+                            : "暗号化オフ (クリックで切り替え)"}
+                          style="cursor: pointer; min-height:28px;"
+                          onClick={toggleEncryption}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-3.5 w-3.5 mr-1"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fill-rule="evenodd"
+                              d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                              clip-rule="evenodd"
+                            />
+                          </svg>
+                          {useEncryption() ? "暗号化" : "平文"}
+                        </div>
+                        {/* メニューボタン（ダミー/本来はメニュー展開） */}
+                        <div class="relative">
+                          <div
+                            class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+                            // onClick={toggleMenu}
+                            title="メニューを開く"
+                            style="min-height:28px;"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="20"
+                              height="20"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <line x1="12" y1="5" x2="12" y2="19"></line>
+                              <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                          </div>
+                        </div>
+                        {/* 画像ボタン（ダミー/本来は画像送信） */}
                         <div
                           class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                          // onClick={toggleMenu}
-                          title="メニューを開く"
+                          // onClick={handleMediaSelect}
+                          title="写真・動画を送信"
                           style="min-height:28px;"
                         >
                           <svg
@@ -725,67 +768,45 @@ export function Chat() {
                             stroke-linecap="round"
                             stroke-linejoin="round"
                           >
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <rect
+                              x="3"
+                              y="3"
+                              width="18"
+                              height="18"
+                              rx="2"
+                              ry="2"
+                            >
+                            </rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                          </svg>
+                        </div>
+                        {/* 送信ボタン */}
+                        <div
+                          class={newMessage().trim()
+                            ? "p-talk-chat-send__button is-active"
+                            : "p-talk-chat-send__button"}
+                          onClick={sendMessage}
+                          style="min-height:28px;"
+                        >
+                          <svg
+                            width="800px"
+                            height="800px"
+                            viewBox="0 0 28 28"
+                            version="1.1"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <g stroke="none" stroke-width="1" fill="none">
+                              <g fill="#000000">
+                                <path d="M3.78963301,2.77233335 L24.8609339,12.8499121 C25.4837277,13.1477699 25.7471402,13.8941055 25.4492823,14.5168992 C25.326107,14.7744476 25.1184823,14.9820723 24.8609339,15.1052476 L3.78963301,25.1828263 C3.16683929,25.4806842 2.42050372,25.2172716 2.12264586,24.5944779 C1.99321184,24.3238431 1.96542524,24.015685 2.04435886,23.7262618 L4.15190935,15.9983421 C4.204709,15.8047375 4.36814355,15.6614577 4.56699265,15.634447 L14.7775879,14.2474874 C14.8655834,14.2349166 14.938494,14.177091 14.9721837,14.0981464 L14.9897199,14.0353553 C15.0064567,13.9181981 14.9390703,13.8084248 14.8334007,13.7671556 L14.7775879,13.7525126 L4.57894108,12.3655968 C4.38011873,12.3385589 4.21671819,12.1952832 4.16392965,12.0016992 L2.04435886,4.22889788 C1.8627142,3.56286745 2.25538645,2.87569101 2.92141688,2.69404635 C3.21084015,2.61511273 3.51899823,2.64289932 3.78963301,2.77233335 Z">
+                                </path>
+                              </g>
+                            </g>
                           </svg>
                         </div>
                       </div>
-                      {/* 画像ボタン（ダミー/本来は画像送信） */}
-                      <div
-                        class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                        // onClick={handleMediaSelect}
-                        title="写真・動画を送信"
-                        style="min-height:28px;"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <rect
-                            x="3"
-                            y="3"
-                            width="18"
-                            height="18"
-                            rx="2"
-                            ry="2"
-                          >
-                          </rect>
-                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                          <polyline points="21 15 16 10 5 21"></polyline>
-                        </svg>
-                      </div>
-                      {/* 送信ボタン */}
-                      <div
-                        class={newMessage().trim()
-                          ? "p-talk-chat-send__button is-active"
-                          : "p-talk-chat-send__button"}
-                        onClick={sendMessage}
-                        style="min-height:28px;"
-                      >
-                        <svg
-                          width="800px"
-                          height="800px"
-                          viewBox="0 0 28 28"
-                          version="1.1"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <g stroke="none" stroke-width="1" fill="none">
-                            <g fill="#000000">
-                              <path d="M3.78963301,2.77233335 L24.8609339,12.8499121 C25.4837277,13.1477699 25.7471402,13.8941055 25.4492823,14.5168992 C25.326107,14.7744476 25.1184823,14.9820723 24.8609339,15.1052476 L3.78963301,25.1828263 C3.16683929,25.4806842 2.42050372,25.2172716 2.12264586,24.5944779 C1.99321184,24.3238431 1.96542524,24.015685 2.04435886,23.7262618 L4.15190935,15.9983421 C4.204709,15.8047375 4.36814355,15.6614577 4.56699265,15.634447 L14.7775879,14.2474874 C14.8655834,14.2349166 14.938494,14.177091 14.9721837,14.0981464 L14.9897199,14.0353553 C15.0064567,13.9181981 14.9390703,13.8084248 14.8334007,13.7671556 L14.7775879,13.7525126 L4.57894108,12.3655968 C4.38011873,12.3385589 4.21671819,12.1952832 4.16392965,12.0016992 L2.04435886,4.22889788 C1.8627142,3.56286745 2.25538645,2.87569101 2.92141688,2.69404635 C3.21084015,2.61511273 3.51899823,2.64289932 3.78963301,2.77233335 Z">
-                              </path>
-                            </g>
-                          </g>
-                        </svg>
-                      </div>
-                    </div>
-                  </form>
+                    </form>
+                  </Show>
                 </div>
                 {/* --- 送信UIここまで --- */}
               </div>
