@@ -3,9 +3,9 @@ import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import {
+  createAcceptActivity,
   createBlockActivity,
   createRemoveActivity,
-  createAcceptActivity,
   deliverActivityPubObjectFromUrl,
   getDomain,
 } from "./utils/activitypub.ts";
