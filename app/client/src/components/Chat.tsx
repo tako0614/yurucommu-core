@@ -129,13 +129,24 @@ export function Chat() {
     const user = account();
     if (!user) return null;
     if (!pair) {
-      const stored = await loadMLSKeyPair(user.id);
-      if (stored) {
-        pair = await importKeyPair(stored as StoredMLSKeyPair);
-      } else {
+      try {
+        const stored = await loadMLSKeyPair(user.id);
+        if (stored) {
+          pair = await importKeyPair(stored as StoredMLSKeyPair);
+        }
+      } catch (err) {
+        console.error("鍵ペアの読み込みに失敗しました", err);
+        pair = null;
+      }
+      if (!pair) {
         pair = await generateMLSKeyPair();
-        await saveMLSKeyPair(user.id, await exportKeyPair(pair));
-        await addKeyPackage(user.userName, { content: pair.publicKey });
+        try {
+          await saveMLSKeyPair(user.id, await exportKeyPair(pair));
+          await addKeyPackage(user.userName, { content: pair.publicKey });
+        } catch (err) {
+          console.error("鍵ペアの保存に失敗しました", err);
+          return null;
+        }
       }
       setKeyPair(pair);
     }
