@@ -32,5 +32,5 @@ Takos リポジトリで作業を行う際のガイドラインをまとめて�
 
 ## ドキュメント
 
-- README と activityPub-e2ee.md`
+- README と activityPub-e2ee.mdとactivitypub-e2ee/`
   以下の文書は日本語で管理されています。新しいドキュメントも日本語で記述してください。
