@@ -38,6 +38,8 @@ import {
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
 
+type ActorID = string;
+
 interface ChatMessage {
   id: string;
   author: string;
@@ -60,7 +62,7 @@ interface ChatRoom {
   isOnline?: boolean;
   avatar?: string;
   type: "dm" | "group";
-  members: string[];
+  members: ActorID[];
 }
 
 export function Chat() {
@@ -162,7 +164,7 @@ export function Chat() {
       if (cached !== null) return cached;
     }
     const keys = await fetchKeyPackages(userName, domain);
-    console.log(keys)
+    console.log(keys);
     const pub = keys[0]?.content ?? null;
     if (pub !== null) {
       partnerKeyCache.set(keyId, pub);
@@ -193,19 +195,17 @@ export function Chat() {
       });
       if (res.ok) {
         const infos = await res.json() as UserInfo[];
-        const rooms = infos.reduce<ChatRoom[]>((acc, info) => {
-          const id = info.domain
-            ? `${info.userName}@${info.domain}`
-            : info.userName;
+        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
+          const actor = ids[idx];
           acc.push({
-            id,
+            id: actor,
             name: info.displayName || info.userName,
             userName: info.userName,
             domain: info.domain,
             avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
             unreadCount: 0,
             type: "dm",
-            members: [info.userName],
+            members: [actor],
           });
           return acc;
         }, []);
@@ -226,23 +226,22 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) return;
-      const partnerPub = await getPartnerKey(
-        room.members[0],
-        room.domain,
-      );
+      const [partnerUser, partnerDomain] = splitActor(room.members[0]);
+      const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
       if (!partnerPub) {
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
-        members: [user.userName, ...room.members],
+        members: room.members,
         epoch: Date.now(),
         secret,
       };
       setGroups({ ...groups(), [roomId]: group });
       saveGroupStates();
     }
-    const list = await fetchEncryptedMessages(user.userName, room.members[0]);
+    const [partnerUser] = splitActor(room.members[0]);
+    const list = await fetchEncryptedMessages(user.userName, partnerUser);
     const msgs: ChatMessage[] = [];
     for (const m of list) {
       const plain = await decryptGroupMessage(group!, m.content);
@@ -278,17 +277,15 @@ export function Chat() {
         alert("鍵情報が取得できないため送信できません1");
         return;
       }
-      const partnerPub = await getPartnerKey(
-        room.members[0],
-        room.domain,
-      );
+      const [partnerUser, partnerDomain] = splitActor(room.members[0]);
+      const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
       if (!partnerPub) {
         alert("鍵情報が取得できないため送信できません2");
         return;
       }
       const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
       group = {
-        members: [user.userName, ...room.members],
+        members: room.members,
         epoch: Date.now(),
         secret,
       };
@@ -734,4 +731,16 @@ export function Chat() {
       </div>
     </>
   );
+}
+
+function splitActor(actor: ActorID): [string, string | undefined] {
+  if (actor.startsWith("http")) {
+    const url = new URL(actor);
+    return [url.pathname.split("/").pop()!, url.hostname];
+  }
+  if (actor.includes("@")) {
+    const [user, domain] = actor.split("@");
+    return [user, domain];
+  }
+  return [actor, undefined];
 }

@@ -1,5 +1,7 @@
 // MLSヘルパー関数の継続実装
 
+type ActorID = string;
+
 export interface MLSKeyPair {
   publicKey: string; // base64化した公開鍵
   privateKey: CryptoKey;
@@ -68,13 +70,13 @@ export const deriveMLSSecret = async (
  * AES-GCM鍵を作成しグループ状態を保持
  */
 export interface MLSGroupState {
-  members: string[];
+  members: ActorID[];
   epoch: number;
   secret: CryptoKey;
 }
 
 export const createMLSGroup = async (
-  members: string[],
+  members: ActorID[],
 ): Promise<MLSGroupState> => {
   const secret = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
@@ -136,7 +138,7 @@ export const decryptGroupMessage = async (
 };
 
 export interface StoredMLSGroupState {
-  members: string[];
+  members: ActorID[];
   epoch: number;
   secret: string;
 }
