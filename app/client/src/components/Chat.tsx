@@ -15,7 +15,9 @@ import {
   addKeyPackage,
   fetchEncryptedMessages,
   fetchKeyPackages,
+  fetchPublicMessages,
   sendEncryptedMessage,
+  sendPublicMessage,
 } from "./e2ee/api.ts";
 import {
   decryptGroupMessage,
@@ -76,6 +78,7 @@ export function Chat() {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
+  const [useEncryption, setUseEncryption] = createSignal(true);
   const partnerKeyCache = new Map<string, string | null>();
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
@@ -98,6 +101,10 @@ export function Chat() {
     } catch {
       return false;
     }
+  };
+
+  const toggleEncryption = () => {
+    setUseEncryption(!useEncryption());
   };
 
   const loadGroupStates = async () => {
@@ -228,53 +235,74 @@ export function Chat() {
     const roomId = selectedRoom();
     const user = account();
     if (!roomId || !user) return;
-    let group = groups()[roomId];
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
-    if (!group) {
-      const kp = await ensureKeyPair();
-      if (!kp) return;
-      const [partnerUser, partnerDomain] = splitActor(room.members[0]);
-      const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
-      if (!partnerPub) {
-        return;
-      }
-      const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-      group = {
-        members: room.members,
-        epoch: Date.now(),
-        secret,
-      };
-      setGroups({ ...groups(), [roomId]: group });
-      saveGroupStates();
-    }
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
       : `${partnerUser}@${globalThis.location.hostname}`;
-    const list = await fetchEncryptedMessages(
-      `${user.userName}@${globalThis.location.hostname}`,
-      partner,
-    );
-    const msgs: ChatMessage[] = [];
-    for (const m of list) {
-      const plain = await decryptGroupMessage(group!, m.content);
-      const fullId = `${user.userName}@${globalThis.location.hostname}`;
-      const isMe = m.from === fullId;
-      const displayName = isMe ? user.displayName || user.userName : room.name;
-      msgs.push({
-        id: m.id,
-        author: m.from,
-        displayName,
-        address: m.from,
-        content: plain ?? "",
-        timestamp: new Date(m.createdAt),
-        type: "text",
-        isMe,
-        avatar: room.avatar,
+    if (useEncryption()) {
+      let group = groups()[roomId];
+      if (!group) {
+        const kp = await ensureKeyPair();
+        if (!kp) return;
+        const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
+        if (!partnerPub) return;
+        const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
+        group = { members: room.members, epoch: Date.now(), secret };
+        setGroups({ ...groups(), [roomId]: group });
+        saveGroupStates();
+      }
+      const list = await fetchEncryptedMessages(
+        `${user.userName}@${globalThis.location.hostname}`,
+        partner,
+      );
+      const msgs: ChatMessage[] = [];
+      for (const m of list) {
+        const plain = await decryptGroupMessage(group!, m.content);
+        const fullId = `${user.userName}@${globalThis.location.hostname}`;
+        const isMe = m.from === fullId;
+        const displayName = isMe
+          ? user.displayName || user.userName
+          : room.name;
+        msgs.push({
+          id: m.id,
+          author: m.from,
+          displayName,
+          address: m.from,
+          content: plain ?? "",
+          timestamp: new Date(m.createdAt),
+          type: "text",
+          isMe,
+          avatar: room.avatar,
+        });
+      }
+      setMessages(msgs);
+    } else {
+      const list = await fetchPublicMessages(
+        `${user.userName}@${globalThis.location.hostname}`,
+        partner,
+      );
+      const msgs = list.map((m) => {
+        const fullId = `${user.userName}@${globalThis.location.hostname}`;
+        const isMe = m.from === fullId;
+        const displayName = isMe
+          ? user.displayName || user.userName
+          : room.name;
+        return {
+          id: m.id,
+          author: m.from,
+          displayName,
+          address: m.from,
+          content: m.content,
+          timestamp: new Date(m.createdAt),
+          type: "text",
+          isMe,
+          avatar: room.avatar,
+        } as ChatMessage;
       });
+      setMessages(msgs);
     }
-    setMessages(msgs);
   };
 
   const sendMessage = async () => {
@@ -284,39 +312,51 @@ export function Chat() {
     if (!text || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
-    let group = groups()[roomId];
-    if (!group) {
-      const kp = await ensureKeyPair();
-      if (!kp) {
-        alert("鍵情報が取得できないため送信できません1");
+    if (useEncryption()) {
+      let group = groups()[roomId];
+      if (!group) {
+        const kp = await ensureKeyPair();
+        if (!kp) {
+          alert("鍵情報が取得できないため送信できません1");
+          return;
+        }
+        const [partnerUser, partnerDomain] = splitActor(room.members[0]);
+        const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
+        if (!partnerPub) {
+          alert("鍵情報が取得できないため送信できません2");
+          return;
+        }
+        const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
+        group = { members: room.members, epoch: Date.now(), secret };
+        setGroups({ ...groups(), [roomId]: group });
+        saveGroupStates();
+      }
+      const cipher = await encryptGroupMessage(group, text);
+      const success = await sendEncryptedMessage(
+        `${user.userName}@${globalThis.location.hostname}`,
+        {
+          to: room.members,
+          content: cipher,
+        },
+      );
+      if (!success) {
+        alert("メッセージの送信に失敗しました");
         return;
       }
-      const [partnerUser, partnerDomain] = splitActor(room.members[0]);
-      const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
-      if (!partnerPub) {
-        alert("鍵情報が取得できないため送信できません2");
+    } else {
+      const success = await sendPublicMessage(
+        `${user.userName}@${globalThis.location.hostname}`,
+        {
+          to: room.members,
+          content: text,
+          mediaType: "text/plain",
+          encoding: "utf-8",
+        },
+      );
+      if (!success) {
+        alert("メッセージの送信に失敗しました");
         return;
       }
-      const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-      group = {
-        members: room.members,
-        epoch: Date.now(),
-        secret,
-      };
-      setGroups({ ...groups(), [roomId]: group });
-      saveGroupStates();
-    }
-    const cipher = await encryptGroupMessage(group, text);
-    const success = await sendEncryptedMessage(
-      `${user.userName}@${globalThis.location.hostname}`,
-      {
-        to: room.members,
-        content: cipher,
-      },
-    );
-    if (!success) {
-      alert("メッセージの送信に失敗しました");
-      return;
     }
     setNewMessage("");
     loadMessages();
@@ -638,12 +678,17 @@ export function Chat() {
                       </label>
                     </div>
                     <div class="flex items-center gap-1 mt-1">
-                      {/* 暗号化状態インジケーター（ダミー/本来は状態管理で切り替え） */}
                       <div
-                        class="flex items-center px-2 py-0.5 rounded-full text-xs bg-green-700 bg-opacity-25 text-green-400"
-                        title="暗号化オン (クリックで切り替え)"
+                        class={`flex items-center px-2 py-0.5 rounded-full text-xs ${
+                          useEncryption()
+                            ? "bg-green-700 bg-opacity-25 text-green-400"
+                            : "bg-gray-700 bg-opacity-25 text-gray-300"
+                        }`}
+                        title={useEncryption()
+                          ? "暗号化オン (クリックで切り替え)"
+                          : "暗号化オフ (クリックで切り替え)"}
                         style="cursor: pointer; min-height:28px;"
-                        // onClick={toggleEncryption}
+                        onClick={toggleEncryption}
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -657,7 +702,7 @@ export function Chat() {
                             clip-rule="evenodd"
                           />
                         </svg>
-                        暗号化
+                        {useEncryption() ? "暗号化" : "平文"}
                       </div>
                       {/* メニューボタン（ダミー/本来はメニュー展開） */}
                       <div class="relative">

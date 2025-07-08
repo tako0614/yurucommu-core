@@ -118,3 +118,58 @@ export const fetchEncryptedMessages = async (
     return [];
   }
 };
+
+export interface PublicMessage {
+  id: string;
+  from: string;
+  to: string[];
+  content: string;
+  mediaType: string;
+  encoding: string;
+  createdAt: string;
+}
+
+export const sendPublicMessage = async (
+  user: string,
+  data: {
+    to: string[];
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+  },
+): Promise<boolean> => {
+  try {
+    const res = await fetch(
+      `/api/users/${encodeURIComponent(user)}/publicMessages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error sending public message:", err);
+    return false;
+  }
+};
+
+export const fetchPublicMessages = async (
+  user: string,
+  partner?: string,
+): Promise<PublicMessage[]> => {
+  try {
+    const url = `/api/users/${encodeURIComponent(user)}/publicMessages${
+      partner ? `?with=${encodeURIComponent(partner)}` : ""
+    }`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error("Failed to fetch public messages");
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Error fetching public messages:", err);
+    return [];
+  }
+};
