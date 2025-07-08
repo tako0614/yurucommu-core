@@ -145,7 +145,10 @@ export function Chat() {
         pair = await generateMLSKeyPair();
         try {
           await saveMLSKeyPair(user.id, await exportKeyPair(pair));
-          await addKeyPackage(user.userName, { content: pair.publicKey });
+          await addKeyPackage(
+            `${user.userName}@${globalThis.location.hostname}`,
+            { content: pair.publicKey },
+          );
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           return null;
@@ -157,13 +160,18 @@ export function Chat() {
   };
 
   const getPartnerKey = async (userName: string, domain?: string) => {
-    const keyId = domain ? `${userName}@${domain}` : userName;
+    const keyId = domain
+      ? `${userName}@${domain}`
+      : `${userName}@${globalThis.location.hostname}`;
     if (partnerKeyCache.has(keyId)) {
       const cached = partnerKeyCache.get(keyId);
       console.log("getPartnerKeyテスト", keyId, cached);
       if (cached !== null) return cached;
     }
-    const keys = await fetchKeyPackages(userName, domain);
+    const keys = await fetchKeyPackages(
+      userName,
+      domain ?? globalThis.location.hostname,
+    );
     console.log(keys);
     const pub = keys[0]?.content ?? null;
     if (pub !== null) {
@@ -240,19 +248,25 @@ export function Chat() {
       setGroups({ ...groups(), [roomId]: group });
       saveGroupStates();
     }
-    const [partnerUser] = splitActor(room.members[0]);
-    const list = await fetchEncryptedMessages(user.userName, partnerUser);
+    const [partnerUser, partnerDomain] = splitActor(room.members[0]);
+    const partner = partnerDomain
+      ? `${partnerUser}@${partnerDomain}`
+      : `${partnerUser}@${globalThis.location.hostname}`;
+    const list = await fetchEncryptedMessages(
+      `${user.userName}@${globalThis.location.hostname}`,
+      partner,
+    );
     const msgs: ChatMessage[] = [];
     for (const m of list) {
       const plain = await decryptGroupMessage(group!, m.content);
-      const isMe = m.from === user.userName;
+      const fullId = `${user.userName}@${globalThis.location.hostname}`;
+      const isMe = m.from === fullId;
       const displayName = isMe ? user.displayName || user.userName : room.name;
-      const domain = isMe ? globalThis.location.hostname : room.domain;
       msgs.push({
         id: m.id,
         author: m.from,
         displayName,
-        address: `${m.from}@${domain}`,
+        address: m.from,
         content: plain ?? "",
         timestamp: new Date(m.createdAt),
         type: "text",
@@ -293,10 +307,13 @@ export function Chat() {
       saveGroupStates();
     }
     const cipher = await encryptGroupMessage(group, text);
-    const success = await sendEncryptedMessage(user.userName, {
-      to: room.members,
-      content: cipher,
-    });
+    const success = await sendEncryptedMessage(
+      `${user.userName}@${globalThis.location.hostname}`,
+      {
+        to: room.members,
+        content: cipher,
+      },
+    );
     if (!success) {
       alert("メッセージの送信に失敗しました");
       return;
