@@ -1,8 +1,8 @@
 import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = "mlsGroups";
-const KEY_STORE = "mlsKeyPair";
+const KEY_STORE = "mlsKeyPairs";
 
 function openDB(accountId: string): Promise<IDBDatabase> {
   const name = `takos_${accountId}`;
@@ -14,7 +14,7 @@ function openDB(accountId: string): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME);
       }
       if (!db.objectStoreNames.contains(KEY_STORE)) {
-        db.createObjectStore(KEY_STORE);
+        db.createObjectStore(KEY_STORE, { autoIncrement: true });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -68,8 +68,11 @@ export const loadMLSKeyPair = async (
   const tx = db.transaction(KEY_STORE, "readonly");
   const store = tx.objectStore(KEY_STORE);
   return await new Promise((resolve, reject) => {
-    const req = store.get("key");
-    req.onsuccess = () => resolve(req.result ?? null);
+    const req = store.openCursor(null, "prev");
+    req.onsuccess = () => {
+      const cursor = req.result;
+      resolve(cursor ? (cursor.value as StoredMLSKeyPair) : null);
+    };
     req.onerror = () => reject(req.error);
   });
 };
@@ -81,7 +84,7 @@ export const saveMLSKeyPair = async (
   const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readwrite");
   const store = tx.objectStore(KEY_STORE);
-  store.put(pair, "key");
+  store.add(pair);
   await new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(undefined);
     tx.onerror = () => reject(tx.error);
