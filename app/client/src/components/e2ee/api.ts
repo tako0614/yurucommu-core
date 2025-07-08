@@ -1,3 +1,5 @@
+import { apiFetch } from "../../utils/config.ts";
+
 export interface KeyPackage {
   id: string;
   type: "KeyPackage";
@@ -23,7 +25,7 @@ export const fetchKeyPackages = async (
 ): Promise<KeyPackage[]> => {
   try {
     const identifier = domain ? `${user}@${domain}` : user;
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(identifier)}/keyPackages`,
     );
     if (!res.ok) {
@@ -42,7 +44,7 @@ export const addKeyPackage = async (
   pkg: { content: string; mediaType?: string; encoding?: string },
 ): Promise<string | null> => {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/keyPackages`,
       {
         method: "POST",
@@ -64,7 +66,7 @@ export const deleteKeyPackage = async (
   keyId: string,
 ): Promise<boolean> => {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/keyPackages/${
         encodeURIComponent(keyId)
       }`,
@@ -87,11 +89,14 @@ export const sendEncryptedMessage = async (
   },
 ): Promise<boolean> => {
   try {
-    const res = await fetch(`/api/users/${encodeURIComponent(user)}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
     return res.ok;
   } catch (err) {
     console.error("Error sending message:", err);
@@ -107,7 +112,7 @@ export const fetchEncryptedMessages = async (
     const url = `/api/users/${encodeURIComponent(user)}/messages${
       partner ? `?with=${encodeURIComponent(partner)}` : ""
     }`;
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (!res.ok) {
       throw new Error("Failed to fetch messages");
     }
@@ -139,7 +144,7 @@ export const sendPublicMessage = async (
   },
 ): Promise<boolean> => {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/publicMessages`,
       {
         method: "POST",
@@ -162,7 +167,7 @@ export const fetchPublicMessages = async (
     const url = `/api/users/${encodeURIComponent(user)}/publicMessages${
       partner ? `?with=${encodeURIComponent(partner)}` : ""
     }`;
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (!res.ok) {
       throw new Error("Failed to fetch public messages");
     }

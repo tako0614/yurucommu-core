@@ -1,3 +1,5 @@
+import { apiFetch } from "../../utils/config.ts";
+
 export interface Relay {
   id: string;
   inboxUrl: string;
@@ -5,7 +7,7 @@ export interface Relay {
 
 export const fetchRelays = async (): Promise<Relay[]> => {
   try {
-    const res = await fetch("/api/relays");
+    const res = await apiFetch("/api/relays");
     if (!res.ok) throw new Error("Failed to fetch relays");
     const data = await res.json();
     return Array.isArray(data.relays) ? data.relays : [];
@@ -17,7 +19,7 @@ export const fetchRelays = async (): Promise<Relay[]> => {
 
 export const addRelay = async (inboxUrl: string): Promise<Relay | null> => {
   try {
-    const res = await fetch("/api/relays", {
+    const res = await apiFetch("/api/relays", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inboxUrl }),
@@ -32,7 +34,7 @@ export const addRelay = async (inboxUrl: string): Promise<Relay | null> => {
 
 export const deleteRelay = async (id: string): Promise<boolean> => {
   try {
-    const res = await fetch(`/api/relays/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/relays/${id}`, { method: "DELETE" });
     return res.ok;
   } catch (err) {
     console.error("Error deleting relay:", err);

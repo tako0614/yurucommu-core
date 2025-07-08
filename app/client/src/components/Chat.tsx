@@ -19,6 +19,7 @@ import {
   sendEncryptedMessage,
   sendPublicMessage,
 } from "./e2ee/api.ts";
+import { apiFetch, getDomain } from "../utils/config.ts";
 import {
   decryptGroupMessage,
   deriveMLSSecret,
@@ -158,7 +159,7 @@ export function Chat() {
         try {
           await saveMLSKeyPair(user.id, await exportKeyPair(pair));
           await addKeyPackage(
-            `${user.userName}@${globalThis.location.hostname}`,
+            `${user.userName}@${getDomain()}`,
             { content: pair.publicKey },
           );
         } catch (err) {
@@ -174,7 +175,7 @@ export function Chat() {
   };
 
   const getPartnerKey = async (userName: string, domain?: string) => {
-    const effectiveDomain = domain ?? globalThis.location.hostname;
+    const effectiveDomain = domain ?? getDomain();
     const keyId = `${userName}@${effectiveDomain}`;
     if (partnerKeyCache.has(keyId)) {
       const cached = partnerKeyCache.get(keyId);
@@ -203,7 +204,7 @@ export function Chat() {
       return;
     }
     try {
-      const res = await fetch("/api/user-info/batch", {
+      const res = await apiFetch("/api/user-info/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifiers: ids }),
@@ -240,7 +241,7 @@ export function Chat() {
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
-      : `${partnerUser}@${globalThis.location.hostname}`;
+      : `${partnerUser}@${getDomain()}`;
     const encryptedMsgs: ChatMessage[] = [];
     let group = groups()[roomId];
     if (!group) {
@@ -257,12 +258,12 @@ export function Chat() {
     }
     if (group) {
       const list = await fetchEncryptedMessages(
-        `${user.userName}@${globalThis.location.hostname}`,
+        `${user.userName}@${getDomain()}`,
         partner,
       );
       for (const m of list) {
         const plain = await decryptGroupMessage(group, m.content);
-        const fullId = `${user.userName}@${globalThis.location.hostname}`;
+        const fullId = `${user.userName}@${getDomain()}`;
         const isMe = m.from === fullId;
         const displayName = isMe
           ? user.displayName || user.userName
@@ -281,11 +282,11 @@ export function Chat() {
       }
     }
     const publicList = await fetchPublicMessages(
-      `${user.userName}@${globalThis.location.hostname}`,
+      `${user.userName}@${getDomain()}`,
       partner,
     );
     const publicMsgs = publicList.map((m) => {
-      const fullId = `${user.userName}@${globalThis.location.hostname}`;
+      const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
       const displayName = isMe ? user.displayName || user.userName : room.name;
       return {
@@ -334,7 +335,7 @@ export function Chat() {
       }
       const cipher = await encryptGroupMessage(group, text);
       const success = await sendEncryptedMessage(
-        `${user.userName}@${globalThis.location.hostname}`,
+        `${user.userName}@${getDomain()}`,
         {
           to: room.members,
           content: cipher,
@@ -346,7 +347,7 @@ export function Chat() {
       }
     } else {
       const success = await sendPublicMessage(
-        `${user.userName}@${globalThis.location.hostname}`,
+        `${user.userName}@${getDomain()}`,
         {
           to: room.members,
           content: text,

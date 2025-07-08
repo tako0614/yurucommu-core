@@ -4,6 +4,7 @@ import { loginState } from "./states/session.ts";
 import { darkModeState, languageState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { Application } from "./components/Application.tsx";
+import { apiFetch } from "./utils/config.ts";
 import "./App.css";
 import "./stylesheet.css";
 
@@ -15,7 +16,7 @@ function App() {
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
     try {
-      const res = await fetch("/api/session/status");
+      const res = await apiFetch("/api/session/status");
       const result = await res.json();
       setIsLoggedIn(result.login ?? false);
     } catch (err) {
