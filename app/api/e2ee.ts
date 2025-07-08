@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import KeyPackage from "./models/key_package.ts";
 import EncryptedMessage from "./models/encrypted_message.ts";
+import PublicMessage from "./models/public_message.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import {
+  type ActivityPubActor,
   buildActivityFromStored,
   createAddActivity,
   createCreateActivity,
@@ -15,7 +17,6 @@ import {
   fetchJson,
   getDomain,
   resolveActor,
-  type ActivityPubActor,
 } from "./utils/activitypub.ts";
 import RemoteActor from "./models/remote_actor.ts";
 
@@ -31,8 +32,9 @@ async function resolveActorCached(acct: string) {
     actorUrl: { $regex: hostRegex },
   }).lean();
 
-  let actor: (ActivityPubActor & { keyPackages?: string | { id?: string } }) | null =
-    null;
+  let actor:
+    | (ActivityPubActor & { keyPackages?: string | { id?: string } })
+    | null = null;
   if (cached) {
     try {
       actor = await fetchJson<
@@ -46,7 +48,9 @@ async function resolveActorCached(acct: string) {
   }
 
   if (!actor) {
-    actor = await resolveActor(name, host) as (ActivityPubActor & { keyPackages?: string | { id?: string } }) | null;
+    actor = await resolveActor(name, host) as
+      | (ActivityPubActor & { keyPackages?: string | { id?: string } })
+      | null;
     if (actor) {
       await RemoteActor.findOneAndUpdate(
         { actorUrl: actor.id },
@@ -245,9 +249,69 @@ app.post("/users/:user/messages", async (c) => {
     sender,
     false,
   );
+  privateMessage["@context"] = [
+    "https://www.w3.org/ns/activitystreams",
+    "https://purl.archive.org/socialweb/mls",
+  ];
 
   const activity = createCreateActivity(domain, actorId, privateMessage);
+  activity["@context"] = [
+    "https://www.w3.org/ns/activitystreams",
+    "https://purl.archive.org/socialweb/mls",
+  ];
   // 個別配信
+  activity.to = to;
+  activity.cc = [];
+  deliverActivityPubObject(to, activity, sender).catch((err) => {
+    console.error("deliver failed", err);
+  });
+
+  return c.json({ result: "sent", id: msg._id.toString() });
+});
+
+app.post("/users/:user/publicMessages", async (c) => {
+  const acct = c.req.param("user");
+  const [sender, senderDomain] = acct.split("@");
+  if (!sender || !senderDomain) {
+    return c.json({ error: "invalid user format" }, 400);
+  }
+  const { to, content, mediaType, encoding } = await c.req.json();
+  if (!Array.isArray(to) || typeof content !== "string") {
+    return c.json({ error: "invalid body" }, 400);
+  }
+  const msg = await PublicMessage.create({
+    from: acct,
+    to,
+    content,
+    mediaType: mediaType ?? "message/mls",
+    encoding: encoding ?? "base64",
+  });
+  const domain = getDomain(c);
+  const actorId = `https://${domain}/users/${sender}`;
+  const object = await ActivityPubObject.create({
+    type: "PublicMessage",
+    attributedTo: acct,
+    content,
+    to,
+    extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+  });
+
+  const publicMessage = buildActivityFromStored(
+    { ...object.toObject(), content },
+    domain,
+    sender,
+    false,
+  );
+  publicMessage["@context"] = [
+    "https://www.w3.org/ns/activitystreams",
+    "https://purl.archive.org/socialweb/mls",
+  ];
+
+  const activity = createCreateActivity(domain, actorId, publicMessage);
+  activity["@context"] = [
+    "https://www.w3.org/ns/activitystreams",
+    "https://purl.archive.org/socialweb/mls",
+  ];
   activity.to = to;
   activity.cc = [];
   deliverActivityPubObject(to, activity, sender).catch((err) => {
@@ -280,12 +344,64 @@ app.get("/users/:user/messages", async (c) => {
     ? {
       $or: [
         { from: partnerAcct, to: { $in: [actorId, acct] } },
-        { from: acct, to: { $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct] } },
+        {
+          from: acct,
+          to: {
+            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
+          },
+        },
       ],
     }
     : { to: { $in: [actorId, acct] } };
 
   const list = await EncryptedMessage.find(condition).sort({ createdAt: 1 })
+    .lean();
+  const messages = list.map((doc) => ({
+    id: doc._id.toString(),
+    from: doc.from,
+    to: doc.to,
+    content: doc.content,
+    mediaType: doc.mediaType,
+    encoding: doc.encoding,
+    createdAt: doc.createdAt,
+  }));
+  return c.json(messages);
+});
+
+app.get("/users/:user/publicMessages", async (c) => {
+  const acct = c.req.param("user");
+  const [user, userDomain] = acct.split("@");
+  if (!user || !userDomain) {
+    return c.json({ error: "invalid user format" }, 400);
+  }
+
+  const actor = await resolveActorCached(acct);
+  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
+  const partnerAcct = c.req.query("with");
+  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
+  const partnerActorObj = partnerAcct
+    ? await resolveActorCached(partnerAcct)
+    : null;
+  let partnerActor = partnerActorObj?.id;
+  if (!partnerActor && partnerUser && partnerDomain) {
+    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
+  }
+
+  const condition = partnerAcct
+    ? {
+      $or: [
+        { from: partnerAcct, to: { $in: [actorId, acct] } },
+        {
+          from: acct,
+          to: {
+            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
+          },
+        },
+      ],
+    }
+    : { to: { $in: [actorId, acct] } };
+
+  const list = await PublicMessage.find(condition).sort({ createdAt: 1 })
     .lean();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),
