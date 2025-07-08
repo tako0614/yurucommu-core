@@ -157,12 +157,18 @@ export function Chat() {
   const getPartnerKey = async (userName: string, domain?: string) => {
     const keyId = domain ? `${userName}@${domain}` : userName;
     if (partnerKeyCache.has(keyId)) {
-      console.log("getPartnerKeyテスト", keyId, partnerKeyCache.get(keyId));
-      return partnerKeyCache.get(keyId);
+      const cached = partnerKeyCache.get(keyId);
+      console.log("getPartnerKeyテスト", keyId, cached);
+      if (cached !== null) return cached;
     }
     const keys = await fetchKeyPackages(userName, domain);
+    console.log(keys)
     const pub = keys[0]?.content ?? null;
-    partnerKeyCache.set(keyId, pub);
+    if (pub !== null) {
+      partnerKeyCache.set(keyId, pub);
+    }
+    // pubがnullのときはキャッシュしない
+    console.log("getPartnerKeyテスト2", keyId, pub);
     return pub;
   };
 
