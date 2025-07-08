@@ -17,10 +17,14 @@ export interface EncryptedMessage {
   createdAt: string;
 }
 
-export const fetchKeyPackages = async (user: string): Promise<KeyPackage[]> => {
+export const fetchKeyPackages = async (
+  user: string,
+  domain?: string,
+): Promise<KeyPackage[]> => {
   try {
+    const identifier = domain ? `${user}@${domain}` : user;
     const res = await fetch(
-      `/api/users/${encodeURIComponent(user)}/keyPackages`,
+      `/api/users/${encodeURIComponent(identifier)}/keyPackages`,
     );
     if (!res.ok) {
       throw new Error("Failed to fetch key packages");
