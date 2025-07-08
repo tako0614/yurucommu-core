@@ -165,20 +165,14 @@ export function Chat() {
       : `${userName}@${globalThis.location.hostname}`;
     if (partnerKeyCache.has(keyId)) {
       const cached = partnerKeyCache.get(keyId);
-      console.log("getPartnerKeyテスト", keyId, cached);
-      if (cached !== null) return cached;
+      return cached;
     }
     const keys = await fetchKeyPackages(
       userName,
       domain ?? globalThis.location.hostname,
     );
-    console.log(keys);
     const pub = keys[0]?.content ?? null;
-    if (pub !== null) {
-      partnerKeyCache.set(keyId, pub);
-    }
-    // pubがnullのときはキャッシュしない
-    console.log("getPartnerKeyテスト2", keyId, pub);
+    partnerKeyCache.set(keyId, pub);
     return pub;
   };
 

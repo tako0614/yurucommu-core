@@ -40,8 +40,8 @@ async function resolveActorCached(acct: string) {
       >(
         cached.actorUrl,
       );
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error(`Failed to fetch cached actor ${cached.actorUrl}:`, err);
     }
   }
 
@@ -108,7 +108,7 @@ app.get("/users/:user/keyPackages", async (c) => {
   }
 
   if (host === domain) {
-    const list = await KeyPackage.find({ userName: user }).lean();
+    const list = await KeyPackage.find({ userName: acct }).lean();
     const items = list.map((doc) => ({
       id: `https://${domain}/users/${user}/keyPackage/${doc._id}`,
       type: "KeyPackage",
@@ -280,9 +280,7 @@ app.get("/users/:user/messages", async (c) => {
     ? {
       $or: [
         { from: partnerAcct, to: { $in: [actorId, acct] } },
-        partnerActor
-          ? { from: acct, to: { $in: [partnerActor, partnerAcct] } }
-          : { from: acct, to: partnerAcct },
+        { from: acct, to: { $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct] } },
       ],
     }
     : { to: { $in: [actorId, acct] } };
