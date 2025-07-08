@@ -1,9 +1,10 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
 import type { Notification } from "./types.ts";
+import { apiFetch } from "../../utils/config.ts";
 
 const fetchNotifications = async (): Promise<Notification[]> => {
   try {
-    const res = await fetch("/api/notifications");
+    const res = await apiFetch("/api/notifications");
     if (!res.ok) {
       throw new Error(`HTTP error! status: ${res.status}`);
     }
@@ -22,7 +23,7 @@ const NotificationsContent: Component = () => {
 
   const markAsRead = async (id: string) => {
     try {
-      const res = await fetch(`/api/notifications/${id}/read`, {
+      const res = await apiFetch(`/api/notifications/${id}/read`, {
         method: "PATCH",
       });
       if (!res.ok) throw new Error("Failed to mark as read");
@@ -40,7 +41,9 @@ const NotificationsContent: Component = () => {
     setDeletingIds(new Set([...currentDeleting, id]));
 
     try {
-      const res = await fetch(`/api/notifications/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/notifications/${id}`, {
+        method: "DELETE",
+      });
       if (!res.ok) throw new Error("Failed to delete notification");
 
       mutate((prev) => prev?.filter((n) => n.id !== id) || []);
@@ -60,7 +63,7 @@ const NotificationsContent: Component = () => {
     try {
       await Promise.all(
         list.map((n) =>
-          fetch(`/api/notifications/${n.id}`, { method: "DELETE" })
+          apiFetch(`/api/notifications/${n.id}`, { method: "DELETE" })
         ),
       );
       mutate([]);

@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { apiFetch } from "../utils/config.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -21,7 +22,7 @@ export function LoginForm(props: LoginFormProps) {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/login", {
+      const res = await apiFetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,4 +1,5 @@
 import { createSignal, onMount } from "solid-js";
+import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
@@ -82,7 +83,7 @@ export function Home() {
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
     try {
-      const response = await fetch("/api/accounts");
+      const response = await apiFetch("/api/accounts");
       const results = await response.json();
       setAccounts(results || []);
       if (preserveSelectedId) {
@@ -105,7 +106,7 @@ export function Home() {
   // 新規アカウント追加機能
   const addNewAccount = async (username: string, displayName?: string) => {
     try {
-      const response = await fetch("/api/accounts", {
+      const response = await apiFetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -174,7 +175,7 @@ export function Home() {
       }
       // payload.avatarInitial が未定義の場合、サーバー側はアイコンを変更しない
 
-      const response = await fetch(`/api/accounts/${id}`, {
+      const response = await apiFetch(`/api/accounts/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -196,7 +197,7 @@ export function Home() {
       const currentAccount = accounts().find((acc) => acc.id === id);
       if (!currentAccount) return;
 
-      const response = await fetch(`/api/accounts/${id}`, {
+      const response = await apiFetch(`/api/accounts/${id}`, {
         method: "DELETE",
       });
 
@@ -217,7 +218,7 @@ export function Home() {
   };
 
   onMount(() => {
-      loadAccounts();
+    loadAccounts();
     // タッチイベントリスナーを追加
     const addTouchListeners = () => {
       if (mainContentRef) {

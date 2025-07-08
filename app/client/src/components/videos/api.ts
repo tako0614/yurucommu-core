@@ -1,8 +1,9 @@
 import type { Video } from "./types.ts";
+import { apiFetch } from "../../utils/config.ts";
 
 export const fetchVideos = async (): Promise<Video[]> => {
   try {
-    const res = await fetch("/api/videos");
+    const res = await apiFetch("/api/videos");
     if (!res.ok) throw new Error("Failed to fetch videos");
     return await res.json();
   } catch (err) {
@@ -21,7 +22,7 @@ export const createVideo = async (
   } & { author: string },
 ): Promise<Video | null> => {
   try {
-    const res = await fetch("/api/videos", {
+    const res = await apiFetch("/api/videos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -36,7 +37,7 @@ export const createVideo = async (
 
 export const likeVideo = async (id: string): Promise<number | null> => {
   try {
-    const res = await fetch(`/api/videos/${id}/like`, { method: "POST" });
+    const res = await apiFetch(`/api/videos/${id}/like`, { method: "POST" });
     if (!res.ok) return null;
     const data = await res.json();
     return typeof data.likes === "number" ? data.likes : null;
@@ -48,7 +49,7 @@ export const likeVideo = async (id: string): Promise<number | null> => {
 
 export const addView = async (id: string): Promise<number | null> => {
   try {
-    const res = await fetch(`/api/videos/${id}/view`, { method: "POST" });
+    const res = await apiFetch(`/api/videos/${id}/view`, { method: "POST" });
     if (!res.ok) return null;
     const data = await res.json();
     return typeof data.views === "number" ? data.views : null;

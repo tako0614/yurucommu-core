@@ -1,5 +1,6 @@
 import { createResource, createSignal, For } from "solid-js";
 import { sanitizeHTML } from "../../utils/sanitize.ts";
+import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 import {
@@ -51,7 +52,7 @@ function formatUserInfo(post: MicroblogPost) {
   }
 
   // 自サーバーのドメインかどうかを判定（実際のサーバードメインに置き換えてください）
-  const isLocalUser = !domain || domain === globalThis.location?.hostname ||
+  const isLocalUser = !domain || domain === getDomain() ||
     domain === "localhost";
 
   return {

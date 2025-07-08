@@ -1,4 +1,5 @@
 import type { ActivityPubObject, MicroblogPost, Story } from "./types.ts";
+import { apiFetch } from "../../utils/config.ts";
 
 /**
  * ActivityPub Object（Note, Story, etc.）を取得
@@ -13,7 +14,7 @@ export const fetchActivityPubObjects = async (
         encodeURIComponent(type)
       }`
       : `/users/${encodeURIComponent(username)}/outbox`;
-    const response = await fetch(url);
+    const response = await apiFetch(url);
     if (!response.ok) {
       throw new Error("Failed to fetch ActivityPub objects");
     }
@@ -39,7 +40,7 @@ export const fetchActivityPubObjects = async (
 
 export const fetchPosts = async (): Promise<MicroblogPost[]> => {
   try {
-    const response = await fetch("/api/microblog");
+    const response = await apiFetch("/api/microblog");
     if (!response.ok) {
       throw new Error("Failed to fetch posts");
     }
@@ -54,7 +55,7 @@ export const fetchFollowingPosts = async (
   username: string,
 ): Promise<MicroblogPost[]> => {
   try {
-    const response = await fetch(`/api/users/${username}/timeline`);
+    const response = await apiFetch(`/api/users/${username}/timeline`);
     if (!response.ok) {
       throw new Error("Failed to fetch following posts");
     }
@@ -67,7 +68,7 @@ export const fetchFollowingPosts = async (
 
 export const fetchCommunities = async () => {
   try {
-    const response = await fetch("/api/communities");
+    const response = await apiFetch("/api/communities");
     if (!response.ok) {
       throw new Error("Failed to fetch communities");
     }
@@ -87,7 +88,7 @@ export const createCommunity = async (data: {
   banner?: string;
 }) => {
   try {
-    const response = await fetch("/api/communities", {
+    const response = await apiFetch("/api/communities", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,7 +104,7 @@ export const createCommunity = async (data: {
 
 export const joinCommunity = async (communityId: string, username: string) => {
   try {
-    const response = await fetch(`/api/communities/${communityId}/join`, {
+    const response = await apiFetch(`/api/communities/${communityId}/join`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -119,7 +120,7 @@ export const joinCommunity = async (communityId: string, username: string) => {
 
 export const leaveCommunity = async (communityId: string, username: string) => {
   try {
-    const response = await fetch(`/api/communities/${communityId}/leave`, {
+    const response = await apiFetch(`/api/communities/${communityId}/leave`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -135,7 +136,7 @@ export const leaveCommunity = async (communityId: string, username: string) => {
 
 export const fetchCommunityPosts = async (communityId: string) => {
   try {
-    const response = await fetch(`/api/communities/${communityId}/posts`);
+    const response = await apiFetch(`/api/communities/${communityId}/posts`);
     if (!response.ok) {
       throw new Error("Failed to fetch community posts");
     }
@@ -152,7 +153,7 @@ export const createCommunityPost = async (
   author: string,
 ) => {
   try {
-    const response = await fetch(`/api/communities/${communityId}/posts`, {
+    const response = await apiFetch(`/api/communities/${communityId}/posts`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -171,7 +172,7 @@ export const likeCommunityPost = async (
   postId: string,
 ) => {
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/communities/${communityId}/posts/${postId}/like`,
       {
         method: "POST",
@@ -188,7 +189,7 @@ export const likeCommunityPost = async (
 
 export const searchUsers = async (query: string) => {
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/users/search?q=${encodeURIComponent(query)}`,
     );
     if (!response.ok) {
@@ -206,7 +207,7 @@ export const followUser = async (
   followerUsername: string,
 ) => {
   try {
-    const response = await fetch(`/api/users/${username}/follow`, {
+    const response = await apiFetch(`/api/users/${username}/follow`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -225,7 +226,7 @@ export const unfollowUser = async (
   followerUsername: string,
 ) => {
   try {
-    const response = await fetch(`/api/users/${username}/unfollow`, {
+    const response = await apiFetch(`/api/users/${username}/unfollow`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -244,7 +245,7 @@ export const createPost = async (
   author: string,
 ): Promise<boolean> => {
   try {
-    const response = await fetch("/api/microblog", {
+    const response = await apiFetch("/api/microblog", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -263,7 +264,7 @@ export const updatePost = async (
   content: string,
 ): Promise<boolean> => {
   try {
-    const response = await fetch(`/api/microblog/${id}`, {
+    const response = await apiFetch(`/api/microblog/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -279,7 +280,7 @@ export const updatePost = async (
 
 export const deletePost = async (id: string): Promise<boolean> => {
   try {
-    const response = await fetch(`/api/microblog/${id}`, {
+    const response = await apiFetch(`/api/microblog/${id}`, {
       method: "DELETE",
     });
     return response.ok;
@@ -294,7 +295,7 @@ export const likePost = async (
   username: string,
 ): Promise<number | null> => {
   try {
-    const response = await fetch(`/api/microblog/${id}/like`, {
+    const response = await apiFetch(`/api/microblog/${id}/like`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username }),
@@ -310,7 +311,7 @@ export const likePost = async (
 
 export const retweetPost = async (id: string): Promise<number | null> => {
   try {
-    const response = await fetch(`/api/microblog/${id}/retweet`, {
+    const response = await apiFetch(`/api/microblog/${id}/retweet`, {
       method: "POST",
     });
     if (!response.ok) return null;
@@ -327,7 +328,7 @@ export const _replyToPost = async (
   content: string,
 ): Promise<boolean> => {
   try {
-    const response = await fetch("/api/microblog", {
+    const response = await apiFetch("/api/microblog", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -343,7 +344,7 @@ export const _replyToPost = async (
 
 export const fetchStories = async (): Promise<Story[]> => {
   try {
-    const response = await fetch("/api/stories");
+    const response = await apiFetch("/api/stories");
     if (!response.ok) {
       throw new Error("Failed to fetch stories");
     }
@@ -362,7 +363,7 @@ export const createStory = async (
   textColor?: string,
 ): Promise<boolean> => {
   try {
-    const response = await fetch("/api/stories", {
+    const response = await apiFetch("/api/stories", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -385,7 +386,7 @@ export const createStory = async (
 
 export const viewStory = async (id: string): Promise<boolean> => {
   try {
-    const response = await fetch(`/api/stories/${id}/view`, {
+    const response = await apiFetch(`/api/stories/${id}/view`, {
       method: "POST",
     });
     return response.ok;
@@ -397,7 +398,7 @@ export const viewStory = async (id: string): Promise<boolean> => {
 
 export const deleteStory = async (id: string): Promise<boolean> => {
   try {
-    const response = await fetch(`/api/stories/${id}`, {
+    const response = await apiFetch(`/api/stories/${id}`, {
       method: "DELETE",
     });
     return response.ok;
@@ -410,7 +411,9 @@ export const deleteStory = async (id: string): Promise<boolean> => {
 // ユーザー情報を取得
 export const fetchUserProfile = async (username: string) => {
   try {
-    const response = await fetch(`/api/users/${encodeURIComponent(username)}`);
+    const response = await apiFetch(
+      `/api/users/${encodeURIComponent(username)}`,
+    );
     if (!response.ok) {
       throw new Error("Failed to fetch user profile");
     }
@@ -464,7 +467,7 @@ export const fetchUserInfo = async (
       return cached;
     }
 
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/user-info/${encodeURIComponent(identifier)}`,
     );
     if (!response.ok) {
@@ -504,7 +507,7 @@ export const fetchUserInfoBatch = async (
     // キャッシュにないものをAPIから取得
     let fetchedInfos: UserInfo[] = [];
     if (uncached.length > 0) {
-      const response = await fetch("/api/user-info/batch", {
+      const response = await apiFetch("/api/user-info/batch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -552,7 +555,7 @@ export const fetchActivityPubActor = async (actorUrl: string) => {
     }
 
     // プロキシ経由でActivityPubアクターを取得
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/activitypub/actor-proxy?url=${encodeURIComponent(actorUrl)}`,
     );
     if (!response.ok) {
@@ -588,7 +591,7 @@ export const fetchActivityPubActor = async (actorUrl: string) => {
 // 指定ユーザーのフォロワー一覧を取得
 export const fetchFollowers = async (username: string) => {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(username)}/followers`,
     );
     if (!res.ok) throw new Error("Failed to fetch followers");
@@ -602,7 +605,7 @@ export const fetchFollowers = async (username: string) => {
 // 指定ユーザーのフォロー中一覧を取得
 export const fetchFollowing = async (username: string) => {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/users/${encodeURIComponent(username)}/following`,
     );
     if (!res.ok) throw new Error("Failed to fetch following");

@@ -7,6 +7,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
+import { apiFetch, getOrigin } from "../../utils/config.ts";
 
 export interface User {
   id: string;
@@ -179,7 +180,7 @@ export default function UnifiedToolsContent() {
     if (!id) return;
     (async () => {
       try {
-        const res = await fetch(`/api/accounts/${id}/following`);
+        const res = await apiFetch(`/api/accounts/${id}/following`);
         if (res.ok) {
           const data = await res.json();
           const map: Record<string, boolean> = {};
@@ -237,7 +238,7 @@ export default function UnifiedToolsContent() {
     async (url) => {
       if (!url) return [] as SearchResult[];
       try {
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         if (!res.ok) return [] as SearchResult[];
         return await res.json();
       } catch {
@@ -280,7 +281,7 @@ export default function UnifiedToolsContent() {
             title: user.displayName,
             subtitle: `@${user.username}`,
             actor: localActor(user.username),
-            origin: globalThis.location.host,
+            origin: new URL(getOrigin()).host,
             metadata: {
               followers: user.followerCount,
             },
@@ -308,7 +309,7 @@ export default function UnifiedToolsContent() {
             id: community.id,
             title: community.name,
             subtitle: community.description,
-            origin: globalThis.location.host,
+            origin: new URL(getOrigin()).host,
             metadata: {
               members: community.memberCount,
             },
@@ -335,15 +336,14 @@ export default function UnifiedToolsContent() {
   const searchResults = () => getFilteredResults();
 
   const localActor = (name: string) => {
-    const { protocol, host } = globalThis.location;
-    return `${protocol}//${host}/users/${name}`;
+    return `${getOrigin()}/users/${name}`;
   };
 
   // フォロー関連の処理
   const handleFollow = async (actor: string, userId?: string) => {
     try {
       if (selectedAccountId()) {
-        await fetch(`/api/accounts/${selectedAccountId()}/follow`, {
+        await apiFetch(`/api/accounts/${selectedAccountId()}/follow`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -374,7 +374,7 @@ export default function UnifiedToolsContent() {
   const handleUnfollow = async (actor: string, userId?: string) => {
     try {
       if (selectedAccountId()) {
-        await fetch(`/api/accounts/${selectedAccountId()}/follow`, {
+        await apiFetch(`/api/accounts/${selectedAccountId()}/follow`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ target: actor }),
