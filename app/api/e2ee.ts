@@ -265,15 +265,30 @@ app.get("/users/:user/messages", async (c) => {
   if (!user || !userDomain) {
     return c.json({ error: "invalid user format" }, 400);
   }
+
+  const actor = await resolveActorCached(acct);
+  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
+  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
+  const partnerActorObj = partnerAcct
+    ? await resolveActorCached(partnerAcct)
+    : null;
+  const partnerActor = partnerActorObj?.id ??
+    (partnerUser && partnerDomain
+      ? `https://${partnerDomain}/users/${partnerUser}`
+      : undefined);
+
   const condition = partnerAcct
     ? {
       $or: [
-        { from: partnerAcct, to: acct },
-        { from: acct, to: partnerAcct },
+        { from: partnerAcct, to: { $in: [actorId, acct] } },
+        partnerActor
+          ? { from: acct, to: { $in: [partnerActor, partnerAcct] } }
+          : { from: acct, to: partnerAcct },
       ],
     }
-    : { to: acct };
+    : { to: { $in: [actorId, acct] } };
+
   const list = await EncryptedMessage.find(condition).sort({ createdAt: 1 })
     .lean();
   const messages = list.map((doc) => ({
