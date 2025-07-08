@@ -142,13 +142,14 @@ export function Chat() {
     return pair;
   };
 
-  const getPartnerKey = async (userName: string) => {
-    if (partnerKeyCache.has(userName)) {
-      return partnerKeyCache.get(userName);
+  const getPartnerKey = async (userName: string, domain?: string) => {
+    const keyId = domain ? `${userName}@${domain}` : userName;
+    if (partnerKeyCache.has(keyId)) {
+      return partnerKeyCache.get(keyId);
     }
-    const keys = await fetchKeyPackages(userName);
+    const keys = await fetchKeyPackages(userName, domain);
     const pub = keys[0]?.content ?? null;
-    partnerKeyCache.set(userName, pub);
+    partnerKeyCache.set(keyId, pub);
     return pub;
   };
 
@@ -206,7 +207,10 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) return;
-      const partnerPub = await getPartnerKey(room.members[0]);
+      const partnerPub = await getPartnerKey(
+        room.members[0],
+        room.domain,
+      );
       if (!partnerPub) {
         return;
       }
@@ -252,7 +256,10 @@ export function Chat() {
     if (!group) {
       const kp = await ensureKeyPair();
       if (!kp) return;
-      const partnerPub = await getPartnerKey(room.members[0]);
+      const partnerPub = await getPartnerKey(
+        room.members[0],
+        room.domain,
+      );
       if (!partnerPub) {
         return;
       }
