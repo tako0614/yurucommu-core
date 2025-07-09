@@ -13,9 +13,11 @@ import { activeAccount } from "../states/account.ts";
 import type { UserInfo } from "./microblog/api.ts";
 import {
   addKeyPackage,
+  fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeyPackages,
   fetchPublicMessages,
+  saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
 } from "./e2ee/api.ts";
@@ -40,6 +42,8 @@ import {
   saveMLSGroupStates,
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
+import { decryptWithPassword, encryptWithPassword } from "../utils/crypto.ts";
+import { sessionPasswordState } from "../states/session.ts";
 
 type ActorID = string;
 
@@ -71,6 +75,7 @@ interface ChatRoom {
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
+  const [password] = useAtom(sessionPasswordState);
   const [newMessage, setNewMessage] = createSignal("");
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
@@ -142,8 +147,9 @@ export function Chat() {
 
     let pair = keyPair();
     const user = account();
+    const pass = password();
     console.log(pair);
-    if (!user) return null;
+    if (!user || !pass) return null;
     if (!pair) {
       setIsGeneratingKeyPair(true);
       try {
@@ -156,9 +162,35 @@ export function Chat() {
         pair = null;
       }
       if (!pair) {
+        const encData = await fetchEncryptedKeyPair(
+          `${user.userName}@${getDomain()}`,
+        );
+        if (encData) {
+          try {
+            const json = await decryptWithPassword(encData, pass);
+            if (json) {
+              const storedPair = JSON.parse(json) as StoredMLSKeyPair;
+              pair = await importKeyPair(storedPair);
+              await saveMLSKeyPair(user.id, storedPair);
+            }
+          } catch (err) {
+            console.error("鍵ペアの復号に失敗しました", err);
+          }
+        }
+      }
+      if (!pair) {
         pair = await generateMLSKeyPair();
         try {
-          await saveMLSKeyPair(user.id, await exportKeyPair(pair));
+          const exported = await exportKeyPair(pair);
+          await saveMLSKeyPair(user.id, exported);
+          const encStr = await encryptWithPassword(
+            JSON.stringify(exported),
+            pass,
+          );
+          await saveEncryptedKeyPair(
+            `${user.userName}@${getDomain()}`,
+            encStr,
+          );
           await addKeyPackage(
             `${user.userName}@${getDomain()}`,
             { content: pair.publicKey },

@@ -178,3 +178,54 @@ export const fetchPublicMessages = async (
     return [];
   }
 };
+
+export const fetchEncryptedKeyPair = async (
+  user: string,
+): Promise<string | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.content === "string" ? data.content : null;
+  } catch (err) {
+    console.error("Error fetching encrypted key pair:", err);
+    return null;
+  }
+};
+
+export const saveEncryptedKeyPair = async (
+  user: string,
+  content: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error saving encrypted key pair:", err);
+    return false;
+  }
+};
+
+export const deleteEncryptedKeyPair = async (
+  user: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+      { method: "DELETE" },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error deleting encrypted key pair:", err);
+    return false;
+  }
+};
