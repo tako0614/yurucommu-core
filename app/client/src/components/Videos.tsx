@@ -7,7 +7,7 @@ import {
   Show,
 } from "solid-js";
 import { createVideo, fetchVideos } from "./videos/api.ts";
-
+import { Video } from "./videos/types.ts";
 export function Videos() {
   const [currentView, setCurrentView] = createSignal<"timeline" | "shorts">(
     "timeline",
@@ -24,8 +24,8 @@ export function Videos() {
 
   const [videos, { mutate: setVideos }] = createResource(fetchVideos);
 
-  const shortVideos = () => (videos() || []).filter((v) => v.isShort);
-  const _longVideos = () => (videos() || []).filter((v) => !v.isShort);
+  const shortVideos = (): Video[] => (videos() || []).filter((v) => v.isShort);
+  const _longVideos = (): Video[] => (videos() || []).filter((v) => !v.isShort);
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -574,7 +574,7 @@ export function Videos() {
                           autoplay
                           loop
                           muted
-                          playsInline
+                          playsinline
                         />
 
                         {/* 動画情報オーバーレイ */}

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { upgradeWebSocket } from 'hono/deno'
 import { ensureDir } from "@std/fs";
 import { extname, join } from "@std/path";
 import ActivityPubObject from "./models/activitypub_object.ts";
@@ -17,7 +18,7 @@ const UPLOAD_DIR = "uploads/videos";
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
-  video: ActivityPubObject & { toObject: () => Record<string, unknown> },
+  video: InstanceType<typeof ActivityPubObject> & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
 ) {
@@ -77,6 +78,127 @@ async function deliverVideoToFollowers(
 
 const app = new Hono();
 app.use("*", authRequired);
+
+const videoUploadWs = upgradeWebSocket((c) => {
+  let filePath: string | undefined;
+  let fileHandle: Deno.FsFile | undefined;
+  let videoMetadata: {
+    author: string;
+    title: string;
+    description: string;
+    hashtagsStr: string;
+    isShort: boolean;
+    duration: string;
+    originalName: string;
+  } | undefined;
+
+  return {
+    async onOpen(evt, ws) {
+      console.log("WebSocket connection opened");
+      ws.send(JSON.stringify({ status: "ready for metadata" }));
+    },
+    async onMessage(evt, ws) {
+      // First message is assumed to be JSON metadata
+      if (typeof evt.data === "string") {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.type === "metadata" && data.payload) {
+            videoMetadata = data.payload;
+
+            if (!videoMetadata || !videoMetadata.originalName) {
+              ws.close(1003, "Invalid metadata payload");
+              return;
+            }
+
+            const ext = extname(videoMetadata.originalName) || ".mp4";
+            const filename = `${crypto.randomUUID()}${ext}`;
+            filePath = join(UPLOAD_DIR, filename);
+
+            await ensureDir(UPLOAD_DIR);
+            fileHandle = await Deno.open(filePath, {
+              write: true,
+              create: true,
+            });
+
+            ws.send(JSON.stringify({ status: "ready for binary" }));
+            return;
+          }
+        } catch (e) {
+          ws.close(1003, "Invalid metadata format");
+          return;
+        }
+      }
+
+      // Subsequent messages are binary data
+      if (evt.data instanceof ArrayBuffer) {
+        if (fileHandle) {
+          try {
+            await fileHandle.write(new Uint8Array(evt.data));
+          } catch (err) {
+            console.error("Failed to write chunk:", err);
+            ws.close(1011, "Server error during write");
+          }
+        } else {
+          ws.close(1003, "Not ready for binary data");
+        }
+      }
+    },
+    async onClose(evt, ws) {
+      console.log("WebSocket connection closed");
+      if (fileHandle) {
+        fileHandle.close();
+      }
+
+      if (filePath && videoMetadata) {
+        console.log(`File saved to: ${filePath}`);
+
+        const domain = getDomain(c);
+        const videoUrl = `/api/video-files/${filePath.split("/").pop()}`;
+
+        const video = new ActivityPubObject({
+          type: "Video",
+          attributedTo: videoMetadata.author,
+          content: videoMetadata.description,
+          published: new Date(),
+          extra: {
+            title: videoMetadata.title,
+            hashtags: videoMetadata.hashtagsStr
+              ? videoMetadata.hashtagsStr.split(" ")
+              : [],
+            isShort: videoMetadata.isShort,
+            duration: videoMetadata.duration || "",
+            likes: 0,
+            views: 0,
+            thumbnail: `/api/placeholder/${
+              videoMetadata.isShort ? "225/400" : "400/225"
+            }`,
+            videoUrl,
+          },
+        });
+
+        await video.save();
+        deliverVideoToFollowers(video, videoMetadata.author, domain);
+        console.log("Video metadata saved to database.");
+      } else {
+        console.log("Upload incomplete, cleaning up.");
+        if (filePath) {
+          await Deno.remove(filePath).catch(console.error);
+        }
+      }
+    },
+    onError(evt, ws) {
+      console.error("WebSocket error:", evt);
+      if (fileHandle) {
+        fileHandle.close();
+      }
+      if (filePath) {
+        Deno.remove(filePath).catch(console.error);
+      }
+    },
+  };
+});
+
+app.get("/videos/upload", videoUploadWs);
 
 app.get("/videos", async (c) => {
   const domain = getDomain(c);
