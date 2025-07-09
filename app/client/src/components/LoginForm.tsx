@@ -1,24 +1,29 @@
 import { createSignal, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
-import { sessionPasswordState } from "../states/session.ts";
+import { encryptionKeyState } from "../states/session.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
 }
 
 export function LoginForm(props: LoginFormProps) {
-  const [password, setPassword] = createSignal("");
+  const [loginPassword, setLoginPassword] = createSignal("");
+  const [encryptionKey, setEncryptionKey] = createSignal("");
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
-  const [, setSessionPassword] = useAtom(sessionPasswordState);
+  const [, setEncryptionKeyStateValue] = useAtom(encryptionKeyState);
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
     setError("");
 
-    if (!password()) {
-      setError("パスワードを入力してください");
+    if (!loginPassword()) {
+      setError("ログイン用パスワードを入力してください");
+      return;
+    }
+    if (!encryptionKey()) {
+      setError("暗号化キーを入力してください");
       return;
     }
 
@@ -29,13 +34,13 @@ export function LoginForm(props: LoginFormProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          password: password(),
+          password: loginPassword(),
         }),
       });
 
       const results = await res.json();
       if (results.success) {
-        setSessionPassword(password());
+        setEncryptionKeyStateValue(encryptionKey());
         props.onLoginSuccess();
       } else {
         setError(results.error || "ログインに失敗しました");
@@ -68,19 +73,37 @@ export function LoginForm(props: LoginFormProps) {
           <form onSubmit={handleLogin} class="space-y-6">
             <div>
               <label
-                for="password"
+                for="loginPassword"
                 class="block text-sm font-medium text-gray-300 mb-2"
               >
-                パスワード
+                ログイン用パスワード
               </label>
               <input
                 type="password"
-                id="password"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
+                id="loginPassword"
+                value={loginPassword()}
+                onInput={(e) => setLoginPassword(e.currentTarget.value)}
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
                 disabled={isLoading()}
                 placeholder="パスワードを入力"
+                required
+              />
+            </div>
+            <div>
+              <label
+                for="encryptionKey"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
+                暗号化キー
+              </label>
+              <input
+                type="password"
+                id="encryptionKey"
+                value={encryptionKey()}
+                onInput={(e) => setEncryptionKey(e.currentTarget.value)}
+                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
+                disabled={isLoading()}
+                placeholder="暗号化キーを入力"
                 required
               />
             </div>
