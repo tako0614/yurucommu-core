@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { ensureDir } from "@std/fs";
+import { extname, join } from "@std/path";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
@@ -10,6 +12,8 @@ import {
   getDomain,
 } from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
+
+const UPLOAD_DIR = "uploads/videos";
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
@@ -99,6 +103,7 @@ app.get("/videos", async (c) => {
       isShort: !!extra.isShort,
       description: doc.content ?? "",
       hashtags: Array.isArray(extra.hashtags) ? extra.hashtags as string[] : [],
+      videoUrl: (extra.videoUrl as string) ?? "",
     };
   });
 
@@ -107,26 +112,47 @@ app.get("/videos", async (c) => {
 
 app.post("/videos", async (c) => {
   const domain = getDomain(c);
-  const body = await c.req.json();
-  const { author, title, description, hashtags, isShort, duration } = body;
+  const contentType = c.req.header("content-type") || "";
+  if (!contentType.includes("multipart/form-data")) {
+    return c.json({ error: "Invalid content type" }, 400);
+  }
 
-  if (typeof author !== "string" || typeof title !== "string") {
+  const form = await c.req.formData();
+  const file = form.get("file");
+  const author = form.get("author")?.toString();
+  const title = form.get("title")?.toString();
+  const description = form.get("description")?.toString() || "";
+  const hashtagsStr = form.get("hashtags")?.toString() || "";
+  const isShort = form.get("isShort")?.toString() === "true";
+  const duration = form.get("duration")?.toString() || "";
+
+  if (!(file instanceof File) || !author || !title) {
     return c.json({ error: "Invalid body" }, 400);
   }
+
+  await ensureDir(UPLOAD_DIR);
+  const ext = extname(file.name) || ".mp4";
+  const filename = `${crypto.randomUUID()}${ext}`;
+  const filePath = join(UPLOAD_DIR, filename);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await Deno.writeFile(filePath, bytes);
+
+  const videoUrl = `/api/video-files/${filename}`;
 
   const video = new ActivityPubObject({
     type: "Video",
     attributedTo: author,
-    content: description || "",
+    content: description,
     published: new Date(),
     extra: {
       title,
-      hashtags,
-      isShort: !!isShort,
+      hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
+      isShort,
       duration: duration || "",
       likes: 0,
       views: 0,
       thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
+      videoUrl,
     },
   });
 
@@ -148,8 +174,9 @@ app.post("/videos", async (c) => {
     likes: 0,
     timestamp: video.published,
     isShort: !!video.extra.isShort,
-    description: description || "",
-    hashtags: Array.isArray(hashtags) ? hashtags : [],
+    description,
+    hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
+    videoUrl,
   }, 201);
 });
 
@@ -176,6 +203,23 @@ app.post("/videos/:id/view", async (c) => {
   const extra = doc.extra as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;
   return c.json({ views });
+});
+
+app.get("/video-files/:name", async (c) => {
+  const name = c.req.param("name");
+  const path = join(UPLOAD_DIR, name);
+  try {
+    const file = await Deno.open(path, { read: true });
+    const ext = extname(name).toLowerCase();
+    const mime = ext === ".mp4"
+      ? "video/mp4"
+      : ext === ".webm"
+      ? "video/webm"
+      : "application/octet-stream";
+    return new Response(file.readable, { headers: { "Content-Type": mime } });
+  } catch {
+    return c.text("Not found", 404);
+  }
 });
 
 export default app;

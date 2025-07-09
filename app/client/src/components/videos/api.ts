@@ -19,13 +19,23 @@ export const createVideo = async (
     hashtags?: string[];
     isShort?: boolean;
     duration?: string;
+    file: File;
   } & { author: string },
 ): Promise<Video | null> => {
   try {
+    const form = new FormData();
+    form.append("author", data.author);
+    form.append("title", data.title);
+    if (data.description) form.append("description", data.description);
+    if (data.hashtags) {
+      form.append("hashtags", data.hashtags.join(" "));
+    }
+    if (data.isShort) form.append("isShort", String(data.isShort));
+    if (data.duration) form.append("duration", data.duration);
+    form.append("file", data.file);
     const res = await apiFetch("/api/videos", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: form,
     });
     if (!res.ok) return null;
     return await res.json();
