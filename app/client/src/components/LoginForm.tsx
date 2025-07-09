@@ -1,5 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
+import { useAtom } from "solid-jotai";
+import { sessionPasswordState } from "../states/session.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -9,6 +11,7 @@ export function LoginForm(props: LoginFormProps) {
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
+  const [, setSessionPassword] = useAtom(sessionPasswordState);
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
@@ -32,6 +35,7 @@ export function LoginForm(props: LoginFormProps) {
 
       const results = await res.json();
       if (results.success) {
+        setSessionPassword(password());
         props.onLoginSuccess();
       } else {
         setError(results.error || "ログインに失敗しました");

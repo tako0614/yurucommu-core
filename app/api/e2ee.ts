@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import KeyPackage from "./models/key_package.ts";
 import EncryptedMessage from "./models/encrypted_message.ts";
 import PublicMessage from "./models/public_message.ts";
+import EncryptedKeyPair from "./models/encrypted_keypair.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
@@ -220,6 +221,31 @@ app.delete("/users/:user/keyPackages/:keyId", async (c) => {
   );
   await deliverToFollowers(user, removeActivity, domain);
   await deliverToFollowers(user, deleteActivity, domain);
+  return c.json({ result: "removed" });
+});
+
+app.get("/users/:user/encryptedKeyPair", async (c) => {
+  const user = c.req.param("user");
+  const doc = await EncryptedKeyPair.findOne({ userName: user }).lean();
+  if (!doc) return c.json({ content: null });
+  return c.json({ content: doc.content });
+});
+
+app.post("/users/:user/encryptedKeyPair", async (c) => {
+  const user = c.req.param("user");
+  const { content } = await c.req.json();
+  if (typeof content !== "string") {
+    return c.json({ error: "invalid body" }, 400);
+  }
+  await EncryptedKeyPair.findOneAndUpdate({ userName: user }, { content }, {
+    upsert: true,
+  });
+  return c.json({ result: "ok" });
+});
+
+app.delete("/users/:user/encryptedKeyPair", async (c) => {
+  const user = c.req.param("user");
+  await EncryptedKeyPair.deleteOne({ userName: user });
   return c.json({ result: "removed" });
 });
 
