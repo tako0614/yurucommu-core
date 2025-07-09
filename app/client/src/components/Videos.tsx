@@ -60,7 +60,7 @@ export function Videos() {
 
   const submitUpload = async () => {
     const form = uploadForm();
-    if (!form.title.trim()) return;
+    if (!form.title.trim() || !form.file) return;
 
     const newVideo = await createVideo({
       author: "あなた",
@@ -69,6 +69,7 @@ export function Videos() {
       hashtags: form.hashtags.split(" ").filter((tag) => tag.startsWith("#")),
       isShort: form.isShort,
       duration: form.isShort ? "0:30" : "5:00",
+      file: form.file,
     });
     if (!newVideo) return;
 
@@ -504,32 +505,17 @@ export function Videos() {
                     <div
                       class="group cursor-pointer"
                       onClick={() => {
-                        // 長尺動画の詳細表示や再生処理をここに追加
                         console.log("Video clicked:", video.id);
                       }}
                     >
-                      <div class="relative aspect-video bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-xl overflow-hidden mb-3 group-hover:rounded-lg transition-all duration-200">
-                        <div class="absolute inset-0 flex items-center justify-center">
-                          <div class="text-center">
-                            <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-2 mx-auto group-hover:bg-white/30 transition-colors">
-                              <svg
-                                class="w-6 h-6 text-white"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </div>
-                            <span class="text-white text-lg">
-                              {video.authorAvatar}
-                            </span>
-                          </div>
-                        </div>
+                      <div class="relative aspect-video rounded-xl overflow-hidden mb-3 group-hover:rounded-lg transition-all duration-200">
+                        <video
+                          class="w-full h-full object-cover"
+                          src={video.videoUrl}
+                          controls
+                        />
                         <div class="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-medium">
                           {video.duration}
-                        </div>
-                        {/* ホバー時のプレビューオーバーレイ */}
-                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-200">
                         </div>
                       </div>
                       <div class="flex space-x-3">
@@ -582,25 +568,14 @@ export function Videos() {
                   return currentShort
                     ? (
                       <div class="relative w-[360px] h-[640px] bg-gray-900 rounded-lg overflow-hidden shadow-2xl">
-                        <div class="absolute inset-0 bg-gradient-to-br from-red-500 via-pink-500 to-purple-600 flex items-center justify-center">
-                          <div class="text-center">
-                            <div class="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mb-4 mx-auto">
-                              <svg
-                                class="w-8 h-8 text-white"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </div>
-                            <p class="text-white font-medium text-lg">
-                              {currentShort.title}
-                            </p>
-                            <p class="text-white/70 text-sm mt-1">
-                              {currentShort.duration}
-                            </p>
-                          </div>
-                        </div>
+                        <video
+                          class="w-full h-full object-cover"
+                          src={currentShort.videoUrl}
+                          autoplay
+                          loop
+                          muted
+                          playsInline
+                        />
 
                         {/* 動画情報オーバーレイ */}
                         <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4">

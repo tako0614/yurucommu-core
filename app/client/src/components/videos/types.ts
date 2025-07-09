@@ -11,4 +11,5 @@ export interface Video {
   isShort: boolean;
   description?: string;
   hashtags?: string[];
+  videoUrl: string;
 }
