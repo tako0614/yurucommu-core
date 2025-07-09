@@ -135,7 +135,7 @@ export function Videos() {
   });
 
   return (
-    <div class="bg-[#0f0f0f] flex">
+    <div class="bg-[#0f0f0f] flex h-screen">
       {/* 投稿モーダル */}
       <Show when={showUploadModal()}>
         <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
