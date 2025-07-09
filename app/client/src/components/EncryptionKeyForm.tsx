@@ -1,6 +1,10 @@
 import { createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { encryptionKeyState } from "../states/session.ts";
+import { activeAccount } from "../states/account.ts";
+import { resetKeyData } from "./e2ee/api.ts";
+import { deleteMLSDatabase } from "./e2ee/storage.ts";
+import { getDomain } from "../utils/config.ts";
 
 interface EncryptionKeyFormProps {
   onComplete: () => void;
@@ -10,6 +14,7 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
   const [key, setKey] = createSignal("");
   const [error, setError] = createSignal("");
   const [, setEncryptionKey] = useAtom(encryptionKeyState);
+  const [account] = useAtom(activeAccount);
   const [isLoading, setIsLoading] = createSignal(false);
 
   const handleSubmit = (e: Event) => {
@@ -21,7 +26,19 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
     }
     setIsLoading(true);
     setEncryptionKey(key());
+    sessionStorage.setItem("encryptionKey", key());
     props.onComplete();
+    setIsLoading(false);
+  };
+
+  const handleReset = async () => {
+    if (!account) return;
+    if (!confirm("鍵をリセットします。よろしいですか？")) return;
+    setIsLoading(true);
+    await resetKeyData(`${account.userName}@${getDomain()}`);
+    await deleteMLSDatabase(account.id);
+    sessionStorage.removeItem("encryptionKey");
+    setEncryptionKey(null);
     setIsLoading(false);
   };
 
@@ -65,6 +82,14 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
               disabled={isLoading()}
             >
               {isLoading() ? "設定中..." : "設定"}
+            </button>
+            <button
+              type="button"
+              class="w-full bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isLoading()}
+              onClick={handleReset}
+            >
+              鍵をリセット
             </button>
           </form>
         </div>

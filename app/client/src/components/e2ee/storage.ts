@@ -90,3 +90,12 @@ export const saveMLSKeyPair = async (
     tx.onerror = () => reject(tx.error);
   });
 };
+
+export const deleteMLSDatabase = async (accountId: string): Promise<void> => {
+  await new Promise((resolve, reject) => {
+    const name = `takos_${accountId}`;
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};

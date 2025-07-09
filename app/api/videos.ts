@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { upgradeWebSocket } from 'hono/deno'
+import { upgradeWebSocket } from "hono/deno";
 import { ensureDir } from "@std/fs";
 import { extname, join } from "@std/path";
 import ActivityPubObject from "./models/activitypub_object.ts";
@@ -18,7 +18,9 @@ const UPLOAD_DIR = "uploads/videos";
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
-  video: InstanceType<typeof ActivityPubObject> & { toObject: () => Record<string, unknown> },
+  video: InstanceType<typeof ActivityPubObject> & {
+    toObject: () => Record<string, unknown>;
+  },
   author: string,
   domain: string,
 ) {
@@ -93,7 +95,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
   } | undefined;
 
   return {
-    async onOpen(evt, ws) {
+    onOpen(_evt, ws) {
       console.log("WebSocket connection opened");
       ws.send(JSON.stringify({ status: "ready for metadata" }));
     },
@@ -123,7 +125,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
             ws.send(JSON.stringify({ status: "ready for binary" }));
             return;
           }
-        } catch (e) {
+        } catch (_e) {
           ws.close(1003, "Invalid metadata format");
           return;
         }
@@ -143,7 +145,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
         }
       }
     },
-    async onClose(evt, ws) {
+    async onClose(_evt, _ws) {
       console.log("WebSocket connection closed");
       if (fileHandle) {
         fileHandle.close();
@@ -186,7 +188,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
         }
       }
     },
-    onError(evt, ws) {
+    onError(evt, _ws) {
       console.error("WebSocket error:", evt);
       if (fileHandle) {
         fileHandle.close();

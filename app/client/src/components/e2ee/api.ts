@@ -229,3 +229,16 @@ export const deleteEncryptedKeyPair = async (
     return false;
   }
 };
+
+export const resetKeyData = async (user: string): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/resetKeys`,
+      { method: "POST" },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error resetting key data:", err);
+    return false;
+  }
+};
