@@ -135,3 +135,6 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 
 チャット機能で利用するMLS関連データは、ブラウザのIndexedDBに保存します。データベースは
 アカウントIDごとに分割されており、別アカウントの情報が混在しないようになっています。
+
+鍵共有の仕組みについては [docs/key-sharing.md](docs/key-sharing.md)
+を参照してください。

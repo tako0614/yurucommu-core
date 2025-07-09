@@ -11,7 +11,7 @@ import "./stylesheet.css";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
-  const [encryptionKey] = useAtom(encryptionKeyState);
+  const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
 
@@ -24,6 +24,11 @@ function App() {
     } catch (err) {
       console.error("Failed to fetch login status:", err);
       setIsLoggedIn(false);
+    }
+
+    const storedKey = sessionStorage.getItem("encryptionKey");
+    if (storedKey) {
+      setEncryptionKey(storedKey);
     }
 
     const storedDark = localStorage.getItem("darkMode");

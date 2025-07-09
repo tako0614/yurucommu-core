@@ -249,6 +249,30 @@ app.delete("/users/:user/encryptedKeyPair", async (c) => {
   return c.json({ result: "removed" });
 });
 
+app.post("/users/:user/resetKeys", async (c) => {
+  const user = c.req.param("user");
+  const domain = getDomain(c);
+  const actorId = `https://${domain}/users/${user}`;
+  const keyPkgs = await KeyPackage.find({ userName: user }).lean();
+  for (const pkg of keyPkgs) {
+    const removeActivity = createRemoveActivity(
+      domain,
+      actorId,
+      `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
+    );
+    const deleteActivity = createDeleteActivity(
+      domain,
+      actorId,
+      `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
+    );
+    await deliverToFollowers(user, removeActivity, domain);
+    await deliverToFollowers(user, deleteActivity, domain);
+  }
+  await KeyPackage.deleteMany({ userName: user });
+  await EncryptedKeyPair.deleteOne({ userName: user });
+  return c.json({ result: "reset" });
+});
+
 app.post("/users/:user/messages", async (c) => {
   const acct = c.req.param("user");
   const [sender, senderDomain] = acct.split("@");
