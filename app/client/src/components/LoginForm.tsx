@@ -1,7 +1,5 @@
 import { createSignal, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
-import { useAtom } from "solid-jotai";
-import { encryptionKeyState } from "../states/session.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -9,10 +7,8 @@ interface LoginFormProps {
 
 export function LoginForm(props: LoginFormProps) {
   const [loginPassword, setLoginPassword] = createSignal("");
-  const [encryptionKey, setEncryptionKey] = createSignal("");
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
-  const [, setEncryptionKeyStateValue] = useAtom(encryptionKeyState);
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
@@ -20,10 +16,6 @@ export function LoginForm(props: LoginFormProps) {
 
     if (!loginPassword()) {
       setError("ログイン用パスワードを入力してください");
-      return;
-    }
-    if (!encryptionKey()) {
-      setError("暗号化キーを入力してください");
       return;
     }
 
@@ -40,7 +32,6 @@ export function LoginForm(props: LoginFormProps) {
 
       const results = await res.json();
       if (results.success) {
-        setEncryptionKeyStateValue(encryptionKey());
         props.onLoginSuccess();
       } else {
         setError(results.error || "ログインに失敗しました");
@@ -86,24 +77,6 @@ export function LoginForm(props: LoginFormProps) {
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
                 disabled={isLoading()}
                 placeholder="パスワードを入力"
-                required
-              />
-            </div>
-            <div>
-              <label
-                for="encryptionKey"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                暗号化キー
-              </label>
-              <input
-                type="password"
-                id="encryptionKey"
-                value={encryptionKey()}
-                onInput={(e) => setEncryptionKey(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
-                disabled={isLoading()}
-                placeholder="暗号化キーを入力"
                 required
               />
             </div>
