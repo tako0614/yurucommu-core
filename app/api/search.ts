@@ -19,6 +19,10 @@ interface SearchResult {
 const app = new Hono();
 app.use("*", authRequired);
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 app.get("/search", async (c) => {
   let q = c.req.query("q")?.trim();
   const type = c.req.query("type") ?? "all";
@@ -33,7 +37,7 @@ app.get("/search", async (c) => {
     }
   }
 
-  const regex = new RegExp(q, "i");
+  const regex = new RegExp(escapeRegex(q), "i");
   const results: SearchResult[] = [];
 
   if (type === "all" || type === "users") {
