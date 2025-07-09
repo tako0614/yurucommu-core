@@ -18,6 +18,13 @@ import {
   getDomain,
   resolveActor,
 } from "./utils/activitypub.ts";
+
+interface ActivityPubActivity {
+  [key: string]: unknown;
+  "@context"?: unknown;
+  to?: unknown;
+  cc?: unknown;
+}
 import RemoteActor from "./models/remote_actor.ts";
 
 async function resolveActorCached(acct: string) {
@@ -249,19 +256,19 @@ app.post("/users/:user/messages", async (c) => {
     sender,
     false,
   );
-  privateMessage["@context"] = [
+  (privateMessage as ActivityPubActivity)["@context"] = [
     "https://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
 
   const activity = createCreateActivity(domain, actorId, privateMessage);
-  activity["@context"] = [
+  (activity as ActivityPubActivity)["@context"] = [
     "https://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
   // 個別配信
-  activity.to = to;
-  activity.cc = [];
+  (activity as ActivityPubActivity).to = to;
+  (activity as ActivityPubActivity).cc = [];
   deliverActivityPubObject(to, activity, sender).catch((err) => {
     console.error("deliver failed", err);
   });
@@ -302,18 +309,18 @@ app.post("/users/:user/publicMessages", async (c) => {
     sender,
     false,
   );
-  publicMessage["@context"] = [
-    "https://www.w3.org/ns/activitystreams",
+  (publicMessage as ActivityPubActivity)["@context"] = [
+    "https.://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
 
   const activity = createCreateActivity(domain, actorId, publicMessage);
-  activity["@context"] = [
+  (activity as ActivityPubActivity)["@context"] = [
     "https://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
-  activity.to = to;
-  activity.cc = [];
+  (activity as ActivityPubActivity).to = to;
+  (activity as ActivityPubActivity).cc = [];
   deliverActivityPubObject(to, activity, sender).catch((err) => {
     console.error("deliver failed", err);
   });
