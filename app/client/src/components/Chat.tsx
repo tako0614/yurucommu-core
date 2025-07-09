@@ -75,7 +75,7 @@ interface ChatRoom {
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
-  const [encryptionKey] = useAtom(encryptionKeyState);
+  const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [newMessage, setNewMessage] = createSignal("");
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
@@ -172,6 +172,11 @@ export function Chat() {
               const storedPair = JSON.parse(json) as StoredMLSKeyPair;
               pair = await importKeyPair(storedPair);
               await saveMLSKeyPair(user.id, storedPair);
+            } else {
+              alert("暗号化キーが正しくありません");
+              setEncryptionKey(null);
+              setIsGeneratingKeyPair(false);
+              return null;
             }
           } catch (err) {
             console.error("鍵ペアの復号に失敗しました", err);
