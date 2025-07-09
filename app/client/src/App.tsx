@@ -1,8 +1,9 @@
 import { createEffect, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { loginState } from "./states/session.ts";
+import { encryptionKeyState, loginState } from "./states/session.ts";
 import { darkModeState, languageState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
+import { EncryptionKeyForm } from "./components/EncryptionKeyForm.tsx";
 import { Application } from "./components/Application.tsx";
 import { apiFetch } from "./utils/config.ts";
 import "./App.css";
@@ -10,6 +11,7 @@ import "./stylesheet.css";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
+  const [encryptionKey] = useAtom(encryptionKeyState);
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
 
@@ -54,7 +56,12 @@ function App() {
       when={isLoggedIn()}
       fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
     >
-      <Application />
+      <Show
+        when={encryptionKey()}
+        fallback={<EncryptionKeyForm onComplete={() => {}} />}
+      >
+        <Application />
+      </Show>
     </Show>
   );
 }
