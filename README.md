@@ -65,6 +65,15 @@ deno task dev
 - `POST /api/microblog/:id/like` – いいねを追加
 - `POST /api/microblog/:id/retweet` – リツイートを追加
 
+## 動画 API
+
+ActivityPub の `Video` オブジェクトを利用して動画を投稿できます。
+
+- `GET /api/videos` – 動画一覧を取得
+- `POST /api/videos` – 動画を作成するとフォロワーへ `Create` Activity を配信
+- `POST /api/videos/:id/like` – いいね数を増加
+- `POST /api/videos/:id/view` – 再生数を増加
+
 ## グループ機能
 
 takos では ActivityPub の Group
