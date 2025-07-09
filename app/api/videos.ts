@@ -1,8 +1,75 @@
 import { Hono } from "hono";
 import ActivityPubObject from "./models/activitypub_object.ts";
+import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
-import { getDomain } from "./utils/activitypub.ts";
+import {
+  buildActivityFromStored,
+  createCreateActivity,
+  deliverActivityPubObject,
+  fetchActorInbox,
+  getDomain,
+} from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
+
+// --- Helper Functions ---
+async function deliverVideoToFollowers(
+  video: ActivityPubObject & { toObject: () => Record<string, unknown> },
+  author: string,
+  domain: string,
+) {
+  try {
+    const account = await Account.findOne({ userName: author }).lean();
+    if (!account || !account.followers) return;
+
+    const inboxes = await Promise.all(
+      account.followers.map(async (followerUrl) => {
+        try {
+          const url = new URL(followerUrl);
+          if (url.host === domain && url.pathname.startsWith("/users/")) {
+            return null;
+          }
+          return await fetchActorInbox(followerUrl);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const validInboxes = inboxes.filter((i): i is string =>
+      typeof i === "string" && !!i
+    );
+
+    if (validInboxes.length > 0) {
+      const baseObj = video.toObject();
+      const videoObject = buildActivityFromStored(
+        {
+          ...baseObj,
+          content: typeof video.content === "string" ? video.content : "",
+          _id: String(baseObj._id),
+          type: typeof baseObj.type === "string" ? baseObj.type : "Video",
+          published: typeof baseObj.published === "string"
+            ? baseObj.published
+            : new Date().toISOString(),
+          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+              !Array.isArray(baseObj.extra))
+            ? baseObj.extra as Record<string, unknown>
+            : {},
+        },
+        domain,
+        author,
+        false,
+      );
+      const activity = createCreateActivity(
+        domain,
+        `https://${domain}/users/${author}`,
+        videoObject,
+      );
+      deliverActivityPubObject(validInboxes, activity, author);
+    }
+  } catch (err) {
+    console.error("ActivityPub delivery error:", err);
+  }
+}
 
 const app = new Hono();
 app.use("*", authRequired);
@@ -39,6 +106,7 @@ app.get("/videos", async (c) => {
 });
 
 app.post("/videos", async (c) => {
+  const domain = getDomain(c);
   const body = await c.req.json();
   const { author, title, description, hashtags, isShort, duration } = body;
 
@@ -64,7 +132,9 @@ app.post("/videos", async (c) => {
 
   await video.save();
 
-  const domain = getDomain(c);
+  // Fire-and-forget delivery
+  deliverVideoToFollowers(video, author, domain);
+
   const info = await getUserInfo(video.attributedTo as string, domain);
 
   return c.json({
