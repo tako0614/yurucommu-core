@@ -8,7 +8,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
-import QRCode from "npm:qrcode";
+import QRCode from "qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
 
 export interface User {

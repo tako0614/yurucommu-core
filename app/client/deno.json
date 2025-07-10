@@ -22,6 +22,7 @@
     "hono": "npm:hono@^4.7.9",
     "jotai": "npm:jotai@^2.12.4",
     "mongoose": "npm:mongoose@^8.15.0",
+    "qrcode": "npm:qrcode@^1.5.4",
     "solid-jotai": "npm:solid-jotai@^0.3.1",
     "solid-js": "npm:solid-js@^1.9.6",
     "solid-qr-code": "npm:solid-qr-code@^0.1.11",
