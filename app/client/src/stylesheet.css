@@ -565,11 +565,20 @@ input {
   font-weight: 400;
   font-size: 12px;
   color: #aaaaaa; /* ホワイトモード廃止: 文字色変更 */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .c-talk-rooms-msg p {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.c-talk-rooms-time {
+  font-size: 10px;
+  color: #888888;
+  margin-left: 4px;
+  white-space: nowrap;
 }
 .c-talk-chat {
   display: flex;
