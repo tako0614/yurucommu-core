@@ -9,6 +9,7 @@ import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
 import { apiFetch, getOrigin } from "../../utils/config.ts";
 import { qrcode } from "https://deno.land/x/qrcode/mod.ts";
+import jsQR from "https://esm.sh/jsqr@1.4.0";
 
 export interface User {
   id: string;
@@ -177,6 +178,8 @@ export default function UnifiedToolsContent() {
   );
   const [qrHandle, setQrHandle] = createSignal<string | null>(null);
   const [qrData, setQrData] = createSignal<string>("");
+  const [showScanner, setShowScanner] = createSignal(false);
+  const [scanError, setScanError] = createSignal("");
 
   createEffect(() => {
     const id = selectedAccountId();
@@ -459,19 +462,9 @@ export default function UnifiedToolsContent() {
     });
   };
 
-  const actorToHandle = (actor: string) => {
-    try {
-      const url = new URL(actor);
-      const parts = url.pathname.split("/");
-      const username = parts[parts.length - 1] || parts[parts.length - 2] || "";
-      return `${username}@${url.host}`;
-    } catch {
-      return actor;
-    }
-  };
-
-  const openQr = async (actor: string) => {
-    const handle = actorToHandle(actor);
+  const openMyQr = async () => {
+    if (!currentAccount()) return;
+    const handle = `${currentAccount()!.userName}@${getDomain()}`;
     setQrData(await qrcode(handle));
     setQrHandle(handle);
   };
@@ -479,6 +472,27 @@ export default function UnifiedToolsContent() {
   const closeQr = () => {
     setQrHandle(null);
     setQrData("");
+  };
+
+  const handleScanFile = async (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (!files || !files[0]) return;
+    setScanError("");
+    const bmp = await createImageBitmap(files[0]);
+    const canvas = document.createElement("canvas");
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(bmp, 0, 0);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height);
+    if (code) {
+      setSearchQuery(code.data);
+      setShowScanner(false);
+    } else {
+      setScanError("QRコードを読み取れませんでした");
+    }
   };
 
   return (
@@ -499,6 +513,35 @@ export default function UnifiedToolsContent() {
               type="button"
               class="mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
               onClick={closeQr}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      </Show>
+      <Show when={showScanner()}>
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowScanner(false)}
+        >
+          <div
+            class="bg-gray-800 rounded-lg p-6 space-y-4 w-64"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 class="text-lg font-bold text-white text-center">QR読み取り</h3>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleScanFile}
+              class="text-sm text-gray-300"
+            />
+            <Show when={scanError()}>
+              <p class="text-red-400 text-sm text-center">{scanError()}</p>
+            </Show>
+            <button
+              type="button"
+              class="mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              onClick={() => setShowScanner(false)}
             >
               閉じる
             </button>
@@ -597,6 +640,22 @@ export default function UnifiedToolsContent() {
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
             </svg>
+          </div>
+          <div class="mt-4 flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={openMyQr}
+              class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-all duration-200"
+            >
+              自分のQR
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
+            >
+              QR読み取り
+            </button>
           </div>
         </div>
 
@@ -706,15 +765,6 @@ export default function UnifiedToolsContent() {
                                     </button>
                                   );
                               })()}
-                            </Show>
-                            <Show when={result.type === "user" && result.actor}>
-                              <button
-                                type="button"
-                                onClick={() => openQr(result.actor!)}
-                                class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                QRコード
-                              </button>
                             </Show>
                             <Show when={result.type === "community"}>
                               {(() => {
@@ -853,15 +903,6 @@ export default function UnifiedToolsContent() {
                             </div>
                           </div>
                           <div class="flex space-x-2">
-                            <Show when={result.actor}>
-                              <button
-                                type="button"
-                                onClick={() => openQr(result.actor!)}
-                                class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-all duration-200"
-                              >
-                                QRコード
-                              </button>
-                            </Show>
                             <Show when={result.actor}>
                               {(localUser &&
                                   (followStatus()[result.actor!] ??
