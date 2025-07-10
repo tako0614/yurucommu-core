@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/deno";
-import { ensureDir } from "@std/fs";
-import { extname, join } from "@std/path";
+import { extname } from "@std/path";
+import { createStorage } from "./services/object-storage.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
@@ -14,7 +14,7 @@ import {
 } from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
-const UPLOAD_DIR = "uploads/videos";
+const storage = createStorage();
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
@@ -82,8 +82,8 @@ const app = new Hono();
 app.use("*", authRequired);
 
 const videoUploadWs = upgradeWebSocket((c) => {
-  let filePath: string | undefined;
-  let fileHandle: Deno.FsFile | undefined;
+  const chunks: Uint8Array[] = [];
+  let storageKey: string | undefined;
   let videoMetadata: {
     author: string;
     title: string;
@@ -99,7 +99,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
       console.log("WebSocket connection opened");
       ws.send(JSON.stringify({ status: "ready for metadata" }));
     },
-    async onMessage(evt, ws) {
+    onMessage(evt, ws) {
       // First message is assumed to be JSON metadata
       if (typeof evt.data === "string") {
         try {
@@ -113,14 +113,7 @@ const videoUploadWs = upgradeWebSocket((c) => {
             }
 
             const ext = extname(videoMetadata.originalName) || ".mp4";
-            const filename = `${crypto.randomUUID()}${ext}`;
-            filePath = join(UPLOAD_DIR, filename);
-
-            await ensureDir(UPLOAD_DIR);
-            fileHandle = await Deno.open(filePath, {
-              write: true,
-              create: true,
-            });
+            storageKey = `${crypto.randomUUID()}${ext}`;
 
             ws.send(JSON.stringify({ status: "ready for binary" }));
             return;
@@ -133,13 +126,8 @@ const videoUploadWs = upgradeWebSocket((c) => {
 
       // Subsequent messages are binary data
       if (evt.data instanceof ArrayBuffer) {
-        if (fileHandle) {
-          try {
-            await fileHandle.write(new Uint8Array(evt.data));
-          } catch (err) {
-            console.error("Failed to write chunk:", err);
-            ws.close(1011, "Server error during write");
-          }
+        if (storageKey) {
+          chunks.push(new Uint8Array(evt.data));
         } else {
           ws.close(1003, "Not ready for binary data");
         }
@@ -147,16 +135,19 @@ const videoUploadWs = upgradeWebSocket((c) => {
     },
     async onClose(_evt, _ws) {
       console.log("WebSocket connection closed");
-      if (fileHandle) {
-        fileHandle.close();
-      }
-
-      if (filePath && videoMetadata) {
-        console.log(`File saved to: ${filePath}`);
+      if (storageKey && videoMetadata && chunks.length > 0) {
+        const data = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
+        let offset = 0;
+        for (const cbuf of chunks) {
+          data.set(cbuf, offset);
+          offset += cbuf.length;
+        }
+        const stored = await storage.put(`videos/${storageKey}`, data);
+        const videoUrl = stored.startsWith("http")
+          ? stored
+          : `/api/video-files/${storageKey}`;
 
         const domain = getDomain(c);
-        const videoUrl = `/api/video-files/${filePath.split("/").pop()}`;
-
         const video = new ActivityPubObject({
           type: "Video",
           attributedTo: videoMetadata.author,
@@ -183,19 +174,10 @@ const videoUploadWs = upgradeWebSocket((c) => {
         console.log("Video metadata saved to database.");
       } else {
         console.log("Upload incomplete, cleaning up.");
-        if (filePath) {
-          await Deno.remove(filePath).catch(console.error);
-        }
       }
     },
     onError(evt, _ws) {
       console.error("WebSocket error:", evt);
-      if (fileHandle) {
-        fileHandle.close();
-      }
-      if (filePath) {
-        Deno.remove(filePath).catch(console.error);
-      }
     },
   };
 });
@@ -254,14 +236,13 @@ app.post("/videos", async (c) => {
     return c.json({ error: "Invalid body" }, 400);
   }
 
-  await ensureDir(UPLOAD_DIR);
   const ext = extname(file.name) || ".mp4";
   const filename = `${crypto.randomUUID()}${ext}`;
-  const filePath = join(UPLOAD_DIR, filename);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  await Deno.writeFile(filePath, bytes);
-
-  const videoUrl = `/api/video-files/${filename}`;
+  const stored = await storage.put(`videos/${filename}`, bytes);
+  const videoUrl = stored.startsWith("http")
+    ? stored
+    : `/api/video-files/${filename}`;
 
   const video = new ActivityPubObject({
     type: "Video",
@@ -331,19 +312,15 @@ app.post("/videos/:id/view", async (c) => {
 
 app.get("/video-files/:name", async (c) => {
   const name = c.req.param("name");
-  const path = join(UPLOAD_DIR, name);
-  try {
-    const file = await Deno.open(path, { read: true });
-    const ext = extname(name).toLowerCase();
-    const mime = ext === ".mp4"
-      ? "video/mp4"
-      : ext === ".webm"
-      ? "video/webm"
-      : "application/octet-stream";
-    return new Response(file.readable, { headers: { "Content-Type": mime } });
-  } catch {
-    return c.text("Not found", 404);
-  }
+  const data = await storage.get(`videos/${name}`);
+  if (!data) return c.text("Not found", 404);
+  const ext = extname(name).toLowerCase();
+  const mime = ext === ".mp4"
+    ? "video/mp4"
+    : ext === ".webm"
+    ? "video/webm"
+    : "application/octet-stream";
+  return new Response(data, { headers: { "Content-Type": mime } });
 });
 
 export default app;
