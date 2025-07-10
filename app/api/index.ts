@@ -40,9 +40,10 @@ app.route("/api", e2ee);
 app.route("/api", activitypub); // ActivityPubプロキシAPI用
 app.route("/api", group);
 app.route("/", nodeinfo);
-app.route("/", e2ee);
 app.route("/", activitypub);
 app.route("/", group);
 app.route("/", rootInbox);
+// e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
+app.route("/", e2ee);
 
 Deno.serve(app.fetch);
