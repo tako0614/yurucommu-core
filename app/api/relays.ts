@@ -79,7 +79,7 @@ app.post("/relays", async (c) => {
     }
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/system`;
-    const target = inboxUrl.replace(/\/inbox$/, "");
+    const target = "https://www.w3.org/ns/activitystreams#Public";
     const follow = createFollowActivity(domain, actorId, target);
     await sendActivityPubObject(inboxUrl, follow, "system");
   } catch (err) {
@@ -109,7 +109,7 @@ app.delete("/relays/:id", async (c) => {
     }
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/system`;
-    const target = relay.inboxUrl.replace(/\/inbox$/, "");
+    const target = "https://www.w3.org/ns/activitystreams#Public";
     const undo = createUndoFollowActivity(domain, actorId, target);
     await sendActivityPubObject(relay.inboxUrl, undo, "system");
   } catch (err) {
