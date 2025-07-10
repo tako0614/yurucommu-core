@@ -46,8 +46,12 @@ export const createVideo = (
             }),
           );
         } else if (msg.status === "ready for binary") {
-          const buf = await data.file.arrayBuffer();
-          ws.send(buf);
+          const chunkSize = 1024 * 512; // 512KB 程度
+          for (let offset = 0; offset < data.file.size; offset += chunkSize) {
+            const slice = data.file.slice(offset, offset + chunkSize);
+            const buf = await slice.arrayBuffer();
+            ws.send(buf);
+          }
           ws.close();
           uploaded = true;
         }
