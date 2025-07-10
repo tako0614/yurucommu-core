@@ -1,13 +1,10 @@
-export interface ObjectStorage {
-  put(key: string, data: Uint8Array): Promise<string>;
-  get(key: string): Promise<Uint8Array | null>;
-  delete(key: string): Promise<void>;
-}
+/**
+ * オブジェクトストレージインターフェース
+ */
 
+// 外部モジュール
 import { ensureDir } from "@std/fs";
 import { join } from "@std/path";
-import { env } from "../utils/env.ts";
-
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -15,6 +12,23 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { sdkStreamMixin } from "@aws-sdk/util-stream-node";
+import mongoose from "mongoose";
+import { GridFSBucket } from "mongodb";
+import { once } from "node:events";
+import { Buffer } from "node:buffer";
+
+// 内部ユーティリティ
+import { env } from "../utils/env.ts";
+
+export interface ObjectStorage {
+  put(key: string, data: Uint8Array): Promise<string>;
+  get(key: string): Promise<Uint8Array | null>;
+  delete(key: string): Promise<void>;
+}
+
+/* ==========================
+   LocalStorage 実装
+   ========================== */
 
 export class LocalStorage implements ObjectStorage {
   constructor(private baseDir: string) {}
@@ -40,6 +54,10 @@ export class LocalStorage implements ObjectStorage {
     await Deno.remove(filePath).catch(() => {});
   }
 }
+
+/* ==========================
+   S3Storage 実装
+   ========================== */
 
 export class S3Storage implements ObjectStorage {
   private client: S3Client;
@@ -92,10 +110,9 @@ export class S3Storage implements ObjectStorage {
   }
 }
 
-import mongoose from "mongoose";
-import { GridFSBucket } from "mongodb";
-import { once } from "node:events";
-import { Buffer } from "node:buffer";
+/* ==========================
+   GridFSStorage 実装
+   ========================== */
 
 export class GridFSStorage implements ObjectStorage {
   private bucket: GridFSBucket;
@@ -141,6 +158,9 @@ export class GridFSStorage implements ObjectStorage {
   }
 }
 
+/* ==========================
+   ストレージファクトリ関数
+   ========================== */
 export function createStorage(): ObjectStorage {
   const provider = env["OBJECT_STORAGE_PROVIDER"] || "local";
   if (provider === "s3" || provider === "r2" || provider === "minio") {
