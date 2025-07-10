@@ -86,6 +86,10 @@ app.post("/accounts", async (c) => {
     }, 400);
   }
 
+  if (username.trim() === "system") {
+    return jsonResponse(c, { error: "このユーザー名は使用できません" }, 400);
+  }
+
   // Check if username already exists
   const existingAccount = await Account.findOne({ userName: username.trim() });
   if (existingAccount) {
