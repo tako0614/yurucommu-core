@@ -3,6 +3,7 @@
     "dev": "deno run -A --watch dev.ts"
   },
   "imports": {
-    "@std/streams": "jsr:@std/streams@^1.0.10"
+    "@std/streams": "jsr:@std/streams@^1.0.10",
+    "qrcode": "npm:qrcode@^1.5.4"
   }
 }
