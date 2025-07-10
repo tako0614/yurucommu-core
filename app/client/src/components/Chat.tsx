@@ -116,6 +116,11 @@ export function Chat(props: ChatProps) {
   };
 
   const toggleEncryption = () => {
+    // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
+    if (!useEncryption() && !partnerHasKey()) {
+      alert("このユーザーは暗号化された会話に対応していません。");
+      return;
+    }
     setUseEncryption(!useEncryption());
   };
 
@@ -698,10 +703,6 @@ export function Chat(props: ChatProps) {
                       "calc(env(safe-area-inset-bottom, 4px) + 4px)",
                   }}
                 >
-                  <Show
-                    when={useEncryption() ? partnerHasKey() : true}
-                    fallback={null}
-                  >
                     <form
                       class="p-talk-chat-send__form m-0"
                       onSubmit={(e) => e.preventDefault()}
@@ -872,7 +873,6 @@ export function Chat(props: ChatProps) {
                         </Show>
                       </div>
                     </form>
-                  </Show>
                 </div>
                 {/* --- 送信UIここまで --- */}
               </div>
