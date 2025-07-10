@@ -43,7 +43,7 @@ export function Application(props: ApplicationProps) {
       <Header />
       <main class={wrapperClass()}>
         <Show when={selectedApp() === "home"}>
-          <Home />
+          <Home onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
         </Show>
         <Show when={selectedApp() === "microblog"}>
           <Microblog />
@@ -61,16 +61,6 @@ export function Application(props: ApplicationProps) {
         <Show when={selectedApp() === "videos"}>
           <Videos />
         </Show>
-        {/* 暗号化キー再入力ボタン */}
-        <div class="flex justify-end p-4">
-          <button
-            type="button"
-            class="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition"
-            onClick={() => props.onShowEncryptionKeyForm?.()}
-          >
-            暗号化キー再入力
-          </button>
-        </div>
       </main>
     </>
   );
