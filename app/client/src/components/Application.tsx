@@ -9,7 +9,11 @@ import { Videos } from "./Videos.tsx";
 import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 
-export function Application() {
+interface ApplicationProps {
+  onShowEncryptionKeyForm?: () => void;
+}
+
+export function Application(props: ApplicationProps) {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [isMobile, setIsMobile] = createSignal(false);
@@ -45,7 +49,7 @@ export function Application() {
           <Microblog />
         </Show>
         <Show when={selectedApp() === "chat"}>
-          <Chat />
+          <Chat onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
         </Show>
         <Show when={selectedApp() === "tools"}>
           <div class="text-gray-100">
@@ -57,6 +61,16 @@ export function Application() {
         <Show when={selectedApp() === "videos"}>
           <Videos />
         </Show>
+        {/* 暗号化キー再入力ボタン */}
+        <div class="flex justify-end p-4">
+          <button
+            type="button"
+            class="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition"
+            onClick={() => props.onShowEncryptionKeyForm?.()}
+          >
+            暗号化キー再入力
+          </button>
+        </div>
       </main>
     </>
   );

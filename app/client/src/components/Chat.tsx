@@ -72,7 +72,11 @@ interface ChatRoom {
   members: ActorID[];
 }
 
-export function Chat() {
+interface ChatProps {
+  onShowEncryptionKeyForm?: () => void;
+}
+
+export function Chat(props: ChatProps) {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
@@ -820,11 +824,24 @@ export function Chat() {
                         </div>
                         {/* 送信ボタン */}
                         <div
-                          class={newMessage().trim()
-                            ? "p-talk-chat-send__button is-active"
-                            : "p-talk-chat-send__button"}
-                          onClick={sendMessage}
+                          class={
+                            useEncryption() && !encryptionKey()
+                              ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
+                              : newMessage().trim()
+                              ? "p-talk-chat-send__button is-active"
+                              : "p-talk-chat-send__button"
+                          }
+                          onClick={
+                            useEncryption() && !encryptionKey()
+                              ? undefined
+                              : sendMessage
+                          }
                           style="min-height:28px;"
+                          title={
+                            useEncryption() && !encryptionKey()
+                              ? "暗号化キー未入力のため送信できません"
+                              : ""
+                          }
                         >
                           <svg
                             width="800px"
@@ -841,6 +858,23 @@ export function Chat() {
                             </g>
                           </svg>
                         </div>
+                        <Show when={useEncryption() && !encryptionKey()}>
+                          <button
+                            type="button"
+                            onClick={() => props.onShowEncryptionKeyForm?.()}
+                            class="p-talk-chat-send__button is-active"
+                            title="暗号化キーを設定する"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              class="h-6 w-6"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                            >
+                              <path d="M12 2C9.243 2 7 4.243 7 7v3H6a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7c0-2.757-2.243-5-5-5zm0 2c1.654 0 3 1.346 3 3v3h-6V7c0-1.654 1.346-3 3-3z" />
+                            </svg>
+                          </button>
+                        </Show>
                       </div>
                     </form>
                   </Show>

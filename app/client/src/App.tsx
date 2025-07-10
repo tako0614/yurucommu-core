@@ -1,4 +1,4 @@
-import { createEffect, onMount, Show } from "solid-js";
+import { createEffect, onMount, Show, createSignal } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { encryptionKeyState, loginState } from "./states/session.ts";
 import { darkModeState, languageState } from "./states/settings.ts";
@@ -14,6 +14,7 @@ function App() {
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
+  const [skippedEncryptionKey, setSkippedEncryptionKey] = createSignal(false);
 
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
@@ -56,16 +57,48 @@ function App() {
     localStorage.setItem("language", language());
   });
 
+  const [encryptionKeyFormVisible, setEncryptionKeyFormVisible] = createSignal(false);
+
+  const showEncryptionKeyForm = () => setEncryptionKeyFormVisible(true);
+  const hideEncryptionKeyForm = () => setEncryptionKeyFormVisible(false);
+
+  // 暗号化キー未入力時は常にフォーム表示
+  createEffect(() => {
+    if (isLoggedIn() && !encryptionKey() && !skippedEncryptionKey()) {
+      setEncryptionKeyFormVisible(true);
+    }
+  });
+
   return (
     <Show
       when={isLoggedIn()}
       fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
     >
-      <Show
-        when={encryptionKey()}
-        fallback={<EncryptionKeyForm onComplete={() => {}} />}
-      >
-        <Application />
+      <Application onShowEncryptionKeyForm={showEncryptionKeyForm} />
+      <Show when={encryptionKeyFormVisible()}>
+        <div
+          style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.7);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          "
+        >
+          <EncryptionKeyForm
+            onComplete={(skipped) => {
+              hideEncryptionKeyForm();
+              if (skipped) {
+                setSkippedEncryptionKey(true);
+              }
+            }}
+          />
+        </div>
       </Show>
     </Show>
   );
