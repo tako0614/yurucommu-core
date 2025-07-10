@@ -3,10 +3,16 @@ import {
   createResource,
   createSignal,
   For,
+  onMount,
   Show,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { activeAccount, activeAccountId } from "../../states/account.ts";
+import {
+  accounts as accountsAtom,
+  activeAccount,
+  activeAccountId,
+  fetchAccounts,
+} from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
 import QRCode from "qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
@@ -160,8 +166,9 @@ const mockCommunities: Community[] = [
 ];
 
 export default function UnifiedToolsContent() {
-  const [selectedAccountId] = useAtom(activeAccountId);
+  const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
+  const [accounts, setAccountsState] = useAtom(accountsAtom);
   const [activeTab, setActiveTab] = createSignal<
     "search" | "users" | "posts" | "communities"
   >("search");
@@ -181,6 +188,20 @@ export default function UnifiedToolsContent() {
   const [showScanner, setShowScanner] = createSignal(false);
   const [scanError, setScanError] = createSignal("");
   const [qrError, setQrError] = createSignal("");
+
+  onMount(async () => {
+    if (accounts().length === 0) {
+      try {
+        const results = await fetchAccounts();
+        setAccountsState(results);
+        if (results.length > 0 && !selectedAccountId()) {
+          setSelectedAccountId(results[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to load accounts:", err);
+      }
+    }
+  });
 
   createEffect(() => {
     const id = selectedAccountId();

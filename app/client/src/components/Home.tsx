@@ -8,6 +8,7 @@ import { Setting } from "./Setting/index.tsx";
 import {
   accounts as accountsAtom,
   activeAccountId,
+  fetchAccounts,
 } from "../states/account.ts";
 
 export interface HomeProps {
@@ -87,8 +88,7 @@ export function Home(props: HomeProps) {
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
     try {
-      const response = await apiFetch("/api/accounts");
-      const results = await response.json();
+      const results = await fetchAccounts();
       setAccounts(results || []);
       if (preserveSelectedId) {
         const accountExists = results.some((acc: Account) =>
