@@ -5,6 +5,7 @@ import { activeAccount } from "../states/account.ts";
 import { resetKeyData } from "./e2ee/api.ts";
 import { deleteMLSDatabase } from "./e2ee/storage.ts";
 import { getDomain } from "../utils/config.ts";
+import { sha256 } from "../utils/crypto.ts";
 
 interface EncryptionKeyFormProps {
   onComplete: () => void;
@@ -17,7 +18,7 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
   const [account] = useAtom(activeAccount);
   const [isLoading, setIsLoading] = createSignal(false);
 
-  const handleSubmit = (e: Event) => {
+  const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setError("");
     if (!key()) {
@@ -25,8 +26,9 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
       return;
     }
     setIsLoading(true);
-    setEncryptionKey(key());
-    sessionStorage.setItem("encryptionKey", key());
+    const hashed = await sha256(key());
+    setEncryptionKey(hashed);
+    localStorage.setItem("encryptionKey", hashed);
     props.onComplete();
     setIsLoading(false);
   };
@@ -37,7 +39,7 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
     setIsLoading(true);
     await resetKeyData(`${account.userName}@${getDomain()}`);
     await deleteMLSDatabase(account.id);
-    sessionStorage.removeItem("encryptionKey");
+    localStorage.removeItem("encryptionKey");
     setEncryptionKey(null);
     setIsLoading(false);
   };
