@@ -76,7 +76,7 @@ const AccountSettingsContent: Component<{
     },
   );
 
-  const [followers] = createResource(
+  const [followers, { refetch: refetchFollowers }] = createResource(
     () => selectedAccount()?.userName,
     async (username) => {
       if (!username) return [];
@@ -84,7 +84,7 @@ const AccountSettingsContent: Component<{
     },
   );
 
-  const [followingList] = createResource(
+  const [followingList, { refetch: refetchFollowing }] = createResource(
     () => selectedAccount()?.userName,
     async (username) => {
       if (!username) return [];
@@ -118,6 +118,9 @@ const AccountSettingsContent: Component<{
         setFollowingCount(0);
         setFollowerCount(0);
       });
+      // フォロー・フォロワー情報を事前に取得
+      refetchFollowers();
+      refetchFollowing();
     }
   });
 
