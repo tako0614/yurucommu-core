@@ -14,6 +14,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { sdkStreamMixin } from "@aws-sdk/util-stream-node";
 
 export class LocalStorage implements ObjectStorage {
   constructor(private baseDir: string) {}
@@ -79,8 +80,7 @@ export class S3Storage implements ObjectStorage {
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
     );
     if (res.Body) {
-      const arrayBuffer = await res.Body.arrayBuffer();
-      return new Uint8Array(arrayBuffer);
+      return await sdkStreamMixin(res.Body).transformToByteArray();
     }
     return null;
   }
@@ -100,6 +100,9 @@ import { Buffer } from "node:buffer";
 export class GridFSStorage implements ObjectStorage {
   private bucket: GridFSBucket;
   constructor(bucketName: string) {
+    if (!mongoose.connection.db) {
+      throw new Error("Database is not connected");
+    }
     this.bucket = new GridFSBucket(mongoose.connection.db, { bucketName });
   }
 

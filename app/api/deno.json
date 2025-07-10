@@ -1,5 +1,6 @@
 {
   "imports": {
+    "@aws-sdk/util-stream-node": "npm:@aws-sdk/util-stream-node@^3.374.0",
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
     "@std/fs": "jsr:@std/fs@^1.0.18",
