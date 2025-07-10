@@ -479,6 +479,12 @@ export function Chat(props: ChatProps) {
     adjustHeight();
   });
 
+  createEffect(() => {
+    if (useEncryption() && !partnerHasKey()) {
+      alert("このユーザーは暗号化された会話に対応していません。");
+    }
+  });
+
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
     if (poller) clearInterval(poller);
@@ -694,13 +700,7 @@ export function Chat(props: ChatProps) {
                 >
                   <Show
                     when={useEncryption() ? partnerHasKey() : true}
-                    fallback={
-                      <div class="text-center py-4">
-                        <p class="text-gray-400 text-sm">
-                          このユーザーは暗号化された会話に対応していません。
-                        </p>
-                      </div>
-                    }
+                    fallback={null}
                   >
                     <form
                       class="p-talk-chat-send__form m-0"
