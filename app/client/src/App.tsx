@@ -1,4 +1,4 @@
-import { createEffect, onMount, Show, createSignal } from "solid-js";
+import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { encryptionKeyState, loginState } from "./states/session.ts";
 import { darkModeState, languageState } from "./states/settings.ts";
@@ -6,6 +6,7 @@ import { LoginForm } from "./components/LoginForm.tsx";
 import { EncryptionKeyForm } from "./components/EncryptionKeyForm.tsx";
 import { Application } from "./components/Application.tsx";
 import { apiFetch } from "./utils/config.ts";
+import { useInitialLoad } from "./utils/initialLoad.ts";
 import "./App.css";
 import "./stylesheet.css";
 
@@ -15,6 +16,9 @@ function App() {
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
   const [skippedEncryptionKey, setSkippedEncryptionKey] = createSignal(false);
+
+  // 共通の初期データ取得
+  useInitialLoad();
 
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
@@ -62,7 +66,9 @@ function App() {
     localStorage.setItem("language", language());
   });
 
-  const [encryptionKeyFormVisible, setEncryptionKeyFormVisible] = createSignal(false);
+  const [encryptionKeyFormVisible, setEncryptionKeyFormVisible] = createSignal(
+    false,
+  );
 
   const showEncryptionKeyForm = () => setEncryptionKeyFormVisible(true);
   const hideEncryptionKeyForm = () => setEncryptionKeyFormVisible(false);
@@ -81,8 +87,7 @@ function App() {
     >
       <Application onShowEncryptionKeyForm={showEncryptionKeyForm} />
       <Show when={encryptionKeyFormVisible()}>
-        <div
-          style="
+        <div style="
             position: fixed;
             top: 0;
             left: 0;
@@ -93,8 +98,7 @@ function App() {
             display: flex;
             align-items: center;
             justify-content: center;
-          "
-        >
+          ">
           <EncryptionKeyForm
             onComplete={(skipped) => {
               hideEncryptionKeyForm();
