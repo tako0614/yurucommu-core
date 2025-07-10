@@ -10,7 +10,11 @@ import {
   activeAccountId,
 } from "../states/account.ts";
 
-export function Home() {
+export interface HomeProps {
+  onShowEncryptionKeyForm?: () => void;
+}
+
+export function Home(props: HomeProps) {
   const [activeSection, setActiveSection] = createSignal("account");
 
   // スワイプ機能用の状態
@@ -268,7 +272,9 @@ export function Home() {
               </p>
             </div>
             <div class="max-w-4xl mx-auto">
-              <Setting />
+              <Setting
+                onShowEncryptionKeyForm={props.onShowEncryptionKeyForm}
+              />
             </div>
           </div>
         );

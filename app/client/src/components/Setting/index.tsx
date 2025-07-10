@@ -2,7 +2,10 @@ import { useAtom } from "solid-jotai";
 import { darkModeState, languageState } from "../../states/settings.ts";
 import RelaySettings from "./RelaySettings.tsx";
 
-export function Setting() {
+export interface SettingProps {
+  onShowEncryptionKeyForm?: () => void;
+}
+export function Setting(props: SettingProps) {
   const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
 
@@ -31,6 +34,15 @@ export function Setting() {
         </select>
       </div>
       <RelaySettings />
+      <div class="flex justify-end">
+        <button
+          type="button"
+          class="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition"
+          onClick={() => props.onShowEncryptionKeyForm?.()}
+        >
+          暗号化キー再入力
+        </button>
+      </div>
     </div>
   );
 }
