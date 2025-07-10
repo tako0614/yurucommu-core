@@ -1,4 +1,5 @@
 import { atom } from "solid-jotai";
+import { apiFetch } from "../utils/config.ts";
 
 export interface Account {
   id: string;
@@ -48,3 +49,12 @@ export const activeAccount = atom((get) => {
   if (!id) return null;
   return accs.find((a) => a.id === id) ?? null;
 });
+
+export async function fetchAccounts(): Promise<Account[]> {
+  try {
+    const res = await apiFetch("/api/accounts");
+    return await res.json();
+  } catch (_err) {
+    return [];
+  }
+}
