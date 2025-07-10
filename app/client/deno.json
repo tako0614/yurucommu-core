@@ -29,6 +29,7 @@
     "tailwindcss": "npm:tailwindcss@^4.1.7",
     "vite": "npm:vite@^5.4.19",
     "vite-plugin-solid": "npm:vite-plugin-solid@^2.11.6",
+    "vite-plugin-pwa": "npm:vite-plugin-pwa@^1.0.1",
     "zod": "npm:zod@^3.24.4"
   },
   "nodeModulesDir": "auto"
