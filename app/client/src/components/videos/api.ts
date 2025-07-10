@@ -1,5 +1,5 @@
 import type { Video } from "./types.ts";
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, apiUrl } from "../../utils/config.ts";
 
 export const fetchVideos = async (): Promise<Video[]> => {
   try {
@@ -12,7 +12,7 @@ export const fetchVideos = async (): Promise<Video[]> => {
   }
 };
 
-export const createVideo = async (
+export const createVideo = (
   data: {
     title: string;
     description?: string;
@@ -22,27 +22,53 @@ export const createVideo = async (
     file: File;
   } & { author: string },
 ): Promise<Video | null> => {
-  try {
-    const form = new FormData();
-    form.append("author", data.author);
-    form.append("title", data.title);
-    if (data.description) form.append("description", data.description);
-    if (data.hashtags) {
-      form.append("hashtags", data.hashtags.join(" "));
+  return new Promise((resolve) => {
+    try {
+      const wsUrl = apiUrl("/api/videos/upload").replace(/^http/, "ws");
+      const ws = new WebSocket(wsUrl);
+      let uploaded = false;
+
+      ws.onmessage = async (evt) => {
+        const msg = JSON.parse(evt.data);
+        if (msg.status === "ready for metadata") {
+          ws.send(
+            JSON.stringify({
+              type: "metadata",
+              payload: {
+                author: data.author,
+                title: data.title,
+                description: data.description ?? "",
+                hashtagsStr: data.hashtags?.join(" ") ?? "",
+                isShort: data.isShort ?? false,
+                duration: data.duration ?? "",
+                originalName: data.file.name,
+              },
+            }),
+          );
+        } else if (msg.status === "ready for binary") {
+          const buf = await data.file.arrayBuffer();
+          ws.send(buf);
+          ws.close();
+          uploaded = true;
+        }
+      };
+
+      ws.onclose = async () => {
+        if (uploaded) {
+          const list = await fetchVideos();
+          resolve(list[0] ?? null);
+        } else {
+          resolve(null);
+        }
+      };
+
+      ws.onerror = () => {
+        resolve(null);
+      };
+    } catch (_err) {
+      resolve(null);
     }
-    if (data.isShort) form.append("isShort", String(data.isShort));
-    if (data.duration) form.append("duration", data.duration);
-    form.append("file", data.file);
-    const res = await apiFetch("/api/videos", {
-      method: "POST",
-      body: form,
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as Video;
-  } catch (err) {
-    console.error("Error creating video:", err);
-    return null;
-  }
+  });
 };
 
 export const likeVideo = async (id: string): Promise<number | null> => {
