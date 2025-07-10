@@ -88,7 +88,8 @@ export function Chat(props: ChatProps) {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
-  const [useEncryption, setUseEncryption] = createSignal(true);
+  // 暗号化はデフォルトではオフにしておく
+  const [useEncryption, setUseEncryption] = createSignal(false);
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const partnerKeyCache = new Map<string, string | null>();
   const selectedRoomInfo = createMemo(() =>
@@ -824,24 +825,18 @@ export function Chat(props: ChatProps) {
                         </div>
                         {/* 送信ボタン */}
                         <div
-                          class={
-                            useEncryption() && !encryptionKey()
-                              ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
-                              : newMessage().trim()
-                              ? "p-talk-chat-send__button is-active"
-                              : "p-talk-chat-send__button"
-                          }
-                          onClick={
-                            useEncryption() && !encryptionKey()
-                              ? undefined
-                              : sendMessage
-                          }
+                          class={useEncryption() && !encryptionKey()
+                            ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
+                            : newMessage().trim()
+                            ? "p-talk-chat-send__button is-active"
+                            : "p-talk-chat-send__button"}
+                          onClick={useEncryption() && !encryptionKey()
+                            ? undefined
+                            : sendMessage}
                           style="min-height:28px;"
-                          title={
-                            useEncryption() && !encryptionKey()
-                              ? "暗号化キー未入力のため送信できません"
-                              : ""
-                          }
+                          title={useEncryption() && !encryptionKey()
+                            ? "暗号化キー未入力のため送信できません"
+                            : ""}
                         >
                           <svg
                             width="800px"
