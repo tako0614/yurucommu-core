@@ -8,6 +8,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
 import { apiFetch, getOrigin } from "../../utils/config.ts";
+import { qrcode } from "https://deno.land/x/qrcode/mod.ts";
 
 export interface User {
   id: string;
@@ -174,6 +175,8 @@ export default function UnifiedToolsContent() {
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
   );
+  const [qrHandle, setQrHandle] = createSignal<string | null>(null);
+  const [qrData, setQrData] = createSignal<string>("");
 
   createEffect(() => {
     const id = selectedAccountId();
@@ -456,8 +459,52 @@ export default function UnifiedToolsContent() {
     });
   };
 
+  const actorToHandle = (actor: string) => {
+    try {
+      const url = new URL(actor);
+      const parts = url.pathname.split("/");
+      const username = parts[parts.length - 1] || parts[parts.length - 2] || "";
+      return `${username}@${url.host}`;
+    } catch {
+      return actor;
+    }
+  };
+
+  const openQr = async (actor: string) => {
+    const handle = actorToHandle(actor);
+    setQrData(await qrcode(handle));
+    setQrHandle(handle);
+  };
+
+  const closeQr = () => {
+    setQrHandle(null);
+    setQrData("");
+  };
+
   return (
     <div class="h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      <Show when={qrHandle()}>
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={closeQr}
+        >
+          <div
+            class="bg-gray-800 rounded-lg p-6 space-y-4 w-64"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 class="text-lg font-bold text-white text-center">QRコード</h3>
+            <img src={qrData()} alt="qr" class="mx-auto" />
+            <p class="text-center text-gray-300 break-all">{qrHandle()}</p>
+            <button
+              type="button"
+              class="mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              onClick={closeQr}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      </Show>
       <div class="text-center space-y-2">
         <h2 class="text-3xl font-bold text-gray-100">検索</h2>
         <p class="text-gray-400 max-w-2xl mx-auto">
@@ -660,6 +707,15 @@ export default function UnifiedToolsContent() {
                                   );
                               })()}
                             </Show>
+                            <Show when={result.type === "user" && result.actor}>
+                              <button
+                                type="button"
+                                onClick={() => openQr(result.actor!)}
+                                class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                QRコード
+                              </button>
+                            </Show>
                             <Show when={result.type === "community"}>
                               {(() => {
                                 const community = communities().find((c) =>
@@ -797,6 +853,15 @@ export default function UnifiedToolsContent() {
                             </div>
                           </div>
                           <div class="flex space-x-2">
+                            <Show when={result.actor}>
+                              <button
+                                type="button"
+                                onClick={() => openQr(result.actor!)}
+                                class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-all duration-200"
+                              >
+                                QRコード
+                              </button>
+                            </Show>
                             <Show when={result.actor}>
                               {(localUser &&
                                   (followStatus()[result.actor!] ??
