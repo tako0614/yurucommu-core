@@ -18,15 +18,6 @@ function App() {
 
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
-    try {
-      const res = await apiFetch("/api/session/status");
-      const result = await res.json();
-      setIsLoggedIn(result.login ?? false);
-    } catch (err) {
-      console.error("Failed to fetch login status:", err);
-      setIsLoggedIn(false);
-    }
-
     const storedKey = localStorage.getItem("encryptionKey");
     if (storedKey) {
       setEncryptionKey(storedKey);
@@ -39,6 +30,20 @@ function App() {
     const storedLang = localStorage.getItem("language");
     if (storedLang) {
       setLanguage(storedLang);
+    }
+
+    const skipped = sessionStorage.getItem("skippedEncryptionKey");
+    if (skipped === "true") {
+      setSkippedEncryptionKey(true);
+    }
+
+    try {
+      const res = await apiFetch("/api/session/status");
+      const result = await res.json();
+      setIsLoggedIn(result.login ?? false);
+    } catch (err) {
+      console.error("Failed to fetch login status:", err);
+      setIsLoggedIn(false);
     }
   });
 
@@ -95,6 +100,7 @@ function App() {
               hideEncryptionKeyForm();
               if (skipped) {
                 setSkippedEncryptionKey(true);
+                sessionStorage.setItem("skippedEncryptionKey", "true");
               }
             }}
           />
