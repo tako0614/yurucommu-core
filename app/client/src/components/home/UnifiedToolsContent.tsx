@@ -7,8 +7,8 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
-import { apiFetch, getOrigin } from "../../utils/config.ts";
-import { qrcode } from "https://deno.land/x/qrcode/mod.ts";
+import { apiFetch, getOrigin, getDomain } from "../../utils/config.ts";
+import QRCode from "npm:qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
 
 export interface User {
@@ -465,7 +465,8 @@ export default function UnifiedToolsContent() {
   const openMyQr = async () => {
     if (!currentAccount()) return;
     const handle = `${currentAccount()!.userName}@${getDomain()}`;
-    setQrData(await qrcode(handle));
+    const qrDataUrl = await QRCode.toDataURL(handle);
+    setQrData(qrDataUrl);
     setQrHandle(handle);
   };
 

@@ -24,6 +24,7 @@
     "mongoose": "npm:mongoose@^8.15.0",
     "solid-jotai": "npm:solid-jotai@^0.3.1",
     "solid-js": "npm:solid-js@^1.9.6",
+    "solid-qr-code": "npm:solid-qr-code@^0.1.11",
     "tailwindcss": "npm:tailwindcss@^4.1.7",
     "vite": "npm:vite@^5.4.19",
     "vite-plugin-solid": "npm:vite-plugin-solid@^2.11.6",
