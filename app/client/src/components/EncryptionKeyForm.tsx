@@ -5,7 +5,7 @@ import { activeAccount } from "../states/account.ts";
 import { resetKeyData } from "./e2ee/api.ts";
 import { deleteMLSDatabase } from "./e2ee/storage.ts";
 import { getDomain } from "../utils/config.ts";
-import { sha256 } from "../utils/crypto.ts";
+import { hashEncryptionPassword } from "../utils/crypto.ts";
 
 interface EncryptionKeyFormProps {
   onComplete: () => void;
@@ -26,7 +26,7 @@ export function EncryptionKeyForm(props: EncryptionKeyFormProps) {
       return;
     }
     setIsLoading(true);
-    const hashed = await sha256(key());
+    const hashed = await hashEncryptionPassword(key());
     setEncryptionKey(hashed);
     localStorage.setItem("encryptionKey", hashed);
     props.onComplete();
