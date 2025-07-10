@@ -7,7 +7,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount, activeAccountId } from "../../states/account.ts";
-import { apiFetch, getOrigin, getDomain } from "../../utils/config.ts";
+import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
 import QRCode from "npm:qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
 
@@ -180,6 +180,7 @@ export default function UnifiedToolsContent() {
   const [qrData, setQrData] = createSignal<string>("");
   const [showScanner, setShowScanner] = createSignal(false);
   const [scanError, setScanError] = createSignal("");
+  const [qrError, setQrError] = createSignal("");
 
   createEffect(() => {
     const id = selectedAccountId();
@@ -463,11 +464,19 @@ export default function UnifiedToolsContent() {
   };
 
   const openMyQr = async () => {
-    if (!currentAccount()) return;
-    const handle = `${currentAccount()!.userName}@${getDomain()}`;
-    const qrDataUrl = await QRCode.toDataURL(handle);
-    setQrData(qrDataUrl);
-    setQrHandle(handle);
+    if (!currentAccount()) {
+      setQrError("アカウント情報がありません");
+      return;
+    }
+    try {
+      const handle = `${currentAccount()!.userName}@${getDomain()}`;
+      const qrDataUrl = await QRCode.toDataURL(handle);
+      setQrData(qrDataUrl);
+      setQrHandle(handle);
+      setQrError("");
+    } catch (_) {
+      setQrError("QRコードの生成に失敗しました");
+    }
   };
 
   const closeQr = () => {
@@ -533,6 +542,7 @@ export default function UnifiedToolsContent() {
             <input
               type="file"
               accept="image/*"
+              capture="environment"
               onChange={handleScanFile}
               class="text-sm text-gray-300"
             />
@@ -658,6 +668,9 @@ export default function UnifiedToolsContent() {
               QR読み取り
             </button>
           </div>
+          <Show when={qrError()}>
+            <p class="mt-2 text-red-400 text-sm text-right">{qrError()}</p>
+          </Show>
         </div>
 
         {/* 総合検索タブ */}
