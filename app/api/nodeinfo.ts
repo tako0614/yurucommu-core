@@ -3,10 +3,10 @@ import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import { getDomain } from "./utils/activitypub.ts";
 import { env } from "./utils/env.ts";
-import authRequired from "./utils/auth.ts";
+// NodeInfo は外部からの参照を想定しているため認証は不要
 
 const app = new Hono();
-app.use("*", authRequired);
+// app.use("*", authRequired); // 認証ミドルウェアは適用しない
 
 app.get("/.well-known/nodeinfo", (c) => {
   const domain = getDomain(c);
