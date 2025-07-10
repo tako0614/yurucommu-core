@@ -73,3 +73,15 @@ export const sha256 = async (text: string): Promise<string> => {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 };
+
+const ENCRYPTION_PASS_SALT = "takos";
+
+/**
+ * 暗号化キー用パスワードをハッシュ化する
+ * 別アカウントでも同一の入力で同じ値になるよう共通ソルトを利用
+ */
+export const hashEncryptionPassword = async (
+  password: string,
+): Promise<string> => {
+  return await sha256(ENCRYPTION_PASS_SALT + password);
+};
