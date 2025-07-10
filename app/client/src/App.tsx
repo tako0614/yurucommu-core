@@ -26,7 +26,7 @@ function App() {
       setIsLoggedIn(false);
     }
 
-    const storedKey = sessionStorage.getItem("encryptionKey");
+    const storedKey = localStorage.getItem("encryptionKey");
     if (storedKey) {
       setEncryptionKey(storedKey);
     }
