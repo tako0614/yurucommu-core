@@ -97,17 +97,23 @@ export function Chat(props: ChatProps) {
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
   const updateRoomLast = (roomId: string, msg?: ChatMessage) => {
-    setChatRooms((rooms) =>
-      rooms.map((r) =>
-        r.id === roomId
-          ? {
-            ...r,
-            lastMessage: msg?.content ?? "", // undefinedなら空文字にする
-            lastMessageTime: msg?.timestamp,
-          }
-          : r
-      )
-    );
+    setChatRooms((rooms) => {
+      let updated = false;
+      const newRooms = rooms.map((r) => {
+        if (r.id !== roomId) return r;
+        const lastMessage = msg?.content ?? "";
+        const lastMessageTime = msg?.timestamp;
+        if (
+          r.lastMessage !== lastMessage ||
+          r.lastMessageTime?.getTime() !== lastMessageTime?.getTime()
+        ) {
+          updated = true;
+          return { ...r, lastMessage, lastMessageTime };
+        }
+        return r;
+      });
+      return updated ? newRooms : rooms;
+    });
   };
   let poller: number | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -573,19 +579,39 @@ export function Chat(props: ChatProps) {
                       onClick={() => selectRoom(room.id)}
                     >
                       <div class="flex items-center w-full">
-                        <span class="c-talk-rooms-icon" style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
+                        <span
+                          class="c-talk-rooms-icon"
+                          style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;"
+                        >
                           {isUrl(room.avatar) ||
                               (typeof room.avatar === "string" &&
                                 room.avatar.startsWith("data:image/"))
-                          ? (
+                            ? (
                               <img
                                 src={room.avatar}
                                 alt="avatar"
-                                style={{ width: "40px", height: "40px", "object-fit": "cover", "border-radius": "50%" }}
+                                style={{
+                                  width: "40px",
+                                  height: "40px",
+                                  "object-fit": "cover",
+                                  "border-radius": "50%",
+                                }}
                               />
                             )
                             : (
-                              <span style={{ width: "40px", height: "40px", display: "flex", "align-items": "center", "justify-content": "center", background: "#444", color: "#fff", "border-radius": "50%", "font-size": "20px" }}>
+                              <span
+                                style={{
+                                  width: "40px",
+                                  height: "40px",
+                                  display: "flex",
+                                  "align-items": "center",
+                                  "justify-content": "center",
+                                  background: "#444",
+                                  color: "#fff",
+                                  "border-radius": "50%",
+                                  "font-size": "20px",
+                                }}
+                              >
                                 {room.avatar}
                               </span>
                             )}
@@ -595,7 +621,10 @@ export function Chat(props: ChatProps) {
                             <span class="c-talk-rooms-nickname" style="flex:1;">
                               {room.name}
                             </span>
-                            <span class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap" style="margin-left:auto; text-align:right;">
+                            <span
+                              class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap"
+                              style="margin-left:auto; text-align:right;"
+                            >
                               {room.lastMessageTime
                                 ? room.lastMessageTime.toLocaleTimeString([], {
                                   hour: "2-digit",
