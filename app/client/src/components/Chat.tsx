@@ -10,7 +10,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { activeAccount } from "../states/account.ts";
-import type { UserInfo } from "./microblog/api.ts";
+import { fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
   fetchEncryptedKeyPair,
@@ -21,7 +21,7 @@ import {
   sendEncryptedMessage,
   sendPublicMessage,
 } from "./e2ee/api.ts";
-import { apiFetch, getDomain } from "../utils/config.ts";
+import { getDomain } from "../utils/config.ts";
 import {
   decryptGroupMessage,
   deriveMLSSecret,
@@ -266,13 +266,8 @@ export function Chat(props: ChatProps) {
       return;
     }
     try {
-      const res = await apiFetch("/api/user-info/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifiers: ids }),
-      });
-      if (res.ok) {
-        const infos = await res.json() as UserInfo[];
+      const infos = await fetchUserInfoBatch(ids, user.id);
+      if (infos.length > 0) {
         const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
           const actor = ids[idx];
           acc.push({

@@ -1,5 +1,6 @@
 import type { ActivityPubObject, MicroblogPost, Story } from "./types.ts";
 import { apiFetch } from "../../utils/config.ts";
+import { loadCacheEntry, saveCacheEntry } from "../e2ee/storage.ts";
 
 /**
  * ActivityPub Object（Note, Story, etc.）を取得
@@ -433,7 +434,7 @@ export interface UserInfo {
   isLocal: boolean;
 }
 
-// ユーザー情報キャッシュ
+// ユーザー情報キャッシュ（メモリ）
 const userInfoCache = new Map<string, {
   userInfo: UserInfo;
   timestamp: number;
@@ -441,28 +442,52 @@ const userInfoCache = new Map<string, {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5分
 
-export const getCachedUserInfo = (identifier: string): UserInfo | null => {
-  const cached = userInfoCache.get(identifier);
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.userInfo;
+export const getCachedUserInfo = async (
+  identifier: string,
+  accountId?: string,
+): Promise<UserInfo | null> => {
+  const mem = userInfoCache.get(identifier);
+  if (mem && Date.now() - mem.timestamp < CACHE_DURATION) {
+    return mem.userInfo;
+  }
+  if (accountId) {
+    const entry = await loadCacheEntry<UserInfo>(
+      accountId,
+      `userInfo:${identifier}`,
+    );
+    if (entry && Date.now() - entry.timestamp < CACHE_DURATION) {
+      userInfoCache.set(identifier, {
+        userInfo: entry.value,
+        timestamp: entry.timestamp,
+      });
+      return entry.value;
+    }
   }
   return null;
 };
 
-export const setCachedUserInfo = (identifier: string, userInfo: UserInfo) => {
+export const setCachedUserInfo = async (
+  identifier: string,
+  userInfo: UserInfo,
+  accountId?: string,
+) => {
   userInfoCache.set(identifier, {
     userInfo,
     timestamp: Date.now(),
   });
+  if (accountId) {
+    await saveCacheEntry(accountId, `userInfo:${identifier}`, userInfo);
+  }
 };
 
 // 新しい共通ユーザー情報取得API
 export const fetchUserInfo = async (
   identifier: string,
+  accountId?: string,
 ): Promise<UserInfo | null> => {
   try {
     // まずキャッシュから確認
-    const cached = getCachedUserInfo(identifier);
+    const cached = await getCachedUserInfo(identifier, accountId);
     if (cached) {
       return cached;
     }
@@ -477,7 +502,7 @@ export const fetchUserInfo = async (
     const userInfo = await response.json();
 
     // キャッシュに保存
-    setCachedUserInfo(identifier, userInfo);
+    await setCachedUserInfo(identifier, userInfo, accountId);
 
     return userInfo;
   } catch (error) {
@@ -489,6 +514,7 @@ export const fetchUserInfo = async (
 // バッチでユーザー情報を取得
 export const fetchUserInfoBatch = async (
   identifiers: string[],
+  accountId?: string,
 ): Promise<UserInfo[]> => {
   try {
     // キャッシュから取得できるものをチェック
@@ -496,7 +522,7 @@ export const fetchUserInfoBatch = async (
     const uncached: string[] = [];
 
     for (const identifier of identifiers) {
-      const cachedInfo = getCachedUserInfo(identifier);
+      const cachedInfo = await getCachedUserInfo(identifier, accountId);
       if (cachedInfo) {
         cached.push(cachedInfo);
       } else {
@@ -519,9 +545,11 @@ export const fetchUserInfoBatch = async (
         fetchedInfos = await response.json();
 
         // 取得した情報をキャッシュに保存
-        fetchedInfos.forEach((info, index) => {
-          setCachedUserInfo(uncached[index], info);
-        });
+        await Promise.all(
+          fetchedInfos.map((info, index) =>
+            setCachedUserInfo(uncached[index], info, accountId)
+          ),
+        );
       }
     }
 
@@ -531,7 +559,7 @@ export const fetchUserInfoBatch = async (
     let fetchedIndex = 0;
 
     for (const identifier of identifiers) {
-      if (getCachedUserInfo(identifier)) {
+      if (await getCachedUserInfo(identifier, accountId)) {
         result.push(cached[cachedIndex++]);
       } else {
         result.push(fetchedInfos[fetchedIndex++]);
@@ -549,7 +577,7 @@ export const fetchUserInfoBatch = async (
 export const fetchActivityPubActor = async (actorUrl: string) => {
   try {
     // まずキャッシュから確認
-    const cached = getCachedUserInfo(actorUrl);
+    const cached = await getCachedUserInfo(actorUrl);
     if (cached) {
       return cached;
     }
@@ -579,7 +607,7 @@ export const fetchActivityPubActor = async (actorUrl: string) => {
       domain: new URL(actorUrl).hostname,
       isLocal: false,
     };
-    setCachedUserInfo(actorUrl, userInfo);
+    await setCachedUserInfo(actorUrl, userInfo);
 
     return { displayName, avatarUrl };
   } catch (error) {
