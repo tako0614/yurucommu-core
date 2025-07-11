@@ -19,5 +19,10 @@ export function sanitizeHTML(html: string): string {
       }
     }
   }
-  return doc.body.innerHTML;
+  const cleaned = doc.body.innerHTML;
+  return cleaned.replace(
+    /(https?:\/\/[^\s]+)/g,
+    (m) =>
+      `<a href="${m}" class="text-blue-400 underline" target="_blank" rel="noopener noreferrer">${m}</a>`,
+  );
 }

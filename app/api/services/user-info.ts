@@ -319,6 +319,12 @@ export function formatUserInfoForPost(
       : (postData.extra as Record<string, unknown>)?.likes ?? 0,
     retweets: (postData.extra as Record<string, unknown>)?.retweets ?? 0,
     replies: (postData.extra as Record<string, unknown>)?.replies ?? 0,
+    attachments:
+      Array.isArray((postData.extra as Record<string, unknown>)?.attachments)
+        ? (postData.extra as Record<string, unknown>).attachments as unknown[]
+        : [],
+    parentId: (postData.extra as Record<string, unknown>)?.inReplyTo,
+    quoteId: (postData.extra as Record<string, unknown>)?.quoteId,
     domain: userInfo.domain,
   };
 }

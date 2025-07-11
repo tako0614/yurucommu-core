@@ -60,6 +60,19 @@ export const fetchPosts = async (
   }
 };
 
+export const fetchPostById = async (
+  id: string,
+): Promise<MicroblogPost | null> => {
+  try {
+    const res = await apiFetch(`/api/microblog/${id}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching post:", error);
+    return null;
+  }
+};
+
 export const fetchFollowingPosts = async (
   username: string,
 ): Promise<MicroblogPost[]> => {
@@ -252,6 +265,9 @@ export const unfollowUser = async (
 export const createPost = async (
   content: string,
   author: string,
+  attachments?: { url: string; type: "image" | "video" | "audio" }[],
+  parentId?: string,
+  quoteId?: string,
 ): Promise<boolean> => {
   try {
     const response = await apiFetch("/api/microblog", {
@@ -259,7 +275,7 @@ export const createPost = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ author, content }),
+      body: JSON.stringify({ author, content, attachments, parentId, quoteId }),
     });
     return response.ok;
   } catch (error) {

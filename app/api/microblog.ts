@@ -120,20 +120,38 @@ app.get("/microblog", async (c) => {
 
 app.post("/microblog", async (c) => {
   const domain = getDomain(c);
-  const { author, content } = await c.req.json();
+  const {
+    author,
+    content,
+    attachments,
+    parentId,
+    quoteId,
+  } = await c.req.json();
+
   if (typeof author !== "string" || typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
+
+  const extra: Record<string, unknown> = { likes: 0, retweets: 0 };
+  if (Array.isArray(attachments)) extra.attachments = attachments;
+  if (typeof parentId === "string") extra.inReplyTo = parentId;
+  if (typeof quoteId === "string") extra.quoteId = quoteId;
+  if (typeof parentId === "string") extra.replies = 0;
 
   const post = new ActivityPubObject({
     type: "Note",
     attributedTo: author,
     content,
-    extra: { likes: 0, retweets: 0 },
+    extra,
   });
   await post.save();
 
-  // Fire-and-forget the delivery process
+  if (typeof parentId === "string") {
+    await ActivityPubObject.findByIdAndUpdate(parentId, {
+      $inc: { "extra.replies": 1 },
+    }).catch(() => {});
+  }
+
   deliverPostToFollowers(post, author, domain);
 
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
@@ -151,6 +169,22 @@ app.get("/microblog/:id", async (c) => {
   return c.json(
     formatUserInfoForPost(userInfo, post as Record<string, unknown>),
   );
+});
+
+app.get("/microblog/:id/replies", async (c) => {
+  const domain = getDomain(c);
+  const id = c.req.param("id");
+  const list = await ActivityPubObject.find({ "extra.inReplyTo": id }).sort({
+    published: 1,
+  }).lean();
+  const ids = list.map((doc: ActivityPubObjectType) =>
+    doc.attributedTo as string
+  );
+  const infos = await getUserInfoBatch(ids, domain);
+  const formatted = list.map((doc: ActivityPubObjectType, i: number) =>
+    formatUserInfoForPost(infos[i], doc)
+  );
+  return c.json(formatted);
 });
 
 app.put("/microblog/:id", async (c) => {

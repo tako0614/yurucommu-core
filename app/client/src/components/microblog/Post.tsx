@@ -1,4 +1,4 @@
-import { createResource, createSignal, For } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { sanitizeHTML } from "../../utils/sanitize.ts";
 import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
@@ -8,6 +8,18 @@ import {
   getCachedUserInfo,
   type UserInfo as _UserInfo,
 } from "./api.ts";
+import { fetchPostById } from "./api.ts";
+
+function QuotedPost(props: { quoteId: string }) {
+  const [post] = createResource(() => fetchPostById(props.quoteId));
+  return (
+    <Show when={post()}>
+      <div class="border-l-2 border-gray-700 pl-3 text-sm mb-3">
+        <div innerHTML={sanitizeHTML(post()!.content)} />
+      </div>
+    </Show>
+  );
+}
 
 // ユーザー情報を整理する関数
 function formatUserInfo(post: MicroblogPost) {
@@ -68,6 +80,7 @@ type PostItemProps = {
   tab: "recommend" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
+  handleQuote: (postId: string) => void;
   handleLike: (postId: string) => void;
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
@@ -80,6 +93,7 @@ function PostItem(props: PostItemProps) {
     tab,
     handleReply,
     handleRetweet,
+    handleQuote,
     handleLike,
     handleEdit,
     handleDelete,
@@ -166,6 +180,31 @@ function PostItem(props: PostItemProps) {
             class="text-white mb-3 leading-relaxed"
             innerHTML={sanitizeHTML(post.content)}
           />
+          {post.attachments && post.attachments.length > 0 && (
+            <div class="mb-3 space-y-2">
+              <For each={post.attachments}>
+                {(att) => (
+                  <Show
+                    when={att.type === "image"}
+                    fallback={att.type === "video"
+                      ? (
+                        <video
+                          src={att.url}
+                          controls
+                          class="max-w-full rounded"
+                        />
+                      )
+                      : att.type === "audio"
+                      ? <audio src={att.url} controls class="w-full" />
+                      : null}
+                  >
+                    <img src={att.url} class="max-w-full rounded" />
+                  </Show>
+                )}
+              </For>
+            </div>
+          )}
+          {post.quoteId && <QuotedPost quoteId={post.quoteId} />}
           <div class="flex items-center justify-between max-w-md">
             <button
               type="button"
@@ -254,6 +293,7 @@ function PostItem(props: PostItemProps) {
             <button
               type="button"
               class="flex items-center space-x-2 text-gray-500 hover:text-blue-400 transition-colors group"
+              onClick={() => handleQuote(post.id)}
             >
               <div class="p-2 rounded-full group-hover:bg-blue-400/10 transition-colors">
                 <svg
@@ -325,6 +365,7 @@ export function PostList(props: {
   tab: "recommend" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
+  handleQuote: (postId: string) => void;
   handleLike: (postId: string) => void;
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
@@ -339,6 +380,7 @@ export function PostList(props: {
             tab={props.tab}
             handleReply={props.handleReply}
             handleRetweet={props.handleRetweet}
+            handleQuote={props.handleQuote}
             handleLike={props.handleLike}
             handleEdit={props.handleEdit}
             handleDelete={props.handleDelete}
@@ -356,6 +398,12 @@ export function PostForm(props: {
   newPostContent: string;
   setNewPostContent: (content: string) => void;
   handleSubmit: (e: Event) => void;
+  attachments: { url: string; type: "image" | "video" | "audio" }[];
+  setAttachments: (
+    a: { url: string; type: "image" | "video" | "audio" }[],
+  ) => void;
+  replyingTo?: string | null;
+  quoteId?: string | null;
   currentUser?: { userName: string; avatar?: string };
 }) {
   const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
@@ -373,6 +421,26 @@ export function PostForm(props: {
     "💯",
     "🚀",
   ];
+
+  let fileInput: HTMLInputElement | undefined;
+
+  const handleFileChange = (e: Event) => {
+    const target = e.currentTarget as HTMLInputElement;
+    if (!target.files) return;
+    const files = Array.from(target.files);
+    const newAtt: { url: string; type: "image" | "video" | "audio" }[] = [];
+    for (const f of files) {
+      const url = URL.createObjectURL(f);
+      const type = f.type.startsWith("video")
+        ? "video"
+        : f.type.startsWith("audio")
+        ? "audio"
+        : "image";
+      newAtt.push({ url, type });
+    }
+    props.setAttachments([...props.attachments, ...newAtt]);
+    if (fileInput) fileInput.value = "";
+  };
 
   const insertEmoji = (emoji: string) => {
     props.setNewPostContent(props.newPostContent + emoji);
@@ -402,6 +470,14 @@ export function PostForm(props: {
             </div>
 
             <form onSubmit={props.handleSubmit} class="space-y-4">
+              {(props.replyingTo || props.quoteId) && (
+                <div class="text-sm text-gray-400">
+                  {props.replyingTo && <span>返信先: {props.replyingTo}</span>}
+                  {props.quoteId && (
+                    <span class="ml-2">引用: {props.quoteId}</span>
+                  )}
+                </div>
+              )}
               <div class="flex space-x-3">
                 <UserAvatar
                   avatarUrl={props.currentUser?.avatar}
@@ -418,6 +494,49 @@ export function PostForm(props: {
                     class="w-full bg-transparent text-xl placeholder-gray-500 resize-none border-none outline-none"
                     rows={4}
                   />
+                  {props.attachments.length > 0 && (
+                    <div class="mt-2 space-y-2">
+                      <For each={props.attachments}>
+                        {(att, i) => (
+                          <div class="relative">
+                            <Show
+                              when={att.type === "image"}
+                              fallback={att.type === "video"
+                                ? (
+                                  <video
+                                    src={att.url}
+                                    controls
+                                    class="max-w-full rounded"
+                                  />
+                                )
+                                : att.type === "audio"
+                                ? (
+                                  <audio
+                                    src={att.url}
+                                    controls
+                                    class="w-full"
+                                  />
+                                )
+                                : null}
+                            >
+                              <img src={att.url} class="max-w-full rounded" />
+                            </Show>
+                            <button
+                              type="button"
+                              class="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"
+                              onClick={() => {
+                                const arr = [...props.attachments];
+                                arr.splice(i(), 1);
+                                props.setAttachments(arr);
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -425,6 +544,7 @@ export function PostForm(props: {
                 <div class="flex items-center space-x-4">
                   <button
                     type="button"
+                    onClick={() => fileInput?.click()}
                     class="text-blue-400 hover:bg-blue-400/10 p-2 rounded-full transition-colors"
                   >
                     <svg
@@ -440,6 +560,14 @@ export function PostForm(props: {
                         d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                       />
                     </svg>
+                    <input
+                      ref={(el) => (fileInput = el)}
+                      type="file"
+                      multiple
+                      accept="image/*,video/*,audio/*"
+                      class="hidden"
+                      onChange={handleFileChange}
+                    />
                   </button>
                   <div class="relative">
                     <button
