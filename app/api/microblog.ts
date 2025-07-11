@@ -21,6 +21,7 @@ import {
   getUserInfo,
   getUserInfoBatch,
 } from "./services/user-info.ts";
+import { addNotification } from "./services/notification.ts";
 
 // --- Helper Functions ---
 
@@ -205,6 +206,28 @@ app.post("/microblog/:id/like", async (c) => {
       deliverActivityPubObject(inboxes, like, username).catch((err) => {
         console.error("Delivery failed:", err);
       });
+    }
+
+    let localAuthor: string | null = null;
+    if (typeof post.attributedTo === "string") {
+      if (post.attributedTo.startsWith("http")) {
+        try {
+          const url = new URL(post.attributedTo);
+          if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+            localAuthor = url.pathname.split("/")[2];
+          }
+        } catch {
+          /* ignore */
+        }
+      } else {
+        localAuthor = post.attributedTo;
+      }
+    }
+    if (localAuthor) {
+      await addNotification(
+        "新しいいいね",
+        `${username}さんが${localAuthor}さんの投稿をいいねしました`,
+      );
     }
   }
 
