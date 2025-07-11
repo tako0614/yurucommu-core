@@ -456,7 +456,7 @@ export function Microblog() {
         />
 
         <PostForm
-          showPostForm={showPostForm()}
+showPostForm={_showPostForm()}
           setShowPostForm={setShowPostForm}
           newPostContent={newPostContent()}
           setNewPostContent={setNewPostContent}

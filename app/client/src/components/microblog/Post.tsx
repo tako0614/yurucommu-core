@@ -9,13 +9,14 @@ import {
   type UserInfo as _UserInfo,
 } from "./api.ts";
 import { fetchPostById } from "./api.ts";
+import { linkify } from "../../utils/linkify.ts";
 
 function QuotedPost(props: { quoteId: string }) {
   const [post] = createResource(() => fetchPostById(props.quoteId));
   return (
     <Show when={post()}>
       <div class="border-l-2 border-gray-700 pl-3 text-sm mb-3">
-        <div innerHTML={sanitizeHTML(post()!.content)} />
+        <div innerHTML={sanitizeHTML(linkify(post()!.content))} />
       </div>
     </Show>
   );
@@ -31,8 +32,8 @@ function formatUserInfo(post: MicroblogPost) {
       displayName = post.userName.split("@")[0];
     } else if (post.userName.startsWith("http")) {
       // URLの場合、最後のパス部分を使用
-      const urlParts = post.userName.split("/");
-      displayName = urlParts[urlParts.length - 1] || "External User";
+      const urlParts = post.userName.split("/").filter(Boolean);
+      displayName = urlParts.at(-1) || "External User";
     } else {
       displayName = post.userName;
     }
@@ -55,8 +56,8 @@ function formatUserInfo(post: MicroblogPost) {
       const url = new URL(post.userName);
       domain = url.hostname;
       // URLの最後の部分をユーザー名として使用
-      const pathParts = url.pathname.split("/");
-      userName = pathParts[pathParts.length - 1] || userName;
+      const pathParts = url.pathname.split("/").filter(Boolean);
+      userName = pathParts.at(-1) || userName;
     } catch {
       // URL解析に失敗した場合のフォールバック
       domain = "external";
@@ -178,7 +179,7 @@ function PostItem(props: PostItemProps) {
           </div>
           <div
             class="text-white mb-3 leading-relaxed"
-            innerHTML={sanitizeHTML(post.content)}
+            innerHTML={sanitizeHTML(linkify(post.content))}
           />
           {post.attachments && post.attachments.length > 0 && (
             <div class="mb-3 space-y-2">

@@ -441,6 +441,7 @@ const AccountSettingsContent: Component<{
                   tab="recommend"
                   handleReply={() => {}}
                   handleRetweet={() => {}}
+                  handleQuote={() => {}}
                   handleLike={() => {}}
                   handleEdit={() => {}}
                   handleDelete={() => {}}

@@ -100,7 +100,7 @@ app.get("/microblog", async (c) => {
   const before = c.req.query("before");
   const query = ActivityPubObject.find({ type: "Note" });
   if (before) {
-    query.where("published").lt(new Date(before));
+    query.where("published").lt(new Date(before).getTime());
   }
   const list = await query.sort({ published: -1 }).limit(limit).lean();
 
