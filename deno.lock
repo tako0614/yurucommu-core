@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@std/bytes@^1.0.6": "1.0.6",
     "jsr:@std/streams@^1.0.10": "1.0.10",
+    "npm:linkify-it@5": "5.0.0",
     "npm:qrcode@^1.5.4": "1.5.4"
   },
   "jsr": {
@@ -68,6 +69,12 @@
     "is-fullwidth-code-point@3.0.0": {
       "integrity": "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="
     },
+    "linkify-it@5.0.0": {
+      "integrity": "sha512-5aHCbzQRADcdP+ATqnDuhhJ/MRIqDkZX5pyjFHRRysS8vZ5AbqGEoFIb6pYHPZ+L/OC2Lc+xT8uHVVR5CAK/wQ==",
+      "dependencies": [
+        "uc.micro"
+      ]
+    },
     "locate-path@5.0.0": {
       "integrity": "sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g==",
       "dependencies": [
@@ -127,6 +134,9 @@
         "ansi-regex"
       ]
     },
+    "uc.micro@2.1.0": {
+      "integrity": "sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A=="
+    },
     "which-module@2.0.1": {
       "integrity": "sha512-iBdZ57RDvnOR9AGBhML2vFZf7h8vmBjhoaZqODJBFWHVtKkDmKuHai3cx5PgVMrX5YDNp27AofYbAwctSS+vhQ=="
     },
@@ -171,6 +181,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/streams@^1.0.10",
+      "npm:linkify-it@5",
       "npm:qrcode@^1.5.4"
     ]
   }

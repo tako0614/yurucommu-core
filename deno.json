@@ -4,6 +4,7 @@
   },
   "imports": {
     "@std/streams": "jsr:@std/streams@^1.0.10",
+    "linkify-it": "npm:linkify-it@^5.0.0",
     "qrcode": "npm:qrcode@^1.5.4"
   }
 }

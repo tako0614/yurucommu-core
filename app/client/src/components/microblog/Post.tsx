@@ -9,14 +9,14 @@ import {
   type UserInfo as _UserInfo,
 } from "./api.ts";
 import { fetchPostById } from "./api.ts";
-import { linkify } from "../../utils/linkify.ts";
+import { linkifyText } from "../../utils/linkify.ts";
 
 function QuotedPost(props: { quoteId: string }) {
   const [post] = createResource(() => fetchPostById(props.quoteId));
   return (
     <Show when={post()}>
       <div class="border-l-2 border-gray-700 pl-3 text-sm mb-3">
-        <div innerHTML={sanitizeHTML(linkify(post()!.content))} />
+        <div innerHTML={sanitizeHTML(linkifyText(post()!.content))} />
       </div>
     </Show>
   );
@@ -179,7 +179,7 @@ function PostItem(props: PostItemProps) {
           </div>
           <div
             class="text-white mb-3 leading-relaxed"
-            innerHTML={sanitizeHTML(linkify(post.content))}
+            innerHTML={sanitizeHTML(linkifyText(post.content))}
           />
           {post.attachments && post.attachments.length > 0 && (
             <div class="mb-3 space-y-2">
