@@ -102,12 +102,9 @@ function PostItem(props: PostItemProps) {
         post.userName.startsWith("http")
       ) {
         // まずキャッシュを確認
-        const cached = getCachedUserInfo(post.userName);
-        if (cached) {
-          return Promise.resolve(cached);
-        }
-        // キャッシュにない場合はAPIから取得
-        return fetchActivityPubActor(post.userName);
+        return getCachedUserInfo(post.userName).then((cached) =>
+          cached ?? fetchActivityPubActor(post.userName)
+        );
       }
       return Promise.resolve(null);
     },

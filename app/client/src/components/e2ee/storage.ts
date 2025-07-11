@@ -1,8 +1,9 @@
 import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
+const CACHE_STORE = "cache";
 
 function openDB(accountId: string): Promise<IDBDatabase> {
   const name = `takos_${accountId}`;
@@ -15,6 +16,9 @@ function openDB(accountId: string): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(KEY_STORE)) {
         db.createObjectStore(KEY_STORE, { autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        db.createObjectStore(CACHE_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -85,6 +89,43 @@ export const saveMLSKeyPair = async (
   const tx = db.transaction(KEY_STORE, "readwrite");
   const store = tx.objectStore(KEY_STORE);
   store.add(pair);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+// キャッシュの読み書き
+export interface CacheEntry<T> {
+  timestamp: number;
+  value: T;
+}
+
+export const loadCacheEntry = async <T>(
+  accountId: string,
+  key: string,
+): Promise<CacheEntry<T> | null> => {
+  const db = await openDB(accountId);
+  const tx = db.transaction(CACHE_STORE, "readonly");
+  const store = tx.objectStore(CACHE_STORE);
+  return await new Promise((resolve, reject) => {
+    const req = store.get(key);
+    req.onsuccess = () => {
+      resolve(req.result as CacheEntry<T> | null);
+    };
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const saveCacheEntry = async <T>(
+  accountId: string,
+  key: string,
+  value: T,
+): Promise<void> => {
+  const db = await openDB(accountId);
+  const tx = db.transaction(CACHE_STORE, "readwrite");
+  const store = tx.objectStore(CACHE_STORE);
+  store.put({ timestamp: Date.now(), value } as CacheEntry<T>, key);
   await new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(undefined);
     tx.onerror = () => reject(tx.error);
