@@ -10,6 +10,7 @@ import {
   jsonResponse,
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
+import { addNotification } from "./services/notification.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -251,6 +252,27 @@ app.post("/accounts/:id/follow", async (c) => {
     }
   } catch (err) {
     console.error("Follow request failed:", err);
+  }
+
+  try {
+    const domain = getDomain(c);
+    let localTarget: string | null = null;
+    if (target.startsWith("http")) {
+      const url = new URL(target);
+      if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+        localTarget = url.pathname.split("/")[2];
+      }
+    } else {
+      localTarget = target;
+    }
+    if (localTarget) {
+      await addNotification(
+        "新しいフォロー",
+        `${userName}さんが${localTarget}さんをフォローしました`,
+      );
+    }
+  } catch {
+    /* ignore */
   }
 
   return jsonResponse(c, { following: account.following });
