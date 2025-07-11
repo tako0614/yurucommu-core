@@ -11,9 +11,11 @@ export interface MicroblogPost {
   isLiked?: boolean;
   isRetweeted?: boolean;
   images?: string[];
+  attachments?: { url: string; type: "image" | "video" | "audio" }[];
   hashtags?: string[];
   mentions?: string[];
   parentId?: string; // 返信の場合の親投稿ID
+  quoteId?: string; // 引用元投稿ID
   domain?: string;
 }
 

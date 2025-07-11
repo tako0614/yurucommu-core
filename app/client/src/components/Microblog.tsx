@@ -2,7 +2,7 @@ import { createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
-import { PostForm as _PostForm, PostList } from "./microblog/Post.tsx";
+import { PostForm, PostList } from "./microblog/Post.tsx";
 import {
   _replyToPost,
   createPost,
@@ -26,8 +26,13 @@ export function Microblog() {
     "recommend",
   );
   const [newPostContent, setNewPostContent] = createSignal("");
+  const [newPostAttachments, setNewPostAttachments] = createSignal<{
+    url: string;
+    type: "image" | "video" | "audio";
+  }[]>([]);
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
+  const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [limit, setLimit] = createSignal(20);
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
@@ -218,9 +223,18 @@ export function Microblog() {
       return;
     }
 
-    const success = await createPost(content, user.userName);
+    const success = await createPost(
+      content,
+      user.userName,
+      newPostAttachments(),
+      _replyingTo() ?? undefined,
+      quoteTarget() ?? undefined,
+    );
     if (success) {
       setNewPostContent("");
+      setNewPostAttachments([]);
+      _setReplyingTo(null);
+      setQuoteTarget(null);
       setShowPostForm(false);
       resetPosts();
     } else {
@@ -248,8 +262,15 @@ export function Microblog() {
     }
   };
 
+  const handleQuote = (id: string) => {
+    setQuoteTarget(id);
+    _setReplyingTo(null);
+    setShowPostForm(true);
+  };
+
   const handleReply = (postId: string) => {
     _setReplyingTo(postId);
+    setQuoteTarget(null);
     setShowPostForm(true);
   };
 
@@ -410,6 +431,7 @@ export function Microblog() {
               tab={tab()}
               handleReply={handleReply}
               handleRetweet={handleRetweet}
+              handleQuote={handleQuote}
               handleLike={handleLike}
               handleEdit={handleEdit}
               handleDelete={handleDelete}
@@ -433,18 +455,18 @@ export function Microblog() {
           formatDate={formatDate}
         />
 
-        {
-          /* 投稿フォーム
-                    <PostForm
-              showPostForm={showPostForm()}
-              setShowPostForm={setShowPostForm}
-              newPostContent={newPostContent()}
-              setNewPostContent={setNewPostContent}
-              handleSubmit={handleSubmit}
-              currentUser={account() || undefined}
-            />
-        */
-        }
+        <PostForm
+          showPostForm={showPostForm()}
+          setShowPostForm={setShowPostForm}
+          newPostContent={newPostContent()}
+          setNewPostContent={setNewPostContent}
+          handleSubmit={_handleSubmit}
+          attachments={newPostAttachments()}
+          setAttachments={setNewPostAttachments}
+          replyingTo={_replyingTo()}
+          quoteId={quoteTarget()}
+          currentUser={account() || undefined}
+        />
       </div>
     </>
   );
