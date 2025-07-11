@@ -102,7 +102,7 @@ export function Chat(props: ChatProps) {
         r.id === roomId
           ? {
             ...r,
-            lastMessage: msg?.content,
+            lastMessage: msg?.content ?? "", // undefinedなら空文字にする
             lastMessageTime: msg?.timestamp,
           }
           : r
@@ -252,69 +252,28 @@ export function Chat(props: ChatProps) {
     return pub;
   };
 
-  const loadRooms = async () => {
+  const loadMessages = async (room: ChatRoom, isSelectedRoom: boolean) => {
     const user = account();
     if (!user) return;
-    const ids = Array.from(
-      new Set([
-        ...(user.followers ?? []),
-        ...(user.following ?? []),
-      ]),
-    );
-    if (ids.length === 0) {
-      setChatRooms([]);
-      return;
-    }
-    try {
-      const infos = await fetchUserInfoBatch(ids, user.id);
-      if (infos.length > 0) {
-        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
-          const actor = ids[idx];
-          acc.push({
-            id: actor,
-            name: info.displayName || info.userName,
-            userName: info.userName,
-            domain: info.domain,
-            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
-            unreadCount: 0,
-            type: "dm",
-            members: [actor],
-            lastMessage: undefined,
-            lastMessageTime: undefined,
-          });
-          return acc;
-        }, []);
-        setChatRooms(rooms);
-      }
-    } catch (err) {
-      console.error("Failed to load rooms", err);
-    }
-  };
 
-  const loadMessages = async () => {
-    const roomId = selectedRoom();
-    const user = account();
-    if (!roomId || !user) return;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return;
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
       : `${partnerUser}@${getDomain()}`;
     const encryptedMsgs: ChatMessage[] = [];
-    let group = groups()[roomId];
+    let group = groups()[room.id];
     if (!group) {
       const kp = await ensureKeyPair();
       if (kp) {
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
         if (partnerPub) {
-          setPartnerHasKey(true);
+          if (isSelectedRoom) setPartnerHasKey(true);
           const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
           group = { members: room.members, epoch: Date.now(), secret };
-          setGroups({ ...groups(), [roomId]: group });
+          setGroups({ ...groups(), [room.id]: group });
           saveGroupStates();
         } else {
-          setPartnerHasKey(false);
+          if (isSelectedRoom) setPartnerHasKey(false);
         }
       }
     }
@@ -366,8 +325,56 @@ export function Chat(props: ChatProps) {
     const msgs = [...encryptedMsgs, ...publicMsgs].sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
-    setMessages(msgs);
-    updateRoomLast(roomId, msgs[msgs.length - 1]);
+
+    if (isSelectedRoom) {
+      setMessages(msgs);
+    }
+
+    const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+    updateRoomLast(room.id, lastMessage);
+  };
+
+  const loadRooms = async () => {
+    const user = account();
+    if (!user) return;
+    const ids = Array.from(
+      new Set([
+        ...(user.followers ?? []),
+        ...(user.following ?? []),
+      ]),
+    );
+    if (ids.length === 0) {
+      setChatRooms([]);
+      return;
+    }
+    try {
+      const infos = await fetchUserInfoBatch(ids, user.id);
+      if (infos.length > 0) {
+        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
+          const actor = ids[idx];
+          acc.push({
+            id: actor,
+            name: info.displayName || info.userName,
+            userName: info.userName,
+            domain: info.domain,
+            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+            unreadCount: 0,
+            type: "dm",
+            members: [actor],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          });
+          return acc;
+        }, []);
+        setChatRooms(rooms);
+
+        rooms.forEach(async (room) => {
+          await loadMessages(room, false);
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load rooms", err);
+    }
   };
 
   const sendMessage = async () => {
@@ -440,7 +447,7 @@ export function Chat(props: ChatProps) {
       isMe: true,
       avatar: room.avatar,
     });
-    loadMessages();
+    loadMessages(room, true);
   };
 
   // 画面サイズ検出
@@ -456,9 +463,20 @@ export function Chat(props: ChatProps) {
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
     }
-    loadMessages();
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (room) {
+      loadMessages(room, true);
+    }
     if (poller) clearInterval(poller);
-    poller = setInterval(loadMessages, 5000);
+    poller = setInterval(() => {
+      const currentRoomId = selectedRoom();
+      if (currentRoomId) {
+        const currentRoom = chatRooms().find((r) => r.id === currentRoomId);
+        if (currentRoom) {
+          loadMessages(currentRoom, true);
+        }
+      }
+    }, 5000);
   };
 
   // チャット一覧に戻る（モバイル用）
@@ -475,7 +493,10 @@ export function Chat(props: ChatProps) {
     loadRooms();
     loadGroupStates();
     ensureKeyPair();
-    loadMessages();
+    const room = chatRooms().find((r) => r.id === selectedRoom());
+    if (room) {
+      loadMessages(room, true);
+    }
     adjustHeight();
   });
 
@@ -485,10 +506,17 @@ export function Chat(props: ChatProps) {
   });
 
   createEffect(() => {
-    selectedRoom();
+    const roomId = selectedRoom();
+    const rooms = chatRooms();
     groups();
     account();
-    loadMessages();
+
+    const room = rooms.find((r) => r.id === roomId);
+    if (room) {
+      loadMessages(room, true);
+    } else if (roomId === null) {
+      setMessages([]);
+    }
   });
 
   createEffect(() => {
@@ -552,17 +580,11 @@ export function Chat(props: ChatProps) {
                             : room.avatar}
                         </span>
                         <span class="c-talk-rooms-box">
-                          <span class="c-talk-rooms-name">
+                          <span class="c-talk-rooms-name flex justify-between items-center w-full">
                             <span class="c-talk-rooms-nickname">
                               {room.name}
                             </span>
-                            <span class="c-talk-rooms-locate">
-                              @{room.domain}
-                            </span>
-                          </span>
-                          <span class="c-talk-rooms-msg">
-                            <p>{room.lastMessage}</p>
-                            <span class="c-talk-rooms-time">
+                            <span class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap">
                               {room.lastMessageTime
                                 ? room.lastMessageTime.toLocaleTimeString([], {
                                   hour: "2-digit",
@@ -570,6 +592,9 @@ export function Chat(props: ChatProps) {
                                 })
                                 : ""}
                             </span>
+                          </span>
+                          <span class="c-talk-rooms-msg flex justify-between items-center">
+                            <p class="truncate">{room.lastMessage}</p>
                           </span>
                         </span>
                       </button>
