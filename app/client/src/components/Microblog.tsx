@@ -1,4 +1,4 @@
-import { createResource, createSignal } from "solid-js";
+import { createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
@@ -29,7 +29,54 @@ export function Microblog() {
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [posts, { mutate, refetch }] = createResource(fetchPosts);
+  const [limit, setLimit] = createSignal(20);
+  const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [loadingMore, setLoadingMore] = createSignal(false);
+
+  const loadInitialPosts = async () => {
+    const data = await fetchPosts({ limit: limit() });
+    setPosts(data);
+    setCursor(data.length > 0 ? data[data.length - 1].createdAt : null);
+  };
+
+  const loadMorePosts = async () => {
+    if (loadingMore()) return;
+    setLoadingMore(true);
+    const data = await fetchPosts({
+      limit: limit(),
+      before: cursor() ?? undefined,
+    });
+    if (data.length > 0) {
+      setPosts((prev) => [...prev, ...data]);
+      setCursor(data[data.length - 1].createdAt);
+    }
+    setLoadingMore(false);
+  };
+
+  const resetPosts = () => {
+    setPosts([]);
+    setCursor(null);
+    loadInitialPosts();
+  };
+
+  const handleScroll = () => {
+    if (
+      globalThis.innerHeight + globalThis.scrollY >=
+        document.body.offsetHeight - 200
+    ) {
+      loadMorePosts();
+    }
+  };
+
+  onMount(() => {
+    loadInitialPosts();
+    globalThis.addEventListener("scroll", handleScroll);
+  });
+
+  onCleanup(() => {
+    globalThis.removeEventListener("scroll", handleScroll);
+  });
   // フォロー中投稿の取得
   const [followingTimelinePosts, { refetch: _refetchFollowing }] =
     createResource(() => {
@@ -175,7 +222,7 @@ export function Microblog() {
     if (success) {
       setNewPostContent("");
       setShowPostForm(false);
-      refetch();
+      resetPosts();
     } else {
       alert("投稿の作成に失敗しました");
     }
@@ -186,8 +233,8 @@ export function Microblog() {
     if (!user) return;
     const likes = await likePost(id, user.userName);
     if (likes !== null) {
-      mutate((prev) =>
-        prev?.map((p) => p.id === id ? { ...p, likes, isLiked: true } : p)
+      setPosts((prev) =>
+        prev.map((p) => p.id === id ? { ...p, likes, isLiked: true } : p)
       );
     }
   };
@@ -195,10 +242,8 @@ export function Microblog() {
   const handleRetweet = async (id: string) => {
     const retweets = await retweetPost(id);
     if (retweets !== null) {
-      mutate((prev) =>
-        prev?.map((p) =>
-          p.id === id ? { ...p, retweets, isRetweeted: true } : p
-        )
+      setPosts((prev) =>
+        prev.map((p) => p.id === id ? { ...p, retweets, isRetweeted: true } : p)
       );
     }
   };
@@ -215,7 +260,7 @@ export function Microblog() {
     if (!trimmed) return;
     const success = await updatePost(id, trimmed);
     if (success) {
-      refetch();
+      resetPosts();
     } else {
       alert("投稿の更新に失敗しました");
     }
@@ -225,7 +270,7 @@ export function Microblog() {
     if (!confirm("この投稿を削除しますか？")) return;
     const success = await deletePost(id);
     if (success) {
-      refetch();
+      resetPosts();
     } else {
       alert("投稿の削除に失敗しました");
     }
@@ -289,6 +334,21 @@ export function Microblog() {
                     d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                   />
                 </svg>
+              </div>
+              <div class="ml-4">
+                <select
+                  value={limit()}
+                  onChange={(e) => {
+                    const v = parseInt(e.currentTarget.value, 10);
+                    setLimit(v);
+                    resetPosts();
+                  }}
+                  class="bg-gray-800 rounded px-2 py-1 text-sm"
+                >
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
               </div>
             </div>
             {/* タブ */}
@@ -355,6 +415,9 @@ export function Microblog() {
               handleDelete={handleDelete}
               formatDate={formatDate}
             />
+          )}
+          {loadingMore() && (
+            <div class="text-center py-4 text-gray-400">読み込み中...</div>
           )}
         </div>
 

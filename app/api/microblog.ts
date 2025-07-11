@@ -93,9 +93,16 @@ app.use("*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
-  const list = await ActivityPubObject.find({ type: "Note" }).sort({
-    published: -1,
-  }).lean();
+  const limit = Math.min(
+    parseInt(c.req.query("limit") ?? "50", 10) || 50,
+    100,
+  );
+  const before = c.req.query("before");
+  const query = ActivityPubObject.find({ type: "Note" });
+  if (before) {
+    query.where("published").lt(new Date(before));
+  }
+  const list = await query.sort({ published: -1 }).limit(limit).lean();
 
   // ユーザー情報をバッチで取得
   const identifiers = list.map((doc: ActivityPubObjectType) =>

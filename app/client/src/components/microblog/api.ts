@@ -39,9 +39,17 @@ export const fetchActivityPubObjects = async (
   }
 };
 
-export const fetchPosts = async (): Promise<MicroblogPost[]> => {
+export const fetchPosts = async (
+  params?: { limit?: number; before?: string },
+): Promise<MicroblogPost[]> => {
   try {
-    const response = await apiFetch("/api/microblog");
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.before) search.set("before", params.before);
+    const query = search.toString();
+    const response = await apiFetch(
+      `/api/microblog${query ? `?${query}` : ""}`,
+    );
     if (!response.ok) {
       throw new Error("Failed to fetch posts");
     }
