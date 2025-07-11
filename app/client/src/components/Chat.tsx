@@ -569,22 +569,33 @@ export function Chat(props: ChatProps) {
                     <li
                       class={`c-talk-rooms ${
                         selectedRoom() === room.id ? "is-active" : ""
-                      }`}
+                      } flex items-center cursor-pointer`}
+                      onClick={() => selectRoom(room.id)}
                     >
-                      <button type="button" onClick={() => selectRoom(room.id)}>
-                        <span class="c-talk-rooms-icon">
+                      <div class="flex items-center w-full">
+                        <span class="c-talk-rooms-icon" style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
                           {isUrl(room.avatar) ||
                               (typeof room.avatar === "string" &&
                                 room.avatar.startsWith("data:image/"))
-                            ? <img src={room.avatar} alt="avatar" />
-                            : room.avatar}
+                          ? (
+                              <img
+                                src={room.avatar}
+                                alt="avatar"
+                                style={{ width: "40px", height: "40px", "object-fit": "cover", "border-radius": "50%" }}
+                              />
+                            )
+                            : (
+                              <span style={{ width: "40px", height: "40px", display: "flex", "align-items": "center", "justify-content": "center", background: "#444", color: "#fff", "border-radius": "50%", "font-size": "20px" }}>
+                                {room.avatar}
+                              </span>
+                            )}
                         </span>
-                        <span class="c-talk-rooms-box">
+                        <span class="c-talk-rooms-box w-full">
                           <span class="c-talk-rooms-name flex justify-between items-center w-full">
-                            <span class="c-talk-rooms-nickname">
+                            <span class="c-talk-rooms-nickname" style="flex:1;">
                               {room.name}
                             </span>
-                            <span class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap">
+                            <span class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap" style="margin-left:auto; text-align:right;">
                               {room.lastMessageTime
                                 ? room.lastMessageTime.toLocaleTimeString([], {
                                   hour: "2-digit",
@@ -597,7 +608,7 @@ export function Chat(props: ChatProps) {
                             <p class="truncate">{room.lastMessage}</p>
                           </span>
                         </span>
-                      </button>
+                      </div>
                     </li>
                   )}
                 </For>
