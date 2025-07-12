@@ -11,6 +11,7 @@
     "npm:@tauri-apps/cli@*": "2.6.2",
     "npm:@tauri-apps/cli@^2.6.2": "2.6.2",
     "npm:@tauri-apps/plugin-http@^2.5.0": "2.5.0",
+    "npm:@tauri-apps/plugin-store@^2.3.0": "2.3.0",
     "npm:@types/linkify-it@5": "5.0.0",
     "npm:@types/node@*": "22.15.15",
     "npm:dompurify@*": "3.2.6",
@@ -1922,6 +1923,12 @@
     },
     "@tauri-apps/plugin-http@2.5.0": {
       "integrity": "sha512-l4M2DUIsOBIMrbj4dJZwrB4mJiB7OA/2Tj3gEbX2fjq5MOpETklJPKfDvzUTDwuq4lIKCKKykz8E8tpOgvi0EQ==",
+      "dependencies": [
+        "@tauri-apps/api"
+      ]
+    },
+    "@tauri-apps/plugin-store@2.3.0": {
+      "integrity": "sha512-mre8er0nXPhyEWQzWCpUd+UnEoBQYcoA5JYlwpwOV9wcxKqlXTGfminpKsE37ic8NUb2BIZqf0QQ9/U3ib2+/A==",
       "dependencies": [
         "@tauri-apps/api"
       ]
@@ -4205,6 +4212,7 @@
       "npm:@tailwindcss/vite@^4.1.7",
       "npm:@tauri-apps/cli@^2.6.2",
       "npm:@tauri-apps/plugin-http@^2.5.0",
+      "npm:@tauri-apps/plugin-store@^2.3.0",
       "npm:@types/linkify-it@5",
       "npm:dompurify@^3.2.6",
       "npm:firebase@^11.9.1",

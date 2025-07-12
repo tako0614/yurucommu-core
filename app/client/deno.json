@@ -19,6 +19,7 @@
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.7",
     "@tauri-apps/cli": "npm:@tauri-apps/cli@^2.6.2",
     "@tauri-apps/plugin-http": "npm:@tauri-apps/plugin-http@^2.5.0",
+    "@tauri-apps/plugin-store": "npm:@tauri-apps/plugin-store@^2.3.0",
     "@types/linkify-it": "npm:@types/linkify-it@^5.0.0",
     "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
     "dompurify": "npm:dompurify@^3.2.6",
