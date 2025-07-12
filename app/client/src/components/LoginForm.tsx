@@ -1,5 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
-import { apiFetch, getApiBase, setApiBase } from "../utils/config.ts";
+import { apiFetch, getApiBase, isTauri, setApiBase } from "../utils/config.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -10,21 +10,25 @@ export function LoginForm(props: LoginFormProps) {
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
+  const inTauri = isTauri();
 
   onMount(() => {
-    setServerUrl(getApiBase());
+    if (inTauri) {
+      setServerUrl(getApiBase());
+    }
   });
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
     setError("");
 
-    if (!serverUrl()) {
-      setError("サーバーURLを入力してください");
-      return;
+    if (inTauri) {
+      if (!serverUrl()) {
+        setError("サーバーURLを入力してください");
+        return;
+      }
+      setApiBase(serverUrl());
     }
-
-    setApiBase(serverUrl());
 
     if (!loginPassword()) {
       setError("ログイン用パスワードを入力してください");
@@ -74,22 +78,24 @@ export function LoginForm(props: LoginFormProps) {
           </div>
 
           <form onSubmit={handleLogin} class="space-y-6">
-            <div>
-              <label
-                for="serverUrl"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                サーバーURL
-              </label>
-              <input
-                type="text"
-                id="serverUrl"
-                value={serverUrl()}
-                onInput={(e) => setServerUrl(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
-                placeholder="http://localhost:8000"
-              />
-            </div>
+            <Show when={inTauri}>
+              <div>
+                <label
+                  for="serverUrl"
+                  class="block text-sm font-medium text-gray-300 mb-2"
+                >
+                  サーバーURL
+                </label>
+                <input
+                  type="text"
+                  id="serverUrl"
+                  value={serverUrl()}
+                  onInput={(e) => setServerUrl(e.currentTarget.value)}
+                  class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
+                  placeholder="http://localhost:8000"
+                />
+              </div>
+            </Show>
             <div>
               <label
                 for="loginPassword"
