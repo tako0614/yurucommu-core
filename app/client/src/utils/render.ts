@@ -31,6 +31,8 @@ export interface RenderOptions {
   DOMPurify?: DOMPurify;
   /** DOMPurify の追加設定 */
   purifierConfig?: import("npm:dompurify").Config;
+  /** 長い URL を省略表示するか */
+  shortenLink?: boolean;
 }
 
 // --- ユーティリティ --------------------------------------------------
@@ -48,32 +50,33 @@ function plainTextToHtml(text: string): string {
 }
 
 const INVISIBLE_CLS = "invisible";
-const ELLIPSIS_CLS  = "ellipsis";
-const MAX_VISIBLE   = 45;
+const ELLIPSIS_CLS = "ellipsis";
+const MAX_VISIBLE = 45;
 
-function linkifyUrls(text: string, linkify: LinkifyIt): string {
+function linkifyUrls(text: string, linkify: LinkifyIt, shorten = true): string {
   let out = "";
   let last = 0;
   for (const m of linkify.match(text) ?? []) {
     out += escapeHtml(text.slice(last, m.index));
 
-    const url      = m.url;
+    const url = m.url;
     const protocol = url.match(/^[a-z][\w.+-]*:\/\//i)?.[0] ?? "";
-    const body     = url.slice(protocol.length);
+    const body = url.slice(protocol.length);
 
     let inner: string;
-    if (url.length <= MAX_VISIBLE) {
+    if (!shorten || url.length <= MAX_VISIBLE) {
       inner = escapeHtml(url);
     } else {
       const visible = body.slice(0, MAX_VISIBLE) + "…";
-      const hidden  = body.slice(MAX_VISIBLE);
-      inner =
-        `<span class="${INVISIBLE_CLS}">${escapeHtml(protocol)}</span>` +
+      const hidden = body.slice(MAX_VISIBLE);
+      inner = `<span class="${INVISIBLE_CLS}">${escapeHtml(protocol)}</span>` +
         `<span class="${ELLIPSIS_CLS}">${escapeHtml(visible)}</span>` +
         `<span class="${INVISIBLE_CLS}">${escapeHtml(hidden)}</span>`;
     }
 
-    out += `<a href="${escapeHtml(url)}" class="external-link" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
+    out += `<a href="${
+      escapeHtml(url)
+    }" class="external-link" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
     last = m.lastIndex;
   }
   out += escapeHtml(text.slice(last));
@@ -81,21 +84,29 @@ function linkifyUrls(text: string, linkify: LinkifyIt): string {
 }
 
 // --- 本体 ------------------------------------------------------------
-export function renderNoteContent(note: APNote, opts: RenderOptions = {}): string {
+export function renderNoteContent(
+  note: APNote,
+  opts: RenderOptions = {},
+): string {
   // Linkifier インスタンス
   const linkify = new LinkifyIt();
 
   // DOMPurify インスタンスの決定 (オプション指定 > ブラウザ global > 自動生成)
   const purifier: DOMPurify = (() => {
     if (opts.DOMPurify) return opts.DOMPurify;
-    if (typeof (globalThis as unknown as { DOMPurify?: DOMPurify }).DOMPurify !== "undefined") {
+    if (
+      typeof (globalThis as unknown as { DOMPurify?: DOMPurify }).DOMPurify !==
+        "undefined"
+    ) {
       return (globalThis as unknown as { DOMPurify: DOMPurify }).DOMPurify;
     }
     if (typeof window !== "undefined") {
       // ブラウザ環境なら createDOMPurify で生成
       return createDOMPurify(window);
     }
-    throw new Error("DOMPurify instance not found. Provide via options.DOMPurify or ensure DOM environment.");
+    throw new Error(
+      "DOMPurify instance not found. Provide via options.DOMPurify or ensure DOM environment.",
+    );
   })();
 
   // 1) rawHtml を生成 --------------------------------------------------
@@ -125,24 +136,29 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
 
   for (const tNode of textNodes) {
     // <a> / <code> / <pre> 直下は触らない
-    if ((tNode.parentElement)?.closest("a, code, pre")) continue;
+    if (tNode.parentElement?.closest("a, code, pre")) continue;
 
-    let txt      = tNode.data;
+    let txt = tNode.data;
     let replaced = false;
 
     // 1) URL を先にリンク化（ネスト防止）
     if (linkify.pretest(txt)) {
-      txt      = linkifyUrls(txt, linkify);
+      txt = linkifyUrls(txt, linkify, opts.shortenLink !== false);
       replaced = true;
     }
 
     // 2) カスタム絵文字
     for (const tag of note.tag ?? []) {
       if (tag.type === "Emoji" && tag.name && tag.icon?.url) {
-        const re = new RegExp(tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+        const re = new RegExp(
+          tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "g",
+        );
         if (re.test(txt)) {
           replaced = true;
-          const img = `<img src="${escapeHtml(tag.icon.url)}" alt="${escapeHtml(tag.name)}" class="emoji" loading="lazy" />`;
+          const img = `<img src="${escapeHtml(tag.icon.url)}" alt="${
+            escapeHtml(tag.name)
+          }" class="emoji" loading="lazy" />`;
           txt = txt.replace(re, img);
         }
       }
@@ -150,13 +166,27 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
 
     // 3) メンション / ハッシュタグ
     for (const tag of note.tag ?? []) {
-      if ((tag.type === "Mention" || tag.type === "Hashtag") && tag.name && tag.href) {
-        const re = new RegExp(tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+      if (
+        (tag.type === "Mention" || tag.type === "Hashtag") && tag.name &&
+        tag.href
+      ) {
+        const re = new RegExp(
+          tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "g",
+        );
         if (re.test(txt)) {
           replaced = true;
           const cls = tag.type === "Mention" ? "mention" : "mention hashtag";
-          const relAttr = tag.type === "Hashtag" ? " rel=\"tag\"" : "";
-          txt = txt.replace(re, () => `<a href="${escapeHtml(tag.href!)}" class="${cls}"${relAttr} target="_blank">${escapeHtml(tag.name!)}</a>`);
+          const relAttr = tag.type === "Hashtag" ? ' rel="tag"' : "";
+          txt = txt.replace(
+            re,
+            () =>
+              `<a href="${
+                escapeHtml(tag.href!)
+              }" class="${cls}"${relAttr} target="_blank">${
+                escapeHtml(tag.name!)
+              }</a>`,
+          );
         }
       }
     }
@@ -172,13 +202,33 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
   const safeHtml = purifier.sanitize(doc.body.innerHTML, {
     ...opts.purifierConfig,
     ALLOWED_TAGS: [
-      "p", "br", "a", "span", "em", "strong", "code", "pre", "ul", "ol", "li", "blockquote", "img",
+      "p",
+      "br",
+      "a",
+      "span",
+      "em",
+      "strong",
+      "code",
+      "pre",
+      "ul",
+      "ol",
+      "li",
+      "blockquote",
+      "img",
     ],
     ALLOWED_ATTR: [
-      "href", "rel", "target", "class", "src", "alt", "title", "loading",
+      "href",
+      "rel",
+      "target",
+      "class",
+      "src",
+      "alt",
+      "title",
+      "loading",
     ],
     ALLOW_DATA_ATTR: false,
-    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:https?|mailto|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
     RETURN_TRUSTED_TYPE: false,
   });
 
