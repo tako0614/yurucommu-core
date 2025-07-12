@@ -12,7 +12,7 @@ import tlds from "https://esm.sh/tlds@1.233.0"; // Up-to-date IANA TLD list
 // Tunables
 // --------------------------------------------------
 const MAX_TEXT_SIZE = 2 * 1024 * 1024; // 2 MiB
-const MAX_LINKS = 10;                   // soft-cap per post
+const MAX_LINKS = 10; // soft-cap per post
 const INVISIBLE_RE = /[\u200B-\u200D\uFEFF]/g; // zero-width & BOM
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]); // hard whitelist
 
@@ -20,9 +20,9 @@ const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]); // hard whitelist
 // Initialise parser
 // --------------------------------------------------
 export const linkify = new LinkifyIt()
-  .tlds(tlds)          // keep the public suffix list fresh
+  .tlds(tlds) // keep the public suffix list fresh
   .set({ fuzzyLink: false }) // no bare "www." or TLD-only matches
-  .add("ipfs:", "http:");    // example of extending allowed schemes
+  .add("ipfs:", "http:"); // example of extending allowed schemes
 
 // --------------------------------------------------
 // Helpers
@@ -33,7 +33,7 @@ function escapeAttr(value: string): string {
 
 function sanitizeUrl(raw: string): string | null {
   // 1) Remove zero-width chars that can sneak into copy-pastes
-  let url = raw.replace(INVISIBLE_RE, "");
+  const url = raw.replace(INVISIBLE_RE, "");
 
   try {
     const parsed = new URL(url);
@@ -67,7 +67,9 @@ export function linkifyText(text: string): string {
 
     const safeUrl = sanitizeUrl(m.url);
     if (safeUrl) {
-      result += `<a href="${escapeAttr(safeUrl)}" rel="noopener noreferrer" target="_blank">${m.raw}</a>`;
+      result += `<a href="${
+        escapeAttr(safeUrl)
+      }" rel="noopener noreferrer" target="_blank">${m.raw}</a>`;
       count++;
     } else {
       // Fallback: emit the raw text unchanged
