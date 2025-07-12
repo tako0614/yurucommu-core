@@ -24,7 +24,7 @@ import {
   updatePost,
   viewStory,
 } from "./microblog/api.ts";
-import type { Community, MicroblogPost, Story } from "./microblog/types.ts";
+import type { Community, MicroblogPost, Story, Note } from "./microblog/types.ts";
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
@@ -475,7 +475,7 @@ export function Microblog() {
               communityIsPrivate={_communityIsPrivate()}
               setCommunityIsPrivate={_setCommunityIsPrivate}
               communities={_communitiesData() || []}
-              communityPosts={[]}
+              communityPosts={[] as Note[]}
               handleJoinCommunity={_handleJoinCommunity}
               handleLeaveCommunity={_handleLeaveCommunity}
               handleCreateCommunity={_handleCreateCommunity}

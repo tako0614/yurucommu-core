@@ -1,5 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
-import { renderHtml } from "../../utils/render.ts";
+import { renderNoteContent } from "../../utils/render.ts";
 import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
@@ -9,7 +9,6 @@ import {
   type UserInfo as _UserInfo,
 } from "./api.ts";
 import { fetchPostById } from "./api.ts";
-import { linkifyText } from "../../utils/linkify.ts";
 
 interface OgpData {
   title?: string;
@@ -78,7 +77,7 @@ function QuotedPost(props: { quoteId: string }) {
   return (
     <Show when={post()}>
       <div class="border-l-2 border-gray-700 pl-3 text-sm mb-3">
-        <div innerHTML={renderHtml(linkifyText(post()!.content))} />
+        <div innerHTML={renderNoteContent(post()!.content)} />
       </div>
     </Show>
   );
@@ -233,7 +232,7 @@ function PostItem(props: PostItemProps) {
           </div>
           <div
             class="text-white mb-3 leading-relaxed break-words overflow-hidden"
-            innerHTML={renderHtml(linkifyText(post.content))}
+            innerHTML={renderNoteContent(post.content)}
           />
           {post.attachments && post.attachments.length > 0 && (
             <div class="mb-3 grid gap-2 sm:grid-cols-2">

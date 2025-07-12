@@ -26,7 +26,10 @@
     "npm:jsdom@*": "26.1.0",
     "npm:linkedom@*": "0.16.11",
     "npm:linkify-html@^4.1.3": "4.3.1_linkifyjs@4.3.1",
+    "npm:linkify-it@*": "5.0.0",
+    "npm:linkify-it@5": "5.0.0",
     "npm:linkifyjs@^4.3.1": "4.3.1",
+    "npm:markdown-it@*": "14.1.0",
     "npm:mongoose@^8.15.0": "8.15.0",
     "npm:qrcode@*": "1.5.4",
     "npm:qrcode@^1.5.4": "1.5.4",
@@ -34,6 +37,7 @@
     "npm:solid-js@^1.9.6": "1.9.6_seroval@1.2.1",
     "npm:solid-qr-code@~0.1.11": "0.1.11_solid-js@1.9.6__seroval@1.2.1",
     "npm:tailwindcss@^4.1.7": "4.1.7",
+    "npm:tlds@^1.259.0": "1.259.0",
     "npm:uuid@*": "11.1.0",
     "npm:vite-plugin-pwa@^1.0.1": "1.0.1_vite@5.4.19__@types+node@22.12.0_workbox-build@7.3.0__ajv@8.17.1__@babel+core@7.27.1__rollup@2.79.2_workbox-window@7.3.0_@types+node@22.12.0",
     "npm:vite-plugin-solid@^2.11.6": "2.11.6_solid-js@1.9.6__seroval@1.2.1_vite@5.4.19_@babel+core@7.27.1_@types+node@22.12.0",
@@ -2066,6 +2070,9 @@
         "color-convert"
       ]
     },
+    "argparse@2.0.1": {
+      "integrity": "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="
+    },
     "array-buffer-byte-length@1.0.2": {
       "integrity": "sha512-LHE+8BuR7RYGDKvnrmcuSq3tDcKv9OFEXQt/HpbZhY7V6h0zlUXutnAD82GiFx9rdieCMjkvtcsPqBwgUl1Iiw==",
       "dependencies": [
@@ -3164,6 +3171,12 @@
         "linkifyjs"
       ]
     },
+    "linkify-it@5.0.0": {
+      "integrity": "sha512-5aHCbzQRADcdP+ATqnDuhhJ/MRIqDkZX5pyjFHRRysS8vZ5AbqGEoFIb6pYHPZ+L/OC2Lc+xT8uHVVR5CAK/wQ==",
+      "dependencies": [
+        "uc.micro"
+      ]
+    },
     "linkifyjs@4.3.1": {
       "integrity": "sha512-DRSlB9DKVW04c4SUdGvKK5FR6be45lTU9M76JnngqPeeGDqPwYc0zdUErtsNVMtxPXgUWV4HbXbnC4sNyBxkYg=="
     },
@@ -3209,8 +3222,23 @@
         "@jridgewell/sourcemap-codec"
       ]
     },
+    "markdown-it@14.1.0": {
+      "integrity": "sha512-a54IwgWPaeBCAAsv13YgmALOF1elABB08FxO9i+r4VFk5Vl4pKokRPeX8u5TCgSsPi6ec1otfLjdOpVcgbpshg==",
+      "dependencies": [
+        "argparse",
+        "entities@4.5.0",
+        "linkify-it",
+        "mdurl",
+        "punycode.js",
+        "uc.micro"
+      ],
+      "bin": true
+    },
     "math-intrinsics@1.1.0": {
       "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="
+    },
+    "mdurl@2.0.0": {
+      "integrity": "sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w=="
     },
     "memory-pager@1.5.0": {
       "integrity": "sha512-ZS4Bp4r/Zoeq6+NLJpP+0Zzm0pR8whtGPf1XExKLJBAczGMnSi3It14OiNCStjQjM6NU1okjQGSxgEZN8eBYKg=="
@@ -3414,6 +3442,9 @@
         "long"
       ],
       "scripts": true
+    },
+    "punycode.js@2.3.1": {
+      "integrity": "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA=="
     },
     "punycode@2.3.1": {
       "integrity": "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="
@@ -3869,6 +3900,10 @@
         "picomatch@4.0.2"
       ]
     },
+    "tlds@1.259.0": {
+      "integrity": "sha512-AldGGlDP0PNgwppe2quAvuBl18UcjuNtOnDuUkqhd6ipPqrYYBt3aTxK1QTsBVknk97lS2JcafWMghjGWFtunw==",
+      "bin": true
+    },
     "tldts-core@6.1.86": {
       "integrity": "sha512-Je6p7pkk+KMzMv2XXKmAE3McmolOQFdxkKw0R8EYNr7sELW46JqnNeTX8ybPiQgvg1ymCoF8LXs5fzFaZvJPTA=="
     },
@@ -3943,6 +3978,9 @@
         "possible-typed-array-names",
         "reflect.getprototypeof"
       ]
+    },
+    "uc.micro@2.1.0": {
+      "integrity": "sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A=="
     },
     "uhyphen@0.2.0": {
       "integrity": "sha512-qz3o9CHXmJJPGBdqzab7qAYuW8kQGKNEuoHFYrBwV6hWIMcpAmxDLXojcHfFr9US1Pe6zUswEIJIbLI610fuqA=="
@@ -4691,6 +4729,7 @@
       "npm:hono@^4.7.9",
       "npm:jotai@^2.12.4",
       "npm:linkify-html@^4.1.3",
+      "npm:linkify-it@5",
       "npm:linkifyjs@^4.3.1",
       "npm:mongoose@^8.15.0",
       "npm:qrcode@^1.5.4",
@@ -4698,6 +4737,7 @@
       "npm:solid-js@^1.9.6",
       "npm:solid-qr-code@~0.1.11",
       "npm:tailwindcss@^4.1.7",
+      "npm:tlds@^1.259.0",
       "npm:vite-plugin-pwa@^1.0.1",
       "npm:vite-plugin-solid@^2.11.6",
       "npm:vite@^5.4.19",
