@@ -8,7 +8,7 @@
   "tasks": {
     "dev": "deno run -A --node-modules-dir npm:vite dev",
     "build": "deno run -A --node-modules-dir npm:vite build",
-    "tauri": "deno run -A --node-modules-dir npm:tauri"
+    "tauri": "deno run -A --node-modules-dir npm:@tauri-apps/cli"
   },
   "imports": {
     "@hono/vite-dev-server": "npm:@hono/vite-dev-server@^0.19.0",
@@ -17,7 +17,8 @@
     "@socialwebfoundation/ap-components": "npm:@socialwebfoundation/ap-components@^1.1.0",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.4",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.7",
-    "@tauri-apps/cli": "npm:@tauri-apps/cli@^2.5.0",
+    "@tauri-apps/cli": "npm:@tauri-apps/cli@^2.6.2",
+    "@tauri-apps/plugin-http": "npm:@tauri-apps/plugin-http@^2.5.0",
     "@types/linkify-it": "npm:@types/linkify-it@^5.0.0",
     "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
     "dompurify": "npm:dompurify@^3.2.6",
