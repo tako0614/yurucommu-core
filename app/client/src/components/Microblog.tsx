@@ -1,4 +1,10 @@
-import { createResource, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
@@ -82,7 +88,10 @@ export function Microblog() {
 
   onMount(() => {
     loadInitialPosts();
-    setupObserver();
+  });
+
+  createEffect(() => {
+    if (sentinel) setupObserver();
   });
 
   onCleanup(() => {
