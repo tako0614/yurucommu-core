@@ -907,3 +907,39 @@ export async function deliver(
     );
   }
 }
+
+export function extractAttachments(
+  obj: Record<string, unknown>,
+): { url: string; type: "image" | "video" | "audio" }[] {
+  const attachments: { url: string; type: "image" | "video" | "audio" }[] = [];
+  const list = (obj.attachment ?? obj.attachments) as unknown;
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      if (typeof item === "string") {
+        attachments.push({ url: item, type: "image" });
+        continue;
+      }
+      if (typeof item === "object" && item) {
+        const rec = item as Record<string, unknown>;
+        const url = typeof rec.url === "string"
+          ? rec.url
+          : typeof rec.href === "string"
+          ? rec.href
+          : "";
+        if (!url) continue;
+        const mediaType = typeof rec.mediaType === "string"
+          ? rec.mediaType
+          : "";
+        const t = typeof rec.type === "string" ? rec.type.toLowerCase() : "";
+        let type: "image" | "video" | "audio" = "image";
+        if (mediaType.startsWith("video") || t === "video") type = "video";
+        else if (mediaType.startsWith("audio") || t === "audio") type = "audio";
+        attachments.push({ url, type });
+      }
+    }
+  }
+  if (attachments.length === 0 && typeof obj.image === "string") {
+    attachments.push({ url: obj.image, type: "image" });
+  }
+  return attachments;
+}

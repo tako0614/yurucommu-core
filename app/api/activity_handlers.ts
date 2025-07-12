@@ -3,6 +3,7 @@ import ActivityPubObject from "./models/activitypub_object.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
+  extractAttachments,
   getDomain,
 } from "./utils/activitypub.ts";
 
@@ -33,6 +34,13 @@ async function saveObject(
     }
   }
 
+  const attachments = extractAttachments(obj);
+  const extra: Record<string, unknown> = {
+    ...(obj.extra ?? {}),
+    actorInfo: Object.keys(actorInfo).length > 0 ? actorInfo : undefined,
+  };
+  if (attachments.length > 0) extra.attachments = attachments;
+
   await ActivityPubObject.create({
     type: obj.type ?? "Note",
     attributedTo: typeof obj.attributedTo === "string"
@@ -45,10 +53,7 @@ async function saveObject(
       ? new Date(obj.published)
       : new Date(),
     raw: obj,
-    extra: {
-      ...(obj.extra ?? {}),
-      actorInfo: Object.keys(actorInfo).length > 0 ? actorInfo : undefined,
-    },
+    extra,
   });
 }
 
