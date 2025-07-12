@@ -36,6 +36,10 @@ export function useHashRouter() {
 
   let fromHash = false;
 
+  const setIfChanged = <T>(get: () => T, set: (v: T) => void, value: T) => {
+    if (get() !== value) set(value);
+  };
+
   const parseHash = () => {
     fromHash = true;
     const hash = globalThis.location.hash.slice(1);
@@ -43,39 +47,56 @@ export function useHashRouter() {
     const param = rawParam ? decodeURIComponent(rawParam) : undefined;
     switch (seg) {
       case "chat":
-        setApp("chat");
-        setRoom(param ? handleToActor(param) : null);
-        setPostId(null);
-        setProfile(null);
+        setIfChanged(app, setApp, "chat");
+        setIfChanged(room, setRoom, param ? handleToActor(param) : null);
+        setIfChanged(postId, setPostId, null);
+        setIfChanged(profile, setProfile, null);
         break;
       case "post":
-        setApp("microblog");
-        setPostId(param ?? null);
-        setRoom(null);
-        setProfile(null);
+        setIfChanged(app, setApp, "microblog");
+        setIfChanged(postId, setPostId, param ?? null);
+        setIfChanged(room, setRoom, null);
+        setIfChanged(profile, setProfile, null);
         break;
       case "user":
-        setApp("home");
-        setProfile(param ?? null);
-        setRoom(null);
-        setPostId(null);
+        setIfChanged(app, setApp, "home");
+        setIfChanged(profile, setProfile, param ?? null);
+        setIfChanged(room, setRoom, null);
+        setIfChanged(postId, setPostId, null);
         break;
       case "home":
       case "microblog":
       case "tools":
       case "videos":
-        setApp(seg as AppPage);
-        setRoom(null);
-        setPostId(null);
-        setProfile(null);
+        setIfChanged(app, setApp, seg as AppPage);
+        setIfChanged(room, setRoom, null);
+        setIfChanged(postId, setPostId, null);
+        setIfChanged(profile, setProfile, null);
         break;
       default:
-        setApp("chat");
-        setRoom(null);
-        setPostId(null);
-        setProfile(null);
+        setIfChanged(app, setApp, "chat");
+        setIfChanged(room, setRoom, null);
+        setIfChanged(postId, setPostId, null);
+        setIfChanged(profile, setProfile, null);
     }
     fromHash = false;
+  };
+
+  const normalizeHash = (hash: string) => {
+    const [seg, rawParam] = hash.slice(1).split("/").filter(Boolean);
+    const param = rawParam ? decodeURIComponent(rawParam) : undefined;
+    switch (seg) {
+      case "chat":
+        return param ? `#/chat/${encodeURIComponent(param)}` : "#/chat";
+      case "post":
+        return param ? `#/post/${encodeURIComponent(param)}` : "#/microblog";
+      case "user":
+        return param ? `#/user/${encodeURIComponent(param)}` : "#/home";
+      case undefined:
+        return "";
+      default:
+        return `#/${seg}`;
+    }
   };
 
   const updateHash = () => {
@@ -86,13 +107,17 @@ export function useHashRouter() {
         ? `#/chat/${encodeURIComponent(actorToHandle(room()))}`
         : "#/chat";
     } else if (app() === "microblog") {
-      newHash = postId() ? `#/post/${postId()}` : "#/microblog";
+      newHash = postId()
+        ? `#/post/${encodeURIComponent(postId()!)}`
+        : "#/microblog";
     } else if (app() === "home") {
-      newHash = profile() ? `#/user/${profile()}` : "#/home";
+      newHash = profile()
+        ? `#/user/${encodeURIComponent(profile()!)}`
+        : "#/home";
     } else {
       newHash = `#/${app()}`;
     }
-    if (globalThis.location.hash !== newHash) {
+    if (normalizeHash(globalThis.location.hash) !== newHash) {
       globalThis.location.hash = newHash;
     }
   };
