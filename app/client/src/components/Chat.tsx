@@ -93,6 +93,11 @@ export function Chat(props: ChatProps) {
   const [useEncryption, setUseEncryption] = createSignal(false);
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const partnerKeyCache = new Map<string, string | null>();
+  const messageLimit = 30;
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [hasMore, setHasMore] = createSignal(true);
+  const [loadingOlder, setLoadingOlder] = createSignal(false);
+  let chatMainRef: HTMLDivElement | undefined;
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
@@ -258,10 +263,12 @@ export function Chat(props: ChatProps) {
     return pub;
   };
 
-  const loadMessages = async (room: ChatRoom, isSelectedRoom: boolean) => {
+  const fetchMessagesForRoom = async (
+    room: ChatRoom,
+    params?: { limit?: number; before?: string; after?: string },
+  ): Promise<ChatMessage[]> => {
     const user = account();
-    if (!user) return;
-
+    if (!user) return [];
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
@@ -273,13 +280,10 @@ export function Chat(props: ChatProps) {
       if (kp) {
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
         if (partnerPub) {
-          if (isSelectedRoom) setPartnerHasKey(true);
           const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
           group = { members: room.members, epoch: Date.now(), secret };
           setGroups({ ...groups(), [room.id]: group });
           saveGroupStates();
-        } else {
-          if (isSelectedRoom) setPartnerHasKey(false);
         }
       }
     }
@@ -287,6 +291,7 @@ export function Chat(props: ChatProps) {
       const list = await fetchEncryptedMessages(
         `${user.userName}@${getDomain()}`,
         partner,
+        params,
       );
       for (const m of list) {
         const plain = await decryptGroupMessage(group, m.content);
@@ -311,6 +316,7 @@ export function Chat(props: ChatProps) {
     const publicList = await fetchPublicMessages(
       `${user.userName}@${getDomain()}`,
       partner,
+      params,
     );
     const publicMsgs = publicList.map((m) => {
       const fullId = `${user.userName}@${getDomain()}`;
@@ -331,13 +337,50 @@ export function Chat(props: ChatProps) {
     const msgs = [...encryptedMsgs, ...publicMsgs].sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
+    return msgs;
+  };
 
+  const loadMessages = async (room: ChatRoom, isSelectedRoom: boolean) => {
+    const msgs = await fetchMessagesForRoom(room, { limit: messageLimit });
+    if (msgs.length > 0) {
+      setCursor(msgs[0].timestamp.toISOString());
+    } else {
+      setCursor(null);
+    }
+    setHasMore(msgs.length === messageLimit);
     if (isSelectedRoom) {
       setMessages(msgs);
     }
-
     const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
     updateRoomLast(room.id, lastMessage);
+  };
+
+  const loadOlderMessages = async (room: ChatRoom) => {
+    if (!hasMore() || loadingOlder()) return;
+    setLoadingOlder(true);
+    const msgs = await fetchMessagesForRoom(room, {
+      limit: messageLimit,
+      before: cursor() ?? undefined,
+    });
+    if (msgs.length > 0) {
+      setCursor(msgs[0].timestamp.toISOString());
+      setMessages((prev) => [...msgs, ...prev]);
+    }
+    setHasMore(msgs.length === messageLimit);
+    setLoadingOlder(false);
+  };
+
+  const loadLatestMessages = async (room: ChatRoom) => {
+    const last = messages()[messages().length - 1];
+    const after = last ? last.timestamp.toISOString() : undefined;
+    const msgs = await fetchMessagesForRoom(room, {
+      limit: 1,
+      after,
+    });
+    if (msgs.length > 0) {
+      setMessages((prev) => [...prev, ...msgs]);
+      updateRoomLast(room.id, msgs[msgs.length - 1]);
+    }
   };
 
   const loadRooms = async () => {
@@ -479,7 +522,7 @@ export function Chat(props: ChatProps) {
       if (currentRoomId) {
         const currentRoom = chatRooms().find((r) => r.id === currentRoomId);
         if (currentRoom) {
-          loadMessages(currentRoom, true);
+          loadLatestMessages(currentRoom);
         }
       }
     }, 5000);
@@ -708,7 +751,20 @@ export function Chat(props: ChatProps) {
                     <h2>{selectedRoomInfo()?.name}</h2>
                   </div>
                 </div>
-                <div class="p-talk-chat-main flex-grow overflow-y-auto pt-[48px]">
+                <div
+                  class="p-talk-chat-main flex-grow overflow-y-auto pt-[48px]"
+                  ref={(el) => (chatMainRef = el)}
+                  onScroll={() => {
+                    if (!chatMainRef) return;
+                    if (chatMainRef.scrollTop < 100) {
+                      const roomId = selectedRoom();
+                      if (roomId) {
+                        const room = chatRooms().find((r) => r.id === roomId);
+                        if (room) loadOlderMessages(room);
+                      }
+                    }
+                  }}
+                >
                   <ul class="p-talk-chat-main__ul">
                     <For each={messages()}>
                       {(message, i) => {
