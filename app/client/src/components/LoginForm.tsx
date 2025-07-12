@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from "solid-js";
+import { AddServerForm } from "./AddServerForm.tsx";
 import {
   addServer,
   apiFetch,
@@ -20,6 +21,7 @@ export function LoginForm(props: LoginFormProps) {
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
   const [servers, setServers] = createSignal<string[]>([]);
+  const [showAdd, setShowAdd] = createSignal(false);
   const inTauri = isTauri();
 
   onMount(() => {
@@ -35,43 +37,26 @@ export function LoginForm(props: LoginFormProps) {
     }
   });
 
-  const handleAddServer = () => {
-    const url = serverUrl().trim();
-    if (!url) return;
-    addServer(url);
-    setServers(getServers());
-  };
-
-  const handleLogin = async (e: Event) => {
-    e.preventDefault();
+  const loginToServer = async (url: string, password: string) => {
     setError("");
-
-    if (inTauri) {
-      if (!serverUrl()) {
-        setError("サーバーURLを入力してください");
-        return;
-      }
-      setApiBase(serverUrl());
-      addServer(serverUrl());
-      setActiveServer(serverUrl());
+    if (!url) {
+      setError("サーバーURLを入力してください");
+      return;
     }
-
-    if (!loginPassword()) {
+    if (!password) {
       setError("ログイン用パスワードを入力してください");
       return;
     }
-
+    setApiBase(url);
+    addServer(url);
+    setActiveServer(url);
     setIsLoading(true);
-
     try {
       const res = await apiFetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          password: loginPassword(),
-        }),
+        body: JSON.stringify({ password }),
       });
-
       const results = await res.json();
       if (results.success) {
         props.onLoginSuccess();
@@ -84,6 +69,16 @@ export function LoginForm(props: LoginFormProps) {
     } finally {
       setIsLoading(false);
     }
+  };
+  const handleAddServer = async (url: string, password: string) => {
+    await loginToServer(url.trim(), password);
+    setServers(getServers());
+    setShowAdd(false);
+  };
+
+  const handleLogin = async (e: Event) => {
+    e.preventDefault();
+    await loginToServer(serverUrl(), loginPassword());
   };
 
   return (
@@ -105,40 +100,32 @@ export function LoginForm(props: LoginFormProps) {
 
           <form onSubmit={handleLogin} class="space-y-6">
             <Show when={inTauri}>
-              <div>
-                <label
-                  for="serverSelect"
-                  class="block text-sm font-medium text-gray-300 mb-2"
-                >
-                  サーバー選択
-                </label>
-                <select
-                  id="serverSelect"
-                  value={serverUrl()}
-                  onChange={(e) => setServerUrl(e.currentTarget.value)}
-                  class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-2"
-                >
-                  <option value="">-- 新規サーバー --</option>
-                  <For each={servers()}>
-                    {(s) => <option value={s}>{s}</option>}
-                  </For>
-                </select>
-                <input
-                  type="text"
-                  id="serverUrl"
-                  value={serverUrl()}
-                  onInput={(e) => setServerUrl(e.currentTarget.value)}
-                  class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
-                  placeholder="http://example.com"
-                />
-                <button
-                  type="button"
-                  class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                  onClick={handleAddServer}
-                >
-                  サーバー追加
-                </button>
+              <div class="space-y-2">
+                <For each={servers()}>
+                  {(s) => (
+                    <button
+                      type="button"
+                      class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-left hover:bg-gray-600"
+                      onClick={() => loginToServer(s, loginPassword())}
+                    >
+                      {s}
+                    </button>
+                  )}
+                </For>
               </div>
+              <Show when={showAdd()}>
+                <AddServerForm
+                  onAdd={handleAddServer}
+                  onClose={() => setShowAdd(false)}
+                />
+              </Show>
+              <button
+                type="button"
+                class="fixed bottom-4 right-4 bg-green-600 text-white p-3 rounded-full hover:bg-green-700"
+                onClick={() => setShowAdd(true)}
+              >
+                ＋
+              </button>
             </Show>
             <div>
               <label
