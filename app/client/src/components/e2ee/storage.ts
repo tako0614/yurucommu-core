@@ -1,9 +1,20 @@
 import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
+import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
+import { isTauri } from "../../utils/config.ts";
 
 const DB_VERSION = 4;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
 const CACHE_STORE = "cache";
+
+const stores: Record<string, Store> = {};
+
+async function openStore(accountId: string): Promise<Store> {
+  if (stores[accountId]) return stores[accountId];
+  const store = await loadStore(`takos_${accountId}.json`);
+  stores[accountId] = store;
+  return store;
+}
 
 function openDB(accountId: string): Promise<IDBDatabase> {
   const name = `takos_${accountId}`;
@@ -29,6 +40,10 @@ function openDB(accountId: string): Promise<IDBDatabase> {
 export const loadMLSGroupStates = async (
   accountId: string,
 ): Promise<Record<string, StoredMLSGroupState>> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    return await store.get<Record<string, StoredMLSGroupState>>("groups") ?? {};
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(STORE_NAME, "readonly");
   const store = tx.objectStore(STORE_NAME);
@@ -52,6 +67,12 @@ export const saveMLSGroupStates = async (
   accountId: string,
   states: Record<string, StoredMLSGroupState>,
 ): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    await store.set("groups", states);
+    await store.save();
+    return;
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(STORE_NAME, "readwrite");
   const store = tx.objectStore(STORE_NAME);
@@ -68,6 +89,10 @@ export const saveMLSGroupStates = async (
 export const loadMLSKeyPair = async (
   accountId: string,
 ): Promise<StoredMLSKeyPair | null> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    return await store.get<StoredMLSKeyPair>("keyPair") ?? null;
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readonly");
   const store = tx.objectStore(KEY_STORE);
@@ -85,6 +110,12 @@ export const saveMLSKeyPair = async (
   accountId: string,
   pair: StoredMLSKeyPair,
 ): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    await store.set("keyPair", pair);
+    await store.save();
+    return;
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readwrite");
   const store = tx.objectStore(KEY_STORE);
@@ -105,6 +136,11 @@ export const loadCacheEntry = async <T>(
   accountId: string,
   key: string,
 ): Promise<CacheEntry<T> | null> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const cache = await store.get<Record<string, CacheEntry<T>>>("cache") ?? {};
+    return cache[key] ?? null;
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(CACHE_STORE, "readonly");
   const store = tx.objectStore(CACHE_STORE);
@@ -122,6 +158,14 @@ export const saveCacheEntry = async <T>(
   key: string,
   value: T,
 ): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const cache = await store.get<Record<string, CacheEntry<T>>>("cache") ?? {};
+    cache[key] = { timestamp: Date.now(), value } as CacheEntry<T>;
+    await store.set("cache", cache);
+    await store.save();
+    return;
+  }
   const db = await openDB(accountId);
   const tx = db.transaction(CACHE_STORE, "readwrite");
   const store = tx.objectStore(CACHE_STORE);
@@ -133,6 +177,12 @@ export const saveCacheEntry = async <T>(
 };
 
 export const deleteMLSDatabase = async (accountId: string): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    await store.clear();
+    await store.save();
+    return;
+  }
   await new Promise((resolve, reject) => {
     const name = `takos_${accountId}`;
     const req = indexedDB.deleteDatabase(name);
