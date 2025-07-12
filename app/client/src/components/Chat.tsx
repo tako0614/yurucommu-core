@@ -295,6 +295,15 @@ export function Chat(props: ChatProps) {
       );
       for (const m of list) {
         const plain = await decryptGroupMessage(group, m.content);
+        let text = plain ?? "";
+        if (plain) {
+          try {
+            const obj = JSON.parse(plain);
+            if (typeof obj.content === "string") text = obj.content;
+          } catch {
+            /* JSON parse failed - keep plain text */
+          }
+        }
         const fullId = `${user.userName}@${getDomain()}`;
         const isMe = m.from === fullId;
         const displayName = isMe
@@ -305,7 +314,7 @@ export function Chat(props: ChatProps) {
           author: m.from,
           displayName,
           address: m.from,
-          content: plain ?? "",
+          content: text,
           timestamp: new Date(m.createdAt),
           type: "text",
           isMe,
@@ -457,7 +466,13 @@ export function Chat(props: ChatProps) {
         setPartnerHasKey(false);
         return;
       }
-      const cipher = await encryptGroupMessage(group, text);
+      const note = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        type: "Note",
+        id: `urn:uuid:${crypto.randomUUID()}`,
+        content: text,
+      };
+      const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const success = await sendEncryptedMessage(
         `${user.userName}@${getDomain()}`,
         {
