@@ -7,6 +7,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
+import { selectedPostIdState } from "../states/router.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { CommunityView } from "./microblog/Community.tsx";
@@ -17,6 +18,8 @@ import {
   deleteStory,
   fetchCommunities,
   fetchFollowingPosts,
+  fetchPostById,
+  fetchPostReplies,
   fetchPosts,
   fetchStories,
   likePost,
@@ -50,6 +53,18 @@ export function Microblog() {
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
+  const loadPostById = async (id: string) => {
+    const p = await fetchPostById(id);
+    if (!p) {
+      setPosts([]);
+      setCursor(null);
+      return;
+    }
+    const replies = await fetchPostReplies(id);
+    setPosts([p, ...replies]);
+    setCursor(null);
+  };
   let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
@@ -59,7 +74,7 @@ export function Microblog() {
   };
 
   const loadMorePosts = async () => {
-    if (loadingMore()) return;
+    if (loadingMore() || targetPostId()) return;
     setLoadingMore(true);
     const data = await fetchPosts({
       limit: limit(),
@@ -81,7 +96,7 @@ export function Microblog() {
   let observer: IntersectionObserver | undefined;
 
   const setupObserver = () => {
-    if (observer || !sentinel) return;
+    if (observer || !sentinel || targetPostId()) return;
     observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
@@ -93,11 +108,29 @@ export function Microblog() {
   };
 
   onMount(() => {
-    loadInitialPosts();
+    if (targetPostId()) {
+      loadPostById(targetPostId()!);
+    } else {
+      loadInitialPosts();
+    }
   });
 
   createEffect(() => {
-    if (sentinel) setupObserver();
+    if (sentinel && !targetPostId()) {
+      setupObserver();
+    } else {
+      observer?.disconnect();
+      observer = undefined;
+    }
+  });
+
+  createEffect(() => {
+    const id = targetPostId();
+    if (id) {
+      loadPostById(id);
+    } else {
+      resetPosts();
+    }
   });
 
   onCleanup(() => {
@@ -211,17 +244,21 @@ export function Microblog() {
     const query = searchQuery().toLowerCase();
     let postsToFilter: MicroblogPost[] = [];
 
-    // タブに応じて投稿を選択
-    if (tab() === "recommend") {
+    if (targetPostId()) {
       postsToFilter = posts() || [];
-    } else if (tab() === "following") {
-      postsToFilter = followingTimelinePosts() || [];
-    } else if (tab() === "community") {
-      // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
-      // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
-      postsToFilter = [];
     } else {
-      postsToFilter = [];
+      // タブに応じて投稿を選択
+      if (tab() === "recommend") {
+        postsToFilter = posts() || [];
+      } else if (tab() === "following") {
+        postsToFilter = followingTimelinePosts() || [];
+      } else if (tab() === "community") {
+        // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
+        // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
+        postsToFilter = [];
+      } else {
+        postsToFilter = [];
+      }
     }
 
     if (!query) return postsToFilter;
@@ -356,8 +393,18 @@ export function Microblog() {
         <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
           <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
             <div class="flex items-center justify-between">
-              {/* <h1 class="text-xl font-bold">マイクロブログ</h1> 削除 */}
-              <div class="flex justify-end w-full relative">
+              <div class="flex items-center gap-2">
+                <Show when={targetPostId()}>
+                  <button
+                    type="button"
+                    onClick={() => setTargetPostId(null)}
+                    class="p-2 text-gray-400 hover:text-white"
+                  >
+                    ← 戻る
+                  </button>
+                </Show>
+              </div>
+              <div class="flex justify-end flex-1 relative">
                 <input
                   type="text"
                   placeholder="投稿・ユーザー・タグ検索"
@@ -458,6 +505,7 @@ export function Microblog() {
               handleEdit={handleEdit}
               handleDelete={handleDelete}
               formatDate={formatDate}
+              isThread={!!targetPostId()}
             />
           )}
 
@@ -497,10 +545,12 @@ export function Microblog() {
               handleDelete={handleDelete}
             />
           )}
-          <div ref={(el) => (sentinel = el)} class="h-4"></div>
-          {loadingMore() && (
-            <div class="text-center py-4 text-gray-400">読み込み中...</div>
-          )}
+          <Show when={!targetPostId()}>
+            <div ref={(el) => (sentinel = el)} class="h-4"></div>
+            {loadingMore() && (
+              <div class="text-center py-4 text-gray-400">読み込み中...</div>
+            )}
+          </Show>
         </div>
 
         <StoryViewer

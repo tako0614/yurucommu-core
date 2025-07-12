@@ -147,6 +147,7 @@ type PostItemProps = {
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
   formatDate: (dateString: string) => string;
+  isReply?: boolean;
 };
 
 function PostItem(props: PostItemProps) {
@@ -206,8 +207,19 @@ function PostItem(props: PostItemProps) {
     };
   };
 
+  const openPost = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a")) return;
+    globalThis.location.hash = `#/post/${post.id}`;
+  };
+
   return (
-    <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
+    <div
+      class={`p-4 hover:bg-gray-950/50 transition-colors cursor-pointer ${
+        props.isReply ? "border-l-2 border-gray-700 pl-6" : ""
+      }`}
+      onClick={openPost}
+    >
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <UserAvatar
@@ -226,9 +238,12 @@ function PostItem(props: PostItemProps) {
               @{finalUserInfo().userName}
             </span>
             <span class="text-gray-500">·</span>
-            <span class="text-gray-500 text-sm whitespace-nowrap">
+            <a
+              href={`#/post/${post.id}`}
+              class="text-gray-500 text-sm whitespace-nowrap hover:underline"
+            >
               {formatDate(post.createdAt)}
-            </span>
+            </a>
           </div>
           <div
             class="text-white mb-3 leading-relaxed break-words overflow-hidden"
@@ -434,11 +449,12 @@ export function PostList(props: {
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
   formatDate: (dateString: string) => string;
+  isThread?: boolean;
 }) {
   return (
     <div class="divide-y divide-gray-800">
       <For each={props.posts}>
-        {(post) => (
+        {(post, i) => (
           <PostItem
             post={post}
             tab={props.tab}
@@ -449,6 +465,7 @@ export function PostList(props: {
             handleEdit={props.handleEdit}
             handleDelete={props.handleDelete}
             formatDate={props.formatDate}
+            isReply={props.isThread && i() > 0}
           />
         )}
       </For>

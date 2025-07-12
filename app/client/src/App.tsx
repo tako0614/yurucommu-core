@@ -7,6 +7,7 @@ import { EncryptionKeyForm } from "./components/EncryptionKeyForm.tsx";
 import { Application } from "./components/Application.tsx";
 import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
+import { useHashRouter } from "./utils/router.ts";
 import "./App.css";
 import "./stylesheet.css";
 
@@ -19,6 +20,8 @@ function App() {
 
   // 共通の初期データ取得
   useInitialLoad();
+  // URLハッシュと状態を同期
+  useHashRouter();
 
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {

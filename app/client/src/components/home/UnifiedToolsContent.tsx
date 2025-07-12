@@ -226,13 +226,13 @@ export default function UnifiedToolsContent() {
   const placeholder = () => {
     switch (activeTab()) {
       case "users":
-        return "ユーザー検索... (外部ユーザーは username@example.com 形式)";
+        return "ユーザー検索... (外部ユーザーは userName@example.com 形式)";
       case "posts":
         return "投稿内容、ハッシュタグで検索...";
       case "communities":
         return "コミュニティ名、説明、タグで検索...";
       default:
-        return "検索... (外部ユーザーは username@example.com 形式で入力)";
+        return "検索... (外部ユーザーは userName@example.com 形式で入力)";
     }
   };
 

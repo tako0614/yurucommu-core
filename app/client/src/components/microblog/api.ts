@@ -73,6 +73,19 @@ export const fetchPostById = async (
   }
 };
 
+export const fetchPostReplies = async (
+  id: string,
+): Promise<MicroblogPost[]> => {
+  try {
+    const res = await apiFetch(`/api/microblog/${id}/replies`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching replies:", error);
+    return [];
+  }
+};
+
 export const fetchFollowingPosts = async (
   username: string,
 ): Promise<MicroblogPost[]> => {

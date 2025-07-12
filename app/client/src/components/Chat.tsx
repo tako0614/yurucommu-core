@@ -10,7 +10,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { activeAccount } from "../states/account.ts";
-import { fetchUserInfoBatch } from "./microblog/api.ts";
+import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
   fetchEncryptedKeyPair,
@@ -578,8 +578,37 @@ export function Chat(props: ChatProps) {
     const room = rooms.find((r) => r.id === roomId);
     if (room) {
       loadMessages(room, true);
-    } else if (roomId === null) {
+    } else if (roomId) {
+      fetchUserInfo(roomId).then((info) => {
+        if (!info) return;
+        const newRoom: ChatRoom = {
+          id: roomId,
+          name: info.displayName || info.userName,
+          userName: info.userName,
+          domain: info.domain,
+          avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+          unreadCount: 0,
+          type: "dm",
+          members: [roomId],
+          lastMessage: "...",
+          lastMessageTime: undefined,
+        };
+        setChatRooms((prev) => [...prev, newRoom]);
+        loadMessages(newRoom, true);
+      });
+    } else {
       setMessages([]);
+    }
+  });
+
+  // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
+  createEffect(() => {
+    if (!isMobile()) return;
+    const roomId = selectedRoom();
+    if (roomId && showRoomList()) {
+      setShowRoomList(false);
+    } else if (!roomId && !showRoomList()) {
+      setShowRoomList(true);
     }
   });
 
