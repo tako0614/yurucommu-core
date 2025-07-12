@@ -3,6 +3,8 @@ import { darkModeState, languageState } from "../../states/settings.ts";
 import { encryptionKeyState, loginState } from "../../states/session.ts";
 import RelaySettings from "./RelaySettings.tsx";
 import { apiFetch } from "../../utils/config.ts";
+import { accounts as accountsAtom } from "../../states/account.ts";
+import { deleteMLSDatabase } from "../e2ee/storage.ts";
 
 export interface SettingProps {
   onShowEncryptionKeyForm?: () => void;
@@ -12,6 +14,7 @@ export function Setting(props: SettingProps) {
   const [language, setLanguage] = useAtom(languageState);
   const [, setIsLoggedIn] = useAtom(loginState);
   const [, setEncryptionKey] = useAtom(encryptionKeyState);
+  const [accs] = useAtom(accountsAtom);
 
   const toggleDark = () => setDarkMode(!darkMode());
 
@@ -21,6 +24,9 @@ export function Setting(props: SettingProps) {
     } catch (err) {
       console.error("logout failed", err);
     } finally {
+      for (const acc of accs()) {
+        await deleteMLSDatabase(acc.id);
+      }
       setIsLoggedIn(false);
       setEncryptionKey(null);
       localStorage.removeItem("encryptionKey");
