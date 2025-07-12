@@ -24,7 +24,13 @@ import {
   updatePost,
   viewStory,
 } from "./microblog/api.ts";
-import type { Community, MicroblogPost, Story, Note } from "./microblog/types.ts";
+import type {
+  Community,
+  MicroblogPost,
+  Note,
+  Story,
+} from "./microblog/types.ts";
+import LinkifyIt from "linkify-it";
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
@@ -233,6 +239,14 @@ export function Microblog() {
     const content = newPostContent().trim();
     if (!content) return;
 
+    const linkify = new LinkifyIt();
+    const match = linkify.match(content)?.[0];
+    let finalContent = content;
+    if (match) {
+      const safe = match.url.replace(/"/g, "&quot;");
+      finalContent += `\n<div data-og="${safe}"></div>`;
+    }
+
     const user = account();
     if (!user) {
       alert("アカウントが選択されていません");
@@ -240,7 +254,7 @@ export function Microblog() {
     }
 
     const success = await createPost(
-      content,
+      finalContent,
       user.userName,
       newPostAttachments(),
       _replyingTo() ?? undefined,

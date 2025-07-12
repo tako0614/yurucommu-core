@@ -65,6 +65,12 @@ deno task dev
 - `POST /api/microblog/:id/like` – いいねを追加
 - `POST /api/microblog/:id/retweet` – リツイートを追加
 
+### リンクプレビュー
+
+投稿内にURLを含めると、最初に出現したリンクを基にOGP情報を取得し、タイムラインでカード形式のプレビューを表示します。
+この処理はクライアント側で自動挿入される `<div data-og="URL"></div>` と
+`/api/ogp` エンドポイントによって実現されています。
+
 ## 動画 API
 
 ActivityPub の `Video` オブジェクトを利用して動画を投稿できます。
