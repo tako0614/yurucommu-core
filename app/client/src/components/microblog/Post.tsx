@@ -157,28 +157,20 @@ function PostItem(props: PostItemProps) {
           />
         </div>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center space-x-2 mb-1">
-            <span class="font-bold text-white hover:underline cursor-pointer">
+          <div class="flex flex-wrap items-center gap-x-2 mb-1">
+            <span class="font-bold text-white hover:underline cursor-pointer truncate">
               {finalUserInfo().displayName}
             </span>
-            <span class="text-gray-500 ml-2">
+            <span class="text-gray-500 truncate">
               @{finalUserInfo().userName}
             </span>
-            {!userInfo.isLocalUser && userInfo.domain && (
-              <>
-                <span class="text-gray-600">·</span>
-                <span class="text-gray-400 text-sm bg-gray-800 px-2 py-1 rounded-full">
-                  {userInfo.domain}
-                </span>
-              </>
-            )}
             <span class="text-gray-500">·</span>
-            <span class="text-gray-500 text-sm">
+            <span class="text-gray-500 text-sm whitespace-nowrap">
               {formatDate(post.createdAt)}
             </span>
           </div>
           <div
-            class="text-white mb-3 leading-relaxed"
+            class="text-white mb-3 leading-relaxed break-words overflow-hidden"
             innerHTML={renderHtml(linkifyText(post.content))}
           />
           {post.attachments && post.attachments.length > 0 && (

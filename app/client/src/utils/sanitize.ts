@@ -1,8 +1,6 @@
 import createDOMPurify from "dompurify";
-import { JSDOM } from "npm:jsdom";
 
-const { window } = new JSDOM("");
-const DOMPurify = createDOMPurify(window as unknown as Window);
+const DOMPurify = createDOMPurify(window);
 
 const ALLOWED_TAGS = [
   "p",
@@ -26,7 +24,7 @@ const ALLOWED_ATTRS: Record<string, string[]> = {
 const GLOBAL_ATTRS = ["data-og", "lang"];
 const ALLOWED_CLASSES = ["invisible", "ellipsis", "hashtag", "mention"];
 
-export function sanitizeHtml(fragment: string): TrustedHTML {
+export function sanitizeHtml(fragment: string): string {
   const clean = DOMPurify.sanitize(fragment, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: [
@@ -59,5 +57,5 @@ export function sanitizeHtml(fragment: string): TrustedHTML {
       }
     }
   }
-  return (clean.body.innerHTML as unknown) as TrustedHTML;
+  return clean.body.innerHTML as string;
 }
