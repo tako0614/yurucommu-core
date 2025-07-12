@@ -1,24 +1,29 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || "";
+let apiBase = import.meta.env.VITE_API_BASE ||
+  localStorage.getItem("takos-api-base") ||
+  "";
 
-export const ORIGIN = API_BASE
-  ? new URL(API_BASE).origin
-  : globalThis.location.origin;
+export function setApiBase(url: string) {
+  apiBase = url;
+  localStorage.setItem("takos-api-base", url);
+}
 
-export const DOMAIN = import.meta.env.VITE_ACTIVITYPUB_DOMAIN ||
-  new URL(ORIGIN).hostname;
+export function getApiBase(): string {
+  return apiBase;
+}
 
 export function apiUrl(path: string): string {
-  return API_BASE ? `${API_BASE}${path}` : path;
+  return apiBase ? `${apiBase}${path}` : path;
 }
 
 export function apiFetch(path: string, init?: RequestInit) {
   return fetch(apiUrl(path), init);
 }
 
-export function getDomain(): string {
-  return DOMAIN;
+export function getOrigin(): string {
+  return apiBase ? new URL(apiBase).origin : globalThis.location.origin;
 }
 
-export function getOrigin(): string {
-  return ORIGIN;
+export function getDomain(): string {
+  return import.meta.env.VITE_ACTIVITYPUB_DOMAIN ||
+    new URL(getOrigin()).hostname;
 }
