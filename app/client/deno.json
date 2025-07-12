@@ -27,6 +27,7 @@
     "linkify-html": "npm:linkify-html@^4.1.3",
     "linkify-it": "npm:linkify-it@^5.0.0",
     "linkifyjs": "npm:linkifyjs@^4.3.1",
+    "markdown-it": "npm:markdown-it@^14.1.0",
     "mongoose": "npm:mongoose@^8.15.0",
     "qrcode": "npm:qrcode@^1.5.4",
     "solid-jotai": "npm:solid-jotai@^0.3.1",

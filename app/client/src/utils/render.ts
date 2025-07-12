@@ -1,23 +1,7 @@
-/**
- * ActivityPub Note content renderer
- * ---------------------------------
- * 使用例:
- *   import { renderNoteContent } from "./renderNoteContent.ts";
- *   const html = renderNoteContent(noteObj);
- *   element.innerHTML = html; // DOMPurify 済みなので安全に挿入できます。
- *
- * 依存ライブラリ（ブラウザ / Deno 共用）
- *   - dompurify   (npm:dompurify)  → 型も含む
- *   - markdown-it (npm:markdown-it)
- *   - linkify-it  (npm:linkify-it)
- *
- * Deno なら import specifier を npm:〜 に書き換えてそのまま利用可能です。
- */
-
-import MarkdownIt from "npm:markdown-it";
-import LinkifyIt from "npm:linkify-it";
-import createDOMPurify from "npm:dompurify";
-import type { DOMPurify } from "npm:dompurify";
+import MarkdownIt from "markdown-it";
+import LinkifyIt from "linkify-it";
+import createDOMPurify from "dompurify";
+import type { DOMPurify } from "dompurify";
 
 // --- 型定義 ----------------------------------------------------------
 export interface APTag {
