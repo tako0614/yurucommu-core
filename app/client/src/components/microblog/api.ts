@@ -334,10 +334,15 @@ export const likePost = async (
   }
 };
 
-export const retweetPost = async (id: string): Promise<number | null> => {
+export const retweetPost = async (
+  id: string,
+  username: string,
+): Promise<number | null> => {
   try {
     const response = await apiFetch(`/api/microblog/${id}/retweet`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
     });
     if (!response.ok) return null;
     const data = await response.json();

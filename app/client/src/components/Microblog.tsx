@@ -275,7 +275,9 @@ export function Microblog() {
   };
 
   const handleRetweet = async (id: string) => {
-    const retweets = await retweetPost(id);
+    const user = account();
+    if (!user) return;
+    const retweets = await retweetPost(id, user.userName);
     if (retweets !== null) {
       setPosts((prev) =>
         prev.map((p) => p.id === id ? { ...p, retweets, isRetweeted: true } : p)
