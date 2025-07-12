@@ -226,9 +226,12 @@ function PostItem(props: PostItemProps) {
               @{finalUserInfo().userName}
             </span>
             <span class="text-gray-500">·</span>
-            <span class="text-gray-500 text-sm whitespace-nowrap">
+            <a
+              href={`#/post/${post.id}`}
+              class="text-gray-500 text-sm whitespace-nowrap hover:underline"
+            >
               {formatDate(post.createdAt)}
-            </span>
+            </a>
           </div>
           <div
             class="text-white mb-3 leading-relaxed break-words overflow-hidden"
