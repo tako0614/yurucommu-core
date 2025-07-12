@@ -74,7 +74,7 @@ export function Microblog() {
   };
 
   const loadMorePosts = async () => {
-    if (loadingMore()) return;
+    if (loadingMore() || targetPostId()) return;
     setLoadingMore(true);
     const data = await fetchPosts({
       limit: limit(),
@@ -96,7 +96,7 @@ export function Microblog() {
   let observer: IntersectionObserver | undefined;
 
   const setupObserver = () => {
-    if (observer || !sentinel) return;
+    if (observer || !sentinel || targetPostId()) return;
     observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
@@ -116,7 +116,12 @@ export function Microblog() {
   });
 
   createEffect(() => {
-    if (sentinel) setupObserver();
+    if (sentinel && !targetPostId()) {
+      setupObserver();
+    } else {
+      observer?.disconnect();
+      observer = undefined;
+    }
   });
 
   createEffect(() => {
@@ -239,17 +244,21 @@ export function Microblog() {
     const query = searchQuery().toLowerCase();
     let postsToFilter: MicroblogPost[] = [];
 
-    // タブに応じて投稿を選択
-    if (tab() === "recommend") {
+    if (targetPostId()) {
       postsToFilter = posts() || [];
-    } else if (tab() === "following") {
-      postsToFilter = followingTimelinePosts() || [];
-    } else if (tab() === "community") {
-      // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
-      // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
-      postsToFilter = [];
     } else {
-      postsToFilter = [];
+      // タブに応じて投稿を選択
+      if (tab() === "recommend") {
+        postsToFilter = posts() || [];
+      } else if (tab() === "following") {
+        postsToFilter = followingTimelinePosts() || [];
+      } else if (tab() === "community") {
+        // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
+        // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
+        postsToFilter = [];
+      } else {
+        postsToFilter = [];
+      }
     }
 
     if (!query) return postsToFilter;
@@ -536,10 +545,12 @@ export function Microblog() {
               handleDelete={handleDelete}
             />
           )}
-          <div ref={(el) => (sentinel = el)} class="h-4"></div>
-          {loadingMore() && (
-            <div class="text-center py-4 text-gray-400">読み込み中...</div>
-          )}
+          <Show when={!targetPostId()}>
+            <div ref={(el) => (sentinel = el)} class="h-4"></div>
+            {loadingMore() && (
+              <div class="text-center py-4 text-gray-400">読み込み中...</div>
+            )}
+          </Show>
         </div>
 
         <StoryViewer
