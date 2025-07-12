@@ -24,7 +24,12 @@ import {
   updatePost,
   viewStory,
 } from "./microblog/api.ts";
-import type { Community, MicroblogPost, Story, Note } from "./microblog/types.ts";
+import type {
+  Community,
+  MicroblogPost,
+  Note,
+  Story,
+} from "./microblog/types.ts";
 
 export function Microblog() {
   // タブ切り替え: "recommend" | "following" | "community"
@@ -270,7 +275,9 @@ export function Microblog() {
   };
 
   const handleRetweet = async (id: string) => {
-    const retweets = await retweetPost(id);
+    const user = account();
+    if (!user) return;
+    const retweets = await retweetPost(id, user.userName);
     if (retweets !== null) {
       setPosts((prev) =>
         prev.map((p) => p.id === id ? { ...p, retweets, isRetweeted: true } : p)

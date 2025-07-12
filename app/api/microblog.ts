@@ -9,6 +9,7 @@ type ActivityPubObjectType = InferSchemaType<typeof activityPubObjectSchema>;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
+  createAnnounceActivity,
   createCreateActivity,
   createLikeActivity,
   deliverActivityPubObject,
@@ -29,6 +30,7 @@ async function deliverPostToFollowers(
   post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
+  replyToId?: string,
 ) {
   try {
     const account = await Account.findOne({ userName: author }).lean();
@@ -80,6 +82,29 @@ async function deliverPostToFollowers(
       );
       // Fire-and-forget delivery
       deliverActivityPubObject(validInboxes, createActivity, author);
+
+      if (replyToId) {
+        const parent = await ActivityPubObject.findById(replyToId).lean();
+        if (
+          parent &&
+          typeof parent.attributedTo === "string" &&
+          parent.attributedTo.startsWith("http")
+        ) {
+          const inbox = await fetchActorInbox(parent.attributedTo);
+          if (inbox) {
+            deliverActivityPubObject([inbox], createActivity, author);
+          }
+        } else if (
+          parent &&
+          typeof parent.attributedTo === "string" &&
+          parent.attributedTo !== author
+        ) {
+          await addNotification(
+            "新しい返信",
+            `${author}さんが${parent.attributedTo}さんの投稿に返信しました`,
+          );
+        }
+      }
     }
   } catch (err) {
     console.error("ActivityPub delivery error:", err);
@@ -152,7 +177,12 @@ app.post("/microblog", async (c) => {
     }).catch(() => {});
   }
 
-  deliverPostToFollowers(post, author, domain);
+  deliverPostToFollowers(
+    post,
+    author,
+    domain,
+    typeof parentId === "string" ? parentId : undefined,
+  );
 
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
   return c.json(formatUserInfoForPost(userInfo, post.toObject()), 201);
@@ -276,11 +306,73 @@ app.post("/microblog/:id/like", async (c) => {
 });
 
 app.post("/microblog/:id/retweet", async (c) => {
+  const domain = getDomain(c);
   const id = c.req.param("id");
-  const post = await ActivityPubObject.findByIdAndUpdate(id, {
-    $inc: { "extra.retweets": 1 },
-  }, { new: true });
+  const { username } = await c.req.json();
+  if (typeof username !== "string") {
+    return c.json({ error: "Invalid body" }, 400);
+  }
+  const post = await ActivityPubObject.findById(id);
   if (!post) return c.json({ error: "Not found" }, 404);
+
+  const extra = post.extra as Record<string, unknown>;
+  const retweetedBy: string[] = Array.isArray(extra.retweetedBy)
+    ? extra.retweetedBy as string[]
+    : [];
+  if (!retweetedBy.includes(username)) {
+    retweetedBy.push(username);
+    extra.retweetedBy = retweetedBy;
+    extra.retweets = retweetedBy.length;
+    post.extra = extra;
+    await post.save();
+
+    const actorId = `https://${domain}/users/${username}`;
+    const objectUrl = typeof post.raw?.id === "string"
+      ? post.raw.id as string
+      : `https://${domain}/objects/${post._id}`;
+
+    let inboxes: string[] = [];
+    const account = await Account.findOne({ userName: username }).lean();
+    inboxes = account?.followers ?? [];
+
+    if (
+      typeof post.attributedTo === "string" &&
+      post.attributedTo.startsWith("http")
+    ) {
+      const inbox = await fetchActorInbox(post.attributedTo as string);
+      if (inbox) inboxes.push(inbox);
+    }
+
+    if (inboxes.length > 0) {
+      const announce = createAnnounceActivity(domain, actorId, objectUrl);
+      deliverActivityPubObject(inboxes, announce, username).catch((err) => {
+        console.error("Delivery failed:", err);
+      });
+    }
+
+    let localAuthor: string | null = null;
+    if (typeof post.attributedTo === "string") {
+      if (post.attributedTo.startsWith("http")) {
+        try {
+          const url = new URL(post.attributedTo);
+          if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+            localAuthor = url.pathname.split("/")[2];
+          }
+        } catch {
+          /* ignore */
+        }
+      } else {
+        localAuthor = post.attributedTo;
+      }
+    }
+    if (localAuthor) {
+      await addNotification(
+        "新しいリツイート",
+        `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
+      );
+    }
+  }
+
   return c.json({
     retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
   });
