@@ -182,7 +182,7 @@ function PostItem(props: PostItemProps) {
             innerHTML={renderHtml(linkifyText(post.content))}
           />
           {post.attachments && post.attachments.length > 0 && (
-            <div class="mb-3 space-y-2">
+            <div class="mb-3 grid gap-2 sm:grid-cols-2">
               <For each={post.attachments}>
                 {(att) => (
                   <Show
@@ -199,7 +199,11 @@ function PostItem(props: PostItemProps) {
                       ? <audio src={att.url} controls class="w-full" />
                       : null}
                   >
-                    <img src={att.url} class="max-w-full rounded" />
+                    <img
+                      src={att.url}
+                      alt="attachment"
+                      class="max-w-full rounded"
+                    />
                   </Show>
                 )}
               </For>
@@ -496,7 +500,7 @@ export function PostForm(props: {
                     rows={4}
                   />
                   {props.attachments.length > 0 && (
-                    <div class="mt-2 space-y-2">
+                    <div class="mt-2 grid gap-2 sm:grid-cols-2">
                       <For each={props.attachments}>
                         {(att, i) => (
                           <div class="relative">
@@ -520,7 +524,11 @@ export function PostForm(props: {
                                 )
                                 : null}
                             >
-                              <img src={att.url} class="max-w-full rounded" />
+                              <img
+                                src={att.url}
+                                alt="attachment"
+                                class="max-w-full rounded"
+                              />
                             </Show>
                             <button
                               type="button"
