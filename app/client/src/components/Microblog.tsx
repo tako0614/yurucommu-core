@@ -4,6 +4,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  Show,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
