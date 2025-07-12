@@ -183,7 +183,7 @@ export const deleteMLSDatabase = async (accountId: string): Promise<void> => {
     await store.save();
     return;
   }
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const name = `takos_${accountId}`;
     const req = indexedDB.deleteDatabase(name);
     req.onsuccess = () => resolve();
