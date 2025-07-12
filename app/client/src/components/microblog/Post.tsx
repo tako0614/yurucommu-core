@@ -147,6 +147,7 @@ type PostItemProps = {
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
   formatDate: (dateString: string) => string;
+  isReply?: boolean;
 };
 
 function PostItem(props: PostItemProps) {
@@ -214,7 +215,9 @@ function PostItem(props: PostItemProps) {
 
   return (
     <div
-      class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer"
+      class={`p-4 hover:bg-gray-950/50 transition-colors cursor-pointer ${
+        props.isReply ? "border-l-2 border-gray-700 pl-6" : ""
+      }`}
       onClick={openPost}
     >
       <div class="flex space-x-3">
@@ -446,11 +449,12 @@ export function PostList(props: {
   handleEdit: (id: string, current: string) => void;
   handleDelete: (id: string) => void;
   formatDate: (dateString: string) => string;
+  isThread?: boolean;
 }) {
   return (
     <div class="divide-y divide-gray-800">
       <For each={props.posts}>
-        {(post) => (
+        {(post, i) => (
           <PostItem
             post={post}
             tab={props.tab}
@@ -461,6 +465,7 @@ export function PostList(props: {
             handleEdit={props.handleEdit}
             handleDelete={props.handleDelete}
             formatDate={props.formatDate}
+            isReply={props.isThread && i() > 0}
           />
         )}
       </For>

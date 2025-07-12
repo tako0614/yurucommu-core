@@ -19,6 +19,7 @@ import {
   fetchCommunities,
   fetchFollowingPosts,
   fetchPostById,
+  fetchPostReplies,
   fetchPosts,
   fetchStories,
   likePost,
@@ -52,10 +53,16 @@ export function Microblog() {
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
-  const [targetPostId] = useAtom(selectedPostIdState);
+  const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
   const loadPostById = async (id: string) => {
     const p = await fetchPostById(id);
-    setPosts(p ? [p] : []);
+    if (!p) {
+      setPosts([]);
+      setCursor(null);
+      return;
+    }
+    const replies = await fetchPostReplies(id);
+    setPosts([p, ...replies]);
     setCursor(null);
   };
   let sentinel: HTMLDivElement | undefined;
@@ -377,8 +384,18 @@ export function Microblog() {
         <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
           <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
             <div class="flex items-center justify-between">
-              {/* <h1 class="text-xl font-bold">マイクロブログ</h1> 削除 */}
-              <div class="flex justify-end w-full relative">
+              <div class="flex items-center gap-2">
+                <Show when={targetPostId()}>
+                  <button
+                    type="button"
+                    onClick={() => setTargetPostId(null)}
+                    class="p-2 text-gray-400 hover:text-white"
+                  >
+                    ← 戻る
+                  </button>
+                </Show>
+              </div>
+              <div class="flex justify-end flex-1 relative">
                 <input
                   type="text"
                   placeholder="投稿・ユーザー・タグ検索"
@@ -479,6 +496,7 @@ export function Microblog() {
               handleEdit={handleEdit}
               handleDelete={handleDelete}
               formatDate={formatDate}
+              isThread={!!targetPostId()}
             />
           )}
 
