@@ -1,0 +1,479 @@
+openapi: "3.1.0"
+info:
+  title: takos API
+  version: "1.0.0"
+  description: |
+    takos のバックエンド API を OpenAPI 形式で記述した仕様書です。
+    認証はセッション Cookie を利用します。
+servers:
+  - url: https://{domain}
+    description: 本番環境
+    variables:
+      domain:
+        default: example.com
+  - url: http://localhost:8000
+    description: ローカル開発環境
+paths:
+  /login:
+    post:
+      summary: ログイン
+      description: パスワードを送信しセッション Cookie を受け取ります。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+                - password
+      responses:
+        "200":
+          description: 成功時は success フィールドを含む JSON を返します。
+        "401":
+          description: 認証失敗
+  /session/status:
+    get:
+      summary: セッション状態取得
+      responses:
+        "200":
+          description: login フィールドを含む JSON を返します。
+  /accounts:
+    get:
+      summary: アカウント一覧取得
+      responses:
+        "200":
+          description: アカウントの配列
+    post:
+      summary: アカウント作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                displayName:
+                  type: string
+              required:
+                - username
+      responses:
+        "201":
+          description: 作成されたアカウント
+  /accounts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: アカウント取得
+      responses:
+        "200":
+          description: アカウント情報
+    put:
+      summary: アカウント更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: 更新後のアカウント
+    delete:
+      summary: アカウント削除
+      responses:
+        "200":
+          description: 成功
+  /accounts/{id}/followers:
+    post:
+      summary: フォロワー追加
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                follower:
+                  type: string
+              required:
+                - follower
+      responses:
+        "200":
+          description: 更新後のフォロワー一覧
+    delete:
+      summary: フォロワー削除
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                follower:
+                  type: string
+              required:
+                - follower
+      responses:
+        "200":
+          description: 更新後のフォロワー一覧
+  /accounts/{id}/following:
+    get:
+      summary: フォロー一覧取得
+      responses:
+        "200":
+          description: フォローの配列
+    post:
+      summary: フォロー追加
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+              required:
+                - target
+      responses:
+        "200":
+          description: 更新後のフォロー一覧
+    delete:
+      summary: フォロー解除
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+              required:
+                - target
+      responses:
+        "200":
+          description: 更新後のフォロー一覧
+  /accounts/{id}/follow:
+    post:
+      summary: リモートアクターのフォロー
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+                userName:
+                  type: string
+              required:
+                - target
+                - userName
+      responses:
+        "200":
+          description: フォロー送信結果
+    delete:
+      summary: リモートアクターのアンフォロー
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+              required:
+                - target
+      responses:
+        "200":
+          description: アンフォロー送信結果
+  /microblog:
+    get:
+      summary: 投稿一覧取得
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 投稿の配列
+    post:
+      summary: 新規投稿
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                author:
+                  type: string
+                content:
+                  type: string
+              required:
+                - author
+                - content
+      responses:
+        "201":
+          description: 作成された投稿
+  /microblog/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 投稿取得
+      responses:
+        "200":
+          description: 投稿
+    put:
+      summary: 投稿更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+              required:
+                - content
+      responses:
+        "200":
+          description: 更新後の投稿
+    delete:
+      summary: 投稿削除
+      responses:
+        "200":
+          description: 成功
+  /microblog/{id}/replies:
+    get:
+      summary: リプライ一覧取得
+      responses:
+        "200":
+          description: リプライの配列
+  /microblog/{id}/like:
+    post:
+      summary: いいね
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "200":
+          description: いいね数
+  /microblog/{id}/retweet:
+    post:
+      summary: リツイート
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "200":
+          description: リツイート数
+  /videos:
+    get:
+      summary: 動画一覧取得
+      responses:
+        "200":
+          description: 動画の配列
+    post:
+      summary: 動画投稿
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                author:
+                  type: string
+                title:
+                  type: string
+      responses:
+        "201":
+          description: 作成された動画
+  /videos/{id}/like:
+    post:
+      summary: 動画へのいいね
+      responses:
+        "200":
+          description: いいね数
+  /videos/{id}/view:
+    post:
+      summary: 動画再生数カウント
+      responses:
+        "200":
+          description: 再生数
+  /communities:
+    get:
+      summary: コミュニティ一覧取得
+      responses:
+        "200":
+          description: コミュニティの配列
+    post:
+      summary: コミュニティ作成
+      responses:
+        "201":
+          description: 作成されたコミュニティ
+  /communities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: コミュニティ詳細
+      responses:
+        "200":
+          description: コミュニティ情報
+  /communities/{id}/join:
+    post:
+      summary: コミュニティ参加
+      responses:
+        "200":
+          description: 成功
+  /communities/{id}/leave:
+    post:
+      summary: コミュニティ離脱
+      responses:
+        "200":
+          description: 成功
+  /communities/{id}/posts:
+    get:
+      summary: コミュニティ投稿一覧
+      responses:
+        "200":
+          description: 投稿の配列
+    post:
+      summary: コミュニティ投稿作成
+      responses:
+        "201":
+          description: 作成された投稿
+  /communities/{communityId}/posts/{postId}/like:
+    post:
+      summary: コミュニティ投稿いいね
+      responses:
+        "200":
+          description: いいね数
+  /communities/{communityId}/posts/{postId}/remove:
+    post:
+      summary: コミュニティ投稿削除
+      responses:
+        "200":
+          description: 成功
+  /communities/{id}/pending-followers:
+    get:
+      summary: 未承認フォロワー一覧
+      responses:
+        "200":
+          description: フォロー申請一覧
+  /communities/{id}/pending-followers/approve:
+    post:
+      summary: フォロー承認
+      responses:
+        "200":
+          description: 成功
+  /communities/{id}/pending-followers/reject:
+    post:
+      summary: フォロー拒否
+      responses:
+        "200":
+          description: 成功
+  /communities/{id}/block:
+    post:
+      summary: コミュニティBAN
+      responses:
+        "200":
+          description: 成功
+  /notifications:
+    get:
+      summary: 通知一覧
+      responses:
+        "200":
+          description: 通知の配列
+    post:
+      summary: 通知作成
+      responses:
+        "200":
+          description: 作成された通知
+  /notifications/{id}/read:
+    put:
+      summary: 通知既読
+      responses:
+        "200":
+          description: 成功
+  /notifications/{id}:
+    delete:
+      summary: 通知削除
+      responses:
+        "200":
+          description: 成功
+  /user-info/{identifier}:
+    get:
+      summary: ユーザー情報取得
+      responses:
+        "200":
+          description: ユーザー情報
+  /user-info/batch:
+    post:
+      summary: ユーザー情報バッチ取得
+      responses:
+        "200":
+          description: ユーザー情報の配列
+  /relays:
+    get:
+      summary: リレー一覧
+      responses:
+        "200":
+          description: リレーの配列
+    post:
+      summary: リレー追加
+      responses:
+        "201":
+          description: 追加されたリレー
+  /relays/{id}:
+    delete:
+      summary: リレー削除
+      responses:
+        "200":
+          description: 成功

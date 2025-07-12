@@ -144,3 +144,8 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 
 鍵共有の仕組みについては [docs/key-sharing.md](docs/key-sharing.md)
 を参照してください。
+
+## OpenAPI仕様
+
+APIの詳細仕様は [docs/openapi.yaml](docs/openapi.yaml) に記載されています。
+OpenAPI 対応ツールで読み込むことでクライアント実装やテストに利用できます。
