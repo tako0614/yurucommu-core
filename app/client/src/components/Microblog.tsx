@@ -38,6 +38,7 @@ export function Microblog() {
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
     const data = await fetchPosts({ limit: limit() });
@@ -65,22 +66,27 @@ export function Microblog() {
     loadInitialPosts();
   };
 
-  const handleScroll = () => {
-    if (
-      globalThis.innerHeight + globalThis.scrollY >=
-        document.body.offsetHeight - 200
-    ) {
-      loadMorePosts();
-    }
+  let observer: IntersectionObserver | undefined;
+
+  const setupObserver = () => {
+    if (observer || !sentinel) return;
+    observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          loadMorePosts();
+        }
+      }
+    });
+    observer.observe(sentinel);
   };
 
   onMount(() => {
     loadInitialPosts();
-    globalThis.addEventListener("scroll", handleScroll);
+    setupObserver();
   });
 
   onCleanup(() => {
-    globalThis.removeEventListener("scroll", handleScroll);
+    observer?.disconnect();
   });
   // フォロー中投稿の取得
   const [followingTimelinePosts, { refetch: _refetchFollowing }] =
@@ -438,6 +444,7 @@ export function Microblog() {
               formatDate={formatDate}
             />
           )}
+          <div ref={(el) => (sentinel = el)} class="h-4"></div>
           {loadingMore() && (
             <div class="text-center py-4 text-gray-400">読み込み中...</div>
           )}
@@ -456,7 +463,7 @@ export function Microblog() {
         />
 
         <PostForm
-showPostForm={_showPostForm()}
+          showPostForm={_showPostForm()}
           setShowPostForm={setShowPostForm}
           newPostContent={newPostContent()}
           setNewPostContent={setNewPostContent}
