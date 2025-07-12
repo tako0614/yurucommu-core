@@ -13,6 +13,7 @@
   "imports": {
     "@hono/vite-dev-server": "npm:@hono/vite-dev-server@^0.19.0",
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.5.0",
+    "@motionone/solid": "npm:@motionone/solid@^10.16.4",
     "@prisma/client": "npm:@prisma/client@^6.8.2",
     "@socialwebfoundation/ap-components": "npm:@socialwebfoundation/ap-components@^1.1.0",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.4",

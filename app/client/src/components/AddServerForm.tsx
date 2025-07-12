@@ -19,7 +19,7 @@ export function AddServerForm(props: AddServerFormProps) {
       return;
     }
     if (!password()) {
-      setError("ログイン用パスワードを入力してください");
+      setError("パスワードを入力してください");
       return;
     }
     setIsLoading(true);
