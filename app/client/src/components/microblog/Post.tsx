@@ -77,7 +77,7 @@ function QuotedPost(props: { quoteId: string }) {
   return (
     <Show when={post()}>
       <div class="border-l-2 border-gray-700 pl-3 text-sm mb-3">
-        <div innerHTML={renderNoteContent(post()!.content)} />
+        <div innerHTML={renderNoteContent({ content: post()!.content })} />
       </div>
     </Show>
   );
@@ -232,7 +232,7 @@ function PostItem(props: PostItemProps) {
           </div>
           <div
             class="text-white mb-3 leading-relaxed break-words overflow-hidden"
-            innerHTML={renderNoteContent(post.content)}
+            innerHTML={renderNoteContent({ content: post.content })}
           />
           {post.attachments && post.attachments.length > 0 && (
             <div class="mb-3 grid gap-2 sm:grid-cols-2">
@@ -265,7 +265,9 @@ function PostItem(props: PostItemProps) {
           {post.quoteId && <QuotedPost quoteId={post.quoteId} />}
           {/* OGPプレビューの表示 */}
           {post.content.match(/<div data-og="(.*?)"><\/div>/) && (
-            <OgpPreview url={post.content.match(/<div data-og="(.*?)"><\/div>/)![1]} />
+            <OgpPreview
+              url={post.content.match(/<div data-og="(.*?)"><\/div>/)![1]}
+            />
           )}
           <div class="flex items-center justify-between max-w-md">
             <button
