@@ -411,8 +411,17 @@ app.get("/users/:user/messages", async (c) => {
     }
     : { to: { $in: [actorId, acct] } };
 
-  const list = await EncryptedMessage.find(condition).sort({ createdAt: 1 })
-    .lean();
+  const limit = Math.min(
+    parseInt(c.req.query("limit") ?? "50", 10) || 50,
+    100,
+  );
+  const before = c.req.query("before");
+  const after = c.req.query("after");
+  const query = EncryptedMessage.find(condition);
+  if (before) query.where("createdAt").lt(new Date(before));
+  if (after) query.where("createdAt").gt(new Date(after));
+  const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
+  list.reverse();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),
     from: doc.from,
@@ -458,8 +467,17 @@ app.get("/users/:user/publicMessages", async (c) => {
     }
     : { to: { $in: [actorId, acct] } };
 
-  const list = await PublicMessage.find(condition).sort({ createdAt: 1 })
-    .lean();
+  const limit = Math.min(
+    parseInt(c.req.query("limit") ?? "50", 10) || 50,
+    100,
+  );
+  const before = c.req.query("before");
+  const after = c.req.query("after");
+  const query = PublicMessage.find(condition);
+  if (before) query.where("createdAt").lt(new Date(before));
+  if (after) query.where("createdAt").gt(new Date(after));
+  const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
+  list.reverse();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),
     from: doc.from,

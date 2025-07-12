@@ -107,10 +107,17 @@ export const sendEncryptedMessage = async (
 export const fetchEncryptedMessages = async (
   user: string,
   partner?: string,
+  params?: { limit?: number; before?: string; after?: string },
 ): Promise<EncryptedMessage[]> => {
   try {
+    const search = new URLSearchParams();
+    if (partner) search.set("with", partner);
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.before) search.set("before", params.before);
+    if (params?.after) search.set("after", params.after);
+    const query = search.toString();
     const url = `/api/users/${encodeURIComponent(user)}/messages${
-      partner ? `?with=${encodeURIComponent(partner)}` : ""
+      query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);
     if (!res.ok) {
@@ -162,10 +169,17 @@ export const sendPublicMessage = async (
 export const fetchPublicMessages = async (
   user: string,
   partner?: string,
+  params?: { limit?: number; before?: string; after?: string },
 ): Promise<PublicMessage[]> => {
   try {
+    const search = new URLSearchParams();
+    if (partner) search.set("with", partner);
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.before) search.set("before", params.before);
+    if (params?.after) search.set("after", params.after);
+    const query = search.toString();
     const url = `/api/users/${encodeURIComponent(user)}/publicMessages${
-      partner ? `?with=${encodeURIComponent(partner)}` : ""
+      query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);
     if (!res.ok) {
