@@ -7,6 +7,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
+import { selectedPostIdState } from "../states/router.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { CommunityView } from "./microblog/Community.tsx";
@@ -17,6 +18,7 @@ import {
   deleteStory,
   fetchCommunities,
   fetchFollowingPosts,
+  fetchPostById,
   fetchPosts,
   fetchStories,
   likePost,
@@ -50,6 +52,12 @@ export function Microblog() {
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [targetPostId] = useAtom(selectedPostIdState);
+  const loadPostById = async (id: string) => {
+    const p = await fetchPostById(id);
+    setPosts(p ? [p] : []);
+    setCursor(null);
+  };
   let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
@@ -93,11 +101,24 @@ export function Microblog() {
   };
 
   onMount(() => {
-    loadInitialPosts();
+    if (targetPostId()) {
+      loadPostById(targetPostId()!);
+    } else {
+      loadInitialPosts();
+    }
   });
 
   createEffect(() => {
     if (sentinel) setupObserver();
+  });
+
+  createEffect(() => {
+    const id = targetPostId();
+    if (id) {
+      loadPostById(id);
+    } else {
+      resetPosts();
+    }
   });
 
   onCleanup(() => {
