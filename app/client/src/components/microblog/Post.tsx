@@ -206,8 +206,17 @@ function PostItem(props: PostItemProps) {
     };
   };
 
+  const openPost = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a")) return;
+    globalThis.location.hash = `#/post/${post.id}`;
+  };
+
   return (
-    <div class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer">
+    <div
+      class="p-4 hover:bg-gray-950/50 transition-colors cursor-pointer"
+      onClick={openPost}
+    >
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <UserAvatar
