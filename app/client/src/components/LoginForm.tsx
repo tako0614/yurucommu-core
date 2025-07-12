@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from "solid-js";
+import { AddServerForm } from "./AddServerForm.tsx";
 import {
   addServer,
   apiFetch,
@@ -21,8 +22,6 @@ export function LoginForm(props: LoginFormProps) {
   const [serverUrl, setServerUrl] = createSignal("");
   const [servers, setServers] = createSignal<string[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
-  const [newServerUrl, setNewServerUrl] = createSignal("");
-  const [newServerPassword, setNewServerPassword] = createSignal("");
   const inTauri = isTauri();
 
   onMount(() => {
@@ -71,12 +70,10 @@ export function LoginForm(props: LoginFormProps) {
       setIsLoading(false);
     }
   };
-  const handleAddServer = async () => {
-    await loginToServer(newServerUrl().trim(), newServerPassword());
+  const handleAddServer = async (url: string, password: string) => {
+    await loginToServer(url.trim(), password);
     setServers(getServers());
     setShowAdd(false);
-    setNewServerUrl("");
-    setNewServerPassword("");
   };
 
   const handleLogin = async (e: Event) => {
@@ -117,38 +114,10 @@ export function LoginForm(props: LoginFormProps) {
                 </For>
               </div>
               <Show when={showAdd()}>
-                <div class="fixed bottom-0 left-0 right-0 bg-[#212121] p-4 border-t border-gray-700 space-y-2">
-                  <input
-                    type="text"
-                    value={newServerUrl()}
-                    onInput={(e) => setNewServerUrl(e.currentTarget.value)}
-                    class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                    placeholder="http://example.com"
-                  />
-                  <input
-                    type="password"
-                    value={newServerPassword()}
-                    onInput={(e) => setNewServerPassword(e.currentTarget.value)}
-                    class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                    placeholder="パスワード"
-                  />
-                  <div class="flex justify-end space-x-2">
-                    <button
-                      type="button"
-                      class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                      onClick={handleAddServer}
-                    >
-                      追加
-                    </button>
-                    <button
-                      type="button"
-                      class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-                      onClick={() => setShowAdd(false)}
-                    >
-                      閉じる
-                    </button>
-                  </div>
-                </div>
+                <AddServerForm
+                  onAdd={handleAddServer}
+                  onClose={() => setShowAdd(false)}
+                />
               </Show>
               <button
                 type="button"
