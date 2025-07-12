@@ -586,6 +586,17 @@ export function Chat(props: ChatProps) {
     }
   });
 
+  // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
+  createEffect(() => {
+    if (!isMobile()) return;
+    const roomId = selectedRoom();
+    if (roomId && showRoomList()) {
+      setShowRoomList(false);
+    } else if (!roomId && !showRoomList()) {
+      setShowRoomList(true);
+    }
+  });
+
   createEffect(() => {
     account();
     loadGroupStates();
