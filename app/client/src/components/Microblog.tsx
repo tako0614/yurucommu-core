@@ -9,6 +9,7 @@ import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
+import { CommunityView } from "./microblog/Community.tsx";
 import {
   _replyToPost,
   createPost,
@@ -439,8 +440,7 @@ export function Microblog() {
             />
           )}
 
-          {(tab() === "recommend" || tab() === "following" ||
-            tab() === "community") && (
+          {(tab() === "recommend" || tab() === "following") && (
             <PostList
               posts={filteredPosts()}
               tab={tab()}
@@ -451,6 +451,43 @@ export function Microblog() {
               handleEdit={handleEdit}
               handleDelete={handleDelete}
               formatDate={formatDate}
+            />
+          )}
+
+          {tab() === "community" && (
+            <CommunityView
+              showCommunityView={_showCommunityView()}
+              setShowCommunityView={_setShowCommunityView}
+              selectedCommunity={_selectedCommunity()}
+              setSelectedCommunity={_setSelectedCommunity}
+              showCreateCommunity={_showCreateCommunity()}
+              setShowCreateCommunity={_setShowCreateCommunity}
+              communityName={_communityName()}
+              setCommunityName={_setCommunityName}
+              communityDescription={_communityDescription()}
+              setCommunityDescription={_setCommunityDescription}
+              communityAvatar={_communityAvatar()}
+              setCommunityAvatar={_setCommunityAvatar}
+              communityBanner={_communityBanner()}
+              setCommunityBanner={_setCommunityBanner}
+              communityTags={_communityTags()}
+              setCommunityTags={_setCommunityTags}
+              communityIsPrivate={_communityIsPrivate()}
+              setCommunityIsPrivate={_setCommunityIsPrivate}
+              communities={_communitiesData() || []}
+              communityPosts={[]}
+              handleJoinCommunity={_handleJoinCommunity}
+              handleLeaveCommunity={_handleLeaveCommunity}
+              handleCreateCommunity={_handleCreateCommunity}
+              handleSelectCommunity={_handleSelectCommunity}
+              handleLikeCommunityPost={_handleLikeCommunityPost}
+              formatDate={formatDate}
+              handleReply={handleReply}
+              handleRetweet={handleRetweet}
+              handleQuote={handleQuote}
+              handleLike={handleLike}
+              handleEdit={handleEdit}
+              handleDelete={handleDelete}
             />
           )}
           <div ref={(el) => (sentinel = el)} class="h-4"></div>

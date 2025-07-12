@@ -942,4 +942,4 @@ export function extractAttachments(
     attachments.push({ url: obj.image, type: "image" });
   }
   return attachments;
-}
+};

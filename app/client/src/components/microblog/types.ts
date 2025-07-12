@@ -79,3 +79,21 @@ export interface ActivityPubObject {
   // deno-lint-ignore no-explicit-any
   extra?: Record<string, any>;
 }
+
+export function noteToPost(note: Note): MicroblogPost {
+  return {
+    id: note.id,
+    content: note.content,
+    userName: note.userName,
+    displayName: note.displayName,
+    authorAvatar: note.authorAvatar,
+    createdAt: note.createdAt,
+    likes: note.likes,
+    retweets: 0, // Noteにretweetはない
+    replies: note.comments,
+    isLiked: note.isLiked,
+    isRetweeted: false,
+    domain: note.domain,
+    // attachmentsやquoteIdなど、Noteにないものはデフォルト値を設定
+  };
+}

@@ -8,9 +8,11 @@
     "npm:@hono/vite-dev-server@0.19": "0.19.0_hono@4.7.9",
     "npm:@hono/zod-validator@0.5": "0.5.0_hono@4.7.9_zod@3.24.4",
     "npm:@prisma/client@^6.8.2": "6.8.2",
+    "npm:@socialwebfoundation/ap-components@^1.1.0": "1.1.0",
     "npm:@tailwindcss/vite@^4.1.7": "4.1.7_vite@5.4.19_@types+node@22.12.0",
     "npm:@tauri-apps/cli@*": "2.5.0",
     "npm:@tauri-apps/cli@^2.5.0": "2.5.0",
+    "npm:@types/linkify-it@5": "5.0.0",
     "npm:@types/node@*": "22.12.0",
     "npm:date-fns@*": "2.30.0",
     "npm:date-fns@2.30.0": "2.30.0",
@@ -23,7 +25,8 @@
     "npm:jotai@^2.12.4": "2.12.4",
     "npm:jsdom@*": "26.1.0",
     "npm:linkedom@*": "0.16.11",
-    "npm:linkify-it@*": "5.0.0",
+    "npm:linkify-html@^4.1.3": "4.3.1_linkifyjs@4.3.1",
+    "npm:linkifyjs@^4.3.1": "4.3.1",
     "npm:mongoose@^8.15.0": "8.15.0",
     "npm:qrcode@*": "1.5.4",
     "npm:qrcode@^1.5.4": "1.5.4",
@@ -1770,6 +1773,9 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
+    "@socialwebfoundation/ap-components@1.1.0": {
+      "integrity": "sha512-nNl447Yp32MhoQyvc8FHK34lkGX8YAnLyo3LO/ilZeiFlUniYecVl3Urie6Mq+4+qlAK2UwUFb7V6juhblIA+g=="
+    },
     "@surma/rollup-plugin-off-main-thread@2.2.3": {
       "integrity": "sha512-lR8q/9W7hZpMWweNiAKU7NQerBnzQQLvi8qnTDU/fxItPhtZVMbPV3lbCwjhIlNBe9Bbr5V+KHshvWmVSG9cxQ==",
       "dependencies": [
@@ -2010,6 +2016,9 @@
     },
     "@types/estree@1.0.7": {
       "integrity": "sha512-w28IoSUCJpidD/TGviZwwMJckNESJZXFu7NBZ5YJ4mEUnNraUn9Pm8HSZm/jDF1pDWYKspWE7oVphigUPRakIQ=="
+    },
+    "@types/linkify-it@5.0.0": {
+      "integrity": "sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q=="
     },
     "@types/node@22.12.0": {
       "integrity": "sha512-Fll2FZ1riMjNmlmJOdAyY5pUbkftXslB5DgEzlIuNaiWhXd00FhWxVC/r4yV/4wBb9JfImTu+jiSvXTkJ7F/gA==",
@@ -3149,11 +3158,14 @@
         "uhyphen"
       ]
     },
-    "linkify-it@5.0.0": {
-      "integrity": "sha512-5aHCbzQRADcdP+ATqnDuhhJ/MRIqDkZX5pyjFHRRysS8vZ5AbqGEoFIb6pYHPZ+L/OC2Lc+xT8uHVVR5CAK/wQ==",
+    "linkify-html@4.3.1_linkifyjs@4.3.1": {
+      "integrity": "sha512-6ZNyucw7fH9Ncu17s+hvHFB2sU6fLWowqH6MqkXxtVL2kKkhnrho/DMCE3fWovmzVPgWSFGvg6zLkW+VWrVr4w==",
       "dependencies": [
-        "uc.micro"
+        "linkifyjs"
       ]
+    },
+    "linkifyjs@4.3.1": {
+      "integrity": "sha512-DRSlB9DKVW04c4SUdGvKK5FR6be45lTU9M76JnngqPeeGDqPwYc0zdUErtsNVMtxPXgUWV4HbXbnC4sNyBxkYg=="
     },
     "locate-path@5.0.0": {
       "integrity": "sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g==",
@@ -3932,9 +3944,6 @@
         "reflect.getprototypeof"
       ]
     },
-    "uc.micro@2.1.0": {
-      "integrity": "sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A=="
-    },
     "uhyphen@0.2.0": {
       "integrity": "sha512-qz3o9CHXmJJPGBdqzab7qAYuW8kQGKNEuoHFYrBwV6hWIMcpAmxDLXojcHfFr9US1Pe6zUswEIJIbLI610fuqA=="
     },
@@ -4417,7 +4426,9 @@
   "redirects": {
     "https://deno.land/x/qrcode/mod.ts": "https://deno.land/x/qrcode@v2.0.0/mod.ts",
     "https://esm.sh/@types/linkify-it@~5.0.0/index.d.ts": "https://esm.sh/@types/linkify-it@5.0.0/index.d.ts",
+    "https://esm.sh/linkify-html@4": "https://esm.sh/linkify-html@4.3.1",
     "https://esm.sh/linkify-it": "https://esm.sh/linkify-it@5.0.0",
+    "https://esm.sh/linkifyjs@^4.0.0?target=denonext": "https://esm.sh/linkifyjs@4.3.1?target=denonext",
     "https://esm.sh/uc.micro@^2.0.0?target=denonext": "https://esm.sh/uc.micro@2.1.0?target=denonext"
   },
   "remote": {
@@ -4653,8 +4664,12 @@
     "https://deno.land/x/web_bson@v0.2.5/utils.ts": "4c51c0be4bbb77c1e547eeef9b5aa53ffa611f628684875375103f627649ceb1",
     "https://esm.sh/jsqr@1.4.0": "7b6fc8e9e8a0bed6347e5e0b80f8ca79bd38e3e5696cd797168d0ff4413b28ba",
     "https://esm.sh/jsqr@1.4.0/denonext/jsqr.mjs": "4a37436f750388226ce2c30e59697bacb97032c2b11813684156c84a3cec7afa",
+    "https://esm.sh/linkify-html@4.3.1": "9868c3b322d64651eed0d91a789f85fa6a244c1553a49b5bbc96fd1c171562ae",
+    "https://esm.sh/linkify-html@4.3.1/denonext/linkify-html.mjs": "3069415f30c09a9dab7dfcbae310fd3db1a79542ae153ae5beda3f3953f5f133",
     "https://esm.sh/linkify-it@5.0.0": "0f6816f64d1a886f8ec763f82fa5e1e99bae33171bd21bfb4bca18e76c642f44",
     "https://esm.sh/linkify-it@5.0.0/denonext/linkify-it.mjs": "7c02b0682b9ea78f25958e9c7ae17a76c2bf804c803a5a6103314786a8aefecf",
+    "https://esm.sh/linkifyjs@4.3.1/denonext/linkifyjs.mjs": "be4e4930f7155ce7183de5ca7dfad14477fee1a2d6e4b0e2855d7b2e9eb01a09",
+    "https://esm.sh/linkifyjs@4.3.1?target=denonext": "3ca5c172b2020b9fb445e77e605a6c9996ee60dfd56569b4428674aeeb03ebf8",
     "https://esm.sh/tlds@1.233.0": "7ae8eb718d59c8e09c13f3b270b0a05c4fc6eba592631a9d27ad9f6a452352f6",
     "https://esm.sh/tlds@1.233.0/denonext/tlds.mjs": "9d1cf2bbc2926362016b08018be6b0116762fa9c803e0b80b23e4de1ca77b370",
     "https://esm.sh/uc.micro@2.1.0/denonext/uc.micro.mjs": "549d36fd64ab29703da6e300957bed9de0dae7d7218eca8bbe6681994133e8b0",
@@ -4667,12 +4682,16 @@
       "npm:@hono/vite-dev-server@0.19",
       "npm:@hono/zod-validator@0.5",
       "npm:@prisma/client@^6.8.2",
+      "npm:@socialwebfoundation/ap-components@^1.1.0",
       "npm:@tailwindcss/vite@^4.1.7",
       "npm:@tauri-apps/cli@^2.5.0",
+      "npm:@types/linkify-it@5",
       "npm:dompurify@^3.2.6",
       "npm:firebase@^11.9.1",
       "npm:hono@^4.7.9",
       "npm:jotai@^2.12.4",
+      "npm:linkify-html@^4.1.3",
+      "npm:linkifyjs@^4.3.1",
       "npm:mongoose@^8.15.0",
       "npm:qrcode@^1.5.4",
       "npm:solid-jotai@~0.3.1",

@@ -11,6 +11,68 @@ import {
 import { fetchPostById } from "./api.ts";
 import { linkifyText } from "../../utils/linkify.ts";
 
+interface OgpData {
+  title?: string;
+  description?: string;
+  image?: string;
+  url: string;
+}
+
+async function fetchOgpData(url: string): Promise<OgpData | null> {
+  try {
+    const response = await fetch(`/api/ogp?url=${encodeURIComponent(url)}`);
+    if (!response.ok) {
+      console.error("Failed to fetch OGP data:", response.statusText);
+      return null;
+    }
+    const data = await response.json();
+    return data as OgpData;
+  } catch (error) {
+    console.error("Error fetching OGP data:", error);
+    return null;
+  }
+}
+
+function OgpPreview(props: { url: string }) {
+  const [ogp] = createResource(() => fetchOgpData(props.url));
+
+  return (
+    <Show when={ogp()} keyed>
+      {(ogpData: OgpData) => (
+        <a
+          href={ogpData.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="block border border-gray-700 rounded-lg overflow-hidden mt-3 hover:bg-gray-800 transition-colors"
+        >
+          {ogpData.image && (
+            <div class="w-full h-48 bg-gray-800 flex items-center justify-center overflow-hidden">
+              <img
+                src={ogpData.image}
+                alt="OGP Image"
+                class="w-full h-full object-cover"
+              />
+            </div>
+          )}
+          <div class="p-4">
+            <p class="font-bold text-white text-lg mb-1 line-clamp-2">
+              {ogpData.title}
+            </p>
+            {ogpData.description && (
+              <p class="text-gray-400 text-sm line-clamp-3">
+                {ogpData.description}
+              </p>
+            )}
+            <p class="text-blue-400 text-sm mt-2 truncate">
+              {ogpData.url}
+            </p>
+          </div>
+        </a>
+      )}
+    </Show>
+  );
+}
+
 function QuotedPost(props: { quoteId: string }) {
   const [post] = createResource(() => fetchPostById(props.quoteId));
   return (
@@ -202,6 +264,10 @@ function PostItem(props: PostItemProps) {
             </div>
           )}
           {post.quoteId && <QuotedPost quoteId={post.quoteId} />}
+          {/* OGPプレビューの表示 */}
+          {post.content.match(/<div data-og="(.*?)"><\/div>/) && (
+            <OgpPreview url={post.content.match(/<div data-og="(.*?)"><\/div>/)![1]} />
+          )}
           <div class="flex items-center justify-between max-w-md">
             <button
               type="button"

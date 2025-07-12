@@ -17,6 +17,7 @@ import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
 import videos from "./videos.ts";
+import { fetchOgpData } from "./services/ogp.ts";
 
 const env = await load();
 
@@ -45,5 +46,18 @@ app.route("/", group);
 app.route("/", rootInbox);
 // e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
 app.route("/", e2ee);
+
+app.get("/api/ogp", async (c) => {
+  const url = c.req.query("url");
+  if (!url) {
+    return c.json({ error: "URL parameter is required" }, 400);
+  }
+  const ogpData = await fetchOgpData(url);
+  if (ogpData) {
+    return c.json(ogpData);
+  } else {
+    return c.json({ error: "Failed to fetch OGP data" }, 500);
+  }
+});
 
 Deno.serve(app.fetch);
