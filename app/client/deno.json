@@ -18,6 +18,7 @@
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.7",
     "@tauri-apps/cli": "npm:@tauri-apps/cli@^2.5.0",
     "@zip-js/zip-js": "jsr:@zip-js/zip-js@^2.7.62",
+    "dompurify": "npm:dompurify@^3.2.6",
     "firebase": "npm:firebase@^11.9.1",
     "hono": "npm:hono@^4.7.9",
     "jotai": "npm:jotai@^2.12.4",

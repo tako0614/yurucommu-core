@@ -1,4 +1,4 @@
-import createDOMPurify from "npm:dompurify";
+import createDOMPurify from "dompurify";
 import { JSDOM } from "npm:jsdom";
 
 const { window } = new JSDOM("");

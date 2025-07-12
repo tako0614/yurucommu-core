@@ -1,6 +1,0 @@
-a span.invisible {
-  display: none;
-}
-a span.ellipsis::after {
-  content: "…";
-}

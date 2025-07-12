@@ -1,4 +1,4 @@
-import DOMPurify from "npm:dompurify";
+import DOMPurify from "dompurify";
 
 const ALLOWED_TAGS = [
   "p",
@@ -32,7 +32,7 @@ export function sanitizeHtml(fragment: string): string {
     RETURN_DOM: true,
   }) as unknown as Document;
 
-  const walker = clean.createTreeWalker(clean.body, NodeFilter.SHOW_ELEMENT);
+  const walker = document.createTreeWalker(clean, NodeFilter.SHOW_ELEMENT);
   while (walker.nextNode()) {
     const el = walker.currentNode as Element;
     const tag = el.tagName.toLowerCase();
@@ -55,7 +55,9 @@ export function sanitizeHtml(fragment: string): string {
       }
     }
   }
-  return clean.body.innerHTML;
+  const tempDiv = document.createElement("div");
+  tempDiv.appendChild(clean);
+  return tempDiv.innerHTML;
 }
 
 export function renderHtml(content: string): string {
