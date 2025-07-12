@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
 import login from "./login.ts";
+import logout from "./logout.ts";
 import session from "./session.ts";
 import accounts from "./accounts.ts";
 import notifications from "./notifications.ts";
@@ -27,6 +28,7 @@ await mongoose.connect(env["MONGO_URI"])
 
 const app = new Hono();
 app.route("/api", login);
+app.route("/api", logout);
 app.route("/api", session);
 app.route("/api", accounts);
 app.route("/api", notifications);
