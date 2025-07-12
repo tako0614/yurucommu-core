@@ -1,5 +1,14 @@
-import { createSignal, onMount, Show } from "solid-js";
-import { apiFetch, getApiBase, isTauri, setApiBase } from "../utils/config.ts";
+import { createSignal, For, onMount, Show } from "solid-js";
+import {
+  addServer,
+  apiFetch,
+  getActiveServer,
+  getApiBase,
+  getServers,
+  isTauri,
+  setActiveServer,
+  setApiBase,
+} from "../utils/config.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -10,13 +19,28 @@ export function LoginForm(props: LoginFormProps) {
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
+  const [servers, setServers] = createSignal<string[]>([]);
   const inTauri = isTauri();
 
   onMount(() => {
     if (inTauri) {
-      setServerUrl(getApiBase());
+      setServers(getServers());
+      const active = getActiveServer();
+      if (active) {
+        setServerUrl(active);
+        setApiBase(active);
+      } else {
+        setServerUrl(getApiBase());
+      }
     }
   });
+
+  const handleAddServer = () => {
+    const url = serverUrl().trim();
+    if (!url) return;
+    addServer(url);
+    setServers(getServers());
+  };
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
@@ -28,6 +52,8 @@ export function LoginForm(props: LoginFormProps) {
         return;
       }
       setApiBase(serverUrl());
+      addServer(serverUrl());
+      setActiveServer(serverUrl());
     }
 
     if (!loginPassword()) {
@@ -81,19 +107,37 @@ export function LoginForm(props: LoginFormProps) {
             <Show when={inTauri}>
               <div>
                 <label
-                  for="serverUrl"
+                  for="serverSelect"
                   class="block text-sm font-medium text-gray-300 mb-2"
                 >
-                  サーバーURL
+                  サーバー選択
                 </label>
+                <select
+                  id="serverSelect"
+                  value={serverUrl()}
+                  onChange={(e) => setServerUrl(e.currentTarget.value)}
+                  class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-2"
+                >
+                  <option value="">-- 新規サーバー --</option>
+                  <For each={servers()}>
+                    {(s) => <option value={s}>{s}</option>}
+                  </For>
+                </select>
                 <input
                   type="text"
                   id="serverUrl"
                   value={serverUrl()}
                   onInput={(e) => setServerUrl(e.currentTarget.value)}
                   class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500 transition-colors"
-                  placeholder="http://localhost:8000"
+                  placeholder="http://example.com"
                 />
+                <button
+                  type="button"
+                  class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                  onClick={handleAddServer}
+                >
+                  サーバー追加
+                </button>
               </div>
             </Show>
             <div>
