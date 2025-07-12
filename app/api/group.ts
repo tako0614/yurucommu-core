@@ -6,6 +6,7 @@ import {
   createAnnounceActivity,
   createGroupActor,
   deliverActivityPubObjectFromUrl,
+  extractAttachments,
   getDomain,
   jsonResponse,
   verifyHttpSignature,
@@ -97,6 +98,9 @@ app.post("/communities/:name/inbox", async (c) => {
       return jsonResponse(c, { error: "Forbidden" }, 403);
     }
     const obj = activity.object as Record<string, unknown>;
+    const attachments = extractAttachments(obj);
+    const extra: Record<string, unknown> = {};
+    if (attachments.length > 0) extra.attachments = attachments;
     const stored = await ActivityPubObject.create({
       type: (obj.type as string) ?? "Note",
       attributedTo: `!${name}`,
@@ -107,7 +111,7 @@ app.post("/communities/:name/inbox", async (c) => {
         ? new Date(obj.published)
         : new Date(),
       raw: obj,
-      extra: {},
+      extra,
     });
     const announce = createAnnounceActivity(
       domain,
