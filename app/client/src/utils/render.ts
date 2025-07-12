@@ -47,15 +47,33 @@ function plainTextToHtml(text: string): string {
   return escapeHtml(text).replace(/\r?\n/g, "<br>");
 }
 
+const INVISIBLE_CLS = "invisible";
+const ELLIPSIS_CLS  = "ellipsis";
+const MAX_VISIBLE   = 45;
+
 function linkifyUrls(text: string, linkify: LinkifyIt): string {
   let out = "";
   let last = 0;
-  const matches = linkify.match(text) ?? [];
-  for (const m of matches) {
+  for (const m of linkify.match(text) ?? []) {
     out += escapeHtml(text.slice(last, m.index));
-    const url = m.url;
-    const display = url.length > 48 ? `${url.slice(0, 45)}…` : url;
-    out += `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer nofollow" class="external-link">${escapeHtml(display)}</a>`;
+
+    const url      = m.url;
+    const protocol = url.match(/^[a-z][\w.+-]*:\/\//i)?.[0] ?? "";
+    const body     = url.slice(protocol.length);
+
+    let inner: string;
+    if (url.length <= MAX_VISIBLE) {
+      inner = escapeHtml(url);
+    } else {
+      const visible = body.slice(0, MAX_VISIBLE) + "…";
+      const hidden  = body.slice(MAX_VISIBLE);
+      inner =
+        `<span class="${INVISIBLE_CLS}">${escapeHtml(protocol)}</span>` +
+        `<span class="${ELLIPSIS_CLS}">${escapeHtml(visible)}</span>` +
+        `<span class="${INVISIBLE_CLS}">${escapeHtml(hidden)}</span>`;
+    }
+
+    out += `<a href="${escapeHtml(url)}" class="external-link" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
     last = m.lastIndex;
   }
   out += escapeHtml(text.slice(last));
@@ -106,10 +124,19 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
   }
 
   for (const tNode of textNodes) {
-    let txt = tNode.data;
+    // <a> / <code> / <pre> 直下は触らない
+    if ((tNode.parentElement)?.closest("a, code, pre")) continue;
+
+    let txt      = tNode.data;
     let replaced = false;
 
-    // カスタム絵文字置換
+    // 1) URL を先にリンク化（ネスト防止）
+    if (linkify.pretest(txt)) {
+      txt      = linkifyUrls(txt, linkify);
+      replaced = true;
+    }
+
+    // 2) カスタム絵文字
     for (const tag of note.tag ?? []) {
       if (tag.type === "Emoji" && tag.name && tag.icon?.url) {
         const re = new RegExp(tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
@@ -121,7 +148,7 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
       }
     }
 
-    // メンション / ハッシュタグ
+    // 3) メンション / ハッシュタグ
     for (const tag of note.tag ?? []) {
       if ((tag.type === "Mention" || tag.type === "Hashtag") && tag.name && tag.href) {
         const re = new RegExp(tag.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
@@ -132,12 +159,6 @@ export function renderNoteContent(note: APNote, opts: RenderOptions = {}): strin
           txt = txt.replace(re, () => `<a href="${escapeHtml(tag.href!)}" class="${cls}"${relAttr} target="_blank">${escapeHtml(tag.name!)}</a>`);
         }
       }
-    }
-
-    // URL 自動リンク化
-    if (linkify.pretest(txt)) {
-      replaced = true;
-      txt = linkifyUrls(txt, linkify);
     }
 
     if (replaced) {

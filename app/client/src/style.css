@@ -1,0 +1,12 @@
+.external-link {
+  word-break: break-all;
+  color: #2563eb;
+  text-decoration: underline;
+}
+.invisible {
+  opacity: 0;
+  user-select: none;
+}
+.ellipsis {
+  text-decoration: underline;
+}
