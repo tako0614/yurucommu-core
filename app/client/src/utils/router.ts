@@ -3,6 +3,30 @@ import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { profileUserState, selectedPostIdState } from "../states/router.ts";
+import { getDomain, getOrigin } from "./config.ts";
+
+function actorToHandle(actor: string): string {
+  if (actor.startsWith("http")) {
+    try {
+      const url = new URL(actor);
+      const name = url.pathname.split("/").pop() ?? "";
+      return `${name}@${url.hostname}`;
+    } catch {
+      return actor;
+    }
+  }
+  if (actor.includes("@")) return actor;
+  return `${actor}@${getDomain()}`;
+}
+
+function handleToActor(handle: string): string {
+  if (handle.startsWith("http")) return handle;
+  if (handle.includes("@")) {
+    const [name, domain] = handle.split("@");
+    return `https://${domain}/users/${name}`;
+  }
+  return `${getOrigin()}/users/${handle}`;
+}
 
 export function useHashRouter() {
   const [app, setApp] = useAtom(selectedAppState);
@@ -15,11 +39,12 @@ export function useHashRouter() {
   const parseHash = () => {
     fromHash = true;
     const hash = globalThis.location.hash.slice(1);
-    const [seg, param] = hash.split("/").filter(Boolean);
+    const [seg, rawParam] = hash.split("/").filter(Boolean);
+    const param = rawParam ? decodeURIComponent(rawParam) : undefined;
     switch (seg) {
       case "chat":
         setApp("chat");
-        setRoom(param ?? null);
+        setRoom(param ? handleToActor(param) : null);
         setPostId(null);
         setProfile(null);
         break;
@@ -57,7 +82,9 @@ export function useHashRouter() {
     if (fromHash) return;
     let newHash = "";
     if (app() === "chat") {
-      newHash = room() ? `#/chat/${room()}` : "#/chat";
+      newHash = room()
+        ? `#/chat/${encodeURIComponent(actorToHandle(room()))}`
+        : "#/chat";
     } else if (app() === "microblog") {
       newHash = postId() ? `#/post/${postId()}` : "#/microblog";
     } else if (app() === "home") {
