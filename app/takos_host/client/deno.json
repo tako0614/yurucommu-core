@@ -6,8 +6,8 @@
     "lib": ["dom", "es2024", "deno.ns"]
   },
   "tasks": {
-    "dev": "deno run -A --node-modules-dir npm:vite dev",
-    "build": "deno run -A --node-modules-dir npm:vite build"
+    "dev": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite dev",
+    "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build"
   },
   "imports": {
     "solid-js": "npm:solid-js@^1.9.6",

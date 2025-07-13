@@ -1,6 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { serveDir } from "jsr:@std/http/file_server";
+import { serveStatic } from "hono/deno";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 
@@ -14,12 +14,7 @@ export async function hash(text: string): Promise<string> {
 
 export const authApp = new Hono();
 
-authApp.get("/", (c) => {
-  return serveDir(c.req.raw, {
-    fsRoot: "./app/takos_host/client/dist",
-    urlRoot: "/auth",
-  });
-});
+authApp.get("/", serveStatic({ root: "./client/dist", path: "/auth" }));
 
 authApp.post("/register", async (c) => {
   const { userName, password } = await c.req.json();

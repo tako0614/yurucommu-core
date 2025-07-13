@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
 export default defineConfig({
+  base: "/",
   plugins: [solid()],
   server: {
     host: "0.0.0.0",
@@ -17,5 +18,8 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    outDir: "../dist/public",
   },
 });
