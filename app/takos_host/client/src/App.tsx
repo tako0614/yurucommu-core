@@ -5,6 +5,7 @@ import AdminPage from "./pages/AdminPage.tsx";
 import WelcomePage from "./pages/WelcomePage.tsx";
 import { fetchInstances, fetchStatus } from "./api.ts";
 import { instancesState, loggedInState } from "./state.ts";
+import "./index.css"
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
