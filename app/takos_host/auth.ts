@@ -14,7 +14,17 @@ export async function hash(text: string): Promise<string> {
 
 export const authApp = new Hono();
 
-authApp.get("/", serveStatic({ root: "./client/dist", path: "/auth" }));
+const isDev = Deno.env.get("DEV") === "1";
+
+if (isDev) {
+  authApp.get("/", async (_c) => {
+    const res = await fetch("http://localhost:1421");
+    const body = await res.arrayBuffer();
+    return new Response(body, { status: res.status, headers: res.headers });
+  });
+} else {
+  authApp.get("/", serveStatic({ root: "./client/dist", path: "/auth" }));
+}
 
 authApp.post("/register", async (c) => {
   const { userName, password } = await c.req.json();

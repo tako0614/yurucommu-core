@@ -6,6 +6,8 @@ import Instance from "./models/instance.ts";
 import { createAdminApp } from "./admin.ts";
 import { authApp } from "./auth.ts";
 import { serveStatic } from "hono/deno";
+import type { Context } from "hono";
+import type { Context } from "hono";
 
 const env = await load();
 await connectDatabase(env);
@@ -15,6 +17,20 @@ const adminApp = createAdminApp((host) => {
   apps.delete(host);
 });
 const rootDomain = env["ROOT_DOMAIN"] ?? "";
+const isDev = Deno.env.get("DEV") === "1";
+
+function proxy(prefix: string) {
+  return async (c: Context) => {
+    const path = c.req.path.replace(new RegExp(`^${prefix}`), "");
+    const url = `http://localhost:1421${path}`;
+    const res = await fetch(url, {
+      method: c.req.method,
+      headers: c.req.headers,
+      body: c.req.raw.body,
+    });
+    return new Response(res.body, { status: res.status, headers: res.headers });
+  };
+}
 
 async function getEnvForHost(
   host: string,
@@ -36,8 +52,25 @@ async function getAppForHost(host: string): Promise<Hono | null> {
 
 const root = new Hono();
 
-root.use("/auth/*", serveStatic({ root: "./client/dist", rewriteRequestPath: (path) => path.replace(/^\/auth/, '') }));
-root.use("/admin/*", serveStatic({ root: "./client/dist", rewriteRequestPath: (path) => path.replace(/^\/admin/, '') }));
+if (isDev) {
+  root.use("/auth/*", proxy("/auth"));
+  root.use("/admin/*", proxy("/admin"));
+} else {
+  root.use(
+    "/auth/*",
+    serveStatic({
+      root: "./client/dist",
+      rewriteRequestPath: (path) => path.replace(/^\/auth/, ""),
+    }),
+  );
+  root.use(
+    "/admin/*",
+    serveStatic({
+      root: "./client/dist",
+      rewriteRequestPath: (path) => path.replace(/^\/admin/, ""),
+    }),
+  );
+}
 
 root.route("/auth", authApp);
 root.route("/admin", adminApp);
@@ -52,4 +85,4 @@ root.all("/*", async (c) => {
   return app.fetch(c.req.raw);
 });
 
-Deno.serve({ port: 8001},root.fetch);
+Deno.serve({ port: 8001 }, root.fetch);

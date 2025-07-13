@@ -10,16 +10,16 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/auth": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8001",
         changeOrigin: true,
       },
       "/admin": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8001",
         changeOrigin: true,
       },
     },
   },
   build: {
-    outDir: "../dist/public",
+    outDir: "dist",
   },
 });
