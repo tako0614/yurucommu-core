@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:solid-app-router@~0.4.2": "0.4.2_solid-js@1.9.7__seroval@1.3.2",
     "npm:solid-js@^1.9.6": "1.9.7_seroval@1.3.2",
     "npm:vite-plugin-solid@^2.11.6": "2.11.7_solid-js@1.9.7__seroval@1.3.2_vite@5.4.19_@babel+core@7.28.0",
     "npm:vite@*": "5.4.19",
@@ -607,6 +608,12 @@
     "seroval@1.3.2": {
       "integrity": "sha512-RbcPH1n5cfwKrru7v7+zrZvjLurgHhGyso3HTyGtRivGWgYjbOmGuivCQaORNELjNONoK35nj28EoWul9sb1zQ=="
     },
+    "solid-app-router@0.4.2_solid-js@1.9.7__seroval@1.3.2": {
+      "integrity": "sha512-+NrLcmqYssx8DcbpcLBaYPqfTRtS+rkfbxMhLH8MHfTcTkdZfrkWQK7lsUvuPCebGEzfaPZJvHqBwhPrCXAmxg==",
+      "dependencies": [
+        "solid-js"
+      ]
+    },
     "solid-js@1.9.7_seroval@1.3.2": {
       "integrity": "sha512-/saTKi8iWEM233n5OSi1YHCCuh66ZIQ7aK2hsToPe4tqGm7qAejU1SwNuTPivbWAYq7SjuHVVYxxuZQNRbICiw==",
       "dependencies": [
@@ -679,6 +686,7 @@
   },
   "workspace": {
     "dependencies": [
+      "npm:solid-app-router@~0.4.2",
       "npm:solid-js@^1.9.6",
       "npm:vite-plugin-solid@^2.11.6",
       "npm:vite@^5.4.19"
