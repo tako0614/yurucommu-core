@@ -72,6 +72,17 @@ if (isDev) {
   );
 }
 
+if (!isDev && rootDomain) {
+  root.use(async (c, next) => {
+    const host = c.req.header("host") ?? "";
+    if (host === rootDomain) {
+      await serveStatic({ root: "./client/dist" })(c, next);
+    } else {
+      await next();
+    }
+  });
+}
+
 root.route("/auth", authApp);
 root.route("/admin", adminApp);
 
@@ -79,11 +90,11 @@ root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
   if (rootDomain && host === rootDomain) {
     if (isDev && c.req.method === "GET") {
-      const res = await fetch("http://localhost:1421");
+      const res = await fetch(`http://localhost:1421${c.req.path}`);
       const body = await res.arrayBuffer();
       return new Response(body, { status: res.status, headers: res.headers });
     }
-    return authApp.fetch(c.req.raw);
+    return serveStatic({ root: "./client/dist", path: "/index.html" })(c);
   }
   const app = await getAppForHost(host);
   if (!app) return c.text("not found", 404);
