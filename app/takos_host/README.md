@@ -23,3 +23,39 @@ takos を運用できるようにすることが目的です。
 ホスト側ではドメイン名を基にインスタンスを識別し、takos の API
 を共通モジュールとして読み込んで処理します。これにより複数の takos
 サーバーを一元管理できます。
+
+## ログインと管理 API
+
+`ROOT_DOMAIN` で指定したドメインは takos host
+自身のログインページとして機能します。 `/auth`
+でアカウント登録やログインを行い、セッション Cookie を得た状態で `/admin` 以下の
+API を利用できます。
+
+- `POST /auth/register` 新規ユーザー登録
+- `POST /auth/login` ログイン
+- `GET /auth/status` セッション状態確認
+- `DELETE /auth/logout` ログアウト
+
+管理 API では以下のエンドポイントが利用できます。
+
+- `GET /admin/instances` 登録済みインスタンス一覧を取得
+- `POST /admin/instances` 新しいインスタンスを追加 (パスワードを設定)
+- `DELETE /admin/instances/:host` インスタンスを削除
+- `GET /admin/instances/:host` インスタンスの詳細を取得
+- `PUT /admin/instances/:host/env` インスタンスの環境変数を更新
+- `PUT /admin/instances/:host/password` インスタンスのログインパスワードを変更
+- `POST /admin/instances/:host/restart` インスタンスを再起動
+
+環境変数やパスワードを更新すると、キャッシュされたアプリが破棄され、次のアクセス時に再起動されます。
+
+### インスタンスへのログイン
+
+各インスタンスでは `/login` へパスワードを POST
+すると管理画面にアクセスできます。 `POST /admin/instances`
+で登録したパスワードは `hashedPassword` と `salt` として
+インスタンスの環境変数に保存され、ログイン時に照合されます。
+
+## 起動方法
+
+1. `.env.example` を参考に `.env` を作成します。
+2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
