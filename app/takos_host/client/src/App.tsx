@@ -1,4 +1,7 @@
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, onMount } from "solid-js";
+import LoginPage from "./pages/LoginPage.tsx";
+import AdminPage from "./pages/AdminPage.tsx";
+import WelcomePage from "./pages/WelcomePage.tsx";
 
 interface Instance {
   host: string;
@@ -12,11 +15,15 @@ export default function App() {
   const [host, setHost] = createSignal("");
   const [instPassword, setInstPassword] = createSignal("");
 
+  const path = globalThis.location.pathname.replace(/\/$/, "");
+
   const fetchStatus = async () => {
     const res = await fetch("/auth/status");
     if (res.ok) {
       const data = await res.json();
       setLoggedIn(data.login);
+    } else {
+      setLoggedIn(false);
     }
   };
 
@@ -30,7 +37,7 @@ export default function App() {
 
   onMount(async () => {
     await fetchStatus();
-    if (loggedIn()) {
+    if (path === "/admin" && loggedIn()) {
       await loadInstances();
     }
   });
@@ -44,7 +51,7 @@ export default function App() {
     });
     if (res.ok) {
       setLoggedIn(true);
-      await loadInstances();
+      globalThis.location.href = "/admin";
     } else {
       alert("login failed");
     }
@@ -77,69 +84,37 @@ export default function App() {
   const logout = async () => {
     await fetch("/auth/logout", { method: "DELETE" });
     setLoggedIn(false);
+    globalThis.location.href = "/";
   };
 
-  return (
-    <div style={{ padding: "1rem", "font-family": "sans-serif" }}>
-      <Show
-        when={loggedIn()}
-        fallback={
-          <form onSubmit={login}>
-            <div>
-              <input
-                placeholder="ユーザー名"
-                value={userName()}
-                onInput={(e) => setUserName(e.currentTarget.value)}
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                placeholder="パスワード"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
-              />
-            </div>
-            <button type="submit">ログイン</button>
-          </form>
-        }
-      >
-        <div>
-          <button type="button" onClick={logout}>ログアウト</button>
-          <h2>インスタンス一覧</h2>
-          <ul>
-            <For each={instances()}>
-              {(inst) => (
-                <li>
-                  {inst.host}
-                  <button type="button" onClick={() => delInstance(inst.host)}>
-                    削除
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-          <h3>追加</h3>
-          <form onSubmit={addInstance}>
-            <div>
-              <input
-                placeholder="ホスト名"
-                value={host()}
-                onInput={(e) => setHost(e.currentTarget.value)}
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                placeholder="パスワード"
-                value={instPassword()}
-                onInput={(e) => setInstPassword(e.currentTarget.value)}
-              />
-            </div>
-            <button type="submit">追加</button>
-          </form>
-        </div>
-      </Show>
-    </div>
-  );
+  if (path === "/auth") {
+    return (
+      <LoginPage
+        userName={userName}
+        setUserName={setUserName}
+        password={password}
+        setPassword={setPassword}
+        login={login}
+      />
+    );
+  }
+
+  if (path === "/admin") {
+    return (
+      <AdminPage
+        loggedIn={loggedIn}
+        instances={instances}
+        host={host}
+        setHost={setHost}
+        instPassword={instPassword}
+        setInstPassword={setInstPassword}
+        loadInstances={loadInstances}
+        addInstance={addInstance}
+        delInstance={delInstance}
+        logout={logout}
+      />
+    );
+  }
+
+  return <WelcomePage loggedIn={loggedIn} />;
 }
