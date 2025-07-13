@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
-import { env } from "./utils/env.ts";
+import { getEnv } from "./utils/env_store.ts";
 import Session from "./models/session.ts";
 
 const app = new Hono();
 
 app.post("/login", async (c) => {
   const { password } = await c.req.json();
+  const env = getEnv();
   const hashedPassword = env["hashedPassword"];
   const salt = env["salt"];
   if (!hashedPassword || !salt) {

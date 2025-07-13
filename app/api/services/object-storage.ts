@@ -18,7 +18,7 @@ import { once } from "node:events";
 import { Buffer } from "node:buffer";
 
 // 内部ユーティリティ
-import { env } from "../utils/env.ts";
+import { getEnv } from "../utils/env_store.ts";
 
 export interface ObjectStorage {
   put(key: string, data: Uint8Array): Promise<string>;
@@ -161,15 +161,15 @@ export class GridFSStorage implements ObjectStorage {
 /* ==========================
    ストレージファクトリ関数
    ========================== */
-export function createStorage(): ObjectStorage {
-  const provider = env["OBJECT_STORAGE_PROVIDER"] || "local";
+export function createStorage(e = getEnv()): ObjectStorage {
+  const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
   if (provider === "s3" || provider === "r2" || provider === "minio") {
-    const bucket = env["S3_BUCKET"] || "";
-    const region = env["S3_REGION"] || "us-east-1";
-    const accessKey = env["S3_ACCESS_KEY"] || "";
-    const secretKey = env["S3_SECRET_KEY"] || "";
-    const endpoint = env["S3_ENDPOINT"] || undefined;
-    const forcePathStyle = env["S3_FORCE_PATH_STYLE"] === "true";
+    const bucket = e["S3_BUCKET"] || "";
+    const region = e["S3_REGION"] || "us-east-1";
+    const accessKey = e["S3_ACCESS_KEY"] || "";
+    const secretKey = e["S3_SECRET_KEY"] || "";
+    const endpoint = e["S3_ENDPOINT"] || undefined;
+    const forcePathStyle = e["S3_FORCE_PATH_STYLE"] === "true";
     return new S3Storage(
       bucket,
       region,
@@ -180,9 +180,9 @@ export function createStorage(): ObjectStorage {
     );
   }
   if (provider === "gridfs") {
-    const bucketName = env["GRIDFS_BUCKET"] || "uploads";
+    const bucketName = e["GRIDFS_BUCKET"] || "uploads";
     return new GridFSStorage(bucketName);
   }
-  const dir = env["LOCAL_STORAGE_DIR"] || "uploads";
+  const dir = e["LOCAL_STORAGE_DIR"] || "uploads";
   return new LocalStorage(dir);
 }

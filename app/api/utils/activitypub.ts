@@ -1,6 +1,6 @@
 import Account from "../models/account.ts";
 import Relay from "../models/relay.ts";
-import { env } from "./env.ts";
+import { getEnv } from "./env_store.ts";
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
@@ -59,7 +59,7 @@ async function signAndSend(
   );
 
   const signatureB64 = arrayBufferToBase64(signature);
-  const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
+  const domain = getEnv()["ACTIVITYPUB_DOMAIN"] || "localhost";
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
 
   const headers = new Headers({
@@ -522,7 +522,7 @@ export function resolveActor(
 export function getDomain(
   c: { req: { url: string } },
 ): string {
-  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+  return getEnv()["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 }
 
 export function jsonResponse(
@@ -762,7 +762,7 @@ export async function fetchJson<T = unknown>(
   signer?: { id: string; privateKey: string },
 ): Promise<T> {
   if (!signer) {
-    const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
+    const domain = getEnv()["ACTIVITYPUB_DOMAIN"] || "localhost";
     const sys = await Account.findOne({ userName: "system" }).lean();
     if (sys) {
       signer = {
@@ -942,4 +942,4 @@ export function extractAttachments(
     attachments.push({ url: obj.image, type: "image" });
   }
   return attachments;
-};
+}
