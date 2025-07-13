@@ -10,6 +10,7 @@
     "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
     "@std/fs": "jsr:@std/fs@^1.0.18",
     "@std/path": "jsr:@std/path@^1.1.0",
+    "@std/http": "jsr:@std/http@^0.225.5",
     "mongoose": "npm:mongoose@^8.15.1",
     "zod": "npm:zod@^3.25.56",
     "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@^3.528.0",

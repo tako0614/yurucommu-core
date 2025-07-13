@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { serveDir } from "jsr:@std/http/file_server";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 
@@ -14,32 +15,10 @@ export async function hash(text: string): Promise<string> {
 export const authApp = new Hono();
 
 authApp.get("/", (c) => {
-  const html = `<!DOCTYPE html>
-  <html lang="ja">
-    <head><meta charset="UTF-8"><title>takos host</title></head>
-    <body>
-      <h1>takos host ログイン</h1>
-      <form id="login">
-        <input name="userName" placeholder="ユーザー名" />
-        <input name="password" type="password" placeholder="パスワード" />
-        <button type="submit">ログイン</button>
-      </form>
-      <script>
-        document.getElementById('login').onsubmit = async (e) => {
-          e.preventDefault();
-          const fd = new FormData(e.target);
-          const res = await fetch('/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.fromEntries(fd)),
-          });
-          if (res.ok) location.href = '/admin/';
-          else alert('login failed');
-        };
-      </script>
-    </body>
-  </html>`;
-  return c.html(html);
+  return serveDir(c.req.raw, {
+    fsRoot: "./app/takos_host/client/dist",
+    urlRoot: "/auth",
+  });
 });
 
 authApp.post("/register", async (c) => {
