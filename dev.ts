@@ -3,6 +3,7 @@ import { TextLineStream } from "@std/streams/text-line-stream";
 const targetDirectories = [
   "app/api",
   "app/client",
+  "app/takos_host/client",
 ];
 
 async function runDevCommandInDir(dir: string): Promise<Deno.CommandStatus> {

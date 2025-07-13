@@ -5,6 +5,7 @@ import { connectDatabase } from "../api/db.ts";
 import Instance from "./models/instance.ts";
 import { createAdminApp } from "./admin.ts";
 import { authApp } from "./auth.ts";
+import { serveDir } from "jsr:@std/http/file_server";
 
 const env = await load();
 await connectDatabase(env);
@@ -34,6 +35,24 @@ async function getAppForHost(host: string): Promise<Hono | null> {
 }
 
 const root = new Hono();
+
+root.use("/auth/*", async (c, next) => {
+  const res = await serveDir(c.req.raw, {
+    fsRoot: "./app/takos_host/client/dist",
+    urlRoot: "/auth",
+  });
+  if (res.status !== 404) return res;
+  await next();
+});
+
+root.use("/admin/*", async (c, next) => {
+  const res = await serveDir(c.req.raw, {
+    fsRoot: "./app/takos_host/client/dist",
+    urlRoot: "/admin",
+  });
+  if (res.status !== 404) return res;
+  await next();
+});
 root.route("/auth", authApp);
 root.route("/admin", adminApp);
 

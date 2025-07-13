@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"],
+    "lib": ["dom", "es2024", "deno.ns"]
+  },
+  "tasks": {
+    "dev": "deno run -A --node-modules-dir npm:vite dev",
+    "build": "deno run -A --node-modules-dir npm:vite build"
+  },
+  "imports": {
+    "solid-js": "npm:solid-js@^1.9.6",
+    "vite": "npm:vite@^5.4.19",
+    "vite-plugin-solid": "npm:vite-plugin-solid@^2.11.6"
+  },
+  "nodeModulesDir": "auto"
+}
