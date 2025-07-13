@@ -7,7 +7,6 @@ import { createAdminApp } from "./admin.ts";
 import { authApp } from "./auth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
-import type { Context } from "hono";
 
 const env = await load();
 await connectDatabase(env);
@@ -20,15 +19,16 @@ const rootDomain = env["ROOT_DOMAIN"] ?? "";
 const isDev = Deno.env.get("DEV") === "1";
 
 function proxy(prefix: string) {
-  return async (c: Context) => {
+  return async (c: Context, next: () => Promise<void>) => {
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      await next();
+      return;
+    }
     const path = c.req.path.replace(new RegExp(`^${prefix}`), "");
     const url = `http://localhost:1421${path}`;
-    const res = await fetch(url, {
-      method: c.req.method,
-      headers: c.req.headers,
-      body: c.req.raw.body,
-    });
-    return new Response(res.body, { status: res.status, headers: res.headers });
+    const res = await fetch(url);
+    const body = await res.arrayBuffer();
+    return new Response(body, { status: res.status, headers: res.headers });
   };
 }
 
@@ -78,6 +78,11 @@ root.route("/admin", adminApp);
 root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
   if (rootDomain && host === rootDomain) {
+    if (isDev && c.req.method === "GET") {
+      const res = await fetch("http://localhost:1421");
+      const body = await res.arrayBuffer();
+      return new Response(body, { status: res.status, headers: res.headers });
+    }
     return authApp.fetch(c.req.raw);
   }
   const app = await getAppForHost(host);
