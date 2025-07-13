@@ -94,7 +94,7 @@ root.all("/*", async (c) => {
       const body = await res.arrayBuffer();
       return new Response(body, { status: res.status, headers: res.headers });
     }
-    return serveStatic({ root: "./client/dist", path: "/index.html" })(c);
+    return serveStatic({ root: "./client/dist" })(c, () => Promise.resolve());
   }
   const app = await getAppForHost(host);
   if (!app) return c.text("not found", 404);

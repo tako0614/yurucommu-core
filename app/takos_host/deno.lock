@@ -8,6 +8,7 @@
     "jsr:@std/internal@^1.0.9": "1.0.9",
     "jsr:@std/path@^1.1.0": "1.1.1",
     "jsr:@std/path@^1.1.1": "1.1.1",
+    "jsr:@std/streams@*": "1.0.10",
     "npm:@aws-sdk/client-s3@^3.528.0": "3.758.0",
     "npm:@aws-sdk/util-stream-node@^3.374.0": "3.374.0",
     "npm:@hono/zod-validator@0.7": "0.7.0_hono@4.8.4_zod@3.25.67",
@@ -41,6 +42,9 @@
       "dependencies": [
         "jsr:@std/internal@^1.0.9"
       ]
+    },
+    "@std/streams@1.0.10": {
+      "integrity": "75c0b1431873cd0d8b3d679015220204d36d3c7420d93b60acfc379eb0dc30af"
     }
   },
   "npm": {
