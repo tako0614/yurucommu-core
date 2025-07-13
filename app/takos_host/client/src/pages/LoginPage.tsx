@@ -5,7 +5,7 @@ interface LoginPageProps {
   setUserName: (v: string) => void;
   password: () => string;
   setPassword: (v: string) => void;
-  login: (e: Event) => Promise<void>;
+  login: (e: SubmitEvent) => Promise<void>;
 }
 
 const LoginPage: Component<LoginPageProps> = (props) => {

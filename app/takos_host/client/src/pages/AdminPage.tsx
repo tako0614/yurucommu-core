@@ -1,8 +1,5 @@
 import { Component, For, onMount, Show } from "solid-js";
-
-interface Instance {
-  host: string;
-}
+import type { Instance } from "../api.ts";
 
 interface AdminPageProps {
   loggedIn: () => boolean;
@@ -12,7 +9,7 @@ interface AdminPageProps {
   instPassword: () => string;
   setInstPassword: (v: string) => void;
   loadInstances: () => Promise<void>;
-  addInstance: (e: Event) => Promise<void>;
+  addInstance: (e: SubmitEvent) => Promise<void>;
   delInstance: (host: string) => Promise<void>;
   logout: () => Promise<void>;
 }
