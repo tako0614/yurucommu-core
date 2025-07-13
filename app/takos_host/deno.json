@@ -1,6 +1,8 @@
 {
   "tasks": {
-    "dev": "deno run -A --watch main.ts"
+    "serve": "deno run -A --watch main.ts",
+    "dev": "deno run -A dev.ts",
+    "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@1",

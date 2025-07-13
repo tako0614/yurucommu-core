@@ -26,10 +26,10 @@ takos を運用できるようにすることが目的です。
 
 ## ログインと管理 API
 
-`ROOT_DOMAIN` で指定したドメインは takos host
-自身のログインページとして機能します。 `/auth`
-でアカウント登録やログインを行い、セッション Cookie を得た状態で `/admin` 以下の
-API を利用できます。
+`ROOT_DOMAIN` で指定したドメインへアクセスすると、takos host の SPA
+が表示されます。認証や管理機能はこの SPA から利用し、`/auth`
+には登録やログインなど API のみが提供されます。取得したセッション Cookie
+を送信することで `/admin` 以下の API を利用できます。
 
 - `POST /auth/register` 新規ユーザー登録
 - `POST /auth/login` ログイン
