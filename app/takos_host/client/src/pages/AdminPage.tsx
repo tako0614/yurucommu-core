@@ -1,45 +1,77 @@
 import { Component, For, onMount, Show } from "solid-js";
-import type { Instance } from "../api.ts";
+import { useAtom } from "solid-jotai";
+import {
+  addInstance as apiAddInstance,
+  deleteInstance as apiDeleteInstance,
+  fetchInstances,
+  logout as apiLogout,
+} from "../api.ts";
+import {
+  hostState,
+  instancesState,
+  instPasswordState,
+  loggedInState,
+} from "../state.ts";
 
-interface AdminPageProps {
-  loggedIn: () => boolean;
-  instances: () => Instance[];
-  host: () => string;
-  setHost: (v: string) => void;
-  instPassword: () => string;
-  setInstPassword: (v: string) => void;
-  loadInstances: () => Promise<void>;
-  addInstance: (e: SubmitEvent) => Promise<void>;
-  delInstance: (host: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
+const AdminPage: Component = () => {
+  const [loggedIn, setLoggedIn] = useAtom(loggedInState);
+  const [instances, setInstances] = useAtom(instancesState);
+  const [host, setHost] = useAtom(hostState);
+  const [instPassword, setInstPassword] = useAtom(instPasswordState);
 
-const AdminPage: Component<AdminPageProps> = (props) => {
+  const loadInstances = async () => {
+    setInstances(await fetchInstances());
+  };
+
+  const addInstance = async (e: SubmitEvent) => {
+    e.preventDefault();
+    if (await apiAddInstance(host(), instPassword())) {
+      setHost("");
+      setInstPassword("");
+      await loadInstances();
+    } else {
+      alert("failed");
+    }
+  };
+
+  const delInstance = async (h: string) => {
+    if (!confirm(`delete ${h}?`)) return;
+    if (await apiDeleteInstance(h)) {
+      await loadInstances();
+    }
+  };
+
+  const logout = async () => {
+    await apiLogout();
+    setLoggedIn(false);
+    globalThis.location.href = "/";
+  };
+
   onMount(async () => {
-    if (props.loggedIn()) {
-      await props.loadInstances();
+    if (loggedIn()) {
+      await loadInstances();
     }
   });
 
   return (
     <div style={{ padding: "1rem", "font-family": "sans-serif" }}>
       <Show
-        when={props.loggedIn()}
+        when={loggedIn()}
         fallback={<a href="/auth">ログインしてください</a>}
       >
         <div>
-          <button type="button" onClick={props.logout}>
+          <button type="button" onClick={logout}>
             ログアウト
           </button>
           <h2>インスタンス一覧</h2>
           <ul>
-            <For each={props.instances()}>
+            <For each={instances()}>
               {(inst) => (
                 <li>
                   {inst.host}
                   <button
                     type="button"
-                    onClick={() => props.delInstance(inst.host)}
+                    onClick={() => delInstance(inst.host)}
                   >
                     削除
                   </button>
@@ -48,20 +80,20 @@ const AdminPage: Component<AdminPageProps> = (props) => {
             </For>
           </ul>
           <h3>追加</h3>
-          <form onSubmit={props.addInstance}>
+          <form onSubmit={addInstance}>
             <div>
               <input
                 placeholder="ホスト名"
-                value={props.host()}
-                onInput={(e) => props.setHost(e.currentTarget.value)}
+                value={host()}
+                onInput={(e) => setHost(e.currentTarget.value)}
               />
             </div>
             <div>
               <input
                 type="password"
                 placeholder="パスワード"
-                value={props.instPassword()}
-                onInput={(e) => props.setInstPassword(e.currentTarget.value)}
+                value={instPassword()}
+                onInput={(e) => setInstPassword(e.currentTarget.value)}
               />
             </div>
             <button type="submit">追加</button>

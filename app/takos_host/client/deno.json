@@ -10,8 +10,9 @@
     "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build"
   },
   "imports": {
-    "solid-app-router": "npm:solid-app-router@^0.4.2",
     "solid-js": "npm:solid-js@^1.9.6",
+    "jotai": "npm:jotai@^2.12.4",
+    "solid-jotai": "npm:solid-jotai@^0.3.1",
     "vite": "npm:vite@^5.4.19",
     "vite-plugin-solid": "npm:vite-plugin-solid@^2.11.6"
   },

@@ -50,7 +50,8 @@ takos を運用できるようにすることが目的です。
 
 ## フロントエンド
 
-管理画面は Vite と Solid.js で作られています。 `app/takos_host/client`
+管理画面は Vite と Solid.js で作られています。状態管理には solid-jotai
+を用い、ページ間で共通の状態を保持します。 `app/takos_host/client`
 で以下を実行すると開発サーバーが起動します。
 
 ```bash

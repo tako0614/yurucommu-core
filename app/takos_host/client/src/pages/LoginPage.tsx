@@ -1,31 +1,39 @@
 import { Component } from "solid-js";
+import { useAtom } from "solid-jotai";
+import { login as apiLogin } from "../api.ts";
+import { loggedInState, passwordState, userNameState } from "../state.ts";
 
-interface LoginPageProps {
-  userName: () => string;
-  setUserName: (v: string) => void;
-  password: () => string;
-  setPassword: (v: string) => void;
-  login: (e: SubmitEvent) => Promise<void>;
-}
+const LoginPage: Component = () => {
+  const [userName, setUserName] = useAtom(userNameState);
+  const [password, setPassword] = useAtom(passwordState);
+  const [, setLoggedIn] = useAtom(loggedInState);
 
-const LoginPage: Component<LoginPageProps> = (props) => {
+  const login = async (e: SubmitEvent) => {
+    e.preventDefault();
+    if (await apiLogin(userName(), password())) {
+      setLoggedIn(true);
+      globalThis.location.href = "/admin";
+    } else {
+      alert("login failed");
+    }
+  };
   return (
     <div style={{ padding: "1rem", "font-family": "sans-serif" }}>
       <h2>ログイン</h2>
-      <form onSubmit={props.login}>
+      <form onSubmit={login}>
         <div>
           <input
             placeholder="ユーザー名"
-            value={props.userName()}
-            onInput={(e) => props.setUserName(e.currentTarget.value)}
+            value={userName()}
+            onInput={(e) => setUserName(e.currentTarget.value)}
           />
         </div>
         <div>
           <input
             type="password"
             placeholder="パスワード"
-            value={props.password()}
-            onInput={(e) => props.setPassword(e.currentTarget.value)}
+            value={password()}
+            onInput={(e) => setPassword(e.currentTarget.value)}
           />
         </div>
         <button type="submit">ログイン</button>
