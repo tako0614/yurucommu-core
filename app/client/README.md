@@ -1,35 +1,36 @@
 # Vite + Deno + Solid + TypeScript
 
-## Running
+## 開発サーバーの起動
 
-You need to have Deno v1.28.0 or later installed to run this repo.
+このリポジトリを実行するには Deno v1.28.0 以降が必要です。
 
-Start a dev server:
+開発サーバーを起動するには次のコマンドを実行します:
 
 ```
 $ deno task dev
 ```
 
-The development server proxies API requests to `localhost:8000`. To allow
-Mastodon and other ActivityPub clients to reach your backend while using the
-Vite dev server, the proxy is also configured for `/.well-known`, `/users` and
-`/inbox` paths.
+開発サーバーは API リクエストを `localhost:8000` にプロキシします。Mastodon など
+ActivityPub
+クライアントがバックエンドへアクセスできるよう、`/.well-known`、`/users`、`/inbox`
+へのパスもプロキシ設定済みです。
 
-## Deploy
+## デプロイ
 
-Build production assets:
+本番用アセットのビルド:
 
 ```
 $ deno task build
 ```
 
-## Notes
+## 備考
 
-- You need to use `.mjs` or `.mts` extension for the `vite.config.[ext]` file.
+- `vite.config.[ext]` ファイルは拡張子 `.mjs` または `.mts`
+  を使用する必要があります。
 
-## Papercuts
+## 既知の問題
 
-Currently there's a "papercut" for Deno users:
+現在 Deno ユーザー向けに小さな問題があります:
 
-- peer dependencies need to be referenced in `vite.config.js` - in this example
-  it is only `solid-js` package that needs to be referenced
+- peer dependencies は `vite.config.js` 内で参照する必要があります。この例では
+  `solid-js` パッケージのみ参照すれば動作します。
