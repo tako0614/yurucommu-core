@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import Account from "./models/account.ts";
 import ActivityPubObject from "./models/activitypub_object.ts";
 import { getDomain } from "./utils/activitypub.ts";
-import { env } from "./utils/env.ts";
+import { getEnv } from "./utils/env_store.ts";
 // NodeInfo は外部からの参照を想定しているため認証は不要
 
 const app = new Hono();
@@ -21,7 +21,7 @@ app.get("/.well-known/nodeinfo", (c) => {
 });
 
 app.get("/nodeinfo/2.0", async (c) => {
-  const version = env["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
   const users = await Account.countDocuments();
   const posts = await ActivityPubObject.countDocuments();
 
@@ -44,7 +44,7 @@ app.get("/nodeinfo/2.0", async (c) => {
 
 app.get("/api/v1/instance", async (c) => {
   const domain = getDomain(c);
-  const version = env["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
   const userCount = await Account.countDocuments();
   const statusCount = await ActivityPubObject.countDocuments();
 
@@ -70,7 +70,7 @@ app.get("/api/v1/instance", async (c) => {
 });
 
 app.get("/.well-known/x-nodeinfo2", async (c) => {
-  const version = env["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
   const users = await Account.countDocuments();
   const posts = await ActivityPubObject.countDocuments();
 

@@ -15,7 +15,7 @@ import {
   jsonResponse,
   verifyHttpSignature,
 } from "./utils/activitypub.ts";
-import { env } from "./utils/env.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 const app = new Hono();
 import { logger } from "hono/logger";
@@ -27,7 +27,7 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const expected = env["ACTIVITYPUB_DOMAIN"];
+  const expected = getEnv()["ACTIVITYPUB_DOMAIN"];
   if (expected && host !== expected) {
     return jsonResponse(c, { error: "Not found" }, 404);
   }

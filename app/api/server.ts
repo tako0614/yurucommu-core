@@ -1,6 +1,7 @@
-import mongoose from "mongoose";
 import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
+import { connectDatabase } from "./db.ts";
+import { initEnv } from "./utils/env_store.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
 import session from "./session.ts";
@@ -22,9 +23,8 @@ import { fetchOgpData } from "./services/ogp.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await load();
-  await mongoose.connect(e["MONGO_URI"])
-    .then(() => console.log("Connected to MongoDB"))
-    .catch((err: Error) => console.error("MongoDB connection error:", err));
+  initEnv(e);
+  await connectDatabase(e);
 
   const app = new Hono();
   app.route("/api", login);
