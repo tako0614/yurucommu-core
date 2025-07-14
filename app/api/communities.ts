@@ -17,6 +17,7 @@ import {
   getDomain,
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -316,20 +317,23 @@ app.post("/communities/:id/posts", async (c) => {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const post = await saveObject(c.get("env") as Record<string, string>, {
-      _id: createObjectId(domain),
-      type: "Note",
-      attributedTo: author,
-      content,
-      extra: {
-        communityId,
-        likes: 0,
-        comments: 0,
-        isPinned: false,
+    const post = await saveObject(
+      getEnv(c),
+      {
+        _id: createObjectId(domain),
+        type: "Note",
+        attributedTo: author,
+        content,
+        extra: {
+          communityId,
+          likes: 0,
+          comments: 0,
+          isPinned: false,
+        },
+        actor_id: `https://${domain}/users/${author}`,
+        aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
       },
-      actor_id: `https://${domain}/users/${author}`,
-      aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
-    });
+    );
 
     const account = await Account.findOne({ userName: author }).lean();
 

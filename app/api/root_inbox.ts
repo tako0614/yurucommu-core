@@ -8,6 +8,7 @@ import {
   jsonResponse,
   verifyHttpSignature,
 } from "./utils/activitypub.ts";
+import { getEnv } from "./utils/env_store.ts";
 import { activityHandlers } from "./activity_handlers.ts";
 import Group from "./models/group.ts";
 import Account from "./models/account.ts";
@@ -95,7 +96,7 @@ app.post("/inbox", async (c) => {
           const extra: Record<string, unknown> = {};
           if (attachments.length > 0) extra.attachments = attachments;
           const stored = await saveObject(
-            c.get("env") as Record<string, string>,
+            getEnv(c),
             {
               type: (obj.type as string) ?? "Note",
               attributedTo: `!${name}`,

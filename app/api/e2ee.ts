@@ -6,6 +6,7 @@ import EncryptedKeyPair from "./models/encrypted_keypair.ts";
 import { saveObject } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   type ActivityPubActor,
   buildActivityFromStored,
@@ -142,7 +143,7 @@ app.get("/users/:user/keyPackages", async (c) => {
 
   const actor = await resolveActorCached(
     acct,
-    c.get("env") as Record<string, string>,
+    getEnv(c),
   );
   if (!actor) return c.json({ type: "Collection", items: [] });
   const kpUrl = typeof actor.keyPackages === "string"
@@ -155,7 +156,7 @@ app.get("/users/:user/keyPackages", async (c) => {
       kpUrl,
       {},
       undefined,
-      c.get("env") as Record<string, string>,
+      getEnv(c),
     );
     const items = Array.isArray(col.items) ? col.items : [];
     return c.json({ type: "Collection", items });
@@ -308,15 +309,18 @@ app.post("/users/:user/messages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await saveObject(c.get("env") as Record<string, string>, {
-    type: "PrivateMessage",
-    attributedTo: acct,
-    content,
-    to,
-    extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-    actor_id: actorId,
-    aud: { to, cc: [] },
-  });
+  const object = await saveObject(
+    getEnv(c),
+    {
+      type: "PrivateMessage",
+      attributedTo: acct,
+      content,
+      to,
+      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+      actor_id: actorId,
+      aud: { to, cc: [] },
+    },
+  );
 
   const privateMessage = buildActivityFromStored(
     { ...object.toObject(), content },
@@ -363,15 +367,18 @@ app.post("/users/:user/publicMessages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await saveObject(c.get("env") as Record<string, string>, {
-    type: "PublicMessage",
-    attributedTo: acct,
-    content,
-    to,
-    extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-    actor_id: actorId,
-    aud: { to, cc: [] },
-  });
+  const object = await saveObject(
+    getEnv(c),
+    {
+      type: "PublicMessage",
+      attributedTo: acct,
+      content,
+      to,
+      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+      actor_id: actorId,
+      aud: { to, cc: [] },
+    },
+  );
 
   const publicMessage = buildActivityFromStored(
     { ...object.toObject(), content },
@@ -407,7 +414,7 @@ app.get("/users/:user/messages", async (c) => {
 
   const actor = await resolveActorCached(
     acct,
-    c.get("env") as Record<string, string>,
+    getEnv(c),
   );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
@@ -415,7 +422,7 @@ app.get("/users/:user/messages", async (c) => {
   const partnerActorObj = partnerAcct
     ? await resolveActorCached(
       partnerAcct,
-      c.get("env") as Record<string, string>,
+      getEnv(c),
     )
     : null;
   let partnerActor = partnerActorObj?.id;
@@ -444,8 +451,12 @@ app.get("/users/:user/messages", async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const query = EncryptedMessage.find(condition);
-  if (before) query.where("createdAt").lt(new Date(before));
-  if (after) query.where("createdAt").gt(new Date(after));
+  if (before) {
+    query.where("createdAt").lt(new Date(before) as unknown as number);
+  }
+  if (after) {
+    query.where("createdAt").gt(new Date(after) as unknown as number);
+  }
   const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
   list.reverse();
   const messages = list.map((doc) => ({
@@ -469,7 +480,7 @@ app.get("/users/:user/publicMessages", async (c) => {
 
   const actor = await resolveActorCached(
     acct,
-    c.get("env") as Record<string, string>,
+    getEnv(c),
   );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
@@ -477,7 +488,7 @@ app.get("/users/:user/publicMessages", async (c) => {
   const partnerActorObj = partnerAcct
     ? await resolveActorCached(
       partnerAcct,
-      c.get("env") as Record<string, string>,
+      getEnv(c),
     )
     : null;
   let partnerActor = partnerActorObj?.id;
@@ -506,8 +517,12 @@ app.get("/users/:user/publicMessages", async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const query = PublicMessage.find(condition);
-  if (before) query.where("createdAt").lt(new Date(before));
-  if (after) query.where("createdAt").gt(new Date(after));
+  if (before) {
+    query.where("createdAt").lt(new Date(before) as unknown as number);
+  }
+  if (after) {
+    query.where("createdAt").gt(new Date(after) as unknown as number);
+  }
   const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
   list.reverse();
   const messages = list.map((doc) => ({

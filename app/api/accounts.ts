@@ -12,6 +12,7 @@ import {
 import authRequired from "./utils/auth.ts";
 import { addNotification } from "./services/notification.ts";
 import { addFollowEdge, removeFollowEdge } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -250,7 +251,7 @@ app.post("/accounts/:id/follow", async (c) => {
         deliverActivityPubObject([inbox], follow, userName, domain)
           .catch((err) => console.error("Delivery failed:", err));
       }
-      const env = c.get("env") as Record<string, string>;
+      const env = getEnv(c);
       await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {
@@ -311,7 +312,7 @@ app.delete("/accounts/:id/follow", async (c) => {
           (err) => console.error("Delivery failed:", err),
         );
       }
-      const env = c.get("env") as Record<string, string>;
+      const env = getEnv(c);
       await removeFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {

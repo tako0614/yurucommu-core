@@ -84,23 +84,26 @@ app.post("/api/stories", async (c) => {
     expiresAt.setHours(expiresAt.getHours() + 24);
 
     const domain = getEnv(c)["ACTIVITYPUB_DOMAIN"] ?? "";
-    const story = await saveObject(c.get("env") as Record<string, string>, {
-      _id: createObjectId(domain),
-      type: "Story",
-      attributedTo: author,
-      content,
-      published: new Date(),
-      extra: {
-        mediaUrl,
-        mediaType,
-        backgroundColor: backgroundColor || "#1DA1F2",
-        textColor: textColor || "#FFFFFF",
-        expiresAt,
-        views: 0,
+    const story = await saveObject(
+      getEnv(c),
+      {
+        _id: createObjectId(domain),
+        type: "Story",
+        attributedTo: author,
+        content,
+        published: new Date(),
+        extra: {
+          mediaUrl,
+          mediaType,
+          backgroundColor: backgroundColor || "#1DA1F2",
+          textColor: textColor || "#FFFFFF",
+          expiresAt,
+          views: 0,
+        },
+        actor_id: `https://${domain}/users/${author}`,
+        aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
       },
-      actor_id: `https://${domain}/users/${author}`,
-      aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
-    });
+    );
     return c.json({
       id: story._id.toString(),
       author: story.attributedTo,

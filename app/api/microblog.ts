@@ -12,6 +12,7 @@ import {
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
 import type { activityPubObjectSchema } from "./models/activitypub_object.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 type ActivityPubObjectType = InferSchemaType<typeof activityPubObjectSchema>;
 import Account from "./models/account.ts";
@@ -126,7 +127,7 @@ app.use("*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
-  const env = c.get("env") as Record<string, string>;
+  const env = getEnv(c);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const actor = c.req.query("actor");
   const limit = Math.min(
@@ -180,7 +181,7 @@ app.post("/microblog", async (c) => {
   if (typeof quoteId === "string") extra.quoteId = quoteId;
   if (typeof parentId === "string") extra.replies = 0;
 
-  const env = c.get("env") as Record<string, string>;
+  const env = getEnv(c);
   const post = await saveNote(env, domain, author, content, extra);
 
   if (typeof parentId === "string") {

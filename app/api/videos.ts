@@ -13,6 +13,7 @@ import {
 } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
@@ -164,29 +165,35 @@ const videoUploadWs = upgradeWebSocket((c) => {
           : `/api/video-files/${storageKey}`;
 
         const domain = getDomain(c);
-        const video = await saveObject(c.get("env") as Record<string, string>, {
-          _id: createObjectId(domain),
-          type: "Video",
-          attributedTo: videoMetadata.author,
-          content: videoMetadata.description,
-          published: new Date(),
-          extra: {
-            title: videoMetadata.title,
-            hashtags: videoMetadata.hashtagsStr
-              ? videoMetadata.hashtagsStr.split(" ")
-              : [],
-            isShort: videoMetadata.isShort,
-            duration: videoMetadata.duration || "",
-            likes: 0,
-            views: 0,
-            thumbnail: `/api/placeholder/${
-              videoMetadata.isShort ? "225/400" : "400/225"
-            }`,
-            videoUrl,
+        const video = await saveObject(
+          getEnv(c),
+          {
+            _id: createObjectId(domain),
+            type: "Video",
+            attributedTo: videoMetadata.author,
+            content: videoMetadata.description,
+            published: new Date(),
+            extra: {
+              title: videoMetadata.title,
+              hashtags: videoMetadata.hashtagsStr
+                ? videoMetadata.hashtagsStr.split(" ")
+                : [],
+              isShort: videoMetadata.isShort,
+              duration: videoMetadata.duration || "",
+              likes: 0,
+              views: 0,
+              thumbnail: `/api/placeholder/${
+                videoMetadata.isShort ? "225/400" : "400/225"
+              }`,
+              videoUrl,
+            },
+            actor_id: `https://${domain}/users/${videoMetadata.author}`,
+            aud: {
+              to: ["https://www.w3.org/ns/activitystreams#Public"],
+              cc: [],
+            },
           },
-          actor_id: `https://${domain}/users/${videoMetadata.author}`,
-          aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
-        });
+        );
         deliverVideoToFollowers(video, videoMetadata.author, domain);
         console.log("Video metadata saved to database.");
       } else {
@@ -259,25 +266,28 @@ app.post("/videos", async (c) => {
     ? stored
     : `/api/video-files/${filename}`;
 
-  const video = await saveObject(c.get("env") as Record<string, string>, {
-    _id: createObjectId(domain),
-    type: "Video",
-    attributedTo: author,
-    content: description,
-    published: new Date(),
-    extra: {
-      title,
-      hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
-      isShort,
-      duration: duration || "",
-      likes: 0,
-      views: 0,
-      thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
-      videoUrl,
+  const video = await saveObject(
+    getEnv(c),
+    {
+      _id: createObjectId(domain),
+      type: "Video",
+      attributedTo: author,
+      content: description,
+      published: new Date(),
+      extra: {
+        title,
+        hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
+        isShort,
+        duration: duration || "",
+        likes: 0,
+        views: 0,
+        thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
+        videoUrl,
+      },
+      actor_id: `https://${domain}/users/${author}`,
+      aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
     },
-    actor_id: `https://${domain}/users/${author}`,
-    aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
-  });
+  );
 
   // Fire-and-forget delivery
   deliverVideoToFollowers(video, author, domain);

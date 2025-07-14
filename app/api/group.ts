@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Group from "./models/group.ts";
 import { findObjects, saveObject } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   createAcceptActivity,
   createAnnounceActivity,
@@ -101,23 +102,26 @@ app.post("/communities/:name/inbox", async (c) => {
     const attachments = extractAttachments(obj);
     const extra: Record<string, unknown> = {};
     if (attachments.length > 0) extra.attachments = attachments;
-    const stored = await saveObject(c.get("env") as Record<string, string>, {
-      type: (obj.type as string) ?? "Note",
-      attributedTo: `!${name}`,
-      content: (obj.content as string) ?? "",
-      to: Array.isArray(obj.to) ? obj.to : [],
-      cc: Array.isArray(obj.cc) ? obj.cc : [],
-      published: obj.published && typeof obj.published === "string"
-        ? new Date(obj.published)
-        : new Date(),
-      raw: obj,
-      extra,
-      actor_id: `https://${domain}/communities/${name}`,
-      aud: {
+    const stored = await saveObject(
+      getEnv(c),
+      {
+        type: (obj.type as string) ?? "Note",
+        attributedTo: `!${name}`,
+        content: (obj.content as string) ?? "",
         to: Array.isArray(obj.to) ? obj.to : [],
         cc: Array.isArray(obj.cc) ? obj.cc : [],
+        published: obj.published && typeof obj.published === "string"
+          ? new Date(obj.published)
+          : new Date(),
+        raw: obj,
+        extra,
+        actor_id: `https://${domain}/communities/${name}`,
+        aud: {
+          to: Array.isArray(obj.to) ? obj.to : [],
+          cc: Array.isArray(obj.cc) ? obj.cc : [],
+        },
       },
-    });
+    );
     const announce = createAnnounceActivity(
       domain,
       `https://${domain}/communities/${name}`,

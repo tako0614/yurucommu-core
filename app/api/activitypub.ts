@@ -3,6 +3,7 @@ import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import { findObjects, saveObject } from "./services/unified_store.ts";
 import KeyPackage from "./models/key_package.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
 import RemoteActor from "./models/remote_actor.ts";
@@ -27,8 +28,7 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const expected =
-    (c.get("env") as Record<string, string>)["ACTIVITYPUB_DOMAIN"];
+  const expected = getEnv(c)["ACTIVITYPUB_DOMAIN"];
   if (expected && host !== expected) {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
@@ -145,7 +145,7 @@ app.post("/users/:username/outbox", async (c) => {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const domain = getDomain(c);
-  const env = c.get("env") as Record<string, string>;
+  const env = getEnv(c);
   const object = await saveObject(env, {
     _id: createObjectId(domain),
     type: body.type,
