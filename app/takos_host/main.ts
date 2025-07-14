@@ -3,7 +3,7 @@ import { load } from "jsr:@std/dotenv";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../api/db.ts";
 import Instance from "./models/instance.ts";
-import { createAdminApp } from "./admin.ts";
+import { createConsumerApp } from "./consumer.ts";
 import { authApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
@@ -15,7 +15,7 @@ await connectDatabase(env);
 const apps = new Map<string, Hono>();
 const rootDomain = env["ROOT_DOMAIN"] ?? "";
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
-const adminApp = createAdminApp(
+const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
   },
@@ -59,7 +59,7 @@ const root = new Hono();
 
 root.route("/auth", authApp);
 root.route("/oauth", oauthApp);
-root.route("/user", adminApp);
+root.route("/user", consumerApp);
 
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));

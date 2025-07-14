@@ -11,7 +11,7 @@ app.post("/login", async (c) => {
   const hashedPassword = env["hashedPassword"];
   const salt = env["salt"];
   if (!hashedPassword || !salt) {
-    return c.json({ error: "Server configuration error" }, 500);
+    return c.json({ error: "not_configured" }, 400);
   }
   try {
     const encoder = new TextEncoder();

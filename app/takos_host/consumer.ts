@@ -3,11 +3,11 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import Instance from "./models/instance.ts";
 import { authRequired, hash } from "./auth.ts";
-import OAuthClient from "./models/oauth_client.ts";
 import HostDomain from "./models/domain.ts";
+import OAuthClient from "./models/oauth_client.ts";
 import type HostUser from "./models/user.ts";
 
-export function createAdminApp(
+export function createConsumerApp(
   invalidate?: (host: string) => void,
   options?: { rootDomain?: string; freeLimit?: number },
 ) {
@@ -27,7 +27,7 @@ export function createAdminApp(
     "/instances",
     zValidator(
       "json",
-      z.object({ host: z.string(), password: z.string() }),
+      z.object({ host: z.string(), password: z.string().optional() }),
     ),
     async (c) => {
       const { host, password } = c.req.valid("json");
@@ -56,12 +56,17 @@ export function createAdminApp(
       if (exists) {
         return c.json({ error: "already exists" }, 400);
       }
-      const salt = crypto.randomUUID();
-      const hashedPassword = await hash(password + salt);
+      const env: Record<string, string> = {};
+      if (password) {
+        const salt = crypto.randomUUID();
+        const hashedPassword = await hash(password + salt);
+        env.hashedPassword = hashedPassword;
+        env.salt = salt;
+      }
       const inst = new Instance({
         host: fullHost,
         owner: user._id,
-        env: { hashedPassword, salt },
+        env,
       });
       await inst.save();
       invalidate?.(fullHost);
@@ -103,16 +108,21 @@ export function createAdminApp(
 
   app.put(
     "/instances/:host/password",
-    zValidator("json", z.object({ password: z.string() })),
+    zValidator("json", z.object({ password: z.string().optional() })),
     async (c) => {
       const host = c.req.param("host");
       const { password } = c.req.valid("json");
       const user = c.get("user") as HostUser;
       const inst = await Instance.findOne({ host, owner: user._id });
       if (!inst) return c.json({ error: "not found" }, 404);
-      const salt = crypto.randomUUID();
-      const hashedPassword = await hash(password + salt);
-      inst.env = { ...(inst.env ?? {}), hashedPassword, salt };
+      if (password) {
+        const salt = crypto.randomUUID();
+        const hashedPassword = await hash(password + salt);
+        inst.env = { ...(inst.env ?? {}), hashedPassword, salt };
+      } else if (inst.env) {
+        delete inst.env.hashedPassword;
+        delete inst.env.salt;
+      }
       await inst.save();
       invalidate?.(host);
       return c.json({ success: true });
