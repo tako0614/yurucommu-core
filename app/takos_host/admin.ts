@@ -4,14 +4,22 @@ import { zValidator } from "@hono/zod-validator";
 import Instance from "./models/instance.ts";
 import { authRequired, hash } from "./auth.ts";
 import OAuthClient from "./models/oauth_client.ts";
+import HostDomain from "./models/domain.ts";
+import type HostUser from "./models/user.ts";
 
-export function createAdminApp(invalidate?: (host: string) => void) {
+export function createAdminApp(
+  invalidate?: (host: string) => void,
+  options?: { rootDomain?: string; freeLimit?: number },
+) {
   const app = new Hono();
+  const rootDomain = options?.rootDomain ?? "";
+  const freeLimit = options?.freeLimit ?? 1;
 
   app.use("/*", authRequired);
 
   app.get("/instances", async (c) => {
-    const list = await Instance.find().lean();
+    const user = c.get("user") as HostUser;
+    const list = await Instance.find({ owner: user._id }).lean();
     return c.json(list.map((i) => ({ host: i.host })));
   });
 
@@ -23,32 +31,56 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     ),
     async (c) => {
       const { host, password } = c.req.valid("json");
-      const exists = await Instance.findOne({ host });
+      const user = c.get("user") as HostUser;
+
+      const count = await Instance.countDocuments({ owner: user._id });
+      if (count >= freeLimit) {
+        return c.json({ error: "limit" }, 400);
+      }
+
+      let fullHost = host;
+      if (rootDomain && !host.includes(".")) {
+        fullHost = `${host}.${rootDomain}`;
+      }
+
+      if (rootDomain && !fullHost.endsWith(rootDomain)) {
+        const dom = await HostDomain.findOne({
+          domain: fullHost,
+          user: user._id,
+          verified: true,
+        });
+        if (!dom) return c.json({ error: "domain" }, 400);
+      }
+
+      const exists = await Instance.findOne({ host: fullHost });
       if (exists) {
         return c.json({ error: "already exists" }, 400);
       }
       const salt = crypto.randomUUID();
       const hashedPassword = await hash(password + salt);
       const inst = new Instance({
-        host,
+        host: fullHost,
+        owner: user._id,
         env: { hashedPassword, salt },
       });
       await inst.save();
-      invalidate?.(host);
-      return c.json({ success: true });
+      invalidate?.(fullHost);
+      return c.json({ success: true, host: fullHost });
     },
   );
 
   app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host");
-    await Instance.deleteOne({ host });
+    const user = c.get("user") as HostUser;
+    await Instance.deleteOne({ host, owner: user._id });
     invalidate?.(host);
     return c.json({ success: true });
   });
 
   app.get("/instances/:host", async (c) => {
     const host = c.req.param("host");
-    const inst = await Instance.findOne({ host }).lean();
+    const user = c.get("user") as HostUser;
+    const inst = await Instance.findOne({ host, owner: user._id }).lean();
     if (!inst) return c.json({ error: "not found" }, 404);
     return c.json({ host: inst.host, env: inst.env });
   });
@@ -59,7 +91,8 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     async (c) => {
       const host = c.req.param("host");
       const env = c.req.valid("json");
-      const inst = await Instance.findOne({ host });
+      const user = c.get("user") as HostUser;
+      const inst = await Instance.findOne({ host, owner: user._id });
       if (!inst) return c.json({ error: "not found" }, 404);
       inst.env = { ...(inst.env ?? {}), ...env };
       await inst.save();
@@ -74,7 +107,8 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     async (c) => {
       const host = c.req.param("host");
       const { password } = c.req.valid("json");
-      const inst = await Instance.findOne({ host });
+      const user = c.get("user") as HostUser;
+      const inst = await Instance.findOne({ host, owner: user._id });
       if (!inst) return c.json({ error: "not found" }, 404);
       const salt = crypto.randomUUID();
       const hashedPassword = await hash(password + salt);
@@ -87,7 +121,8 @@ export function createAdminApp(invalidate?: (host: string) => void) {
 
   app.post("/instances/:host/restart", async (c) => {
     const host = c.req.param("host");
-    const inst = await Instance.findOne({ host });
+    const user = c.get("user") as HostUser;
+    const inst = await Instance.findOne({ host, owner: user._id });
     if (!inst) return c.json({ error: "not found" }, 404);
     invalidate?.(host);
     return c.json({ success: true });
@@ -122,6 +157,57 @@ export function createAdminApp(invalidate?: (host: string) => void) {
       return c.json({ success: true });
     },
   );
+
+  app.get("/domains", async (c) => {
+    const user = c.get("user") as HostUser;
+    const list = await HostDomain.find({ user: user._id }).lean();
+    return c.json(
+      list.map((d) => ({ domain: d.domain, verified: d.verified })),
+    );
+  });
+
+  app.post(
+    "/domains",
+    zValidator("json", z.object({ domain: z.string() })),
+    async (c) => {
+      const { domain } = c.req.valid("json");
+      const user = c.get("user") as HostUser;
+      const exists = await HostDomain.findOne({ domain });
+      if (exists) return c.json({ error: "exists" }, 400);
+      const token = crypto.randomUUID();
+      const doc = new HostDomain({
+        domain,
+        user: user._id,
+        token,
+        verified: false,
+      });
+      await doc.save();
+      return c.json({ success: true, token });
+    },
+  );
+
+  app.post("/domains/:domain/verify", async (c) => {
+    const domain = c.req.param("domain");
+    const user = c.get("user") as HostUser;
+    const doc = await HostDomain.findOne({ domain, user: user._id });
+    if (!doc) return c.json({ error: "not found" }, 404);
+    try {
+      const res = await fetch(
+        `http://${domain}/.well-known/takos-host-verification.txt`,
+      );
+      if (res.ok) {
+        const text = (await res.text()).trim();
+        if (text === doc.token) {
+          doc.verified = true;
+          await doc.save();
+          return c.json({ success: true });
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return c.json({ error: "verify" }, 400);
+  });
 
   return app;
 }

@@ -13,10 +13,14 @@ const env = await load();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
-const adminApp = createAdminApp((host) => {
-  apps.delete(host);
-});
 const rootDomain = env["ROOT_DOMAIN"] ?? "";
+const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
+const adminApp = createAdminApp(
+  (host) => {
+    apps.delete(host);
+  },
+  { rootDomain, freeLimit },
+);
 const isDev = Deno.env.get("DEV") === "1";
 
 function proxy(prefix: string) {
@@ -56,7 +60,6 @@ const root = new Hono();
 root.route("/auth", authApp);
 root.route("/oauth", oauthApp);
 root.route("/user", adminApp);
-
 
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));

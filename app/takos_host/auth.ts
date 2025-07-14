@@ -70,10 +70,13 @@ authApp.delete("/logout", async (c) => {
 export const authRequired: MiddlewareHandler = async (c, next) => {
   const sid = getCookie(c, "hostSessionId");
   if (!sid) return c.json({ error: "unauthorized" }, 401);
-  const session = await HostSession.findOne({ sessionId: sid });
+  const session = await HostSession.findOne({ sessionId: sid }).populate(
+    "user",
+  );
   if (!session || session.expiresAt <= new Date()) {
     if (session) await HostSession.deleteOne({ sessionId: sid });
     return c.json({ error: "unauthorized" }, 401);
   }
+  c.set("user", session.user);
   await next();
 };
