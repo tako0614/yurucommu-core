@@ -81,7 +81,7 @@ app.post("/relays", async (c) => {
     const actorId = `https://${domain}/users/system`;
     const target = "https://www.w3.org/ns/activitystreams#Public";
     const follow = createFollowActivity(domain, actorId, target);
-    await sendActivityPubObject(inboxUrl, follow, "system");
+    await sendActivityPubObject(inboxUrl, follow, "system", domain);
   } catch (err) {
     console.error("Failed to follow relay:", err);
   }
@@ -111,7 +111,7 @@ app.delete("/relays/:id", async (c) => {
     const actorId = `https://${domain}/users/system`;
     const target = "https://www.w3.org/ns/activitystreams#Public";
     const undo = createUndoFollowActivity(domain, actorId, target);
-    await sendActivityPubObject(relay.inboxUrl, undo, "system");
+    await sendActivityPubObject(relay.inboxUrl, undo, "system", domain);
   } catch (err) {
     console.error("Failed to undo follow relay:", err);
   }

@@ -19,7 +19,7 @@ import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
-import videos from "./videos.ts";
+import videos, { initVideoModule } from "./videos.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
@@ -27,6 +27,7 @@ export async function createTakosApp(env?: Record<string, string>) {
 
   const app = new Hono();
   initEnv(app, e);
+  initVideoModule(e);
   app.route("/api", login);
   app.route("/api", logout);
   if (e["OAUTH_HOST"]) {

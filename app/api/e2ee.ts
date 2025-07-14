@@ -49,6 +49,9 @@ async function resolveActorCached(acct: string) {
         ActivityPubActor & { keyPackages?: string | { id?: string } }
       >(
         cached.actorUrl,
+        {},
+        undefined,
+        c.get("env") as Record<string, string>,
       );
     } catch (err) {
       console.error(`Failed to fetch cached actor ${cached.actorUrl}:`, err);
@@ -104,9 +107,11 @@ async function deliverToFollowers(
     typeof i === "string" && !!i
   );
   if (validInboxes.length > 0) {
-    deliverActivityPubObject(validInboxes, activity, user).catch((err) => {
-      console.error("Delivery failed:", err);
-    });
+    deliverActivityPubObject(validInboxes, activity, user, domain).catch(
+      (err) => {
+        console.error("Delivery failed:", err);
+      },
+    );
   }
 }
 
@@ -140,7 +145,12 @@ app.get("/users/:user/keyPackages", async (c) => {
   if (!kpUrl) return c.json({ type: "Collection", items: [] });
 
   try {
-    const col = await fetchJson<{ items?: unknown[] }>(kpUrl);
+    const col = await fetchJson<{ items?: unknown[] }>(
+      kpUrl,
+      {},
+      undefined,
+      c.get("env") as Record<string, string>,
+    );
     const items = Array.isArray(col.items) ? col.items : [];
     return c.json({ type: "Collection", items });
   } catch (_err) {
@@ -321,7 +331,7 @@ app.post("/users/:user/messages", async (c) => {
   // 個別配信
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender).catch((err) => {
+  deliverActivityPubObject(to, activity, sender, domain).catch((err) => {
     console.error("deliver failed", err);
   });
 
@@ -375,7 +385,7 @@ app.post("/users/:user/publicMessages", async (c) => {
   ];
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender).catch((err) => {
+  deliverActivityPubObject(to, activity, sender, domain).catch((err) => {
     console.error("deliver failed", err);
   });
 

@@ -89,7 +89,7 @@ async function deliverPostToFollowers(
         noteObject,
       );
       // Fire-and-forget delivery
-      deliverActivityPubObject(validInboxes, createActivity, author);
+      deliverActivityPubObject(validInboxes, createActivity, author, domain);
 
       if (replyToId) {
         const parent = await getObject(replyToId);
@@ -100,7 +100,7 @@ async function deliverPostToFollowers(
         ) {
           const inbox = await fetchActorInbox(parent.attributedTo);
           if (inbox) {
-            deliverActivityPubObject([inbox], createActivity, author);
+            deliverActivityPubObject([inbox], createActivity, author, domain);
           }
         } else if (
           parent &&
@@ -279,7 +279,7 @@ app.post("/microblog/:id/like", async (c) => {
     }
     if (inboxes.length > 0) {
       const like = createLikeActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, like, username).catch((err) => {
+      deliverActivityPubObject(inboxes, like, username, domain).catch((err) => {
         console.error("Delivery failed:", err);
       });
     }
@@ -349,9 +349,11 @@ app.post("/microblog/:id/retweet", async (c) => {
 
     if (inboxes.length > 0) {
       const announce = createAnnounceActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, announce, username).catch((err) => {
-        console.error("Delivery failed:", err);
-      });
+      deliverActivityPubObject(inboxes, announce, username, domain).catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
     }
 
     let localAuthor: string | null = null;

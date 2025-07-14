@@ -1,6 +1,7 @@
 import Account from "../models/account.ts";
 import Relay from "../models/relay.ts";
 import { getEnv } from "./env_store.ts";
+import type { Context } from "hono";
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
@@ -25,6 +26,7 @@ async function signAndSend(
   inboxUrl: string,
   body: string,
   account: { userName: string; privateKey: string },
+  domain: string,
 ): Promise<Response> {
   const parsedUrl = new URL(inboxUrl);
   const host = parsedUrl.hostname;
@@ -59,7 +61,6 @@ async function signAndSend(
   );
 
   const signatureB64 = arrayBufferToBase64(signature);
-  const domain = getEnv()["ACTIVITYPUB_DOMAIN"] || "localhost";
   const keyId = `https://${domain}/users/${account.userName}#main-key`;
 
   const headers = new Headers({
@@ -102,6 +103,7 @@ export async function sendActivityPubObject(
   inboxUrl: string,
   object: unknown,
   actor: string,
+  domain: string,
 ): Promise<Response> {
   const body = JSON.stringify(object);
   const account = await Account.findOne({ userName: actor }).lean();
@@ -111,7 +113,7 @@ export async function sendActivityPubObject(
     return await signAndSend(inboxUrl, body, {
       userName: actor,
       privateKey: account.privateKey,
-    });
+    }, domain);
   } catch (err) {
     console.error(`Failed to send ActivityPub object to ${inboxUrl}:`, err);
     throw err;
@@ -122,6 +124,7 @@ export async function deliverActivityPubObject(
   targets: string[],
   object: unknown,
   actor: string,
+  domain: string,
 ): Promise<void> {
   const relayDocs = await Relay.find().lean<{ inboxUrl: string }[]>();
   const relays = relayDocs.map((r) => r.inboxUrl);
@@ -130,7 +133,7 @@ export async function deliverActivityPubObject(
   const deliveryPromises = allTargets.map(async (iri) => {
     // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
-      return sendActivityPubObject(iri, object, actor).catch((err) => {
+      return sendActivityPubObject(iri, object, actor, domain).catch((err) => {
         console.error(`Failed to deliver to inbox URL ${iri}`, err);
       });
     }
@@ -139,9 +142,11 @@ export async function deliverActivityPubObject(
     try {
       const { inbox, sharedInbox } = await resolveRemoteActor(iri);
       const target = sharedInbox ?? inbox;
-      return sendActivityPubObject(target, object, actor).catch((err) => {
-        console.error(`Failed to deliver to ${iri}`, err);
-      });
+      return sendActivityPubObject(target, object, actor, domain).catch(
+        (err) => {
+          console.error(`Failed to deliver to ${iri}`, err);
+        },
+      );
     } catch (err) {
       console.error(`Failed to resolve remote actor for ${iri}`, err);
     }
@@ -520,9 +525,12 @@ export function resolveActor(
 }
 
 export function getDomain(
-  c: { req: { url: string } },
+  c: { req: { url: string } } & { get?: (k: string) => unknown },
 ): string {
-  return getEnv()["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+  const env = typeof c.get === "function"
+    ? getEnv(c as Context)
+    : Deno.env.toObject();
+  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 }
 
 export function jsonResponse(
@@ -760,9 +768,10 @@ export async function fetchJson<T = unknown>(
   url: string,
   init: RequestInit = {},
   signer?: { id: string; privateKey: string },
+  env: Record<string, string> = Deno.env.toObject(),
 ): Promise<T> {
   if (!signer) {
-    const domain = getEnv()["ACTIVITYPUB_DOMAIN"] || "localhost";
+    const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
     const sys = await Account.findOne({ userName: "system" }).lean();
     if (sys) {
       signer = {

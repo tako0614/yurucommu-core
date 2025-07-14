@@ -21,7 +21,7 @@ app.get("/.well-known/nodeinfo", (c) => {
 });
 
 app.get("/nodeinfo/2.0", async (c) => {
-  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv(c)["TAKOS_VERSION"] ?? "1.0.0";
   const users = await Account.countDocuments();
   const posts = (await findObjects({})).length;
 
@@ -44,7 +44,7 @@ app.get("/nodeinfo/2.0", async (c) => {
 
 app.get("/api/v1/instance", async (c) => {
   const domain = getDomain(c);
-  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv(c)["TAKOS_VERSION"] ?? "1.0.0";
   const userCount = await Account.countDocuments();
   const statusCount = (await findObjects({})).length;
 
@@ -70,7 +70,7 @@ app.get("/api/v1/instance", async (c) => {
 });
 
 app.get("/.well-known/x-nodeinfo2", async (c) => {
-  const version = getEnv()["TAKOS_VERSION"] ?? "1.0.0";
+  const version = getEnv(c)["TAKOS_VERSION"] ?? "1.0.0";
   const users = await Account.countDocuments();
   const posts = (await findObjects({})).length;
 

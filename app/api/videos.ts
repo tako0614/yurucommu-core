@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/deno";
 import { extname } from "@std/path";
-import { createStorage } from "./services/object-storage.ts";
+import {
+  createStorage,
+  type ObjectStorage,
+} from "./services/object-storage.ts";
 import {
   findObjects,
   getObject,
@@ -20,7 +23,10 @@ import {
 } from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
-const storage = createStorage();
+let storage: ObjectStorage;
+export function initVideoModule(env: Record<string, string>) {
+  storage = createStorage(env);
+}
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
@@ -81,7 +87,7 @@ async function deliverVideoToFollowers(
         `https://${domain}/users/${author}`,
         videoObject,
       );
-      deliverActivityPubObject(validInboxes, activity, author);
+      deliverActivityPubObject(validInboxes, activity, author, domain);
     }
   } catch (err) {
     console.error("ActivityPub delivery error:", err);

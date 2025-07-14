@@ -83,7 +83,7 @@ app.post("/api/stories", async (c) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    const domain = getEnv()["ACTIVITYPUB_DOMAIN"] ?? "";
+    const domain = getEnv(c)["ACTIVITYPUB_DOMAIN"] ?? "";
     const story = await saveObject(c.get("env") as Record<string, string>, {
       _id: createObjectId(domain),
       type: "Story",

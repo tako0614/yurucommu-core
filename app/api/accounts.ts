@@ -247,7 +247,7 @@ app.post("/accounts/:id/follow", async (c) => {
       const inbox = await fetchActorInbox(target);
       if (inbox) {
         const follow = createFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], follow, userName)
+        deliverActivityPubObject([inbox], follow, userName, domain)
           .catch((err) => console.error("Delivery failed:", err));
       }
       const env = c.get("env") as Record<string, string>;
@@ -307,7 +307,7 @@ app.delete("/accounts/:id/follow", async (c) => {
       const inbox = await fetchActorInbox(target);
       if (inbox) {
         const undo = createUndoFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], undo, account.userName).catch(
+        deliverActivityPubObject([inbox], undo, account.userName, domain).catch(
           (err) => console.error("Delivery failed:", err),
         );
       }

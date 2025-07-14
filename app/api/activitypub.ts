@@ -164,7 +164,12 @@ app.post("/users/:username/outbox", async (c) => {
     username,
     true,
   );
-  deliverActivityPubObject([...object.to, ...object.cc], activity, username)
+  deliverActivityPubObject(
+    [...object.to, ...object.cc],
+    activity,
+    username,
+    domain,
+  )
     .catch(
       (err) => {
         console.error("Delivery failed:", err);
