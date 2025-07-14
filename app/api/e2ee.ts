@@ -28,7 +28,10 @@ interface ActivityPubActivity {
 }
 import RemoteActor from "./models/remote_actor.ts";
 
-async function resolveActorCached(acct: string) {
+async function resolveActorCached(
+  acct: string,
+  env: Record<string, string>,
+) {
   const [name, host] = acct.split("@");
   if (!name || !host) return null;
 
@@ -51,7 +54,7 @@ async function resolveActorCached(acct: string) {
         cached.actorUrl,
         {},
         undefined,
-        c.get("env") as Record<string, string>,
+        env,
       );
     } catch (err) {
       console.error(`Failed to fetch cached actor ${cached.actorUrl}:`, err);
@@ -137,7 +140,10 @@ app.get("/users/:user/keyPackages", async (c) => {
     return c.json({ type: "Collection", items });
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    c.get("env") as Record<string, string>,
+  );
   if (!actor) return c.json({ type: "Collection", items: [] });
   const kpUrl = typeof actor.keyPackages === "string"
     ? actor.keyPackages
@@ -399,12 +405,18 @@ app.get("/users/:user/messages", async (c) => {
     return c.json({ error: "invalid user format" }, 400);
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    c.get("env") as Record<string, string>,
+  );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
   const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
   const partnerActorObj = partnerAcct
-    ? await resolveActorCached(partnerAcct)
+    ? await resolveActorCached(
+      partnerAcct,
+      c.get("env") as Record<string, string>,
+    )
     : null;
   let partnerActor = partnerActorObj?.id;
   if (!partnerActor && partnerUser && partnerDomain) {
@@ -455,12 +467,18 @@ app.get("/users/:user/publicMessages", async (c) => {
     return c.json({ error: "invalid user format" }, 400);
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    c.get("env") as Record<string, string>,
+  );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
   const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
   const partnerActorObj = partnerAcct
-    ? await resolveActorCached(partnerAcct)
+    ? await resolveActorCached(
+      partnerAcct,
+      c.get("env") as Record<string, string>,
+    )
     : null;
   let partnerActor = partnerActorObj?.id;
   if (!partnerActor && partnerUser && partnerDomain) {
