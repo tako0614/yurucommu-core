@@ -2,6 +2,7 @@ import ObjectStore from "../models/object_store.ts";
 import FollowEdge from "../models/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import RelayEdge from "../models/relay_edge.ts";
+import type { PipelineStage, SortOrder } from "mongoose";
 
 export async function saveNote(
   env: Record<string, string>,
@@ -71,7 +72,7 @@ export async function deleteManyObjects(filter: Record<string, unknown>) {
 
 export async function findObjects(
   filter: Record<string, unknown>,
-  sort?: Record<string, number>,
+  sort?: Record<string, SortOrder>,
 ) {
   return await ObjectStore.find(filter).sort(sort ?? {}).lean();
 }
@@ -81,7 +82,7 @@ export async function getPublicNotes(limit = 40, before?: Date) {
     type: "Note",
     "aud.to": "https://www.w3.org/ns/activitystreams#Public",
   });
-  if (before) query.where("created_at").lt(before);
+  if (before) query.where("created_at").lt(before.getTime());
   return await query.sort({ created_at: -1 }).limit(limit).lean();
 }
 
@@ -91,7 +92,7 @@ export async function getTimeline(
   limit = 40,
   before?: Date,
 ) {
-  const pipeline: Record<string, unknown>[] = [
+  const pipeline: PipelineStage[] = [
     { $match: { tenant_id: tenantId } },
     {
       $lookup: {
@@ -158,5 +159,3 @@ export async function listPullRelays(tenantId: string) {
   >();
   return docs.map((d) => d.relay);
 }
-
-export { addRelayEdge, removeRelayEdge };
