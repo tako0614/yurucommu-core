@@ -135,7 +135,7 @@ app.get("/microblog", async (c) => {
     100,
   );
   const before = c.req.query("before");
-  let list;
+  let list: ActivityPubObjectType[];
   if (actor && tenantId) {
     list = await getTimeline(
       tenantId,
@@ -150,8 +150,8 @@ app.get("/microblog", async (c) => {
     );
   }
 
-  const identifiers = list.map((doc) => doc.actor_id);
-  const userInfos = await getUserInfoBatch(identifiers, domain);
+  const identifiers = list.map((doc) => doc.actor_id as string);
+  const userInfos = await getUserInfoBatch(identifiers as string[], domain);
   const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
     const postData = { ...doc.raw, _id: doc._id } as Record<string, unknown>;
@@ -198,7 +198,13 @@ app.post("/microblog", async (c) => {
   );
 
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(formatUserInfoForPost(userInfo, post.toObject()), 201);
+  return c.json(
+    formatUserInfoForPost(
+      userInfo,
+      post.toObject() as unknown as Record<string, unknown>,
+    ),
+    201,
+  );
 });
 
 app.get("/microblog/:id", async (c) => {
@@ -216,12 +222,10 @@ app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
   const id = c.req.param("id");
   const list = await findObjects({ "extra.inReplyTo": id }, { published: 1 });
-  const ids = list.map((doc: ActivityPubObjectType) =>
-    doc.attributedTo as string
-  );
+  const ids = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(ids, domain);
-  const formatted = list.map((doc: ActivityPubObjectType, i: number) =>
-    formatUserInfoForPost(infos[i], doc)
+  const formatted = list.map((doc, i) =>
+    formatUserInfoForPost(infos[i], doc as unknown as Record<string, unknown>)
   );
   return c.json(formatted);
 });
@@ -239,7 +243,12 @@ app.put("/microblog/:id", async (c) => {
   // 共通ユーザー情報取得サービスを使用
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
 
-  return c.json(formatUserInfoForPost(userInfo, post.toObject()));
+  return c.json(
+    formatUserInfoForPost(
+      userInfo,
+      post.toObject() as unknown as Record<string, unknown>,
+    ),
+  );
 });
 
 app.post("/microblog/:id/like", async (c) => {

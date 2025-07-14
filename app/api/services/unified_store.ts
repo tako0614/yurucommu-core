@@ -1,8 +1,10 @@
-import ObjectStore from "../models/object_store.ts";
+import ObjectStore, { objectStoreSchema } from "../models/object_store.ts";
 import FollowEdge from "../models/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import RelayEdge from "../models/relay_edge.ts";
-import type { PipelineStage, SortOrder } from "mongoose";
+import type { InferSchemaType, PipelineStage, SortOrder } from "mongoose";
+
+type ObjectStoreType = InferSchemaType<typeof objectStoreSchema>;
 
 export async function saveNote(
   env: Record<string, string>,
@@ -73,17 +75,23 @@ export async function deleteManyObjects(filter: Record<string, unknown>) {
 export async function findObjects(
   filter: Record<string, unknown>,
   sort?: Record<string, SortOrder>,
-) {
-  return await ObjectStore.find(filter).sort(sort ?? {}).lean();
+): Promise<ObjectStoreType[]> {
+  return await ObjectStore.find(filter).sort(sort ?? {}).lean<
+    ObjectStoreType[]
+  >();
 }
 
-export async function getPublicNotes(limit = 40, before?: Date) {
+export async function getPublicNotes(limit = 40, before?: Date): Promise<
+  ObjectStoreType[]
+> {
   const query = ObjectStore.find({
     type: "Note",
     "aud.to": "https://www.w3.org/ns/activitystreams#Public",
   });
   if (before) query.where("created_at").lt(before.getTime());
-  return await query.sort({ created_at: -1 }).limit(limit).lean();
+  return await query.sort({ created_at: -1 }).limit(limit).lean<
+    ObjectStoreType[]
+  >();
 }
 
 export async function getTimeline(
@@ -91,7 +99,7 @@ export async function getTimeline(
   actorUri: string,
   limit = 40,
   before?: Date,
-) {
+): Promise<ObjectStoreType[]> {
   const pipeline: PipelineStage[] = [
     { $match: { tenant_id: tenantId } },
     {
@@ -118,11 +126,11 @@ export async function getTimeline(
   }
   pipeline.push({ $sort: { "objs.created_at": -1 } }, { $limit: limit });
   const docs = await FollowEdge.aggregate(pipeline).exec();
-  return docs.map((d) => d.objs as Record<string, unknown>);
+  return docs.map((d) => d.objs as ObjectStoreType);
 }
 
-export async function getObject(id: string) {
-  return await ObjectStore.findById(id).lean();
+export async function getObject(id: string): Promise<ObjectStoreType | null> {
+  return await ObjectStore.findById(id).lean<ObjectStoreType | null>();
 }
 
 export async function addFollowEdge(tenantId: string, actorId: string) {
