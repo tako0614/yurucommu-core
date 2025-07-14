@@ -1,6 +1,7 @@
 import ObjectStore from "../models/object_store.ts";
 import FollowEdge from "../models/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
+import RelayEdge from "../models/relay_edge.ts";
 
 export async function saveNote(
   env: Record<string, string>,
@@ -133,4 +134,29 @@ export async function addFollowEdge(tenantId: string, actorId: string) {
 
 export async function removeFollowEdge(tenantId: string, actorId: string) {
   await FollowEdge.deleteOne({ tenant_id: tenantId, actor_id: actorId });
+}
+
+import RelayEdge from "../models/relay_edge.ts";
+
+export async function addRelayEdge(
+  tenantId: string,
+  relay: string,
+  mode: "pull" | "push" = "pull",
+) {
+  await RelayEdge.updateOne(
+    { tenant_id: tenantId, relay },
+    { $set: { mode, since: new Date() } },
+    { upsert: true },
+  );
+}
+
+export async function removeRelayEdge(tenantId: string, relay: string) {
+  await RelayEdge.deleteOne({ tenant_id: tenantId, relay });
+}
+
+export async function listPullRelays(tenantId: string) {
+  const docs = await RelayEdge.find({ tenant_id: tenantId, mode: "pull" }).lean<
+    { relay: string }[]
+  >();
+  return docs.map((d) => d.relay);
 }

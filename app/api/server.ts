@@ -2,6 +2,7 @@ import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
 import { connectDatabase } from "./db.ts";
 import { initEnv } from "./utils/env_store.ts";
+import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
 import oauthLogin from "./oauth_login.ts";
@@ -66,6 +67,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     }
   });
 
+  startRelayPolling(e);
   return app;
 }
 

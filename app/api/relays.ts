@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import Relay from "./models/relay.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
+import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
+import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -62,6 +66,14 @@ app.post("/relays", async (c) => {
   if (exists) return jsonResponse(c, { error: "Already exists" }, 409);
   const relay = new Relay({ inboxUrl });
   await relay.save();
+  const env = getEnv(c);
+  const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
+  try {
+    const host = new URL(inboxUrl).hostname;
+    await addRelayEdge(tenant, host, "pull");
+  } catch {
+    // URL パース失敗時は無視
+  }
   try {
     let account = await Account.findOne({ userName: "system" });
     if (!account) {
@@ -92,6 +104,14 @@ app.delete("/relays/:id", async (c) => {
   const id = c.req.param("id");
   const relay = await Relay.findByIdAndDelete(id);
   if (!relay) return jsonResponse(c, { error: "Relay not found" }, 404);
+  const env = getEnv(c);
+  const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
+  try {
+    const host = new URL(relay.inboxUrl).hostname;
+    await removeRelayEdge(tenant, host);
+  } catch {
+    // URL パース失敗時は無視
+  }
   try {
     let account = await Account.findOne({ userName: "system" });
     if (!account) {
