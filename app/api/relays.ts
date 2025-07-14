@@ -4,8 +4,6 @@ import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "./utils/env_store.ts";
 import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
-import { getEnv } from "./utils/env_store.ts";
-import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
