@@ -1,8 +1,6 @@
 import { Component, createSignal, For, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import {
-  addInstance as apiAddInstance,
-  deleteInstance as apiDeleteInstance,
   fetchInstance,
   fetchInstances,
   logout as apiLogout,
@@ -10,18 +8,11 @@ import {
   updateEnv,
   updateInstancePassword,
 } from "../api.ts";
-import {
-  hostState,
-  instancesState,
-  instPasswordState,
-  loggedInState,
-} from "../state.ts";
+import { instancesState, loggedInState } from "../state.ts";
 
-const AdminPage: Component = () => {
+const UserPage: Component = () => {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
   const [instances, setInstances] = useAtom(instancesState);
-  const [host, setHost] = useAtom(hostState);
-  const [instPassword, setInstPassword] = useAtom(instPasswordState);
 
   const [selected, setSelected] = createSignal<string | null>(null);
   const [envText, setEnvText] = createSignal("{}");
@@ -40,25 +31,6 @@ const AdminPage: Component = () => {
     setEnvText(JSON.stringify(detail?.env ?? {}, null, 2));
     setNewPassword("");
     setSelected(h);
-  };
-
-  const addInstance = async (e: SubmitEvent) => {
-    e.preventDefault();
-    if (await apiAddInstance(host(), instPassword())) {
-      setHost("");
-      setInstPassword("");
-      await loadInstances();
-    } else {
-      alert("追加に失敗しました");
-    }
-  };
-
-  const delInstance = async (h: string) => {
-    if (!confirm(`${h} を削除します。よろしいですか？`)) return;
-    if (await apiDeleteInstance(h)) {
-      await loadInstances();
-      if (selected() === h) setSelected(null);
-    }
   };
 
   const saveEnv = async () => {
@@ -108,7 +80,9 @@ const AdminPage: Component = () => {
     <div class="min-h-screen flex flex-col bg-[#181818] text-gray-100">
       <header class="border-b border-gray-700 p-4">
         <div class="max-w-5xl mx-auto flex justify-between items-center">
-          <h1 class="text-xl font-semibold">takos host ダッシュボード</h1>
+          <h1 class="text-xl font-semibold">
+            takos host ユーザーダッシュボード
+          </h1>
           <button
             type="button"
             class="px-3 py-1 bg-gray-700 rounded-md hover:bg-gray-600"
@@ -124,35 +98,6 @@ const AdminPage: Component = () => {
           fallback={<a href="/auth">ログインしてください</a>}
         >
           <section>
-            <h2 class="text-lg font-bold mb-4">新しいインスタンス</h2>
-            <form
-              onSubmit={addInstance}
-              class="grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
-            >
-              <input
-                placeholder="ホスト名"
-                value={host()}
-                onInput={(e) => setHost(e.currentTarget.value)}
-                class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              <input
-                type="password"
-                placeholder="パスワード"
-                value={instPassword()}
-                onInput={(e) => setInstPassword(e.currentTarget.value)}
-                class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              <button
-                type="submit"
-                class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-              >
-                追加
-              </button>
-            </form>
-          </section>
-          <section>
             <h2 class="text-lg font-bold mb-4">インスタンス一覧</h2>
             <ul class="space-y-4">
               <For each={instances()}>
@@ -160,22 +105,13 @@ const AdminPage: Component = () => {
                   <li class="bg-[#212121] p-4 rounded-lg shadow">
                     <div class="flex justify-between items-center">
                       <span class="font-semibold">{inst.host}</span>
-                      <div class="space-x-2">
-                        <button
-                          type="button"
-                          class="text-sm text-blue-400 hover:underline"
-                          onClick={() => openDetail(inst.host)}
-                        >
-                          詳細
-                        </button>
-                        <button
-                          type="button"
-                          class="text-sm text-red-400 hover:underline"
-                          onClick={() => delInstance(inst.host)}
-                        >
-                          削除
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        class="text-sm text-blue-400 hover:underline"
+                        onClick={() => openDetail(inst.host)}
+                      >
+                        詳細
+                      </button>
                     </div>
                     <Show when={selected() === inst.host}>
                       <div class="mt-4 space-y-6">
@@ -243,4 +179,4 @@ const AdminPage: Component = () => {
   );
 };
 
-export default AdminPage;
+export default UserPage;

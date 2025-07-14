@@ -1,11 +1,13 @@
 import { Match, onMount, Switch } from "solid-js";
 import { useAtom } from "solid-jotai";
 import LoginPage from "./pages/LoginPage.tsx";
+import RegisterPage from "./pages/RegisterPage.tsx";
 import AdminPage from "./pages/AdminPage.tsx";
+import UserPage from "./pages/UserPage.tsx";
 import WelcomePage from "./pages/WelcomePage.tsx";
 import { fetchInstances, fetchStatus } from "./api.ts";
 import { instancesState, loggedInState } from "./state.ts";
-import "./index.css"
+import "./index.css";
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
@@ -23,7 +25,7 @@ export default function App() {
 
   onMount(async () => {
     await loadStatus();
-    if (path === "/admin" && loggedIn()) {
+    if ((path === "/admin" || path === "/user") && loggedIn()) {
       await loadInstances();
     }
   });
@@ -33,8 +35,14 @@ export default function App() {
       <Match when={path === "/auth"}>
         <LoginPage />
       </Match>
+      <Match when={path === "/signup"}>
+        <RegisterPage />
+      </Match>
       <Match when={path === "/admin"}>
         <AdminPage />
+      </Match>
+      <Match when={path === "/user"}>
+        <UserPage />
       </Match>
     </Switch>
   );

@@ -1,34 +1,33 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { login as apiLogin } from "../api.ts";
+import { register as apiRegister } from "../api.ts";
 import { loggedInState, passwordState, userNameState } from "../state.ts";
 
-const LoginPage: Component = () => {
+const RegisterPage: Component = () => {
   const [userName, setUserName] = useAtom(userNameState);
   const [password, setPassword] = useAtom(passwordState);
   const [, setLoggedIn] = useAtom(loggedInState);
   const [error, setError] = createSignal("");
 
-  const login = async (e: SubmitEvent) => {
+  const signup = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (await apiLogin(userName(), password())) {
+    if (await apiRegister(userName(), password())) {
       setLoggedIn(true);
       globalThis.location.href = "/admin";
     } else {
-      setError("ログインに失敗しました");
+      setError("登録に失敗しました");
     }
   };
+
   return (
     <div class="min-h-screen flex flex-col bg-[#181818] text-gray-100">
       <main class="flex-grow flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md bg-[#212121] p-8 rounded-lg shadow-xl">
           <div class="mb-8 text-center">
-            <h2 class="text-3xl font-semibold mb-2 text-white">
-              takos host ログイン
-            </h2>
-            <p class="text-gray-400 text-sm">管理画面へログイン</p>
+            <h2 class="text-3xl font-semibold mb-2 text-white">新規登録</h2>
+            <p class="text-gray-400 text-sm">takos host アカウント作成</p>
           </div>
-          <form onSubmit={login} class="space-y-6">
+          <form onSubmit={signup} class="space-y-6">
             <div>
               <label
                 for="userName"
@@ -71,15 +70,15 @@ const LoginPage: Component = () => {
               type="submit"
               class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
             >
-              ログイン
+              登録
             </button>
-            <p class="text-sm text-center mt-6">
-              アカウントをお持ちでない方は
-              <a href="/signup" class="text-blue-400 hover:underline ml-1">
-                新規登録
-              </a>
-            </p>
           </form>
+          <p class="mt-6 text-sm text-center">
+            既にアカウントをお持ちの方は
+            <a href="/auth" class="text-blue-400 hover:underline ml-1">
+              ログイン
+            </a>
+          </p>
         </div>
       </main>
       <footer class="py-6 border-t border-gray-700 text-center">
@@ -89,4 +88,4 @@ const LoginPage: Component = () => {
   );
 };
 
-export default LoginPage;
+export default RegisterPage;
