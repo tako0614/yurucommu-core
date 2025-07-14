@@ -53,6 +53,11 @@ async function getAppForHost(host: string): Promise<Hono | null> {
 
 const root = new Hono();
 
+root.route("/auth", authApp);
+root.route("/oauth", oauthApp);
+root.route("/user", adminApp);
+
+
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/user/*", proxy("/user"));
@@ -83,10 +88,6 @@ if (!isDev && rootDomain) {
     }
   });
 }
-
-root.route("/auth", authApp);
-root.route("/oauth", oauthApp);
-root.route("/user", adminApp);
 
 root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
