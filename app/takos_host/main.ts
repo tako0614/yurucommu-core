@@ -55,6 +55,7 @@ const root = new Hono();
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/admin/*", proxy("/admin"));
+  root.use("/user/*", proxy("/admin"));
 } else {
   root.use(
     "/auth/*",
@@ -68,6 +69,13 @@ if (isDev) {
     serveStatic({
       root: "./client/dist",
       rewriteRequestPath: (path) => path.replace(/^\/admin/, ""),
+    }),
+  );
+  root.use(
+    "/user/*",
+    serveStatic({
+      root: "./client/dist",
+      rewriteRequestPath: (path) => path.replace(/^\/user/, ""),
     }),
   );
 }
@@ -85,6 +93,7 @@ if (!isDev && rootDomain) {
 
 root.route("/auth", authApp);
 root.route("/admin", adminApp);
+root.route("/user", adminApp);
 
 root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
