@@ -45,7 +45,7 @@ export async function fetchInstances(): Promise<Instance[]> {
 
 export async function addInstance(
   host: string,
-  password: string,
+  password?: string,
 ): Promise<boolean> {
   const res = await fetch("/user/instances", {
     method: "POST",
@@ -87,7 +87,7 @@ export async function updateEnv(
 
 export async function updateInstancePassword(
   host: string,
-  password: string,
+  password?: string,
 ): Promise<boolean> {
   const res = await fetch(`/user/instances/${host}/password`, {
     method: "PUT",

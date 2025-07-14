@@ -44,7 +44,7 @@ const UserPage: Component = () => {
 
   const addInstance = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (await apiAddInstance(host(), instPassword())) {
+    if (await apiAddInstance(host(), instPassword() || undefined)) {
       setHost("");
       setInstPassword("");
       await loadInstances();
@@ -77,7 +77,7 @@ const UserPage: Component = () => {
 
   const changePassword = async () => {
     if (!selected()) return;
-    if (await updateInstancePassword(selected()!, newPassword())) {
+    if (await updateInstancePassword(selected()!, newPassword() || undefined)) {
       alert("パスワードを変更しました");
       setNewPassword("");
     } else {
@@ -140,11 +140,10 @@ const UserPage: Component = () => {
               />
               <input
                 type="password"
-                placeholder="パスワード"
+                placeholder="パスワード (任意)"
                 value={instPassword()}
                 onInput={(e) => setInstPassword(e.currentTarget.value)}
                 class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
               />
               <button
                 type="submit"
@@ -201,7 +200,7 @@ const UserPage: Component = () => {
                         </div>
                         <div>
                           <label class="block text-sm font-medium mb-2">
-                            パスワード変更
+                            パスワード設定 / 変更
                           </label>
                           <div class="flex gap-2">
                             <input
