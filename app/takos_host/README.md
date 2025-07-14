@@ -42,9 +42,7 @@ takos を運用できるようにすることが目的です。
 - `POST /user/instances` 新しいインスタンスを追加 (パスワードを設定)
 - `DELETE /user/instances/:host` インスタンスを削除
 - `GET /user/instances/:host` インスタンスの詳細を取得
-- `PUT /user/instances/:host/env` インスタンスの環境変数を更新
 - `PUT /user/instances/:host/password` インスタンスのログインパスワードを変更
-- `POST /user/instances/:host/restart` インスタンスを再起動
 
 環境変数やパスワードを更新すると、キャッシュされたアプリが破棄され、次のアクセス時に再起動されます。
 
