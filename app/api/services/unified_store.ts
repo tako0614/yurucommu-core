@@ -42,6 +42,9 @@ export async function saveObject(
   env: Record<string, string>,
   data: Record<string, unknown>,
 ) {
+  if (!data._id && env["ACTIVITYPUB_DOMAIN"]) {
+    data._id = createObjectId(env["ACTIVITYPUB_DOMAIN"]);
+  }
   const doc = new ObjectStore(data);
   (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
     env,
