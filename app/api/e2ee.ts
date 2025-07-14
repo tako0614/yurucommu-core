@@ -3,7 +3,7 @@ import KeyPackage from "./models/key_package.ts";
 import EncryptedMessage from "./models/encrypted_message.ts";
 import PublicMessage from "./models/public_message.ts";
 import EncryptedKeyPair from "./models/encrypted_keypair.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { saveObject } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import {
@@ -292,12 +292,14 @@ app.post("/users/:user/messages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await ActivityPubObject.create({
+  const object = await saveObject(c.get("env") as Record<string, string>, {
     type: "PrivateMessage",
     attributedTo: acct,
     content,
     to,
     extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+    actor_id: actorId,
+    aud: { to, cc: [] },
   });
 
   const privateMessage = buildActivityFromStored(
@@ -345,12 +347,14 @@ app.post("/users/:user/publicMessages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await ActivityPubObject.create({
+  const object = await saveObject(c.get("env") as Record<string, string>, {
     type: "PublicMessage",
     attributedTo: acct,
     content,
     to,
     extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+    actor_id: actorId,
+    aud: { to, cc: [] },
   });
 
   const publicMessage = buildActivityFromStored(

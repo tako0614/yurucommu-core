@@ -1,5 +1,13 @@
 import { Hono } from "hono";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  deleteObject,
+  findObjects,
+  getObject,
+  getPublicNotes,
+  getTimeline,
+  saveNote,
+  updateObject,
+} from "./services/unified_store.ts";
 
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
@@ -84,7 +92,7 @@ async function deliverPostToFollowers(
       deliverActivityPubObject(validInboxes, createActivity, author);
 
       if (replyToId) {
-        const parent = await ActivityPubObject.findById(replyToId).lean();
+        const parent = await getObject(replyToId);
         if (
           parent &&
           typeof parent.attributedTo === "string" &&
@@ -118,26 +126,35 @@ app.use("*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
+  const env = c.get("env") as Record<string, string>;
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const actor = c.req.query("actor");
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
   );
   const before = c.req.query("before");
-  const query = ActivityPubObject.find({ type: "Note" });
-  if (before) {
-    query.where("published").lt(new Date(before).getTime());
+  let list;
+  if (actor && tenantId) {
+    list = await getTimeline(
+      tenantId,
+      actor,
+      limit,
+      before ? new Date(before) : undefined,
+    );
+  } else {
+    list = await getPublicNotes(
+      limit,
+      before ? new Date(before) : undefined,
+    );
   }
-  const list = await query.sort({ published: -1 }).limit(limit).lean();
 
-  // ユーザー情報をバッチで取得
-  const identifiers = list.map((doc: ActivityPubObjectType) =>
-    doc.attributedTo as string
-  );
+  const identifiers = list.map((doc) => doc.actor_id);
   const userInfos = await getUserInfoBatch(identifiers, domain);
-
-  const formatted = list.map((doc: ActivityPubObjectType, index: number) => {
+  const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
-    return formatUserInfoForPost(userInfo, doc);
+    const postData = { ...doc.raw, _id: doc._id } as Record<string, unknown>;
+    return formatUserInfoForPost(userInfo, postData);
   });
 
   return c.json(formatted);
@@ -163,18 +180,13 @@ app.post("/microblog", async (c) => {
   if (typeof quoteId === "string") extra.quoteId = quoteId;
   if (typeof parentId === "string") extra.replies = 0;
 
-  const post = new ActivityPubObject({
-    type: "Note",
-    attributedTo: author,
-    content,
-    extra,
-  });
-  await post.save();
+  const env = c.get("env") as Record<string, string>;
+  const post = await saveNote(env, domain, author, content, extra);
 
   if (typeof parentId === "string") {
-    await ActivityPubObject.findByIdAndUpdate(parentId, {
-      $inc: { "extra.replies": 1 },
-    }).catch(() => {});
+    await updateObject(parentId, { $inc: { "extra.replies": 1 } }).catch(
+      () => {},
+    );
   }
 
   deliverPostToFollowers(
@@ -191,22 +203,18 @@ app.post("/microblog", async (c) => {
 app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);
   const id = c.req.param("id");
-  const post = await ActivityPubObject.findById(id).lean();
+  const post = await getObject(id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  // 共通ユーザー情報取得サービスを使用
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(
-    formatUserInfoForPost(userInfo, post as Record<string, unknown>),
-  );
+  const userInfo = await getUserInfo(post.actor_id as string, domain);
+  const data = { ...post.raw, _id: post._id } as Record<string, unknown>;
+  return c.json(formatUserInfoForPost(userInfo, data));
 });
 
 app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
   const id = c.req.param("id");
-  const list = await ActivityPubObject.find({ "extra.inReplyTo": id }).sort({
-    published: 1,
-  }).lean();
+  const list = await findObjects({ "extra.inReplyTo": id }, { published: 1 });
   const ids = list.map((doc: ActivityPubObjectType) =>
     doc.attributedTo as string
   );
@@ -224,9 +232,7 @@ app.put("/microblog/:id", async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findByIdAndUpdate(id, { content }, {
-    new: true,
-  });
+  const post = await updateObject(id, { content });
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // 共通ユーザー情報取得サービスを使用
@@ -242,10 +248,10 @@ app.post("/microblog/:id/like", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findById(id);
+  const post = await getObject(id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const extra = post.extra as Record<string, unknown>;
+  const extra = post.extra as Record<string, unknown> ?? {};
   const likedBy: string[] = Array.isArray(extra.likedBy)
     ? extra.likedBy as string[]
     : [];
@@ -253,8 +259,7 @@ app.post("/microblog/:id/like", async (c) => {
     likedBy.push(username);
     extra.likedBy = likedBy;
     extra.likes = likedBy.length;
-    post.extra = extra;
-    await post.save();
+    await updateObject(id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -312,7 +317,7 @@ app.post("/microblog/:id/retweet", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findById(id);
+  const post = await getObject(id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const extra = post.extra as Record<string, unknown>;
@@ -323,8 +328,7 @@ app.post("/microblog/:id/retweet", async (c) => {
     retweetedBy.push(username);
     extra.retweetedBy = retweetedBy;
     extra.retweets = retweetedBy.length;
-    post.extra = extra;
-    await post.save();
+    await updateObject(id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -380,8 +384,8 @@ app.post("/microblog/:id/retweet", async (c) => {
 
 app.delete("/microblog/:id", async (c) => {
   const id = c.req.param("id");
-  const post = await ActivityPubObject.findByIdAndDelete(id);
-  if (!post) return c.json({ error: "Not found" }, 404);
+  const deleted = await deleteObject(id);
+  if (!deleted) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
 

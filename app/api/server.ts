@@ -24,10 +24,9 @@ import { fetchOgpData } from "./services/ogp.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await load();
-  initEnv(e);
-  await connectDatabase(e);
 
   const app = new Hono();
+  initEnv(app, e);
   app.route("/api", login);
   app.route("/api", logout);
   if (e["OAUTH_HOST"]) {
@@ -70,6 +69,8 @@ export async function createTakosApp(env?: Record<string, string>) {
 }
 
 if (import.meta.main) {
-  const app = await createTakosApp();
+  const env = await load();
+  await connectDatabase(env);
+  const app = await createTakosApp(env);
   Deno.serve(app.fetch);
 }

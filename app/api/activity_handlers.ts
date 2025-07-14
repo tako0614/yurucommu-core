@@ -1,5 +1,8 @@
 import Account from "./models/account.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  addFollowEdge,
+  saveObject as storeObject,
+} from "./services/unified_store.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -14,6 +17,7 @@ export type ActivityHandler = (
 ) => Promise<void>;
 
 async function saveObject(
+  env: Record<string, string>,
   obj: Record<string, unknown>,
   actor: string,
 ) {
@@ -41,7 +45,7 @@ async function saveObject(
   };
   if (attachments.length > 0) extra.attachments = attachments;
 
-  await ActivityPubObject.create({
+  await storeObject(env, {
     type: obj.type ?? "Note",
     attributedTo: typeof obj.attributedTo === "string"
       ? obj.attributedTo
@@ -61,13 +65,20 @@ export const activityHandlers: Record<string, ActivityHandler> = {
   async Create(
     activity: Record<string, unknown>,
     username: string,
-    _c: unknown,
+    c: unknown,
   ) {
     if (typeof activity.object === "object" && activity.object !== null) {
       const actor = typeof activity.actor === "string"
         ? activity.actor
         : username;
-      await saveObject(activity.object as Record<string, unknown>, actor);
+      await saveObject(
+        (c as { get: (k: string) => unknown }).get("env") as Record<
+          string,
+          string
+        >,
+        activity.object as Record<string, unknown>,
+        actor,
+      );
     }
   },
 
@@ -81,6 +92,11 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       { userName: username },
       { $addToSet: { followers: activity.actor } },
     );
+    const env = (c as { get: (k: string) => unknown }).get("env") as Record<
+      string,
+      string
+    >;
+    await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", activity.actor);
     const domain = getDomain(c as { req: { url: string } });
     const accept = createAcceptActivity(
       domain,

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import Group from "./models/group.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { findObjects, saveObject } from "./services/unified_store.ts";
 import {
   createAcceptActivity,
   createAnnounceActivity,
@@ -101,7 +101,7 @@ app.post("/communities/:name/inbox", async (c) => {
     const attachments = extractAttachments(obj);
     const extra: Record<string, unknown> = {};
     if (attachments.length > 0) extra.attachments = attachments;
-    const stored = await ActivityPubObject.create({
+    const stored = await saveObject(c.get("env") as Record<string, string>, {
       type: (obj.type as string) ?? "Note",
       attributedTo: `!${name}`,
       content: (obj.content as string) ?? "",
@@ -112,6 +112,11 @@ app.post("/communities/:name/inbox", async (c) => {
         : new Date(),
       raw: obj,
       extra,
+      actor_id: `https://${domain}/communities/${name}`,
+      aud: {
+        to: Array.isArray(obj.to) ? obj.to : [],
+        cc: Array.isArray(obj.cc) ? obj.cc : [],
+      },
     });
     const announce = createAnnounceActivity(
       domain,
@@ -138,8 +143,9 @@ app.get("/communities/:name/outbox", async (c) => {
   const name = c.req.param("name");
   const domain = getDomain(c);
   const page = parseInt(c.req.query("page") || "0");
-  const objects = await ActivityPubObject.find({ attributedTo: `!${name}` })
-    .sort({ published: -1 }).lean();
+  const objects = await findObjects({ attributedTo: `!${name}` }, {
+    published: -1,
+  });
   const baseId = `https://${domain}/communities/${name}/outbox`;
 
   const PAGE_SIZE = 20;

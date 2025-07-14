@@ -11,6 +11,7 @@ import {
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
 import { addNotification } from "./services/notification.ts";
+import { addFollowEdge, removeFollowEdge } from "./services/unified_store.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -249,6 +250,8 @@ app.post("/accounts/:id/follow", async (c) => {
         deliverActivityPubObject([inbox], follow, userName)
           .catch((err) => console.error("Delivery failed:", err));
       }
+      const env = c.get("env") as Record<string, string>;
+      await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {
     console.error("Follow request failed:", err);
@@ -308,6 +311,8 @@ app.delete("/accounts/:id/follow", async (c) => {
           (err) => console.error("Delivery failed:", err),
         );
       }
+      const env = c.get("env") as Record<string, string>;
+      await removeFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {
     console.error("Unfollow request failed:", err);

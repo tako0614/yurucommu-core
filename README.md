@@ -22,8 +22,30 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
 
 特に `ACTIVITYPUB_DOMAIN` は Mastodon など外部からアクセスされる公開ドメインを
-設定してください。未設定の場合はリクエストされたホスト名が利用されます。
+設定してください。未設定の場合はリクエストされたホスト名が利用されます。 以前の
+`TENANT_ID` 変数は廃止され、ドメイン名そのものがテナント ID として扱われます。
 リレーサーバーの設定は UI から追加・削除でき、データベースに保存されます。
+
+### 統合オブジェクトストア
+
+すべての ActivityPub オブジェクトは `object_store` コレクションに保存されます。
+スキーマは次の通りです。
+
+```jsonc
+{
+  _id: "https://example.org/objects/xxx",
+  raw: { ... },
+  type: "Note",
+  actor_id: "https://example.org/users/alice",
+  created_at: ISODate(),
+  updated_at: ISODate(),
+  deleted_at: Optional<ISODate>,
+  aud: { to: ["...#Public"], cc: [] }
+}
+```
+
+`ACTIVITYPUB_DOMAIN` がテナント ID を兼ねており、ドメインごとにフォロー情報を
+`follow_edge` コレクションで管理します。
 
 ```bash
 cd app/api

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import Group from "./models/group.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { findObjects, saveObject } from "./services/unified_store.ts";
 import KeyPackage from "./models/key_package.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
@@ -10,12 +10,12 @@ import RemoteActor from "./models/remote_actor.ts";
 import {
   buildActivityFromStored,
   createActor,
+  createObjectId,
   deliverActivityPubObject,
   getDomain,
   jsonResponse,
   verifyHttpSignature,
 } from "./utils/activitypub.ts";
-import { getEnv } from "./utils/env_store.ts";
 
 const app = new Hono();
 import { logger } from "hono/logger";
@@ -27,7 +27,8 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Bad Request" }, 400);
   }
   const [username, host] = resource.slice(5).split("@");
-  const expected = getEnv()["ACTIVITYPUB_DOMAIN"];
+  const expected =
+    (c.get("env") as Record<string, string>)["ACTIVITYPUB_DOMAIN"];
   if (expected && host !== expected) {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
@@ -118,9 +119,7 @@ app.get("/users/:username/outbox", async (c) => {
   // deno-lint-ignore no-explicit-any
   const query: any = { attributedTo: username };
   if (type) query.type = type;
-  const objects = await ActivityPubObject.find(query).sort({
-    published: -1,
-  }).lean();
+  const objects = await findObjects(query, { published: -1 });
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
@@ -145,16 +144,19 @@ app.post("/users/:username/outbox", async (c) => {
   if (typeof body.type !== "string" || typeof body.content !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const object = new ActivityPubObject({
+  const domain = getDomain(c);
+  const env = c.get("env") as Record<string, string>;
+  const object = await saveObject(env, {
+    _id: createObjectId(domain),
     type: body.type,
     attributedTo: username,
     content: body.content,
     to: body.to ?? [],
     cc: body.cc ?? [],
     extra: body.extra ?? {},
+    actor_id: `https://${domain}/users/${username}`,
+    aud: { to: body.to ?? [], cc: body.cc ?? [] },
   });
-  await object.save();
-  const domain = getDomain(c);
   // contentをstringに変換して渡す
   const activity = buildActivityFromStored(
     { ...object.toObject(), content: object.content ?? "" },

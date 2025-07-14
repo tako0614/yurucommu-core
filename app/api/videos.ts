@@ -2,12 +2,18 @@ import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/deno";
 import { extname } from "@std/path";
 import { createStorage } from "./services/object-storage.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  findObjects,
+  getObject,
+  saveObject,
+  updateObject,
+} from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
+  createObjectId,
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
@@ -18,8 +24,12 @@ const storage = createStorage();
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
-  video: InstanceType<typeof ActivityPubObject> & {
+  video: {
     toObject: () => Record<string, unknown>;
+    content?: unknown;
+    published?: unknown;
+    extra?: unknown;
+    _id?: unknown;
   },
   author: string,
   domain: string,
@@ -148,7 +158,8 @@ const videoUploadWs = upgradeWebSocket((c) => {
           : `/api/video-files/${storageKey}`;
 
         const domain = getDomain(c);
-        const video = new ActivityPubObject({
+        const video = await saveObject(c.get("env") as Record<string, string>, {
+          _id: createObjectId(domain),
           type: "Video",
           attributedTo: videoMetadata.author,
           content: videoMetadata.description,
@@ -167,9 +178,9 @@ const videoUploadWs = upgradeWebSocket((c) => {
             }`,
             videoUrl,
           },
+          actor_id: `https://${domain}/users/${videoMetadata.author}`,
+          aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
         });
-
-        await video.save();
         deliverVideoToFollowers(video, videoMetadata.author, domain);
         console.log("Video metadata saved to database.");
       } else {
@@ -186,9 +197,7 @@ app.get("/videos/upload", videoUploadWs);
 
 app.get("/videos", async (c) => {
   const domain = getDomain(c);
-  const list = await ActivityPubObject.find({ type: "Video" }).sort({
-    published: -1,
-  }).lean();
+  const list = await findObjects({ type: "Video" }, { published: -1 });
 
   const identifiers = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(identifiers, domain);
@@ -244,7 +253,8 @@ app.post("/videos", async (c) => {
     ? stored
     : `/api/video-files/${filename}`;
 
-  const video = new ActivityPubObject({
+  const video = await saveObject(c.get("env") as Record<string, string>, {
+    _id: createObjectId(domain),
     type: "Video",
     attributedTo: author,
     content: description,
@@ -259,9 +269,9 @@ app.post("/videos", async (c) => {
       thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
       videoUrl,
     },
+    actor_id: `https://${domain}/users/${author}`,
+    aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
   });
-
-  await video.save();
 
   // Fire-and-forget delivery
   deliverVideoToFollowers(video, author, domain);
@@ -287,25 +297,20 @@ app.post("/videos", async (c) => {
 
 app.post("/videos/:id/like", async (c) => {
   const id = c.req.param("id");
-  const doc = await ActivityPubObject.findById(id);
+  const doc = await getObject(id);
   if (!doc) return c.json({ error: "Not found" }, 404);
-  const extra = doc.extra as Record<string, unknown>;
+  const extra = doc.extra as Record<string, unknown> ?? {};
   const likes = typeof extra.likes === "number" ? extra.likes + 1 : 1;
   extra.likes = likes;
-  doc.extra = extra;
-  await doc.save();
+  await updateObject(id, { extra });
   return c.json({ likes });
 });
 
 app.post("/videos/:id/view", async (c) => {
   const id = c.req.param("id");
-  const doc = await ActivityPubObject.findByIdAndUpdate(
-    id,
-    { $inc: { "extra.views": 1 } },
-    { new: true },
-  ).lean();
+  const doc = await updateObject(id, { $inc: { "extra.views": 1 } });
   if (!doc) return c.json({ error: "Not found" }, 404);
-  const extra = doc.extra as Record<string, unknown>;
+  const extra = (doc.extra ?? {}) as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;
   return c.json({ views });
 });
