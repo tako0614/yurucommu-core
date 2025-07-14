@@ -158,3 +158,5 @@ export async function listPullRelays(tenantId: string) {
   >();
   return docs.map((d) => d.relay);
 }
+
+export { addRelayEdge, removeRelayEdge };
