@@ -136,8 +136,6 @@ export async function removeFollowEdge(tenantId: string, actorId: string) {
   await FollowEdge.deleteOne({ tenant_id: tenantId, actor_id: actorId });
 }
 
-import RelayEdge from "../models/relay_edge.ts";
-
 export async function addRelayEdge(
   tenantId: string,
   relay: string,
