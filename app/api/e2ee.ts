@@ -323,7 +323,13 @@ app.post("/users/:user/messages", async (c) => {
   );
 
   const privateMessage = buildActivityFromStored(
-    { ...object.toObject(), content },
+    object.toObject() as {
+      _id: unknown;
+      type: string;
+      content: string;
+      published: unknown;
+      extra: Record<string, unknown>;
+    },
     domain,
     sender,
     false,
@@ -381,13 +387,19 @@ app.post("/users/:user/publicMessages", async (c) => {
   );
 
   const publicMessage = buildActivityFromStored(
-    { ...object.toObject(), content },
+    object.toObject() as {
+      _id: unknown;
+      type: string;
+      content: string;
+      published: unknown;
+      extra: Record<string, unknown>;
+    },
     domain,
     sender,
     false,
   );
   (publicMessage as ActivityPubActivity)["@context"] = [
-    "https.://www.w3.org/ns/activitystreams",
+    "https://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
 
