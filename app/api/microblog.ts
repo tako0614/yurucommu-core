@@ -132,6 +132,7 @@ app.get("/microblog", async (c) => {
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const relayHost = c.req.query("relay");
   const actor = c.req.query("actor");
+  const timeline = c.req.query("timeline") ?? "recommend";
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
@@ -156,7 +157,7 @@ app.get("/microblog", async (c) => {
     }
   }
   let list: ActivityPubObjectType[];
-  if (actor && tenantId) {
+  if (timeline === "followers" && actor && tenantId) {
     list = await getTimeline(
       tenantId,
       actor,

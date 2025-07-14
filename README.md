@@ -86,7 +86,9 @@ deno task dev
 
 簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
 
-- `GET /api/microblog` – 投稿を新しい順で取得
+- `GET /api/microblog` – おすすめタイムラインを取得
+- `GET /api/microblog?timeline=followers&actor=URI` –
+  フォロー中アクターの投稿のみ取得
 - `GET /api/microblog?relay=relay.example` –
   指定したリレーサーバーからタイムラインを取得
 - `POST /api/microblog` – 投稿を作成
