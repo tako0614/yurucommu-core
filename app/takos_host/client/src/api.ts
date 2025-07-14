@@ -38,7 +38,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function fetchInstances(): Promise<Instance[]> {
-  const res = await fetch("/admin/instances");
+  const res = await fetch("/user/instances");
   if (!res.ok) return [];
   return await res.json();
 }
@@ -47,7 +47,7 @@ export async function addInstance(
   host: string,
   password: string,
 ): Promise<boolean> {
-  const res = await fetch("/admin/instances", {
+  const res = await fetch("/user/instances", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host, password }),
@@ -56,7 +56,7 @@ export async function addInstance(
 }
 
 export async function deleteInstance(host: string): Promise<boolean> {
-  const res = await fetch(`/admin/instances/${host}`, { method: "DELETE" });
+  const res = await fetch(`/user/instances/${host}`, { method: "DELETE" });
   return res.ok;
 }
 
@@ -68,7 +68,7 @@ export interface InstanceDetail {
 export async function fetchInstance(
   host: string,
 ): Promise<InstanceDetail | null> {
-  const res = await fetch(`/admin/instances/${host}`);
+  const res = await fetch(`/user/instances/${host}`);
   if (!res.ok) return null;
   return await res.json();
 }
@@ -77,7 +77,7 @@ export async function updateEnv(
   host: string,
   env: Record<string, string>,
 ): Promise<boolean> {
-  const res = await fetch(`/admin/instances/${host}/env`, {
+  const res = await fetch(`/user/instances/${host}/env`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(env),
@@ -89,7 +89,7 @@ export async function updateInstancePassword(
   host: string,
   password: string,
 ): Promise<boolean> {
-  const res = await fetch(`/admin/instances/${host}/password`, {
+  const res = await fetch(`/user/instances/${host}/password`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
@@ -98,7 +98,7 @@ export async function updateInstancePassword(
 }
 
 export async function restartInstance(host: string): Promise<boolean> {
-  const res = await fetch(`/admin/instances/${host}/restart`, {
+  const res = await fetch(`/user/instances/${host}/restart`, {
     method: "POST",
   });
   return res.ok;

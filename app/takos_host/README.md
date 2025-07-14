@@ -27,9 +27,9 @@ takos を運用できるようにすることが目的です。
 ## ログインと管理 API
 
 `ROOT_DOMAIN` で指定したドメインへアクセスすると、ウェルカムページが
-表示されます。ログインは `/auth`、管理画面は `/admin` から利用します。 `/auth`
-では登録やログインなど API も提供され、取得したセッション Cookie
-を送信することで `/admin` 以下の API を利用できます。
+表示されます。ログインは `/auth`、ダッシュボードは `/user` から利用します。
+`/auth` では登録やログインなど API も提供され、取得したセッション Cookie
+を送信することで `/user` 以下の API を利用できます。
 
 - `POST /auth/register` 新規ユーザー登録
 - `POST /auth/login` ログイン
@@ -38,13 +38,13 @@ takos を運用できるようにすることが目的です。
 
 管理 API では以下のエンドポイントが利用できます。
 
-- `GET /admin/instances` 登録済みインスタンス一覧を取得
-- `POST /admin/instances` 新しいインスタンスを追加 (パスワードを設定)
-- `DELETE /admin/instances/:host` インスタンスを削除
-- `GET /admin/instances/:host` インスタンスの詳細を取得
-- `PUT /admin/instances/:host/env` インスタンスの環境変数を更新
-- `PUT /admin/instances/:host/password` インスタンスのログインパスワードを変更
-- `POST /admin/instances/:host/restart` インスタンスを再起動
+- `GET /user/instances` 登録済みインスタンス一覧を取得
+- `POST /user/instances` 新しいインスタンスを追加 (パスワードを設定)
+- `DELETE /user/instances/:host` インスタンスを削除
+- `GET /user/instances/:host` インスタンスの詳細を取得
+- `PUT /user/instances/:host/env` インスタンスの環境変数を更新
+- `PUT /user/instances/:host/password` インスタンスのログインパスワードを変更
+- `POST /user/instances/:host/restart` インスタンスを再起動
 
 環境変数やパスワードを更新すると、キャッシュされたアプリが破棄され、次のアクセス時に再起動されます。
 
@@ -64,7 +64,7 @@ $ deno task dev
 ### インスタンスへのログイン
 
 各インスタンスでは `/login` へパスワードを POST
-すると管理画面にアクセスできます。 `POST /admin/instances`
+するとダッシュボードにアクセスできます。 `POST /user/instances`
 で登録したパスワードは `hashedPassword` と `salt` として
 インスタンスの環境変数に保存され、ログイン時に照合されます。
 
