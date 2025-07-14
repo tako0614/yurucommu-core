@@ -130,7 +130,7 @@ const AdminPage: Component = () => {
               class="grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
             >
               <input
-                placeholder="ホスト名"
+                placeholder="ホスト名(サブドメイン)"
                 value={host()}
                 onInput={(e) => setHost(e.currentTarget.value)}
                 class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

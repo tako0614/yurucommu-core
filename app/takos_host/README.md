@@ -24,6 +24,12 @@ takos を運用できるようにすることが目的です。
 を共通モジュールとして読み込んで処理します。これにより複数の takos
 サーバーを一元管理できます。
 
+環境変数 `ROOT_DOMAIN` を設定すると、インスタンスのホスト名は
+`<サブドメイン>.<ROOT_DOMAIN>` の形式で自動補完されます。`FREE_PLAN_LIMIT`
+で1ユーザーが作成できる無料インスタンス数を制限できます。`ROOT_DOMAIN`
+に含まれない独自ドメインを利用する場合は、事前にドメイン登録と
+所有確認を行ってください。
+
 ## ログインと管理 API
 
 `ROOT_DOMAIN` で指定したドメインへアクセスすると、ウェルカムページが
@@ -43,6 +49,9 @@ takos を運用できるようにすることが目的です。
 - `DELETE /user/instances/:host` インスタンスを削除
 - `GET /user/instances/:host` インスタンスの詳細を取得
 - `PUT /user/instances/:host/password` インスタンスのログインパスワードを変更
+- `GET /user/domains` 登録済みドメイン一覧を取得
+- `POST /user/domains` ドメインを登録 (検証トークンを返す)
+- `POST /user/domains/:domain/verify` ドメインの所有確認
 
 環境変数やパスワードを更新すると、キャッシュされたアプリが破棄され、次のアクセス時に再起動されます。
 
@@ -69,4 +78,6 @@ $ deno task dev
 ## 起動方法
 
 1. `.env.example` を参考に `.env` を作成します。
+   - `ROOT_DOMAIN` にホストの基本ドメインを設定します。
+   - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
