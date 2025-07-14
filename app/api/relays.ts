@@ -69,6 +69,7 @@ app.post("/relays", async (c) => {
   try {
     const host = new URL(inboxUrl).hostname;
     await addRelayEdge(tenant, host, "pull");
+    await addRelayEdge(tenant, host, "push");
   } catch {
     // URL パース失敗時は無視
   }

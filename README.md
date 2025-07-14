@@ -25,10 +25,13 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 設定してください。未設定の場合はリクエストされたホスト名が利用されます。 以前の
 `TENANT_ID` 変数は廃止され、ドメイン名そのものがテナント ID として扱われます。
 リレーサーバーの設定は UI から追加・削除でき、データベースに保存されます。
-`getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
-へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
-`RELAY_POLL_INTERVAL` で指定した間隔ごとに、登録済みリレーの `/api/microblog`
-を取得し、新規投稿を `object_store` へ自動保存します。
+登録時には `relay_edge` コレクションに pull/push モード別のエントリが作成され、
+pull モードのリレーは定期ポーリングで投稿が取り込まれ、push モードのリレーには
+投稿配信時に自動で送信されます。 `getEnv(c)` で取得した環境変数を `fetchJson` や
+`deliverActivityPubObject` へ渡すことで
+マルチテナント環境でも正しいドメインが利用されます。 `RELAY_POLL_INTERVAL`
+で指定した間隔ごとに、登録済みリレーの `/api/microblog` を取得し、新規投稿を
+`object_store` へ自動保存します。
 
 ### 統合オブジェクトストア
 

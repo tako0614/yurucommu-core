@@ -1,5 +1,6 @@
 import Account from "../models/account.ts";
 import Relay from "../models/relay.ts";
+import { listPushRelays } from "../services/unified_store.ts";
 import { getEnv } from "./env_store.ts";
 import type { Context } from "hono";
 
@@ -128,7 +129,9 @@ export async function deliverActivityPubObject(
 ): Promise<void> {
   const relayDocs = await Relay.find().lean<{ inboxUrl: string }[]>();
   const relays = relayDocs.map((r) => r.inboxUrl);
-  const allTargets = [...targets, ...relays];
+  const pushHosts = await listPushRelays(domain);
+  const pushRelays = pushHosts.map((h) => `https://${h}/inbox`);
+  const allTargets = [...targets, ...relays, ...pushRelays];
 
   const deliveryPromises = allTargets.map(async (iri) => {
     // 受信箱URLが直に渡ってきた場合はそのままPOST

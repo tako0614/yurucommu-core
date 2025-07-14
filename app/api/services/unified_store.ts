@@ -143,8 +143,8 @@ export async function addRelayEdge(
   mode: "pull" | "push" = "pull",
 ) {
   await RelayEdge.updateOne(
-    { tenant_id: tenantId, relay },
-    { $set: { mode, since: new Date() } },
+    { tenant_id: tenantId, relay, mode },
+    { $setOnInsert: { since: new Date() } },
     { upsert: true },
   );
 }
@@ -155,6 +155,13 @@ export async function removeRelayEdge(tenantId: string, relay: string) {
 
 export async function listPullRelays(tenantId: string) {
   const docs = await RelayEdge.find({ tenant_id: tenantId, mode: "pull" }).lean<
+    { relay: string }[]
+  >();
+  return docs.map((d) => d.relay);
+}
+
+export async function listPushRelays(tenantId: string) {
+  const docs = await RelayEdge.find({ tenant_id: tenantId, mode: "push" }).lean<
     { relay: string }[]
   >();
   return docs.map((d) => d.relay);
