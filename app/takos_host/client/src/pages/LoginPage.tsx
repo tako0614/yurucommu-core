@@ -13,7 +13,7 @@ const LoginPage: Component = () => {
     e.preventDefault();
     if (await apiLogin(userName(), password())) {
       setLoggedIn(true);
-      globalThis.location.href = "/admin";
+      globalThis.location.href = "/user";
     } else {
       setError("ログインに失敗しました");
     }

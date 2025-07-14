@@ -153,7 +153,7 @@ const LandingPage: Component = () => {
               </a>
             }
           >
-            <a href="/admin" class="rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 px-5 py-2.5 text-sm font-semibold shadow-lg hover:shadow-xl hover:from-emerald-500 hover:to-emerald-400 transition-all duration-200 transform hover:scale-105">
+            <a href="/user" class="rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 px-5 py-2.5 text-sm font-semibold shadow-lg hover:shadow-xl hover:from-emerald-500 hover:to-emerald-400 transition-all duration-200 transform hover:scale-105">
               ダッシュボード
             </a>
           </Show>

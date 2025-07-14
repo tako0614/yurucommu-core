@@ -13,7 +13,7 @@ const RegisterPage: Component = () => {
     e.preventDefault();
     if (await apiRegister(userName(), password())) {
       setLoggedIn(true);
-      globalThis.location.href = "/admin";
+      globalThis.location.href = "/user";
     } else {
       setError("登録に失敗しました");
     }

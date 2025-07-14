@@ -9,13 +9,13 @@ export function createAdminApp(invalidate?: (host: string) => void) {
 
   app.use("/*", authRequired);
 
-  app.get("/admin/instances", async (c) => {
+  app.get("/instances", async (c) => {
     const list = await Instance.find().lean();
     return c.json(list.map((i) => ({ host: i.host })));
   });
 
   app.post(
-    "/admin/instances",
+    "/instances",
     zValidator(
       "json",
       z.object({ host: z.string(), password: z.string() }),
@@ -38,14 +38,14 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     },
   );
 
-  app.delete("/admin/instances/:host", async (c) => {
+  app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host");
     await Instance.deleteOne({ host });
     invalidate?.(host);
     return c.json({ success: true });
   });
 
-  app.get("/admin/instances/:host", async (c) => {
+  app.get("/instances/:host", async (c) => {
     const host = c.req.param("host");
     const inst = await Instance.findOne({ host }).lean();
     if (!inst) return c.json({ error: "not found" }, 404);
@@ -53,7 +53,7 @@ export function createAdminApp(invalidate?: (host: string) => void) {
   });
 
   app.put(
-    "/admin/instances/:host/env",
+    "/instances/:host/env",
     zValidator("json", z.record(z.string(), z.string())),
     async (c) => {
       const host = c.req.param("host");
@@ -68,7 +68,7 @@ export function createAdminApp(invalidate?: (host: string) => void) {
   );
 
   app.put(
-    "/admin/instances/:host/password",
+    "/instances/:host/password",
     zValidator("json", z.object({ password: z.string() })),
     async (c) => {
       const host = c.req.param("host");
@@ -84,7 +84,7 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     },
   );
 
-  app.post("/admin/instances/:host/restart", async (c) => {
+  app.post("/instances/:host/restart", async (c) => {
     const host = c.req.param("host");
     const inst = await Instance.findOne({ host });
     if (!inst) return c.json({ error: "not found" }, 404);
