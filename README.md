@@ -109,6 +109,18 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 - `POST /api/videos/:id/like` – いいね数を増加
 - `POST /api/videos/:id/view` – 再生数を増加
 
+## リレー API
+
+ほかのインスタンスと連携するためのリレーサーバーを管理します。
+
+- `GET /api/relays` – 登録済みリレー一覧を取得
+- `POST /api/relays` – `{ "inboxUrl": "https://relay.example/inbox" }`
+  を送信して追加
+- `DELETE /api/relays/:id` – リレーを削除
+
+pull モードのリレーは一定間隔で `/api/microblog` を取得し、投稿を自動で取り込み
+ます。push モードのリレーには投稿作成時に自動配信されます。
+
 ## グループ機能
 
 takos では ActivityPub の Group
