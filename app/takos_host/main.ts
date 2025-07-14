@@ -5,6 +5,7 @@ import { connectDatabase } from "../api/db.ts";
 import Instance from "./models/instance.ts";
 import { createAdminApp } from "./admin.ts";
 import { authApp } from "./auth.ts";
+import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 
@@ -84,6 +85,7 @@ if (!isDev && rootDomain) {
 }
 
 root.route("/auth", authApp);
+root.route("/oauth", oauthApp);
 root.route("/user", adminApp);
 
 root.all("/*", async (c) => {
