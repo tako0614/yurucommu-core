@@ -4,6 +4,7 @@ import { connectDatabase } from "./db.ts";
 import { initEnv } from "./utils/env_store.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
+import oauthLogin from "./oauth_login.ts";
 import session from "./session.ts";
 import accounts from "./accounts.ts";
 import notifications from "./notifications.ts";
@@ -29,6 +30,9 @@ export async function createTakosApp(env?: Record<string, string>) {
   const app = new Hono();
   app.route("/api", login);
   app.route("/api", logout);
+  if (e["OAUTH_HOST"]) {
+    app.route("/api", oauthLogin);
+  }
   app.route("/api", session);
   app.route("/api", accounts);
   app.route("/api", notifications);

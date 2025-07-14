@@ -3,6 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import Instance from "./models/instance.ts";
 import { authRequired, hash } from "./auth.ts";
+import OAuthClient from "./models/oauth_client.ts";
 
 export function createAdminApp(invalidate?: (host: string) => void) {
   const app = new Hono();
@@ -91,6 +92,36 @@ export function createAdminApp(invalidate?: (host: string) => void) {
     invalidate?.(host);
     return c.json({ success: true });
   });
+
+  app.get("/oauth/clients", async (c) => {
+    const list = await OAuthClient.find().lean();
+    return c.json(
+      list.map((cli) => ({
+        clientId: cli.clientId,
+        redirectUri: cli.redirectUri,
+      })),
+    );
+  });
+
+  app.post(
+    "/oauth/clients",
+    zValidator(
+      "json",
+      z.object({
+        clientId: z.string(),
+        clientSecret: z.string(),
+        redirectUri: z.string(),
+      }),
+    ),
+    async (c) => {
+      const { clientId, clientSecret, redirectUri } = c.req.valid("json");
+      const exists = await OAuthClient.findOne({ clientId });
+      if (exists) return c.json({ error: "exists" }, 400);
+      const client = new OAuthClient({ clientId, clientSecret, redirectUri });
+      await client.save();
+      return c.json({ success: true });
+    },
+  );
 
   return app;
 }
