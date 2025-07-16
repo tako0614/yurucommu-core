@@ -15,7 +15,7 @@
 - takos 本体 (例: `takos.jp`) の `system` inbox に届いたオブジェクトは、
   デフォルトリレーサーバー `takos.jp` が取得できるよう公開します。
 - これにより各インスタンスはリレーを経由して takos 全体の通知を受け取れます。
-  利用するリレー先は takos host 側の `DEFAULT_RELAY` で指定できます。
+  リレー先は takos host の `ROOT_DOMAIN` に固定されています。
 
 ## リレーサーバーの公開設定
 

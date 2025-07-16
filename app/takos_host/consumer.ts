@@ -11,12 +11,11 @@ import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,
-  options?: { rootDomain?: string; freeLimit?: number; defaultRelay?: string },
+  options?: { rootDomain?: string; freeLimit?: number },
 ) {
   const app = new Hono();
   const rootDomain = options?.rootDomain ?? "";
   const freeLimit = options?.freeLimit ?? 1;
-  const defaultRelay = options?.defaultRelay ?? "";
 
   app.use("/*", authRequired);
 
@@ -73,9 +72,9 @@ export function createConsumerApp(
       });
       await inst.save();
       await ensureTenant(fullHost, fullHost);
-      if (defaultRelay) {
-        await addRelayEdge(fullHost, defaultRelay, "pull");
-        await addRelayEdge(fullHost, defaultRelay, "push");
+      if (rootDomain) {
+        await addRelayEdge(fullHost, rootDomain, "pull");
+        await addRelayEdge(fullHost, rootDomain, "push");
       }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });

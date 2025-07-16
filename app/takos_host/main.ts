@@ -16,12 +16,11 @@ await connectDatabase(env);
 const apps = new Map<string, Hono>();
 const rootDomain = env["ROOT_DOMAIN"] ?? "";
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
-const defaultRelay = env["DEFAULT_RELAY"] ?? "";
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
   },
-  { rootDomain, freeLimit, defaultRelay },
+  { rootDomain, freeLimit },
 );
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -42,8 +41,8 @@ function proxy(prefix: string) {
 async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
-  if (defaultRelay && host === defaultRelay) {
-    return { ...env, ACTIVITYPUB_DOMAIN: defaultRelay };
+  if (rootDomain && host === rootDomain) {
+    return { ...env, ACTIVITYPUB_DOMAIN: rootDomain };
   }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst) return null;
@@ -100,14 +99,6 @@ if (!isDev && rootDomain) {
 
 root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
-  if (rootDomain && host === rootDomain) {
-    if (isDev && c.req.method === "GET") {
-      const res = await fetch(`http://localhost:1421${c.req.path}`);
-      const body = await res.arrayBuffer();
-      return new Response(body, { status: res.status, headers: res.headers });
-    }
-    return serveStatic({ root: "./client/dist" })(c, () => Promise.resolve());
-  }
   const app = await getAppForHost(host);
   if (!app) return c.text("not found", 404);
   return app.fetch(c.req.raw);
