@@ -50,7 +50,7 @@ app.get("/api/stories", async (c) => {
     const formatted = stories.map((s) => {
       const story = s as Story;
       return {
-        id: story._id.toString(),
+        id: String(story._id),
         author: story.attributedTo,
         content: story.content,
         mediaUrl: story.extra.mediaUrl,
@@ -106,7 +106,7 @@ app.post("/api/stories", async (c) => {
       },
     );
     return c.json({
-      id: story._id.toString(),
+      id: String(story._id),
       author: story.attributedTo,
       content: story.content,
       mediaUrl: story.extra.mediaUrl,
@@ -135,7 +135,7 @@ app.post("/api/stories/:id/view", async (c) => {
     }
 
     return c.json({
-      id: story._id.toString(),
+      id: String(story._id),
       author: story.attributedTo,
       content: story.content,
       mediaUrl: story.extra.mediaUrl,

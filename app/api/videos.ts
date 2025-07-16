@@ -31,6 +31,7 @@ export function initVideoModule(env: Record<string, string>) {
 
 // --- Helper Functions ---
 async function deliverVideoToFollowers(
+  env: Record<string, string>,
   video: {
     toObject: () => Record<string, unknown>;
     content?: unknown;
@@ -52,7 +53,7 @@ async function deliverVideoToFollowers(
           if (url.host === domain && url.pathname.startsWith("/users/")) {
             return null;
           }
-          return await fetchActorInbox(followerUrl, getEnv(c));
+          return await fetchActorInbox(followerUrl, env);
         } catch {
           return null;
         }
@@ -93,7 +94,7 @@ async function deliverVideoToFollowers(
         activity,
         author,
         domain,
-        getEnv(c),
+        env,
       );
     }
   } catch (err) {
@@ -200,7 +201,12 @@ const videoUploadWs = upgradeWebSocket((c) => {
             },
           },
         );
-        deliverVideoToFollowers(video, videoMetadata.author, domain);
+        deliverVideoToFollowers(
+          getEnv(c),
+          video,
+          videoMetadata.author,
+          domain,
+        );
         console.log("Video metadata saved to database.");
       } else {
         console.log("Upload incomplete, cleaning up.");
@@ -226,7 +232,7 @@ app.get("/videos", async (c) => {
     const info = infos[idx];
     const extra = doc.extra as Record<string, unknown>;
     return {
-      id: doc._id.toString(),
+      id: String(doc._id),
       title: (extra.title as string) ?? "",
       author: info.displayName,
       authorAvatar: info.authorAvatar,
@@ -297,12 +303,17 @@ app.post("/videos", async (c) => {
   );
 
   // Fire-and-forget delivery
-  deliverVideoToFollowers(video, author, domain);
+  deliverVideoToFollowers(
+    getEnv(c),
+    video,
+    author,
+    domain,
+  );
 
   const info = await getUserInfo(video.attributedTo as string, domain);
 
   return c.json({
-    id: video._id.toString(),
+    id: String(video._id),
     title,
     author: info.displayName,
     authorAvatar: info.authorAvatar,
