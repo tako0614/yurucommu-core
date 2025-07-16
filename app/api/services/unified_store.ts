@@ -33,6 +33,7 @@ export async function saveNote(
     raw,
     type: "Note",
     actor_id: actor,
+    tenant_id: env["ACTIVITYPUB_DOMAIN"],
     aud,
   });
   (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
@@ -49,6 +50,9 @@ export async function saveObject(
   if (!data._id && env["ACTIVITYPUB_DOMAIN"]) {
     data._id = createObjectId(env["ACTIVITYPUB_DOMAIN"]);
   }
+  if (!("tenant_id" in data) && env["ACTIVITYPUB_DOMAIN"]) {
+    data.tenant_id = env["ACTIVITYPUB_DOMAIN"];
+  }
   const doc = new ObjectStore(data);
   (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
     env,
@@ -58,36 +62,57 @@ export async function saveObject(
 }
 
 export async function updateObject(
+  env: Record<string, string>,
   id: string,
   update: Record<string, unknown>,
 ) {
-  return await ObjectStore.findByIdAndUpdate(id, update, { new: true });
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await ObjectStore.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    update,
+    { new: true },
+  );
 }
 
-export async function deleteObject(id: string) {
-  return await ObjectStore.findByIdAndDelete(id);
+export async function deleteObject(env: Record<string, string>, id: string) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await ObjectStore.findOneAndDelete({ _id: id, tenant_id: tenantId });
 }
 
-export async function deleteManyObjects(filter: Record<string, unknown>) {
-  return await ObjectStore.deleteMany(filter);
+export async function deleteManyObjects(
+  env: Record<string, string>,
+  filter: Record<string, unknown>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await ObjectStore.deleteMany({ ...filter, tenant_id: tenantId });
 }
 
 export async function findObjects(
+  env: Record<string, string>,
   filter: Record<string, unknown>,
   sort?: Record<string, SortOrder>,
 ): Promise<ObjectStoreType[]> {
-  return await ObjectStore.find(filter).sort(sort ?? {}).lean<
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  const f = { ...filter } as Record<string, unknown>;
+  if (tenantId) f.tenant_id = tenantId;
+  return await ObjectStore.find(f).sort(sort ?? {}).lean<
     ObjectStoreType[]
   >();
 }
 
-export async function getPublicNotes(limit = 40, before?: Date): Promise<
+export async function getPublicNotes(
+  env: Record<string, string>,
+  limit = 40,
+  before?: Date,
+): Promise<
   ObjectStoreType[]
 > {
   const query = ObjectStore.find({
     type: "Note",
     "aud.to": "https://www.w3.org/ns/activitystreams#Public",
   });
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  if (tenantId) query.where("tenant_id").equals(tenantId);
   if (before) query.where("created_at").lt(before.getTime());
   return await query.sort({ created_at: -1 }).limit(limit).lean<
     ObjectStoreType[]
@@ -129,8 +154,14 @@ export async function getTimeline(
   return docs.map((d) => d.objs as ObjectStoreType);
 }
 
-export async function getObject(id: string): Promise<ObjectStoreType | null> {
-  return await ObjectStore.findById(id).lean<ObjectStoreType | null>();
+export async function getObject(
+  env: Record<string, string>,
+  id: string,
+): Promise<ObjectStoreType | null> {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await ObjectStore.findOne({ _id: id, tenant_id: tenantId }).lean<
+    ObjectStoreType | null
+  >();
 }
 
 export async function addFollowEdge(tenantId: string, actorId: string) {

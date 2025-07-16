@@ -210,7 +210,8 @@ app.get("/videos/upload", videoUploadWs);
 
 app.get("/videos", async (c) => {
   const domain = getDomain(c);
-  const list = await findObjects({ type: "Video" }, { published: -1 });
+  const env = getEnv(c);
+  const list = await findObjects(env, { type: "Video" }, { published: -1 });
 
   const identifiers = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(identifiers, domain);
@@ -313,18 +314,20 @@ app.post("/videos", async (c) => {
 
 app.post("/videos/:id/like", async (c) => {
   const id = c.req.param("id");
-  const doc = await getObject(id);
+  const env = getEnv(c);
+  const doc = await getObject(env, id);
   if (!doc) return c.json({ error: "Not found" }, 404);
   const extra = doc.extra as Record<string, unknown> ?? {};
   const likes = typeof extra.likes === "number" ? extra.likes + 1 : 1;
   extra.likes = likes;
-  await updateObject(id, { extra });
+  await updateObject(env, id, { extra });
   return c.json({ likes });
 });
 
 app.post("/videos/:id/view", async (c) => {
   const id = c.req.param("id");
-  const doc = await updateObject(id, { $inc: { "extra.views": 1 } });
+  const env = getEnv(c);
+  const doc = await updateObject(env, id, { $inc: { "extra.views": 1 } });
   if (!doc) return c.json({ error: "Not found" }, 404);
   const extra = (doc.extra ?? {}) as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;

@@ -3,6 +3,7 @@ import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
 import Group from "./models/group.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
+import { getEnv } from "./utils/env_store.ts";
 import authRequired from "./utils/auth.ts";
 
 interface SearchResult {
@@ -61,7 +62,8 @@ app.get("/search", async (c) => {
   }
 
   if (type === "all" || type === "posts") {
-    const posts = await findObjects({ type: "Note", content: regex });
+    const env = getEnv(c);
+    const posts = await findObjects(env, { type: "Note", content: regex });
     const sliced = posts.slice(0, 20);
     const domain = getDomain(c);
     for (const p of sliced) {

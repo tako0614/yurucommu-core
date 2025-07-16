@@ -147,7 +147,8 @@ app.get("/communities/:name/outbox", async (c) => {
   const name = c.req.param("name");
   const domain = getDomain(c);
   const page = parseInt(c.req.query("page") || "0");
-  const objects = await findObjects({ attributedTo: `!${name}` }, {
+  const env = getEnv(c);
+  const objects = await findObjects(env, { attributedTo: `!${name}` }, {
     published: -1,
   });
   const baseId = `https://${domain}/communities/${name}/outbox`;

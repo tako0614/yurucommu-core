@@ -94,7 +94,7 @@ async function deliverPostToFollowers(
       deliverActivityPubObject(validInboxes, createActivity, author, domain);
 
       if (replyToId) {
-        const parent = await getObject(replyToId);
+        const parent = await getObject(env, replyToId);
         if (
           parent &&
           typeof parent.attributedTo === "string" &&
@@ -166,6 +166,7 @@ app.get("/microblog", async (c) => {
     );
   } else {
     list = await getPublicNotes(
+      env,
       limit,
       before ? new Date(before) : undefined,
     );
@@ -206,7 +207,7 @@ app.post("/microblog", async (c) => {
   const post = await saveNote(env, domain, author, content, extra);
 
   if (typeof parentId === "string") {
-    await updateObject(parentId, { $inc: { "extra.replies": 1 } }).catch(
+    await updateObject(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
       () => {},
     );
   }
@@ -230,8 +231,9 @@ app.post("/microblog", async (c) => {
 
 app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const post = await getObject(id);
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const userInfo = await getUserInfo(post.actor_id as string, domain);
@@ -241,8 +243,11 @@ app.get("/microblog/:id", async (c) => {
 
 app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const list = await findObjects({ "extra.inReplyTo": id }, { published: 1 });
+  const list = await findObjects(env, { "extra.inReplyTo": id }, {
+    published: 1,
+  });
   const ids = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(ids, domain);
   const formatted = list.map((doc, i) =>
@@ -258,7 +263,8 @@ app.put("/microblog/:id", async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await updateObject(id, { content });
+  const env = getEnv(c);
+  const post = await updateObject(env, id, { content });
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // 共通ユーザー情報取得サービスを使用
@@ -279,7 +285,8 @@ app.post("/microblog/:id/like", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await getObject(id);
+  const env = getEnv(c);
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const extra = post.extra as Record<string, unknown> ?? {};
@@ -290,7 +297,8 @@ app.post("/microblog/:id/like", async (c) => {
     likedBy.push(username);
     extra.likedBy = likedBy;
     extra.likes = likedBy.length;
-    await updateObject(id, { extra });
+    const env = getEnv(c);
+    await updateObject(env, id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -348,7 +356,8 @@ app.post("/microblog/:id/retweet", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await getObject(id);
+  const env = getEnv(c);
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const extra = post.extra as Record<string, unknown>;
@@ -359,7 +368,8 @@ app.post("/microblog/:id/retweet", async (c) => {
     retweetedBy.push(username);
     extra.retweetedBy = retweetedBy;
     extra.retweets = retweetedBy.length;
-    await updateObject(id, { extra });
+    const env = getEnv(c);
+    await updateObject(env, id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -416,8 +426,9 @@ app.post("/microblog/:id/retweet", async (c) => {
 });
 
 app.delete("/microblog/:id", async (c) => {
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const deleted = await deleteObject(id);
+  const deleted = await deleteObject(env, id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });

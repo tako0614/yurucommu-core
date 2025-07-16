@@ -119,7 +119,8 @@ app.get("/users/:username/outbox", async (c) => {
   // deno-lint-ignore no-explicit-any
   const query: any = { attributedTo: username };
   if (type) query.type = type;
-  const objects = await findObjects(query, { published: -1 });
+  const env = getEnv(c);
+  const objects = await findObjects(env, query, { published: -1 });
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,

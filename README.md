@@ -36,7 +36,9 @@ pull モードのリレーは定期ポーリングで投稿が取り込まれ、
 ### 統合オブジェクトストア
 
 すべての ActivityPub オブジェクトは `object_store` コレクションに保存されます。
-スキーマは次の通りです。
+各ドキュメントには投稿元ドメインを示す `tenant_id` フィールドが追加され、
+複数インスタンスで同じ MongoDB を共有しても互いのデータが混在しません。スキーマ
+は次の通りです。
 
 ```jsonc
 {
@@ -44,6 +46,7 @@ pull モードのリレーは定期ポーリングで投稿が取り込まれ、
   raw: { ... },
   type: "Note",
   actor_id: "https://example.org/users/alice",
+  tenant_id: "example.org",
   created_at: ISODate(),
   updated_at: ISODate(),
   deleted_at: Optional<ISODate>,

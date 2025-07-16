@@ -27,7 +27,8 @@ app.use(
 // ストーリー一覧取得
 app.get("/api/stories", async (c) => {
   try {
-    const stories = await findObjects({
+    const env = getEnv(c);
+    const stories = await findObjects(env, {
       type: "Story",
       "extra.expiresAt": { $gt: new Date() },
     }, { published: -1 });
@@ -125,8 +126,9 @@ app.post("/api/stories", async (c) => {
 // ストーリー閲覧
 app.post("/api/stories/:id/view", async (c) => {
   try {
+    const env = getEnv(c);
     const id = c.req.param("id");
-    const story = await updateObject(id, { $inc: { "extra.views": 1 } });
+    const story = await updateObject(env, id, { $inc: { "extra.views": 1 } });
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -153,8 +155,9 @@ app.post("/api/stories/:id/view", async (c) => {
 // ストーリー削除
 app.delete("/api/stories/:id", async (c) => {
   try {
+    const env = getEnv(c);
     const id = c.req.param("id");
-    const story = await deleteObject(id);
+    const story = await deleteObject(env, id);
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -170,7 +173,8 @@ app.delete("/api/stories/:id", async (c) => {
 // 期限切れストーリーのクリーンアップ（定期実行用）
 app.delete("/api/stories/cleanup", async (c) => {
   try {
-    const result = await deleteManyObjects({
+    const env = getEnv(c);
+    const result = await deleteManyObjects(env, {
       type: "Story",
       "extra.expiresAt": { $lt: new Date() },
     });

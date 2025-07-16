@@ -11,6 +11,7 @@ const objectStoreSchema = new mongoose.Schema({
   extra: { type: mongoose.Schema.Types.Mixed, default: {} },
   raw: { type: mongoose.Schema.Types.Mixed },
   actor_id: { type: String, index: true },
+  tenant_id: { type: String, index: true },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
   deleted_at: { type: Date },
@@ -25,6 +26,9 @@ objectStoreSchema.pre("save", function (next) {
     $locals?: { env?: Record<string, string> };
   };
   const env: Record<string, string> | undefined = self.$locals?.env;
+  if (!this.tenant_id && env?.ACTIVITYPUB_DOMAIN) {
+    this.tenant_id = env.ACTIVITYPUB_DOMAIN;
+  }
   if (!this.actor_id && typeof this.attributedTo === "string") {
     if (this.attributedTo.startsWith("http")) {
       this.actor_id = this.attributedTo;

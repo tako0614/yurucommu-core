@@ -70,8 +70,9 @@ app.get("/communities", async (c) => {
         const communityId = typeof community._id === "string"
           ? community._id
           : (community._id as { toString: () => string })?.toString() || "";
+        const env = getEnv(c);
         const postCount = (
-          await findObjects({
+          await findObjects(env, {
             type: "Note",
             "extra.communityId": communityId,
           })
@@ -171,8 +172,9 @@ app.get("/communities/:id", async (c) => {
 
     const members = community.members as string[] | undefined;
     const memberCount = members?.length || 0;
+    const env = getEnv(c);
     const postCount = (
-      await findObjects({ type: "Note", "extra.communityId": id })
+      await findObjects(env, { type: "Note", "extra.communityId": id })
     ).length;
 
     return c.json({
@@ -262,7 +264,8 @@ app.get("/communities/:id/posts", async (c) => {
     const domain = getDomain(c);
     const communityId = c.req.param("id");
 
-    const posts = await findObjects({
+    const env = getEnv(c);
+    const posts = await findObjects(env, {
       type: "Note",
       "extra.communityId": communityId,
     }, { published: -1 });
@@ -362,7 +365,10 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
   try {
     const postId = c.req.param("postId");
 
-    const post = await updateObject(postId, { $inc: { "extra.likes": 1 } });
+    const env = getEnv(c);
+    const post = await updateObject(env, postId, {
+      $inc: { "extra.likes": 1 },
+    });
 
     if (!post || post.type !== "Note") {
       return c.json({ error: "Post not found" }, 404);
@@ -396,10 +402,11 @@ app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
       return c.json({ error: "Forbidden" }, 403);
     }
 
-    const post = await getObject(postId);
+    const env = getEnv(c);
+    const post = await getObject(env, postId);
     if (!post) return c.json({ error: "Post not found" }, 404);
 
-    await deleteObject(postId);
+    await deleteObject(env, postId);
 
     const objectUrl = typeof post.raw?.id === "string"
       ? post.raw.id as string

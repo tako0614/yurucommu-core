@@ -59,8 +59,9 @@ app.get("/users/:username", async (c) => {
     }
 
     // ユーザーの投稿数を取得
+    const env = getEnv(c);
     const postCount = (
-      await findObjects({ attributedTo: username, type: "Note" })
+      await findObjects(env, { attributedTo: username, type: "Note" })
     ).length;
 
     return c.json({
@@ -308,7 +309,9 @@ app.get("/users/:username/timeline", async (c) => {
       .filter(Boolean);
 
     // フォロー中ユーザーの投稿を取得
+    const env = getEnv(c);
     const posts = await findObjects(
+      env,
       {
         type: "Note",
         attributedTo: { $in: followingUsernames },
