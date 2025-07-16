@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { findObjects } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -59,10 +60,10 @@ app.get("/users/:username", async (c) => {
     }
 
     // ユーザーの投稿数を取得
-    const postCount = await ActivityPubObject.countDocuments({
-      attributedTo: username,
-      type: "Note",
-    });
+    const env = getEnv(c);
+    const postCount = (
+      await findObjects(env, { attributedTo: username, type: "Note" })
+    ).length;
 
     return c.json({
       userName: user.userName,
@@ -309,16 +310,22 @@ app.get("/users/:username/timeline", async (c) => {
       .filter(Boolean);
 
     // フォロー中ユーザーの投稿を取得
-    const posts = await ActivityPubObject.find({
-      type: "Note",
-      attributedTo: { $in: followingUsernames },
-    }).sort({ published: -1 }).limit(50).lean();
+    const env = getEnv(c);
+    const posts = await findObjects(
+      env,
+      {
+        type: "Note",
+        attributedTo: { $in: followingUsernames },
+      },
+      { published: -1 },
+    );
+    const limited = posts.slice(0, 50);
 
     // ユーザー情報をバッチで取得
-    const identifiers = posts.map((post) => post.attributedTo as string);
+    const identifiers = limited.map((post) => post.attributedTo as string);
     const userInfos = await getUserInfoBatch(identifiers, domain);
 
-    const formatted = posts.map(
+    const formatted = limited.map(
       (post: Record<string, unknown>, index: number) => {
         const userInfo = userInfos[index];
         return formatUserInfoForPost(userInfo, post);

@@ -18,7 +18,6 @@ import { once } from "node:events";
 import { Buffer } from "node:buffer";
 
 // 内部ユーティリティ
-import { getEnv } from "../utils/env_store.ts";
 
 export interface ObjectStorage {
   put(key: string, data: Uint8Array): Promise<string>;
@@ -161,7 +160,7 @@ export class GridFSStorage implements ObjectStorage {
 /* ==========================
    ストレージファクトリ関数
    ========================== */
-export function createStorage(e = getEnv()): ObjectStorage {
+export function createStorage(e: Record<string, string>): ObjectStorage {
   const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
   if (provider === "s3" || provider === "r2" || provider === "minio") {
     const bucket = e["S3_BUCKET"] || "";

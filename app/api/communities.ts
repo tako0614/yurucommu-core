@@ -1,15 +1,23 @@
 import { Hono } from "hono";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  deleteObject,
+  findObjects,
+  getObject,
+  saveObject,
+  updateObject,
+} from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import {
   createAcceptActivity,
   createBlockActivity,
+  createObjectId,
   createRemoveActivity,
   deliverActivityPubObjectFromUrl,
   getDomain,
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -62,10 +70,13 @@ app.get("/communities", async (c) => {
         const communityId = typeof community._id === "string"
           ? community._id
           : (community._id as { toString: () => string })?.toString() || "";
-        const postCount = await ActivityPubObject.countDocuments({
-          type: "Note",
-          "extra.communityId": communityId,
-        });
+        const env = getEnv(c);
+        const postCount = (
+          await findObjects(env, {
+            type: "Note",
+            "extra.communityId": communityId,
+          })
+        ).length;
 
         return {
           id: communityId,
@@ -161,10 +172,10 @@ app.get("/communities/:id", async (c) => {
 
     const members = community.members as string[] | undefined;
     const memberCount = members?.length || 0;
-    const postCount = await ActivityPubObject.countDocuments({
-      type: "Note",
-      "extra.communityId": id,
-    });
+    const env = getEnv(c);
+    const postCount = (
+      await findObjects(env, { type: "Note", "extra.communityId": id })
+    ).length;
 
     return c.json({
       id: community._id.toString(),
@@ -253,10 +264,11 @@ app.get("/communities/:id/posts", async (c) => {
     const domain = getDomain(c);
     const communityId = c.req.param("id");
 
-    const posts = await ActivityPubObject.find({
+    const env = getEnv(c);
+    const posts = await findObjects(env, {
       type: "Note",
       "extra.communityId": communityId,
-    }).sort({ published: -1 }).lean();
+    }, { published: -1 });
 
     const formatted = await Promise.all(
       posts.map(async (post: Record<string, unknown>) => {
@@ -308,19 +320,23 @@ app.post("/communities/:id/posts", async (c) => {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const post = new ActivityPubObject({
-      type: "Note",
-      attributedTo: author,
-      content,
-      extra: {
-        communityId,
-        likes: 0,
-        comments: 0,
-        isPinned: false,
+    const post = await saveObject(
+      getEnv(c),
+      {
+        _id: createObjectId(domain),
+        type: "Note",
+        attributedTo: author,
+        content,
+        extra: {
+          communityId,
+          likes: 0,
+          comments: 0,
+          isPinned: false,
+        },
+        actor_id: `https://${domain}/users/${author}`,
+        aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
       },
-    });
-
-    await post.save();
+    );
 
     const account = await Account.findOne({ userName: author }).lean();
 
@@ -349,9 +365,10 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
   try {
     const postId = c.req.param("postId");
 
-    const post = await ActivityPubObject.findByIdAndUpdate(postId, {
+    const env = getEnv(c);
+    const post = await updateObject(env, postId, {
       $inc: { "extra.likes": 1 },
-    }, { new: true });
+    });
 
     if (!post || post.type !== "Note") {
       return c.json({ error: "Post not found" }, 404);
@@ -385,10 +402,11 @@ app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
       return c.json({ error: "Forbidden" }, 403);
     }
 
-    const post = await ActivityPubObject.findById(postId);
+    const env = getEnv(c);
+    const post = await getObject(env, postId);
     if (!post) return c.json({ error: "Post not found" }, 404);
 
-    await post.deleteOne();
+    await deleteObject(env, postId);
 
     const objectUrl = typeof post.raw?.id === "string"
       ? post.raw.id as string
@@ -406,6 +424,7 @@ app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });
@@ -468,6 +487,7 @@ app.post("/communities/:id/pending-followers/approve", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     );
     return c.json({ success: true });
   } catch (error) {
@@ -537,6 +557,7 @@ app.post("/communities/:id/block", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });

@@ -1,7 +1,15 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  deleteManyObjects,
+  deleteObject,
+  findObjects,
+  saveObject,
+  updateObject,
+} from "./services/unified_store.ts";
 import authRequired from "./utils/auth.ts";
+import { createObjectId } from "./utils/activitypub.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 const app = new Hono();
 app.use("*", authRequired);
@@ -19,10 +27,11 @@ app.use(
 // ストーリー一覧取得
 app.get("/api/stories", async (c) => {
   try {
-    const stories = await ActivityPubObject.find({
+    const env = getEnv(c);
+    const stories = await findObjects(env, {
       type: "Story",
       "extra.expiresAt": { $gt: new Date() },
-    }).sort({ published: -1 }).lean();
+    }, { published: -1 });
     type Story = {
       _id: { toString(): string };
       attributedTo: string;
@@ -75,22 +84,27 @@ app.post("/api/stories", async (c) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    const story = new ActivityPubObject({
-      type: "Story",
-      attributedTo: author,
-      content,
-      published: new Date(),
-      extra: {
-        mediaUrl,
-        mediaType,
-        backgroundColor: backgroundColor || "#1DA1F2",
-        textColor: textColor || "#FFFFFF",
-        expiresAt,
-        views: 0,
+    const domain = getEnv(c)["ACTIVITYPUB_DOMAIN"] ?? "";
+    const story = await saveObject(
+      getEnv(c),
+      {
+        _id: createObjectId(domain),
+        type: "Story",
+        attributedTo: author,
+        content,
+        published: new Date(),
+        extra: {
+          mediaUrl,
+          mediaType,
+          backgroundColor: backgroundColor || "#1DA1F2",
+          textColor: textColor || "#FFFFFF",
+          expiresAt,
+          views: 0,
+        },
+        actor_id: `https://${domain}/users/${author}`,
+        aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
       },
-    });
-
-    await story.save();
+    );
     return c.json({
       id: story._id.toString(),
       author: story.attributedTo,
@@ -112,12 +126,9 @@ app.post("/api/stories", async (c) => {
 // ストーリー閲覧
 app.post("/api/stories/:id/view", async (c) => {
   try {
+    const env = getEnv(c);
     const id = c.req.param("id");
-    const story = await ActivityPubObject.findByIdAndUpdate(
-      id,
-      { $inc: { "extra.views": 1 } },
-      { new: true },
-    ).lean();
+    const story = await updateObject(env, id, { $inc: { "extra.views": 1 } });
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -144,8 +155,9 @@ app.post("/api/stories/:id/view", async (c) => {
 // ストーリー削除
 app.delete("/api/stories/:id", async (c) => {
   try {
+    const env = getEnv(c);
     const id = c.req.param("id");
-    const story = await ActivityPubObject.findByIdAndDelete(id);
+    const story = await deleteObject(env, id);
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -161,7 +173,8 @@ app.delete("/api/stories/:id", async (c) => {
 // 期限切れストーリーのクリーンアップ（定期実行用）
 app.delete("/api/stories/cleanup", async (c) => {
   try {
-    const result = await ActivityPubObject.deleteMany({
+    const env = getEnv(c);
+    const result = await deleteManyObjects(env, {
       type: "Story",
       "extra.expiresAt": { $lt: new Date() },
     });

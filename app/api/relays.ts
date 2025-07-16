@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import Relay from "./models/relay.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
+import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -62,6 +64,15 @@ app.post("/relays", async (c) => {
   if (exists) return jsonResponse(c, { error: "Already exists" }, 409);
   const relay = new Relay({ inboxUrl });
   await relay.save();
+  const env = getEnv(c);
+  const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
+  try {
+    const host = new URL(inboxUrl).hostname;
+    await addRelayEdge(tenant, host, "pull");
+    await addRelayEdge(tenant, host, "push");
+  } catch {
+    // URL パース失敗時は無視
+  }
   try {
     let account = await Account.findOne({ userName: "system" });
     if (!account) {
@@ -81,7 +92,7 @@ app.post("/relays", async (c) => {
     const actorId = `https://${domain}/users/system`;
     const target = "https://www.w3.org/ns/activitystreams#Public";
     const follow = createFollowActivity(domain, actorId, target);
-    await sendActivityPubObject(inboxUrl, follow, "system");
+    await sendActivityPubObject(inboxUrl, follow, "system", domain);
   } catch (err) {
     console.error("Failed to follow relay:", err);
   }
@@ -92,6 +103,14 @@ app.delete("/relays/:id", async (c) => {
   const id = c.req.param("id");
   const relay = await Relay.findByIdAndDelete(id);
   if (!relay) return jsonResponse(c, { error: "Relay not found" }, 404);
+  const env = getEnv(c);
+  const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
+  try {
+    const host = new URL(relay.inboxUrl).hostname;
+    await removeRelayEdge(tenant, host);
+  } catch {
+    // URL パース失敗時は無視
+  }
   try {
     let account = await Account.findOne({ userName: "system" });
     if (!account) {
@@ -111,7 +130,7 @@ app.delete("/relays/:id", async (c) => {
     const actorId = `https://${domain}/users/system`;
     const target = "https://www.w3.org/ns/activitystreams#Public";
     const undo = createUndoFollowActivity(domain, actorId, target);
-    await sendActivityPubObject(relay.inboxUrl, undo, "system");
+    await sendActivityPubObject(relay.inboxUrl, undo, "system", domain);
   } catch (err) {
     console.error("Failed to undo follow relay:", err);
   }

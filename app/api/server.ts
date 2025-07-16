@@ -2,6 +2,7 @@ import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
 import { connectDatabase } from "./db.ts";
 import { initEnv } from "./utils/env_store.ts";
+import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
 import oauthLogin from "./oauth_login.ts";
@@ -19,15 +20,15 @@ import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
-import videos from "./videos.ts";
+import videos, { initVideoModule } from "./videos.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await load();
-  initEnv(e);
-  await connectDatabase(e);
 
   const app = new Hono();
+  initEnv(app, e);
+  initVideoModule(e);
   app.route("/api", login);
   app.route("/api", logout);
   if (e["OAUTH_HOST"]) {
@@ -66,10 +67,13 @@ export async function createTakosApp(env?: Record<string, string>) {
     }
   });
 
+  startRelayPolling(e);
   return app;
 }
 
 if (import.meta.main) {
-  const app = await createTakosApp();
+  const env = await load();
+  await connectDatabase(env);
+  const app = await createTakosApp(env);
   Deno.serve(app.fetch);
 }

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Group from "./models/group.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { findObjects, saveObject } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   createAcceptActivity,
   createAnnounceActivity,
@@ -85,6 +86,7 @@ app.post("/communities/:name/inbox", async (c) => {
           id: `https://${domain}/communities/${name}`,
           privateKey: group.privateKey,
         },
+        getEnv(c),
       ).catch((err) => {
         console.error("Delivery failed:", err);
       });
@@ -101,18 +103,26 @@ app.post("/communities/:name/inbox", async (c) => {
     const attachments = extractAttachments(obj);
     const extra: Record<string, unknown> = {};
     if (attachments.length > 0) extra.attachments = attachments;
-    const stored = await ActivityPubObject.create({
-      type: (obj.type as string) ?? "Note",
-      attributedTo: `!${name}`,
-      content: (obj.content as string) ?? "",
-      to: Array.isArray(obj.to) ? obj.to : [],
-      cc: Array.isArray(obj.cc) ? obj.cc : [],
-      published: obj.published && typeof obj.published === "string"
-        ? new Date(obj.published)
-        : new Date(),
-      raw: obj,
-      extra,
-    });
+    const stored = await saveObject(
+      getEnv(c),
+      {
+        type: (obj.type as string) ?? "Note",
+        attributedTo: `!${name}`,
+        content: (obj.content as string) ?? "",
+        to: Array.isArray(obj.to) ? obj.to : [],
+        cc: Array.isArray(obj.cc) ? obj.cc : [],
+        published: obj.published && typeof obj.published === "string"
+          ? new Date(obj.published)
+          : new Date(),
+        raw: obj,
+        extra,
+        actor_id: `https://${domain}/communities/${name}`,
+        aud: {
+          to: Array.isArray(obj.to) ? obj.to : [],
+          cc: Array.isArray(obj.cc) ? obj.cc : [],
+        },
+      },
+    );
     const announce = createAnnounceActivity(
       domain,
       `https://${domain}/communities/${name}`,
@@ -125,6 +135,7 @@ app.post("/communities/:name/inbox", async (c) => {
         id: `https://${domain}/communities/${name}`,
         privateKey: group.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });
@@ -138,8 +149,10 @@ app.get("/communities/:name/outbox", async (c) => {
   const name = c.req.param("name");
   const domain = getDomain(c);
   const page = parseInt(c.req.query("page") || "0");
-  const objects = await ActivityPubObject.find({ attributedTo: `!${name}` })
-    .sort({ published: -1 }).lean();
+  const env = getEnv(c);
+  const objects = await findObjects(env, { attributedTo: `!${name}` }, {
+    published: -1,
+  });
   const baseId = `https://${domain}/communities/${name}/outbox`;
 
   const PAGE_SIZE = 20;

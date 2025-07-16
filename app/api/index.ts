@@ -1,4 +1,13 @@
 import { createTakosApp } from "./server.ts";
+import { connectDatabase } from "./db.ts";
+import { ensureTenant } from "./services/tenant.ts";
+import { load } from "jsr:@std/dotenv";
 
-const app = await createTakosApp();
+const env = await load();
+await connectDatabase(env);
+if (env["ACTIVITYPUB_DOMAIN"]) {
+  const domain = env["ACTIVITYPUB_DOMAIN"];
+  await ensureTenant(domain, domain);
+}
+const app = await createTakosApp(env);
 Deno.serve(app.fetch);

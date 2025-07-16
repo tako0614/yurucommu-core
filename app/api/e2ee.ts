@@ -3,9 +3,10 @@ import KeyPackage from "./models/key_package.ts";
 import EncryptedMessage from "./models/encrypted_message.ts";
 import PublicMessage from "./models/public_message.ts";
 import EncryptedKeyPair from "./models/encrypted_keypair.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { saveObject } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   type ActivityPubActor,
   buildActivityFromStored,
@@ -28,7 +29,10 @@ interface ActivityPubActivity {
 }
 import RemoteActor from "./models/remote_actor.ts";
 
-async function resolveActorCached(acct: string) {
+async function resolveActorCached(
+  acct: string,
+  env: Record<string, string>,
+) {
   const [name, host] = acct.split("@");
   if (!name || !host) return null;
 
@@ -49,6 +53,9 @@ async function resolveActorCached(acct: string) {
         ActivityPubActor & { keyPackages?: string | { id?: string } }
       >(
         cached.actorUrl,
+        {},
+        undefined,
+        env,
       );
     } catch (err) {
       console.error(`Failed to fetch cached actor ${cached.actorUrl}:`, err);
@@ -81,6 +88,7 @@ const app = new Hono();
 app.use("*", authRequired);
 
 async function deliverToFollowers(
+  env: Record<string, string>,
   user: string,
   activity: unknown,
   domain: string,
@@ -94,7 +102,7 @@ async function deliverToFollowers(
         if (url.host === domain && url.pathname.startsWith("/users/")) {
           return null;
         }
-        return await fetchActorInbox(actorUrl);
+        return await fetchActorInbox(actorUrl, env);
       } catch {
         return null;
       }
@@ -104,9 +112,12 @@ async function deliverToFollowers(
     typeof i === "string" && !!i
   );
   if (validInboxes.length > 0) {
-    deliverActivityPubObject(validInboxes, activity, user).catch((err) => {
-      console.error("Delivery failed:", err);
-    });
+    deliverActivityPubObject(validInboxes, activity, user, domain, env)
+      .catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
   }
 }
 
@@ -132,7 +143,10 @@ app.get("/users/:user/keyPackages", async (c) => {
     return c.json({ type: "Collection", items });
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    getEnv(c),
+  );
   if (!actor) return c.json({ type: "Collection", items: [] });
   const kpUrl = typeof actor.keyPackages === "string"
     ? actor.keyPackages
@@ -140,7 +154,12 @@ app.get("/users/:user/keyPackages", async (c) => {
   if (!kpUrl) return c.json({ type: "Collection", items: [] });
 
   try {
-    const col = await fetchJson<{ items?: unknown[] }>(kpUrl);
+    const col = await fetchJson<{ items?: unknown[] }>(
+      kpUrl,
+      {},
+      undefined,
+      getEnv(c),
+    );
     const items = Array.isArray(col.items) ? col.items : [];
     return c.json({ type: "Collection", items });
   } catch (_err) {
@@ -199,7 +218,7 @@ app.post("/users/:user/keyPackages", async (c) => {
     content: pkg.content,
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
-  await deliverToFollowers(user, addActivity, domain);
+  await deliverToFollowers(getEnv(c), user, addActivity, domain);
   return c.json({ result: "ok", keyId: pkg._id.toString() });
 });
 
@@ -219,8 +238,8 @@ app.delete("/users/:user/keyPackages/:keyId", async (c) => {
     actorId,
     `https://${domain}/users/${user}/keyPackage/${keyId}`,
   );
-  await deliverToFollowers(user, removeActivity, domain);
-  await deliverToFollowers(user, deleteActivity, domain);
+  await deliverToFollowers(getEnv(c), user, removeActivity, domain);
+  await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   return c.json({ result: "removed" });
 });
 
@@ -265,8 +284,8 @@ app.post("/users/:user/resetKeys", async (c) => {
       actorId,
       `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
     );
-    await deliverToFollowers(user, removeActivity, domain);
-    await deliverToFollowers(user, deleteActivity, domain);
+    await deliverToFollowers(getEnv(c), user, removeActivity, domain);
+    await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
   await KeyPackage.deleteMany({ userName: user });
   await EncryptedKeyPair.deleteOne({ userName: user });
@@ -292,16 +311,27 @@ app.post("/users/:user/messages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await ActivityPubObject.create({
-    type: "PrivateMessage",
-    attributedTo: acct,
-    content,
-    to,
-    extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-  });
+  const object = await saveObject(
+    getEnv(c),
+    {
+      type: "PrivateMessage",
+      attributedTo: acct,
+      content,
+      to,
+      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+      actor_id: actorId,
+      aud: { to, cc: [] },
+    },
+  );
 
   const privateMessage = buildActivityFromStored(
-    { ...object.toObject(), content },
+    object.toObject() as {
+      _id: unknown;
+      type: string;
+      content: string;
+      published: unknown;
+      extra: Record<string, unknown>;
+    },
     domain,
     sender,
     false,
@@ -319,9 +349,11 @@ app.post("/users/:user/messages", async (c) => {
   // 個別配信
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender).catch((err) => {
-    console.error("deliver failed", err);
-  });
+  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
 
   return c.json({ result: "sent", id: msg._id.toString() });
 });
@@ -345,22 +377,33 @@ app.post("/users/:user/publicMessages", async (c) => {
   });
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${sender}`;
-  const object = await ActivityPubObject.create({
-    type: "PublicMessage",
-    attributedTo: acct,
-    content,
-    to,
-    extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-  });
+  const object = await saveObject(
+    getEnv(c),
+    {
+      type: "PublicMessage",
+      attributedTo: acct,
+      content,
+      to,
+      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+      actor_id: actorId,
+      aud: { to, cc: [] },
+    },
+  );
 
   const publicMessage = buildActivityFromStored(
-    { ...object.toObject(), content },
+    object.toObject() as {
+      _id: unknown;
+      type: string;
+      content: string;
+      published: unknown;
+      extra: Record<string, unknown>;
+    },
     domain,
     sender,
     false,
   );
   (publicMessage as ActivityPubActivity)["@context"] = [
-    "https.://www.w3.org/ns/activitystreams",
+    "https://www.w3.org/ns/activitystreams",
     "https://purl.archive.org/socialweb/mls",
   ];
 
@@ -371,9 +414,11 @@ app.post("/users/:user/publicMessages", async (c) => {
   ];
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender).catch((err) => {
-    console.error("deliver failed", err);
-  });
+  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
 
   return c.json({ result: "sent", id: msg._id.toString() });
 });
@@ -385,12 +430,18 @@ app.get("/users/:user/messages", async (c) => {
     return c.json({ error: "invalid user format" }, 400);
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    getEnv(c),
+  );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
   const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
   const partnerActorObj = partnerAcct
-    ? await resolveActorCached(partnerAcct)
+    ? await resolveActorCached(
+      partnerAcct,
+      getEnv(c),
+    )
     : null;
   let partnerActor = partnerActorObj?.id;
   if (!partnerActor && partnerUser && partnerDomain) {
@@ -418,8 +469,12 @@ app.get("/users/:user/messages", async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const query = EncryptedMessage.find(condition);
-  if (before) query.where("createdAt").lt(new Date(before));
-  if (after) query.where("createdAt").gt(new Date(after));
+  if (before) {
+    query.where("createdAt").lt(new Date(before) as unknown as number);
+  }
+  if (after) {
+    query.where("createdAt").gt(new Date(after) as unknown as number);
+  }
   const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
   list.reverse();
   const messages = list.map((doc) => ({
@@ -441,12 +496,18 @@ app.get("/users/:user/publicMessages", async (c) => {
     return c.json({ error: "invalid user format" }, 400);
   }
 
-  const actor = await resolveActorCached(acct);
+  const actor = await resolveActorCached(
+    acct,
+    getEnv(c),
+  );
   const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
   const partnerAcct = c.req.query("with");
   const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
   const partnerActorObj = partnerAcct
-    ? await resolveActorCached(partnerAcct)
+    ? await resolveActorCached(
+      partnerAcct,
+      getEnv(c),
+    )
     : null;
   let partnerActor = partnerActorObj?.id;
   if (!partnerActor && partnerUser && partnerDomain) {
@@ -474,8 +535,12 @@ app.get("/users/:user/publicMessages", async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const query = PublicMessage.find(condition);
-  if (before) query.where("createdAt").lt(new Date(before));
-  if (after) query.where("createdAt").gt(new Date(after));
+  if (before) {
+    query.where("createdAt").lt(new Date(before) as unknown as number);
+  }
+  if (after) {
+    query.where("createdAt").gt(new Date(after) as unknown as number);
+  }
   const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
   list.reverse();
   const messages = list.map((doc) => ({

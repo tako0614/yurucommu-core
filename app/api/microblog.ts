@@ -1,11 +1,20 @@
 import { Hono } from "hono";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import {
+  deleteObject,
+  findObjects,
+  getObject,
+  getPublicNotes,
+  getTimeline,
+  saveNote,
+  updateObject,
+} from "./services/unified_store.ts";
 
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
-import type { activityPubObjectSchema } from "./models/activitypub_object.ts";
+import type { objectStoreSchema } from "./models/object_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 
-type ActivityPubObjectType = InferSchemaType<typeof activityPubObjectSchema>;
+type ActivityPubObjectType = InferSchemaType<typeof objectStoreSchema>;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
@@ -27,6 +36,7 @@ import { addNotification } from "./services/notification.ts";
 // --- Helper Functions ---
 
 async function deliverPostToFollowers(
+  env: Record<string, string>,
   post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
@@ -44,7 +54,7 @@ async function deliverPostToFollowers(
           if (url.host === domain && url.pathname.startsWith("/users/")) {
             return null;
           }
-          return await fetchActorInbox(followerUrl);
+          return await fetchActorInbox(followerUrl, env);
         } catch {
           return null;
         }
@@ -81,18 +91,30 @@ async function deliverPostToFollowers(
         noteObject,
       );
       // Fire-and-forget delivery
-      deliverActivityPubObject(validInboxes, createActivity, author);
+      deliverActivityPubObject(
+        validInboxes,
+        createActivity,
+        author,
+        domain,
+        env,
+      );
 
       if (replyToId) {
-        const parent = await ActivityPubObject.findById(replyToId).lean();
+        const parent = await getObject(env, replyToId);
         if (
           parent &&
           typeof parent.attributedTo === "string" &&
           parent.attributedTo.startsWith("http")
         ) {
-          const inbox = await fetchActorInbox(parent.attributedTo);
+          const inbox = await fetchActorInbox(parent.attributedTo, env);
           if (inbox) {
-            deliverActivityPubObject([inbox], createActivity, author);
+            deliverActivityPubObject(
+              [inbox],
+              createActivity,
+              author,
+              domain,
+              env,
+            );
           }
         } else if (
           parent &&
@@ -118,26 +140,37 @@ app.use("*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const actor = c.req.query("actor");
+  const timeline = c.req.query("timeline") ?? "recommend";
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
   );
   const before = c.req.query("before");
-  const query = ActivityPubObject.find({ type: "Note" });
-  if (before) {
-    query.where("published").lt(new Date(before).getTime());
+  let list: ActivityPubObjectType[];
+  if (timeline === "followers" && actor && tenantId) {
+    list = await getTimeline(
+      tenantId,
+      actor,
+      limit,
+      before ? new Date(before) : undefined,
+    );
+  } else {
+    list = await getPublicNotes(
+      env,
+      limit,
+      before ? new Date(before) : undefined,
+    );
   }
-  const list = await query.sort({ published: -1 }).limit(limit).lean();
 
-  // ユーザー情報をバッチで取得
-  const identifiers = list.map((doc: ActivityPubObjectType) =>
-    doc.attributedTo as string
-  );
-  const userInfos = await getUserInfoBatch(identifiers, domain);
-
-  const formatted = list.map((doc: ActivityPubObjectType, index: number) => {
+  const identifiers = list.map((doc) => doc.actor_id as string);
+  const userInfos = await getUserInfoBatch(identifiers as string[], domain);
+  const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
-    return formatUserInfoForPost(userInfo, doc);
+    const postData = { ...doc.raw, _id: doc._id } as Record<string, unknown>;
+    return formatUserInfoForPost(userInfo, postData);
   });
 
   return c.json(formatted);
@@ -163,21 +196,17 @@ app.post("/microblog", async (c) => {
   if (typeof quoteId === "string") extra.quoteId = quoteId;
   if (typeof parentId === "string") extra.replies = 0;
 
-  const post = new ActivityPubObject({
-    type: "Note",
-    attributedTo: author,
-    content,
-    extra,
-  });
-  await post.save();
+  const env = getEnv(c);
+  const post = await saveNote(env, domain, author, content, extra);
 
   if (typeof parentId === "string") {
-    await ActivityPubObject.findByIdAndUpdate(parentId, {
-      $inc: { "extra.replies": 1 },
-    }).catch(() => {});
+    await updateObject(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
+      () => {},
+    );
   }
 
   deliverPostToFollowers(
+    env,
     post,
     author,
     domain,
@@ -185,34 +214,38 @@ app.post("/microblog", async (c) => {
   );
 
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(formatUserInfoForPost(userInfo, post.toObject()), 201);
+  return c.json(
+    formatUserInfoForPost(
+      userInfo,
+      post.toObject() as unknown as Record<string, unknown>,
+    ),
+    201,
+  );
 });
 
 app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const post = await ActivityPubObject.findById(id).lean();
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  // 共通ユーザー情報取得サービスを使用
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(
-    formatUserInfoForPost(userInfo, post as Record<string, unknown>),
-  );
+  const userInfo = await getUserInfo(post.actor_id as string, domain);
+  const data = { ...post.raw, _id: post._id } as Record<string, unknown>;
+  return c.json(formatUserInfoForPost(userInfo, data));
 });
 
 app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const list = await ActivityPubObject.find({ "extra.inReplyTo": id }).sort({
+  const list = await findObjects(env, { "extra.inReplyTo": id }, {
     published: 1,
-  }).lean();
-  const ids = list.map((doc: ActivityPubObjectType) =>
-    doc.attributedTo as string
-  );
+  });
+  const ids = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(ids, domain);
-  const formatted = list.map((doc: ActivityPubObjectType, i: number) =>
-    formatUserInfoForPost(infos[i], doc)
+  const formatted = list.map((doc, i) =>
+    formatUserInfoForPost(infos[i], doc as unknown as Record<string, unknown>)
   );
   return c.json(formatted);
 });
@@ -224,15 +257,19 @@ app.put("/microblog/:id", async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findByIdAndUpdate(id, { content }, {
-    new: true,
-  });
+  const env = getEnv(c);
+  const post = await updateObject(env, id, { content });
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // 共通ユーザー情報取得サービスを使用
   const userInfo = await getUserInfo(post.attributedTo as string, domain);
 
-  return c.json(formatUserInfoForPost(userInfo, post.toObject()));
+  return c.json(
+    formatUserInfoForPost(
+      userInfo,
+      post.toObject() as unknown as Record<string, unknown>,
+    ),
+  );
 });
 
 app.post("/microblog/:id/like", async (c) => {
@@ -242,10 +279,11 @@ app.post("/microblog/:id/like", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findById(id);
+  const env = getEnv(c);
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const extra = post.extra as Record<string, unknown>;
+  const extra = post.extra as Record<string, unknown> ?? {};
   const likedBy: string[] = Array.isArray(extra.likedBy)
     ? extra.likedBy as string[]
     : [];
@@ -253,8 +291,8 @@ app.post("/microblog/:id/like", async (c) => {
     likedBy.push(username);
     extra.likedBy = likedBy;
     extra.likes = likedBy.length;
-    post.extra = extra;
-    await post.save();
+    const env = getEnv(c);
+    await updateObject(env, id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -265,7 +303,7 @@ app.post("/microblog/:id/like", async (c) => {
       typeof post.attributedTo === "string" &&
       post.attributedTo.startsWith("http")
     ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string);
+      const inbox = await fetchActorInbox(post.attributedTo as string, env);
       if (inbox) inboxes.push(inbox);
     } else {
       const account = await Account.findOne({ userName: post.attributedTo })
@@ -274,9 +312,11 @@ app.post("/microblog/:id/like", async (c) => {
     }
     if (inboxes.length > 0) {
       const like = createLikeActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, like, username).catch((err) => {
-        console.error("Delivery failed:", err);
-      });
+      deliverActivityPubObject(inboxes, like, username, domain, env).catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
     }
 
     let localAuthor: string | null = null;
@@ -312,7 +352,8 @@ app.post("/microblog/:id/retweet", async (c) => {
   if (typeof username !== "string") {
     return c.json({ error: "Invalid body" }, 400);
   }
-  const post = await ActivityPubObject.findById(id);
+  const env = getEnv(c);
+  const post = await getObject(env, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const extra = post.extra as Record<string, unknown>;
@@ -323,8 +364,8 @@ app.post("/microblog/:id/retweet", async (c) => {
     retweetedBy.push(username);
     extra.retweetedBy = retweetedBy;
     extra.retweets = retweetedBy.length;
-    post.extra = extra;
-    await post.save();
+    const env = getEnv(c);
+    await updateObject(env, id, { extra });
 
     const actorId = `https://${domain}/users/${username}`;
     const objectUrl = typeof post.raw?.id === "string"
@@ -339,15 +380,17 @@ app.post("/microblog/:id/retweet", async (c) => {
       typeof post.attributedTo === "string" &&
       post.attributedTo.startsWith("http")
     ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string);
+      const inbox = await fetchActorInbox(post.attributedTo as string, env);
       if (inbox) inboxes.push(inbox);
     }
 
     if (inboxes.length > 0) {
       const announce = createAnnounceActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, announce, username).catch((err) => {
-        console.error("Delivery failed:", err);
-      });
+      deliverActivityPubObject(inboxes, announce, username, domain, env).catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
     }
 
     let localAuthor: string | null = null;
@@ -379,9 +422,10 @@ app.post("/microblog/:id/retweet", async (c) => {
 });
 
 app.delete("/microblog/:id", async (c) => {
+  const env = getEnv(c);
   const id = c.req.param("id");
-  const post = await ActivityPubObject.findByIdAndDelete(id);
-  if (!post) return c.json({ error: "Not found" }, 404);
+  const deleted = await deleteObject(env, id);
+  if (!deleted) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
 

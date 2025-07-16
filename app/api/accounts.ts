@@ -11,6 +11,8 @@ import {
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
 import { addNotification } from "./services/notification.ts";
+import { addFollowEdge, removeFollowEdge } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";
@@ -243,12 +245,14 @@ app.post("/accounts/:id/follow", async (c) => {
         $addToSet: { followers: actorId },
       });
     } else {
-      const inbox = await fetchActorInbox(target);
+      const inbox = await fetchActorInbox(target, getEnv(c));
       if (inbox) {
         const follow = createFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], follow, userName)
+        deliverActivityPubObject([inbox], follow, userName, domain, getEnv(c))
           .catch((err) => console.error("Delivery failed:", err));
       }
+      const env = getEnv(c);
+      await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {
     console.error("Follow request failed:", err);
@@ -301,13 +305,21 @@ app.delete("/accounts/:id/follow", async (c) => {
         $pull: { followers: actorId },
       });
     } else {
-      const inbox = await fetchActorInbox(target);
+      const inbox = await fetchActorInbox(target, getEnv(c));
       if (inbox) {
         const undo = createUndoFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], undo, account.userName).catch(
+        deliverActivityPubObject(
+          [inbox],
+          undo,
+          account.userName,
+          domain,
+          getEnv(c),
+        ).catch(
           (err) => console.error("Delivery failed:", err),
         );
       }
+      const env = getEnv(c);
+      await removeFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", target);
     }
   } catch (err) {
     console.error("Unfollow request failed:", err);

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { load } from "jsr:@std/dotenv";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../api/db.ts";
+import { ensureTenant } from "../api/services/tenant.ts";
 import Instance from "./models/instance.ts";
 import { createConsumerApp } from "./consumer.ts";
 import { authApp } from "./auth.ts";
@@ -50,6 +51,7 @@ async function getAppForHost(host: string): Promise<Hono | null> {
   if (app) return app;
   const hostEnv = await getEnvForHost(host);
   if (!hostEnv) return null;
+  await ensureTenant(host, host);
   app = await createTakosApp(hostEnv);
   apps.set(host, app);
   return app;

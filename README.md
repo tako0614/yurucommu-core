@@ -22,8 +22,40 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
 
 特に `ACTIVITYPUB_DOMAIN` は Mastodon など外部からアクセスされる公開ドメインを
-設定してください。未設定の場合はリクエストされたホスト名が利用されます。
+設定してください。未設定の場合はリクエストされたホスト名が利用されます。 以前の
+`TENANT_ID` 変数は廃止され、ドメイン名そのものがテナント ID として扱われます。
 リレーサーバーの設定は UI から追加・削除でき、データベースに保存されます。
+登録時には `relay_edge` コレクションに pull/push モード別のエントリが作成され、
+pull モードのリレーは定期ポーリングで投稿が取り込まれ、push モードのリレーには
+投稿配信時に自動で送信されます。 `getEnv(c)` で取得した環境変数を `fetchJson` や
+`deliverActivityPubObject` へ渡すことで
+マルチテナント環境でも正しいドメインが利用されます。 `RELAY_POLL_INTERVAL`
+で指定した間隔ごとに、登録済みリレーの `/api/microblog` を取得し、新規投稿を
+`object_store` へ自動保存します。
+
+### 統合オブジェクトストア
+
+すべての ActivityPub オブジェクトは `object_store` コレクションに保存されます。
+各ドキュメントには投稿元ドメインを示す `tenant_id` フィールドが追加され、
+複数インスタンスで同じ MongoDB を共有しても互いのデータが混在しません。スキーマ
+は次の通りです。
+
+```jsonc
+{
+  _id: "https://example.org/objects/xxx",
+  raw: { ... },
+  type: "Note",
+  actor_id: "https://example.org/users/alice",
+  tenant_id: "example.org",
+  created_at: ISODate(),
+  updated_at: ISODate(),
+  deleted_at: Optional<ISODate>,
+  aud: { to: ["...#Public"], cc: [] }
+}
+```
+
+`ACTIVITYPUB_DOMAIN` がテナント ID を兼ねており、ドメインごとにフォロー情報を
+`follow_edge` コレクションで管理します。
 
 ```bash
 cd app/api
@@ -38,7 +70,7 @@ deno task dev
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
 - `/users/:username/inbox` – ActivityPub 受信エンドポイント。`Create` Activity
-  の場合はオブジェクトを `ActivityPubObject` として保存し、他の Activity
+  の場合はオブジェクトを `object_store` に保存し、他の Activity
   は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
   新しい Activity を追加しやすくしています。
 - `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
@@ -57,7 +89,10 @@ deno task dev
 
 簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
 
-- `GET /api/microblog` – 投稿を新しい順で取得
+- `GET /api/microblog` –
+  おすすめタイムラインを取得（登録済みリレーからの投稿も含む）
+- `GET /api/microblog?timeline=followers&actor=URI` –
+  フォロー中アクターの投稿のみ取得
 - `POST /api/microblog` – 投稿を作成
   (`{ "author": "user", "content": "hello" }`)
 - `PUT /api/microblog/:id` – 投稿を更新 (`{ "content": "edited" }`)
@@ -79,6 +114,18 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 - `POST /api/videos` – 動画を作成するとフォロワーへ `Create` Activity を配信
 - `POST /api/videos/:id/like` – いいね数を増加
 - `POST /api/videos/:id/view` – 再生数を増加
+
+## リレー API
+
+ほかのインスタンスと連携するためのリレーサーバーを管理します。
+
+- `GET /api/relays` – 登録済みリレー一覧を取得
+- `POST /api/relays` – `{ "inboxUrl": "https://relay.example/inbox" }`
+  を送信して追加
+- `DELETE /api/relays/:id` – リレーを削除
+
+pull モードのリレーは一定間隔で `/api/microblog` を取得し、投稿を自動で取り込み
+ます。push モードのリレーには投稿作成時に自動配信されます。
 
 ## グループ機能
 

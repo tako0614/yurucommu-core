@@ -7,7 +7,7 @@ const app = new Hono();
 
 app.post("/login", async (c) => {
   const { password } = await c.req.json();
-  const env = getEnv();
+  const env = getEnv(c);
   const hashedPassword = env["hashedPassword"];
   const salt = env["salt"];
   if (!hashedPassword || !salt) {

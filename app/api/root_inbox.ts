@@ -8,10 +8,11 @@ import {
   jsonResponse,
   verifyHttpSignature,
 } from "./utils/activitypub.ts";
+import { getEnv } from "./utils/env_store.ts";
 import { activityHandlers } from "./activity_handlers.ts";
 import Group from "./models/group.ts";
 import Account from "./models/account.ts";
-import ActivityPubObject from "./models/activitypub_object.ts";
+import { saveObject } from "./services/unified_store.ts";
 
 const app = new Hono();
 
@@ -80,6 +81,7 @@ app.post("/inbox", async (c) => {
                 id: `https://${domain}/communities/${name}`,
                 privateKey: group.privateKey,
               },
+              getEnv(c),
             );
           }
         }
@@ -94,18 +96,26 @@ app.post("/inbox", async (c) => {
           const attachments = extractAttachments(obj);
           const extra: Record<string, unknown> = {};
           if (attachments.length > 0) extra.attachments = attachments;
-          const stored = await ActivityPubObject.create({
-            type: (obj.type as string) ?? "Note",
-            attributedTo: `!${name}`,
-            content: (obj.content as string) ?? "",
-            to: Array.isArray(obj.to) ? obj.to : [],
-            cc: Array.isArray(obj.cc) ? obj.cc : [],
-            published: obj.published && typeof obj.published === "string"
-              ? new Date(obj.published)
-              : new Date(),
-            raw: obj,
-            extra,
-          });
+          const stored = await saveObject(
+            getEnv(c),
+            {
+              type: (obj.type as string) ?? "Note",
+              attributedTo: `!${name}`,
+              content: (obj.content as string) ?? "",
+              to: Array.isArray(obj.to) ? obj.to : [],
+              cc: Array.isArray(obj.cc) ? obj.cc : [],
+              published: obj.published && typeof obj.published === "string"
+                ? new Date(obj.published)
+                : new Date(),
+              raw: obj,
+              extra,
+              actor_id: `https://${domain}/communities/${name}`,
+              aud: {
+                to: Array.isArray(obj.to) ? obj.to : [],
+                cc: Array.isArray(obj.cc) ? obj.cc : [],
+              },
+            },
+          );
           const announce = createAnnounceActivity(
             domain,
             `https://${domain}/communities/${name}`,
@@ -118,6 +128,7 @@ app.post("/inbox", async (c) => {
               id: `https://${domain}/communities/${name}`,
               privateKey: group.privateKey,
             },
+            getEnv(c),
           );
         }
       }
