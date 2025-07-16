@@ -147,13 +147,16 @@ const UserPage: Component = () => {
                   class="bg-[#212121] p-6 rounded-lg space-y-4"
                 >
                   <h3 class="text-lg font-bold">インスタンス追加</h3>
-                  <input
-                    placeholder={`*.${rootDomain()}`}
-                    value={host()}
-                    onInput={(e) => setHost(e.currentTarget.value)}
-                    class="w-64 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  />
+                  <div class="flex items-center gap-2">
+                    <input
+                      placeholder=""
+                      value={host()}
+                      onInput={(e) => setHost(e.currentTarget.value)}
+                      class="w-48 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                    <span class="text-gray-400">.{rootDomain()}</span>
+                  </div>
                   <div class="flex justify-end gap-2">
                     <button
                       type="button"
