@@ -65,31 +65,6 @@ export async function deleteInstance(host: string): Promise<boolean> {
   return res.ok;
 }
 
-export interface InstanceDetail {
-  host: string;
-  env: Record<string, string>;
-}
-
-export async function fetchInstance(
-  host: string,
-): Promise<InstanceDetail | null> {
-  const res = await fetch(`/user/instances/${host}`);
-  if (!res.ok) return null;
-  return await res.json();
-}
-
-export async function updateEnv(
-  host: string,
-  env: Record<string, string>,
-): Promise<boolean> {
-  const res = await fetch(`/user/instances/${host}/env`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(env),
-  });
-  return res.ok;
-}
-
 export async function updateInstancePassword(
   host: string,
   password?: string,
