@@ -5,7 +5,7 @@ import { connectDatabase } from "../api/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
 import Instance from "./models/instance.ts";
 import { createConsumerApp } from "./consumer.ts";
-import { authApp } from "./auth.ts";
+import { createAuthApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -22,6 +22,7 @@ const consumerApp = createConsumerApp(
   },
   { rootDomain, freeLimit },
 );
+const authApp = createAuthApp({ rootDomain });
 const isDev = Deno.env.get("DEV") === "1";
 
 function proxy(prefix: string) {
@@ -69,13 +70,13 @@ root.route("/user", consumerApp);
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/user/*", proxy("/user"));
-    if (rootDomain) {
+  if (rootDomain) {
     root.use(async (c, next) => {
       const host = c.req.header("host") ?? "";
       if (host === rootDomain) {
-      return await proxy("")(c, next);
+        return await proxy("")(c, next);
       }
-            await next();
+      await next();
     });
   }
 } else {

@@ -5,17 +5,20 @@ import RegisterPage from "./pages/RegisterPage.tsx";
 import UserPage from "./pages/UserPage.tsx";
 import WelcomePage from "./pages/WelcomePage.tsx";
 import { fetchInstances, fetchStatus } from "./api.ts";
-import { instancesState, loggedInState } from "./state.ts";
+import { instancesState, loggedInState, rootDomainState } from "./state.ts";
 import "./index.css";
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
   const [, setInstances] = useAtom(instancesState);
+  const [, setRootDomain] = useAtom(rootDomainState);
 
   const path = globalThis.location.pathname.replace(/\/$/, "");
 
   const loadStatus = async () => {
-    setLoggedIn(await fetchStatus());
+    const status = await fetchStatus();
+    setLoggedIn(status.login);
+    setRootDomain(status.rootDomain ?? "");
   };
 
   const loadInstances = async () => {

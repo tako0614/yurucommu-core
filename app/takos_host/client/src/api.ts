@@ -2,11 +2,16 @@ export interface Instance {
   host: string;
 }
 
-export async function fetchStatus(): Promise<boolean> {
+export interface Status {
+  login: boolean;
+  rootDomain?: string;
+}
+
+export async function fetchStatus(): Promise<Status> {
   const res = await fetch("/auth/status");
-  if (!res.ok) return false;
+  if (!res.ok) return { login: false };
   const data = await res.json();
-  return data.login as boolean;
+  return { login: data.login as boolean, rootDomain: data.rootDomain };
 }
 
 export async function login(
