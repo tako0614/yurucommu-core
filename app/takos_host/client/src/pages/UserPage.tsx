@@ -10,18 +10,13 @@ import {
   updateEnv,
   updateInstancePassword,
 } from "../api.ts";
-import {
-  hostState,
-  instancesState,
-  instPasswordState,
-  loggedInState,
-} from "../state.ts";
+import { hostState, instancesState, loggedInState } from "../state.ts";
 
 const UserPage: Component = () => {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
   const [instances, setInstances] = useAtom(instancesState);
   const [host, setHost] = useAtom(hostState);
-  const [instPassword, setInstPassword] = useAtom(instPasswordState);
+  const [showAdd, setShowAdd] = createSignal(false);
 
   const [selected, setSelected] = createSignal<string | null>(null);
   const [envText, setEnvText] = createSignal("{}");
@@ -44,9 +39,9 @@ const UserPage: Component = () => {
 
   const addInstance = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (await apiAddInstance(host(), instPassword() || undefined)) {
+    if (await apiAddInstance(host())) {
       setHost("");
-      setInstPassword("");
+      setShowAdd(false);
       await loadInstances();
     } else {
       alert("追加に失敗しました");
@@ -126,35 +121,48 @@ const UserPage: Component = () => {
           fallback={<a href="/auth">ログインしてください</a>}
         >
           <section>
-            <h2 class="text-lg font-bold mb-4">新しいインスタンス</h2>
-            <form
-              onSubmit={addInstance}
-              class="grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
-            >
-              <input
-                placeholder="ホスト名"
-                value={host()}
-                onInput={(e) => setHost(e.currentTarget.value)}
-                class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              <input
-                type="password"
-                placeholder="パスワード (任意)"
-                value={instPassword()}
-                onInput={(e) => setInstPassword(e.currentTarget.value)}
-                class="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+            <div class="flex justify-between items-center mb-4">
+              <h2 class="text-lg font-bold">インスタンス一覧</h2>
               <button
-                type="submit"
+                type="button"
                 class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                onClick={() => setShowAdd(true)}
               >
-                追加
+                新規追加
               </button>
-            </form>
-          </section>
-          <section>
-            <h2 class="text-lg font-bold mb-4">インスタンス一覧</h2>
+            </div>
+            <Show when={showAdd()}>
+              <div class="fixed inset-0 flex items-center justify-center bg-black/50">
+                <form
+                  onSubmit={addInstance}
+                  class="bg-[#212121] p-6 rounded-lg space-y-4"
+                >
+                  <h3 class="text-lg font-bold">インスタンス追加</h3>
+                  <input
+                    placeholder="ホスト名"
+                    value={host()}
+                    onInput={(e) => setHost(e.currentTarget.value)}
+                    class="w-64 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                  <div class="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      class="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-500"
+                      onClick={() => setShowAdd(false)}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="submit"
+                      class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      追加
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </Show>
             <ul class="space-y-4">
               <For each={instances()}>
                 {(inst) => (
