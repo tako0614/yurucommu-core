@@ -196,3 +196,8 @@ curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.exam
 
 APIの詳細仕様は [docs/openapi.yaml](docs/openapi.yaml) に記載されています。
 OpenAPI 対応ツールで読み込むことでクライアント実装やテストに利用できます。
+
+## システム inbox とリレーサーバー
+
+システム用 inbox とデフォルトリレーサーバーの設計については
+[docs/system-inbox.md](docs/system-inbox.md) を参照してください。
