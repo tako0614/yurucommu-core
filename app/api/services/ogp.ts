@@ -24,7 +24,9 @@ export async function fetchOgpData(url: string): Promise<OgpData | null> {
       return doc.querySelector(`meta[property="${property}"]`)?.getAttribute(
         "content",
       ) ||
-        doc.querySelector(`meta[name="${property}"]`)?.getAttribute("content") ||
+        doc.querySelector(`meta[name="${property}"]`)?.getAttribute(
+          "content",
+        ) ||
         undefined;
     };
 

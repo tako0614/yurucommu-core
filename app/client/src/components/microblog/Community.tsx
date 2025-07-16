@@ -1,4 +1,4 @@
-import { For, createMemo } from "solid-js";
+import { createMemo, For } from "solid-js";
 import type { Community, Note } from "./types.ts";
 import { noteToPost } from "./types.ts";
 import { PostList } from "./Post.tsx";

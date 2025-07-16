@@ -1,11 +1,11 @@
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { Motion } from "@motionone/solid";
 import { AddServerForm } from "./AddServerForm.tsx";
 import {
   addServer,
   apiFetch,
-  setApiBase,
   setActiveServer,
+  setApiBase,
 } from "../utils/config.ts";
 
 interface TauriLoginProps {
@@ -70,7 +70,10 @@ export function TauriLogin(props: TauriLoginProps) {
     }
   };
 
-const handleAddServer = async (url: string, password: string): Promise<void> => {
+  const handleAddServer = async (
+    url: string,
+    password: string,
+  ): Promise<void> => {
     const newServer = { url: url.trim(), password };
     const updated = [...servers(), newServer];
     setServers(updated);
@@ -91,7 +94,9 @@ const handleAddServer = async (url: string, password: string): Promise<void> => 
         <h1 class="text-3xl font-bold tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-teal-300">
           Takos
         </h1>
-        <p class="text-sm text-gray-400 mt-2">ログインするサーバーを選択 / 追加してください</p>
+        <p class="text-sm text-gray-400 mt-2">
+          ログインするサーバーを選択 / 追加してください
+        </p>
       </Motion.div>
 
       {/* error banner -------------------------------------------------------- */}
@@ -112,8 +117,17 @@ const handleAddServer = async (url: string, password: string): Promise<void> => 
 
       {/* server list --------------------------------------------------------- */}
       <div class="w-full max-w-md flex flex-col gap-4 mb-16">
-        <Show when={servers().length} fallback={<EmptyState />}>  {/** empty state uses its own component */}
-<For each={servers()}>{(s) => <ServerButton {...s} onClick={loginToServer} loading={isLoading()} />}</For>
+        <Show when={servers().length} fallback={<EmptyState />}>
+          {/** empty state uses its own component */}
+          <For each={servers()}>
+            {(s) => (
+              <ServerButton
+                {...s}
+                onClick={loginToServer}
+                loading={isLoading()}
+              />
+            )}
+          </For>
         </Show>
       </div>
 
@@ -131,14 +145,22 @@ const handleAddServer = async (url: string, password: string): Promise<void> => 
 
       {/* modal -------------------------------------------------------------- */}
       <Show when={showAdd()}>
-        <AddServerForm onAdd={handleAddServer} onClose={() => setShowAdd(false)} />
+        <AddServerForm
+          onAdd={handleAddServer}
+          onClose={() => setShowAdd(false)}
+        />
       </Show>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------*/
-function ServerButton(props: ServerInfo & { onClick: (url: string, pw: string) => void; loading: boolean }) {
+function ServerButton(
+  props: ServerInfo & {
+    onClick: (url: string, pw: string) => void;
+    loading: boolean;
+  },
+) {
   return (
     <button
       type="button"
@@ -148,7 +170,8 @@ function ServerButton(props: ServerInfo & { onClick: (url: string, pw: string) =
     >
       {props.url}
       <Show when={props.loading}>
-        <span class="absolute right-5 top-1/2 -translate-y-1/2 size-5 border-2 border-t-transparent border-white/80 rounded-full animate-spin"></span>
+        <span class="absolute right-5 top-1/2 -translate-y-1/2 size-5 border-2 border-t-transparent border-white/80 rounded-full animate-spin">
+        </span>
       </Show>
     </button>
   );
