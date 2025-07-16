@@ -41,17 +41,15 @@ export function createConsumerApp(
       }
 
       let fullHost = host;
-      if (rootDomain && !host.includes(".")) {
-        fullHost = `${host}.${rootDomain}`;
-      }
-
-      if (rootDomain && !fullHost.endsWith(rootDomain)) {
-        const dom = await HostDomain.findOne({
-          domain: fullHost,
-          user: user._id,
-          verified: true,
-        });
-        if (!dom) return c.json({ error: "domain" }, 400);
+      if (rootDomain) {
+        if (host.includes(".")) {
+          if (!host.endsWith(`.${rootDomain}`) || host === rootDomain) {
+            return c.json({ error: "domain" }, 400);
+          }
+          fullHost = host;
+        } else {
+          fullHost = `${host}.${rootDomain}`;
+        }
       }
 
       const exists = await Instance.findOne({ host: fullHost });

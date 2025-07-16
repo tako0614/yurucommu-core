@@ -10,12 +10,18 @@ import {
   updateEnv,
   updateInstancePassword,
 } from "../api.ts";
-import { hostState, instancesState, loggedInState } from "../state.ts";
+import {
+  hostState,
+  instancesState,
+  loggedInState,
+  rootDomainState,
+} from "../state.ts";
 
 const UserPage: Component = () => {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
   const [instances, setInstances] = useAtom(instancesState);
   const [host, setHost] = useAtom(hostState);
+  const [rootDomain] = useAtom(rootDomainState);
   const [showAdd, setShowAdd] = createSignal(false);
 
   const [selected, setSelected] = createSignal<string | null>(null);
@@ -126,7 +132,10 @@ const UserPage: Component = () => {
               <button
                 type="button"
                 class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-                onClick={() => setShowAdd(true)}
+                onClick={() => {
+                  setHost("");
+                  setShowAdd(true);
+                }}
               >
                 新規追加
               </button>
@@ -139,7 +148,7 @@ const UserPage: Component = () => {
                 >
                   <h3 class="text-lg font-bold">インスタンス追加</h3>
                   <input
-                    placeholder="ホスト名"
+                    placeholder={`*.${rootDomain()}`}
                     value={host()}
                     onInput={(e) => setHost(e.currentTarget.value)}
                     class="w-64 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
