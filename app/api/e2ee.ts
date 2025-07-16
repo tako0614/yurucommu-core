@@ -85,7 +85,6 @@ async function resolveActorCached(
 }
 
 const app = new Hono();
-app.use("*", authRequired);
 
 async function deliverToFollowers(
   env: Record<string, string>,
@@ -190,7 +189,7 @@ app.get("/users/:user/keyPackage/:keyId", async (c) => {
   return c.json(object);
 });
 
-app.post("/users/:user/keyPackages", async (c) => {
+app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const user = c.req.param("user");
   const { content, mediaType, encoding } = await c.req.json();
   if (typeof content !== "string") {
@@ -222,7 +221,7 @@ app.post("/users/:user/keyPackages", async (c) => {
   return c.json({ result: "ok", keyId: pkg._id.toString() });
 });
 
-app.delete("/users/:user/keyPackages/:keyId", async (c) => {
+app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   await KeyPackage.deleteOne({ _id: keyId, userName: user });
@@ -250,7 +249,7 @@ app.get("/users/:user/encryptedKeyPair", async (c) => {
   return c.json({ content: doc.content });
 });
 
-app.post("/users/:user/encryptedKeyPair", async (c) => {
+app.post("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   const user = c.req.param("user");
   const { content } = await c.req.json();
   if (typeof content !== "string") {
@@ -262,13 +261,13 @@ app.post("/users/:user/encryptedKeyPair", async (c) => {
   return c.json({ result: "ok" });
 });
 
-app.delete("/users/:user/encryptedKeyPair", async (c) => {
+app.delete("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   const user = c.req.param("user");
   await EncryptedKeyPair.deleteOne({ userName: user });
   return c.json({ result: "removed" });
 });
 
-app.post("/users/:user/resetKeys", async (c) => {
+app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const user = c.req.param("user");
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
@@ -292,7 +291,7 @@ app.post("/users/:user/resetKeys", async (c) => {
   return c.json({ result: "reset" });
 });
 
-app.post("/users/:user/messages", async (c) => {
+app.post("/users/:user/messages", authRequired, async (c) => {
   const acct = c.req.param("user");
   const [sender, senderDomain] = acct.split("@");
   if (!sender || !senderDomain) {
@@ -358,7 +357,7 @@ app.post("/users/:user/messages", async (c) => {
   return c.json({ result: "sent", id: msg._id.toString() });
 });
 
-app.post("/users/:user/publicMessages", async (c) => {
+app.post("/users/:user/publicMessages", authRequired, async (c) => {
   const acct = c.req.param("user");
   const [sender, senderDomain] = acct.split("@");
   if (!sender || !senderDomain) {
@@ -423,7 +422,7 @@ app.post("/users/:user/publicMessages", async (c) => {
   return c.json({ result: "sent", id: msg._id.toString() });
 });
 
-app.get("/users/:user/messages", async (c) => {
+app.get("/users/:user/messages", authRequired, async (c) => {
   const acct = c.req.param("user");
   const [user, userDomain] = acct.split("@");
   if (!user || !userDomain) {
@@ -489,7 +488,7 @@ app.get("/users/:user/messages", async (c) => {
   return c.json(messages);
 });
 
-app.get("/users/:user/publicMessages", async (c) => {
+app.get("/users/:user/publicMessages", authRequired, async (c) => {
   const acct = c.req.param("user");
   const [user, userDomain] = acct.split("@");
   if (!user || !userDomain) {
