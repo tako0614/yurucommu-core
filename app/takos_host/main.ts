@@ -69,6 +69,15 @@ root.route("/user", consumerApp);
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/user/*", proxy("/user"));
+    if (rootDomain) {
+    root.use(async (c, next) => {
+      const host = c.req.header("host") ?? "";
+      if (host === rootDomain) {
+      return await proxy("")(c, next);
+      }
+            await next();
+    });
+  }
 } else {
   root.use(
     "/auth/*",
