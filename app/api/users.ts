@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
+import { getEnv } from "./utils/env_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
