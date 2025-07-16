@@ -14,7 +14,6 @@ import type { Context } from "hono";
 const DIR = dirname(new URL(import.meta.url).pathname);
 const env = await load({
   envPath: join(DIR, ".env"),
-  examplePath: join(DIR, ".env.example"),
 });
 await connectDatabase(env);
 
