@@ -8,11 +8,12 @@ const app = new Hono();
 app.post("/oauth/login", async (c) => {
   const { accessToken } = await c.req.json();
   const env = getEnv(c);
-  const host = env["OAUTH_HOST"];
+  const host = env["ROOT_DOMAIN"];
   if (!host) {
     return c.json({ error: "Server configuration error" }, 500);
   }
-  const res = await fetch(`${host}/oauth/verify`, {
+  const url = host.startsWith("http") ? host : `https://${host}`;
+  const res = await fetch(`${url}/oauth/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: accessToken }),
