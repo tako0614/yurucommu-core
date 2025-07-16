@@ -214,8 +214,15 @@ app.post("/users/:username/outbox", async (c) => {
     aud: { to: body.to ?? [], cc: body.cc ?? [] },
   });
   // contentをstringに変換して渡す
+  const stored = object.toObject();
   const activity = buildActivityFromStored(
-    { ...object.toObject(), content: object.content ?? "" },
+    {
+      _id: stored._id,
+      type: stored.type ?? "Note",
+      content: stored.content ?? "",
+      published: stored.published,
+      extra: stored.extra ?? {},
+    },
     domain,
     username,
     true,
