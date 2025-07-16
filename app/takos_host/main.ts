@@ -42,6 +42,9 @@ function proxy(prefix: string) {
 async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
+  if (defaultRelay && host === defaultRelay) {
+    return { ...env, ACTIVITYPUB_DOMAIN: defaultRelay };
+  }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst) return null;
   return { ...env, ...inst.env, ACTIVITYPUB_DOMAIN: host };
