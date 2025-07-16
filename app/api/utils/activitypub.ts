@@ -126,6 +126,7 @@ export async function deliverActivityPubObject(
   object: unknown,
   actor: string,
   domain: string,
+  env: Record<string, string> = {},
 ): Promise<void> {
   const relayDocs = await Relay.find().lean<{ inboxUrl: string }[]>();
   const relays = relayDocs.map((r) => r.inboxUrl);
@@ -143,7 +144,7 @@ export async function deliverActivityPubObject(
 
     // それ以外はActor IRIとして解決
     try {
-      const { inbox, sharedInbox } = await resolveRemoteActor(iri);
+      const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
       const target = sharedInbox ?? inbox;
       return sendActivityPubObject(target, object, actor, domain).catch(
         (err) => {
@@ -219,13 +220,14 @@ export async function deliverActivityPubObjectFromUrl(
   targets: string[],
   object: unknown,
   actor: { id: string; privateKey: string },
+  env: Record<string, string> = {},
 ): Promise<void> {
   const body = JSON.stringify(object);
   const promises = targets.map(async (iri) => {
     let target = iri;
     if (!iri.endsWith("/inbox") && !iri.endsWith("/sharedInbox")) {
       try {
-        const { inbox, sharedInbox } = await resolveRemoteActor(iri);
+        const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
         target = sharedInbox ?? inbox;
       } catch {
         return;
@@ -465,9 +467,15 @@ export function createUndoLikeActivity(
 
 export async function fetchActorInbox(
   actorUrl: string,
+  env: Record<string, string> = {},
 ): Promise<string | null> {
   try {
-    const data = await fetchJson<{ inbox?: string }>(actorUrl);
+    const data = await fetchJson<{ inbox?: string }>(
+      actorUrl,
+      {},
+      undefined,
+      env,
+    );
     if (typeof data.inbox === "string") return data.inbox;
   } catch {
     /* ignore */
@@ -527,12 +535,8 @@ export function resolveActor(
   return resolveActorFromAcct(`${username}@${domain}`);
 }
 
-export function getDomain(
-  c: { req: { url: string } } & { get?: (k: string) => unknown },
-): string {
-  const env = typeof c.get === "function"
-    ? getEnv(c as Context)
-    : Deno.env.toObject();
+export function getDomain(c: Context): string {
+  const env = getEnv(c);
   return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
 }
 
@@ -771,7 +775,7 @@ export async function fetchJson<T = unknown>(
   url: string,
   init: RequestInit = {},
   signer?: { id: string; privateKey: string },
-  env: Record<string, string> = Deno.env.toObject(),
+  env: Record<string, string> = {},
 ): Promise<T> {
   if (!signer) {
     const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
@@ -861,8 +865,14 @@ interface RemoteActorDocument {
 }
 export async function resolveRemoteActor(
   actorIri: string,
+  env: Record<string, string> = {},
 ): Promise<RemoteActor> {
-  const actor = await fetchJson<RemoteActorDocument>(actorIri);
+  const actor = await fetchJson<RemoteActorDocument>(
+    actorIri,
+    {},
+    undefined,
+    env,
+  );
 
   const inbox = actor.endpoints?.sharedInbox ??
     actor.inbox ?? actor["ldp:inbox"];
@@ -894,8 +904,9 @@ export async function deliver(
   activity: unknown,
   recipientActorIri: string,
   sign: (options: { url: string; headers: Headers }) => string,
+  env: Record<string, string> = {},
 ): Promise<void> {
-  const actor = await resolveRemoteActor(recipientActorIri);
+  const actor = await resolveRemoteActor(recipientActorIri, env);
   const target = actor.sharedInbox ?? actor.inbox;
 
   const headers = new Headers({

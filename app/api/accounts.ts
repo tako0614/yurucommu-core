@@ -245,10 +245,10 @@ app.post("/accounts/:id/follow", async (c) => {
         $addToSet: { followers: actorId },
       });
     } else {
-      const inbox = await fetchActorInbox(target);
+      const inbox = await fetchActorInbox(target, getEnv(c));
       if (inbox) {
         const follow = createFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], follow, userName, domain)
+        deliverActivityPubObject([inbox], follow, userName, domain, getEnv(c))
           .catch((err) => console.error("Delivery failed:", err));
       }
       const env = getEnv(c);
@@ -305,10 +305,16 @@ app.delete("/accounts/:id/follow", async (c) => {
         $pull: { followers: actorId },
       });
     } else {
-      const inbox = await fetchActorInbox(target);
+      const inbox = await fetchActorInbox(target, getEnv(c));
       if (inbox) {
         const undo = createUndoFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], undo, account.userName, domain).catch(
+        deliverActivityPubObject(
+          [inbox],
+          undo,
+          account.userName,
+          domain,
+          getEnv(c),
+        ).catch(
           (err) => console.error("Delivery failed:", err),
         );
       }

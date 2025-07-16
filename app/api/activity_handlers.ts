@@ -103,7 +103,13 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       `https://${domain}/users/${username}`,
       activity,
     );
-    deliverActivityPubObject([activity.actor], accept, username, domain).catch(
+    deliverActivityPubObject(
+      [activity.actor],
+      accept,
+      username,
+      domain,
+      env,
+    ).catch(
       (err) => {
         console.error("Delivery failed:", err);
       },

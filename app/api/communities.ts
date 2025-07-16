@@ -424,6 +424,7 @@ app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });
@@ -486,6 +487,7 @@ app.post("/communities/:id/pending-followers/approve", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     );
     return c.json({ success: true });
   } catch (error) {
@@ -555,6 +557,7 @@ app.post("/communities/:id/block", async (c) => {
         id: `https://${domain}/communities/${community.name}`,
         privateKey: community.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });

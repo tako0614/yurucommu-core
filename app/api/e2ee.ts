@@ -101,7 +101,7 @@ async function deliverToFollowers(
         if (url.host === domain && url.pathname.startsWith("/users/")) {
           return null;
         }
-        return await fetchActorInbox(actorUrl);
+        return await fetchActorInbox(actorUrl, getEnv(c));
       } catch {
         return null;
       }
@@ -111,11 +111,12 @@ async function deliverToFollowers(
     typeof i === "string" && !!i
   );
   if (validInboxes.length > 0) {
-    deliverActivityPubObject(validInboxes, activity, user, domain).catch(
-      (err) => {
-        console.error("Delivery failed:", err);
-      },
-    );
+    deliverActivityPubObject(validInboxes, activity, user, domain, getEnv(c))
+      .catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
   }
 }
 
@@ -347,9 +348,11 @@ app.post("/users/:user/messages", async (c) => {
   // 個別配信
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender, domain).catch((err) => {
-    console.error("deliver failed", err);
-  });
+  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
 
   return c.json({ result: "sent", id: msg._id.toString() });
 });
@@ -410,9 +413,11 @@ app.post("/users/:user/publicMessages", async (c) => {
   ];
   (activity as ActivityPubActivity).to = to;
   (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender, domain).catch((err) => {
-    console.error("deliver failed", err);
-  });
+  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
 
   return c.json({ result: "sent", id: msg._id.toString() });
 });

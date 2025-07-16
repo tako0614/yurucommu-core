@@ -170,6 +170,7 @@ app.post("/users/:username/outbox", async (c) => {
     activity,
     username,
     domain,
+    env,
   )
     .catch(
       (err) => {

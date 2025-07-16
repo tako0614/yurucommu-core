@@ -81,6 +81,7 @@ app.post("/inbox", async (c) => {
                 id: `https://${domain}/communities/${name}`,
                 privateKey: group.privateKey,
               },
+              getEnv(c),
             );
           }
         }
@@ -127,6 +128,7 @@ app.post("/inbox", async (c) => {
               id: `https://${domain}/communities/${name}`,
               privateKey: group.privateKey,
             },
+            getEnv(c),
           );
         }
       }

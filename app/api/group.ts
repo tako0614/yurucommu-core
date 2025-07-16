@@ -86,6 +86,7 @@ app.post("/communities/:name/inbox", async (c) => {
           id: `https://${domain}/communities/${name}`,
           privateKey: group.privateKey,
         },
+        getEnv(c),
       ).catch((err) => {
         console.error("Delivery failed:", err);
       });
@@ -134,6 +135,7 @@ app.post("/communities/:name/inbox", async (c) => {
         id: `https://${domain}/communities/${name}`,
         privateKey: group.privateKey,
       },
+      getEnv(c),
     ).catch((err) => {
       console.error("Delivery failed:", err);
     });

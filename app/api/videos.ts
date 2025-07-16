@@ -52,7 +52,7 @@ async function deliverVideoToFollowers(
           if (url.host === domain && url.pathname.startsWith("/users/")) {
             return null;
           }
-          return await fetchActorInbox(followerUrl);
+          return await fetchActorInbox(followerUrl, getEnv(c));
         } catch {
           return null;
         }
@@ -88,7 +88,13 @@ async function deliverVideoToFollowers(
         `https://${domain}/users/${author}`,
         videoObject,
       );
-      deliverActivityPubObject(validInboxes, activity, author, domain);
+      deliverActivityPubObject(
+        validInboxes,
+        activity,
+        author,
+        domain,
+        getEnv(c),
+      );
     }
   } catch (err) {
     console.error("ActivityPub delivery error:", err);

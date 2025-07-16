@@ -11,10 +11,10 @@ import {
 
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
-import type { activityPubObjectSchema } from "./models/activitypub_object.ts";
+import type { objectStoreSchema } from "./models/object_store.ts";
 import { getEnv } from "./utils/env_store.ts";
 
-type ActivityPubObjectType = InferSchemaType<typeof activityPubObjectSchema>;
+type ActivityPubObjectType = InferSchemaType<typeof objectStoreSchema>;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
@@ -54,7 +54,7 @@ async function deliverPostToFollowers(
           if (url.host === domain && url.pathname.startsWith("/users/")) {
             return null;
           }
-          return await fetchActorInbox(followerUrl);
+          return await fetchActorInbox(followerUrl, getEnv(c));
         } catch {
           return null;
         }
@@ -91,7 +91,13 @@ async function deliverPostToFollowers(
         noteObject,
       );
       // Fire-and-forget delivery
-      deliverActivityPubObject(validInboxes, createActivity, author, domain);
+      deliverActivityPubObject(
+        validInboxes,
+        createActivity,
+        author,
+        domain,
+        env,
+      );
 
       if (replyToId) {
         const parent = await getObject(env, replyToId);
@@ -100,9 +106,15 @@ async function deliverPostToFollowers(
           typeof parent.attributedTo === "string" &&
           parent.attributedTo.startsWith("http")
         ) {
-          const inbox = await fetchActorInbox(parent.attributedTo);
+          const inbox = await fetchActorInbox(parent.attributedTo, env);
           if (inbox) {
-            deliverActivityPubObject([inbox], createActivity, author, domain);
+            deliverActivityPubObject(
+              [inbox],
+              createActivity,
+              author,
+              domain,
+              env,
+            );
           }
         } else if (
           parent &&
@@ -309,7 +321,7 @@ app.post("/microblog/:id/like", async (c) => {
       typeof post.attributedTo === "string" &&
       post.attributedTo.startsWith("http")
     ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string);
+      const inbox = await fetchActorInbox(post.attributedTo as string, env);
       if (inbox) inboxes.push(inbox);
     } else {
       const account = await Account.findOne({ userName: post.attributedTo })
@@ -318,9 +330,11 @@ app.post("/microblog/:id/like", async (c) => {
     }
     if (inboxes.length > 0) {
       const like = createLikeActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, like, username, domain).catch((err) => {
-        console.error("Delivery failed:", err);
-      });
+      deliverActivityPubObject(inboxes, like, username, domain, env).catch(
+        (err) => {
+          console.error("Delivery failed:", err);
+        },
+      );
     }
 
     let localAuthor: string | null = null;
@@ -384,13 +398,13 @@ app.post("/microblog/:id/retweet", async (c) => {
       typeof post.attributedTo === "string" &&
       post.attributedTo.startsWith("http")
     ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string);
+      const inbox = await fetchActorInbox(post.attributedTo as string, env);
       if (inbox) inboxes.push(inbox);
     }
 
     if (inboxes.length > 0) {
       const announce = createAnnounceActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, announce, username, domain).catch(
+      deliverActivityPubObject(inboxes, announce, username, domain, env).catch(
         (err) => {
           console.error("Delivery failed:", err);
         },

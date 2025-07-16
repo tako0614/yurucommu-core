@@ -70,7 +70,7 @@ deno task dev
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
 - `/users/:username/inbox` – ActivityPub 受信エンドポイント。`Create` Activity
-  の場合はオブジェクトを `ActivityPubObject` として保存し、他の Activity
+  の場合はオブジェクトを `object_store` に保存し、他の Activity
   は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
   新しい Activity を追加しやすくしています。
 - `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
