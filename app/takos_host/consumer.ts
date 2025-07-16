@@ -6,6 +6,8 @@ import { authRequired, hash } from "./auth.ts";
 import HostDomain from "./models/domain.ts";
 import OAuthClient from "./models/oauth_client.ts";
 import type HostUser from "./models/user.ts";
+import { addRelayEdge } from "../api/services/unified_store.ts";
+import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,
@@ -69,6 +71,11 @@ export function createConsumerApp(
         env,
       });
       await inst.save();
+      await ensureTenant(fullHost, fullHost);
+      if (rootDomain) {
+        await addRelayEdge(fullHost, rootDomain, "pull");
+        await addRelayEdge(fullHost, rootDomain, "push");
+      }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
     },

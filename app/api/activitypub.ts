@@ -7,6 +7,7 @@ import { getEnv } from "./utils/env_store.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
 import RemoteActor from "./models/remote_actor.ts";
+import { getSystemKey } from "./services/system_actor.ts";
 
 import {
   buildActivityFromStored,
@@ -49,6 +50,19 @@ app.get("/.well-known/webfinger", async (c) => {
     };
     return jsonResponse(c, jrd, 200, "application/jrd+json");
   }
+  if (username === "system") {
+    const jrd = {
+      subject: `acct:system@${domain}`,
+      links: [
+        {
+          rel: "self",
+          type: "application/activity+json",
+          href: `https://${domain}/users/system`,
+        },
+      ],
+    };
+    return jsonResponse(c, jrd, 200, "application/jrd+json");
+  }
   const account = await Account.findOne({ userName: username });
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
@@ -64,8 +78,29 @@ app.get("/.well-known/webfinger", async (c) => {
   return jsonResponse(c, jrd, 200, "application/jrd+json");
 });
 
+app.get("/users/system", async (c) => {
+  const domain = getDomain(c);
+  const { publicKey } = await getSystemKey(domain);
+  const actor = createActor(domain, {
+    userName: "system",
+    displayName: "system",
+    publicKey,
+  });
+  return jsonResponse(c, actor, 200, "application/activity+json");
+});
+
 app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const domain = getDomain(c);
+    const { publicKey } = await getSystemKey(domain);
+    const actor = createActor(domain, {
+      userName: "system",
+      displayName: "system",
+      publicKey,
+    });
+    return jsonResponse(c, actor, 200, "application/activity+json");
+  }
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
@@ -89,6 +124,11 @@ app.get("/users/:username", async (c) => {
 
 app.get("/users/:username/avatar", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">S</text></svg>`;
+    return c.body(svg, 200, { "content-type": "image/svg+xml" });
+  }
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return c.body("Not Found", 404);
 
@@ -114,6 +154,21 @@ app.get("/users/:username/avatar", async (c) => {
 
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const domain = getDomain(c);
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/users/system/outbox`,
+        type: "OrderedCollection",
+        totalItems: 0,
+        orderedItems: [],
+      },
+      200,
+      "application/activity+json",
+    );
+  }
   const domain = getDomain(c);
   const type = c.req.query("type");
   // deno-lint-ignore no-explicit-any
@@ -182,6 +237,16 @@ app.post("/users/:username/outbox", async (c) => {
 
 app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const bodyText = await c.req.text();
+    const verified = await verifyHttpSignature(c.req.raw, bodyText);
+    if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
+    const activity = JSON.parse(bodyText);
+    if (activity.type === "Create" && typeof activity.object === "object") {
+      await saveObject(getEnv(c), activity.object as Record<string, unknown>);
+    }
+    return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
+  }
   const account = await Account.findOne({ userName: username });
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const bodyText = await c.req.text();
@@ -197,6 +262,22 @@ app.post("/users/:username/inbox", async (c) => {
 
 app.get("/users/:username/followers", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const domain = getDomain(c);
+    const baseId = `https://${domain}/users/system/followers`;
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: baseId,
+        type: "OrderedCollection",
+        totalItems: 0,
+        first: `${baseId}?page=1`,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
   const page = c.req.query("page");
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
@@ -237,6 +318,22 @@ app.get("/users/:username/followers", async (c) => {
 
 app.get("/users/:username/following", async (c) => {
   const username = c.req.param("username");
+  if (username === "system") {
+    const domain = getDomain(c);
+    const baseId = `https://${domain}/users/system/following`;
+    return jsonResponse(
+      c,
+      {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: baseId,
+        type: "OrderedCollection",
+        totalItems: 0,
+        first: `${baseId}?page=1`,
+      },
+      200,
+      "application/activity+json",
+    );
+  }
   const page = c.req.query("page");
   const account = await Account.findOne({ userName: username }).lean();
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);

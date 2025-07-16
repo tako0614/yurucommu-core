@@ -16,6 +16,17 @@ import { saveObject } from "./services/unified_store.ts";
 
 const app = new Hono();
 
+app.post("/system/inbox", async (c) => {
+  const body = await c.req.text();
+  const verified = await verifyHttpSignature(c.req.raw, body);
+  if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const activity = JSON.parse(body);
+  if (activity.type === "Create" && typeof activity.object === "object") {
+    await saveObject(getEnv(c), activity.object as Record<string, unknown>);
+  }
+  return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
+});
+
 app.post("/inbox", async (c) => {
   const body = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, body);
@@ -50,6 +61,17 @@ app.post("/inbox", async (c) => {
       const parts = url.pathname.split("/").filter(Boolean);
       if (parts[0] === "users" && parts[1]) {
         const username = parts[1];
+        if (username === "system") {
+          if (
+            activity.type === "Create" && typeof activity.object === "object"
+          ) {
+            await saveObject(
+              getEnv(c),
+              activity.object as Record<string, unknown>,
+            );
+          }
+          continue;
+        }
         const account = await Account.findOne({ userName: username });
         if (!account) continue;
         const handler = activityHandlers[activity.type];

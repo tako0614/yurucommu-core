@@ -41,6 +41,9 @@ function proxy(prefix: string) {
 async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
+  if (rootDomain && host === rootDomain) {
+    return { ...env, ACTIVITYPUB_DOMAIN: rootDomain };
+  }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst) return null;
   return { ...env, ...inst.env, ACTIVITYPUB_DOMAIN: host };
@@ -96,14 +99,6 @@ if (!isDev && rootDomain) {
 
 root.all("/*", async (c) => {
   const host = c.req.header("host") ?? "";
-  if (rootDomain && host === rootDomain) {
-    if (isDev && c.req.method === "GET") {
-      const res = await fetch(`http://localhost:1421${c.req.path}`);
-      const body = await res.arrayBuffer();
-      return new Response(body, { status: res.status, headers: res.headers });
-    }
-    return serveStatic({ root: "./client/dist" })(c, () => Promise.resolve());
-  }
   const app = await getAppForHost(host);
   if (!app) return c.text("not found", 404);
   return app.fetch(c.req.raw);

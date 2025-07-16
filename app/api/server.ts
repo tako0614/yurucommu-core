@@ -31,7 +31,7 @@ export async function createTakosApp(env?: Record<string, string>) {
   initVideoModule(e);
   app.route("/api", login);
   app.route("/api", logout);
-  if (e["OAUTH_HOST"]) {
+  if (e["ROOT_DOMAIN"]) {
     app.route("/api", oauthLogin);
   }
   app.route("/api", session);
