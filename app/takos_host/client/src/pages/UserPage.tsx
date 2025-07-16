@@ -3,11 +3,9 @@ import { useAtom } from "solid-jotai";
 import {
   addInstance as apiAddInstance,
   deleteInstance as apiDeleteInstance,
-  fetchInstance,
   fetchInstances,
   logout as apiLogout,
   restartInstance,
-  updateEnv,
   updateInstancePassword,
 } from "../api.ts";
 import {
@@ -25,20 +23,17 @@ const UserPage: Component = () => {
   const [showAdd, setShowAdd] = createSignal(false);
 
   const [selected, setSelected] = createSignal<string | null>(null);
-  const [envText, setEnvText] = createSignal("{}");
   const [newPassword, setNewPassword] = createSignal("");
 
   const loadInstances = async () => {
     setInstances(await fetchInstances());
   };
 
-  const openDetail = async (h: string) => {
+  const openDetail = (h: string) => {
     if (selected() === h) {
       setSelected(null);
       return;
     }
-    const detail = await fetchInstance(h);
-    setEnvText(JSON.stringify(detail?.env ?? {}, null, 2));
     setNewPassword("");
     setSelected(h);
   };
@@ -59,20 +54,6 @@ const UserPage: Component = () => {
     if (await apiDeleteInstance(h)) {
       await loadInstances();
       if (selected() === h) setSelected(null);
-    }
-  };
-
-  const saveEnv = async () => {
-    if (!selected()) return;
-    try {
-      const data = JSON.parse(envText());
-      if (await updateEnv(selected()!, data)) {
-        alert("更新しました");
-      } else {
-        alert("失敗しました");
-      }
-    } catch {
-      alert("JSON を確認してください");
     }
   };
 
@@ -200,24 +181,6 @@ const UserPage: Component = () => {
                     </div>
                     <Show when={selected() === inst.host}>
                       <div class="mt-4 space-y-6">
-                        <div>
-                          <label class="block text-sm font-medium mb-2">
-                            環境変数 (JSON)
-                          </label>
-                          <textarea
-                            rows="6"
-                            class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                            value={envText()}
-                            onInput={(e) => setEnvText(e.currentTarget.value)}
-                          />
-                          <button
-                            type="button"
-                            class="mt-2 bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700"
-                            onClick={saveEnv}
-                          >
-                            保存
-                          </button>
-                        </div>
                         <div>
                           <label class="block text-sm font-medium mb-2">
                             パスワード設定 / 変更

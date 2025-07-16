@@ -92,24 +92,8 @@ export function createConsumerApp(
     const user = c.get("user") as HostUser;
     const inst = await Instance.findOne({ host, owner: user._id }).lean();
     if (!inst) return c.json({ error: "not found" }, 404);
-    return c.json({ host: inst.host, env: inst.env });
+    return c.json({ host: inst.host });
   });
-
-  app.put(
-    "/instances/:host/env",
-    zValidator("json", z.record(z.string(), z.string())),
-    async (c) => {
-      const host = c.req.param("host");
-      const env = c.req.valid("json");
-      const user = c.get("user") as HostUser;
-      const inst = await Instance.findOne({ host, owner: user._id });
-      if (!inst) return c.json({ error: "not found" }, 404);
-      inst.env = { ...(inst.env ?? {}), ...env };
-      await inst.save();
-      invalidate?.(host);
-      return c.json({ success: true });
-    },
-  );
 
   app.put(
     "/instances/:host/password",
