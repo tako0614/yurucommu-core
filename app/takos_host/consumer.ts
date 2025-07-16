@@ -6,14 +6,17 @@ import { authRequired, hash } from "./auth.ts";
 import HostDomain from "./models/domain.ts";
 import OAuthClient from "./models/oauth_client.ts";
 import type HostUser from "./models/user.ts";
+import { addRelayEdge } from "../api/services/unified_store.ts";
+import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,
-  options?: { rootDomain?: string; freeLimit?: number },
+  options?: { rootDomain?: string; freeLimit?: number; defaultRelay?: string },
 ) {
   const app = new Hono();
   const rootDomain = options?.rootDomain ?? "";
   const freeLimit = options?.freeLimit ?? 1;
+  const defaultRelay = options?.defaultRelay ?? "";
 
   app.use("/*", authRequired);
 
@@ -69,6 +72,11 @@ export function createConsumerApp(
         env,
       });
       await inst.save();
+      await ensureTenant(fullHost, fullHost);
+      if (defaultRelay) {
+        await addRelayEdge(fullHost, defaultRelay, "pull");
+        await addRelayEdge(fullHost, defaultRelay, "push");
+      }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
     },

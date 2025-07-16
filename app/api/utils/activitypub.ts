@@ -2,6 +2,7 @@ import Account from "../models/account.ts";
 import Relay from "../models/relay.ts";
 import { listPushRelays } from "../services/unified_store.ts";
 import { getEnv } from "./env_store.ts";
+import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -107,14 +108,18 @@ export async function sendActivityPubObject(
   domain: string,
 ): Promise<Response> {
   const body = JSON.stringify(object);
-  const account = await Account.findOne({ userName: actor }).lean();
-  if (!account) throw new Error("actor not found");
+  let key: { userName: string; privateKey: string } | null = null;
+  if (actor === "system") {
+    const sys = await getSystemKey(domain);
+    key = { userName: "system", privateKey: sys.privateKey };
+  } else {
+    const account = await Account.findOne({ userName: actor }).lean();
+    if (!account) throw new Error("actor not found");
+    key = { userName: actor, privateKey: account.privateKey };
+  }
 
   try {
-    return await signAndSend(inboxUrl, body, {
-      userName: actor,
-      privateKey: account.privateKey,
-    }, domain);
+    return await signAndSend(inboxUrl, body, key, domain);
   } catch (err) {
     console.error(`Failed to send ActivityPub object to ${inboxUrl}:`, err);
     throw err;
@@ -779,13 +784,11 @@ export async function fetchJson<T = unknown>(
 ): Promise<T> {
   if (!signer) {
     const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
-    const sys = await Account.findOne({ userName: "system" }).lean();
-    if (sys) {
-      signer = {
-        id: `https://${domain}/users/system`,
-        privateKey: sys.privateKey,
-      };
-    }
+    const sys = await getSystemKey(domain);
+    signer = {
+      id: `https://${domain}/users/system`,
+      privateKey: sys.privateKey,
+    };
   }
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) {

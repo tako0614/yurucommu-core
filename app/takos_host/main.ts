@@ -16,11 +16,12 @@ await connectDatabase(env);
 const apps = new Map<string, Hono>();
 const rootDomain = env["ROOT_DOMAIN"] ?? "";
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
+const defaultRelay = env["DEFAULT_RELAY"] ?? "";
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
   },
-  { rootDomain, freeLimit },
+  { rootDomain, freeLimit, defaultRelay },
 );
 const isDev = Deno.env.get("DEV") === "1";
 
