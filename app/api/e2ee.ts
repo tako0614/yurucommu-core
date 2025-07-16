@@ -88,6 +88,7 @@ const app = new Hono();
 app.use("*", authRequired);
 
 async function deliverToFollowers(
+  env: Record<string, string>,
   user: string,
   activity: unknown,
   domain: string,
@@ -101,7 +102,7 @@ async function deliverToFollowers(
         if (url.host === domain && url.pathname.startsWith("/users/")) {
           return null;
         }
-        return await fetchActorInbox(actorUrl, getEnv(c));
+        return await fetchActorInbox(actorUrl, env);
       } catch {
         return null;
       }
@@ -111,7 +112,7 @@ async function deliverToFollowers(
     typeof i === "string" && !!i
   );
   if (validInboxes.length > 0) {
-    deliverActivityPubObject(validInboxes, activity, user, domain, getEnv(c))
+    deliverActivityPubObject(validInboxes, activity, user, domain, env)
       .catch(
         (err) => {
           console.error("Delivery failed:", err);
@@ -217,7 +218,7 @@ app.post("/users/:user/keyPackages", async (c) => {
     content: pkg.content,
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
-  await deliverToFollowers(user, addActivity, domain);
+  await deliverToFollowers(getEnv(c), user, addActivity, domain);
   return c.json({ result: "ok", keyId: pkg._id.toString() });
 });
 
@@ -237,8 +238,8 @@ app.delete("/users/:user/keyPackages/:keyId", async (c) => {
     actorId,
     `https://${domain}/users/${user}/keyPackage/${keyId}`,
   );
-  await deliverToFollowers(user, removeActivity, domain);
-  await deliverToFollowers(user, deleteActivity, domain);
+  await deliverToFollowers(getEnv(c), user, removeActivity, domain);
+  await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   return c.json({ result: "removed" });
 });
 
@@ -283,8 +284,8 @@ app.post("/users/:user/resetKeys", async (c) => {
       actorId,
       `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
     );
-    await deliverToFollowers(user, removeActivity, domain);
-    await deliverToFollowers(user, deleteActivity, domain);
+    await deliverToFollowers(getEnv(c), user, removeActivity, domain);
+    await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
   await KeyPackage.deleteMany({ userName: user });
   await EncryptedKeyPair.deleteOne({ userName: user });

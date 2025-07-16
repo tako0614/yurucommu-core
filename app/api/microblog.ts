@@ -37,6 +37,7 @@ import { addNotification } from "./services/notification.ts";
 // --- Helper Functions ---
 
 async function deliverPostToFollowers(
+  env: Record<string, string>,
   post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
@@ -54,7 +55,7 @@ async function deliverPostToFollowers(
           if (url.host === domain && url.pathname.startsWith("/users/")) {
             return null;
           }
-          return await fetchActorInbox(followerUrl, getEnv(c));
+          return await fetchActorInbox(followerUrl, env);
         } catch {
           return null;
         }
@@ -225,6 +226,7 @@ app.post("/microblog", async (c) => {
   }
 
   deliverPostToFollowers(
+    env,
     post,
     author,
     domain,
