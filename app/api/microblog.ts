@@ -23,7 +23,6 @@ import {
   createLikeActivity,
   deliverActivityPubObject,
   fetchActorInbox,
-  fetchJson,
   getDomain,
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
@@ -143,7 +142,6 @@ app.get("/microblog", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const relayHost = c.req.query("relay");
   const actor = c.req.query("actor");
   const timeline = c.req.query("timeline") ?? "recommend";
   const limit = Math.min(
@@ -151,24 +149,6 @@ app.get("/microblog", async (c) => {
     100,
   );
   const before = c.req.query("before");
-  if (relayHost) {
-    try {
-      const url = new URL("/api/microblog", `https://${relayHost}`);
-      url.searchParams.set("limit", String(limit));
-      if (before) url.searchParams.set("before", before);
-      const data = await fetchJson<{ items?: unknown[] }>(
-        url.toString(),
-        {},
-        undefined,
-        env,
-      );
-      const items = Array.isArray(data.items) ? data.items : [];
-      return c.json(items);
-    } catch (err) {
-      console.error("relay timeline fetch failed", relayHost, err);
-      return c.json([]);
-    }
-  }
   let list: ActivityPubObjectType[];
   if (timeline === "followers" && actor && tenantId) {
     list = await getTimeline(
