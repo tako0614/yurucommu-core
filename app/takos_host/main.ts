@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { load } from "jsr:@std/dotenv";
-import { dirname, join } from "jsr:@std/path";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../api/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
@@ -10,11 +9,7 @@ import { createAuthApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
-
-const DIR = dirname(new URL(import.meta.url).pathname);
-const env = await load({
-  envPath: join(DIR, ".env"),
-});
+const env = await load();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
