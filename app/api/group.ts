@@ -171,7 +171,17 @@ app.get("/communities/:name/outbox", async (c) => {
         type: "OrderedCollectionPage",
         partOf: baseId,
         orderedItems: items.map((n) =>
-          buildGroupActivity({ ...n, content: n.content ?? "" }, domain, name)
+          buildGroupActivity(
+            {
+              _id: n._id,
+              type: n.type ?? "Note",
+              content: n.content ?? "",
+              published: n.published,
+              extra: n.extra ?? {},
+            },
+            domain,
+            name,
+          )
         ),
         next,
         prev,
