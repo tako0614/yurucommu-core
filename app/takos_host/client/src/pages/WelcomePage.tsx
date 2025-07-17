@@ -270,9 +270,9 @@ const LandingPage: Component = () => {
   const [loggedIn] = useAtom(loggedInState);
 
   return (
-    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-slate-100 font-sans antialiased">
+    <div class="min-h-screen bg-gradient-to-br from-[#202020] via-[#181818] to-black text-gray-100 font-sans antialiased">
       {/* Enhanced Sticky Nav with better backdrop */}
-      <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-xl supports-[backdrop-filter]:bg-slate-900/90 border-b border-slate-800/50 shadow-lg">
+      <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-xl supports-[backdrop-filter]:bg-gray-900/90 border-b border-gray-800/50 shadow-lg">
         <div class="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
           <a
             href="/"
@@ -351,7 +351,7 @@ const LandingPage: Component = () => {
             サーバー
           </h1>
 
-          <p class="mt-8 max-w-3xl mx-auto text-xl sm:text-2xl text-slate-300 leading-relaxed">
+          <p class="mt-8 max-w-3xl mx-auto text-xl sm:text-2xl text-gray-300 leading-relaxed">
             <span class="font-semibold text-indigo-300">takos host</span>{" "}
             は、分散型 SNS を
             <span class="font-semibold text-emerald-300">ゼロ知識</span>でも
@@ -369,7 +369,7 @@ const LandingPage: Component = () => {
             </a>
             <a
               href="/signup"
-              class="group inline-flex items-center justify-center gap-3 rounded-2xl px-8 py-4 border-2 border-slate-500 text-slate-200 font-semibold hover:bg-slate-800 hover:border-slate-400 transition-all duration-300 transform hover:scale-105"
+              class="group inline-flex items-center justify-center gap-3 rounded-2xl px-8 py-4 border-2 border-gray-500 text-gray-200 font-semibold hover:bg-gray-800 hover:border-gray-400 transition-all duration-300 transform hover:scale-105"
             >
               無料で始める
               <ArrowRight />
@@ -381,14 +381,14 @@ const LandingPage: Component = () => {
       {/* Enhanced Features with better cards */}
       <section
         id="features"
-        class="py-24 bg-slate-950/60 backdrop-blur-md relative"
+        class="py-24 bg-gray-950/60 backdrop-blur-md relative"
       >
         <div class="max-w-7xl mx-auto px-6">
           <div class="text-center mb-16">
             <h2 class="text-4xl sm:text-5xl font-bold mb-6">
               なぜ <span class="text-indigo-400">takos</span> なのか？
             </h2>
-            <p class="text-xl text-slate-300 max-w-3xl mx-auto">
+            <p class="text-xl text-gray-300 max-w-3xl mx-auto">
               従来のSNSプラットフォームの制約から解放され、真に自由なコミュニケーションを実現
             </p>
           </div>
@@ -398,7 +398,7 @@ const LandingPage: Component = () => {
               {(f) => {
                 const IconComponent = f.icon;
                 return (
-                  <div class="group relative rounded-3xl bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-8 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 border border-slate-700/50 hover:border-indigo-500/50">
+                  <div class="group relative rounded-3xl bg-gradient-to-br from-gray-800/80 to-gray-900/80 p-8 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 border border-gray-700/50 hover:border-indigo-500/50">
                     <div class="absolute inset-0 bg-gradient-to-br from-indigo-600/10 to-purple-600/10 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     </div>
 
@@ -410,7 +410,7 @@ const LandingPage: Component = () => {
                           {f.highlight}
                         </span>
                       </div>
-                      <p class="text-slate-300 leading-relaxed">{f.desc}</p>
+                      <p class="text-gray-300 leading-relaxed">{f.desc}</p>
                     </div>
                   </div>
                 );
@@ -427,15 +427,15 @@ const LandingPage: Component = () => {
             <h2 class="text-4xl sm:text-5xl font-bold mb-6">
               他社サービスとの比較
             </h2>
-            <p class="text-xl text-slate-300">
+            <p class="text-xl text-gray-300">
               なぜ takos が最適な選択なのかを数字で比較
             </p>
           </div>
 
-          <div class="bg-slate-900/50 rounded-3xl p-8 shadow-2xl border border-slate-700/50 overflow-x-auto">
+          <div class="bg-gray-900/50 rounded-3xl p-8 shadow-2xl border border-gray-700/50 overflow-x-auto">
             <table class="w-full text-sm md:text-base">
               <thead>
-                <tr class="border-b-2 border-slate-700">
+                <tr class="border-b-2 border-gray-700">
                   <th class="py-6 text-left font-bold text-lg">項目</th>
                   <th class="py-6 font-bold text-lg">
                     <div class="flex items-center justify-center gap-2">
@@ -445,12 +445,12 @@ const LandingPage: Component = () => {
                       takos
                     </div>
                   </th>
-                  <th class="py-6 font-bold text-lg text-slate-400">
+                  <th class="py-6 font-bold text-lg text-gray-400">
                     Mastodon
                   </th>
-                  <th class="py-6 font-bold text-lg text-slate-400">Misskey</th>
-                  <th class="py-6 font-bold text-lg text-slate-400">Twitter</th>
-                  <th class="py-6 font-bold text-lg text-slate-400">
+                  <th class="py-6 font-bold text-lg text-gray-400">Misskey</th>
+                  <th class="py-6 font-bold text-lg text-gray-400">Twitter</th>
+                  <th class="py-6 font-bold text-lg text-gray-400">
                     Facebook
                   </th>
                 </tr>
@@ -459,8 +459,8 @@ const LandingPage: Component = () => {
                 <For each={COMPARISON}>
                   {(row, index) => (
                     <tr
-                      class={`border-b border-slate-800 last:border-none hover:bg-slate-800/30 transition-colors ${
-                        index() % 2 === 0 ? "bg-slate-800/20" : ""
+                      class={`border-b border-gray-800 last:border-none hover:bg-gray-800/30 transition-colors ${
+                        index() % 2 === 0 ? "bg-gray-800/20" : ""
                       }`}
                     >
                       <td class="py-6 pr-6 font-medium">{row.label}</td>
@@ -470,22 +470,22 @@ const LandingPage: Component = () => {
                         </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">
+                        <span class="font-bold text-gray-300 text-lg">
                           {row.others.Mastodon}
                         </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">
+                        <span class="font-bold text-gray-300 text-lg">
                           {row.others.Misskey}
                         </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">
+                        <span class="font-bold text-gray-300 text-lg">
                           {row.others.Twitter}
                         </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">
+                        <span class="font-bold text-gray-300 text-lg">
                           {row.others.Facebook}
                         </span>
                       </td>
@@ -517,7 +517,7 @@ const LandingPage: Component = () => {
           <div class="flex flex-col sm:flex-row gap-4 justify-center max-w-md mx-auto">
             <a
               href="/signup"
-              class="group inline-flex items-center justify-center gap-3 rounded-2xl px-8 py-4 bg-white text-slate-900 font-bold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105"
+              class="group inline-flex items-center justify-center gap-3 rounded-2xl px-8 py-4 bg-white text-gray-900 font-bold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105"
             >
               無料で始める
               <ArrowRight />
@@ -533,7 +533,7 @@ const LandingPage: Component = () => {
       </section>
 
       {/* Enhanced Footer */}
-      <footer class="py-12 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/50">
+      <footer class="py-12 bg-gray-950/90 backdrop-blur-md border-t border-gray-800/50">
         <div class="max-w-7xl mx-auto px-6">
           <div class="text-center">
             <div class="flex items-center justify-center gap-2 mb-4">
@@ -542,7 +542,7 @@ const LandingPage: Component = () => {
               </div>
               <span class="text-xl font-bold">takos</span>
             </div>
-            <p class="text-slate-400 text-sm">
+            <p class="text-gray-400 text-sm">
               © {new Date().getFullYear()} takoserver. MIT Licensed.
               <span class="text-indigo-400">
                 Made with ❤️ for the Fediverse
