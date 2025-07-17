@@ -82,7 +82,9 @@ $ deno task dev
 パスワードを設定した場合は `/login` へパスワードを POST
 してログインできます。`POST /user/instances` で指定したパスワードは
 `hashedPassword` と `salt` としてインスタンスの環境変数に保存されます。 OAuth
-認証は常にホストの `ROOT_DOMAIN` を利用します。
+認証は常にホストの `ROOT_DOMAIN` を利用します。 インスタンスでは `/api/config`
+にアクセスすることで `OAUTH_HOST` を取得でき、 ログイン画面は値が存在する場合に
+OAuth ボタンを表示します。
 
 ## 起動方法
 

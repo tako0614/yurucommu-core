@@ -21,6 +21,7 @@ import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
 import videos, { initVideoModule } from "./videos.ts";
+import config from "./config.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -33,13 +34,14 @@ export async function createTakosApp(env?: Record<string, string>) {
   initVideoModule(e);
   app.route("/api", login);
   app.route("/api", logout);
-  if (e["ROOT_DOMAIN"]) {
+  if (e["OAUTH_HOST"] || e["ROOT_DOMAIN"]) {
     app.route("/api", oauthLogin);
   }
   app.route("/api", session);
   app.route("/api", accounts);
   app.route("/api", notifications);
   app.route("/api", microblog);
+  app.route("/api", config);
   app.route("/api", videos);
   app.route("/api", search);
   app.route("/api", communities);

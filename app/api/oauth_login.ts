@@ -8,7 +8,7 @@ const app = new Hono();
 app.post("/oauth/login", async (c) => {
   const { accessToken } = await c.req.json();
   const env = getEnv(c);
-  const host = env["ROOT_DOMAIN"];
+  const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
   if (!host) {
     return c.json({ error: "Server configuration error" }, 500);
   }
