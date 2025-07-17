@@ -15,11 +15,15 @@ await connectDatabase(env);
 const apps = new Map<string, Hono>();
 const rootDomain = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
+const reservedSubdomains = (env["RESERVED_SUBDOMAINS"] ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter((s) => s.length > 0);
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
   },
-  { rootDomain, freeLimit },
+  { rootDomain, freeLimit, reservedSubdomains },
 );
 const authApp = createAuthApp({ rootDomain });
 const isDev = Deno.env.get("DEV") === "1";
