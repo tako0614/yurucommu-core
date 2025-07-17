@@ -11,11 +11,16 @@ import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,
-  options?: { rootDomain?: string; freeLimit?: number },
+  options?: {
+    rootDomain?: string;
+    freeLimit?: number;
+    reservedSubdomains?: string[];
+  },
 ) {
   const app = new Hono();
   const rootDomain = options?.rootDomain?.toLowerCase() ?? "";
   const freeLimit = options?.freeLimit ?? 1;
+  const reserved = new Set(options?.reservedSubdomains ?? []);
 
   app.use("/*", authRequired);
 
@@ -48,9 +53,19 @@ export function createConsumerApp(
             return c.json({ error: "domain" }, 400);
           }
           fullHost = host;
+          const sub = host.slice(0, -rootDomain.length - 1);
+          if (reserved.has(sub)) {
+            return c.json({ error: "reserved" }, 400);
+          }
         } else {
+          if (reserved.has(host)) {
+            return c.json({ error: "reserved" }, 400);
+          }
           fullHost = `${host}.${rootDomain}`;
         }
+      }
+      if (!rootDomain && reserved.has(host)) {
+        return c.json({ error: "reserved" }, 400);
       }
 
       const exists = await Instance.findOne({ host: fullHost });

@@ -70,7 +70,7 @@ export function TauriLogin(props: TauriLoginProps) {
     }
   };
 
-  const handleAddServer = async (
+  const handleAddServer = (
     url: string,
     password: string,
   ): Promise<void> => {
