@@ -161,7 +161,14 @@ const UserPage: Component = () => {
                 {(inst) => (
                   <li class="bg-[#212121] p-4 rounded-lg shadow">
                     <div class="flex justify-between items-center">
-                      <span class="font-semibold">{inst.host}</span>
+                      <a
+                        href={`${globalThis.location.protocol}//${inst.host}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="font-semibold hover:underline"
+                      >
+                        {inst.host}
+                      </a>
                       <div class="space-x-2">
                         <button
                           type="button"
