@@ -20,6 +20,10 @@ export function LoginForm(props: LoginFormProps) {
   const [serverUrl, setServerUrl] = createSignal("");
   const inTauri = isTauri();
   const [oauthHost, setOauthHost] = createSignal<string | null>(null);
+  const [oauthClientId, setOauthClientId] = createSignal<string | null>(null);
+  const [oauthClientSecret, setOauthClientSecret] = createSignal<string | null>(
+    null,
+  );
 
   onMount(async () => {
     try {
@@ -27,9 +31,56 @@ export function LoginForm(props: LoginFormProps) {
       if (res.ok) {
         const data = await res.json();
         setOauthHost(data.oauthHost ?? null);
+        setOauthClientId(data.oauthClientId ?? null);
+        setOauthClientSecret(data.oauthClientSecret ?? null);
       }
     } catch {
       // ignore
+    }
+
+    const params = new URLSearchParams(globalThis.location.search);
+    const code = params.get("code");
+    if (code && oauthHost() && oauthClientId() && oauthClientSecret()) {
+      const base = oauthHost()?.startsWith("http")
+        ? oauthHost()!
+        : `https://${oauthHost()}`;
+      const redirect = getOrigin();
+      const form = new URLSearchParams();
+      form.set("grant_type", "authorization_code");
+      form.set("code", code);
+      form.set("client_id", oauthClientId()!);
+      form.set("client_secret", oauthClientSecret()!);
+      form.set("redirect_uri", redirect);
+      try {
+        const tokenRes = await fetch(`${base}/oauth/token`, {
+          method: "POST",
+          body: form,
+        });
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          const loginRes = await apiFetch("/api/oauth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accessToken: tokenData.access_token }),
+          });
+          const loginData = await loginRes.json();
+          if (loginData.success) {
+            props.onLoginSuccess();
+          } else {
+            setError(loginData.error || "OAuthログインに失敗しました");
+          }
+        } else {
+          setError("OAuthトークン取得に失敗しました");
+        }
+      } catch {
+        setError("通信エラーが発生しました");
+      }
+      params.delete("code");
+      const q = params.toString();
+      const url = q
+        ? `${globalThis.location.pathname}?${q}`
+        : globalThis.location.pathname;
+      history.replaceState(null, "", url);
     }
   });
 
