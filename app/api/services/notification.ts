@@ -7,7 +7,7 @@ export async function addNotification(
   title: string,
   message: string,
   type: string = "info",
-  env: Record<string, string> = {},
+  env: Record<string, string>,
 ) {
   const n = new Notification({ title, message, type });
   (n as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
