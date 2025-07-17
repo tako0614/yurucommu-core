@@ -13,7 +13,7 @@ const env = await load();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
-const rootDomain = env["ROOT_DOMAIN"] ?? "";
+const rootDomain = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
 const consumerApp = createConsumerApp(
   (host) => {
@@ -23,6 +23,16 @@ const consumerApp = createConsumerApp(
 );
 const authApp = createAuthApp({ rootDomain });
 const isDev = Deno.env.get("DEV") === "1";
+
+function parseHost(value: string | undefined): string {
+  return value?.split(":")[0].toLowerCase() ?? "";
+}
+
+function getRealHost(c: Context): string {
+  const forwarded = c.req.header("x-forwarded-host");
+  const host = forwarded?.split(",")[0].trim() || c.req.header("host");
+  return parseHost(host);
+}
 
 function proxy(prefix: string) {
   return async (c: Context, next: () => Promise<void>) => {
@@ -41,6 +51,7 @@ function proxy(prefix: string) {
 async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
+  host = parseHost(host);
   if (rootDomain && host === rootDomain) {
     return { ...env, ACTIVITYPUB_DOMAIN: rootDomain };
   }
@@ -50,6 +61,7 @@ async function getEnvForHost(
 }
 
 async function getAppForHost(host: string): Promise<Hono | null> {
+  host = parseHost(host);
   let app = apps.get(host);
   if (app) return app;
   const hostEnv = await getEnvForHost(host);
@@ -71,7 +83,7 @@ if (isDev) {
   root.use("/user/*", proxy("/user"));
   if (rootDomain) {
     root.use(async (c, next) => {
-      const host = c.req.header("host") ?? "";
+      const host = getRealHost(c);
       if (host === rootDomain) {
         return await proxy("")(c, next);
       }
@@ -97,7 +109,7 @@ if (isDev) {
 
 if (!isDev && rootDomain) {
   root.use(async (c, next) => {
-    const host = c.req.header("host") ?? "";
+    const host = getRealHost(c);
     if (host === rootDomain) {
       await serveStatic({ root: "./client/dist" })(c, next);
     } else {
@@ -107,7 +119,7 @@ if (!isDev && rootDomain) {
 }
 
 root.all("/*", async (c) => {
-  const host = c.req.header("host") ?? "";
+  const host = getRealHost(c);
   const app = await getAppForHost(host);
   if (!app) return c.text("not found", 404);
   return app.fetch(c.req.raw);

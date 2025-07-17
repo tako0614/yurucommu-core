@@ -14,7 +14,7 @@ export function createConsumerApp(
   options?: { rootDomain?: string; freeLimit?: number },
 ) {
   const app = new Hono();
-  const rootDomain = options?.rootDomain ?? "";
+  const rootDomain = options?.rootDomain?.toLowerCase() ?? "";
   const freeLimit = options?.freeLimit ?? 1;
 
   app.use("/*", authRequired);
@@ -32,7 +32,8 @@ export function createConsumerApp(
       z.object({ host: z.string(), password: z.string().optional() }),
     ),
     async (c) => {
-      const { host, password } = c.req.valid("json");
+      const { host: rawHost, password } = c.req.valid("json");
+      const host = rawHost.toLowerCase();
       const user = c.get("user") as HostUser;
 
       const count = await Instance.countDocuments({ owner: user._id });
@@ -80,7 +81,7 @@ export function createConsumerApp(
   );
 
   app.delete("/instances/:host", async (c) => {
-    const host = c.req.param("host");
+    const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUser;
     await Instance.deleteOne({ host, owner: user._id });
     invalidate?.(host);
@@ -88,7 +89,7 @@ export function createConsumerApp(
   });
 
   app.get("/instances/:host", async (c) => {
-    const host = c.req.param("host");
+    const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUser;
     const inst = await Instance.findOne({ host, owner: user._id }).lean();
     if (!inst) return c.json({ error: "not found" }, 404);
@@ -99,7 +100,7 @@ export function createConsumerApp(
     "/instances/:host/password",
     zValidator("json", z.object({ password: z.string().optional() })),
     async (c) => {
-      const host = c.req.param("host");
+      const host = c.req.param("host").toLowerCase();
       const { password } = c.req.valid("json");
       const user = c.get("user") as HostUser;
       const inst = await Instance.findOne({ host, owner: user._id });
@@ -119,7 +120,7 @@ export function createConsumerApp(
   );
 
   app.post("/instances/:host/restart", async (c) => {
-    const host = c.req.param("host");
+    const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUser;
     const inst = await Instance.findOne({ host, owner: user._id });
     if (!inst) return c.json({ error: "not found" }, 404);
