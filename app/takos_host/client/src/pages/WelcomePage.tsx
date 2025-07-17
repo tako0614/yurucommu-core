@@ -169,22 +169,22 @@ const FEATURES = [
     icon: Shield,
     title: "完全オープンソース",
     desc:
-      "MIT ライセンスで透明性と自由度を確保。あなたのサーバーをあなたのルールで運営できます。",
+      "GPL v3 ライセンスで透明性と自由度を確保。あなたのサーバーをあなたのルールで運営できます。",
     highlight: "透明性",
   },
   {
     icon: Zap,
-    title: "瞬時にスケール",
+    title: "あなたのサーバー",
     desc:
-      "軽量 Rust + Deno 実装により数百〜数万ユーザーまで滑らかに拡張。パフォーマンスを犠牲にしません。",
-    highlight: "高速",
+      "数分でセットアップ可能な ActivityPub サーバー。個人やコミュニティのためのプライベートな SNS を簡単に構築。",
+    highlight: "自主性",
   },
   {
     icon: Puzzle,
-    title: "プラグインで拡張",
+    title: "シンプルなUI",
     desc:
-      "検索、AI アシスタント、ストリーミング等のプラグインを数クリックで追加。機能を自由にカスタマイズ。",
-    highlight: "拡張性",
+      "直感的で使いやすいインターフェース。誰でも簡単に操作できるよう設計されています。",
+    highlight: "使いやすさ",
   },
   {
     icon: Globe,
@@ -195,9 +195,9 @@ const FEATURES = [
   },
   {
     icon: Lock,
-    title: "mKEM + HPKE 暗号化",
+    title: "ac",
     desc:
-      "ポスト量子時代に備えた End-to-End 暗号化を標準搭載。プライバシーを最優先に設計。",
+      "activitypub-e2eeを利用したエンドツーエンド暗号化。プライバシーを最優先に考えた設計。",
     highlight: "セキュア",
   },
   {
@@ -209,14 +209,58 @@ const FEATURES = [
   },
 ];
 
+// 他社サービスとの具体的な比較
 const COMPARISON = [
-  { label: "OSS & 自己ホスト", takos: true, others: false },
-  { label: "プラグイン経済圏", takos: true, others: false },
-  { label: "E2EE (mKEM)", takos: true, others: false },
-  { label: "1クリックスケール", takos: true, others: false },
-  { label: "料金 (月額)", takos: "¥0〜", others: "¥1,000+" },
-  { label: "データ所有権", takos: true, others: false },
-  { label: "カスタマイズ性", takos: true, others: false },
+  {
+    label: "OSS (オープンソース)",
+    takos: "○",
+    others: {
+      Mastodon: "○",
+      Misskey: "○",
+      Twitter: "×",
+      Facebook: "×"
+    }
+  },
+  {
+    label: "非中央集権",
+    takos: "○",
+    others: {
+      Mastodon: "○",
+      Misskey: "○",
+      Twitter: "×",
+      Facebook: "×"
+    }
+  },
+  {
+    label: "E2EE (エンドツーエンド暗号化)",
+    takos: "○",
+    others: {
+      Mastodon: "×",
+      Misskey: "×",
+      Twitter: "×",
+      Facebook: "×"
+    }
+  },
+  {
+    label: "サーバー所有権",
+    takos: "○",
+    others: {
+      Mastodon: "×",
+      Misskey: "×",
+      Twitter: "×",
+      Facebook: "×"
+    }
+  },
+  {
+    label: "言論の自由",
+    takos: "○",
+    others: {
+      Mastodon: "○",
+      Misskey: "○",
+      Twitter: "△",
+      Facebook: "△"
+    }
+  }
 ];
 
 // ------------------------------
@@ -401,9 +445,10 @@ const LandingPage: Component = () => {
                       takos
                     </div>
                   </th>
-                  <th class="py-6 font-bold text-lg text-slate-400">
-                    他社レンタル
-                  </th>
+                  <th class="py-6 font-bold text-lg text-slate-400">Mastodon</th>
+                  <th class="py-6 font-bold text-lg text-slate-400">Misskey</th>
+                  <th class="py-6 font-bold text-lg text-slate-400">Twitter</th>
+                  <th class="py-6 font-bold text-lg text-slate-400">Facebook</th>
                 </tr>
               </thead>
               <tbody>
@@ -416,50 +461,19 @@ const LandingPage: Component = () => {
                     >
                       <td class="py-6 pr-6 font-medium">{row.label}</td>
                       <td class="py-6 text-center">
-                        <div class="flex justify-center">
-                          {typeof row.takos === "boolean"
-                            ? (
-                              row.takos
-                                ? (
-                                  <div class="flex items-center gap-2 text-emerald-400 font-semibold">
-                                    <Check /> 対応
-                                  </div>
-                                )
-                                : (
-                                  <div class="flex items-center gap-2 text-rose-400 font-semibold">
-                                    <Cross /> 非対応
-                                  </div>
-                                )
-                            )
-                            : (
-                              <span class="font-bold text-emerald-400 text-lg">
-                                {row.takos}
-                              </span>
-                            )}
-                        </div>
+                        <span class="font-bold text-emerald-400 text-lg">{row.takos}</span>
                       </td>
-                      <td class="py-6 text-center text-slate-400">
-                        <div class="flex justify-center">
-                          {typeof row.others === "boolean"
-                            ? (
-                              row.others
-                                ? (
-                                  <div class="flex items-center gap-2 text-emerald-400 font-semibold">
-                                    <Check /> 対応
-                                  </div>
-                                )
-                                : (
-                                  <div class="flex items-center gap-2 text-rose-400 font-semibold">
-                                    <Cross /> 非対応
-                                  </div>
-                                )
-                            )
-                            : (
-                              <span class="font-bold text-rose-400 text-lg">
-                                {row.others}
-                              </span>
-                            )}
-                        </div>
+                      <td class="py-6 text-center">
+                        <span class="font-bold text-slate-300 text-lg">{row.others.Mastodon}</span>
+                      </td>
+                      <td class="py-6 text-center">
+                        <span class="font-bold text-slate-300 text-lg">{row.others.Misskey}</span>
+                      </td>
+                      <td class="py-6 text-center">
+                        <span class="font-bold text-slate-300 text-lg">{row.others.Twitter}</span>
+                      </td>
+                      <td class="py-6 text-center">
+                        <span class="font-bold text-slate-300 text-lg">{row.others.Facebook}</span>
                       </td>
                     </tr>
                   )}
