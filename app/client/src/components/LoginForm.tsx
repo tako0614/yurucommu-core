@@ -1,13 +1,8 @@
 import { createSignal, onMount, Show } from "solid-js";
-import { AddServerForm } from "./AddServerForm.tsx";
-import { ServerList } from "./ServerList.tsx";
 import { TauriLogin } from "./TauriLogin.tsx";
 import {
   addServer,
   apiFetch,
-  getActiveServer,
-  getApiBase,
-  getServers,
   isTauri,
   setActiveServer,
   setApiBase,
@@ -22,19 +17,23 @@ export function LoginForm(props: LoginFormProps) {
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
-  type ServerInfo = { url: string; password: string };
-  const [servers, setServers] = createSignal<ServerInfo[]>([]);
-  const [showAdd, setShowAdd] = createSignal(false);
   const inTauri = isTauri();
+  const [oauthHost, setOauthHost] = createSignal<string | null>(null);
+
+  onMount(async () => {
+    try {
+      const res = await apiFetch("/api/config");
+      if (res.ok) {
+        const data = await res.json();
+        setOauthHost(data.oauthHost ?? null);
+      }
+    } catch {
+      // ignore
+    }
+  });
 
   onMount(() => {
     if (inTauri) {
-      const saved = localStorage.getItem("servers");
-      if (saved) {
-        setServers(JSON.parse(saved));
-      } else {
-        setServers([]);
-      }
       setServerUrl("");
     }
   });
@@ -72,17 +71,22 @@ export function LoginForm(props: LoginFormProps) {
       setIsLoading(false);
     }
   };
-  const handleAddServer = async (url: string, password: string) => {
-    const newServer = { url: url.trim(), password };
-    const updated = [...servers(), newServer];
-    setServers(updated);
-    localStorage.setItem("servers", JSON.stringify(updated));
-    setShowAdd(false);
-  };
 
   const handleLogin = async (e: Event) => {
     e.preventDefault();
     await loginToServer(serverUrl(), loginPassword());
+  };
+
+  const loginWithOAuth = () => {
+    if (!oauthHost()) return;
+    const base = oauthHost()?.startsWith("http")
+      ? oauthHost()
+      : `https://${oauthHost()}`;
+    const redirect = getOrigin();
+    const url = `${base}/oauth/authorize?client_id=${
+      encodeURIComponent(redirect)
+    }&redirect_uri=${encodeURIComponent(redirect)}`;
+    globalThis.location.href = url;
   };
 
   return (
@@ -161,6 +165,15 @@ export function LoginForm(props: LoginFormProps) {
                     )}
                     {isLoading() ? "ログイン処理中..." : "ログイン"}
                   </button>
+                  <Show when={oauthHost()}>
+                    <button
+                      type="button"
+                      onClick={loginWithOAuth}
+                      class="w-full bg-green-600 text-white py-3 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                    >
+                      OAuthでログイン
+                    </button>
+                  </Show>
                 </form>
               </div>
             </main>
