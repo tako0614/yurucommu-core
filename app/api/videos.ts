@@ -103,7 +103,8 @@ async function deliverVideoToFollowers(
 }
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/videos/*", authRequired);
+app.use("/video-files/*", authRequired);
 
 const videoUploadWs = upgradeWebSocket((c) => {
   const chunks: Uint8Array[] = [];

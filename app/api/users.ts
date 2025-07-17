@@ -14,7 +14,7 @@ import {
 import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/users/*", authRequired);
 
 // ユーザー検索
 app.get("/users/search", async (c) => {

@@ -12,7 +12,7 @@ import { createObjectId } from "./utils/activitypub.ts";
 import { getEnv } from "./utils/env_store.ts";
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/stories/*", authRequired);
 
 // CORSミドルウェア
 app.use(

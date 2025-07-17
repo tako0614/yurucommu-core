@@ -3,6 +3,7 @@ import { TauriLogin } from "./TauriLogin.tsx";
 import {
   addServer,
   apiFetch,
+  getOrigin,
   isTauri,
   setActiveServer,
   setApiBase,

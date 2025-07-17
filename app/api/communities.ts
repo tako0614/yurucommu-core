@@ -54,7 +54,7 @@ async function generateKeyPair() {
 }
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/communities/*", authRequired);
 
 // コミュニティ一覧取得
 app.get("/communities", async (c) => {

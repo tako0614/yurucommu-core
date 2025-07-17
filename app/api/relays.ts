@@ -12,7 +12,7 @@ import {
 } from "./utils/activitypub.ts";
 import { getSystemKey } from "./services/system_actor.ts";
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/relays/*", authRequired);
 
 app.get("/relays", async (c) => {
   const list = await Relay.find().lean<{ _id: unknown; inboxUrl: string }[]>();

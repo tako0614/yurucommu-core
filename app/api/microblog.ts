@@ -136,7 +136,7 @@ async function deliverPostToFollowers(
 // --- Hono App ---
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/microblog/*", authRequired);
 
 app.get("/microblog", async (c) => {
   const domain = getDomain(c);

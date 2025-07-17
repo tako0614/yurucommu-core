@@ -4,7 +4,7 @@ import Session from "./models/session.ts";
 import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/logout", authRequired);
 
 app.post("/logout", async (c) => {
   const sessionId = getCookie(c, "sessionId");

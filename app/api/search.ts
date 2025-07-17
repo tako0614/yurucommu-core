@@ -18,7 +18,7 @@ interface SearchResult {
 }
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/search/*", authRequired);
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -62,7 +62,7 @@ interface AccountDoc extends Document {
 }
 
 const app = new Hono();
-app.use("*", authRequired);
+app.use("/accounts/*", authRequired);
 
 app.get("/accounts", async (c) => {
   const list = await Account.find().lean<AccountDoc[]>();
