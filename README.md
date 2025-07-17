@@ -62,6 +62,17 @@ cd app/api
 deno task dev
 ```
 
+### フロントエンドのビルド
+
+本番環境では先に `app/client` で次のコマンドを実行してアセットを生成します。
+
+```bash
+cd app/client
+deno task build
+```
+
+生成された `dist` フォルダーは `app/api` サーバーから自動的に配信されます。
+
 ## ActivityPub エンドポイント
 
 サーバーを起動すると以下の ActivityPub API が利用できます。

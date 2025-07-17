@@ -1,4 +1,4 @@
-import { TextLineStream } from "@std/streams/text-line-stream";
+import { TextLineStream } from "jsr:@std/streams/text-line-stream";
 
 const targetDirectories = [
   "app/api",

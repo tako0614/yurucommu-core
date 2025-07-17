@@ -22,6 +22,8 @@ import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
 import videos, { initVideoModule } from "./videos.ts";
 import { fetchOgpData } from "./services/ogp.ts";
+import { serveStatic } from "hono/deno";
+import type { Context } from "hono";
 
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await load();
@@ -68,6 +70,35 @@ export async function createTakosApp(env?: Record<string, string>) {
   });
 
   startRelayPolling(e);
+
+  const isDev = Deno.env.get("DEV") === "1";
+
+  function proxy() {
+    return async (c: Context, next: () => Promise<void>) => {
+      if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+        await next();
+        return;
+      }
+      const url = `http://localhost:1420${c.req.path}`;
+      const res = await fetch(url);
+      const body = await res.arrayBuffer();
+      return new Response(body, { status: res.status, headers: res.headers });
+    };
+  }
+
+  if (isDev) {
+    app.use("/*", proxy());
+  } else {
+    app.use(
+      "/*",
+      serveStatic({
+        root: "../client/dist",
+        onNotFound: (c) =>
+          serveStatic({ root: "../client/dist", path: "index.html" })(c),
+      }),
+    );
+  }
+
   return app;
 }
 
