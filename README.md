@@ -57,6 +57,10 @@ pull モードのリレーは定期ポーリングで投稿が取り込まれ、
 `ACTIVITYPUB_DOMAIN` がテナント ID を兼ねており、ドメインごとにフォロー情報を
 `follow_edge` コレクションで管理します。
 
+ローカルアカウントやコミュニティ、通知など他のコレクションも `tenant_id`
+フィールドで区別されます。takos host 上では単一の MongoDB を
+共有しつつ、インスタンスごとのデータが混在しないよう設計されています。
+
 ```bash
 cd app/api
 deno task dev

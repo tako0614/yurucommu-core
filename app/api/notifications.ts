@@ -1,12 +1,17 @@
 import { Hono } from "hono";
 import Notification from "./models/notification.ts";
 import authRequired from "./utils/auth.ts";
+import { getEnv } from "./utils/env_store.ts";
 
 const app = new Hono();
 app.use("/notifications/*", authRequired);
 
 app.get("/notifications", async (c) => {
-  const list = await Notification.find().sort({ createdAt: -1 }).lean();
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const list = await Notification.find({ tenant_id: tenantId }).sort({
+    createdAt: -1,
+  }).lean();
   // deno-lint-ignore no-explicit-any
   const formatted = list.map((doc: any) => ({
     id: doc._id.toString(),
@@ -20,8 +25,17 @@ app.get("/notifications", async (c) => {
 });
 
 app.post("/notifications", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const { title, message, type } = await c.req.json();
-  const notification = new Notification({ title, message, type });
+  const notification = new Notification({
+    title,
+    message,
+    type,
+    tenant_id: tenantId,
+  });
+  (notification as unknown as { $locals?: { env?: Record<string, string> } })
+    .$locals = { env };
   await notification.save();
   return c.json({
     id: notification._id.toString(),
@@ -34,17 +48,28 @@ app.post("/notifications", async (c) => {
 });
 
 app.put("/notifications/:id/read", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const n = await Notification.findByIdAndUpdate(id, { read: true }, {
-    new: true,
-  });
+  const n = await Notification.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    { read: true },
+    {
+      new: true,
+    },
+  );
   if (!n) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
 
 app.delete("/notifications/:id", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const n = await Notification.findByIdAndDelete(id);
+  const n = await Notification.findOneAndDelete({
+    _id: id,
+    tenant_id: tenantId,
+  });
   if (!n) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
