@@ -13,7 +13,7 @@ const env = await load();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
-const rootDomain = env["ROOT_DOMAIN"] ?? "";
+const rootDomain = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
 const consumerApp = createConsumerApp(
   (host) => {
@@ -25,7 +25,7 @@ const authApp = createAuthApp({ rootDomain });
 const isDev = Deno.env.get("DEV") === "1";
 
 function parseHost(value: string | undefined): string {
-  return value?.split(":")[0] ?? "";
+  return value?.split(":")[0].toLowerCase() ?? "";
 }
 
 function getRealHost(c: Context): string {
