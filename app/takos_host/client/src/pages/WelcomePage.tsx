@@ -270,7 +270,7 @@ const LandingPage: Component = () => {
   const [loggedIn] = useAtom(loggedInState);
 
   return (
-    <div class="min-h-screen bg-gradient-to-br from-[#202020] via-[#181818] to-black text-gray-100 font-sans antialiased">
+    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-slate-100 font-sans antialiased">
       {/* Enhanced Sticky Nav with better backdrop */}
       <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-xl supports-[backdrop-filter]:bg-gray-900/90 border-b border-gray-800/50 shadow-lg">
         <div class="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
