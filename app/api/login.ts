@@ -30,6 +30,8 @@ app.post("/login", async (c) => {
         sessionId,
         expiresAt,
       });
+      (session as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env };
 
       await session.save();
 

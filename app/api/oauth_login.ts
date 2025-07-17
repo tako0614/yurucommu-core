@@ -24,6 +24,8 @@ app.post("/oauth/login", async (c) => {
   const sessionId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const session = new Session({ sessionId, expiresAt });
+  (session as unknown as { $locals?: { env?: Record<string, string> } })
+    .$locals = { env };
   await session.save();
   setCookie(c, "sessionId", sessionId, {
     path: "/",

@@ -124,6 +124,8 @@ async function deliverPostToFollowers(
           await addNotification(
             "新しい返信",
             `${author}さんが${parent.attributedTo}さんの投稿に返信しました`,
+            "info",
+            env,
           );
         }
       }
@@ -338,6 +340,8 @@ app.post("/microblog/:id/like", async (c) => {
       await addNotification(
         "新しいいいね",
         `${username}さんが${localAuthor}さんの投稿をいいねしました`,
+        "info",
+        env,
       );
     }
   }
@@ -412,6 +416,8 @@ app.post("/microblog/:id/retweet", async (c) => {
       await addNotification(
         "新しいリツイート",
         `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
+        "info",
+        env,
       );
     }
   }

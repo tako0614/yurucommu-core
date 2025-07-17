@@ -65,7 +65,9 @@ const app = new Hono();
 app.use("/accounts/*", authRequired);
 
 app.get("/accounts", async (c) => {
-  const list = await Account.find().lean<AccountDoc[]>();
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const list = await Account.find({ tenant_id: tenantId }).lean<AccountDoc[]>();
   const formatted = list.map((doc: AccountDoc) => ({
     id: String(doc._id),
     userName: doc.userName,
@@ -79,6 +81,8 @@ app.get("/accounts", async (c) => {
 });
 
 app.post("/accounts", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const { username, displayName, icon, privateKey, publicKey } = await c.req
     .json();
 
@@ -94,7 +98,10 @@ app.post("/accounts", async (c) => {
   }
 
   // Check if username already exists
-  const existingAccount = await Account.findOne({ userName: username.trim() });
+  const existingAccount = await Account.findOne({
+    userName: username.trim(),
+    tenant_id: tenantId,
+  });
   if (existingAccount) {
     return jsonResponse(c, { error: "Username already exists" }, 409);
   }
@@ -111,7 +118,10 @@ app.post("/accounts", async (c) => {
     publicKey: keys.publicKey,
     followers: [],
     following: [],
+    tenant_id: tenantId,
   });
+  (account as unknown as { $locals?: { env?: Record<string, string> } })
+    .$locals = { env };
   await account.save();
   return jsonResponse(c, {
     id: String(account._id),
@@ -125,8 +135,12 @@ app.post("/accounts", async (c) => {
 });
 
 app.get("/accounts/:id", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const account = await Account.findById(id).lean<AccountDoc>();
+  const account = await Account.findOne({ _id: id, tenant_id: tenantId }).lean<
+    AccountDoc
+  >();
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     id: String(account._id),
@@ -141,6 +155,8 @@ app.get("/accounts/:id", async (c) => {
 });
 
 app.put("/accounts/:id", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const updates = await c.req.json();
   const data: Record<string, unknown> = {};
@@ -154,7 +170,11 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
 
-  const account = await Account.findByIdAndUpdate(id, data, { new: true });
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    data,
+    { new: true },
+  );
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     id: String(account._id),
@@ -168,10 +188,12 @@ app.put("/accounts/:id", async (c) => {
 });
 
 app.post("/accounts/:id/followers", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { follower } = await c.req.json();
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $addToSet: { followers: follower } },
     { new: true },
   );
@@ -180,10 +202,12 @@ app.post("/accounts/:id/followers", async (c) => {
 });
 
 app.delete("/accounts/:id/followers", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { follower } = await c.req.json();
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $pull: { followers: follower } },
     { new: true },
   );
@@ -192,10 +216,12 @@ app.delete("/accounts/:id/followers", async (c) => {
 });
 
 app.post("/accounts/:id/following", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { target } = await c.req.json();
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $addToSet: { following: target } },
     { new: true },
   );
@@ -204,17 +230,23 @@ app.post("/accounts/:id/following", async (c) => {
 });
 
 app.get("/accounts/:id/following", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const account = await Account.findById(id).lean<AccountDoc>();
+  const account = await Account.findOne({ _id: id, tenant_id: tenantId }).lean<
+    AccountDoc
+  >();
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, { following: account.following });
 });
 
 app.delete("/accounts/:id/following", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { target } = await c.req.json();
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $pull: { following: target } },
     { new: true },
   );
@@ -223,13 +255,15 @@ app.delete("/accounts/:id/following", async (c) => {
 });
 
 app.post("/accounts/:id/follow", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { target, userName } = await c.req.json();
   if (typeof target !== "string" || typeof userName !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $addToSet: { following: target } },
     { new: true },
   );
@@ -241,7 +275,7 @@ app.post("/accounts/:id/follow", async (c) => {
     const targetUrl = new URL(target);
     if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
       const username = targetUrl.pathname.split("/")[2];
-      await Account.updateOne({ userName: username }, {
+      await Account.updateOne({ userName: username, tenant_id: tenantId }, {
         $addToSet: { followers: actorId },
       });
     } else {
@@ -273,6 +307,8 @@ app.post("/accounts/:id/follow", async (c) => {
       await addNotification(
         "新しいフォロー",
         `${userName}さんが${localTarget}さんをフォローしました`,
+        "info",
+        env,
       );
     }
   } catch {
@@ -283,13 +319,15 @@ app.post("/accounts/:id/follow", async (c) => {
 });
 
 app.delete("/accounts/:id/follow", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
   const { target } = await c.req.json();
   if (typeof target !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const account = await Account.findByIdAndUpdate(
-    id,
+  const account = await Account.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
     { $pull: { following: target } },
     { new: true },
   );
@@ -301,7 +339,7 @@ app.delete("/accounts/:id/follow", async (c) => {
     const targetUrl = new URL(target);
     if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
       const username = targetUrl.pathname.split("/")[2];
-      await Account.updateOne({ userName: username }, {
+      await Account.updateOne({ userName: username, tenant_id: tenantId }, {
         $pull: { followers: actorId },
       });
     } else {
@@ -329,8 +367,13 @@ app.delete("/accounts/:id/follow", async (c) => {
 });
 
 app.delete("/accounts/:id", async (c) => {
+  const env = getEnv(c);
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const account = await Account.findByIdAndDelete(id);
+  const account = await Account.findOneAndDelete({
+    _id: id,
+    tenant_id: tenantId,
+  });
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, { success: true });
 });

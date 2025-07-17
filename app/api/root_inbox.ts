@@ -12,7 +12,8 @@ import { getEnv } from "./utils/env_store.ts";
 import { activityHandlers } from "./activity_handlers.ts";
 import Group from "./models/group.ts";
 import Account from "./models/account.ts";
-import { saveObject } from "./services/unified_store.ts";
+import { getObject, saveObject } from "./services/unified_store.ts";
+import { addInboxEntry } from "./services/inbox.ts";
 
 const app = new Hono();
 
@@ -22,7 +23,15 @@ app.post("/system/inbox", async (c) => {
   if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const activity = JSON.parse(body);
   if (activity.type === "Create" && typeof activity.object === "object") {
-    await saveObject(getEnv(c), activity.object as Record<string, unknown>);
+    const env = getEnv(c);
+    const object = activity.object as Record<string, unknown>;
+    let objectId = typeof object.id === "string" ? object.id : "";
+    let stored = await getObject(env, objectId);
+    if (!stored) {
+      stored = await saveObject(env, object);
+      objectId = String(stored._id);
+    }
+    await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
@@ -31,6 +40,7 @@ app.post("/inbox", async (c) => {
   const body = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, body);
   if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const env = getEnv(c);
   const activity = JSON.parse(body);
   const domain = getDomain(c);
 
@@ -65,30 +75,50 @@ app.post("/inbox", async (c) => {
           if (
             activity.type === "Create" && typeof activity.object === "object"
           ) {
-            await saveObject(
-              getEnv(c),
-              activity.object as Record<string, unknown>,
-            );
+            let objectId = typeof activity.object.id === "string"
+              ? activity.object.id
+              : "";
+            let stored = await getObject(env, objectId);
+            if (!stored) {
+              stored = await saveObject(
+                env,
+                activity.object as Record<string, unknown>,
+              );
+              objectId = String(stored._id);
+            }
+            await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
           }
           continue;
         }
-        const account = await Account.findOne({ userName: username });
+        const account = await Account.findOne({
+          userName: username,
+          tenant_id: env["ACTIVITYPUB_DOMAIN"],
+        });
         if (!account) continue;
         const handler = activityHandlers[activity.type];
         if (handler) await handler(activity, username, c);
       }
       if (parts[0] === "communities" && parts[1]) {
         const name = parts[1];
-        const group = await Group.findOne({ name });
+        const group = await Group.findOne({
+          name,
+          tenant_id: env["ACTIVITYPUB_DOMAIN"],
+        });
         if (!group) continue;
         if (activity.type === "Follow" && typeof activity.actor === "string") {
           if (group.banned.includes(activity.actor)) continue;
           if (group.isPrivate) {
-            await Group.updateOne({ name }, {
+            await Group.updateOne({
+              name,
+              tenant_id: env["ACTIVITYPUB_DOMAIN"],
+            }, {
               $addToSet: { pendingFollowers: activity.actor },
             });
           } else {
-            await Group.updateOne({ name }, {
+            await Group.updateOne({
+              name,
+              tenant_id: env["ACTIVITYPUB_DOMAIN"],
+            }, {
               $addToSet: { followers: activity.actor },
             });
             const accept = createAcceptActivity(
@@ -103,7 +133,7 @@ app.post("/inbox", async (c) => {
                 id: `https://${domain}/communities/${name}`,
                 privateKey: group.privateKey,
               },
-              getEnv(c),
+              env,
             );
           }
         }
@@ -118,26 +148,32 @@ app.post("/inbox", async (c) => {
           const attachments = extractAttachments(obj);
           const extra: Record<string, unknown> = {};
           if (attachments.length > 0) extra.attachments = attachments;
-          const stored = await saveObject(
-            getEnv(c),
-            {
-              type: (obj.type as string) ?? "Note",
-              attributedTo: `!${name}`,
-              content: (obj.content as string) ?? "",
-              to: Array.isArray(obj.to) ? obj.to : [],
-              cc: Array.isArray(obj.cc) ? obj.cc : [],
-              published: obj.published && typeof obj.published === "string"
-                ? new Date(obj.published)
-                : new Date(),
-              raw: obj,
-              extra,
-              actor_id: `https://${domain}/communities/${name}`,
-              aud: {
+          let objectId = typeof obj.id === "string" ? obj.id : "";
+          let stored = await getObject(env, objectId);
+          if (!stored) {
+            stored = await saveObject(
+              env,
+              {
+                type: (obj.type as string) ?? "Note",
+                attributedTo: `!${name}`,
+                content: (obj.content as string) ?? "",
                 to: Array.isArray(obj.to) ? obj.to : [],
                 cc: Array.isArray(obj.cc) ? obj.cc : [],
+                published: obj.published && typeof obj.published === "string"
+                  ? new Date(obj.published)
+                  : new Date(),
+                raw: obj,
+                extra,
+                actor_id: `https://${domain}/communities/${name}`,
+                aud: {
+                  to: Array.isArray(obj.to) ? obj.to : [],
+                  cc: Array.isArray(obj.cc) ? obj.cc : [],
+                },
               },
-            },
-          );
+            );
+            objectId = String(stored._id);
+          }
+          await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
           const announce = createAnnounceActivity(
             domain,
             `https://${domain}/communities/${name}`,
@@ -150,7 +186,7 @@ app.post("/inbox", async (c) => {
               id: `https://${domain}/communities/${name}`,
               privateKey: group.privateKey,
             },
-            getEnv(c),
+            env,
           );
         }
       }

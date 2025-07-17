@@ -5,7 +5,7 @@ import { loggedInState } from "../state.ts";
 // ------------------------------
 // Enhanced Icons with better accessibility
 // ------------------------------
-const Check = () => (
+const _Check = () => (
   <svg
     class="w-5 h-5 inline-block text-emerald-500"
     fill="none"
@@ -20,7 +20,7 @@ const Check = () => (
   </svg>
 );
 
-const Cross = () => (
+const _Cross = () => (
   <svg
     class="w-5 h-5 inline-block text-rose-400"
     fill="none"
@@ -218,8 +218,8 @@ const COMPARISON = [
       Mastodon: "○",
       Misskey: "○",
       Twitter: "×",
-      Facebook: "×"
-    }
+      Facebook: "×",
+    },
   },
   {
     label: "非中央集権",
@@ -228,8 +228,8 @@ const COMPARISON = [
       Mastodon: "○",
       Misskey: "○",
       Twitter: "×",
-      Facebook: "×"
-    }
+      Facebook: "×",
+    },
   },
   {
     label: "E2EE (エンドツーエンド暗号化)",
@@ -238,8 +238,8 @@ const COMPARISON = [
       Mastodon: "×",
       Misskey: "×",
       Twitter: "×",
-      Facebook: "×"
-    }
+      Facebook: "×",
+    },
   },
   {
     label: "サーバー所有権",
@@ -248,8 +248,8 @@ const COMPARISON = [
       Mastodon: "×",
       Misskey: "×",
       Twitter: "×",
-      Facebook: "×"
-    }
+      Facebook: "×",
+    },
   },
   {
     label: "言論の自由",
@@ -258,9 +258,9 @@ const COMPARISON = [
       Mastodon: "○",
       Misskey: "○",
       Twitter: "△",
-      Facebook: "△"
-    }
-  }
+      Facebook: "△",
+    },
+  },
 ];
 
 // ------------------------------
@@ -445,10 +445,14 @@ const LandingPage: Component = () => {
                       takos
                     </div>
                   </th>
-                  <th class="py-6 font-bold text-lg text-slate-400">Mastodon</th>
+                  <th class="py-6 font-bold text-lg text-slate-400">
+                    Mastodon
+                  </th>
                   <th class="py-6 font-bold text-lg text-slate-400">Misskey</th>
                   <th class="py-6 font-bold text-lg text-slate-400">Twitter</th>
-                  <th class="py-6 font-bold text-lg text-slate-400">Facebook</th>
+                  <th class="py-6 font-bold text-lg text-slate-400">
+                    Facebook
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -461,19 +465,29 @@ const LandingPage: Component = () => {
                     >
                       <td class="py-6 pr-6 font-medium">{row.label}</td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-emerald-400 text-lg">{row.takos}</span>
+                        <span class="font-bold text-emerald-400 text-lg">
+                          {row.takos}
+                        </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">{row.others.Mastodon}</span>
+                        <span class="font-bold text-slate-300 text-lg">
+                          {row.others.Mastodon}
+                        </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">{row.others.Misskey}</span>
+                        <span class="font-bold text-slate-300 text-lg">
+                          {row.others.Misskey}
+                        </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">{row.others.Twitter}</span>
+                        <span class="font-bold text-slate-300 text-lg">
+                          {row.others.Twitter}
+                        </span>
                       </td>
                       <td class="py-6 text-center">
-                        <span class="font-bold text-slate-300 text-lg">{row.others.Facebook}</span>
+                        <span class="font-bold text-slate-300 text-lg">
+                          {row.others.Facebook}
+                        </span>
                       </td>
                     </tr>
                   )}

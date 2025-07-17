@@ -80,6 +80,10 @@ _Draft v0.3  2025‑07‑14_
 { _id: UUID, domain: "takos123.jp", … }
 ```
 
+`account` や `group`、`notification` など他のコレクションも同様に `tenant_id`
+でドメインを判別します。これにより takos host は一つの MongoDB
+インスタンスで複数サーバーを安全に管理できます。
+
 ### 5.3 `follow_edge`
 
 ```

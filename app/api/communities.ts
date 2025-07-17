@@ -60,7 +60,11 @@ app.use("/communities/*", authRequired);
 app.get("/communities", async (c) => {
   try {
     const domain = getDomain(c);
-    const communities = await Group.find().sort({ name: 1 }).lean();
+    const env = getEnv(c);
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const communities = await Group.find({ tenant_id: tenantId }).sort({
+      name: 1,
+    }).lean();
 
     const formatted = await Promise.all(
       communities.map(async (community: Record<string, unknown>) => {
@@ -115,7 +119,10 @@ app.post("/communities", async (c) => {
     }
 
     // 同名のコミュニティが存在するかチェック
-    const existingCommunity = await Group.findOne({ name });
+    const existingCommunity = await Group.findOne({
+      name,
+      tenant_id: tenantId,
+    });
 
     if (existingCommunity) {
       return c.json({ error: "Community with this name already exists" }, 409);
@@ -123,7 +130,8 @@ app.post("/communities", async (c) => {
 
     const keys = await generateKeyPair();
 
-    const community = await Group.create({
+    const community = new Group({
+      tenant_id: tenantId,
       name,
       description: description || "",
       isPrivate: isPrivate || false,
@@ -137,6 +145,9 @@ app.post("/communities", async (c) => {
       privateKey: keys.privateKey,
       publicKey: keys.publicKey,
     });
+    (community as unknown as { $locals?: { env?: Record<string, string> } })
+      .$locals = { env };
+    await community.save();
 
     return c.json({
       id: community._id.toString(),
@@ -163,8 +174,11 @@ app.post("/communities", async (c) => {
 app.get("/communities/:id", async (c) => {
   try {
     const domain = getDomain(c);
+    const env = getEnv(c);
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const id = c.req.param("id");
-    const community = await Group.findById(id).lean();
+    const community = await Group.findOne({ _id: id, tenant_id: tenantId })
+      .lean();
 
     if (!community) {
       return c.json({ error: "Community not found" }, 404);
@@ -172,7 +186,6 @@ app.get("/communities/:id", async (c) => {
 
     const members = community.members as string[] | undefined;
     const memberCount = members?.length || 0;
-    const env = getEnv(c);
     const postCount = (
       await findObjects(env, { type: "Note", "extra.communityId": id })
     ).length;
