@@ -111,6 +111,8 @@ app.get("/communities", async (c) => {
 app.post("/communities", async (c) => {
   try {
     const domain = getDomain(c);
+    const env = getEnv(c);
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const { name, description, isPrivate, tags, avatar, banner } = await c.req
       .json();
 
@@ -354,7 +356,7 @@ app.post("/communities/:id/posts", async (c) => {
     const account = await Account.findOne({ userName: author }).lean();
 
     return c.json({
-      id: post._id.toString(),
+      id: String(post._id),
       communityId,
       content: post.content,
       userName: post.attributedTo,

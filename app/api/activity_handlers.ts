@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import Account from "./models/account.ts";
 import {
   addFollowEdge,
@@ -97,7 +98,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       string
     >;
     await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", activity.actor);
-    const domain = getDomain(c as { req: { url: string } });
+    const domain = getDomain(c as Context);
     const accept = createAcceptActivity(
       domain,
       `https://${domain}/users/${username}`,
