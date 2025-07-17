@@ -93,8 +93,12 @@ export async function createTakosApp(env?: Record<string, string>) {
       "/*",
       serveStatic({
         root: "../client/dist",
-        onNotFound: (c) =>
-          serveStatic({ root: "../client/dist", path: "index.html" })(c),
+        onNotFound: async (_path, c) => {
+          await serveStatic({ root: "../client/dist", path: "index.html" })(
+            c,
+            async () => {},
+          );
+        },
       }),
     );
   }
