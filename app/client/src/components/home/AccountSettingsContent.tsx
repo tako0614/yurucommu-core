@@ -229,7 +229,21 @@ const AccountSettingsContent: Component<{
 
   return (
     <div class="min-h-screen">
-      <Show when={selectedAccount()}>
+      <Show
+        when={selectedAccount()}
+        fallback={
+          <div class="py-10 text-center space-y-4">
+            <p class="text-gray-300">アカウントがありません。</p>
+            <button
+              type="button"
+              onClick={() => setShowNewAccountModal(true)}
+              class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              新規アカウント作成
+            </button>
+          </div>
+        }
+      >
         {/* SNS風のプロフィールレイアウト */}
         <div>
           {/* カバー画像エリア */}
