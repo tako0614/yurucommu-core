@@ -58,6 +58,23 @@ export function createConsumerApp(
         return c.json({ error: "already exists" }, 400);
       }
       const env: Record<string, string> = {};
+      if (rootDomain) {
+        env.OAUTH_HOST = rootDomain;
+        const redirect = `https://${fullHost}`;
+        const clientId = redirect;
+        const clientSecret = crypto.randomUUID();
+        const existsCli = await OAuthClient.findOne({ clientId });
+        if (!existsCli) {
+          const client = new OAuthClient({
+            clientId,
+            clientSecret,
+            redirectUri: redirect,
+          });
+          await client.save();
+        }
+        env.OAUTH_CLIENT_ID = clientId;
+        env.OAUTH_CLIENT_SECRET = clientSecret;
+      }
       if (password) {
         const salt = crypto.randomUUID();
         const hashedPassword = await hash(password + salt);
