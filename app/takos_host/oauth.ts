@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
+import { cors } from "hono/cors";
 import OAuthClient from "./models/oauth_client.ts";
 import OAuthCode from "./models/oauth_code.ts";
 import OAuthToken from "./models/oauth_token.ts";
 import HostSession from "./models/session.ts";
 
 export const oauthApp = new Hono();
+oauthApp.use("/*", cors());
 
 // Authorization Endpoint
 oauthApp.get("/authorize", async (c) => {
