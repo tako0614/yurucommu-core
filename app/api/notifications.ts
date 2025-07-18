@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import Notification from "./models/notification.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "./utils/env_store.ts";
@@ -24,28 +26,39 @@ app.get("/notifications", async (c) => {
   return c.json(formatted);
 });
 
-app.post("/notifications", async (c) => {
-  const env = getEnv(c);
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const { title, message, type } = await c.req.json();
-  const notification = new Notification({
-    title,
-    message,
-    type,
-    tenant_id: tenantId,
-  });
-  (notification as unknown as { $locals?: { env?: Record<string, string> } })
-    .$locals = { env };
-  await notification.save();
-  return c.json({
-    id: notification._id.toString(),
-    title: notification.title,
-    message: notification.message,
-    type: notification.type,
-    read: notification.read,
-    createdAt: notification.createdAt,
-  });
-});
+app.post(
+  "/notifications",
+  zValidator(
+    "json",
+    z.object({ title: z.string(), message: z.string(), type: z.string() }),
+  ),
+  async (c) => {
+    const env = getEnv(c);
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const { title, message, type } = c.req.valid("json") as {
+      title: string;
+      message: string;
+      type: string;
+    };
+    const notification = new Notification({
+      title,
+      message,
+      type,
+      tenant_id: tenantId,
+    });
+    (notification as unknown as { $locals?: { env?: Record<string, string> } })
+      .$locals = { env };
+    await notification.save();
+    return c.json({
+      id: notification._id.toString(),
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      read: notification.read,
+      createdAt: notification.createdAt,
+    });
+  },
+);
 
 app.put("/notifications/:id/read", async (c) => {
   const env = getEnv(c);

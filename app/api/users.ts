@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
 import { getEnv } from "./utils/env_store.ts";
@@ -81,108 +83,118 @@ app.get("/users/:username", async (c) => {
 });
 
 // フォロー
-app.post("/users/:username/follow", async (c) => {
-  try {
-    const domain = getDomain(c);
-    const targetUsername = c.req.param("username");
-    const { followerUsername } = await c.req.json();
+app.post(
+  "/users/:username/follow",
+  zValidator("json", z.object({ followerUsername: z.string() })),
+  async (c) => {
+    try {
+      const domain = getDomain(c);
+      const targetUsername = c.req.param("username");
+      const { followerUsername } = c.req.valid("json") as {
+        followerUsername: string;
+      };
 
-    if (typeof followerUsername !== "string") {
-      return c.json({ error: "Follower username is required" }, 400);
+      if (targetUsername === followerUsername) {
+        return c.json({ error: "Cannot follow yourself" }, 400);
+      }
+
+      // フォロー対象のユーザーを確認
+      const targetUser = await Account.findOne({ userName: targetUsername });
+      if (!targetUser) {
+        return c.json({ error: "Target user not found" }, 404);
+      }
+
+      // フォロワーのユーザーを確認
+      const followerUser = await Account.findOne({
+        userName: followerUsername,
+      });
+      if (!followerUser) {
+        return c.json({ error: "Follower user not found" }, 404);
+      }
+
+      // 既にフォローしているかチェック
+      const isAlreadyFollowing = followerUser.following?.includes(
+        `https://${domain}/users/${targetUsername}`,
+      ) || false;
+      if (isAlreadyFollowing) {
+        return c.json({ error: "Already following this user" }, 409);
+      }
+
+      // フォロー関係を更新
+      await Account.updateOne(
+        { userName: followerUsername },
+        {
+          $addToSet: { following: `https://${domain}/users/${targetUsername}` },
+        },
+      );
+
+      await Account.updateOne(
+        { userName: targetUsername },
+        {
+          $addToSet: {
+            followers: `https://${domain}/users/${followerUsername}`,
+          },
+        },
+      );
+
+      // ActivityPub Follow アクティビティを作成・配信
+      const _followActivity = createFollowActivity(
+        domain,
+        `https://${domain}/users/${followerUsername}`,
+        `https://${domain}/users/${targetUsername}`,
+      );
+
+      // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
+      // ActivityPub Follow アクティビティはすでに作成済み
+
+      return c.json({ success: true, message: "Successfully followed user" });
+    } catch (error) {
+      console.error("Error following user:", error);
+      return c.json({ error: "Failed to follow user" }, 500);
     }
-
-    if (targetUsername === followerUsername) {
-      return c.json({ error: "Cannot follow yourself" }, 400);
-    }
-
-    // フォロー対象のユーザーを確認
-    const targetUser = await Account.findOne({ userName: targetUsername });
-    if (!targetUser) {
-      return c.json({ error: "Target user not found" }, 404);
-    }
-
-    // フォロワーのユーザーを確認
-    const followerUser = await Account.findOne({ userName: followerUsername });
-    if (!followerUser) {
-      return c.json({ error: "Follower user not found" }, 404);
-    }
-
-    // 既にフォローしているかチェック
-    const isAlreadyFollowing = followerUser.following?.includes(
-      `https://${domain}/users/${targetUsername}`,
-    ) || false;
-    if (isAlreadyFollowing) {
-      return c.json({ error: "Already following this user" }, 409);
-    }
-
-    // フォロー関係を更新
-    await Account.updateOne(
-      { userName: followerUsername },
-      { $addToSet: { following: `https://${domain}/users/${targetUsername}` } },
-    );
-
-    await Account.updateOne(
-      { userName: targetUsername },
-      {
-        $addToSet: { followers: `https://${domain}/users/${followerUsername}` },
-      },
-    );
-
-    // ActivityPub Follow アクティビティを作成・配信
-    const _followActivity = createFollowActivity(
-      domain,
-      `https://${domain}/users/${followerUsername}`,
-      `https://${domain}/users/${targetUsername}`,
-    );
-
-    // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
-    // ActivityPub Follow アクティビティはすでに作成済み
-
-    return c.json({ success: true, message: "Successfully followed user" });
-  } catch (error) {
-    console.error("Error following user:", error);
-    return c.json({ error: "Failed to follow user" }, 500);
-  }
-});
+  },
+);
 
 // アンフォロー
-app.post("/users/:username/unfollow", async (c) => {
-  try {
-    const domain = getDomain(c);
-    const targetUsername = c.req.param("username");
-    const { followerUsername } = await c.req.json();
+app.post(
+  "/users/:username/unfollow",
+  zValidator("json", z.object({ followerUsername: z.string() })),
+  async (c) => {
+    try {
+      const domain = getDomain(c);
+      const targetUsername = c.req.param("username");
+      const { followerUsername } = c.req.valid("json") as {
+        followerUsername: string;
+      };
 
-    if (typeof followerUsername !== "string") {
-      return c.json({ error: "Follower username is required" }, 400);
+      // フォロー関係を削除
+      await Account.updateOne(
+        { userName: followerUsername },
+        { $pull: { following: `https://${domain}/users/${targetUsername}` } },
+      );
+
+      await Account.updateOne(
+        { userName: targetUsername },
+        { $pull: { followers: `https://${domain}/users/${followerUsername}` } },
+      );
+
+      // ActivityPub Undo Follow アクティビティを作成・配信
+      const _undoFollowActivity = createUndoFollowActivity(
+        domain,
+        `https://${domain}/users/${followerUsername}`,
+        `https://${domain}/users/${targetUsername}`,
+      );
+
+      // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
+      // ActivityPub Undo Follow アクティビティはすでに作成済み
+
+      return c.json({ success: true, message: "Successfully unfollowed user" });
+    } catch (error) {
+      console.error("Error unfollowing user:", error);
+      return c.json({ error: "Failed to unfollow user" }, 500);
     }
-
-    // フォロー関係を削除
-    await Account.updateOne(
-      { userName: followerUsername },
-      { $pull: { following: `https://${domain}/users/${targetUsername}` } },
-    );
-
-    await Account.updateOne(
-      { userName: targetUsername },
-      { $pull: { followers: `https://${domain}/users/${followerUsername}` } },
-    );
-
-    // ActivityPub Undo Follow アクティビティを作成・配信
-    const _undoFollowActivity = createUndoFollowActivity(
-      domain,
-      `https://${domain}/users/${followerUsername}`,
-      `https://${domain}/users/${targetUsername}`,
-    );
-
-    // 現在はローカルユーザーのみサポート（リモートユーザー対応は将来実装）
-    // ActivityPub Undo Follow アクティビティはすでに作成済み
-
-    return c.json({ success: true, message: "Successfully unfollowed user" });
-  } catch (error) {
-    console.error("Error unfollowing user:", error);
-    return c.json({ error: "Failed to unfollow user" }, 500);
-  }
-});
+  },
+);
 
 // フォロワー一覧取得
 app.get("/users/:username/followers", async (c) => {
