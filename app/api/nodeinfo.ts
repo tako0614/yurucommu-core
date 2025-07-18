@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
 import { getDomain } from "./utils/activitypub.ts";
-import { getEnv } from "../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 // NodeInfo は外部からの参照を想定しているため認証は不要
 
 const app = new Hono();

@@ -12,10 +12,9 @@ function init(env: Record<string, string>) {
   ];
   if (!saKeys.every((k) => env[k])) return;
   const cred = {
-    type: "service_account",
-    project_id: env["FIREBASE_PROJECT_ID"],
-    client_email: env["FIREBASE_CLIENT_EMAIL"],
-    private_key: env["FIREBASE_PRIVATE_KEY"],
+    projectId: env["FIREBASE_PROJECT_ID"],
+    clientEmail: env["FIREBASE_CLIENT_EMAIL"],
+    privateKey: env["FIREBASE_PRIVATE_KEY"],
   };
   admin.initializeApp({ credential: admin.credential.cert(cred) });
   initialized = true;

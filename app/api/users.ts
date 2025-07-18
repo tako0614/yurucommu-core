@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
-import { getEnv } from "../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,

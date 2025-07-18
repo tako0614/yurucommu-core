@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import Notification from "./models/notification.ts";
 import authRequired from "./utils/auth.ts";
-import { getEnv } from "../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 
 const app = new Hono();
 app.use("/notifications/*", authRequired);
