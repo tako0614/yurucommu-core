@@ -232,3 +232,9 @@ OpenAPI 対応ツールで読み込むことでクライアント実装やテス
 
 システム用 inbox とデフォルトリレーサーバーの設計については
 [docs/system-inbox.md](docs/system-inbox.md) を参照してください。
+
+## FCMによる通知
+
+Firebase Cloud Messaging の設定と利用方法は [docs/fcm.md](docs/fcm.md)
+を参照してください。Tauri 版では Rust 製プラグインと Kotlin サービスを使って FCM
+を初期化します。

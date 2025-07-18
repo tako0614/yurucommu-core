@@ -25,3 +25,6 @@ tauri = { version = "2.5.0", features = [] }
 tauri-plugin-log = "2.0.0-rc"
 tauri-plugin-http = { version = "2", features = ["cookies"] }
 tauri-plugin-store = "2"
+tauri-plugin-notification = "2.0.0-rc"
+tauri-plugin-push-notifications = { git = "https://github.com/guillemcordoba/tauri-plugin-fcm-push-notifications", rev = "1e17fbaa27a713f072bee2434aac91b29348da64" }
+tao-macros = "0.1.2"

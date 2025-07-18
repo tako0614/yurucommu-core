@@ -23,6 +23,7 @@ import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
 import videos, { initVideoModule } from "./videos.ts";
 import config from "./config.ts";
+import fcm from "./fcm.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -45,6 +46,7 @@ export async function createTakosApp(env?: Record<string, string>) {
   app.route("/api", notifications);
   app.route("/api", microblog);
   app.route("/api", config);
+  app.route("/api", fcm);
   app.route("/api", setupUI);
   app.route("/api", videos);
   app.route("/api", search);
