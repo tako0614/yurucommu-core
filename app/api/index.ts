@@ -1,5 +1,5 @@
 import { createTakosApp } from "./server.ts";
-import { connectDatabase } from "./db.ts";
+import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "./services/tenant.ts";
 import { load } from "jsr:@std/dotenv";
 

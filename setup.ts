@@ -1,7 +1,7 @@
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
-import { connectDatabase } from "./app/api/db.ts";
+import { connectDatabase } from "./shared/db.ts";
 import Account from "./app/api/models/account.ts";
 import { addFollowEdge } from "./app/api/services/unified_store.ts";
 

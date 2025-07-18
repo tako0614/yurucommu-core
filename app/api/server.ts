@@ -1,6 +1,6 @@
 import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
-import { connectDatabase } from "./db.ts";
+import { connectDatabase } from "../shared/db.ts";
 import { initEnv } from "./utils/env_store.ts";
 import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
