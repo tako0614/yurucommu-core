@@ -4,6 +4,7 @@ import { compare, genSalt, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 import { sendVerifyMail } from "./mailer.ts";
+import { createAuthMiddleware } from "../../shared/auth.ts";
 
 /** bcrypt.hash をラップ（saltRounds = 10） */
 export async function hash(text: string): Promise<string> {
@@ -198,30 +199,19 @@ export function createAuthApp(options?: {
 }
 
 /* --------------- Auth-required middleware ---------------- */
-export const authRequired: MiddlewareHandler = async (c, next) => {
-  const sid = getCookie(c, "hostSessionId");
-  if (!sid) return c.json({ error: "unauthorized" }, 401);
-
-  const session = await HostSession.findOne({ sessionId: sid }).populate(
-    "user",
-  );
-  if (!session || session.expiresAt <= new Date()) {
-    if (session) await HostSession.deleteOne({ sessionId: sid });
-    return c.json({ error: "unauthorized" }, 401);
-  }
-
-  // 期限延長
-  session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await session.save();
-
-  setCookie(c, "hostSessionId", sid, {
-    httpOnly: true,
-    secure: c.req.url.startsWith("https://"),
-    expires: session.expiresAt,
-    sameSite: "Lax",
-    path: "/",
-  });
-
-  c.set("user", session.user);
-  await next();
-};
+export const authRequired: MiddlewareHandler = createAuthMiddleware({
+  cookieName: "hostSessionId",
+  errorMessage: "unauthorized",
+  findSession: async (sid) =>
+    await HostSession.findOne({ sessionId: sid }).populate("user"),
+  deleteSession: async (sid) => {
+    await HostSession.deleteOne({ sessionId: sid });
+  },
+  updateSession: async (session, expires) => {
+    (session as unknown as { expiresAt: Date }).expiresAt = expires;
+    await (session as unknown as { save: () => Promise<void> }).save();
+  },
+  attach: (c, session) => {
+    c.set("user", (session as unknown as { user: unknown }).user);
+  },
+});
