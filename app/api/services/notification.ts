@@ -1,4 +1,5 @@
 import Notification from "../models/notification.ts";
+import { sendNotification as sendFcm } from "./fcm.ts";
 
 /**
  * 通知を追加するユーティリティ関数
@@ -14,5 +15,6 @@ export async function addNotification(
     env,
   };
   await n.save();
+  await sendFcm(title, message, env);
   return n;
 }
