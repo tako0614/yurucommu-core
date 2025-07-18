@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { load } from "jsr:@std/dotenv";
+import { loadConfig } from "../../shared/config.ts";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
@@ -9,7 +9,7 @@ import { createAuthApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
-const env = await load();
+const env = await loadConfig();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();

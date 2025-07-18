@@ -12,7 +12,7 @@ import {
 import authRequired from "./utils/auth.ts";
 import { addNotification } from "./services/notification.ts";
 import { addFollowEdge, removeFollowEdge } from "./services/unified_store.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "./utils/auth.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 import { registerToken, unregisterToken } from "./services/fcm.ts";
 
 const app = new Hono();

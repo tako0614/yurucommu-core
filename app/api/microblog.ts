@@ -14,7 +14,7 @@ import {
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
 import type { objectStoreSchema } from "./models/object_store.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 type ActivityPubObjectType = InferSchemaType<typeof objectStoreSchema>;
 import Account from "./models/account.ts";

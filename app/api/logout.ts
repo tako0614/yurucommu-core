@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import Session from "./models/session.ts";
 import authRequired from "./utils/auth.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 const app = new Hono();
 app.use("/logout", authRequired);

@@ -1,7 +1,6 @@
-import { load } from "jsr:@std/dotenv";
 import { Hono } from "hono";
 import { connectDatabase } from "../shared/db.ts";
-import { initEnv } from "./utils/env_store.ts";
+import { initEnv, loadConfig } from "../shared/config.ts";
 import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
@@ -30,7 +29,7 @@ import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
-  const e = env ?? await load();
+  const e = env ?? await loadConfig();
 
   const app = new Hono();
   initEnv(app, e);
@@ -115,7 +114,7 @@ export async function createTakosApp(env?: Record<string, string>) {
 }
 
 if (import.meta.main) {
-  const env = await load();
+  const env = await loadConfig();
   await connectDatabase(env);
   const app = await createTakosApp(env);
   Deno.serve(app.fetch);

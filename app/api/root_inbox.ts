@@ -8,7 +8,7 @@ import {
   jsonResponse,
   verifyHttpSignature,
 } from "./utils/activitypub.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 import { activityHandlers } from "./activity_handlers.ts";
 import Group from "./models/group.ts";
 import Account from "./models/account.ts";
