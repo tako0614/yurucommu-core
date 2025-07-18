@@ -19,8 +19,7 @@ Takos では Firebase Cloud Messaging
 
 ## Tauri アプリでの利用
 
-現在の実装は Web ブラウザ上での動作を想定しています。Tauri アプリ
-（Windows／Android）で FCM を利用する場合は、 `tauri-plugin-push`
-などのプラグインを追加し、ネイティブ側での初期化
-処理や通知表示の実装が必要です。本リポジトリにはその設定が含まれて
-いないため、各自の環境に合わせて追加してください。
+Tauri 版では `tauri-plugin-push-notifications` を組み込み、 Android では Kotlin
+製サービスで FCM を初期化します。 `google-services.json` を `src-tauri/android`
+に配置し、 ビルド時に自動で読み込まれます。デスクトップ向け (Windows) でも
+同プラグインが利用されます。
