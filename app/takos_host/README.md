@@ -48,6 +48,7 @@ takos を運用できるようにすることが目的です。
 - `GET /auth/status` セッション状態確認
 - `DELETE /auth/logout` ログアウト
 - `POST /auth/verify` メールアドレス確認
+- `POST /auth/resend` 確認コード再送信
 
 ユーザー API では以下のエンドポイントが利用できます。
 
@@ -104,4 +105,5 @@ OAuth ボタンを表示します。
 - `RESERVED_SUBDOMAINS`
   には利用禁止とするサブドメインをカンマ区切りで設定します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
+
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。

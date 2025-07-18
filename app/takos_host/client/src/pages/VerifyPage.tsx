@@ -1,6 +1,6 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { verify as apiVerify } from "../api.ts";
+import { resend as apiResend, verify as apiVerify } from "../api.ts";
 import { loggedInState, userNameState } from "../state.ts";
 
 const VerifyPage: Component = () => {
@@ -8,6 +8,7 @@ const VerifyPage: Component = () => {
   const [, setLoggedIn] = useAtom(loggedInState);
   const [code, setCode] = createSignal("");
   const [error, setError] = createSignal("");
+  const [message, setMessage] = createSignal("");
 
   const submit = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -16,6 +17,15 @@ const VerifyPage: Component = () => {
       globalThis.location.href = "/user";
     } else {
       setError("確認に失敗しました");
+    }
+  };
+
+  const resend = async () => {
+    if (await apiResend(userName())) {
+      setMessage("確認コードを再送信しました");
+      setError("");
+    } else {
+      setMessage("再送信に失敗しました");
     }
   };
 
@@ -49,11 +59,23 @@ const VerifyPage: Component = () => {
                 {error()}
               </p>
             </Show>
+            <Show when={message()}>
+              <p class="text-green-400 text-sm font-medium bg-green-900/30 p-3 rounded-md">
+                {message()}
+              </p>
+            </Show>
             <button
               type="submit"
               class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
             >
               送信
+            </button>
+            <button
+              type="button"
+              onClick={resend}
+              class="w-full bg-gray-600 text-white py-3 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
+            >
+              確認コード再送信
             </button>
           </form>
         </div>
