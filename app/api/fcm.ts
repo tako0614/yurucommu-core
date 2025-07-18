@@ -11,14 +11,38 @@ app.use("/fcm/*", authRequired);
 
 app.get("/fcm/config", (c) => {
   const env = getEnv(c);
-  if (!env["FIREBASE_CLIENT_CONFIG"]) return c.json({});
-  try {
-    return c.json({
-      firebase: JSON.parse(env["FIREBASE_CLIENT_CONFIG"]),
-    });
-  } catch {
-    return c.json({});
+  let firebaseConfig: Record<string, string> | null = null;
+  if (env["FIREBASE_CLIENT_CONFIG"]) {
+    try {
+      firebaseConfig = JSON.parse(env["FIREBASE_CLIENT_CONFIG"]);
+    } catch {
+      firebaseConfig = null;
+    }
+  } else {
+    const keys = [
+      "FIREBASE_API_KEY",
+      "FIREBASE_AUTH_DOMAIN",
+      "FIREBASE_PROJECT_ID",
+      "FIREBASE_STORAGE_BUCKET",
+      "FIREBASE_MESSAGING_SENDER_ID",
+      "FIREBASE_APP_ID",
+    ];
+    if (keys.every((k) => env[k])) {
+      firebaseConfig = {
+        apiKey: env["FIREBASE_API_KEY"],
+        authDomain: env["FIREBASE_AUTH_DOMAIN"],
+        projectId: env["FIREBASE_PROJECT_ID"],
+        storageBucket: env["FIREBASE_STORAGE_BUCKET"],
+        messagingSenderId: env["FIREBASE_MESSAGING_SENDER_ID"],
+        appId: env["FIREBASE_APP_ID"],
+      };
+    }
   }
+  if (!firebaseConfig) return c.json({});
+  return c.json({
+    firebase: firebaseConfig,
+    vapidKey: env["FIREBASE_VAPID_KEY"] ?? null,
+  });
 });
 
 app.post(

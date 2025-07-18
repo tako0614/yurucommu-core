@@ -5,9 +5,29 @@ let initialized = false;
 
 function init(env: Record<string, string>) {
   if (initialized) return;
-  const json = env["FIREBASE_SERVICE_ACCOUNT"];
-  if (!json) return;
-  const cred = JSON.parse(json);
+  let cred: Record<string, string> | null = null;
+  if (env["FIREBASE_SERVICE_ACCOUNT"]) {
+    try {
+      cred = JSON.parse(env["FIREBASE_SERVICE_ACCOUNT"]);
+    } catch {
+      cred = null;
+    }
+  } else {
+    const saKeys = [
+      "FIREBASE_PROJECT_ID",
+      "FIREBASE_CLIENT_EMAIL",
+      "FIREBASE_PRIVATE_KEY",
+    ];
+    if (saKeys.every((k) => env[k])) {
+      cred = {
+        type: "service_account",
+        project_id: env["FIREBASE_PROJECT_ID"],
+        client_email: env["FIREBASE_CLIENT_EMAIL"],
+        private_key: env["FIREBASE_PRIVATE_KEY"],
+      };
+    }
+  }
+  if (!cred) return;
   admin.initializeApp({ credential: admin.credential.cert(cred) });
   initialized = true;
 }

@@ -10,7 +10,13 @@ Takos では Firebase Cloud Messaging
 以下の値を設定してください。
 
 - `FIREBASE_SERVICE_ACCOUNT` – Firebase サービスアカウント JSON
-- `FIREBASE_CLIENT_CONFIG` – `google-services.json` 相当のクライアント設定
+  - または `FIREBASE_CLIENT_EMAIL` と `FIREBASE_PRIVATE_KEY` を設定
+- `FIREBASE_API_KEY` – Firebase API キー
+- `FIREBASE_AUTH_DOMAIN` – 認証ドメイン
+- `FIREBASE_PROJECT_ID` – プロジェクト ID
+- `FIREBASE_STORAGE_BUCKET` – Storage バケット名
+- `FIREBASE_MESSAGING_SENDER_ID` – メッセージ送信者 ID
+- `FIREBASE_APP_ID` – アプリ ID
 - `FIREBASE_VAPID_KEY` – Web Push 用の公開 VAPID キー
 
 takos host ではホスト側で設定した値が各テナントへ自動的に引き継がれます。
