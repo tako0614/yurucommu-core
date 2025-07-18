@@ -26,12 +26,14 @@ import config from "./config.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
+import { rateLimit } from "./utils/rate_limit.ts";
 
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await load();
 
   const app = new Hono();
   initEnv(app, e);
+  app.use("/api/*", rateLimit({ windowMs: 60_000, limit: 100 }));
   initVideoModule(e);
   app.route("/api", login);
   app.route("/api", logout);

@@ -34,6 +34,7 @@ import {
   getUserInfoBatch,
 } from "./services/user-info.ts";
 import { addNotification } from "./services/notification.ts";
+import { rateLimit } from "./utils/rate_limit.ts";
 
 // --- Helper Functions ---
 
@@ -182,6 +183,7 @@ app.get("/microblog", async (c) => {
 
 app.post(
   "/microblog",
+  rateLimit({ windowMs: 60_000, limit: 10 }),
   zValidator(
     "json",
     z.object({
