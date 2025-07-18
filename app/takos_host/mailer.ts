@@ -1,28 +1,63 @@
-import nodemailer from "nodemailer";
+import { load } from "@std/dotenv";
+import * as nodemailer from "nodemailer";
+const env = await load();
+const smtp_host = env["SMTP_HOST"];
+const smtp_port = env["SMTP_PORT"];
+const smtp_auth_user = env["SMTP_USER"];
+const smtp_auth_pass = env["SMTP_PASS"];
+const MAIL_SETTINGS = {
+  smtp_host,
+  smtp_port,
+  smtp_auth_user,
+  smtp_auth_pass,
+  smtp_ssl: `TLS`,
+  smtp_from: smtp_auth_user,
+};
+function buildMessage(to: string, subject: string, text: string) {
+  return {
+    from: MAIL_SETTINGS.smtp_from,
+    to,
+    subject,
+    text,
+  };
+}
+const transporter = nodemailer.createTransport({
+  pool: false,
+  host: MAIL_SETTINGS.smtp_host,
+  port: MAIL_SETTINGS.smtp_port,
+  secure: MAIL_SETTINGS.smtp_ssl === `SSL`,
+  auth: {
+    user: MAIL_SETTINGS.smtp_auth_user,
+    pass: MAIL_SETTINGS.smtp_auth_pass,
+  },
+});
 
-export async function sendVerifyMail(
+export const sendEmail = async (
+  to: string,
+  subject: string,
+  body: string,
+): Promise<boolean> => {
+  try {
+    await transporter.sendMail(
+      buildMessage(
+        to,
+        subject,
+        body,
+      ),
+    );
+    return true;
+  } catch (error) {
+    console.error("メール送信に失敗しました:", error);
+    return false;
+  }
+};
+
+
+export const sendVerifyMail = async (
   to: string,
   code: string,
-) {
-  const env = Deno.env.toObject();
-  const host = env["SMTP_HOST"];
-  const from = env["MAIL_FROM"] ?? env["SMTP_USER"];
-  if (!host || !from) {
-    console.log("[mail] verify code:", code);
-    return;
-  }
-  const transporter = nodemailer.createTransport({
-    host,
-    port: Number(env["SMTP_PORT"] ?? "587"),
-    secure: false,
-    auth: env["SMTP_USER"]
-      ? { user: env["SMTP_USER"], pass: env["SMTP_PASS"] }
-      : undefined,
-  });
-  await transporter.sendMail({
-    from,
-    to,
-    subject: "メールアドレス確認",
-    text: `以下の確認コードを入力してください: ${code}`,
-  });
-}
+): Promise<boolean> => {
+  const subject = "Takos Host メールアドレス確認";
+  const body = `以下のコードを入力してメールアドレスを確認してください。\n\n${code}`;
+  return await sendEmail(to, subject, body);
+};

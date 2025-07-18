@@ -58,7 +58,7 @@ export function createAuthApp(options?: {
   app.post("/verify", async (c) => {
     const { userName, code } = await c.req.json();
     if (typeof userName !== "string" || typeof code !== "string") {
-      return c.json({ error: "invalid" }, 400);
+      return c.json({ error: "invalid1" }, 400);
     }
 
     const user = await HostUser.findOne({ userName });
@@ -69,7 +69,7 @@ export function createAuthApp(options?: {
       !user.verifyCodeExpires ||
       user.verifyCodeExpires <= new Date()
     ) {
-      return c.json({ error: "invalid" }, 400);
+      return c.json({ error: "invalid2" }, 400);
     }
 
     user.emailVerified = true;
