@@ -2905,6 +2905,7 @@
     "https://deno.land/x/bcrypt@v0.4.1/src/bcrypt/base64.ts": "b8266450a4f1eb6960f60f2f7986afc4dde6b45bd2d7ee7ba10789e67e17b9f7",
     "https://deno.land/x/bcrypt@v0.4.1/src/bcrypt/bcrypt.ts": "ec221648cc6453ea5e3803bc817c01157dada06aa6f7a0ba6b9f87aae32b21e2",
     "https://deno.land/x/bcrypt@v0.4.1/src/main.ts": "08d201b289c8d9c46f8839c69cd6625b213863db29775c7a200afc3b540e64f8",
+    "https://deno.land/x/bcrypt@v0.4.1/src/worker.ts": "5a73bdfee9c9e622f47c9733d374b627dce52fb3ec1e74c8226698b3fc57ffac",
     "https://deno.land/x/deno_dom@v0.1.53/build/deno-wasm/deno-wasm.js": "567c1baaf7d3c381cb9c35937403cbaa83bdaa2ae2f4bf59230648c4e3349a0d",
     "https://deno.land/x/deno_dom@v0.1.53/build/deno-wasm/deno-wasm_bg-wasm.js": "989a0f81b2270eb172bcaf48de4a98da2a3a3bbcf5df334e64602bc8712aec2e",
     "https://deno.land/x/deno_dom@v0.1.53/build/deno-wasm/deno-wasm_bg.wasm": "05645f46bbdd0fb2a0f5ff759885f553919af1586c3a93fdd29393a6c2920728",
