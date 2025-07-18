@@ -1,3 +1,14 @@
+import { useSetAtom } from "solid-jotai";
+import { pathState } from "./state.ts";
+
+export function useNavigate() {
+  const setPath = useSetAtom(pathState);
+  return (path: string) => {
+    globalThis.history.pushState({}, "", path);
+    setPath(path.replace(/\/$/, ""));
+  };
+}
+
 export interface Instance {
   host: string;
 }

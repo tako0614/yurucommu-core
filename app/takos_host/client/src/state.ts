@@ -1,6 +1,7 @@
 import { atom } from "solid-jotai";
 import type { Instance } from "./api.ts";
 
+export const pathState = atom(globalThis.location.pathname.replace(/\/$/, ""));
 export const loggedInState = atom(false);
 export const userNameState = atom("");
 export const emailState = atom("");

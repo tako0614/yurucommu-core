@@ -1,4 +1,4 @@
-import { hashSync } from "npm:bcryptjs";
+import { hashSync } from "bcryptjs";
 
 export const encryptWithPassword = async (
   data: string,

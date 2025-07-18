@@ -1,9 +1,10 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { resend as apiResend, verify as apiVerify } from "../api.ts";
+import { resend as apiResend, verify as apiVerify, useNavigate } from "../api.ts";
 import { loggedInState, userNameState } from "../state.ts";
 
 const VerifyPage: Component = () => {
+  const navigate = useNavigate();
   const [userName] = useAtom(userNameState);
   const [, setLoggedIn] = useAtom(loggedInState);
   const [code, setCode] = createSignal("");
@@ -14,7 +15,7 @@ const VerifyPage: Component = () => {
     e.preventDefault();
     if (await apiVerify(userName(), code())) {
       setLoggedIn(true);
-      globalThis.location.href = "/user";
+      navigate("/user");
     } else {
       setError("確認に失敗しました");
     }

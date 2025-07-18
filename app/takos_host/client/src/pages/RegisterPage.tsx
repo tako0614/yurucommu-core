@@ -1,6 +1,6 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { register as apiRegister } from "../api.ts";
+import { register as apiRegister, useNavigate } from "../api.ts";
 import {
   emailState,
   loggedInState,
@@ -10,6 +10,7 @@ import {
 } from "../state.ts";
 
 const RegisterPage: Component = () => {
+  const navigate = useNavigate();
   const [userName, setUserName] = useAtom(userNameState);
   const [email, setEmail] = useAtom(emailState);
   const [password, setPassword] = useAtom(passwordState);
@@ -21,8 +22,9 @@ const RegisterPage: Component = () => {
   const signup = async (e: SubmitEvent) => {
     e.preventDefault();
     if (await apiRegister(userName(), email(), password(), agreed())) {
+      setUserName(userName());
       setLoggedIn(false);
-      globalThis.location.href = "/verify";
+      navigate("/verify");
     } else {
       setError("登録に失敗しました");
     }
