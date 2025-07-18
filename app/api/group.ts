@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import Group from "./models/group.ts";
 import { findObjects, saveObject } from "./services/unified_store.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 import {
   createAcceptActivity,
   createAnnounceActivity,

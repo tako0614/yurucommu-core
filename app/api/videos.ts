@@ -13,7 +13,7 @@ import {
 } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
 import {
   buildActivityFromStored,

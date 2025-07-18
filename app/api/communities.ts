@@ -17,7 +17,7 @@ import {
   getDomain,
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   let binary = "";

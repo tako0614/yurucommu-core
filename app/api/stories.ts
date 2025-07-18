@@ -9,7 +9,7 @@ import {
 } from "./services/unified_store.ts";
 import authRequired from "./utils/auth.ts";
 import { createObjectId } from "./utils/activitypub.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 const app = new Hono();
 app.use("/stories/*", authRequired);

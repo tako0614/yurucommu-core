@@ -3,7 +3,7 @@ import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import { findObjects, saveObject } from "./services/unified_store.ts";
 import KeyPackage from "./models/key_package.ts";
-import { getEnv } from "./utils/env_store.ts";
+import { getEnv } from "../shared/config.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
 import RemoteActor from "./models/remote_actor.ts";
