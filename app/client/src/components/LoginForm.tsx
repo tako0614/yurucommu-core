@@ -20,7 +20,7 @@ export function LoginForm(props: LoginFormProps) {
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
   const inTauri = isTauri();
-  const [configured, setConfigured] = createSignal(true);
+  const [showSetup, setShowSetup] = createSignal(false);
   const [oauthHost, setOauthHost] = createSignal<string | null>(null);
   const [oauthClientId, setOauthClientId] = createSignal<string | null>(null);
   const [oauthClientSecret, setOauthClientSecret] = createSignal<string | null>(
@@ -28,15 +28,6 @@ export function LoginForm(props: LoginFormProps) {
   );
 
   onMount(async () => {
-    try {
-      const st = await apiFetch("/api/setup/status");
-      if (st.ok) {
-        const data = await st.json();
-        setConfigured(data.configured);
-      }
-    } catch {
-      // ignore
-    }
     try {
       const res = await apiFetch("/api/config");
       if (res.ok) {
@@ -76,6 +67,18 @@ export function LoginForm(props: LoginFormProps) {
           });
           const loginData = await loginRes.json();
           if (loginData.success) {
+            try {
+              const st = await apiFetch("/api/setup/status");
+              if (st.ok) {
+                const data = await st.json();
+                if (!data.configured) {
+                  setShowSetup(true);
+                  return;
+                }
+              }
+            } catch {
+              // ignore
+            }
             props.onLoginSuccess();
           } else {
             setError(loginData.error || "OAuthログインに失敗しました");
@@ -123,9 +126,19 @@ export function LoginForm(props: LoginFormProps) {
       });
       const results = await res.json();
       if (results.success) {
+        try {
+          const st = await apiFetch("/api/setup/status");
+          if (st.ok) {
+            const data = await st.json();
+            if (!data.configured) {
+              setShowSetup(true);
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
         props.onLoginSuccess();
-      } else if (results.error === "not_configured") {
-        setConfigured(false);
       } else {
         setError(results.error || "ログインに失敗しました");
       }
@@ -157,8 +170,15 @@ export function LoginForm(props: LoginFormProps) {
   return (
     <>
       <Show
-        when={configured()}
-        fallback={<InitialSetupForm onSuccess={() => setConfigured(true)} />}
+        when={!showSetup()}
+        fallback={
+          <InitialSetupForm
+            onSuccess={() => {
+              setShowSetup(false);
+              props.onLoginSuccess();
+            }}
+          />
+        }
       >
         {isTauri()
           ? <TauriLogin onLoginSuccess={props.onLoginSuccess} />

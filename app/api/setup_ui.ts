@@ -5,8 +5,11 @@ import { join } from "jsr:@std/path";
 import Account from "./models/account.ts";
 import { addFollowEdge } from "./services/unified_store.ts";
 import { getEnv } from "./utils/env_store.ts";
+import authRequired from "./utils/auth.ts";
 
 const app = new Hono();
+app.use("/setup", authRequired);
+app.use("/setup/*", authRequired);
 
 app.get("/setup/status", (c) => {
   const env = getEnv(c);
