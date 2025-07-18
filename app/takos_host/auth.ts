@@ -1,13 +1,14 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { compare, hash as bcryptHash } from "bcrypt";
+import { compare, hash as bcryptHash, genSalt } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 import { sendVerifyMail } from "./mailer.ts";
 
 /** bcrypt.hash をラップ（saltRounds = 10） */
 export async function hash(text: string): Promise<string> {
-  return await bcryptHash(text, 10);
+  const salt = await genSalt(10);
+  return await bcryptHash(text, salt);
 }
 
 export function createAuthApp(options?: {
