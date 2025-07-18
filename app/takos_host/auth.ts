@@ -10,17 +10,22 @@ export async function hash(text: string): Promise<string> {
   return await bcryptHash(text, 10);
 }
 
-export function createAuthApp(options?: { rootDomain?: string }) {
+export function createAuthApp(options?: {
+  rootDomain?: string;
+  termsRequired?: boolean;
+}) {
   const app = new Hono();
-  const rootDomain = options?.rootDomain ?? "";
+  const rootDomain   = options?.rootDomain   ?? "";
+  const termsRequired = options?.termsRequired ?? false;
 
   /* --------------------------- REGISTER --------------------------- */
   app.post("/register", async (c) => {
-    const { userName, email, password } = await c.req.json();
+    const { userName, email, password, accepted } = await c.req.json();
     if (
       typeof userName !== "string" ||
-      typeof email !== "string" ||
-      typeof password !== "string"
+      typeof email   !== "string" ||
+      typeof password !== "string" ||
+      (termsRequired && accepted !== true)
     ) {
       return c.json({ error: "invalid" }, 400);
     }
@@ -28,9 +33,9 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     const exists = await HostUser.findOne({ $or: [{ userName }, { email }] });
     if (exists) return c.json({ error: "exists" }, 400);
 
-    const hashedPassword = await hash(password);
-    const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    const hashedPassword     = await hash(password);
+    const verifyCode         = Math.floor(100000 + Math.random() * 900000).toString();
+    const verifyCodeExpires  = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
     const user = new HostUser({
       userName,
@@ -57,15 +62,15 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     if (
       !user ||
       user.emailVerified ||
-      user.verifyCode !== code ||
-      !user.verifyCodeExpires ||
-      user.verifyCodeExpires <= new Date()
+      user.verifyCode          !== code ||
+      !user.verifyCodeExpires  ||
+      user.verifyCodeExpires   <= new Date()
     ) {
       return c.json({ error: "invalid" }, 400);
     }
 
-    user.emailVerified = true;
-    user.verifyCode = undefined;
+    user.emailVerified   = true;
+    user.verifyCode      = undefined;
     user.verifyCodeExpires = undefined;
     await user.save();
 
@@ -80,24 +85,22 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     }
 
     const user = await HostUser.findOne({ userName });
-    if (!user) return c.json({ error: "invalid" }, 401);
-    if (!user.emailVerified) return c.json({ error: "unverified" }, 403);
+    if (!user)                    return c.json({ error: "invalid"   }, 401);
+    if (!user.emailVerified)      return c.json({ error: "unverified"}, 403);
 
     const ok = await compare(password, user.hashedPassword);
     if (!ok) return c.json({ error: "invalid" }, 401);
 
-    const sessionId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    const session = new HostSession({ sessionId, user: user._id, expiresAt });
-    await session.save();
+    const sessionId  = crypto.randomUUID();
+    const expiresAt  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await new HostSession({ sessionId, user: user._id, expiresAt }).save();
 
     setCookie(c, "hostSessionId", sessionId, {
-      httpOnly: true,
-      secure: c.req.url.startsWith("https://"),
-      expires: expiresAt,
-      sameSite: "Lax",
-      path: "/",
+      httpOnly : true,
+      secure   : c.req.url.startsWith("https://"),
+      expires  : expiresAt,
+      sameSite : "Lax",
+      path     : "/",
     });
 
     return c.json({ success: true });
@@ -106,24 +109,30 @@ export function createAuthApp(options?: { rootDomain?: string }) {
   /* --------------------------- STATUS ----------------------------- */
   app.get("/status", async (c) => {
     const sid = getCookie(c, "hostSessionId");
-    if (!sid) return c.json({ login: false, rootDomain });
+    if (!sid) return c.json({ login: false, rootDomain, termsRequired });
 
     const session = await HostSession.findOne({ sessionId: sid });
     if (session && session.expiresAt > new Date()) {
+      // 期限延長
       session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await session.save();
       setCookie(c, "hostSessionId", sid, {
-        httpOnly: true,
-        secure: c.req.url.startsWith("https://"),
-        expires: session.expiresAt,
-        sameSite: "Lax",
-        path: "/",
+        httpOnly : true,
+        secure   : c.req.url.startsWith("https://"),
+        expires  : session.expiresAt,
+        sameSite : "Lax",
+        path     : "/",
       });
-      return c.json({ login: true, user: session.user, rootDomain });
+      return c.json({
+        login : true,
+        user  : session.user,
+        rootDomain,
+        termsRequired,
+      });
     }
 
     if (session) await HostSession.deleteOne({ sessionId: sid });
-    return c.json({ login: false, rootDomain });
+    return c.json({ login: false, rootDomain, termsRequired });
   });
 
   /* ---------------------------- LOGOUT ---------------------------- */
@@ -150,15 +159,16 @@ export const authRequired: MiddlewareHandler = async (c, next) => {
     return c.json({ error: "unauthorized" }, 401);
   }
 
+  // 期限延長
   session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await session.save();
 
   setCookie(c, "hostSessionId", sid, {
-    httpOnly: true,
-    secure: c.req.url.startsWith("https://"),
-    expires: session.expiresAt,
-    sameSite: "Lax",
-    path: "/",
+    httpOnly : true,
+    secure   : c.req.url.startsWith("https://"),
+    expires  : session.expiresAt,
+    sameSite : "Lax",
+    path     : "/",
   });
 
   c.set("user", session.user);

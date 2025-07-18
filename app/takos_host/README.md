@@ -94,10 +94,14 @@ OAuth ボタンを表示します。
 
 1. `.env.example` を参考に `.env` を作成します。
    - `ROOT_DOMAIN` にホストの基本ドメインを設定します。
+   - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
+   - `RESERVED_SUBDOMAINS`
+     には利用禁止とするサブドメインをカンマ区切りで設定します。
+   - `TERMS_FILE` に利用規約(テキストまたは Markdown)の
+     ファイルパスを指定します。Markdown の場合は HTML として表示されます。
 
 - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
 - `RESERVED_SUBDOMAINS`
   には利用禁止とするサブドメインをカンマ区切りで設定します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
-
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。

@@ -7,3 +7,4 @@ export const passwordState = atom("");
 export const instancesState = atom<Instance[]>([]);
 export const hostState = atom("");
 export const rootDomainState = atom("");
+export const termsRequiredState = atom(false);

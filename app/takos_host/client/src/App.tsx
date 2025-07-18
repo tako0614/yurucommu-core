@@ -4,14 +4,21 @@ import LoginPage from "./pages/LoginPage.tsx";
 import RegisterPage from "./pages/RegisterPage.tsx";
 import UserPage from "./pages/UserPage.tsx";
 import WelcomePage from "./pages/WelcomePage.tsx";
+import TermsPage from "./pages/TermsPage.tsx";
 import { fetchInstances, fetchStatus } from "./api.ts";
-import { instancesState, loggedInState, rootDomainState } from "./state.ts";
+import {
+  instancesState,
+  loggedInState,
+  rootDomainState,
+  termsRequiredState,
+} from "./state.ts";
 import "./index.css";
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useAtom(loggedInState);
   const [, setInstances] = useAtom(instancesState);
   const [, setRootDomain] = useAtom(rootDomainState);
+  const [, setTermsRequired] = useAtom(termsRequiredState);
 
   const path = globalThis.location.pathname.replace(/\/$/, "");
 
@@ -19,6 +26,7 @@ export default function App() {
     const status = await fetchStatus();
     setLoggedIn(status.login);
     setRootDomain(status.rootDomain ?? "");
+    setTermsRequired(status.termsRequired ?? false);
   };
 
   const loadInstances = async () => {
@@ -42,6 +50,9 @@ export default function App() {
       </Match>
       <Match when={path === "/user"}>
         <UserPage />
+      </Match>
+      <Match when={path === "/terms"}>
+        <TermsPage />
       </Match>
     </Switch>
   );

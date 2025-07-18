@@ -5,13 +5,18 @@ export interface Instance {
 export interface Status {
   login: boolean;
   rootDomain?: string;
+  termsRequired?: boolean;
 }
 
 export async function fetchStatus(): Promise<Status> {
   const res = await fetch("/auth/status");
   if (!res.ok) return { login: false };
   const data = await res.json();
-  return { login: data.login as boolean, rootDomain: data.rootDomain };
+  return {
+    login: data.login as boolean,
+    rootDomain: data.rootDomain,
+    termsRequired: data.termsRequired,
+  };
 }
 
 export async function login(
@@ -29,11 +34,12 @@ export async function login(
 export async function register(
   userName: string,
   password: string,
+  accepted: boolean,
 ): Promise<boolean> {
   const res = await fetch("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userName, password }),
+    body: JSON.stringify({ userName, password, accepted }),
   });
   return res.ok;
 }

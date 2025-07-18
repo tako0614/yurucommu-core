@@ -1,17 +1,24 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { register as apiRegister } from "../api.ts";
-import { loggedInState, passwordState, userNameState } from "../state.ts";
+import {
+  loggedInState,
+  passwordState,
+  termsRequiredState,
+  userNameState,
+} from "../state.ts";
 
 const RegisterPage: Component = () => {
   const [userName, setUserName] = useAtom(userNameState);
   const [password, setPassword] = useAtom(passwordState);
   const [, setLoggedIn] = useAtom(loggedInState);
+  const [termsRequired] = useAtom(termsRequiredState);
+  const [agreed, setAgreed] = createSignal(false);
   const [error, setError] = createSignal("");
 
   const signup = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (await apiRegister(userName(), password())) {
+    if (await apiRegister(userName(), password(), agreed())) {
       setLoggedIn(true);
       globalThis.location.href = "/user";
     } else {
@@ -61,6 +68,27 @@ const RegisterPage: Component = () => {
                 required
               />
             </div>
+            <Show when={termsRequired}>
+              <div class="flex items-center">
+                <input
+                  id="agree"
+                  type="checkbox"
+                  checked={agreed()}
+                  onChange={(e) => setAgreed(e.currentTarget.checked)}
+                  class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+                />
+                <label for="agree" class="ml-2 text-sm text-gray-300">
+                  <a
+                    href="/terms"
+                    class="text-blue-400 hover:underline"
+                    target="_blank"
+                  >
+                    利用規約
+                  </a>
+                  に同意します
+                </label>
+              </div>
+            </Show>
             <Show when={error()}>
               <p class="text-red-400 text-sm font-medium bg-red-900/30 p-3 rounded-md">
                 {error()}
@@ -68,7 +96,8 @@ const RegisterPage: Component = () => {
             </Show>
             <button
               type="submit"
-              class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
+              disabled={termsRequired && !agreed()}
+              class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
             >
               登録
             </button>
