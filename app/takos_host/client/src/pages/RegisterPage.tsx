@@ -2,6 +2,7 @@ import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { register as apiRegister } from "../api.ts";
 import {
+  emailState,
   loggedInState,
   passwordState,
   termsRequiredState,
@@ -10,6 +11,7 @@ import {
 
 const RegisterPage: Component = () => {
   const [userName, setUserName] = useAtom(userNameState);
+  const [email, setEmail] = useAtom(emailState);
   const [password, setPassword] = useAtom(passwordState);
   const [, setLoggedIn] = useAtom(loggedInState);
   const [termsRequired] = useAtom(termsRequiredState);
@@ -18,9 +20,9 @@ const RegisterPage: Component = () => {
 
   const signup = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (await apiRegister(userName(), password(), agreed())) {
-      setLoggedIn(true);
-      globalThis.location.href = "/user";
+    if (await apiRegister(userName(), email(), password(), agreed())) {
+      setLoggedIn(false);
+      globalThis.location.href = "/verify";
     } else {
       setError("登録に失敗しました");
     }
@@ -47,6 +49,23 @@ const RegisterPage: Component = () => {
                 placeholder="ユーザー名"
                 value={userName()}
                 onInput={(e) => setUserName(e.currentTarget.value)}
+                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
+                required
+              />
+            </div>
+            <div>
+              <label
+                for="email"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
+                メールアドレス
+              </label>
+              <input
+                id="email"
+                type="email"
+                placeholder="example@example.com"
+                value={email()}
+                onInput={(e) => setEmail(e.currentTarget.value)}
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
                 required
               />
