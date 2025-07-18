@@ -35,7 +35,7 @@ export function createAuthApp(options?: { rootDomain?: string }) {
       return c.json({ error: "invalid" }, 401);
     }
     const sessionId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const session = new HostSession({ sessionId, user: user._id, expiresAt });
     await session.save();
     setCookie(c, "hostSessionId", sessionId, {
@@ -53,6 +53,15 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     if (!sid) return c.json({ login: false, rootDomain });
     const session = await HostSession.findOne({ sessionId: sid });
     if (session && session.expiresAt > new Date()) {
+      session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await session.save();
+      setCookie(c, "hostSessionId", sid, {
+        httpOnly: true,
+        secure: c.req.url.startsWith("https://"),
+        expires: session.expiresAt,
+        sameSite: "Lax",
+        path: "/",
+      });
       return c.json({ login: true, user: session.user, rootDomain });
     }
     if (session) await HostSession.deleteOne({ sessionId: sid });
@@ -81,6 +90,15 @@ export const authRequired: MiddlewareHandler = async (c, next) => {
     if (session) await HostSession.deleteOne({ sessionId: sid });
     return c.json({ error: "unauthorized" }, 401);
   }
+  session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await session.save();
+  setCookie(c, "hostSessionId", sid, {
+    httpOnly: true,
+    secure: c.req.url.startsWith("https://"),
+    expires: session.expiresAt,
+    sameSite: "Lax",
+    path: "/",
+  });
   c.set("user", session.user);
   await next();
 };

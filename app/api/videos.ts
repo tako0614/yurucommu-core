@@ -14,6 +14,7 @@ import {
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "./utils/env_store.ts";
+import { rateLimit } from "./utils/rate_limit.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
@@ -252,7 +253,7 @@ app.get("/videos", async (c) => {
   return c.json(result);
 });
 
-app.post("/videos", async (c) => {
+app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
   const domain = getDomain(c);
   const contentType = c.req.header("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
