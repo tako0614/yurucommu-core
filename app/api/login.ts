@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { compare } from "bcrypt";
 import { getEnv } from "./utils/env_store.ts";
 import Session from "./models/session.ts";
 
@@ -9,20 +10,13 @@ app.post("/login", async (c) => {
   const { password } = await c.req.json();
   const env = getEnv(c);
   const hashedPassword = env["hashedPassword"];
-  const salt = env["salt"];
-  if (!hashedPassword || !salt) {
+  if (!hashedPassword) {
     return c.json({ error: "not_configured" }, 400);
   }
   try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + salt);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join(
-      "",
-    );
+    const ok = await compare(password, hashedPassword);
 
-    if (hashHex === hashedPassword) {
+    if (ok) {
       const sessionId = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
 

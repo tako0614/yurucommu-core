@@ -1,14 +1,11 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { compare, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 
 export async function hash(text: string): Promise<string> {
-  const buf = new TextEncoder().encode(text);
-  const hashBuf = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(hashBuf)).map((b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
+  return await bcryptHash(text);
 }
 
 export function createAuthApp(options?: { rootDomain?: string }) {
@@ -23,7 +20,7 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     const exists = await HostUser.findOne({ userName });
     if (exists) return c.json({ error: "exists" }, 400);
     const salt = crypto.randomUUID();
-    const hashedPassword = await hash(password + salt);
+    const hashedPassword = await hash(password);
     const user = new HostUser({ userName, hashedPassword, salt });
     await user.save();
     return c.json({ success: true });
@@ -33,8 +30,8 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     const { userName, password } = await c.req.json();
     const user = await HostUser.findOne({ userName });
     if (!user) return c.json({ error: "invalid" }, 401);
-    const hashed = await hash(password + user.salt);
-    if (hashed !== user.hashedPassword) {
+    const ok = await compare(password, user.hashedPassword);
+    if (!ok) {
       return c.json({ error: "invalid" }, 401);
     }
     const sessionId = crypto.randomUUID();

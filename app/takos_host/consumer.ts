@@ -92,7 +92,7 @@ export function createConsumerApp(
       }
       if (password) {
         const salt = crypto.randomUUID();
-        const hashedPassword = await hash(password + salt);
+        const hashedPassword = await hash(password);
         env.hashedPassword = hashedPassword;
         env.salt = salt;
       }
@@ -139,7 +139,7 @@ export function createConsumerApp(
       if (!inst) return c.json({ error: "not found" }, 404);
       if (password) {
         const salt = crypto.randomUUID();
-        const hashedPassword = await hash(password + salt);
+        const hashedPassword = await hash(password);
         inst.env = { ...(inst.env ?? {}), hashedPassword, salt };
       } else if (inst.env) {
         delete inst.env.hashedPassword;
