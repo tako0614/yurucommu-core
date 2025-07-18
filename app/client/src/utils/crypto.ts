@@ -1,4 +1,4 @@
-import { hash as bcryptHash } from "bcrypt";
+import { hashSync } from "npm:bcryptjs";
 
 export const encryptWithPassword = async (
   data: string,
@@ -83,8 +83,8 @@ const BCRYPT_SALT = "$2b$10$GxW5ntweCe9L1LiK1roc/3";
  * 暗号化キー用パスワードをハッシュ化する
  * 別アカウントでも同一の入力で同じ値になるよう共通ソルトを利用
  */
-export const hashEncryptionPassword = async (
+export const hashEncryptionPassword = (
   password: string,
-): Promise<string> => {
-  return await bcryptHash(ENCRYPTION_PASS_SALT + password, BCRYPT_SALT);
+): string => {
+  return hashSync(ENCRYPTION_PASS_SALT + password, BCRYPT_SALT);
 };
