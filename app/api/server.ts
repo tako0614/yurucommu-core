@@ -6,6 +6,7 @@ import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
 import oauthLogin from "./oauth_login.ts";
+import setupUI from "./setup_ui.ts";
 import session from "./session.ts";
 import accounts from "./accounts.ts";
 import notifications from "./notifications.ts";
@@ -42,6 +43,7 @@ export async function createTakosApp(env?: Record<string, string>) {
   app.route("/api", notifications);
   app.route("/api", microblog);
   app.route("/api", config);
+  app.route("/api", setupUI);
   app.route("/api", videos);
   app.route("/api", search);
   app.route("/api", communities);
