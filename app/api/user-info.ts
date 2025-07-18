@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import { getDomain } from "./utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 import authRequired from "./utils/auth.ts";
@@ -26,27 +28,27 @@ app.get("/user-info/:identifier", async (c) => {
 });
 
 // 複数ユーザー情報バッチ取得API
-app.post("/user-info/batch", async (c) => {
-  try {
-    const domain = getDomain(c);
-    const { identifiers } = await c.req.json();
+app.post(
+  "/user-info/batch",
+  zValidator("json", z.object({ identifiers: z.array(z.string()).min(1) })),
+  async (c) => {
+    try {
+      const domain = getDomain(c);
+      const { identifiers } = c.req.valid("json") as { identifiers: string[] };
 
-    if (!Array.isArray(identifiers) || identifiers.length === 0) {
-      return c.json({ error: "Valid identifiers array is required" }, 400);
+      // 最大100件に制限
+      if (identifiers.length > 100) {
+        return c.json({ error: "Too many identifiers (max 100)" }, 400);
+      }
+
+      const userInfos = await getUserInfoBatch(identifiers, domain);
+
+      return c.json(userInfos);
+    } catch (error) {
+      console.error("Error fetching user info batch:", error);
+      return c.json({ error: "Failed to fetch user info batch" }, 500);
     }
-
-    // 最大100件に制限
-    if (identifiers.length > 100) {
-      return c.json({ error: "Too many identifiers (max 100)" }, 400);
-    }
-
-    const userInfos = await getUserInfoBatch(identifiers, domain);
-
-    return c.json(userInfos);
-  } catch (error) {
-    console.error("Error fetching user info batch:", error);
-    return c.json({ error: "Failed to fetch user info batch" }, 500);
-  }
-});
+  },
+);
 
 export default app;

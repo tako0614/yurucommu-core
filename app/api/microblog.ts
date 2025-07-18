@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import {
   deleteObject,
   findObjects,
@@ -32,6 +34,7 @@ import {
   getUserInfoBatch,
 } from "./services/user-info.ts";
 import { addNotification } from "./services/notification.ts";
+import { rateLimit } from "./utils/rate_limit.ts";
 
 // --- Helper Functions ---
 
@@ -178,52 +181,68 @@ app.get("/microblog", async (c) => {
   return c.json(formatted);
 });
 
-app.post("/microblog", async (c) => {
-  const domain = getDomain(c);
-  const {
-    author,
-    content,
-    attachments,
-    parentId,
-    quoteId,
-  } = await c.req.json();
+app.post(
+  "/microblog",
+  rateLimit({ windowMs: 60_000, limit: 10 }),
+  zValidator(
+    "json",
+    z.object({
+      author: z.string(),
+      content: z.string(),
+      attachments: z.array(z.unknown()).optional(),
+      parentId: z.string().optional(),
+      quoteId: z.string().optional(),
+    }),
+  ),
+  async (c) => {
+    const domain = getDomain(c);
+    const {
+      author,
+      content,
+      attachments,
+      parentId,
+      quoteId,
+    } = c.req.valid("json") as {
+      author: string;
+      content: string;
+      attachments?: unknown[];
+      parentId?: string;
+      quoteId?: string;
+    };
 
-  if (typeof author !== "string" || typeof content !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
-  }
+    const extra: Record<string, unknown> = { likes: 0, retweets: 0 };
+    if (Array.isArray(attachments)) extra.attachments = attachments;
+    if (typeof parentId === "string") extra.inReplyTo = parentId;
+    if (typeof quoteId === "string") extra.quoteId = quoteId;
+    if (typeof parentId === "string") extra.replies = 0;
 
-  const extra: Record<string, unknown> = { likes: 0, retweets: 0 };
-  if (Array.isArray(attachments)) extra.attachments = attachments;
-  if (typeof parentId === "string") extra.inReplyTo = parentId;
-  if (typeof quoteId === "string") extra.quoteId = quoteId;
-  if (typeof parentId === "string") extra.replies = 0;
+    const env = getEnv(c);
+    const post = await saveNote(env, domain, author, content, extra);
 
-  const env = getEnv(c);
-  const post = await saveNote(env, domain, author, content, extra);
+    if (typeof parentId === "string") {
+      await updateObject(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
+        () => {},
+      );
+    }
 
-  if (typeof parentId === "string") {
-    await updateObject(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
-      () => {},
+    deliverPostToFollowers(
+      env,
+      post,
+      author,
+      domain,
+      typeof parentId === "string" ? parentId : undefined,
     );
-  }
 
-  deliverPostToFollowers(
-    env,
-    post,
-    author,
-    domain,
-    typeof parentId === "string" ? parentId : undefined,
-  );
-
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-  return c.json(
-    formatUserInfoForPost(
-      userInfo,
-      post.toObject() as unknown as Record<string, unknown>,
-    ),
-    201,
-  );
-});
+    const userInfo = await getUserInfo(post.attributedTo as string, domain);
+    return c.json(
+      formatUserInfoForPost(
+        userInfo,
+        post.toObject() as unknown as Record<string, unknown>,
+      ),
+      201,
+    );
+  },
+);
 
 app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);
@@ -252,180 +271,186 @@ app.get("/microblog/:id/replies", async (c) => {
   return c.json(formatted);
 });
 
-app.put("/microblog/:id", async (c) => {
-  const domain = getDomain(c);
-  const id = c.req.param("id");
-  const { content } = await c.req.json();
-  if (typeof content !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
-  }
-  const env = getEnv(c);
-  const post = await updateObject(env, id, { content });
-  if (!post) return c.json({ error: "Not found" }, 404);
-
-  // 共通ユーザー情報取得サービスを使用
-  const userInfo = await getUserInfo(post.attributedTo as string, domain);
-
-  return c.json(
-    formatUserInfoForPost(
-      userInfo,
-      post.toObject() as unknown as Record<string, unknown>,
-    ),
-  );
-});
-
-app.post("/microblog/:id/like", async (c) => {
-  const domain = getDomain(c);
-  const id = c.req.param("id");
-  const { username } = await c.req.json();
-  if (typeof username !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
-  }
-  const env = getEnv(c);
-  const post = await getObject(env, id);
-  if (!post) return c.json({ error: "Not found" }, 404);
-
-  const extra = post.extra as Record<string, unknown> ?? {};
-  const likedBy: string[] = Array.isArray(extra.likedBy)
-    ? extra.likedBy as string[]
-    : [];
-  if (!likedBy.includes(username)) {
-    likedBy.push(username);
-    extra.likedBy = likedBy;
-    extra.likes = likedBy.length;
+app.put(
+  "/microblog/:id",
+  zValidator("json", z.object({ content: z.string() })),
+  async (c) => {
+    const domain = getDomain(c);
+    const id = c.req.param("id");
+    const { content } = c.req.valid("json") as { content: string };
     const env = getEnv(c);
-    await updateObject(env, id, { extra });
+    const post = await updateObject(env, id, { content });
+    if (!post) return c.json({ error: "Not found" }, 404);
 
-    const actorId = `https://${domain}/users/${username}`;
-    const objectUrl = typeof post.raw?.id === "string"
-      ? post.raw.id as string
-      : `https://${domain}/objects/${post._id}`;
-    let inboxes: string[] = [];
-    if (
-      typeof post.attributedTo === "string" &&
-      post.attributedTo.startsWith("http")
-    ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string, env);
-      if (inbox) inboxes.push(inbox);
-    } else {
-      const account = await Account.findOne({ userName: post.attributedTo })
-        .lean();
+    // 共通ユーザー情報取得サービスを使用
+    const userInfo = await getUserInfo(post.attributedTo as string, domain);
+
+    return c.json(
+      formatUserInfoForPost(
+        userInfo,
+        post.toObject() as unknown as Record<string, unknown>,
+      ),
+    );
+  },
+);
+
+app.post(
+  "/microblog/:id/like",
+  zValidator("json", z.object({ username: z.string() })),
+  async (c) => {
+    const domain = getDomain(c);
+    const id = c.req.param("id");
+    const { username } = c.req.valid("json") as { username: string };
+    const env = getEnv(c);
+    const post = await getObject(env, id);
+    if (!post) return c.json({ error: "Not found" }, 404);
+
+    const extra = post.extra as Record<string, unknown> ?? {};
+    const likedBy: string[] = Array.isArray(extra.likedBy)
+      ? extra.likedBy as string[]
+      : [];
+    if (!likedBy.includes(username)) {
+      likedBy.push(username);
+      extra.likedBy = likedBy;
+      extra.likes = likedBy.length;
+      const env = getEnv(c);
+      await updateObject(env, id, { extra });
+
+      const actorId = `https://${domain}/users/${username}`;
+      const objectUrl = typeof post.raw?.id === "string"
+        ? post.raw.id as string
+        : `https://${domain}/objects/${post._id}`;
+      let inboxes: string[] = [];
+      if (
+        typeof post.attributedTo === "string" &&
+        post.attributedTo.startsWith("http")
+      ) {
+        const inbox = await fetchActorInbox(post.attributedTo as string, env);
+        if (inbox) inboxes.push(inbox);
+      } else {
+        const account = await Account.findOne({ userName: post.attributedTo })
+          .lean();
+        inboxes = account?.followers ?? [];
+      }
+      if (inboxes.length > 0) {
+        const like = createLikeActivity(domain, actorId, objectUrl);
+        deliverActivityPubObject(inboxes, like, username, domain, env).catch(
+          (err) => {
+            console.error("Delivery failed:", err);
+          },
+        );
+      }
+
+      let localAuthor: string | null = null;
+      if (typeof post.attributedTo === "string") {
+        if (post.attributedTo.startsWith("http")) {
+          try {
+            const url = new URL(post.attributedTo);
+            if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+              localAuthor = url.pathname.split("/")[2];
+            }
+          } catch {
+            /* ignore */
+          }
+        } else {
+          localAuthor = post.attributedTo;
+        }
+      }
+      if (localAuthor) {
+        await addNotification(
+          "新しいいいね",
+          `${username}さんが${localAuthor}さんの投稿をいいねしました`,
+          "info",
+          env,
+        );
+      }
+    }
+
+    return c.json({
+      likes: (post.extra as Record<string, unknown>)?.likes ?? 0,
+    });
+  },
+);
+
+app.post(
+  "/microblog/:id/retweet",
+  zValidator("json", z.object({ username: z.string() })),
+  async (c) => {
+    const domain = getDomain(c);
+    const id = c.req.param("id");
+    const { username } = c.req.valid("json") as { username: string };
+    const env = getEnv(c);
+    const post = await getObject(env, id);
+    if (!post) return c.json({ error: "Not found" }, 404);
+
+    const extra = post.extra as Record<string, unknown>;
+    const retweetedBy: string[] = Array.isArray(extra.retweetedBy)
+      ? extra.retweetedBy as string[]
+      : [];
+    if (!retweetedBy.includes(username)) {
+      retweetedBy.push(username);
+      extra.retweetedBy = retweetedBy;
+      extra.retweets = retweetedBy.length;
+      const env = getEnv(c);
+      await updateObject(env, id, { extra });
+
+      const actorId = `https://${domain}/users/${username}`;
+      const objectUrl = typeof post.raw?.id === "string"
+        ? post.raw.id as string
+        : `https://${domain}/objects/${post._id}`;
+
+      let inboxes: string[] = [];
+      const account = await Account.findOne({ userName: username }).lean();
       inboxes = account?.followers ?? [];
-    }
-    if (inboxes.length > 0) {
-      const like = createLikeActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, like, username, domain, env).catch(
-        (err) => {
-          console.error("Delivery failed:", err);
-        },
-      );
-    }
 
-    let localAuthor: string | null = null;
-    if (typeof post.attributedTo === "string") {
-      if (post.attributedTo.startsWith("http")) {
-        try {
-          const url = new URL(post.attributedTo);
-          if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-            localAuthor = url.pathname.split("/")[2];
+      if (
+        typeof post.attributedTo === "string" &&
+        post.attributedTo.startsWith("http")
+      ) {
+        const inbox = await fetchActorInbox(post.attributedTo as string, env);
+        if (inbox) inboxes.push(inbox);
+      }
+
+      if (inboxes.length > 0) {
+        const announce = createAnnounceActivity(domain, actorId, objectUrl);
+        deliverActivityPubObject(inboxes, announce, username, domain, env)
+          .catch(
+            (err) => {
+              console.error("Delivery failed:", err);
+            },
+          );
+      }
+
+      let localAuthor: string | null = null;
+      if (typeof post.attributedTo === "string") {
+        if (post.attributedTo.startsWith("http")) {
+          try {
+            const url = new URL(post.attributedTo);
+            if (url.hostname === domain && url.pathname.startsWith("/users/")) {
+              localAuthor = url.pathname.split("/")[2];
+            }
+          } catch {
+            /* ignore */
           }
-        } catch {
-          /* ignore */
+        } else {
+          localAuthor = post.attributedTo;
         }
-      } else {
-        localAuthor = post.attributedTo;
+      }
+      if (localAuthor) {
+        await addNotification(
+          "新しいリツイート",
+          `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
+          "info",
+          env,
+        );
       }
     }
-    if (localAuthor) {
-      await addNotification(
-        "新しいいいね",
-        `${username}さんが${localAuthor}さんの投稿をいいねしました`,
-        "info",
-        env,
-      );
-    }
-  }
 
-  return c.json({ likes: (post.extra as Record<string, unknown>)?.likes ?? 0 });
-});
-
-app.post("/microblog/:id/retweet", async (c) => {
-  const domain = getDomain(c);
-  const id = c.req.param("id");
-  const { username } = await c.req.json();
-  if (typeof username !== "string") {
-    return c.json({ error: "Invalid body" }, 400);
-  }
-  const env = getEnv(c);
-  const post = await getObject(env, id);
-  if (!post) return c.json({ error: "Not found" }, 404);
-
-  const extra = post.extra as Record<string, unknown>;
-  const retweetedBy: string[] = Array.isArray(extra.retweetedBy)
-    ? extra.retweetedBy as string[]
-    : [];
-  if (!retweetedBy.includes(username)) {
-    retweetedBy.push(username);
-    extra.retweetedBy = retweetedBy;
-    extra.retweets = retweetedBy.length;
-    const env = getEnv(c);
-    await updateObject(env, id, { extra });
-
-    const actorId = `https://${domain}/users/${username}`;
-    const objectUrl = typeof post.raw?.id === "string"
-      ? post.raw.id as string
-      : `https://${domain}/objects/${post._id}`;
-
-    let inboxes: string[] = [];
-    const account = await Account.findOne({ userName: username }).lean();
-    inboxes = account?.followers ?? [];
-
-    if (
-      typeof post.attributedTo === "string" &&
-      post.attributedTo.startsWith("http")
-    ) {
-      const inbox = await fetchActorInbox(post.attributedTo as string, env);
-      if (inbox) inboxes.push(inbox);
-    }
-
-    if (inboxes.length > 0) {
-      const announce = createAnnounceActivity(domain, actorId, objectUrl);
-      deliverActivityPubObject(inboxes, announce, username, domain, env).catch(
-        (err) => {
-          console.error("Delivery failed:", err);
-        },
-      );
-    }
-
-    let localAuthor: string | null = null;
-    if (typeof post.attributedTo === "string") {
-      if (post.attributedTo.startsWith("http")) {
-        try {
-          const url = new URL(post.attributedTo);
-          if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-            localAuthor = url.pathname.split("/")[2];
-          }
-        } catch {
-          /* ignore */
-        }
-      } else {
-        localAuthor = post.attributedTo;
-      }
-    }
-    if (localAuthor) {
-      await addNotification(
-        "新しいリツイート",
-        `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
-        "info",
-        env,
-      );
-    }
-  }
-
-  return c.json({
-    retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
-  });
-});
+    return c.json({
+      retweets: (post.extra as Record<string, unknown>)?.retweets ?? 0,
+    });
+  },
+);
 
 app.delete("/microblog/:id", async (c) => {
   const env = getEnv(c);
