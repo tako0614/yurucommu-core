@@ -33,13 +33,26 @@ export async function login(
 
 export async function register(
   userName: string,
+  email: string,
   password: string,
   accepted: boolean,
 ): Promise<boolean> {
   const res = await fetch("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userName, password, accepted }),
+    body: JSON.stringify({ userName, email, password, accepted }),
+  });
+  return res.ok;
+}
+
+export async function verify(
+  userName: string,
+  code: string,
+): Promise<boolean> {
+  const res = await fetch("/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userName, code }),
   });
   return res.ok;
 }

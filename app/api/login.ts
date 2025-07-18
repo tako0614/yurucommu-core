@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
-import { compare } from "bcrypt";                   // bcrypt で検証
+import { compare } from "bcrypt"; // bcrypt で検証
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "./utils/env_store.ts";
@@ -21,7 +21,7 @@ app.post(
     const { password } = c.req.valid("json") as { password: string };
 
     const env = getEnv(c);
-    const hashedPassword = env["hashedPassword"];   // bcrypt でハッシュ化済み文字列を想定
+    const hashedPassword = env["hashedPassword"]; // bcrypt でハッシュ化済み文字列を想定
 
     if (!hashedPassword) {
       return c.json({ error: "not_configured" }, 400);
@@ -36,11 +36,12 @@ app.post(
 
       // ✅ セッション生成
       const sessionId = crypto.randomUUID();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
       const session = new Session({ sessionId, expiresAt });
       // Mongoose 互換の $locals に環境変数を渡す
-      (session as unknown as { $locals?: { env?: Record<string, string> } }).$locals = { env };
+      (session as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env };
       await session.save();
 
       // ✅ Cookie 設定

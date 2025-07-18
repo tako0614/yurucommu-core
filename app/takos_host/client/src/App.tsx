@@ -2,6 +2,7 @@ import { Match, onMount, Switch } from "solid-js";
 import { useAtom } from "solid-jotai";
 import LoginPage from "./pages/LoginPage.tsx";
 import RegisterPage from "./pages/RegisterPage.tsx";
+import VerifyPage from "./pages/VerifyPage.tsx";
 import UserPage from "./pages/UserPage.tsx";
 import WelcomePage from "./pages/WelcomePage.tsx";
 import TermsPage from "./pages/TermsPage.tsx";
@@ -47,6 +48,9 @@ export default function App() {
       </Match>
       <Match when={path === "/signup"}>
         <RegisterPage />
+      </Match>
+      <Match when={path === "/verify"}>
+        <VerifyPage />
       </Match>
       <Match when={path === "/user"}>
         <UserPage />
