@@ -2,6 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
+import { sendVerifyMail } from "./mailer.ts";
 
 export async function hash(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
@@ -16,15 +17,56 @@ export function createAuthApp(options?: { rootDomain?: string }) {
   const rootDomain = options?.rootDomain ?? "";
 
   app.post("/register", async (c) => {
-    const { userName, password } = await c.req.json();
-    if (typeof userName !== "string" || typeof password !== "string") {
+    const { userName, email, password } = await c.req.json();
+    if (
+      typeof userName !== "string" ||
+      typeof email !== "string" ||
+      typeof password !== "string"
+    ) {
       return c.json({ error: "invalid" }, 400);
     }
-    const exists = await HostUser.findOne({ userName });
+    const exists = await HostUser.findOne({
+      $or: [{ userName }, { email }],
+    });
     if (exists) return c.json({ error: "exists" }, 400);
     const salt = crypto.randomUUID();
     const hashedPassword = await hash(password + salt);
-    const user = new HostUser({ userName, hashedPassword, salt });
+    const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+    const user = new HostUser({
+      userName,
+      email,
+      verifyCode,
+      verifyCodeExpires,
+      hashedPassword,
+      salt,
+    });
+    await user.save();
+    await sendVerifyMail(
+      email,
+      verifyCode,
+    );
+    return c.json({ success: true });
+  });
+
+  app.post("/verify", async (c) => {
+    const { userName, code } = await c.req.json();
+    if (typeof userName !== "string" || typeof code !== "string") {
+      return c.json({ error: "invalid" }, 400);
+    }
+    const user = await HostUser.findOne({ userName });
+    if (
+      !user ||
+      user.emailVerified ||
+      user.verifyCode !== code ||
+      !user.verifyCodeExpires ||
+      user.verifyCodeExpires <= new Date()
+    ) {
+      return c.json({ error: "invalid" }, 400);
+    }
+    user.emailVerified = true;
+    user.verifyCode = undefined;
+    user.verifyCodeExpires = undefined;
     await user.save();
     return c.json({ success: true });
   });
@@ -33,6 +75,9 @@ export function createAuthApp(options?: { rootDomain?: string }) {
     const { userName, password } = await c.req.json();
     const user = await HostUser.findOne({ userName });
     if (!user) return c.json({ error: "invalid" }, 401);
+    if (!user.emailVerified) {
+      return c.json({ error: "unverified" }, 403);
+    }
     const hashed = await hash(password + user.salt);
     if (hashed !== user.hashedPassword) {
       return c.json({ error: "invalid" }, 401);
