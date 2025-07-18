@@ -7,7 +7,7 @@ const sessionSchema = new mongoose.Schema({
     ref: "HostUser",
     required: true,
   },
-  expiresAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true, index: { expires: 0 } },
   createdAt: { type: Date, default: Date.now },
 });
 

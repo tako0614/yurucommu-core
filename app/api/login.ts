@@ -12,47 +12,46 @@ app.post(
   zValidator("json", z.object({ password: z.string() })),
   async (c) => {
     const { password } = c.req.valid("json") as { password: string };
+
     const env = getEnv(c);
     const hashedPassword = env["hashedPassword"];
     const salt = env["salt"];
+
     if (!hashedPassword || !salt) {
       return c.json({ error: "not_configured" }, 400);
     }
+
     try {
+      // ✅ パスワード検証
       const encoder = new TextEncoder();
       const data = encoder.encode(password + salt);
       const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0"))
-        .join(
-          "",
-        );
+      const hashArray = [...new Uint8Array(hashBuffer)];
+      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
-      if (hashHex === hashedPassword) {
-        const sessionId = crypto.randomUUID();
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-
-        const session = new Session({
-          sessionId,
-          expiresAt,
-        });
-        (session as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env };
-
-        await session.save();
-
-        setCookie(c, "sessionId", sessionId, {
-          path: "/",
-          httpOnly: true,
-          secure: c.req.url.startsWith("https://"),
-          expires: expiresAt,
-          sameSite: "Lax",
-        });
-
-        return c.json({ success: true, message: "Login successful" });
-      } else {
+      if (hashHex !== hashedPassword) {
         return c.json({ error: "Invalid password" }, 401);
       }
+
+      // ✅ セッション生成
+      const sessionId = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const session = new Session({ sessionId, expiresAt });
+      // Hono で Mongoose 互換の $locals に環境変数を渡す
+      (session as unknown as { $locals?: { env?: Record<string, string> } }).$locals = { env };
+      await session.save();
+
+      // ✅ Cookie 設定
+      setCookie(c, "sessionId", sessionId, {
+        path: "/",
+        httpOnly: true,
+        secure: c.req.url.startsWith("https://"),
+        expires: expiresAt,
+        sameSite: "Lax",
+      });
+
+      return c.json({ success: true, message: "Login successful" });
     } catch (error) {
       console.error("Login error:", error);
       return c.json({ error: "Authentication failed" }, 500);
