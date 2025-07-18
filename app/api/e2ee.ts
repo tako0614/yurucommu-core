@@ -7,6 +7,7 @@ import { saveObject } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "./utils/env_store.ts";
+import { rateLimit } from "./utils/rate_limit.ts";
 import {
   type ActivityPubActor,
   buildActivityFromStored,
@@ -291,136 +292,146 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
   return c.json({ result: "reset" });
 });
 
-app.post("/users/:user/messages", authRequired, async (c) => {
-  const acct = c.req.param("user");
-  const [sender, senderDomain] = acct.split("@");
-  if (!sender || !senderDomain) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-  const { to, content, mediaType, encoding } = await c.req.json();
-  if (!Array.isArray(to) || typeof content !== "string") {
-    return c.json({ error: "invalid body" }, 400);
-  }
-  const msg = await EncryptedMessage.create({
-    from: acct,
-    to,
-    content,
-    mediaType: mediaType ?? "message/mls",
-    encoding: encoding ?? "base64",
-  });
-  const domain = getDomain(c);
-  const actorId = `https://${domain}/users/${sender}`;
-  const object = await saveObject(
-    getEnv(c),
-    {
-      type: "PrivateMessage",
-      attributedTo: acct,
-      content,
+app.post(
+  "/users/:user/messages",
+  authRequired,
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const acct = c.req.param("user");
+    const [sender, senderDomain] = acct.split("@");
+    if (!sender || !senderDomain) {
+      return c.json({ error: "invalid user format" }, 400);
+    }
+    const { to, content, mediaType, encoding } = await c.req.json();
+    if (!Array.isArray(to) || typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const msg = await EncryptedMessage.create({
+      from: acct,
       to,
-      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-      actor_id: actorId,
-      aud: { to, cc: [] },
-    },
-  );
-
-  const privateMessage = buildActivityFromStored(
-    object.toObject() as {
-      _id: unknown;
-      type: string;
-      content: string;
-      published: unknown;
-      extra: Record<string, unknown>;
-    },
-    domain,
-    sender,
-    false,
-  );
-  (privateMessage as ActivityPubActivity)["@context"] = [
-    "https://www.w3.org/ns/activitystreams",
-    "https://purl.archive.org/socialweb/mls",
-  ];
-
-  const activity = createCreateActivity(domain, actorId, privateMessage);
-  (activity as ActivityPubActivity)["@context"] = [
-    "https://www.w3.org/ns/activitystreams",
-    "https://purl.archive.org/socialweb/mls",
-  ];
-  // 個別配信
-  (activity as ActivityPubActivity).to = to;
-  (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
-    (err) => {
-      console.error("deliver failed", err);
-    },
-  );
-
-  return c.json({ result: "sent", id: msg._id.toString() });
-});
-
-app.post("/users/:user/publicMessages", authRequired, async (c) => {
-  const acct = c.req.param("user");
-  const [sender, senderDomain] = acct.split("@");
-  if (!sender || !senderDomain) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-  const { to, content, mediaType, encoding } = await c.req.json();
-  if (!Array.isArray(to) || typeof content !== "string") {
-    return c.json({ error: "invalid body" }, 400);
-  }
-  const msg = await PublicMessage.create({
-    from: acct,
-    to,
-    content,
-    mediaType: mediaType ?? "message/mls",
-    encoding: encoding ?? "base64",
-  });
-  const domain = getDomain(c);
-  const actorId = `https://${domain}/users/${sender}`;
-  const object = await saveObject(
-    getEnv(c),
-    {
-      type: "PublicMessage",
-      attributedTo: acct,
       content,
+      mediaType: mediaType ?? "message/mls",
+      encoding: encoding ?? "base64",
+    });
+    const domain = getDomain(c);
+    const actorId = `https://${domain}/users/${sender}`;
+    const object = await saveObject(
+      getEnv(c),
+      {
+        type: "PrivateMessage",
+        attributedTo: acct,
+        content,
+        to,
+        extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+        actor_id: actorId,
+        aud: { to, cc: [] },
+      },
+    );
+
+    const privateMessage = buildActivityFromStored(
+      object.toObject() as {
+        _id: unknown;
+        type: string;
+        content: string;
+        published: unknown;
+        extra: Record<string, unknown>;
+      },
+      domain,
+      sender,
+      false,
+    );
+    (privateMessage as ActivityPubActivity)["@context"] = [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ];
+
+    const activity = createCreateActivity(domain, actorId, privateMessage);
+    (activity as ActivityPubActivity)["@context"] = [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ];
+    // 個別配信
+    (activity as ActivityPubActivity).to = to;
+    (activity as ActivityPubActivity).cc = [];
+    deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+      (err) => {
+        console.error("deliver failed", err);
+      },
+    );
+
+    return c.json({ result: "sent", id: msg._id.toString() });
+  },
+);
+
+app.post(
+  "/users/:user/publicMessages",
+  authRequired,
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const acct = c.req.param("user");
+    const [sender, senderDomain] = acct.split("@");
+    if (!sender || !senderDomain) {
+      return c.json({ error: "invalid user format" }, 400);
+    }
+    const { to, content, mediaType, encoding } = await c.req.json();
+    if (!Array.isArray(to) || typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const msg = await PublicMessage.create({
+      from: acct,
       to,
-      extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-      actor_id: actorId,
-      aud: { to, cc: [] },
-    },
-  );
+      content,
+      mediaType: mediaType ?? "message/mls",
+      encoding: encoding ?? "base64",
+    });
+    const domain = getDomain(c);
+    const actorId = `https://${domain}/users/${sender}`;
+    const object = await saveObject(
+      getEnv(c),
+      {
+        type: "PublicMessage",
+        attributedTo: acct,
+        content,
+        to,
+        extra: { mediaType: msg.mediaType, encoding: msg.encoding },
+        actor_id: actorId,
+        aud: { to, cc: [] },
+      },
+    );
 
-  const publicMessage = buildActivityFromStored(
-    object.toObject() as {
-      _id: unknown;
-      type: string;
-      content: string;
-      published: unknown;
-      extra: Record<string, unknown>;
-    },
-    domain,
-    sender,
-    false,
-  );
-  (publicMessage as ActivityPubActivity)["@context"] = [
-    "https://www.w3.org/ns/activitystreams",
-    "https://purl.archive.org/socialweb/mls",
-  ];
+    const publicMessage = buildActivityFromStored(
+      object.toObject() as {
+        _id: unknown;
+        type: string;
+        content: string;
+        published: unknown;
+        extra: Record<string, unknown>;
+      },
+      domain,
+      sender,
+      false,
+    );
+    (publicMessage as ActivityPubActivity)["@context"] = [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ];
 
-  const activity = createCreateActivity(domain, actorId, publicMessage);
-  (activity as ActivityPubActivity)["@context"] = [
-    "https://www.w3.org/ns/activitystreams",
-    "https://purl.archive.org/socialweb/mls",
-  ];
-  (activity as ActivityPubActivity).to = to;
-  (activity as ActivityPubActivity).cc = [];
-  deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
-    (err) => {
-      console.error("deliver failed", err);
-    },
-  );
+    const activity = createCreateActivity(domain, actorId, publicMessage);
+    (activity as ActivityPubActivity)["@context"] = [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ];
+    (activity as ActivityPubActivity).to = to;
+    (activity as ActivityPubActivity).cc = [];
+    deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
+      (err) => {
+        console.error("deliver failed", err);
+      },
+    );
 
-  return c.json({ result: "sent", id: msg._id.toString() });
-});
+    return c.json({ result: "sent", id: msg._id.toString() });
+  },
+);
 
 app.get("/users/:user/messages", authRequired, async (c) => {
   const acct = c.req.param("user");
