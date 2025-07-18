@@ -19,13 +19,22 @@ const reservedSubdomains = (env["RESERVED_SUBDOMAINS"] ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter((s) => s.length > 0);
+const termsPath = env["TERMS_FILE"];
+let termsText = "";
+if (termsPath) {
+  try {
+    termsText = await Deno.readTextFile(termsPath);
+  } catch {
+    console.error(`TERMS_FILE ${termsPath} を読み込めませんでした`);
+  }
+}
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
   },
   { rootDomain, freeLimit, reservedSubdomains },
 );
-const authApp = createAuthApp({ rootDomain });
+const authApp = createAuthApp({ rootDomain, termsRequired: !!termsText });
 const isDev = Deno.env.get("DEV") === "1";
 
 function parseHost(value: string | undefined): string {
@@ -81,6 +90,12 @@ const root = new Hono();
 root.route("/auth", authApp);
 root.route("/oauth", oauthApp);
 root.route("/user", consumerApp);
+if (termsText) {
+  root.get("/terms", () =>
+    new Response(termsText, {
+      headers: { "content-type": "text/markdown; charset=utf-8" },
+    }));
+}
 
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));

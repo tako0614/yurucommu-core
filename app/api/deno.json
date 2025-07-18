@@ -11,6 +11,7 @@
     "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@^3.528.0",
     "mongodb": "npm:mongodb@^6.17.0",
     "firebase-admin": "npm:firebase-admin@^13"
+    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts"
   },
   "tasks": {
     "dev": "deno run -A --unstable-worker-options --watch --no-prompt index.ts"

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
 import OAuthClient from "./models/oauth_client.ts";
 import OAuthCode from "./models/oauth_code.ts";
@@ -27,6 +27,15 @@ oauthApp.get("/authorize", async (c) => {
   if (!session || session.expiresAt <= new Date()) {
     return c.text("login required", 401);
   }
+  session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await session.save();
+  setCookie(c, "hostSessionId", sid, {
+    httpOnly: true,
+    secure: c.req.url.startsWith("https://"),
+    expires: session.expiresAt,
+    sameSite: "Lax",
+    path: "/",
+  });
   const code = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   const oauthCode = new OAuthCode({
