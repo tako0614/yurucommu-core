@@ -1,6 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { compare, hash as bcryptHash, genSalt } from "bcrypt";
+import { compare, genSalt, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 import { sendVerifyMail } from "./mailer.ts";
@@ -34,7 +34,8 @@ export function createAuthApp(options?: {
     const exists = await HostUser.findOne({ $or: [{ userName }, { email }] });
     if (exists) return c.json({ error: "exists" }, 400);
 
-    const hashedPassword = await hash(password);
+    const salt = crypto.randomUUID();
+    const hashedPassword = await hash(password + salt);
     const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
     const verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
@@ -42,6 +43,7 @@ export function createAuthApp(options?: {
       userName,
       email,
       hashedPassword,
+      salt,
       verifyCode,
       verifyCodeExpires,
       emailVerified: false,
@@ -89,7 +91,7 @@ export function createAuthApp(options?: {
     if (!user) return c.json({ error: "invalid" }, 401);
     if (!user.emailVerified) return c.json({ error: "unverified" }, 403);
 
-    const ok = await compare(password, user.hashedPassword);
+    const ok = await compare(password + user.salt, user.hashedPassword);
     if (!ok) return c.json({ error: "invalid" }, 401);
 
     const sessionId = crypto.randomUUID();
