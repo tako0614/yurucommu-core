@@ -22,7 +22,7 @@ app.post("/oauth/login", async (c) => {
   const data = await res.json();
   if (!data.active) return c.json({ error: "Invalid token" }, 401);
   const sessionId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const session = new Session({ sessionId, expiresAt });
   (session as unknown as { $locals?: { env?: Record<string, string> } })
     .$locals = { env };

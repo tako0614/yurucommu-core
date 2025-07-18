@@ -24,7 +24,7 @@ app.post("/login", async (c) => {
 
     if (hashHex === hashedPassword) {
       const sessionId = crypto.randomUUID();
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
       const session = new Session({
         sessionId,
