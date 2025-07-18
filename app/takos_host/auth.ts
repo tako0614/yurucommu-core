@@ -32,7 +32,21 @@ export function createAuthApp(options?: {
     }
 
     const exists = await HostUser.findOne({ $or: [{ userName }, { email }] });
-    if (exists) return c.json({ error: "exists" }, 400);
+    if (exists) {
+      if (exists.emailVerified) return c.json({ error: "exists" }, 400);
+
+      exists.userName = userName;
+      exists.email = email;
+      const newSalt = crypto.randomUUID();
+      exists.salt = newSalt;
+      exists.hashedPassword = await hash(password + newSalt);
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      exists.verifyCode = newCode;
+      exists.verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+      await exists.save();
+      await sendVerifyMail(email, exists.verifyCode);
+      return c.json({ success: true });
+    }
 
     const salt = crypto.randomUUID();
     const hashedPassword = await hash(password + salt);
@@ -51,6 +65,26 @@ export function createAuthApp(options?: {
     await user.save();
 
     await sendVerifyMail(email, verifyCode);
+    return c.json({ success: true });
+  });
+
+  /* ---------------------------- RESEND ---------------------------- */
+  app.post("/resend", async (c) => {
+    const { userName } = await c.req.json();
+    if (typeof userName !== "string") {
+      return c.json({ error: "invalid" }, 400);
+    }
+
+    const user = await HostUser.findOne({ userName });
+    if (!user || user.emailVerified) {
+      return c.json({ error: "invalid" }, 400);
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    user.verifyCode = code;
+    user.verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+    await sendVerifyMail(user.email, code);
     return c.json({ success: true });
   });
 

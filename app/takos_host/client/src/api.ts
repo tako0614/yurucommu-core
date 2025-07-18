@@ -57,6 +57,15 @@ export async function verify(
   return res.ok;
 }
 
+export async function resend(userName: string): Promise<boolean> {
+  const res = await fetch("/auth/resend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userName }),
+  });
+  return res.ok;
+}
+
 export async function logout(): Promise<void> {
   await fetch("/auth/logout", { method: "DELETE" });
 }
