@@ -111,6 +111,18 @@ export function createAuthApp(options?: {
     user.verifyCodeExpires = undefined;
     await user.save();
 
+    const sessionId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await new HostSession({ sessionId, user: user._id, expiresAt }).save();
+
+    setCookie(c, "hostSessionId", sessionId, {
+      httpOnly: true,
+      secure: c.req.url.startsWith("https://"),
+      expires: expiresAt,
+      sameSite: "Lax",
+      path: "/",
+    });
+
     return c.json({ success: true });
   });
 
