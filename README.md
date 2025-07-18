@@ -230,5 +230,4 @@ OpenAPI 対応ツールで読み込むことでクライアント実装やテス
 
 ## FCMによる通知
 
-Firebase Cloud Messaging の設定と利用方法は [docs/fcm.md](docs/fcm.md)
-を参照してください。
+Firebase Cloud Messaging の設定と利用方法は [docs/fcm.md](docs/fcm.md) を参照してください。Tauri 版ではプラグインによるネイティブ実装が必要な点に注意してください。
