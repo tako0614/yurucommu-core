@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { connectDatabase } from "../shared/db.ts";
-import { initEnv, loadConfig } from "../shared/config.ts";
+import { connectDatabase } from "../../shared/db.ts";
+import { initEnv, loadConfig } from "../../shared/config.ts";
 import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";

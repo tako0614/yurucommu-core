@@ -4,7 +4,7 @@ import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
 import Account from "./models/account.ts";
 import { addFollowEdge } from "./services/unified_store.ts";
-import { getEnv } from "../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import authRequired from "./utils/auth.ts";
 
 const app = new Hono();

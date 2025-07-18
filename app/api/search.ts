@@ -3,7 +3,7 @@ import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
 import Group from "./models/group.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
-import { getEnv } from "../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import authRequired from "./utils/auth.ts";
 
 interface SearchResult {
