@@ -11,13 +11,21 @@ export async function hash(text: string): Promise<string> {
   ).join("");
 }
 
-export function createAuthApp(options?: { rootDomain?: string }) {
+export function createAuthApp(options?: {
+  rootDomain?: string;
+  termsRequired?: boolean;
+}) {
   const app = new Hono();
   const rootDomain = options?.rootDomain ?? "";
+  const termsRequired = options?.termsRequired ?? false;
 
   app.post("/register", async (c) => {
-    const { userName, password } = await c.req.json();
-    if (typeof userName !== "string" || typeof password !== "string") {
+    const { userName, password, accepted } = await c.req.json();
+    if (
+      typeof userName !== "string" ||
+      typeof password !== "string" ||
+      (termsRequired && accepted !== true)
+    ) {
       return c.json({ error: "invalid" }, 400);
     }
     const exists = await HostUser.findOne({ userName });
@@ -53,13 +61,18 @@ export function createAuthApp(options?: { rootDomain?: string }) {
 
   app.get("/status", async (c) => {
     const sid = getCookie(c, "hostSessionId");
-    if (!sid) return c.json({ login: false, rootDomain });
+    if (!sid) return c.json({ login: false, rootDomain, termsRequired });
     const session = await HostSession.findOne({ sessionId: sid });
     if (session && session.expiresAt > new Date()) {
-      return c.json({ login: true, user: session.user, rootDomain });
+      return c.json({
+        login: true,
+        user: session.user,
+        rootDomain,
+        termsRequired,
+      });
     }
     if (session) await HostSession.deleteOne({ sessionId: sid });
-    return c.json({ login: false, rootDomain });
+    return c.json({ login: false, rootDomain, termsRequired });
   });
 
   app.delete("/logout", async (c) => {

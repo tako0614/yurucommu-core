@@ -95,4 +95,6 @@ OAuth ボタンを表示します。
    - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
    - `RESERVED_SUBDOMAINS`
      には利用禁止とするサブドメインをカンマ区切りで設定します。
+   - `TERMS_FILE` に利用規約(テキストまたは Markdown)の
+     ファイルパスを指定します。Markdown の場合は HTML として表示されます。
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
