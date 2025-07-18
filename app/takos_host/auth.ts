@@ -7,7 +7,7 @@ import { sendVerifyMail } from "./mailer.ts";
 
 /** bcrypt.hash をラップ（saltRounds = 10） */
 export async function hash(text: string): Promise<string> {
-  return await bcryptHash(text, 10);
+  return await bcryptHash(text, "10");
 }
 
 export function createAuthApp(options?: {

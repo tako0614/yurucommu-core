@@ -40,7 +40,9 @@ export async function sendNotification(
   init(env);
   if (!initialized) return;
   const list = await FcmToken.find({ tenant_id: env["ACTIVITYPUB_DOMAIN"] })
-    .lean<{ token: string }>();
+    .lean<{
+      map(arg0: (t: any) => any): unknown; token: string 
+}>();
   const tokens = list.map((t) => t.token);
   if (tokens.length === 0) return;
   await admin.messaging().sendEachForMulticast({

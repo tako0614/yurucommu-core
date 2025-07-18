@@ -8,6 +8,7 @@
     "@motionone/solid": "npm:@motionone/solid@^10.16.4",
     "@std/assert": "jsr:@std/assert@1",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.11",
+    "firebase-admin": "npm:firebase-admin@^13.4.0",
     "hono": "npm:hono@^4.8.4",
     "@aws-sdk/util-stream-node": "npm:@aws-sdk/util-stream-node@^3.374.0",
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
@@ -21,7 +22,8 @@
     "zod": "npm:zod@^3.25.56",
     "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@^3.528.0",
     "mongodb": "npm:mongodb@^6.17.0",
-    "nodemailer": "npm:nodemailer@^6.9.11"
+    "nodemailer": "npm:nodemailer@^6.9.11",
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts"
-  }
+  },
+  "nodeModulesDir": "auto"
 }
