@@ -1,3 +1,5 @@
+import { hash as bcryptHash } from "bcrypt";
+
 export const encryptWithPassword = async (
   data: string,
   password: string,
@@ -75,6 +77,7 @@ export const sha256 = async (text: string): Promise<string> => {
 };
 
 const ENCRYPTION_PASS_SALT = "takos";
+const BCRYPT_SALT = "$2b$10$GxW5ntweCe9L1LiK1roc/3";
 
 /**
  * 暗号化キー用パスワードをハッシュ化する
@@ -83,5 +86,5 @@ const ENCRYPTION_PASS_SALT = "takos";
 export const hashEncryptionPassword = async (
   password: string,
 ): Promise<string> => {
-  return await sha256(ENCRYPTION_PASS_SALT + password);
+  return await bcryptHash(ENCRYPTION_PASS_SALT + password, BCRYPT_SALT);
 };
