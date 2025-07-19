@@ -6,10 +6,10 @@ import {
   type ObjectStorage,
 } from "./services/object-storage.ts";
 import {
-  findObjects,
+  findVideos,
   getObject,
-  saveObject,
-  updateObject,
+  saveVideo,
+  updateVideo,
 } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
@@ -18,7 +18,6 @@ import { rateLimit } from "./utils/rate_limit.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
-  createObjectId,
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
@@ -174,33 +173,24 @@ const videoUploadWs = upgradeWebSocket((c) => {
           : `/api/video-files/${storageKey}`;
 
         const domain = getDomain(c);
-        const video = await saveObject(
+        const video = await saveVideo(
           getEnv(c),
+          domain,
+          videoMetadata.author,
+          videoMetadata.description,
           {
-            _id: createObjectId(domain),
-            type: "Video",
-            attributedTo: videoMetadata.author,
-            content: videoMetadata.description,
-            published: new Date(),
-            extra: {
-              title: videoMetadata.title,
-              hashtags: videoMetadata.hashtagsStr
-                ? videoMetadata.hashtagsStr.split(" ")
-                : [],
-              isShort: videoMetadata.isShort,
-              duration: videoMetadata.duration || "",
-              likes: 0,
-              views: 0,
-              thumbnail: `/api/placeholder/${
-                videoMetadata.isShort ? "225/400" : "400/225"
-              }`,
-              videoUrl,
-            },
-            actor_id: `https://${domain}/users/${videoMetadata.author}`,
-            aud: {
-              to: ["https://www.w3.org/ns/activitystreams#Public"],
-              cc: [],
-            },
+            title: videoMetadata.title,
+            hashtags: videoMetadata.hashtagsStr
+              ? videoMetadata.hashtagsStr.split(" ")
+              : [],
+            isShort: videoMetadata.isShort,
+            duration: videoMetadata.duration || "",
+            likes: 0,
+            views: 0,
+            thumbnail: `/api/placeholder/${
+              videoMetadata.isShort ? "225/400" : "400/225"
+            }`,
+            videoUrl,
           },
         );
         deliverVideoToFollowers(
@@ -225,7 +215,7 @@ app.get("/videos/upload", videoUploadWs);
 app.get("/videos", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
-  const list = await findObjects(env, { type: "Video" }, { published: -1 });
+  const list = await findVideos(env, {}, { published: -1 });
 
   const identifiers = list.map((doc) => doc.attributedTo as string);
   const infos = await getUserInfoBatch(identifiers, domain);
@@ -281,26 +271,20 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     ? stored
     : `/api/video-files/${filename}`;
 
-  const video = await saveObject(
+  const video = await saveVideo(
     getEnv(c),
+    domain,
+    author,
+    description,
     {
-      _id: createObjectId(domain),
-      type: "Video",
-      attributedTo: author,
-      content: description,
-      published: new Date(),
-      extra: {
-        title,
-        hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
-        isShort,
-        duration: duration || "",
-        likes: 0,
-        views: 0,
-        thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
-        videoUrl,
-      },
-      actor_id: `https://${domain}/users/${author}`,
-      aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
+      title,
+      hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
+      isShort,
+      duration: duration || "",
+      likes: 0,
+      views: 0,
+      thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
+      videoUrl,
     },
   );
 
@@ -339,14 +323,14 @@ app.post("/videos/:id/like", async (c) => {
   const extra = doc.extra as Record<string, unknown> ?? {};
   const likes = typeof extra.likes === "number" ? extra.likes + 1 : 1;
   extra.likes = likes;
-  await updateObject(env, id, { extra });
+  await updateVideo(env, id, { extra });
   return c.json({ likes });
 });
 
 app.post("/videos/:id/view", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
-  const doc = await updateObject(env, id, { $inc: { "extra.views": 1 } });
+  const doc = await updateVideo(env, id, { $inc: { "extra.views": 1 } });
   if (!doc) return c.json({ error: "Not found" }, 404);
   const extra = (doc.extra ?? {}) as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;

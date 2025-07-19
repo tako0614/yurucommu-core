@@ -1,17 +1,16 @@
 import { Hono } from "hono";
 import {
-  deleteObject,
-  findObjects,
+  deleteNote,
+  findNotes,
   getObject,
-  saveObject,
-  updateObject,
+  saveNote,
+  updateNote,
 } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import Group from "./models/group.ts";
 import {
   createAcceptActivity,
   createBlockActivity,
-  createObjectId,
   createRemoveActivity,
   deliverActivityPubObjectFromUrl,
   getDomain,
@@ -76,8 +75,7 @@ app.get("/communities", async (c) => {
           : (community._id as { toString: () => string })?.toString() || "";
         const env = getEnv(c);
         const postCount = (
-          await findObjects(env, {
-            type: "Note",
+          await findNotes(env, {
             "extra.communityId": communityId,
           })
         ).length;
@@ -189,7 +187,7 @@ app.get("/communities/:id", async (c) => {
     const members = community.members as string[] | undefined;
     const memberCount = members?.length || 0;
     const postCount = (
-      await findObjects(env, { type: "Note", "extra.communityId": id })
+      await findNotes(env, { "extra.communityId": id })
     ).length;
 
     return c.json({
@@ -280,8 +278,7 @@ app.get("/communities/:id/posts", async (c) => {
     const communityId = c.req.param("id");
 
     const env = getEnv(c);
-    const posts = await findObjects(env, {
-      type: "Note",
+    const posts = await findNotes(env, {
       "extra.communityId": communityId,
     }, { published: -1 });
 
@@ -335,21 +332,16 @@ app.post("/communities/:id/posts", async (c) => {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const post = await saveObject(
+    const post = await saveNote(
       getEnv(c),
+      domain,
+      author,
+      content,
       {
-        _id: createObjectId(domain),
-        type: "Note",
-        attributedTo: author,
-        content,
-        extra: {
-          communityId,
-          likes: 0,
-          comments: 0,
-          isPinned: false,
-        },
-        actor_id: `https://${domain}/users/${author}`,
-        aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
+        communityId,
+        likes: 0,
+        comments: 0,
+        isPinned: false,
       },
     );
 
@@ -381,7 +373,7 @@ app.post("/communities/:communityId/posts/:postId/like", async (c) => {
     const postId = c.req.param("postId");
 
     const env = getEnv(c);
-    const post = await updateObject(env, postId, {
+    const post = await updateNote(env, postId, {
       $inc: { "extra.likes": 1 },
     });
 
@@ -421,11 +413,9 @@ app.post("/communities/:communityId/posts/:postId/remove", async (c) => {
     const post = await getObject(env, postId);
     if (!post) return c.json({ error: "Post not found" }, 404);
 
-    await deleteObject(env, postId);
+    await deleteNote(env, postId);
 
-    const objectUrl = typeof post.raw?.id === "string"
-      ? post.raw.id as string
-      : `https://${domain}/objects/${post._id}`;
+    const objectUrl = `https://${domain}/objects/${post._id}`;
 
     const remove = createRemoveActivity(
       domain,
