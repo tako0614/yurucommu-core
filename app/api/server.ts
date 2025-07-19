@@ -12,10 +12,8 @@ import notifications from "./notifications.ts";
 import activitypub from "./activitypub.ts";
 import microblog from "./microblog.ts";
 import search from "./search.ts";
-import communities from "./communities.ts";
 import users from "./users.ts";
 import userInfo from "./user-info.ts";
-import group from "./group.ts";
 import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
@@ -49,16 +47,13 @@ export async function createTakosApp(env?: Record<string, string>) {
   app.route("/api", setupUI);
   app.route("/api", videos);
   app.route("/api", search);
-  app.route("/api", communities);
   app.route("/api", relays);
   app.route("/api", users);
   app.route("/api", userInfo);
   app.route("/api", e2ee);
   app.route("/api", activitypub); // ActivityPubプロキシAPI用
-  app.route("/api", group);
   app.route("/", nodeinfo);
   app.route("/", activitypub);
-  app.route("/", group);
   app.route("/", rootInbox);
   // e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
   app.route("/", e2ee);

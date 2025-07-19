@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
-import Group from "./models/group.ts";
 import { findObjects, saveObject } from "./services/unified_store.ts";
 import KeyPackage from "./models/key_package.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -34,22 +33,6 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
   const domain = expected ?? host;
-  if (username.startsWith("!")) {
-    const gname = username.slice(1);
-    const group = await Group.findOne({ name: gname });
-    if (!group) return jsonResponse(c, { error: "Not found" }, 404);
-    const jrd = {
-      subject: `acct:!${gname}@${domain}`,
-      links: [
-        {
-          rel: "self",
-          type: "application/activity+json",
-          href: `https://${domain}/communities/${gname}`,
-        },
-      ],
-    };
-    return jsonResponse(c, jrd, 200, "application/jrd+json");
-  }
   if (username === "system") {
     const jrd = {
       subject: `acct:system@${domain}`,

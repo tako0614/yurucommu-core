@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import Account from "./models/account.ts";
 import { findObjects } from "./services/unified_store.ts";
-import Group from "./models/group.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "./utils/auth.ts";
 
 interface SearchResult {
-  type: "user" | "post" | "community";
+  type: "user" | "post";
   id: string;
   title: string;
   subtitle: string;
@@ -74,28 +73,6 @@ app.get("/search", async (c) => {
         subtitle: p.attributedTo,
         metadata: { createdAt: p.published },
         origin: domain,
-      });
-    }
-  }
-
-  if (type === "all" || type === "communities") {
-    const communities = await Group.find({
-      $or: [
-        { name: regex },
-        { description: regex },
-      ],
-    })
-      .limit(20)
-      .lean();
-    const domain = getDomain(c);
-    for (const com of communities) {
-      results.push({
-        type: "community",
-        id: String(com._id),
-        title: com.name,
-        subtitle: com.description,
-        origin: domain,
-        metadata: {},
       });
     }
   }

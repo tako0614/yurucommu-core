@@ -33,25 +33,8 @@ export interface Story {
   textColor?: string;
 }
 
-export interface Community {
-  id: string;
-  name: string;
-  description: string;
-  avatar?: string;
-  banner?: string;
-  memberCount: number;
-  postCount: number;
-  isJoined?: boolean;
-  isPrivate?: boolean;
-  tags?: string[];
-  rules?: string[];
-  createdAt: string;
-  moderators?: string[];
-}
-
 export interface Note {
   id: string;
-  communityId: string;
   content: string;
   userName: string;
   displayName: string;
