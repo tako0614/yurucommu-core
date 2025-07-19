@@ -32,7 +32,14 @@ export async function createTakosApp(env?: Record<string, string>) {
 
   const app = new Hono();
   initEnv(app, e);
-  app.use("/api/*", rateLimit({ windowMs: 60_000, limit: 100 }));
+  app.use("/api/*", async (c, next) => {
+    if (c.req.path === "/api/ws") {
+      await next();
+      return;
+    }
+    const rl = rateLimit({ windowMs: 60_000, limit: 100 });
+    await rl(c, next);
+  });
   initVideoModule(e);
   initVideoWebSocket();
   app.route("/api", wsRouter);
