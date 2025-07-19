@@ -585,11 +585,8 @@ export function Chat(props: ChatProps) {
 
   createEffect(() => {
     const roomId = selectedRoom();
-    const rooms = chatRooms();
-    groups();
-    account();
+    const room = chatRooms().find((r) => r.id === roomId);
 
-    const room = rooms.find((r) => r.id === roomId);
     if (room) {
       loadMessages(room, true);
     } else if (roomId) {
