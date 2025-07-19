@@ -18,7 +18,8 @@ import rootInbox from "./root_inbox.ts";
 import nodeinfo from "./nodeinfo.ts";
 import e2ee from "./e2ee.ts";
 import relays from "./relays.ts";
-import videos, { initVideoModule } from "./videos.ts";
+import videos, { initVideoModule, initVideoWebSocket } from "./videos.ts";
+import wsRouter from "./ws.ts";
 import config from "./config.ts";
 import fcm from "./fcm.ts";
 import { fetchOgpData } from "./services/ogp.ts";
@@ -33,6 +34,8 @@ export async function createTakosApp(env?: Record<string, string>) {
   initEnv(app, e);
   app.use("/api/*", rateLimit({ windowMs: 60_000, limit: 100 }));
   initVideoModule(e);
+  initVideoWebSocket();
+  app.route("/api", wsRouter);
   app.route("/api", login);
   app.route("/api", logout);
   if (e["OAUTH_HOST"] || e["ROOT_DOMAIN"]) {

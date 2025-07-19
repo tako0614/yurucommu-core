@@ -141,6 +141,9 @@ deno task build
 
 ActivityPub の `Video` オブジェクトを利用して動画を投稿できます。
 
+- `WebSocket /api/ws` – 動画アップロードや今後の双方向機能で利用する統一
+  WebSocket
+
 - `GET /api/videos` – 動画一覧を取得
 - `POST /api/videos` – 動画を作成するとフォロワーへ `Create` Activity を配信
 - `POST /api/videos/:id/like` – いいね数を増加
