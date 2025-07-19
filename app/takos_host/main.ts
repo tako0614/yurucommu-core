@@ -9,11 +9,16 @@ import { createAuthApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
+import { createRootActivityPubApp } from "./root_activitypub.ts";
 const env = await loadConfig();
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
-const rootDomain = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
+const rootDomain = (env["ROOT_DOMAIN"] ?? env["ACTIVITYPUB_DOMAIN"] ?? "")
+  .toLowerCase();
+const rootActivityPubApp = rootDomain
+  ? createRootActivityPubApp({ ...env, ACTIVITYPUB_DOMAIN: rootDomain })
+  : null;
 const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
 const reservedSubdomains = (env["RESERVED_SUBDOMAINS"] ?? "")
   .split(",")
@@ -139,6 +144,9 @@ if (!isDev && rootDomain) {
 
 root.all("/*", async (c) => {
   const host = getRealHost(c);
+  if (rootDomain && host === rootDomain && rootActivityPubApp) {
+    return rootActivityPubApp.fetch(c.req.raw);
+  }
   const app = await getAppForHost(host);
   console.log(`Request for host: ${host}, app: ${app ? "found" : "not found"}`);
   if (!app) return c.text("not found", 404);
