@@ -9,23 +9,32 @@ const app = new Hono();
 app.use("/user-info/*", authRequired);
 
 // 単一ユーザー情報取得API
-app.get("/user-info/:identifier", async (c) => {
-  try {
-    const domain = getDomain(c);
-    const identifier = c.req.param("identifier");
+app.get(
+  "/user-info/:identifier",
+  zValidator(
+    "param",
+    z.object({
+      identifier: z.string().refine((id) => {
+        if (id.startsWith("http")) return true;
+        if (id.includes("@")) return /^[^@]+@[^@]+$/.test(id);
+        return /^[A-Za-z0-9_-]+$/.test(id);
+      }),
+    }),
+  ),
+  async (c) => {
+    try {
+      const domain = getDomain(c);
+      const { identifier } = c.req.valid("param") as { identifier: string };
 
-    if (!identifier) {
-      return c.json({ error: "User identifier is required" }, 400);
+      const userInfo = await getUserInfo(identifier, domain);
+
+      return c.json(userInfo);
+    } catch (error) {
+      console.error("Error fetching user info:", error);
+      return c.json({ error: "Failed to fetch user info" }, 500);
     }
-
-    const userInfo = await getUserInfo(identifier, domain);
-
-    return c.json(userInfo);
-  } catch (error) {
-    console.error("Error fetching user info:", error);
-    return c.json({ error: "Failed to fetch user info" }, 500);
-  }
-});
+  },
+);
 
 // 複数ユーザー情報バッチ取得API
 app.post(
