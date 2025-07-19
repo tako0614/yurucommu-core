@@ -1,11 +1,23 @@
 import { Hono } from "hono";
+import type { Document } from "mongoose";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import Instance from "./models/instance.ts";
 import { authRequired, hash } from "./auth.ts";
 import HostDomain from "./models/domain.ts";
 import OAuthClient from "./models/oauth_client.ts";
-import type HostUser from "./models/user.ts";
+
+interface HostUserDoc extends Document {
+  _id: unknown;
+  userName: string;
+  email: string;
+  emailVerified: boolean;
+  verifyCode?: string;
+  verifyCodeExpires?: Date;
+  hashedPassword: string;
+  salt: string;
+  createdAt: Date;
+}
 import { addRelayEdge } from "../api/services/unified_store.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
 
@@ -17,7 +29,7 @@ export function createConsumerApp(
     reservedSubdomains?: string[];
   },
 ) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { user: HostUserDoc } }>();
   const rootDomain = options?.rootDomain?.toLowerCase() ?? "";
   const freeLimit = options?.freeLimit ?? 1;
   const reserved = new Set(options?.reservedSubdomains ?? []);
@@ -25,7 +37,7 @@ export function createConsumerApp(
   app.use("/*", authRequired);
 
   app.get("/instances", async (c) => {
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     const list = await Instance.find({ owner: user._id }).lean();
     return c.json(list.map((i) => ({ host: i.host })));
   });
@@ -39,7 +51,7 @@ export function createConsumerApp(
     async (c) => {
       const { host: rawHost, password } = c.req.valid("json");
       const host = rawHost.toLowerCase();
-      const user = c.get("user") as HostUser;
+      const user = c.get("user") as HostUserDoc;
 
       const count = await Instance.countDocuments({ owner: user._id });
       if (count >= freeLimit) {
@@ -114,7 +126,7 @@ export function createConsumerApp(
 
   app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     await Instance.deleteOne({ host, owner: user._id });
     invalidate?.(host);
     return c.json({ success: true });
@@ -122,7 +134,7 @@ export function createConsumerApp(
 
   app.get("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     const inst = await Instance.findOne({ host, owner: user._id }).lean();
     if (!inst) return c.json({ error: "not found" }, 404);
     return c.json({ host: inst.host });
@@ -134,7 +146,7 @@ export function createConsumerApp(
     async (c) => {
       const host = c.req.param("host").toLowerCase();
       const { password } = c.req.valid("json");
-      const user = c.get("user") as HostUser;
+      const user = c.get("user") as HostUserDoc;
       const inst = await Instance.findOne({ host, owner: user._id });
       if (!inst) return c.json({ error: "not found" }, 404);
       if (password) {
@@ -153,7 +165,7 @@ export function createConsumerApp(
 
   app.post("/instances/:host/restart", async (c) => {
     const host = c.req.param("host").toLowerCase();
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     const inst = await Instance.findOne({ host, owner: user._id });
     if (!inst) return c.json({ error: "not found" }, 404);
     invalidate?.(host);
@@ -191,7 +203,7 @@ export function createConsumerApp(
   );
 
   app.get("/domains", async (c) => {
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     const list = await HostDomain.find({ user: user._id }).lean();
     return c.json(
       list.map((d) => ({ domain: d.domain, verified: d.verified })),
@@ -203,7 +215,7 @@ export function createConsumerApp(
     zValidator("json", z.object({ domain: z.string() })),
     async (c) => {
       const { domain } = c.req.valid("json");
-      const user = c.get("user") as HostUser;
+      const user = c.get("user") as HostUserDoc;
       const exists = await HostDomain.findOne({ domain });
       if (exists) return c.json({ error: "exists" }, 400);
       const token = crypto.randomUUID();
@@ -220,7 +232,7 @@ export function createConsumerApp(
 
   app.post("/domains/:domain/verify", async (c) => {
     const domain = c.req.param("domain");
-    const user = c.get("user") as HostUser;
+    const user = c.get("user") as HostUserDoc;
     const doc = await HostDomain.findOne({ domain, user: user._id });
     if (!doc) return c.json({ error: "not found" }, 404);
     try {
