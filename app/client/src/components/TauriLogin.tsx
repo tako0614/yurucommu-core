@@ -1,6 +1,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Motion } from "@motionone/solid";
 import { AddServerForm } from "./AddServerForm.tsx";
+import HostSignup from "./HostSignup.tsx";
 import {
   addServer,
   apiFetch,
@@ -25,6 +26,7 @@ type ServerInfo = { url: string; password: string };
 export function TauriLogin(props: TauriLoginProps) {
   const [servers, setServers] = createSignal<ServerInfo[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
+  const [showSignup, setShowSignup] = createSignal(false);
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
 
@@ -132,7 +134,7 @@ export function TauriLogin(props: TauriLoginProps) {
       </div>
 
       {/* add server button --------------------------------------------------- */}
-      <div class="fixed bottom-6 inset-x-0 flex justify-center">
+      <div class="fixed bottom-20 inset-x-0 flex flex-col items-center gap-4">
         <button
           type="button"
           class="group relative inline-flex items-center justify-center gap-2 w-72 py-4 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-400 hover:to-teal-400 active:scale-95 text-white font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
@@ -140,6 +142,14 @@ export function TauriLogin(props: TauriLoginProps) {
         >
           <span class="i-lucide-plus-circle text-xl group-hover:rotate-90 transition-transform" />
           サーバー追加
+        </button>
+        <button
+          type="button"
+          class="group relative inline-flex items-center justify-center gap-2 w-72 py-4 bg-gray-700 hover:bg-gray-600 active:scale-95 text-white font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
+          onClick={() => setShowSignup(true)}
+        >
+          <span class="i-lucide-user-plus text-xl group-hover:rotate-90 transition-transform" />
+          takos.jpで作成
         </button>
       </div>
 
@@ -149,6 +159,9 @@ export function TauriLogin(props: TauriLoginProps) {
           onAdd={handleAddServer}
           onClose={() => setShowAdd(false)}
         />
+      </Show>
+      <Show when={showSignup()}>
+        <HostSignup onClose={() => setShowSignup(false)} />
       </Show>
     </div>
   );
