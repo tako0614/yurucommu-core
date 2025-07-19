@@ -7,7 +7,9 @@ import OAuthToken from "./models/oauth_token.ts";
 import HostSession from "./models/session.ts";
 
 export const oauthApp = new Hono();
-oauthApp.use("/*", cors());
+// CORSミドルウェアの節約化
+oauthApp.use("/token", cors());
+oauthApp.use("/verify", cors());
 
 // Authorization Endpoint
 oauthApp.get("/authorize", async (c) => {
