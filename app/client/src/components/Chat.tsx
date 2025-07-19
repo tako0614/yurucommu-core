@@ -69,7 +69,7 @@ interface ChatRoom {
   unreadCount: number;
   isOnline?: boolean;
   avatar?: string;
-  type: "dm" | "group";
+  type: "dm" | "group" | "memo";
   members: ActorID[];
 }
 
@@ -395,44 +395,58 @@ export function Chat(props: ChatProps) {
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
+    const rooms: ChatRoom[] = [
+      {
+        id: `${user.userName}@${getDomain()}`,
+        name: "メモ",
+        userName: user.userName,
+        domain: getDomain(),
+        avatar: user.avatarInitial || user.userName.charAt(0).toUpperCase(),
+        unreadCount: 0,
+        type: "memo",
+        members: [`${user.userName}@${getDomain()}`],
+        lastMessage: "...",
+        lastMessageTime: undefined,
+      },
+    ];
+
     const ids = Array.from(
       new Set([
         ...(user.followers ?? []),
         ...(user.following ?? []),
       ]),
     );
-    if (ids.length === 0) {
-      setChatRooms([]);
-      return;
-    }
-    try {
-      const infos = await fetchUserInfoBatch(ids, user.id);
-      if (infos.length > 0) {
-        const rooms = infos.reduce<ChatRoom[]>((acc, info, idx) => {
-          const actor = ids[idx];
-          acc.push({
-            id: actor,
-            name: info.displayName || info.userName,
-            userName: info.userName,
-            domain: info.domain,
-            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
-            unreadCount: 0,
-            type: "dm",
-            members: [actor],
-            lastMessage: "...",
-            lastMessageTime: undefined,
+    if (ids.length > 0) {
+      try {
+        const infos = await fetchUserInfoBatch(ids, user.id);
+        if (infos.length > 0) {
+          infos.forEach((info, idx) => {
+            const actor = ids[idx];
+            rooms.push({
+              id: actor,
+              name: info.displayName || info.userName,
+              userName: info.userName,
+              domain: info.domain,
+              avatar: info.authorAvatar ||
+                info.userName.charAt(0).toUpperCase(),
+              unreadCount: 0,
+              type: "dm",
+              members: [actor],
+              lastMessage: "...",
+              lastMessageTime: undefined,
+            });
           });
-          return acc;
-        }, []);
-        setChatRooms(rooms);
-
-        rooms.forEach(async (room) => {
-          await loadMessages(room, false);
-        });
+        }
+      } catch (err) {
+        console.error("Failed to load rooms", err);
       }
-    } catch (err) {
-      console.error("Failed to load rooms", err);
     }
+
+    setChatRooms(rooms);
+
+    rooms.forEach(async (room) => {
+      await loadMessages(room, false);
+    });
   };
 
   const sendMessage = async () => {
