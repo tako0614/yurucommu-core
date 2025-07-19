@@ -11,13 +11,11 @@ import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
-import { CommunityView } from "./microblog/Community.tsx";
 import {
   _replyToPost,
   createPost,
   deletePost,
   deleteStory,
-  fetchCommunities,
   fetchFollowingPosts,
   fetchPostById,
   fetchPostReplies,
@@ -28,19 +26,12 @@ import {
   updatePost,
   viewStory,
 } from "./microblog/api.ts";
-import type {
-  Community,
-  MicroblogPost,
-  Note,
-  Story,
-} from "./microblog/types.ts";
+import type { MicroblogPost, Story } from "./microblog/types.ts";
 
 export function Microblog() {
-  // タブ切り替え: "recommend" | "following" | "community"
+  // タブ切り替え: "recommend" | "following"
   const [account] = useAtom(activeAccount);
-  const [tab, setTab] = createSignal<"recommend" | "following" | "community">(
-    "recommend",
-  );
+  const [tab, setTab] = createSignal<"recommend" | "following">("recommend");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -143,62 +134,11 @@ export function Microblog() {
       const user = account();
       return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
     });
-  // コミュニティデータをAPIから取得
-  const [_communitiesData, { refetch: _refetchCommunities }] = createResource(
-    fetchCommunities,
-  );
   // ストーリー
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
   const [showStoryViewer, setShowStoryViewer] = createSignal(false);
   const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
-  // コミュニティ
-  const [_showCommunityView, _setShowCommunityView] = createSignal(false);
-  const [_selectedCommunity, _setSelectedCommunity] = createSignal<
-    Community | null
-  >(null);
-  const [_showCreateCommunity, _setShowCreateCommunity] = createSignal(false);
-  const [_communityName, _setCommunityName] = createSignal("");
-  const [_communityDescription, _setCommunityDescription] = createSignal("");
-  const [_communityAvatar, _setCommunityAvatar] = createSignal("");
-  const [_communityBanner, _setCommunityBanner] = createSignal("");
-  const [_communityTags, _setCommunityTags] = createSignal("");
-  const [_communityIsPrivate, _setCommunityIsPrivate] = createSignal(false);
-  // コミュニティデータはAPIから取得（communitiesData）
-  // コミュニティ投稿は各コミュニティの詳細取得時にAPIから取得する想定
-  // フォロー中投稿もAPIから取得（followingTimelinePosts）
-
-  // コミュニティ関連のハンドラー
-  const _handleJoinCommunity = (communityId: string) => {
-    // TODO: API call to join community
-    console.log("Joining community:", communityId);
-  };
-
-  const _handleLeaveCommunity = (communityId: string) => {
-    // TODO: API call to leave community
-    console.log("Leaving community:", communityId);
-  };
-
-  const _handleCreateCommunity = (e: Event) => {
-    e.preventDefault();
-    // TODO: API call to create community
-    console.log("Creating community:", {
-      name: _communityName(),
-      description: _communityDescription(),
-      isPrivate: _communityIsPrivate(),
-    });
-    _setShowCreateCommunity(false);
-  };
-
-  const _handleSelectCommunity = (community: Community) => {
-    _setSelectedCommunity(community);
-    _setShowCommunityView(true);
-  };
-
-  const _handleLikeCommunityPost = (postId: string) => {
-    // TODO: API call to like community post
-    console.log("Liking community post:", postId);
-  };
 
   // ストーリー関連のハンドラー
   const handleViewStory = async (story: Story, index: number) => {
@@ -253,10 +193,6 @@ export function Microblog() {
         postsToFilter = posts() || [];
       } else if (tab() === "following") {
         postsToFilter = followingTimelinePosts() || [];
-      } else if (tab() === "community") {
-        // コミュニティタブの場合は選択中コミュニティの投稿を取得する設計にする
-        // ここでは空配列を返す（詳細はCommunityView側で取得・表示）
-        postsToFilter = [];
       } else {
         postsToFilter = [];
       }
@@ -452,7 +388,6 @@ export function Microblog() {
                 }`}
                 onClick={() => {
                   setTab("recommend");
-                  _setShowCommunityView(false);
                 }}
               >
                 おすすめ
@@ -464,30 +399,15 @@ export function Microblog() {
                 }`}
                 onClick={() => {
                   setTab("following");
-                  _setShowCommunityView(false);
                 }}
               >
                 フォロー中
-              </button>
-              <button
-                type="button"
-                class={`tab-btn ${
-                  tab() === "community" ? "tab-btn-active" : ""
-                }`}
-                onClick={() => {
-                  setTab("community");
-                  _setShowCommunityView(false);
-                  _setSelectedCommunity(null);
-                }}
-              >
-                コミュニティ
               </button>
             </div>
           </div>
         </div>
         <div class="max-w-2xl mx-auto">
-          {(tab() === "recommend" || tab() === "following" ||
-            tab() === "community") && (
+          {(tab() === "recommend" || tab() === "following") && (
             <StoryTray
               stories={stories() || []}
               refetchStories={refetchStories}
@@ -510,42 +430,6 @@ export function Microblog() {
             />
           )}
 
-          {tab() === "community" && (
-            <CommunityView
-              showCommunityView={_showCommunityView()}
-              setShowCommunityView={_setShowCommunityView}
-              selectedCommunity={_selectedCommunity()}
-              setSelectedCommunity={_setSelectedCommunity}
-              showCreateCommunity={_showCreateCommunity()}
-              setShowCreateCommunity={_setShowCreateCommunity}
-              communityName={_communityName()}
-              setCommunityName={_setCommunityName}
-              communityDescription={_communityDescription()}
-              setCommunityDescription={_setCommunityDescription}
-              communityAvatar={_communityAvatar()}
-              setCommunityAvatar={_setCommunityAvatar}
-              communityBanner={_communityBanner()}
-              setCommunityBanner={_setCommunityBanner}
-              communityTags={_communityTags()}
-              setCommunityTags={_setCommunityTags}
-              communityIsPrivate={_communityIsPrivate()}
-              setCommunityIsPrivate={_setCommunityIsPrivate}
-              communities={_communitiesData() || []}
-              communityPosts={[] as Note[]}
-              handleJoinCommunity={_handleJoinCommunity}
-              handleLeaveCommunity={_handleLeaveCommunity}
-              handleCreateCommunity={_handleCreateCommunity}
-              handleSelectCommunity={_handleSelectCommunity}
-              handleLikeCommunityPost={_handleLikeCommunityPost}
-              formatDate={formatDate}
-              handleReply={handleReply}
-              handleRetweet={handleRetweet}
-              handleQuote={handleQuote}
-              handleLike={handleLike}
-              handleEdit={handleEdit}
-              handleDelete={handleDelete}
-            />
-          )}
           <Show when={!targetPostId()}>
             <div ref={(el) => (sentinel = el)} class="h-4"></div>
             {loadingMore() && (

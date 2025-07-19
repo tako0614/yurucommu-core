@@ -1,16 +1,7 @@
 import { Hono } from "hono";
-import {
-  createAcceptActivity,
-  createAnnounceActivity,
-  deliverActivityPubObjectFromUrl,
-  extractAttachments,
-  getDomain,
-  jsonResponse,
-  verifyHttpSignature,
-} from "./utils/activitypub.ts";
+import { getDomain, jsonResponse, verifyHttpSignature } from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "./activity_handlers.ts";
-import Group from "./models/group.ts";
 import Account from "./models/account.ts";
 import { getObject, saveObject } from "./services/unified_store.ts";
 import { addInboxEntry } from "./services/inbox.ts";
@@ -97,98 +88,6 @@ app.post("/inbox", async (c) => {
         if (!account) continue;
         const handler = activityHandlers[activity.type];
         if (handler) await handler(activity, username, c);
-      }
-      if (parts[0] === "communities" && parts[1]) {
-        const name = parts[1];
-        const group = await Group.findOne({
-          name,
-          tenant_id: env["ACTIVITYPUB_DOMAIN"],
-        });
-        if (!group) continue;
-        if (activity.type === "Follow" && typeof activity.actor === "string") {
-          if (group.banned.includes(activity.actor)) continue;
-          if (group.isPrivate) {
-            await Group.updateOne({
-              name,
-              tenant_id: env["ACTIVITYPUB_DOMAIN"],
-            }, {
-              $addToSet: { pendingFollowers: activity.actor },
-            });
-          } else {
-            await Group.updateOne({
-              name,
-              tenant_id: env["ACTIVITYPUB_DOMAIN"],
-            }, {
-              $addToSet: { followers: activity.actor },
-            });
-            const accept = createAcceptActivity(
-              domain,
-              `https://${domain}/communities/${name}`,
-              activity,
-            );
-            await deliverActivityPubObjectFromUrl(
-              [activity.actor],
-              accept,
-              {
-                id: `https://${domain}/communities/${name}`,
-                privateKey: group.privateKey,
-              },
-              env,
-            );
-          }
-        }
-        if (activity.type === "Create" && typeof activity.object === "object") {
-          const actor = typeof activity.actor === "string"
-            ? activity.actor
-            : "";
-          if (
-            !group.followers.includes(actor) || group.banned.includes(actor)
-          ) continue;
-          const obj = activity.object as Record<string, unknown>;
-          const attachments = extractAttachments(obj);
-          const extra: Record<string, unknown> = {};
-          if (attachments.length > 0) extra.attachments = attachments;
-          let objectId = typeof obj.id === "string" ? obj.id : "";
-          let stored = await getObject(env, objectId);
-          if (!stored) {
-            stored = await saveObject(
-              env,
-              {
-                type: (obj.type as string) ?? "Note",
-                attributedTo: `!${name}`,
-                content: (obj.content as string) ?? "",
-                to: Array.isArray(obj.to) ? obj.to : [],
-                cc: Array.isArray(obj.cc) ? obj.cc : [],
-                published: obj.published && typeof obj.published === "string"
-                  ? new Date(obj.published)
-                  : new Date(),
-                raw: obj,
-                extra,
-                actor_id: `https://${domain}/communities/${name}`,
-                aud: {
-                  to: Array.isArray(obj.to) ? obj.to : [],
-                  cc: Array.isArray(obj.cc) ? obj.cc : [],
-                },
-              },
-            );
-            objectId = String(stored._id);
-          }
-          await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
-          const announce = createAnnounceActivity(
-            domain,
-            `https://${domain}/communities/${name}`,
-            `https://${domain}/objects/${stored._id}`,
-          );
-          await deliverActivityPubObjectFromUrl(
-            group.followers,
-            announce,
-            {
-              id: `https://${domain}/communities/${name}`,
-              privateKey: group.privateKey,
-            },
-            env,
-          );
-        }
       }
     } catch {
       continue;

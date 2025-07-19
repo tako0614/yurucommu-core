@@ -158,63 +158,6 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 pull モードのリレーは一定間隔で `/api/microblog` を取得し、投稿を自動で取り込み
 ます。push モードのリレーには投稿作成時に自動配信されます。
 
-## グループ機能
-
-takos では ActivityPub の Group
-アクターを利用して複数ユーザーで投稿を共有できます。グループアクターは
-`GET /communities/:name` で取得できます。
-
-### WebFinger での発見例
-
-`!team@takos.example` を検索する場合は次のようにリクエストします。
-
-```bash
-curl "https://takos.example/.well-known/webfinger?resource=acct:!team@takos.example"
-```
-
-レスポンス例:
-
-```json
-{
-  "subject": "acct:!team@takos.example",
-  "links": [
-    {
-      "rel": "self",
-      "type": "application/activity+json",
-      "href": "https://takos.example/communities/team"
-    }
-  ]
-}
-```
-
-### 参加 (Follow) 手順
-
-1. `/communities/:name/inbox` へ `Follow` Activity を送信します。
-2. 非公開グループでは `pendingFollowers`
-   に追加され、承認後フォロワーとなります。公開グループの場合はすぐに `Accept`
-   が返送され `followers` に登録されます。
-
-### 投稿から `Announce` 配信まで
-
-1. フォロワーが `Create` Activity をグループの `inbox`
-   に送信すると投稿オブジェクトが保存されます。
-2. グループはその投稿を対象とした `Announce` Activity
-   を生成し、フォロワーへ配信します。
-3. フォロワーは受信した `Announce` から投稿を取得できます。
-4. `outbox` や `followers` コレクションは `?page=1` のようにページ指定
-   で順次取得可能です。
-
-### モデレーション API
-
-- `POST /api/communities/:communityId/posts/:postId/remove`
-  グループ管理者が投稿を削除し、`Remove` Activity を配信します。
-- `POST /api/communities/:id/block` 特定ユーザーを BAN し、`Block` Activity
-  を送信します。
-- `GET  /api/communities/:id/pending-followers` 未承認フォロワー一覧を取得。
-- `POST /api/communities/:id/pending-followers/approve` 承認して `Accept`
-  を送信。
-  - `POST /api/communities/:id/pending-followers/reject` フォロー申請を拒否。
-
 ## クライアントでのデータ保存
 
 チャット機能で利用するMLS関連データは、ブラウザのIndexedDBに保存します。データベースは

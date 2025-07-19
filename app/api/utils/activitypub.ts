@@ -592,51 +592,6 @@ export function createActor(
   };
 }
 
-export function createGroupActor(
-  domain: string,
-  group: {
-    name: string;
-    description: string;
-    avatar?: string;
-    publicKey: string;
-    sharedInbox?: string;
-  },
-) {
-  const base = {
-    "@context": [
-      "https://www.w3.org/ns/activitystreams",
-      "https://w3id.org/security/v1",
-    ],
-    id: `https://${domain}/communities/${group.name}`,
-    type: "Group",
-    preferredUsername: group.name,
-    name: group.name,
-    summary: group.description,
-    inbox: `https://${domain}/communities/${group.name}/inbox`,
-    outbox: `https://${domain}/communities/${group.name}/outbox`,
-    followers: `https://${domain}/communities/${group.name}/followers`,
-    publicKey: {
-      id: `https://${domain}/communities/${group.name}#main-key`,
-      owner: `https://${domain}/communities/${group.name}`,
-      publicKeyPem: ensurePem(group.publicKey, "PUBLIC KEY"),
-    },
-  } as Record<string, unknown>;
-
-  if (group.avatar) {
-    base.icon = {
-      type: "Image",
-      mediaType: "image/png",
-      url: group.avatar,
-    };
-  }
-
-  if (group.sharedInbox) {
-    base.endpoints = { sharedInbox: group.sharedInbox };
-  }
-
-  return base;
-}
-
 export function buildActivityFromStored(
   obj: {
     _id: unknown;
