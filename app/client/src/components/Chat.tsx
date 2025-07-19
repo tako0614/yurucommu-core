@@ -416,9 +416,10 @@ export function Chat(props: ChatProps) {
         ...(user.following ?? []),
       ]),
     );
+    const normalized = ids.map((id) => normalizeActor(id));
     if (ids.length > 0) {
       try {
-        const infos = await fetchUserInfoBatch(ids, user.id);
+        const infos = await fetchUserInfoBatch(normalized, user.id);
         if (infos.length > 0) {
           infos.forEach((info, idx) => {
             const actor = ids[idx];
@@ -590,7 +591,7 @@ export function Chat(props: ChatProps) {
     if (room) {
       loadMessages(room, true);
     } else if (roomId) {
-      fetchUserInfo(roomId).then((info) => {
+      fetchUserInfo(normalizeActor(roomId)).then((info) => {
         if (!info) return;
         const newRoom: ChatRoom = {
           id: roomId,
@@ -1101,4 +1102,17 @@ function splitActor(actor: ActorID): [string, string | undefined] {
     return [user, domain];
   }
   return [actor, undefined];
+}
+
+function normalizeActor(actor: ActorID): string {
+  if (actor.startsWith("http")) {
+    try {
+      const url = new URL(actor);
+      const name = url.pathname.split("/").pop()!;
+      return `${name}@${url.hostname}`;
+    } catch {
+      return actor;
+    }
+  }
+  return actor;
 }
