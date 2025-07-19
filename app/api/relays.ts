@@ -4,7 +4,11 @@ import { zValidator } from "@hono/zod-validator";
 import Relay from "./models/relay.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
-import { addRelayEdge, removeRelayEdge } from "./services/unified_store.ts";
+import {
+  addRelayEdge,
+  listPullRelays,
+  removeRelayEdge,
+} from "./services/unified_store.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -17,8 +21,16 @@ const app = new Hono();
 app.use("/relays/*", authRequired);
 
 app.get("/relays", async (c) => {
-  const list = await Relay.find().lean<{ _id: unknown; inboxUrl: string }[]>();
-  const relays = list.map((r) => ({ id: String(r._id), inboxUrl: r.inboxUrl }));
+  const env = getEnv(c);
+  const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
+  const rootDomain = env["ROOT_DOMAIN"] ?? "";
+  const hosts = await listPullRelays(tenant);
+  const targets = hosts.filter((h) => h !== rootDomain);
+  const docs = await Relay.find({ host: { $in: targets } }).lean<{
+    _id: unknown;
+    inboxUrl: string;
+  }[]>();
+  const relays = docs.map((r) => ({ id: String(r._id), inboxUrl: r.inboxUrl }));
   return jsonResponse(c, { relays });
 });
 
@@ -27,14 +39,14 @@ app.post(
   zValidator("json", z.object({ inboxUrl: z.string() })),
   async (c) => {
     const { inboxUrl } = c.req.valid("json") as { inboxUrl: string };
-    const exists = await Relay.findOne({ inboxUrl });
+    const host = new URL(inboxUrl).hostname;
+    const exists = await Relay.findOne({ host });
     if (exists) return jsonResponse(c, { error: "Already exists" }, 409);
-    const relay = new Relay({ inboxUrl });
+    const relay = new Relay({ host, inboxUrl });
     await relay.save();
     const env = getEnv(c);
     const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
     try {
-      const host = new URL(inboxUrl).hostname;
       await addRelayEdge(tenant, host, "pull");
       await addRelayEdge(tenant, host, "push");
     } catch {
@@ -61,7 +73,7 @@ app.delete("/relays/:id", async (c) => {
   const env = getEnv(c);
   const tenant = env["ACTIVITYPUB_DOMAIN"] ?? getDomain(c);
   try {
-    const host = new URL(relay.inboxUrl).hostname;
+    const host = relay.host ?? new URL(relay.inboxUrl).hostname;
     await removeRelayEdge(tenant, host);
   } catch {
     // URL パース失敗時は無視
