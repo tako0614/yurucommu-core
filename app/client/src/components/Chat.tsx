@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
-import { activeAccount } from "../states/account.ts";
+import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
@@ -44,6 +44,27 @@ import {
 } from "./e2ee/storage.ts";
 import { decryptWithPassword, encryptWithPassword } from "../utils/crypto.ts";
 import { encryptionKeyState } from "../states/session.ts";
+
+function isUrl(value?: string): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function adjustHeight(el?: HTMLTextAreaElement) {
+  if (el) {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+}
+
+function getSelfRoomId(user: Account | null): string | null {
+  return user ? `${user.userName}@${getDomain()}` : null;
+}
 
 type ActorID = string;
 
@@ -122,23 +143,6 @@ export function Chat(props: ChatProps) {
   };
   let poller: number | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
-
-  const adjustHeight = () => {
-    if (textareaRef) {
-      textareaRef.style.height = "auto";
-      textareaRef.style.height = `${textareaRef.scrollHeight}px`;
-    }
-  };
-
-  const isUrl = (value?: string): boolean => {
-    if (!value) return false;
-    try {
-      const url = new URL(value.trim());
-      return url.protocol === "http:" || url.protocol === "https:";
-    } catch {
-      return false;
-    }
-  };
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -576,7 +580,7 @@ export function Chat(props: ChatProps) {
     if (room) {
       loadMessages(room, true);
     }
-    adjustHeight();
+    adjustHeight(textareaRef);
   });
 
   createEffect(() => {
@@ -587,10 +591,11 @@ export function Chat(props: ChatProps) {
   createEffect(() => {
     const roomId = selectedRoom();
     const room = chatRooms().find((r) => r.id === roomId);
+    const selfRoomId = getSelfRoomId(account());
 
     if (room) {
       loadMessages(room, true);
-    } else if (roomId) {
+    } else if (roomId && roomId !== selfRoomId) {
       fetchUserInfo(normalizeActor(roomId)).then((info) => {
         if (!info) return;
         const newRoom: ChatRoom = {
@@ -637,7 +642,7 @@ export function Chat(props: ChatProps) {
 
   createEffect(() => {
     newMessage();
-    adjustHeight();
+    adjustHeight(textareaRef);
   });
 
   createEffect(() => {
@@ -939,7 +944,7 @@ export function Chat(props: ChatProps) {
                           style="min-height:32px;max-height:80px;"
                           onInput={(e) => {
                             setNewMessage(e.target.value);
-                            adjustHeight();
+                            adjustHeight(textareaRef);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
