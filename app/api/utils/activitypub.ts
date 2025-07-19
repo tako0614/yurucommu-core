@@ -1,7 +1,7 @@
 import Account from "../models/account.ts";
 import Relay from "../models/relay.ts";
 import { listPushRelays } from "../services/unified_store.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "../../../shared/config.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 
