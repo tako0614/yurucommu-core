@@ -402,10 +402,10 @@ export function Chat(props: ChatProps) {
     const rooms: ChatRoom[] = [
       {
         id: `${user.userName}@${getDomain()}`,
-        name: "メモ",
+        name: "TAKO Keep",
         userName: user.userName,
         domain: getDomain(),
-        avatar: user.avatarInitial || user.userName.charAt(0).toUpperCase(),
+        avatar: "📝",
         unreadCount: 0,
         type: "memo",
         members: [`${user.userName}@${getDomain()}`],
@@ -710,7 +710,9 @@ export function Chat(props: ChatProps) {
                                   display: "flex",
                                   "align-items": "center",
                                   "justify-content": "center",
-                                  background: "#444",
+                                  background: room.type === "memo"
+                                    ? "#16a34a"
+                                    : "#444",
                                   color: "#fff",
                                   "border-radius": "50%",
                                   "font-size": "20px",
