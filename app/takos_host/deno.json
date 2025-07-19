@@ -2,7 +2,8 @@
   "tasks": {
     "serve": "deno run -A --watch main.ts",
     "dev": "deno run -A dev.ts",
-    "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts"
+    "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
+    "host": "deno run -A ../../scripts/host_manager.ts"
   },
   "imports": {
     "@motionone/solid": "npm:@motionone/solid@^10.16.4",

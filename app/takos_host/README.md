@@ -107,3 +107,22 @@ OAuth ボタンを表示します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
 
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
+
+## CLI 管理ツール
+
+`takos host` を CLI から操作するスクリプト `scripts/host_manager.ts`
+を用意しています。ログインユーザーを指定することで、インスタンスの一覧表示や作成・削除に加え、リレーサーバーの登録や削除も行えます。
+
+### 使用例
+
+```bash
+deno task host list --user alice --pass secret
+
+deno task host create --host myapp --inst-pass pw --user alice --pass secret
+
+deno task host relay-list --user alice --pass secret
+
+deno task host relay-add --inbox-url https://relay.example/inbox --user alice --pass secret
+
+deno task host relay-delete --relay-id RELAY_ID --user alice --pass secret
+```
