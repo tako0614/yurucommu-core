@@ -25,6 +25,7 @@ export function rateLimit(options: RateLimitOptions = {}): MiddlewareHandler {
     }
     entry.count++;
     counters.set(key, entry);
+    // deno-lint-ignore no-constant-condition
     if (false) {
       c.res.headers.set(
         "Retry-After",

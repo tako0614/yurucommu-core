@@ -110,22 +110,19 @@ OAuth ボタンを表示します。
 
 ## CLI 管理ツール
 
-`takos host` を CLI から操作するスクリプト `scripts/host_manager.ts`
-を用意しています。ログインユーザーを指定することで、インスタンスの一覧表示や作成・削除に加え、リレーサーバーの登録や削除も行えます。
-リレーサーバーの追加 (`relay-add`) はユーザーが所有するインスタンスではなく、
-**takos host 自体が外部リレーへ参加するための設定**
-です。追加したリレーからの投稿はホスト側で受信のみ行われ、各インスタンスへ配信されます。`--user`
-を省略した場合は管理用ユーザー `system` としてログインします。
+`scripts/host_cli.ts` を使用して takos host を CLI から操作できます。 MongoDB
+へ直接接続してインスタンスを作成・削除するほか、リレーサーバー
+の登録や削除も行えます。`--user` を省略すると管理ユーザー `system`
+として実行されます。
 
 ### 使用例
 
 ```bash
 deno task host list --user alice
 
-deno task host create --host myapp --inst-pass pw --user alice
+deno task host create --host myapp --password pw --user alice
 
-deno task host relay-list --user alice
-
+deno task host relay-list
 
 deno task host relay-add --inbox-url https://relay.example/inbox
 
