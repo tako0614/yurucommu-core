@@ -1,10 +1,21 @@
 import ObjectStore, { objectStoreSchema } from "../models/object_store.ts";
+import Note, { noteSchema } from "../models/note.ts";
+import Video, { videoSchema } from "../models/video.ts";
+import Message, { messageSchema } from "../models/message.ts";
 import FollowEdge from "../models/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import RelayEdge from "../models/relay_edge.ts";
 import type { InferSchemaType, PipelineStage, SortOrder } from "mongoose";
 
 type ObjectStoreType = InferSchemaType<typeof objectStoreSchema>;
+type NoteType = InferSchemaType<typeof noteSchema>;
+type VideoType = InferSchemaType<typeof videoSchema>;
+type MessageType = InferSchemaType<typeof messageSchema>;
+export type ActivityObject =
+  | NoteType
+  | VideoType
+  | MessageType
+  | ObjectStoreType;
 
 export async function saveNote(
   env: Record<string, string>,
@@ -19,21 +30,14 @@ export async function saveNote(
 ) {
   const id = createObjectId(domain);
   const actor = `https://${domain}/users/${author}`;
-  const raw = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id,
-    type: "Note",
-    content,
-    published: new Date().toISOString(),
-    attributedTo: actor,
-    ...extra,
-  };
-  const doc = new ObjectStore({
+  const doc = new Note({
     _id: id,
-    raw,
-    type: "Note",
+    attributedTo: author,
     actor_id: actor,
+    content,
+    extra,
     tenant_id: env["ACTIVITYPUB_DOMAIN"],
+    published: new Date(),
     aud,
   });
   (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
@@ -41,6 +45,150 @@ export async function saveNote(
   };
   await doc.save();
   return doc;
+}
+
+export async function saveVideo(
+  env: Record<string, string>,
+  domain: string,
+  author: string,
+  content: string,
+  extra: Record<string, unknown>,
+  aud = {
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [] as string[],
+  },
+) {
+  const id = createObjectId(domain);
+  const actor = `https://${domain}/users/${author}`;
+  const doc = new Video({
+    _id: id,
+    attributedTo: author,
+    actor_id: actor,
+    content,
+    extra,
+    tenant_id: env["ACTIVITYPUB_DOMAIN"],
+    published: new Date(),
+    aud,
+  });
+  (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
+    env,
+  };
+  await doc.save();
+  return doc;
+}
+
+export async function saveMessage(
+  env: Record<string, string>,
+  domain: string,
+  author: string,
+  content: string,
+  extra: Record<string, unknown>,
+  aud: { to: string[]; cc: string[] },
+) {
+  const id = createObjectId(domain);
+  const actor = `https://${domain}/users/${author}`;
+  const doc = new Message({
+    _id: id,
+    attributedTo: author,
+    actor_id: actor,
+    content,
+    extra,
+    tenant_id: env["ACTIVITYPUB_DOMAIN"],
+    published: new Date(),
+    aud,
+  });
+  (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
+    env,
+  };
+  await doc.save();
+  return doc;
+}
+
+export async function updateNote(
+  env: Record<string, string>,
+  id: string,
+  update: Record<string, unknown>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Note.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    update,
+    { new: true },
+  );
+}
+
+export async function updateVideo(
+  env: Record<string, string>,
+  id: string,
+  update: Record<string, unknown>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Video.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    update,
+    { new: true },
+  );
+}
+
+export async function updateMessage(
+  env: Record<string, string>,
+  id: string,
+  update: Record<string, unknown>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Message.findOneAndUpdate(
+    { _id: id, tenant_id: tenantId },
+    update,
+    { new: true },
+  );
+}
+
+export async function deleteNote(env: Record<string, string>, id: string) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Note.findOneAndDelete({ _id: id, tenant_id: tenantId });
+}
+
+export async function deleteVideo(env: Record<string, string>, id: string) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Video.findOneAndDelete({ _id: id, tenant_id: tenantId });
+}
+
+export async function deleteMessage(env: Record<string, string>, id: string) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  return await Message.findOneAndDelete({ _id: id, tenant_id: tenantId });
+}
+
+export async function findNotes(
+  env: Record<string, string>,
+  filter: Record<string, unknown>,
+  sort?: Record<string, SortOrder>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  const f = { ...filter } as Record<string, unknown>;
+  if (tenantId) f.tenant_id = tenantId;
+  return await Note.find(f).sort(sort ?? {}).lean<NoteType[]>();
+}
+
+export async function findVideos(
+  env: Record<string, string>,
+  filter: Record<string, unknown>,
+  sort?: Record<string, SortOrder>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  const f = { ...filter } as Record<string, unknown>;
+  if (tenantId) f.tenant_id = tenantId;
+  return await Video.find(f).sort(sort ?? {}).lean<VideoType[]>();
+}
+
+export async function findMessages(
+  env: Record<string, string>,
+  filter: Record<string, unknown>,
+  sort?: Record<string, SortOrder>,
+) {
+  const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  const f = { ...filter } as Record<string, unknown>;
+  if (tenantId) f.tenant_id = tenantId;
+  return await Message.find(f).sort(sort ?? {}).lean<MessageType[]>();
 }
 
 export async function saveObject(
@@ -104,19 +252,14 @@ export async function getPublicNotes(
   env: Record<string, string>,
   limit = 40,
   before?: Date,
-): Promise<
-  ObjectStoreType[]
-> {
-  const query = ObjectStore.find({
-    type: "Note",
+): Promise<NoteType[]> {
+  const query = Note.find({
     "aud.to": "https://www.w3.org/ns/activitystreams#Public",
   });
   const tenantId = env["ACTIVITYPUB_DOMAIN"];
   if (tenantId) query.where("tenant_id").equals(tenantId);
   if (before) query.where("created_at").lt(before.getTime());
-  return await query.sort({ created_at: -1 }).limit(limit).lean<
-    ObjectStoreType[]
-  >();
+  return await query.sort({ created_at: -1 }).limit(limit).lean<NoteType[]>();
 }
 
 export async function getTimeline(
@@ -124,12 +267,12 @@ export async function getTimeline(
   actorUri: string,
   limit = 40,
   before?: Date,
-): Promise<ObjectStoreType[]> {
+): Promise<NoteType[]> {
   const pipeline: PipelineStage[] = [
     { $match: { tenant_id: tenantId } },
     {
       $lookup: {
-        from: "object_store",
+        from: "notes",
         localField: "actor_id",
         foreignField: "actor_id",
         as: "objs",
@@ -151,14 +294,26 @@ export async function getTimeline(
   }
   pipeline.push({ $sort: { "objs.created_at": -1 } }, { $limit: limit });
   const docs = await FollowEdge.aggregate(pipeline).exec();
-  return docs.map((d) => d.objs as ObjectStoreType);
+  return docs.map((d) => d.objs as NoteType);
 }
 
 export async function getObject(
   env: Record<string, string>,
   id: string,
-): Promise<ObjectStoreType | null> {
+): Promise<ActivityObject | null> {
   const tenantId = env["ACTIVITYPUB_DOMAIN"];
+  let doc = await Note.findOne({ _id: id, tenant_id: tenantId }).lean<
+    NoteType | null
+  >();
+  if (doc) return doc;
+  doc = await Video.findOne({ _id: id, tenant_id: tenantId }).lean<
+    VideoType | null
+  >();
+  if (doc) return doc;
+  doc = await Message.findOne({ _id: id, tenant_id: tenantId }).lean<
+    MessageType | null
+  >();
+  if (doc) return doc;
   return await ObjectStore.findOne({ _id: id, tenant_id: tenantId }).lean<
     ObjectStoreType | null
   >();

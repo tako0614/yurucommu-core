@@ -3,7 +3,7 @@ import KeyPackage from "./models/key_package.ts";
 import EncryptedMessage from "./models/encrypted_message.ts";
 import PublicMessage from "./models/public_message.ts";
 import EncryptedKeyPair from "./models/encrypted_keypair.ts";
-import { saveObject } from "./services/unified_store.ts";
+import { saveMessage } from "./services/unified_store.ts";
 import Account from "./models/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -315,21 +315,20 @@ app.post(
     });
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
-    const object = await saveObject(
+    const object = await saveMessage(
       getEnv(c),
-      {
-        type: "PrivateMessage",
-        attributedTo: acct,
-        content,
-        to,
-        extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-        actor_id: actorId,
-        aud: { to, cc: [] },
-      },
+      domain,
+      sender,
+      content,
+      { mediaType: msg.mediaType, encoding: msg.encoding },
+      { to, cc: [] },
     );
 
     const privateMessage = buildActivityFromStored(
-      object.toObject() as {
+      {
+        ...object.toObject(),
+        type: "PrivateMessage",
+      } as {
         _id: unknown;
         type: string;
         content: string;
@@ -386,21 +385,20 @@ app.post(
     });
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
-    const object = await saveObject(
+    const object = await saveMessage(
       getEnv(c),
-      {
-        type: "PublicMessage",
-        attributedTo: acct,
-        content,
-        to,
-        extra: { mediaType: msg.mediaType, encoding: msg.encoding },
-        actor_id: actorId,
-        aud: { to, cc: [] },
-      },
+      domain,
+      sender,
+      content,
+      { mediaType: msg.mediaType, encoding: msg.encoding },
+      { to, cc: [] },
     );
 
     const publicMessage = buildActivityFromStored(
-      object.toObject() as {
+      {
+        ...object.toObject(),
+        type: "PublicMessage",
+      } as {
         _id: unknown;
         type: string;
         content: string;

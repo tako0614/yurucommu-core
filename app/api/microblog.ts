@@ -2,21 +2,21 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import {
-  deleteObject,
-  findObjects,
+  deleteNote,
+  findNotes,
   getObject,
   getPublicNotes,
   getTimeline,
   saveNote,
-  updateObject,
+  updateNote,
 } from "./services/unified_store.ts";
 
 // 型定義用のimport
 import type { InferSchemaType } from "mongoose";
-import type { objectStoreSchema } from "./models/object_store.ts";
+import { noteSchema } from "./models/note.ts";
 import { getEnv } from "../../shared/config.ts";
 
-type ActivityPubObjectType = InferSchemaType<typeof objectStoreSchema>;
+type ActivityPubObjectType = InferSchemaType<typeof noteSchema>;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
@@ -174,7 +174,12 @@ app.get("/microblog", async (c) => {
   const userInfos = await getUserInfoBatch(identifiers as string[], domain);
   const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
-    const postData = { ...doc.raw, _id: doc._id } as Record<string, unknown>;
+    const postData = {
+      _id: doc._id,
+      content: doc.content,
+      published: doc.published,
+      extra: doc.extra,
+    } as Record<string, unknown>;
     return formatUserInfoForPost(userInfo, postData);
   });
 
@@ -220,7 +225,7 @@ app.post(
     const post = await saveNote(env, domain, author, content, extra);
 
     if (typeof parentId === "string") {
-      await updateObject(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
+      await updateNote(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
         () => {},
       );
     }
@@ -252,7 +257,12 @@ app.get("/microblog/:id", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const userInfo = await getUserInfo(post.actor_id as string, domain);
-  const data = { ...post.raw, _id: post._id } as Record<string, unknown>;
+  const data = {
+    _id: post._id,
+    content: post.content,
+    published: post.published,
+    extra: post.extra,
+  } as Record<string, unknown>;
   return c.json(formatUserInfoForPost(userInfo, data));
 });
 
@@ -260,7 +270,7 @@ app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const id = c.req.param("id");
-  const list = await findObjects(env, { "extra.inReplyTo": id }, {
+  const list = await findNotes(env, { "extra.inReplyTo": id }, {
     published: 1,
   });
   const ids = list.map((doc) => doc.attributedTo as string);
@@ -279,7 +289,7 @@ app.put(
     const id = c.req.param("id");
     const { content } = c.req.valid("json") as { content: string };
     const env = getEnv(c);
-    const post = await updateObject(env, id, { content });
+    const post = await updateNote(env, id, { content });
     if (!post) return c.json({ error: "Not found" }, 404);
 
     // 共通ユーザー情報取得サービスを使用
@@ -314,12 +324,10 @@ app.post(
       extra.likedBy = likedBy;
       extra.likes = likedBy.length;
       const env = getEnv(c);
-      await updateObject(env, id, { extra });
+      await updateNote(env, id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
-      const objectUrl = typeof post.raw?.id === "string"
-        ? post.raw.id as string
-        : `https://${domain}/objects/${post._id}`;
+      const objectUrl = `https://${domain}/objects/${post._id}`;
       let inboxes: string[] = [];
       if (
         typeof post.attributedTo === "string" &&
@@ -392,12 +400,10 @@ app.post(
       extra.retweetedBy = retweetedBy;
       extra.retweets = retweetedBy.length;
       const env = getEnv(c);
-      await updateObject(env, id, { extra });
+      await updateNote(env, id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
-      const objectUrl = typeof post.raw?.id === "string"
-        ? post.raw.id as string
-        : `https://${domain}/objects/${post._id}`;
+      const objectUrl = `https://${domain}/objects/${post._id}`;
 
       let inboxes: string[] = [];
       const account = await Account.findOne({ userName: username }).lean();
@@ -455,7 +461,7 @@ app.post(
 app.delete("/microblog/:id", async (c) => {
   const env = getEnv(c);
   const id = c.req.param("id");
-  const deleted = await deleteObject(env, id);
+  const deleted = await deleteNote(env, id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
