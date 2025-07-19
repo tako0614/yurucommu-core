@@ -252,14 +252,37 @@ export async function getPublicNotes(
   env: Record<string, string>,
   limit = 40,
   before?: Date,
-): Promise<NoteType[]> {
+): Promise<ActivityObject[]> {
   const query = Note.find({
     "aud.to": "https://www.w3.org/ns/activitystreams#Public",
   });
   const tenantId = env["ACTIVITYPUB_DOMAIN"];
-  if (tenantId) query.where("tenant_id").equals(tenantId);
-  if (before) query.where("created_at").lt(before.getTime());
-  return await query.sort({ created_at: -1 }).limit(limit).lean<NoteType[]>();
+  const objQuery = ObjectStore.find({
+    type: "Note",
+    "aud.to": "https://www.w3.org/ns/activitystreams#Public",
+  });
+  if (tenantId) {
+    query.where("tenant_id").equals(tenantId);
+    objQuery.where("tenant_id").equals(tenantId);
+  }
+  if (before) {
+    query.where("created_at").lt(before.getTime());
+    objQuery.where("created_at").lt(before.getTime());
+  }
+  const [notes, objs] = await Promise.all([
+    query.sort({ created_at: -1 }).limit(limit).lean<NoteType[]>(),
+    objQuery.sort({ created_at: -1 }).limit(limit).lean<ObjectStoreType[]>(),
+  ]);
+  const merged = [
+    ...notes,
+    ...objs,
+  ] as ActivityObject[];
+  merged.sort((a, b) => {
+    const at = (a.created_at ?? a.published ?? 0) as Date;
+    const bt = (b.created_at ?? b.published ?? 0) as Date;
+    return bt.getTime() - at.getTime();
+  });
+  return merged.slice(0, limit);
 }
 
 export async function getTimeline(
