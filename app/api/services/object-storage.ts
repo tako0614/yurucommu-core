@@ -4,7 +4,7 @@
 
 // 外部モジュール
 import { ensureDir } from "@std/fs";
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -34,7 +34,7 @@ export class LocalStorage implements ObjectStorage {
 
   async put(key: string, data: Uint8Array): Promise<string> {
     const filePath = join(this.baseDir, key);
-    await ensureDir(this.baseDir);
+    await ensureDir(dirname(filePath));
     await Deno.writeFile(filePath, data);
     return filePath;
   }
