@@ -105,11 +105,16 @@ if (termsText) {
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/user/*", proxy("/user"));
-  if (rootDomain) {
+  if (rootDomain && rootActivityPubApp) {
+    const proxyRoot = proxy("");
     root.use(async (c, next) => {
       const host = getRealHost(c);
       if (host === rootDomain) {
-        return await proxy("")(c, next);
+        const res = await rootActivityPubApp.fetch(c.req.raw);
+        if (res.status !== 404) {
+          return res;
+        }
+        return await proxyRoot(c, next);
       }
       await next();
     });
