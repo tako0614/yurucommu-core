@@ -24,7 +24,7 @@ export const createVideo = (
 ): Promise<Video | null> => {
   return new Promise((resolve) => {
     try {
-      const wsUrl = apiUrl("/api/videos/upload").replace(/^http/, "ws");
+      const wsUrl = apiUrl("/api/ws").replace(/^http/, "ws");
       const ws = new WebSocket(wsUrl);
       let uploaded = false;
 
