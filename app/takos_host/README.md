@@ -120,13 +120,14 @@ OAuth ボタンを表示します。
 ### 使用例
 
 ```bash
-deno task host list --user alice --pass secret
+deno task host list --user alice
 
-deno task host create --host myapp --inst-pass pw --user alice --pass secret
+deno task host create --host myapp --inst-pass pw --user alice
 
-deno task host relay-list --user alice --pass secret
+deno task host relay-list --user alice
 
-deno task host relay-add --inbox-url https://relay.example/inbox --pass secret
 
-deno task host relay-delete --relay-id RELAY_ID --user alice --pass secret
+deno task host relay-add --inbox-url https://relay.example/inbox
+
+deno task host relay-delete --relay-id RELAY_ID
 ```
