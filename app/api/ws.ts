@@ -43,32 +43,35 @@ export function registerErrorHandler(handler: LifecycleHandler) {
 
 const app = new Hono();
 
-app.get("/ws", (c) => {
-  const state: WsState = { context: c };
-  return upgradeWebSocket(c, {
-    onOpen(_evt, ws) {
-      for (const h of openHandlers) h(ws, state);
-    },
-    onMessage(evt, ws) {
-      if (typeof evt.data === "string") {
-        try {
-          const msg = JSON.parse(evt.data);
-          const handler = messageHandlers.get(msg.type);
-          handler?.(msg.payload, ws, state);
-        } catch {
-          ws.send(JSON.stringify({ error: "invalid message" }));
+app.get(
+  "/ws",
+  upgradeWebSocket((c) => {
+    const state: WsState = { context: c };
+    return {
+      onOpen(_evt, ws) {
+        for (const h of openHandlers) h(ws, state);
+      },
+      onMessage(evt, ws) {
+        if (typeof evt.data === "string") {
+          try {
+            const msg = JSON.parse(evt.data);
+            const handler = messageHandlers.get(msg.type);
+            handler?.(msg.payload, ws, state);
+          } catch {
+            ws.send(JSON.stringify({ error: "invalid message" }));
+          }
+        } else if (binaryHandler) {
+          binaryHandler(evt.data, ws, state);
         }
-      } else if (binaryHandler) {
-        binaryHandler(evt.data, ws, state);
-      }
-    },
-    async onClose(_evt, ws) {
-      for (const h of closeHandlers) await h(ws, state);
-    },
-    onError(_evt, ws) {
-      for (const h of errorHandlers) h(ws, state);
-    },
-  });
-});
+      },
+      async onClose(_evt, ws) {
+        for (const h of closeHandlers) await h(ws, state);
+      },
+      onError(_evt, ws) {
+        for (const h of errorHandlers) h(ws, state);
+      },
+    };
+  }),
+);
 
 export default app;
