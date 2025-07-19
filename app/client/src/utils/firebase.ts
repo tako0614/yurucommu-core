@@ -38,6 +38,7 @@ async function ensureMessaging(): Promise<Messaging> {
   messaging = getMessaging(app);
   const reg = await navigator.serviceWorker.register(
     "/firebase-messaging-sw.js",
+    { type: "module" },
   );
   reg.active?.postMessage({ type: "config", config });
   return messaging;
