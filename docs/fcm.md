@@ -19,6 +19,11 @@ Takos では Firebase Cloud Messaging
 - `FIREBASE_APP_ID` – アプリ ID
 - `FIREBASE_VAPID_KEY` – Web Push 用の公開 VAPID キー
 
+`FIREBASE_VAPID_KEY` には Firebase コンソールの "Web Push 証明書" で
+表示される公開鍵をそのまま設定してください。公開鍵は通常 80 文字以上 あります
+(例: `BLa...` のような 87 文字前後)。40 文字程度の鍵は不完全な
+値であり、`InvalidAccessError` が発生します。
+
 takos host ではホスト側で設定した値が各テナントへ自動的に引き継がれます。
 
 ## トークン登録
