@@ -1,4 +1,4 @@
-import { parseArgs } from "jsr:@std/flags";
+import { parse as parseArgs } from "jsr:@std/flags";
 
 interface Args {
   url: string;
@@ -33,7 +33,7 @@ Options:
 `);
 }
 
-function parse(): Args | null {
+function parseArgsFn(): Args | null {
   const parsed = parseArgs(Deno.args, {
     string: [
       "url",
@@ -187,7 +187,7 @@ async function deleteRelay(baseUrl: string, cookie: string, id: string) {
 }
 
 async function main() {
-  const args = parse();
+  const args = parseArgsFn();
   if (!args) return;
   if (!args.user || !args.pass) {
     console.error("--user と --pass を指定してください");
