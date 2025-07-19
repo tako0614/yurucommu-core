@@ -2,8 +2,8 @@ import { parseArgs } from "jsr:@std/flags";
 
 interface Args {
   url: string;
-  user: string;
-  pass: string;
+  user?: string;
+  pass?: string;
   command: string;
   host?: string;
   instPass?: string;
@@ -25,8 +25,8 @@ Commands:
 
 Options:
   --url        takos host のベース URL (既定: http://localhost:8001)
-  --user       ユーザー名
-  --pass       ログインパスワード
+  --user       ユーザー名 (省略時 system)
+  --pass       ログインパスワード (省略可)
   --inst-pass  インスタンス用パスワード
   --inbox-url  追加するリレーのInbox URL
   --relay-id   削除するリレーのID
@@ -56,8 +56,8 @@ function parse(): Args | null {
   const command = String(parsed._[0]);
   return {
     url: String(parsed.url),
-    user: String(parsed.user ?? ""),
-    pass: String(parsed.pass ?? ""),
+    user: parsed.user ? String(parsed.user) : undefined,
+    pass: parsed.pass ? String(parsed.pass) : undefined,
     command,
     host: parsed.host ? String(parsed.host) : undefined,
     instPass: parsed["inst-pass"] ? String(parsed["inst-pass"]) : undefined,
@@ -69,7 +69,7 @@ function parse(): Args | null {
 async function login(
   baseUrl: string,
   user: string,
-  pass: string,
+  pass = "",
 ): Promise<string> {
   const res = await fetch(`${baseUrl}/auth/login`, {
     method: "POST",
@@ -189,11 +189,8 @@ async function deleteRelay(baseUrl: string, cookie: string, id: string) {
 async function main() {
   const args = parse();
   if (!args) return;
-  if (!args.user || !args.pass) {
-    console.error("--user と --pass を指定してください");
-    return;
-  }
-  const cookie = await login(args.url, args.user, args.pass);
+  const user = args.user ?? "system";
+  const cookie = await login(args.url, user, args.pass ?? "");
   try {
     switch (args.command) {
       case "list":
