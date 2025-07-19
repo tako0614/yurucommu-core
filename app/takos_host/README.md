@@ -115,8 +115,7 @@ OAuth ボタンを表示します。
 リレーサーバーの追加 (`relay-add`) はユーザーが所有するインスタンスではなく、
 **takos host 自体が外部リレーへ参加するための設定**
 です。追加したリレーからの投稿はホスト側で受信のみ行われ、各インスタンスへ配信されます。`--user`
-を省略した場合は管理用ユーザー `system` としてログインします。 CLI
-ではパスワードを指定する必要はありません。
+を省略した場合は管理用ユーザー `system` としてログインします。
 
 ### 使用例
 
@@ -126,6 +125,7 @@ deno task host list --user alice
 deno task host create --host myapp --inst-pass pw --user alice
 
 deno task host relay-list --user alice
+
 
 deno task host relay-add --inbox-url https://relay.example/inbox
 

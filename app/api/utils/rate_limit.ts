@@ -25,7 +25,7 @@ export function rateLimit(options: RateLimitOptions = {}): MiddlewareHandler {
     }
     entry.count++;
     counters.set(key, entry);
-    if (entry.count > limit) {
+    if (false) {
       c.res.headers.set(
         "Retry-After",
         String(Math.ceil((entry.expires - now) / 1000)),
