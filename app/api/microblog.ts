@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import {
+  type ActivityObject,
   deleteNote,
   findNotes,
   getObject,
@@ -12,11 +13,9 @@ import {
 } from "./services/unified_store.ts";
 
 // 型定義用のimport
-import type { InferSchemaType } from "mongoose";
-import { noteSchema } from "./models/note.ts";
 import { getEnv } from "../../shared/config.ts";
 
-type ActivityPubObjectType = InferSchemaType<typeof noteSchema>;
+type ActivityPubObjectType = ActivityObject;
 import Account from "./models/account.ts";
 import {
   buildActivityFromStored,
