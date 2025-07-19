@@ -3,7 +3,7 @@ import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { profileUserState, selectedPostIdState } from "../states/router.ts";
-import { getDomain, getOrigin } from "./config.ts";
+import { getDomain } from "./config.ts";
 
 function actorToHandle(actor: string): string {
   if (actor.startsWith("http")) {
@@ -17,15 +17,6 @@ function actorToHandle(actor: string): string {
   }
   if (actor.includes("@")) return actor;
   return `${actor}@${getDomain()}`;
-}
-
-function handleToActor(handle: string): string {
-  if (handle.startsWith("http")) return handle;
-  if (handle.includes("@")) {
-    const [name, domain] = handle.split("@");
-    return `https://${domain}/users/${name}`;
-  }
-  return `${getOrigin()}/users/${handle}`;
 }
 
 export function useHashRouter() {
@@ -48,7 +39,7 @@ export function useHashRouter() {
     switch (seg) {
       case "chat":
         setIfChanged(app, setApp, "chat");
-        setIfChanged(room, setRoom, param ? handleToActor(param) : null);
+        setIfChanged(room, setRoom, param ? actorToHandle(param) : null);
         setIfChanged(postId, setPostId, null);
         setIfChanged(profile, setProfile, null);
         break;
