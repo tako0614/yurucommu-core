@@ -1,7 +1,7 @@
 import { MiddlewareHandler } from "hono";
 import Session from "../models/session.ts";
-import { getEnv } from "../../shared/config.ts";
-import { createAuthMiddleware } from "../../shared/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { createAuthMiddleware } from "../../../shared/auth.ts";
 
 const authRequired: MiddlewareHandler = createAuthMiddleware({
   cookieName: "sessionId",
