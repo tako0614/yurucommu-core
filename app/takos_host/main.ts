@@ -140,7 +140,6 @@ if (!isDev && rootDomain) {
 root.all("/*", async (c) => {
   const host = getRealHost(c);
   const app = await getAppForHost(host);
-  console.log(`Request for host: ${host}, app: ${app ? "found" : "not found"}`);
   if (!app) return c.text("not found", 404);
   return app.fetch(c.req.raw);
 });

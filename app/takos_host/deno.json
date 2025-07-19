@@ -3,7 +3,7 @@
     "serve": "deno run -A --watch main.ts",
     "dev": "deno run -A dev.ts",
     "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
-    "host": "deno run -A ../../scripts/host_cli.ts"
+    "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
   },
   "imports": {
     "@motionone/solid": "npm:@motionone/solid@^10.16.4",
@@ -17,7 +17,7 @@
     "@std/fs": "jsr:@std/fs@^1.0.18",
     "@std/path": "jsr:@std/path@^1.1.0",
     "@std/http": "jsr:@std/http@^0.225.5",
-    "mongoose": "npm:mongoose@^8.15.1",
+    "mongoose": "npm:mongoose@^8.16.4",
     "solid-app-router": "npm:solid-app-router@^0.4.2",
     "tailwindcss": "npm:tailwindcss@^4.1.11",
     "zod": "npm:zod@^3.25.56",
