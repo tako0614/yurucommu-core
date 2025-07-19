@@ -176,21 +176,25 @@ async function setPassword(userName: string, host: string, pass?: string) {
 }
 
 async function listRelays() {
-  const list = await Relay.find().lean<{ _id: unknown; inboxUrl: string }[]>();
-  for (const r of list) console.log(`${r._id} ${r.inboxUrl}`);
+  const list = await Relay.find().lean<{
+    _id: unknown;
+    host: string;
+    inboxUrl: string;
+  }[]>();
+  for (const r of list) console.log(`${r._id} ${r.host} ${r.inboxUrl}`);
 }
 
 async function addRelay(env: Record<string, string>, inboxUrl: string) {
-  const exists = await Relay.findOne({ inboxUrl });
+  const relayHost = new URL(inboxUrl).hostname;
+  const exists = await Relay.findOne({ host: relayHost });
   if (exists) throw new Error("既に存在します");
-  const relay = new Relay({ inboxUrl });
+  const relay = new Relay({ host: relayHost, inboxUrl });
   await relay.save();
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
     try {
-      const host = new URL(inboxUrl).hostname;
-      await addRelayEdge(rootDomain, host, "pull");
-      await addRelayEdge(rootDomain, host, "push");
+      await addRelayEdge(rootDomain, relayHost, "pull");
+      await addRelayEdge(rootDomain, relayHost, "push");
     } catch {
       /* ignore */
     }
@@ -216,8 +220,8 @@ async function deleteRelay(env: Record<string, string>, id: string) {
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
     try {
-      const host = new URL(relay.inboxUrl).hostname;
-      await removeRelayEdge(rootDomain, host);
+      const relayHost = relay.host ?? new URL(relay.inboxUrl).hostname;
+      await removeRelayEdge(rootDomain, relayHost);
     } catch {
       /* ignore */
     }
