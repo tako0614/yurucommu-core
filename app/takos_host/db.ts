@@ -117,7 +117,7 @@ export class MongoDBHost implements DB {
       type: "Note",
       "aud.to": "https://www.w3.org/ns/activitystreams#Public",
     });
-    if (before) query.where("created_at").lt(before);
+    if (before) query.where("created_at").lt(before.getTime());
     return await query.sort({ created_at: -1 }).limit(limit).lean();
   }
 
