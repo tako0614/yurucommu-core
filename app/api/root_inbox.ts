@@ -1,9 +1,13 @@
 import { Hono } from "hono";
-import { getDomain, jsonResponse, verifyHttpSignature } from "./utils/activitypub.ts";
+import {
+  getDomain,
+  jsonResponse,
+  verifyHttpSignature,
+} from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "./activity_handlers.ts";
-import Account from "./models/account.ts";
-import { getObject, saveObject } from "./services/unified_store.ts";
+import { findAccountByUserName } from "./repositories/account.ts";
+import { createDB } from "./db.ts";
 import { addInboxEntry } from "./services/inbox.ts";
 
 const app = new Hono();
@@ -15,12 +19,13 @@ app.post("/system/inbox", async (c) => {
   const activity = JSON.parse(body);
   if (activity.type === "Create" && typeof activity.object === "object") {
     const env = getEnv(c);
+    const db = createDB(env);
     const object = activity.object as Record<string, unknown>;
     let objectId = typeof object.id === "string" ? object.id : "";
-    let stored = await getObject(env, objectId);
+    let stored = await db.getObject(objectId);
     if (!stored) {
-      stored = await saveObject(env, object);
-      objectId = String(stored._id);
+      stored = await db.saveObject(object);
+      objectId = String((stored as { _id?: unknown })._id);
     }
     await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
   }
@@ -69,22 +74,19 @@ app.post("/inbox", async (c) => {
             let objectId = typeof activity.object.id === "string"
               ? activity.object.id
               : "";
-            let stored = await getObject(env, objectId);
+            const db = createDB(env);
+            let stored = await db.getObject(objectId);
             if (!stored) {
-              stored = await saveObject(
-                env,
+              stored = await db.saveObject(
                 activity.object as Record<string, unknown>,
               );
-              objectId = String(stored._id);
+              objectId = String((stored as { _id?: unknown })._id);
             }
             await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
           }
           continue;
         }
-        const account = await Account.findOne({
-          userName: username,
-          tenant_id: env["ACTIVITYPUB_DOMAIN"],
-        });
+        const account = await findAccountByUserName(env, username);
         if (!account) continue;
         const handler = activityHandlers[activity.type];
         if (handler) await handler(activity, username, c);

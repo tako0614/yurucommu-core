@@ -11,13 +11,8 @@ import {
   createStorage,
   type ObjectStorage,
 } from "./services/object-storage.ts";
-import {
-  findVideos,
-  getObject,
-  saveVideo,
-  updateVideo,
-} from "./services/unified_store.ts";
-import Account from "./models/account.ts";
+import { createDB } from "./db.ts";
+import { findAccountByUserName } from "./repositories/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
@@ -31,8 +26,9 @@ import {
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
 let storage: ObjectStorage;
-export function initVideoModule(env: Record<string, string>) {
-  storage = createStorage(env);
+export async function initVideoModule(env: Record<string, string>) {
+  const db = createDB(env);
+  storage = await createStorage(env, db);
 }
 
 // --- Helper Functions ---
@@ -49,7 +45,7 @@ async function deliverVideoToFollowers(
   domain: string,
 ) {
   try {
-    const account = await Account.findOne({ userName: author }).lean();
+    const account = await findAccountByUserName(env, author);
     if (!account || !account.followers) return;
 
     const inboxes = await Promise.all(
@@ -178,8 +174,9 @@ export function initVideoWebSocket() {
         : `/api/video-files/${key}`;
 
       const domain = getDomain(c);
-      const video = await saveVideo(
-        getEnv(c),
+      const env = getEnv(c);
+      const db = createDB(env);
+      const video = await db.saveVideo(
         domain,
         meta.author,
         meta.description,
@@ -207,10 +204,11 @@ export function initVideoWebSocket() {
 app.get("/videos", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
-  const list = await findVideos(env, {}, { published: -1 });
+  const db = createDB(env);
+  const list = await db.findVideos({}, { published: -1 });
 
   const identifiers = list.map((doc) => doc.attributedTo as string);
-  const infos = await getUserInfoBatch(identifiers, domain);
+  const infos = await getUserInfoBatch(identifiers, domain, env);
 
   const result = list.map((doc, idx) => {
     const info = infos[idx];
@@ -263,8 +261,9 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     ? stored
     : `/api/video-files/${filename}`;
 
-  const video = await saveVideo(
-    getEnv(c),
+  const env = getEnv(c);
+  const db = createDB(env);
+  const video = await db.saveVideo(
     domain,
     author,
     description,
@@ -288,7 +287,7 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     domain,
   );
 
-  const info = await getUserInfo(video.attributedTo as string, domain);
+  const info = await getUserInfo(video.attributedTo as string, domain, env);
 
   return c.json({
     id: String(video._id),
@@ -310,19 +309,21 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
 app.post("/videos/:id/like", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
-  const doc = await getObject(env, id);
+  const db = createDB(env);
+  const doc = await db.getObject(id);
   if (!doc) return c.json({ error: "Not found" }, 404);
   const extra = doc.extra as Record<string, unknown> ?? {};
   const likes = typeof extra.likes === "number" ? extra.likes + 1 : 1;
   extra.likes = likes;
-  await updateVideo(env, id, { extra });
+  await db.updateVideo(id, { extra });
   return c.json({ likes });
 });
 
 app.post("/videos/:id/view", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
-  const doc = await updateVideo(env, id, { $inc: { "extra.views": 1 } });
+  const db = createDB(env);
+  const doc = await db.updateVideo(id, { $inc: { "extra.views": 1 } });
   if (!doc) return c.json({ error: "Not found" }, 404);
   const extra = (doc.extra ?? {}) as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;

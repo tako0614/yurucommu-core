@@ -1,5 +1,9 @@
 import { MiddlewareHandler } from "hono";
-import Session from "../models/session.ts";
+import {
+  deleteSessionById,
+  findSessionById,
+  updateSessionExpires,
+} from "../repositories/session.ts";
 import { getEnv } from "../../../shared/config.ts";
 import { createAuthMiddleware } from "../../../shared/auth.ts";
 
@@ -8,21 +12,15 @@ const authRequired: MiddlewareHandler = createAuthMiddleware({
   errorMessage: "認証が必要です",
   findSession: async (sid, c) => {
     const env = getEnv(c);
-    return await Session.findOne({
-      sessionId: sid,
-      tenant_id: env["ACTIVITYPUB_DOMAIN"],
-    });
+    return await findSessionById(env, sid);
   },
   deleteSession: async (sid, c) => {
     const env = getEnv(c);
-    await Session.deleteOne({
-      sessionId: sid,
-      tenant_id: env["ACTIVITYPUB_DOMAIN"],
-    });
+    await deleteSessionById(env, sid);
   },
-  updateSession: async (session, expires) => {
-    (session as unknown as { expiresAt: Date }).expiresAt = expires;
-    await (session as unknown as { save: () => Promise<void> }).save();
+  updateSession: async (session, expires, c) => {
+    const env = getEnv(c);
+    await updateSessionExpires(env, session.sessionId, expires);
   },
 });
 

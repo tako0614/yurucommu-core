@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import Account from "./models/account.ts";
-import { findObjects } from "./services/unified_store.ts";
+import { searchAccounts } from "./repositories/account.ts";
+import { createDB } from "./db.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "./utils/auth.ts";
@@ -41,11 +41,7 @@ app.get("/search", async (c) => {
   const results: SearchResult[] = [];
 
   if (type === "all" || type === "users") {
-    const users = await Account.find({
-      $or: [{ userName: regex }, { displayName: regex }],
-    })
-      .limit(20)
-      .lean();
+    const users = await searchAccounts(getEnv(c), regex, 20);
     const domain = getDomain(c);
     for (const u of users) {
       results.push({
@@ -62,7 +58,8 @@ app.get("/search", async (c) => {
 
   if (type === "all" || type === "posts") {
     const env = getEnv(c);
-    const posts = await findObjects(env, { type: "Note", content: regex });
+    const db = createDB(env);
+    const posts = await db.findNotes({ content: regex }, { published: -1 });
     const sliced = posts.slice(0, 20);
     const domain = getDomain(c);
     for (const p of sliced) {

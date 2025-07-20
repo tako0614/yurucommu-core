@@ -2,8 +2,11 @@ import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
 import { connectDatabase } from "./shared/db.ts";
-import Account from "./app/api/models/account.ts";
-import { addFollowEdge } from "./app/api/services/unified_store.ts";
+import {
+  createAccount,
+  updateAccountById,
+} from "./app/api/repositories/account.ts";
+import { createDB } from "./app/api/db.ts";
 
 async function sha256Hex(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
@@ -63,7 +66,7 @@ async function main() {
   }
   const displayName = prompt("表示名(空欄可):")?.trim() || username;
   const keys = await generateKeyPair();
-  const account = new Account({
+  const account = await createAccount(env, {
     userName: username,
     displayName,
     avatarInitial: username.charAt(0).toUpperCase().substring(0, 2),
@@ -71,23 +74,18 @@ async function main() {
     publicKey: keys.publicKey,
     followers: [],
     following: [],
-    tenant_id: env["ACTIVITYPUB_DOMAIN"] ?? "",
   });
-  (account as unknown as { $locals?: { env?: Record<string, string> } })
-    .$locals = {
-      env,
-    };
-  await account.save();
 
   const follow =
     prompt("フォローするユーザー(acct または URL, カンマ区切り):") ?? "";
   const list = follow.split(",").map((s) => s.trim()).filter(Boolean);
   if (list.length) {
-    await Account.updateOne({ _id: account._id }, {
-      $addToSet: { following: { $each: list } },
+    const db = createDB(env);
+    await updateAccountById(env, String(account._id), {
+      following: list,
     });
     for (const actor of list) {
-      await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", actor);
+      await db.follow("", actor);
     }
   }
 

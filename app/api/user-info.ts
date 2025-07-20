@@ -26,7 +26,7 @@ app.get(
       const domain = getDomain(c);
       const { identifier } = c.req.valid("param") as { identifier: string };
 
-      const userInfo = await getUserInfo(identifier, domain);
+      const userInfo = await getUserInfo(identifier, domain, getEnv(c));
 
       return c.json(userInfo);
     } catch (error) {
@@ -50,7 +50,7 @@ app.post(
         return c.json({ error: "Too many identifiers (max 100)" }, 400);
       }
 
-      const userInfos = await getUserInfoBatch(identifiers, domain);
+      const userInfos = await getUserInfoBatch(identifiers, domain, getEnv(c));
 
       return c.json(userInfos);
     } catch (error) {

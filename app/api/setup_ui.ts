@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
-import Account from "./models/account.ts";
-import { addFollowEdge } from "./services/unified_store.ts";
+import { createAccount } from "./repositories/account.ts";
+import { createDB } from "./db.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "./utils/auth.ts";
 
@@ -73,7 +73,7 @@ app.post("/setup", async (c) => {
   await Deno.writeTextFile(envPath, stringify(fileEnv));
 
   const keys = await generateKeyPair();
-  const account = new Account({
+  await createAccount(env, {
     userName: username,
     displayName: displayName || username,
     avatarInitial: username.charAt(0).toUpperCase().substring(0, 2),
@@ -81,17 +81,12 @@ app.post("/setup", async (c) => {
     publicKey: keys.publicKey,
     followers: [],
     following: Array.isArray(follow) ? follow : [],
-    tenant_id: env["ACTIVITYPUB_DOMAIN"] ?? "",
   });
-  (account as unknown as { $locals?: { env?: Record<string, string> } })
-    .$locals = {
-      env,
-    };
-  await account.save();
 
   if (Array.isArray(follow)) {
+    const db = createDB(env);
     for (const actor of follow) {
-      await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", actor);
+      await db.follow("", actor);
     }
   }
 
