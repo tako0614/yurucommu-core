@@ -11,7 +11,8 @@ const sessionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const HostSession = mongoose.model("HostSession", sessionSchema);
+const HostSession = mongoose.models.HostSession ??
+  mongoose.model("HostSession", sessionSchema);
 
 export default HostSession;
 export { sessionSchema };

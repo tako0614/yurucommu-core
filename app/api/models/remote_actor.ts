@@ -12,7 +12,8 @@ const remoteActorSchema = new mongoose.Schema({
 // 24時間後に自動削除されるTTLインデックス
 remoteActorSchema.index({ cachedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 });
 
-const RemoteActor = mongoose.model("RemoteActor", remoteActorSchema);
+const RemoteActor = mongoose.models.RemoteActor ??
+  mongoose.model("RemoteActor", remoteActorSchema);
 
 export default RemoteActor;
 export { remoteActorSchema };

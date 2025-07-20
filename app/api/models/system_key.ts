@@ -6,7 +6,8 @@ const systemKeySchema = new mongoose.Schema({
   publicKey: { type: String, required: true },
 });
 
-const SystemKey = mongoose.model("SystemKey", systemKeySchema, "system_key");
+const SystemKey = mongoose.models.SystemKey ??
+  mongoose.model("SystemKey", systemKeySchema, "system_key");
 
 export default SystemKey;
 export { systemKeySchema };

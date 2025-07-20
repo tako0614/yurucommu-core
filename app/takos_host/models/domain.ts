@@ -12,7 +12,8 @@ const domainSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const HostDomain = mongoose.model("HostDomain", domainSchema);
+const HostDomain = mongoose.models.HostDomain ??
+  mongoose.model("HostDomain", domainSchema);
 
 export default HostDomain;
 export { domainSchema };

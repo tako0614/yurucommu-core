@@ -6,10 +6,8 @@ const encryptedKeyPairSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const EncryptedKeyPair = mongoose.model(
-  "EncryptedKeyPair",
-  encryptedKeyPairSchema,
-);
+const EncryptedKeyPair = mongoose.models.EncryptedKeyPair ??
+  mongoose.model("EncryptedKeyPair", encryptedKeyPairSchema);
 
 export default EncryptedKeyPair;
 export { encryptedKeyPairSchema };

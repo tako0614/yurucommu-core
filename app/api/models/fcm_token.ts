@@ -20,7 +20,8 @@ fcmTokenSchema.pre("save", function (next) {
   next();
 });
 
-const FcmToken = mongoose.model("FcmToken", fcmTokenSchema);
+const FcmToken = mongoose.models.FcmToken ??
+  mongoose.model("FcmToken", fcmTokenSchema);
 
 export default FcmToken;
 export { fcmTokenSchema };

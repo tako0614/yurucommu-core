@@ -28,7 +28,8 @@ messageSchema.pre("save", function (next) {
   next();
 });
 
-const Message = mongoose.model("Message", messageSchema, "messages");
+const Message = mongoose.models.Message ??
+  mongoose.model("Message", messageSchema, "messages");
 
 export default Message;
 export { messageSchema };

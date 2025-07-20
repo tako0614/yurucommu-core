@@ -7,7 +7,7 @@ const relaySchema = new mongoose.Schema({
 
 relaySchema.index({ host: 1 });
 
-const Relay = mongoose.model("Relay", relaySchema);
+const Relay = mongoose.models.Relay ?? mongoose.model("Relay", relaySchema);
 
 export default Relay;
 export { relaySchema };

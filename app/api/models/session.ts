@@ -30,7 +30,8 @@ sessionSchema.pre("save", function (next) {
   next();
 });
 
-const Session = mongoose.model("Session", sessionSchema);
+const Session = mongoose.models.Session ??
+  mongoose.model("Session", sessionSchema);
 
 export default Session;
 export { sessionSchema };

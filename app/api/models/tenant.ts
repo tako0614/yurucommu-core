@@ -6,7 +6,8 @@ const tenantSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now },
 });
 
-const Tenant = mongoose.model("Tenant", tenantSchema, "tenant");
+const Tenant = mongoose.models.Tenant ??
+  mongoose.model("Tenant", tenantSchema, "tenant");
 
 export default Tenant;
 export { tenantSchema };

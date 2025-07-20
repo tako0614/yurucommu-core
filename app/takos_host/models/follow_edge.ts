@@ -9,11 +9,8 @@ const followEdgeSchema = new mongoose.Schema({
 
 followEdgeSchema.index({ actor_id: 1, tenant_id: 1 });
 
-const FollowEdge = mongoose.model(
-  "FollowEdge",
-  followEdgeSchema,
-  "follow_edge",
-);
+const FollowEdge = mongoose.models.FollowEdge ??
+  mongoose.model("FollowEdge", followEdgeSchema, "follow_edge");
 
 export default FollowEdge;
 export { followEdgeSchema };

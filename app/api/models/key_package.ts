@@ -20,7 +20,8 @@ keyPackageSchema.pre("save", function (next) {
   next();
 });
 
-const KeyPackage = mongoose.model("KeyPackage", keyPackageSchema);
+const KeyPackage = mongoose.models.KeyPackage ??
+  mongoose.model("KeyPackage", keyPackageSchema);
 
 export default KeyPackage;
 export { keyPackageSchema };

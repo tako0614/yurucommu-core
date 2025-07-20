@@ -8,11 +8,8 @@ const inboxEntrySchema = new mongoose.Schema({
 
 inboxEntrySchema.index({ tenant_id: 1, object_id: 1 }, { unique: true });
 
-const InboxEntry = mongoose.model(
-  "InboxEntry",
-  inboxEntrySchema,
-  "inbox_entry",
-);
+const InboxEntry = mongoose.models.InboxEntry ??
+  mongoose.model("InboxEntry", inboxEntrySchema, "inbox_entry");
 
 export default InboxEntry;
 export { inboxEntrySchema };

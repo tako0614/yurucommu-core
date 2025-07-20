@@ -16,7 +16,8 @@ const oauthCodeSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const OAuthCode = mongoose.model("OAuthCode", oauthCodeSchema);
+const OAuthCode = mongoose.models.OAuthCode ??
+  mongoose.model("OAuthCode", oauthCodeSchema);
 
 export default OAuthCode;
 export { oauthCodeSchema };
