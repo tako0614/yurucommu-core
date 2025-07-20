@@ -128,7 +128,10 @@ app.get("/users/:user/keyPackages", async (c) => {
   const [user, host] = identifier.split("@");
   if (!host || host === domain) {
     const username = user ?? identifier;
-    const list = await KeyPackage.find({ userName: username }).lean();
+    const list = await KeyPackage.find({
+      userName: username,
+      tenant_id: domain,
+    }).lean();
     const items = list.map((doc) => ({
       id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
       type: "KeyPackage",
@@ -170,9 +173,13 @@ app.get("/users/:user/keyPackages", async (c) => {
 app.get("/users/:user/keyPackage/:keyId", async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
-  const doc = await KeyPackage.findOne({ _id: keyId, userName: user }).lean();
-  if (!doc) return c.body("Not Found", 404);
   const domain = getDomain(c);
+  const doc = await KeyPackage.findOne({
+    _id: keyId,
+    userName: user,
+    tenant_id: domain,
+  }).lean();
+  if (!doc) return c.body("Not Found", 404);
   const object = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
@@ -195,12 +202,16 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
-  const pkg = await KeyPackage.create({
+  const pkg = new KeyPackage({
     userName: user,
     content,
     mediaType: mediaType ?? "message/mls",
     encoding: encoding ?? "base64",
   });
+  (pkg as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
+    env: getEnv(c),
+  };
+  await pkg.save();
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   const keyObj = {
@@ -224,8 +235,12 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
 app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
-  await KeyPackage.deleteOne({ _id: keyId, userName: user });
   const domain = getDomain(c);
+  await KeyPackage.deleteOne({
+    _id: keyId,
+    userName: user,
+    tenant_id: domain,
+  });
   const actorId = `https://${domain}/users/${user}`;
   const removeActivity = createRemoveActivity(
     domain,
@@ -271,7 +286,10 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const user = c.req.param("user");
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
-  const keyPkgs = await KeyPackage.find({ userName: user }).lean();
+  const keyPkgs = await KeyPackage.find({
+    userName: user,
+    tenant_id: domain,
+  }).lean();
   for (const pkg of keyPkgs) {
     const removeActivity = createRemoveActivity(
       domain,
@@ -286,7 +304,7 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
     await deliverToFollowers(getEnv(c), user, removeActivity, domain);
     await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
-  await KeyPackage.deleteMany({ userName: user });
+  await KeyPackage.deleteMany({ userName: user, tenant_id: domain });
   await EncryptedKeyPair.deleteOne({ userName: user });
   return c.json({ result: "reset" });
 });

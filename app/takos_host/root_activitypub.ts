@@ -9,7 +9,6 @@ import {
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { getObject, saveObject } from "../api/services/unified_store.ts";
 import { addInboxEntry } from "../api/services/inbox.ts";
-import { logger } from "hono/logger";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {

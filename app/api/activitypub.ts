@@ -91,7 +91,10 @@ app.get("/users/:username", async (c) => {
     displayName: account.displayName,
     publicKey: account.publicKey,
   });
-  const packages = await KeyPackage.find({ userName: username }).lean();
+  const packages = await KeyPackage.find({
+    userName: username,
+    tenant_id: domain,
+  }).lean();
   actor.keyPackages = {
     type: "Collection",
     id: `https://${domain}/users/${username}/keyPackages`,
