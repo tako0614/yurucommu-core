@@ -9,6 +9,7 @@ import {
   type UserInfo as _UserInfo,
 } from "./api.ts";
 import { fetchPostById } from "./api.ts";
+import { GoogleAd } from "../GoogleAd.tsx";
 
 interface OgpData {
   title?: string;
@@ -451,22 +452,32 @@ export function PostList(props: {
   formatDate: (dateString: string) => string;
   isThread?: boolean;
 }) {
+  const showAds = !!(
+    import.meta.env.VITE_ADSENSE_CLIENT && import.meta.env.VITE_ADSENSE_SLOT
+  );
   return (
     <div class="divide-y divide-gray-800">
       <For each={props.posts}>
         {(post, i) => (
-          <PostItem
-            post={post}
-            tab={props.tab}
-            handleReply={props.handleReply}
-            handleRetweet={props.handleRetweet}
-            handleQuote={props.handleQuote}
-            handleLike={props.handleLike}
-            handleEdit={props.handleEdit}
-            handleDelete={props.handleDelete}
-            formatDate={props.formatDate}
-            isReply={props.isThread && i() > 0}
-          />
+          <>
+            <PostItem
+              post={post}
+              tab={props.tab}
+              handleReply={props.handleReply}
+              handleRetweet={props.handleRetweet}
+              handleQuote={props.handleQuote}
+              handleLike={props.handleLike}
+              handleEdit={props.handleEdit}
+              handleDelete={props.handleDelete}
+              formatDate={props.formatDate}
+              isReply={props.isThread && i() > 0}
+            />
+            <Show when={showAds && i() === 4}>
+              <div class="my-4">
+                <GoogleAd />
+              </div>
+            </Show>
+          </>
         )}
       </For>
     </div>
