@@ -29,6 +29,7 @@ import {
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { SortOrder } from "mongoose";
+import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 
 /** takos 用 MongoDB 実装 */
@@ -208,7 +209,7 @@ export class MongoDBLocal implements DB {
 
   async getDatabase() {
     await connectDatabase(this.env);
-    return mongoose.connection.db;
+    return mongoose.connection.db as Db;
   }
 }
 

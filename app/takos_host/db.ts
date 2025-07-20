@@ -4,6 +4,7 @@ import RelayEdge from "./models/relay_edge.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { SortOrder } from "mongoose";
+import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 import { createObjectId } from "../api/utils/activitypub.ts";
 
@@ -288,6 +289,6 @@ export class MongoDBHost implements DB {
 
   async getDatabase() {
     await connectDatabase({ MONGO_URI: this.mongoUri });
-    return mongoose.connection.db;
+    return mongoose.connection.db as Db;
   }
 }

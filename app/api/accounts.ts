@@ -326,7 +326,9 @@ app.delete("/accounts/:id/follow", async (c) => {
           (err) => console.error("Delivery failed:", err),
         );
       }
-      await db.unfollow(accountExist.userName, target);
+      if (db.unfollow) {
+        await db.unfollow(accountExist.userName, target);
+      }
     }
   } catch (err) {
     console.error("Unfollow request failed:", err);
