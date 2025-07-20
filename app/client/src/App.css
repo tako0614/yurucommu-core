@@ -15,11 +15,6 @@ body.dark {
   color: #f3f4f6;
 }
 
-body.light {
-  background-color: #ffffff;
-  color: #1a1a1a;
-}
-
 input::placeholder {
   color: #9ca3af;
   opacity: 0.8;
