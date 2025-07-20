@@ -64,6 +64,7 @@ async function generateKeyPair() {
 }
 
 interface AccountDoc {
+  _id?: string;
   userName: string;
   displayName: string;
   avatarInitial: string;
@@ -217,7 +218,7 @@ app.get("/accounts/:id/following", async (c) => {
   const id = c.req.param("id");
   const account = await findAccountById(env, id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  return jsonResponse(c, { following });
+  return jsonResponse(c, { following: account.following });
 });
 
 app.delete("/accounts/:id/following", async (c) => {

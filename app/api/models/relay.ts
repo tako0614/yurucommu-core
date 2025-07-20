@@ -5,8 +5,6 @@ const relaySchema = new mongoose.Schema({
   inboxUrl: { type: String, required: true },
 });
 
-relaySchema.index({ host: 1 });
-
 const Relay = mongoose.models.Relay ?? mongoose.model("Relay", relaySchema);
 
 export default Relay;
