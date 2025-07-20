@@ -38,13 +38,8 @@ interface AccountDoc {
   following: string[];
 }
 
-const app = new Hono();
-app.use("/accounts/*", authRequired);
-
-app.get("/accounts", async (c) => {
-  const env = getEnv(c);
-  const list = await listAccounts(env);
-  const formatted = list.map((doc: AccountDoc) => ({
+function formatAccount(doc: AccountDoc) {
+  return {
     id: String(doc._id),
     userName: doc.userName,
     displayName: doc.displayName,
@@ -52,7 +47,16 @@ app.get("/accounts", async (c) => {
     publicKey: doc.publicKey,
     followers: doc.followers,
     following: doc.following,
-  }));
+  };
+}
+
+const app = new Hono();
+app.use("/accounts/*", authRequired);
+
+app.get("/accounts", async (c) => {
+  const env = getEnv(c);
+  const list = await listAccounts(env);
+  const formatted = list.map((doc: AccountDoc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 
@@ -91,15 +95,7 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  return jsonResponse(c, {
-    id: String(account._id),
-    userName: account.userName,
-    displayName: account.displayName,
-    avatarInitial: account.avatarInitial,
-    publicKey: account.publicKey,
-    followers: account.followers,
-    following: account.following,
-  });
+  return jsonResponse(c, formatAccount(account));
 });
 
 app.get("/accounts/:id", async (c) => {
@@ -108,14 +104,8 @@ app.get("/accounts/:id", async (c) => {
   const account = await findAccountById(env, id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
-    id: String(account._id),
-    userName: account.userName,
-    displayName: account.displayName,
-    avatarInitial: account.avatarInitial,
+    ...formatAccount(account),
     privateKey: account.privateKey,
-    publicKey: account.publicKey,
-    followers: account.followers,
-    following: account.following,
   });
 });
 
@@ -136,15 +126,7 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await updateAccountById(env, id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  return jsonResponse(c, {
-    id: String(account._id),
-    userName: account.userName,
-    displayName: account.displayName,
-    avatarInitial: account.avatarInitial,
-    publicKey: account.publicKey,
-    followers: account.followers,
-    following: account.following,
-  });
+  return jsonResponse(c, formatAccount(account));
 });
 
 app.post("/accounts/:id/followers", async (c) => {
