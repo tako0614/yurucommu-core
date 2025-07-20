@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { connectDatabase } from "../../shared/db.ts";
 import { initEnv, loadConfig } from "../../shared/config.ts";
-import { startRelayPolling } from "./services/relay_poller.ts";
 import login from "./login.ts";
 import logout from "./logout.ts";
 import oauthLogin from "./oauth_login.ts";
@@ -80,9 +79,6 @@ export async function createTakosApp(env?: Record<string, string>) {
       return c.json({ error: "Failed to fetch OGP data" }, 500);
     }
   });
-
-  startRelayPolling(e);
-
   const isDev = Deno.env.get("DEV") === "1";
 
   function proxy() {

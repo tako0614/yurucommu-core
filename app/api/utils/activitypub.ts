@@ -539,7 +539,7 @@ export function resolveActor(
 
 export function getDomain(c: Context): string {
   const env = getEnv(c);
-  return env["ACTIVITYPUB_DOMAIN"] ?? new URL(c.req.url).host;
+  return env["ACTIVITYPUB_DOMAIN"]
 }
 
 export function jsonResponse(

@@ -9,7 +9,7 @@ import {
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { getObject, saveObject } from "../api/services/unified_store.ts";
 import { addInboxEntry } from "../api/services/inbox.ts";
-
+import { logger } from "hono/logger";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -48,6 +48,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   });
 
   async function handleInbox(c: Context) {
+    console.log("Received activitypub request");
     const body = await c.req.text();
     const verified = await verifyHttpSignature(c.req.raw, body);
     if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
@@ -69,8 +70,6 @@ export function createRootActivityPubApp(env: Record<string, string>) {
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
 
-  app.post("/system/inbox", handleInbox);
-  app.post("/inbox", handleInbox);
-
+  app.post("/users/system/inbox", handleInbox);
   return app;
 }

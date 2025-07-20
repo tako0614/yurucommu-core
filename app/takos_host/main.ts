@@ -10,6 +10,7 @@ import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
+import { logger } from "hono/logger";
 const env = await loadConfig();
 await connectDatabase(env);
 
@@ -156,5 +157,7 @@ root.all("/*", async (c) => {
   if (!app) return c.text("not found", 404);
   return app.fetch(c.req.raw);
 });
+
+root.use(logger())
 
 Deno.serve({ port: 8001 }, root.fetch);
