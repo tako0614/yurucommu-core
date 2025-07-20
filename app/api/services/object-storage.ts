@@ -5,13 +5,6 @@
 // 外部モジュール
 import { ensureDir } from "@std/fs";
 import { dirname, join } from "@std/path";
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { sdkStreamMixin } from "@aws-sdk/util-stream-node";
 import { type Db, GridFSBucket } from "mongodb";
 import { once } from "node:events";
 import { Buffer } from "node:buffer";
@@ -50,61 +43,6 @@ export class LocalStorage implements ObjectStorage {
   async delete(key: string): Promise<void> {
     const filePath = join(this.baseDir, key);
     await Deno.remove(filePath).catch(() => {});
-  }
-}
-
-/* ==========================
-   S3Storage 実装
-   ========================== */
-
-export class S3Storage implements ObjectStorage {
-  private client: S3Client;
-  constructor(
-    private bucket: string,
-    region: string,
-    accessKey: string,
-    secretKey: string,
-    private endpoint?: string,
-    private forcePathStyle = false,
-  ) {
-    this.client = new S3Client({
-      region,
-      credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
-      endpoint: endpoint || undefined,
-      forcePathStyle,
-    });
-  }
-
-  async put(key: string, data: Uint8Array): Promise<string> {
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: data,
-      }),
-    );
-    if (this.endpoint) {
-      const base = this.endpoint.replace(/\/$/, "");
-      const prefix = this.forcePathStyle ? `${base}/${this.bucket}` : base;
-      return `${prefix}/${key}`;
-    }
-    return `https://${this.bucket}.s3.${this.client.config.region}.amazonaws.com/${key}`;
-  }
-
-  async get(key: string): Promise<Uint8Array | null> {
-    const res = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
-    if (res.Body) {
-      return await sdkStreamMixin(res.Body).transformToByteArray();
-    }
-    return null;
-  }
-
-  async delete(key: string): Promise<void> {
-    await this.client.send(
-      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
   }
 }
 
@@ -163,22 +101,6 @@ export async function createStorage(
   db?: DB,
 ): Promise<ObjectStorage> {
   const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
-  if (provider === "s3" || provider === "r2" || provider === "minio") {
-    const bucket = e["S3_BUCKET"] || "";
-    const region = e["S3_REGION"] || "us-east-1";
-    const accessKey = e["S3_ACCESS_KEY"] || "";
-    const secretKey = e["S3_SECRET_KEY"] || "";
-    const endpoint = e["S3_ENDPOINT"] || undefined;
-    const forcePathStyle = e["S3_FORCE_PATH_STYLE"] === "true";
-    return new S3Storage(
-      bucket,
-      region,
-      accessKey,
-      secretKey,
-      endpoint,
-      forcePathStyle,
-    );
-  }
   if (provider === "gridfs") {
     if (!db || !db.getDatabase) {
       throw new Error("DB instance with getDatabase is required for GridFS");
