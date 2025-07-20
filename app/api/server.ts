@@ -42,32 +42,39 @@ export async function createTakosApp(env?: Record<string, string>) {
   });
   await initVideoModule(e);
   initVideoWebSocket();
-  app.route("/api", wsRouter);
-  app.route("/api", login);
-  app.route("/api", logout);
+
+  const apiRoutes = [
+    wsRouter,
+    login,
+    logout,
+    session,
+    accounts,
+    notifications,
+    microblog,
+    config,
+    fcm,
+    adsense,
+    setupUI,
+    videos,
+    search,
+    relays,
+    users,
+    userInfo,
+    e2ee,
+    activitypub, // ActivityPubプロキシAPI用
+  ];
   if (e["OAUTH_HOST"] || e["ROOT_DOMAIN"]) {
-    app.route("/api", oauthLogin);
+    apiRoutes.splice(3, 0, oauthLogin);
   }
-  app.route("/api", session);
-  app.route("/api", accounts);
-  app.route("/api", notifications);
-  app.route("/api", microblog);
-  app.route("/api", config);
-  app.route("/api", fcm);
-  app.route("/api", adsense);
-  app.route("/api", setupUI);
-  app.route("/api", videos);
-  app.route("/api", search);
-  app.route("/api", relays);
-  app.route("/api", users);
-  app.route("/api", userInfo);
-  app.route("/api", e2ee);
-  app.route("/api", activitypub); // ActivityPubプロキシAPI用
-  app.route("/", nodeinfo);
-  app.route("/", activitypub);
-  app.route("/", rootInbox);
+  for (const r of apiRoutes) {
+    app.route("/api", r);
+  }
+
+  const rootRoutes = [nodeinfo, activitypub, rootInbox, e2ee];
   // e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
-  app.route("/", e2ee);
+  for (const r of rootRoutes) {
+    app.route("/", r);
+  }
 
   app.get("/api/ogp", async (c) => {
     const url = c.req.query("url");
