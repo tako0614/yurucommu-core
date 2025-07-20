@@ -257,6 +257,7 @@ export function ensurePem(
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
 }
 
+/** `Signature` ヘッダを key=value 形式に変換 */
 function parseSignatureHeader(header: string): Record<string, string> {
   const params: Record<string, string> = {};
   for (const part of header.split(",")) {
@@ -269,95 +270,95 @@ function parseSignatureHeader(header: string): Record<string, string> {
   return params;
 }
 
+/** リクエストから署名情報を抽出 */
+export function parseSignature(req: Request): Record<string, string> | null {
+  const signatureHeader = req.headers.get("signature");
+  if (signatureHeader && !req.headers.get("signature-input")) {
+    return parseSignatureHeader(signatureHeader);
+  }
+  const sigInput = req.headers.get("signature-input");
+  const sig = req.headers.get("signature");
+  if (!sigInput || !sig) return null;
+  const match = sigInput.match(/([^=]+)="([^"]+)".*keyid="([^"]+)"/);
+  if (!match) return null;
+  const label = match[1];
+  return {
+    headers: match[2],
+    signature: sig.match(new RegExp(label + "=:(.+):"))?.[1] ?? "",
+    keyId: match[3],
+  };
+}
+
+/** 公開鍵を取得 */
+export async function fetchPublicKeyPem(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { accept: "application/activity+json, application/ld+json" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.publicKey?.publicKeyPem ?? data.publicKeyPem ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Digest ヘッダを検証 */
+export async function verifyDigest(
+  req: Request,
+  body: string,
+): Promise<boolean> {
+  const digestHeader = req.headers.get("digest");
+  if (!digestHeader) return true;
+  const encoder = new TextEncoder();
+  const expectedDigest = arrayBufferToBase64(
+    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
+  );
+  return digestHeader === `SHA-256=${expectedDigest}`;
+}
+
+/** 署名対象文字列を生成 */
+export function buildSigningString(
+  req: Request,
+  body: string,
+  headers: string[],
+): string | null {
+  const url = new URL(req.url);
+  const lines: string[] = [];
+  for (const h of headers) {
+    let value: string | null = null;
+    if (h === "(request-target)") {
+      value = `${req.method.toLowerCase()} ${url.pathname}${url.search}`;
+    } else if (h === "host") {
+      value = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    } else if (h === "content-length") {
+      const encoder = new TextEncoder();
+      value = encoder.encode(body).length.toString();
+    } else {
+      value = req.headers.get(h);
+    }
+    if (value === null) return null;
+    lines.push(`${h}: ${value}`);
+  }
+  return lines.join("\n");
+}
+
 export async function verifyHttpSignature(
   req: Request,
   body: string,
 ): Promise<boolean> {
   try {
-    const signatureHeader = req.headers.get("signature");
-    let params: Record<string, string>;
-    if (signatureHeader) {
-      params = parseSignatureHeader(signatureHeader);
-    } else {
-      const sigInput = req.headers.get("signature-input");
-      const sig = req.headers.get("signature");
-      if (!sigInput || !sig) return false;
-      const match = sigInput.match(/([^=]+)="([^"]+)".*keyid="([^"]+)"/);
-      if (!match) return false;
-      const label = match[1];
-      params = {
-        headers: match[2],
-        signature: sig.match(new RegExp(label + "=:(.+):"))?.[1] ?? "",
-        keyId: match[3],
-      };
-    }
-    const publicKeyUrl = params.keyId;
+    const params = parseSignature(req);
+    if (!params) return false;
 
-    if (!publicKeyUrl) {
-      return false;
-    }
+    const publicKeyPem = await fetchPublicKeyPem(params.keyId);
+    if (!publicKeyPem) return false;
 
-    let publicKeyPem = "";
-    try {
-      const res = await fetch(publicKeyUrl, {
-        headers: { accept: "application/activity+json, application/ld+json" },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        // より堅牢な公開鍵の取得
-        publicKeyPem = data.publicKey?.publicKeyPem ??
-          data.publicKeyPem ??
-          "";
-      } else {
-        return false;
-      }
-    } catch (_error) {
-      return false;
-    }
-
-    if (!publicKeyPem) {
-      return false;
-    }
-
-    // Digestの検証
-    const digestHeader = req.headers.get("digest");
-    if (digestHeader) {
-      const encoder = new TextEncoder();
-      const expectedDigest = arrayBufferToBase64(
-        await crypto.subtle.digest("SHA-256", encoder.encode(body)),
-      );
-      if (digestHeader !== `SHA-256=${expectedDigest}`) {
-        return false;
-      }
-    }
+    if (!await verifyDigest(req, body)) return false;
 
     const headersList = params.headers.split(" ");
-    const url = new URL(req.url);
-    const lines: string[] = [];
-
-    for (const h of headersList) {
-      let value: string | null = null;
-      if (h === "(request-target)") {
-        // request-targetにクエリパラメータも含める
-        value = `${req.method.toLowerCase()} ${url.pathname}${url.search}`;
-      } else if (h === "host") {
-        // リバースプロキシ環境では x-forwarded-host を優先
-        value = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-      } else if (h === "content-length") {
-        // Content-Lengthは実際のボディの長さを使用
-        const encoder = new TextEncoder();
-        value = encoder.encode(body).length.toString();
-      } else {
-        value = req.headers.get(h);
-      }
-      if (value === null) {
-        return false;
-      }
-      lines.push(`${h}: ${value}`);
-    }
-
-    const signingString = lines.join("\n");
+    const signingString = buildSigningString(req, body, headersList);
+    if (!signingString) return false;
 
     // 公開鍵の正規化（すでにPEM形式の場合はそのまま使用）
     const normalizedPublicKey = publicKeyPem.includes("BEGIN PUBLIC KEY")
