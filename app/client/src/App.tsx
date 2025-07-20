@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { encryptionKeyState, loginState } from "./states/session.ts";
-import { darkModeState, languageState } from "./states/settings.ts";
+import { languageState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { EncryptionKeyForm } from "./components/EncryptionKeyForm.tsx";
 import { Application } from "./components/Application.tsx";
@@ -14,7 +14,6 @@ import "./stylesheet.css";
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
-  const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
   const [skippedEncryptionKey, setSkippedEncryptionKey] = createSignal(false);
 
@@ -30,10 +29,6 @@ function App() {
       setEncryptionKey(storedKey);
     }
 
-    const storedDark = localStorage.getItem("darkMode");
-    if (storedDark !== null) {
-      setDarkMode(storedDark === "true");
-    }
     const storedLang = localStorage.getItem("language");
     if (storedLang) {
       setLanguage(storedLang);
@@ -55,14 +50,8 @@ function App() {
   });
 
   createEffect(() => {
-    if (darkMode()) {
-      document.body.classList.add("dark");
-      document.body.classList.remove("light");
-    } else {
-      document.body.classList.remove("dark");
-      document.body.classList.add("light");
-    }
-    localStorage.setItem("darkMode", String(darkMode()));
+    document.body.classList.add("dark");
+    localStorage.setItem("darkMode", "true");
   });
 
   createEffect(() => {

@@ -1,5 +1,5 @@
 import { useAtom } from "solid-jotai";
-import { darkModeState, languageState } from "../../states/settings.ts";
+import { languageState } from "../../states/settings.ts";
 import { encryptionKeyState, loginState } from "../../states/session.ts";
 import RelaySettings from "./RelaySettings.tsx";
 import { apiFetch } from "../../utils/config.ts";
@@ -10,13 +10,10 @@ export interface SettingProps {
   onShowEncryptionKeyForm?: () => void;
 }
 export function Setting(props: SettingProps) {
-  const [darkMode, setDarkMode] = useAtom(darkModeState);
   const [language, setLanguage] = useAtom(languageState);
   const [, setIsLoggedIn] = useAtom(loginState);
   const [, setEncryptionKey] = useAtom(encryptionKeyState);
   const [accs] = useAtom(accountsAtom);
-
-  const toggleDark = () => setDarkMode(!darkMode());
 
   const handleLogout = async () => {
     try {
@@ -36,15 +33,6 @@ export function Setting(props: SettingProps) {
 
   return (
     <div class="space-y-6">
-      <div class="flex items-center space-x-3">
-        <input
-          id="darkmode"
-          type="checkbox"
-          checked={darkMode()}
-          onChange={toggleDark}
-        />
-        <label for="darkmode">ダークモード</label>
-      </div>
       <div>
         <label for="lang" class="block mb-1">言語</label>
         <select
