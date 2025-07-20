@@ -27,6 +27,9 @@ export function createDB(env: Record<string, string>): DB {
 }
 ```
 
+`DB_MODE` に `host` を指定すると、takos host 用の `MongoDBHost`
+実装が選ばれる。省略時は `MongoDBLocal` が使われる。
+
 - `DB` を実装するクラスを切り替えることで、takos と takos host
   の処理を分離する。
 - アプリケーションコードは `DB` のメソッドのみを使用する。

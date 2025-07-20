@@ -6,7 +6,6 @@ const noteSchema = new mongoose.Schema({
   actor_id: { type: String, required: true, index: true },
   content: { type: String, default: "" },
   extra: { type: mongoose.Schema.Types.Mixed, default: {} },
-  tenant_id: { type: String, index: true },
   published: { type: Date, default: Date.now },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
@@ -15,17 +14,6 @@ const noteSchema = new mongoose.Schema({
     to: { type: [String], default: [] },
     cc: { type: [String], default: [] },
   },
-});
-
-noteSchema.pre("save", function (next) {
-  const self = this as unknown as {
-    $locals?: { env?: Record<string, string> };
-  };
-  const env = self.$locals?.env;
-  if (!this.tenant_id && env?.ACTIVITYPUB_DOMAIN) {
-    this.tenant_id = env.ACTIVITYPUB_DOMAIN;
-  }
-  next();
 });
 
 const Note = mongoose.models.Note ??

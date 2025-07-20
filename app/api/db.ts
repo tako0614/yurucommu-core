@@ -56,11 +56,17 @@ export class MongoDBLocal implements DB {
   }
 
   async follow(_: string, target: string) {
-    await addFollowEdge(this.env["ACTIVITYPUB_DOMAIN"] ?? "", target);
+    const tenant = this.env["DB_MODE"] === "host"
+      ? this.env["ACTIVITYPUB_DOMAIN"] ?? ""
+      : "";
+    await addFollowEdge(tenant, target);
   }
 
   async unfollow(_: string, target: string) {
-    await removeFollowEdge(this.env["ACTIVITYPUB_DOMAIN"] ?? "", target);
+    const tenant = this.env["DB_MODE"] === "host"
+      ? this.env["ACTIVITYPUB_DOMAIN"] ?? ""
+      : "";
+    await removeFollowEdge(tenant, target);
   }
 
   async saveNote(
@@ -179,11 +185,17 @@ export class MongoDBLocal implements DB {
   }
 
   async addRelay(relay: string, mode: "pull" | "push" = "pull") {
-    await addRelayEdge(this.env["ACTIVITYPUB_DOMAIN"] ?? "", relay, mode);
+    const tenant = this.env["DB_MODE"] === "host"
+      ? this.env["ACTIVITYPUB_DOMAIN"] ?? ""
+      : "";
+    await addRelayEdge(tenant, relay, mode);
   }
 
   async removeRelay(relay: string) {
-    await removeRelayEdge(this.env["ACTIVITYPUB_DOMAIN"] ?? "", relay);
+    const tenant = this.env["DB_MODE"] === "host"
+      ? this.env["ACTIVITYPUB_DOMAIN"] ?? ""
+      : "";
+    await removeRelayEdge(tenant, relay);
   }
 
   async getDatabase() {

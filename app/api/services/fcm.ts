@@ -27,7 +27,9 @@ export async function registerToken(
 ) {
   init(env);
   await FcmToken.updateOne(
-    { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] },
+    env["DB_MODE"] === "host"
+      ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
+      : { token },
     { token, userName },
     { upsert: true },
   );
@@ -37,7 +39,10 @@ export async function unregisterToken(
   token: string,
   env: Record<string, string>,
 ) {
-  await FcmToken.deleteOne({ token, tenant_id: env["ACTIVITYPUB_DOMAIN"] });
+  const cond = env["DB_MODE"] === "host"
+    ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
+    : { token };
+  await FcmToken.deleteOne(cond);
 }
 
 export async function sendNotification(
@@ -47,7 +52,10 @@ export async function sendNotification(
 ) {
   init(env);
   if (!initialized) return;
-  const list = await FcmToken.find({ tenant_id: env["ACTIVITYPUB_DOMAIN"] })
+  const cond = env["DB_MODE"] === "host"
+    ? { tenant_id: env["ACTIVITYPUB_DOMAIN"] }
+    : {};
+  const list = await FcmToken.find(cond)
     .lean<Array<{ token: string }>>();
   const tokens: string[] = list.map((t: { token: string }) => t.token);
   if (tokens.length === 0) return;
