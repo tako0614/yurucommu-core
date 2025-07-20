@@ -22,7 +22,7 @@ const ALLOWED_ATTRS: Record<string, string[]> = {
   span: ["class"],
 };
 const GLOBAL_ATTRS = ["data-og", "lang"];
-const ALLOWED_CLASSES = ["invisible", "ellipsis", "hashtag", "mention"];
+const ALLOWED_CLASSES = ["invisible", "hashtag", "mention"];
 
 export function sanitizeHtml(fragment: string): string {
   const clean = DOMPurify.sanitize(fragment, {
