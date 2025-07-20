@@ -23,11 +23,10 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-async function signAndSend(
+async function signAndPost(
   inboxUrl: string,
   body: string,
-  account: { userName: string; privateKey: string },
-  domain: string,
+  key: { id: string; privateKey: string },
 ): Promise<Response> {
   const parsedUrl = new URL(inboxUrl);
   const host = parsedUrl.hostname;
@@ -45,9 +44,9 @@ async function signAndSend(
     `date: ${date}\n` +
     `digest: ${digest}`;
 
-  const normalizedPrivateKey = ensurePem(account.privateKey, "PRIVATE KEY");
+  const normalizedPrivateKey = ensurePem(key.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
-  const key = await crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
@@ -57,19 +56,17 @@ async function signAndSend(
 
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
-    key,
+    cryptoKey,
     encoder.encode(signingString),
   );
-
   const signatureB64 = arrayBufferToBase64(signature);
-  const keyId = `https://${domain}/users/${account.userName}#main-key`;
+  const keyId = `${key.id}#main-key`;
 
   const headers = new Headers({
-    "Date": date,
-    "Digest": digest,
-    "Accept": "application/activity+json",
+    Date: date,
+    Digest: digest,
+    Accept: "application/activity+json",
     "Content-Type": "application/activity+json",
-    "User-Agent": `Takos/1.0 (+https://${domain}/)`,
   });
   headers.set(
     "Signature",
@@ -81,10 +78,18 @@ async function signAndSend(
     `sig1="(request-target) host date digest";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
   );
 
-  const res = await fetch(inboxUrl, {
-    method: "POST",
-    headers,
-    body,
+  return await fetch(inboxUrl, { method: "POST", headers, body });
+}
+
+async function signAndSend(
+  inboxUrl: string,
+  body: string,
+  account: { userName: string; privateKey: string },
+  domain: string,
+): Promise<Response> {
+  const res = await signAndPost(inboxUrl, body, {
+    id: `https://${domain}/users/${account.userName}`,
+    privateKey: account.privateKey,
   });
   console.log(res);
   // Log the response status and body for debugging
@@ -170,56 +175,7 @@ async function signAndSendFromUrl(
   body: string,
   actor: { id: string; privateKey: string },
 ): Promise<Response> {
-  const parsedUrl = new URL(inboxUrl);
-  const host = parsedUrl.hostname;
-  const date = new Date().toUTCString();
-  const encoder = new TextEncoder();
-
-  const digestValue = arrayBufferToBase64(
-    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
-  );
-  const digest = `SHA-256=${digestValue}`;
-
-  const fullPath = parsedUrl.pathname + parsedUrl.search;
-  const signingString = `(request-target): post ${fullPath}\n` +
-    `host: ${host}\n` +
-    `date: ${date}\n` +
-    `digest: ${digest}`;
-
-  const normalizedPrivateKey = ensurePem(actor.privateKey, "PRIVATE KEY");
-  const keyData = pemToArrayBuffer(normalizedPrivateKey);
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    keyData,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    encoder.encode(signingString),
-  );
-  const signatureB64 = arrayBufferToBase64(signature);
-
-  const headers = new Headers({
-    Date: date,
-    Digest: digest,
-    Accept: "application/activity+json",
-    "Content-Type": "application/activity+json",
-  });
-  headers.set(
-    "Signature",
-    `keyId="${actor.id}#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
-  );
-  headers.append("Signature", `sig1=:${signatureB64}:`);
-  headers.set(
-    "Signature-Input",
-    `sig1="(request-target) host date digest";keyid="${actor.id}#main-key";alg="rsa-v1_5-sha256"`,
-  );
-
-  return await fetch(inboxUrl, { method: "POST", headers, body });
+  return await signAndPost(inboxUrl, body, actor);
 }
 
 export async function deliverActivityPubObjectFromUrl(
