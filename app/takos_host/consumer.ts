@@ -116,7 +116,11 @@ export function createConsumerApp(
       await inst.save();
       await ensureTenant(fullHost, fullHost);
       if (rootDomain) {
-        const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: fullHost });
+        const db = createDB({
+          ...env,
+          ACTIVITYPUB_DOMAIN: fullHost,
+          DB_MODE: "host",
+        });
         await db.addRelay(rootDomain, "pull");
         await db.addRelay(rootDomain, "push");
       }

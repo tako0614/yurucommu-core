@@ -141,7 +141,11 @@ async function createInstance(
   await inst.save();
   await ensureTenant(fullHost, fullHost);
   if (rootDomain) {
-    const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: fullHost });
+    const db = createDB({
+      ...env,
+      ACTIVITYPUB_DOMAIN: fullHost,
+      DB_MODE: "host",
+    });
     await db.addRelay(rootDomain, "pull");
     await db.addRelay(rootDomain, "push");
   }
@@ -191,7 +195,11 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
     try {
-      const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: rootDomain });
+      const db = createDB({
+        ...env,
+        ACTIVITYPUB_DOMAIN: rootDomain,
+        DB_MODE: "host",
+      });
       await db.addRelay(relayHost, "pull");
       await db.addRelay(relayHost, "push");
     } catch {
@@ -220,7 +228,11 @@ async function deleteRelay(env: Record<string, string>, id: string) {
   if (rootDomain) {
     try {
       const relayHost = relay.host ?? new URL(relay.inboxUrl).hostname;
-      const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: rootDomain });
+      const db = createDB({
+        ...env,
+        ACTIVITYPUB_DOMAIN: rootDomain,
+        DB_MODE: "host",
+      });
       await db.removeRelay(relayHost);
     } catch {
       /* ignore */
@@ -251,6 +263,7 @@ async function main() {
   const args = parseArgsFn();
   if (!args) return;
   const env = await loadConfig();
+  env["DB_MODE"] = "host";
   await connectDatabase(env);
   const user = args.user ?? "system";
   try {

@@ -12,6 +12,7 @@ import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
 const env = await loadConfig();
+env["DB_MODE"] = "host";
 await connectDatabase(env);
 
 const apps = new Map<string, Hono>();
