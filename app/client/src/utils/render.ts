@@ -50,7 +50,6 @@ function plainTextToHtml(text: string): string {
 }
 
 const INVISIBLE_CLS = "invisible";
-const ELLIPSIS_CLS = "ellipsis";
 const MAX_VISIBLE = 45;
 
 function linkifyUrls(text: string, linkify: LinkifyIt, shorten = true): string {
@@ -70,13 +69,13 @@ function linkifyUrls(text: string, linkify: LinkifyIt, shorten = true): string {
       const visible = body.slice(0, MAX_VISIBLE) + "…";
       const hidden = body.slice(MAX_VISIBLE);
       inner = `<span class="${INVISIBLE_CLS}">${escapeHtml(protocol)}</span>` +
-        `<span class="${ELLIPSIS_CLS}">${escapeHtml(visible)}</span>` +
+        `<span>${escapeHtml(visible)}</span>` +
         `<span class="${INVISIBLE_CLS}">${escapeHtml(hidden)}</span>`;
     }
 
     out += `<a href="${
       escapeHtml(url)
-    }" class="external-link" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
+    }" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
     last = m.lastIndex;
   }
   out += escapeHtml(text.slice(last));
