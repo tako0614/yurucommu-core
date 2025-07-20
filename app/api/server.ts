@@ -21,6 +21,7 @@ import videos, { initVideoModule, initVideoWebSocket } from "./videos.ts";
 import wsRouter from "./ws.ts";
 import config from "./config.ts";
 import fcm from "./fcm.ts";
+import adsense from "./adsense.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -53,6 +54,7 @@ export async function createTakosApp(env?: Record<string, string>) {
   app.route("/api", microblog);
   app.route("/api", config);
   app.route("/api", fcm);
+  app.route("/api", adsense);
   app.route("/api", setupUI);
   app.route("/api", videos);
   app.route("/api", search);

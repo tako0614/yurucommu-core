@@ -45,6 +45,7 @@ import {
 import { decryptWithPassword, encryptWithPassword } from "../utils/crypto.ts";
 import { encryptionKeyState } from "../states/session.ts";
 import { GoogleAd } from "./GoogleAd.tsx";
+import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 
 function isUrl(value?: string): boolean {
   if (!value) return false;
@@ -116,9 +117,11 @@ export function Chat(props: ChatProps) {
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const partnerKeyCache = new Map<string, string | null>();
   const messageLimit = 30;
-  const showAds = !!(
-    import.meta.env.VITE_ADSENSE_CLIENT && import.meta.env.VITE_ADSENSE_SLOT
-  );
+  const [showAds, setShowAds] = createSignal(false);
+  onMount(async () => {
+    await loadAdsenseConfig();
+    setShowAds(isAdsenseEnabled());
+  });
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [hasMore, setHasMore] = createSignal(true);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
@@ -675,7 +678,7 @@ export function Chat(props: ChatProps) {
             <div class="p-talk-list-title">チャット</div>
             <div class="p-talk-list-search">
               <input type="text" placeholder="チャンネルを検索..." />
-              <Show when={showAds}>
+              <Show when={showAds()}>
                 <div class="my-2">
                   <GoogleAd />
                 </div>

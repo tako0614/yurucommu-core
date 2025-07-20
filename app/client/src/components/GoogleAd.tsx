@@ -1,4 +1,10 @@
-import { onMount } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
+import {
+  getAdsenseAccount,
+  getAdsenseClient,
+  getAdsenseSlot,
+  loadAdsenseConfig,
+} from "../utils/adsense.ts";
 
 declare global {
   interface Window {
@@ -8,26 +14,28 @@ declare global {
 }
 
 export function GoogleAd() {
-  const client = import.meta.env.VITE_ADSENSE_CLIENT;
-  const slot = import.meta.env.VITE_ADSENSE_SLOT;
-  const account = import.meta.env.VITE_ADSENSE_ACCOUNT;
+  const [client, setClient] = createSignal<string | null>(null);
+  const [slot, setSlot] = createSignal<string | null>(null);
 
-  onMount(() => {
-    if (!client || !slot) return;
+  onMount(async () => {
+    await loadAdsenseConfig();
+    setClient(getAdsenseClient());
+    setSlot(getAdsenseSlot());
+    if (!getAdsenseClient() || !getAdsenseSlot()) return;
     if (typeof document !== "undefined") {
       if (
-        account &&
+        getAdsenseAccount() &&
         !document.querySelector("meta[name='google-adsense-account']")
       ) {
         const m = document.createElement("meta");
         m.name = "google-adsense-account";
-        m.content = account;
+        m.content = getAdsenseAccount()!;
         document.head.appendChild(m);
       }
       if (!document.querySelector("script[data-adsense]")) {
         const s = document.createElement("script");
         s.src =
-          `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`;
+          `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${getAdsenseClient()}`;
         s.async = true;
         s.crossOrigin = "anonymous";
         s.setAttribute("data-adsense", "true");
@@ -38,16 +46,16 @@ export function GoogleAd() {
     globalThis.adsbygoogle.push({});
   });
 
-  if (!client || !slot) return null;
-
   return (
-    <ins
-      class="adsbygoogle"
-      style="display:block"
-      data-ad-client={client}
-      data-ad-slot={slot}
-      data-ad-format="auto"
-      data-full-width-responsive="true"
-    />
+    <Show when={client() && slot()}>
+      <ins
+        class="adsbygoogle"
+        style="display:block"
+        data-ad-client={client()!}
+        data-ad-slot={slot()!}
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </Show>
   );
 }
