@@ -34,6 +34,14 @@ if (termsPath) {
     console.error(`TERMS_FILE ${termsPath} を読み込めませんでした`);
   }
 }
+let notFoundHtml = "";
+try {
+  notFoundHtml = await Deno.readTextFile(
+    new URL("./404.html", import.meta.url),
+  );
+} catch {
+  console.error("404.html を読み込めませんでした");
+}
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
@@ -154,10 +162,18 @@ root.all("/*", async (c) => {
     return rootActivityPubApp.fetch(c.req.raw);
   }
   const app = await getAppForHost(host);
-  if (!app) return c.text("not found", 404);
+  if (!app) {
+    if (!isDev && notFoundHtml) {
+      return new Response(notFoundHtml, {
+        status: 404,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }
+    return c.text("not found", 404);
+  }
   return app.fetch(c.req.raw);
 });
 
-root.use(logger())
+root.use(logger());
 
 Deno.serve({ port: 8001 }, root.fetch);
