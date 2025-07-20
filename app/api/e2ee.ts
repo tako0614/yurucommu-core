@@ -122,18 +122,15 @@ async function deliverToFollowers(
 }
 
 app.get("/users/:user/keyPackages", async (c) => {
-  const acct = c.req.param("user");
+  const identifier = c.req.param("user");
   const domain = getDomain(c);
 
-  const [user, host] = acct.split("@");
-  if (!user || !host) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-
-  if (host === domain) {
-    const list = await KeyPackage.find({ userName: acct }).lean();
+  const [user, host] = identifier.split("@");
+  if (!host || host === domain) {
+    const username = user ?? identifier;
+    const list = await KeyPackage.find({ userName: username }).lean();
     const items = list.map((doc) => ({
-      id: `https://${domain}/users/${user}/keyPackage/${doc._id}`,
+      id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
       type: "KeyPackage",
       content: doc.content,
       mediaType: doc.mediaType,
@@ -142,6 +139,8 @@ app.get("/users/:user/keyPackages", async (c) => {
     }));
     return c.json({ type: "Collection", items });
   }
+
+  const acct = identifier;
 
   const actor = await resolveActorCached(
     acct,
