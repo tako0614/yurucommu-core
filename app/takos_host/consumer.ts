@@ -141,7 +141,7 @@ export function createConsumerApp(
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
     const inst = await Instance.findOne({ host, owner: user._id }).lean();
-    if (!inst) return c.json({ error: "not found" }, 404);
+    if (!inst || Array.isArray(inst)) return c.json({ error: "not found" }, 404);
     return c.json({ host: inst.host });
   });
 

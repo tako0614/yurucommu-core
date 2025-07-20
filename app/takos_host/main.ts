@@ -84,7 +84,7 @@ async function getEnvForHost(
     return { ...env, ACTIVITYPUB_DOMAIN: rootDomain };
   }
   const inst = await Instance.findOne({ host }).lean();
-  if (!inst) return null;
+  if (!inst || Array.isArray(inst)) return null;
   return { ...env, ...inst.env, ACTIVITYPUB_DOMAIN: host };
 }
 
