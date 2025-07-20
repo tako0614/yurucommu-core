@@ -1,4 +1,5 @@
 import ObjectStore from "./models/object_store.ts";
+import { createObjectId } from "./utils/activitypub.ts";
 import {
   addFollowEdge,
   addRelayEdge,
@@ -39,7 +40,14 @@ export class MongoDBLocal implements DB {
   }
 
   async saveObject(obj: Record<string, unknown>) {
-    const doc = new ObjectStore(obj);
+    const data = { ...obj };
+    if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
+      data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
+    }
+    if (!("tenant_id" in data) && this.env["ACTIVITYPUB_DOMAIN"]) {
+      data.tenant_id = this.env["ACTIVITYPUB_DOMAIN"];
+    }
+    const doc = new ObjectStore(data);
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       { env: this.env };
     await doc.save();
