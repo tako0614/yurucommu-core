@@ -9,10 +9,8 @@ const encryptedMessageSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const EncryptedMessage = mongoose.model(
-  "EncryptedMessage",
-  encryptedMessageSchema,
-);
+const EncryptedMessage = mongoose.models.EncryptedMessage ??
+  mongoose.model("EncryptedMessage", encryptedMessageSchema);
 
 export default EncryptedMessage;
 export { encryptedMessageSchema };

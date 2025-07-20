@@ -22,7 +22,8 @@ publicMessageSchema.pre("save", function (next) {
   next();
 });
 
-const PublicMessage = mongoose.model("PublicMessage", publicMessageSchema);
+const PublicMessage = mongoose.models.PublicMessage ??
+  mongoose.model("PublicMessage", publicMessageSchema);
 
 export default PublicMessage;
 export { publicMessageSchema };

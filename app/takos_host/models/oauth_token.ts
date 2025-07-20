@@ -16,7 +16,8 @@ const oauthTokenSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const OAuthToken = mongoose.model("OAuthToken", oauthTokenSchema);
+const OAuthToken = mongoose.models.OAuthToken ??
+  mongoose.model("OAuthToken", oauthTokenSchema);
 
 export default OAuthToken;
 export { oauthTokenSchema };

@@ -9,7 +9,8 @@ const relayEdgeSchema = new mongoose.Schema({
 
 relayEdgeSchema.index({ relay: 1, tenant_id: 1 });
 
-const RelayEdge = mongoose.model("RelayEdge", relayEdgeSchema, "relay_edge");
+const RelayEdge = mongoose.models.RelayEdge ??
+  mongoose.model("RelayEdge", relayEdgeSchema, "relay_edge");
 
 export default RelayEdge;
 export { relayEdgeSchema };

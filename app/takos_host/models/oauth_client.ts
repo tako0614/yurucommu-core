@@ -7,7 +7,8 @@ const oauthClientSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const OAuthClient = mongoose.model("OAuthClient", oauthClientSchema);
+const OAuthClient = mongoose.models.OAuthClient ??
+  mongoose.model("OAuthClient", oauthClientSchema);
 
 export default OAuthClient;
 export { oauthClientSchema };

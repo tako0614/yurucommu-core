@@ -11,7 +11,8 @@ const instanceSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const Instance = mongoose.model("Instance", instanceSchema);
+const Instance = mongoose.models.Instance ??
+  mongoose.model("Instance", instanceSchema);
 
 export default Instance;
 export { instanceSchema };

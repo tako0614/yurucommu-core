@@ -11,7 +11,8 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const HostUser = mongoose.model("HostUser", userSchema);
+const HostUser = mongoose.models.HostUser ??
+  mongoose.model("HostUser", userSchema);
 
 export default HostUser;
 export { userSchema };

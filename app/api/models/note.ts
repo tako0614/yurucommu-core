@@ -28,7 +28,8 @@ noteSchema.pre("save", function (next) {
   next();
 });
 
-const Note = mongoose.model("Note", noteSchema, "notes");
+const Note = mongoose.models.Note ??
+  mongoose.model("Note", noteSchema, "notes");
 
 export default Note;
 export { noteSchema };
