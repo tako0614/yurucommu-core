@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 import { renderNoteContent } from "../../utils/render.ts";
 import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
@@ -10,6 +10,7 @@ import {
 } from "./api.ts";
 import { fetchPostById } from "./api.ts";
 import { GoogleAd } from "../GoogleAd.tsx";
+import { isAdsenseEnabled, loadAdsenseConfig } from "../../utils/adsense.ts";
 
 interface OgpData {
   title?: string;
@@ -452,9 +453,11 @@ export function PostList(props: {
   formatDate: (dateString: string) => string;
   isThread?: boolean;
 }) {
-  const showAds = !!(
-    import.meta.env.VITE_ADSENSE_CLIENT && import.meta.env.VITE_ADSENSE_SLOT
-  );
+  const [showAds, setShowAds] = createSignal(false);
+  onMount(async () => {
+    await loadAdsenseConfig();
+    setShowAds(isAdsenseEnabled());
+  });
   return (
     <div class="divide-y divide-gray-800">
       <For each={props.posts}>
@@ -472,7 +475,7 @@ export function PostList(props: {
               formatDate={props.formatDate}
               isReply={props.isThread && i() > 0}
             />
-            <Show when={showAds && i() === 4}>
+            <Show when={showAds() && i() === 4}>
               <div class="my-4">
                 <GoogleAd />
               </div>
