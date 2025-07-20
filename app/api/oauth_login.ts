@@ -3,7 +3,7 @@ import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "../../shared/config.ts";
-import Session from "./models/session.ts";
+import { createSession } from "./repositories/session.ts";
 
 const app = new Hono();
 
@@ -34,10 +34,7 @@ app.post(
     // ③ セッション発行（7 日間有効）
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    const session = new Session({ sessionId, expiresAt });
-    (session as unknown as { $locals?: { env?: Record<string, string> } })
-      .$locals = { env };
-    await session.save();
+    await createSession(env, sessionId, expiresAt);
 
     // ④ Cookie 設定
     setCookie(c, "sessionId", sessionId, {

@@ -1,22 +1,15 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import {
-  type ActivityObject,
-  deleteNote,
-  findNotes,
-  getObject,
-  getPublicNotes,
-  getTimeline,
-  saveNote,
-  updateNote,
-} from "./services/unified_store.ts";
+import { type ActivityObject } from "./services/unified_store.ts";
+import { createDB } from "./db.ts";
+import type { DB } from "../../shared/db.ts";
 
 // 型定義用のimport
 import { getEnv } from "../../shared/config.ts";
 
 type ActivityPubObjectType = ActivityObject;
-import Account from "./models/account.ts";
+import { findAccountByUserName } from "./repositories/account.ts";
 import {
   buildActivityFromStored,
   createAnnounceActivity,
@@ -39,13 +32,14 @@ import { rateLimit } from "./utils/rate_limit.ts";
 
 async function deliverPostToFollowers(
   env: Record<string, string>,
+  db: DB,
   post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
   author: string,
   domain: string,
   replyToId?: string,
 ) {
   try {
-    const account = await Account.findOne({ userName: author }).lean();
+    const account = await findAccountByUserName(env, author);
     if (!account || !account.followers) return;
 
     const followerInboxes = await Promise.all(
@@ -102,7 +96,7 @@ async function deliverPostToFollowers(
       );
 
       if (replyToId) {
-        const parent = await getObject(env, replyToId);
+        const parent = await db.getObject(replyToId);
         if (
           parent &&
           typeof parent.attributedTo === "string" &&
@@ -153,24 +147,26 @@ app.get("/microblog", async (c) => {
     100,
   );
   const before = c.req.query("before");
+  const db = createDB(env);
   let list: ActivityPubObjectType[];
   if (timeline === "followers" && actor && tenantId) {
-    list = await getTimeline(
-      tenantId,
-      actor,
+    list = await db.listTimeline(actor, {
       limit,
-      before ? new Date(before) : undefined,
-    );
+      before: before ? new Date(before) : undefined,
+    });
   } else {
-    list = await getPublicNotes(
-      env,
+    list = await db.getPublicNotes(
       limit,
       before ? new Date(before) : undefined,
     );
   }
 
   const identifiers = list.map((doc) => doc.actor_id as string);
-  const userInfos = await getUserInfoBatch(identifiers as string[], domain);
+  const userInfos = await getUserInfoBatch(
+    identifiers as string[],
+    domain,
+    env,
+  );
   const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
     const postData = {
@@ -221,23 +217,29 @@ app.post(
     if (typeof parentId === "string") extra.replies = 0;
 
     const env = getEnv(c);
-    const post = await saveNote(env, domain, author, content, extra);
+    const db = createDB(env);
+    const post = await db.saveNote(domain, author, content, extra);
 
     if (typeof parentId === "string") {
-      await updateNote(env, parentId, { $inc: { "extra.replies": 1 } }).catch(
+      await db.updateNote(parentId, { $inc: { "extra.replies": 1 } }).catch(
         () => {},
       );
     }
 
     deliverPostToFollowers(
       env,
+      db,
       post,
       author,
       domain,
       typeof parentId === "string" ? parentId : undefined,
     );
 
-    const userInfo = await getUserInfo(post.attributedTo as string, domain);
+    const userInfo = await getUserInfo(
+      post.attributedTo as string,
+      domain,
+      env,
+    );
     return c.json(
       formatUserInfoForPost(
         userInfo,
@@ -252,10 +254,11 @@ app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const id = c.req.param("id");
-  const post = await getObject(env, id);
+  const db = createDB(env);
+  const post = await db.getObject(id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const userInfo = await getUserInfo(post.actor_id as string, domain);
+  const userInfo = await getUserInfo(post.actor_id as string, domain, env);
   const data = {
     _id: post._id,
     content: post.content,
@@ -269,11 +272,12 @@ app.get("/microblog/:id/replies", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const id = c.req.param("id");
-  const list = await findNotes(env, { "extra.inReplyTo": id }, {
+  const db = createDB(env);
+  const list = await db.findNotes({ "extra.inReplyTo": id }, {
     published: 1,
   });
   const ids = list.map((doc) => doc.attributedTo as string);
-  const infos = await getUserInfoBatch(ids, domain);
+  const infos = await getUserInfoBatch(ids, domain, env);
   const formatted = list.map((doc, i) =>
     formatUserInfoForPost(infos[i], doc as unknown as Record<string, unknown>)
   );
@@ -288,11 +292,16 @@ app.put(
     const id = c.req.param("id");
     const { content } = c.req.valid("json") as { content: string };
     const env = getEnv(c);
-    const post = await updateNote(env, id, { content });
+    const db = createDB(env);
+    const post = await db.updateNote(id, { content });
     if (!post) return c.json({ error: "Not found" }, 404);
 
     // 共通ユーザー情報取得サービスを使用
-    const userInfo = await getUserInfo(post.attributedTo as string, domain);
+    const userInfo = await getUserInfo(
+      post.attributedTo as string,
+      domain,
+      env,
+    );
 
     return c.json(
       formatUserInfoForPost(
@@ -311,7 +320,8 @@ app.post(
     const id = c.req.param("id");
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
-    const post = await getObject(env, id);
+    const db = createDB(env);
+    const post = await db.getObject(id);
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const extra = post.extra as Record<string, unknown> ?? {};
@@ -323,7 +333,8 @@ app.post(
       extra.likedBy = likedBy;
       extra.likes = likedBy.length;
       const env = getEnv(c);
-      await updateNote(env, id, { extra });
+      const db = createDB(env);
+      await db.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${post._id}`;
@@ -335,8 +346,10 @@ app.post(
         const inbox = await fetchActorInbox(post.attributedTo as string, env);
         if (inbox) inboxes.push(inbox);
       } else {
-        const account = await Account.findOne({ userName: post.attributedTo })
-          .lean();
+        const account = await findAccountByUserName(
+          env,
+          post.attributedTo as string,
+        );
         inboxes = account?.followers ?? [];
       }
       if (inboxes.length > 0) {
@@ -387,7 +400,8 @@ app.post(
     const id = c.req.param("id");
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
-    const post = await getObject(env, id);
+    const db = createDB(env);
+    const post = await db.getObject(id);
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const extra = post.extra as Record<string, unknown>;
@@ -399,13 +413,14 @@ app.post(
       extra.retweetedBy = retweetedBy;
       extra.retweets = retweetedBy.length;
       const env = getEnv(c);
-      await updateNote(env, id, { extra });
+      const db = createDB(env);
+      await db.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${post._id}`;
 
       let inboxes: string[] = [];
-      const account = await Account.findOne({ userName: username }).lean();
+      const account = await findAccountByUserName(env, username);
       inboxes = account?.followers ?? [];
 
       if (
@@ -459,8 +474,9 @@ app.post(
 
 app.delete("/microblog/:id", async (c) => {
   const env = getEnv(c);
+  const db = createDB(env);
   const id = c.req.param("id");
-  const deleted = await deleteNote(env, id);
+  const deleted = await db.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });

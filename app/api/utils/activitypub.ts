@@ -1,5 +1,5 @@
-import Account from "../models/account.ts";
-import { listPushRelays } from "../services/unified_store.ts";
+import { createDB } from "../db.ts";
+import { findAccountByUserName } from "../repositories/account.ts";
 import { getEnv } from "../../../shared/config.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
@@ -105,6 +105,7 @@ export async function sendActivityPubObject(
   object: unknown,
   actor: string,
   domain: string,
+  env: Record<string, string> = {},
 ): Promise<Response> {
   const body = JSON.stringify(object);
   let key: { userName: string; privateKey: string } | null = null;
@@ -112,7 +113,7 @@ export async function sendActivityPubObject(
     const sys = await getSystemKey(domain);
     key = { userName: "system", privateKey: sys.privateKey };
   } else {
-    const account = await Account.findOne({ userName: actor }).lean();
+    const account = await findAccountByUserName(env, actor);
     if (!account) throw new Error("actor not found");
     key = { userName: actor, privateKey: account.privateKey };
   }
@@ -132,23 +133,26 @@ export async function deliverActivityPubObject(
   domain: string,
   env: Record<string, string> = {},
 ): Promise<void> {
-  const pushHosts = await listPushRelays(domain);
+  const db = createDB(env);
+  const pushHosts = await db.listPushRelays();
   const pushRelays = pushHosts.map((h) => `https://${h}/inbox`);
   const allTargets = [...targets, ...pushRelays];
 
   const deliveryPromises = allTargets.map(async (iri) => {
     // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
-      return sendActivityPubObject(iri, object, actor, domain).catch((err) => {
-        console.error(`Failed to deliver to inbox URL ${iri}`, err);
-      });
+      return sendActivityPubObject(iri, object, actor, domain, env).catch(
+        (err) => {
+          console.error(`Failed to deliver to inbox URL ${iri}`, err);
+        },
+      );
     }
 
     // それ以外はActor IRIとして解決
     try {
       const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
       const target = sharedInbox ?? inbox;
-      return sendActivityPubObject(target, object, actor, domain).catch(
+      return sendActivityPubObject(target, object, actor, domain, env).catch(
         (err) => {
           console.error(`Failed to deliver to ${iri}`, err);
         },
@@ -539,7 +543,7 @@ export function resolveActor(
 
 export function getDomain(c: Context): string {
   const env = getEnv(c);
-  return env["ACTIVITYPUB_DOMAIN"]
+  return env["ACTIVITYPUB_DOMAIN"];
 }
 
 export function jsonResponse(

@@ -12,8 +12,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { sdkStreamMixin } from "@aws-sdk/util-stream-node";
-import mongoose from "mongoose";
-import { GridFSBucket } from "mongodb";
+import { type Db, GridFSBucket } from "mongodb";
 import { once } from "node:events";
 import { Buffer } from "node:buffer";
 
@@ -115,11 +114,8 @@ export class S3Storage implements ObjectStorage {
 
 export class GridFSStorage implements ObjectStorage {
   private bucket: GridFSBucket;
-  constructor(bucketName: string) {
-    if (!mongoose.connection.db) {
-      throw new Error("Database is not connected");
-    }
-    this.bucket = new GridFSBucket(mongoose.connection.db, { bucketName });
+  constructor(db: Db, bucketName: string) {
+    this.bucket = new GridFSBucket(db, { bucketName });
   }
 
   async put(key: string, data: Uint8Array): Promise<string> {
@@ -160,7 +156,12 @@ export class GridFSStorage implements ObjectStorage {
 /* ==========================
    ストレージファクトリ関数
    ========================== */
-export function createStorage(e: Record<string, string>): ObjectStorage {
+import type { DB } from "../../shared/db.ts";
+
+export async function createStorage(
+  e: Record<string, string>,
+  db?: DB,
+): Promise<ObjectStorage> {
   const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
   if (provider === "s3" || provider === "r2" || provider === "minio") {
     const bucket = e["S3_BUCKET"] || "";
@@ -179,8 +180,12 @@ export function createStorage(e: Record<string, string>): ObjectStorage {
     );
   }
   if (provider === "gridfs") {
+    if (!db || !db.getDatabase) {
+      throw new Error("DB instance with getDatabase is required for GridFS");
+    }
     const bucketName = e["GRIDFS_BUCKET"] || "uploads";
-    return new GridFSStorage(bucketName);
+    const native = await db.getDatabase();
+    return new GridFSStorage(native, bucketName);
   }
   const dir = e["LOCAL_STORAGE_DIR"] || "uploads";
   return new LocalStorage(dir);

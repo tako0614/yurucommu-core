@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import Account from "./models/account.ts";
-import { findObjects } from "./services/unified_store.ts";
+import {
+  findAccountByUserName,
+  searchAccounts,
+  updateAccountByUserName,
+} from "./repositories/account.ts";
+import { createDB } from "./db.ts";
 import { getEnv } from "../../shared/config.ts";
 import {
   createFollowActivity,
@@ -27,12 +31,8 @@ app.get("/users/search", async (c) => {
     }
 
     const domain = getDomain(c);
-    const users = await Account.find({
-      $or: [
-        { userName: { $regex: query, $options: "i" } },
-        { displayName: { $regex: query, $options: "i" } },
-      ],
-    }).limit(20).lean();
+    const regex = new RegExp(query, "i");
+    const users = await searchAccounts(getEnv(c), regex, 20);
 
     const formatted = users.map((user) => ({
       userName: user.userName,
@@ -55,17 +55,17 @@ app.get("/users/:username", async (c) => {
   try {
     const domain = getDomain(c);
     const username = c.req.param("username");
-    const user = await Account.findOne({ userName: username }).lean();
+    const env = getEnv(c);
+    const user = await findAccountByUserName(env, username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
     }
 
     // ユーザーの投稿数を取得
-    const env = getEnv(c);
-    const postCount = (
-      await findObjects(env, { attributedTo: username, type: "Note" })
-    ).length;
+    const db = createDB(env);
+    const postCount =
+      (await db.findNotes({ attributedTo: username }, {})).length;
 
     return c.json({
       userName: user.userName,
@@ -93,21 +93,20 @@ app.post(
       const { followerUsername } = c.req.valid("json") as {
         followerUsername: string;
       };
+      const env = getEnv(c);
 
       if (targetUsername === followerUsername) {
         return c.json({ error: "Cannot follow yourself" }, 400);
       }
 
       // フォロー対象のユーザーを確認
-      const targetUser = await Account.findOne({ userName: targetUsername });
+      const targetUser = await findAccountByUserName(env, targetUsername);
       if (!targetUser) {
         return c.json({ error: "Target user not found" }, 404);
       }
 
       // フォロワーのユーザーを確認
-      const followerUser = await Account.findOne({
-        userName: followerUsername,
-      });
+      const followerUser = await findAccountByUserName(env, followerUsername);
       if (!followerUser) {
         return c.json({ error: "Follower user not found" }, 404);
       }
@@ -121,21 +120,13 @@ app.post(
       }
 
       // フォロー関係を更新
-      await Account.updateOne(
-        { userName: followerUsername },
-        {
-          $addToSet: { following: `https://${domain}/users/${targetUsername}` },
-        },
-      );
+      await updateAccountByUserName(env, followerUsername, {
+        $addToSet: { following: `https://${domain}/users/${targetUsername}` },
+      });
 
-      await Account.updateOne(
-        { userName: targetUsername },
-        {
-          $addToSet: {
-            followers: `https://${domain}/users/${followerUsername}`,
-          },
-        },
-      );
+      await updateAccountByUserName(env, targetUsername, {
+        $addToSet: { followers: `https://${domain}/users/${followerUsername}` },
+      });
 
       // ActivityPub Follow アクティビティを作成・配信
       const _followActivity = createFollowActivity(
@@ -167,16 +158,16 @@ app.post(
         followerUsername: string;
       };
 
-      // フォロー関係を削除
-      await Account.updateOne(
-        { userName: followerUsername },
-        { $pull: { following: `https://${domain}/users/${targetUsername}` } },
-      );
+      const env = getEnv(c);
 
-      await Account.updateOne(
-        { userName: targetUsername },
-        { $pull: { followers: `https://${domain}/users/${followerUsername}` } },
-      );
+      // フォロー関係を削除
+      await updateAccountByUserName(env, followerUsername, {
+        $pull: { following: `https://${domain}/users/${targetUsername}` },
+      });
+
+      await updateAccountByUserName(env, targetUsername, {
+        $pull: { followers: `https://${domain}/users/${followerUsername}` },
+      });
 
       // ActivityPub Undo Follow アクティビティを作成・配信
       const _undoFollowActivity = createUndoFollowActivity(
@@ -201,7 +192,8 @@ app.get("/users/:username/followers", async (c) => {
   try {
     const domain = getDomain(c);
     const username = c.req.param("username");
-    const user = await Account.findOne({ userName: username }).lean();
+    const env = getEnv(c);
+    const user = await findAccountByUserName(env, username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
@@ -215,9 +207,10 @@ app.get("/users/:username/followers", async (c) => {
         // ローカルユーザーの場合
         if (followerUrl.includes(domain)) {
           const followerUsername = followerUrl.split("/").pop();
-          const followerUser = await Account.findOne({
-            userName: followerUsername,
-          }).lean();
+          const followerUser = await findAccountByUserName(
+            env,
+            followerUsername,
+          );
           if (followerUser) {
             followerData.push({
               userName: followerUser.userName,
@@ -255,7 +248,8 @@ app.get("/users/:username/following", async (c) => {
   try {
     const domain = getDomain(c);
     const username = c.req.param("username");
-    const user = await Account.findOne({ userName: username }).lean();
+    const env = getEnv(c);
+    const user = await findAccountByUserName(env, username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
@@ -269,9 +263,10 @@ app.get("/users/:username/following", async (c) => {
         // ローカルユーザーの場合
         if (followingUrl.includes(domain)) {
           const followingUsername = followingUrl.split("/").pop();
-          const followingUser = await Account.findOne({
-            userName: followingUsername,
-          }).lean();
+          const followingUser = await findAccountByUserName(
+            env,
+            followingUsername ?? "",
+          );
           if (followingUser) {
             followingData.push({
               userName: followingUser.userName,
@@ -309,7 +304,8 @@ app.get("/users/:username/timeline", async (c) => {
   try {
     const domain = getDomain(c);
     const username = c.req.param("username");
-    const user = await Account.findOne({ userName: username }).lean();
+    const env = getEnv(c);
+    const user = await findAccountByUserName(env, username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
@@ -322,20 +318,15 @@ app.get("/users/:username/timeline", async (c) => {
       .filter(Boolean);
 
     // フォロー中ユーザーの投稿を取得
-    const env = getEnv(c);
-    const posts = await findObjects(
-      env,
-      {
-        type: "Note",
-        attributedTo: { $in: followingUsernames },
-      },
-      { published: -1 },
-    );
+    const db = createDB(env);
+    const posts = await db.findNotes({
+      attributedTo: { $in: followingUsernames },
+    }, { published: -1 });
     const limited = posts.slice(0, 50);
 
     // ユーザー情報をバッチで取得
     const identifiers = limited.map((post) => post.attributedTo as string);
-    const userInfos = await getUserInfoBatch(identifiers, domain);
+    const userInfos = await getUserInfoBatch(identifiers, domain, getEnv(c));
 
     const formatted = limited.map(
       (post: Record<string, unknown>, index: number) => {

@@ -5,10 +5,7 @@ import HostUser from "../app/takos_host/models/user.ts";
 import Instance from "../app/takos_host/models/instance.ts";
 import OAuthClient from "../app/takos_host/models/oauth_client.ts";
 import Relay from "../app/api/models/relay.ts";
-import {
-  addRelayEdge,
-  removeRelayEdge,
-} from "../app/api/services/unified_store.ts";
+import { createDB } from "../app/api/db.ts";
 import { ensureTenant } from "../app/api/services/tenant.ts";
 import { getSystemKey } from "../app/api/services/system_actor.ts";
 import {
@@ -144,8 +141,9 @@ async function createInstance(
   await inst.save();
   await ensureTenant(fullHost, fullHost);
   if (rootDomain) {
-    await addRelayEdge(fullHost, rootDomain, "pull");
-    await addRelayEdge(fullHost, rootDomain, "push");
+    const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: fullHost });
+    await db.addRelay(rootDomain, "pull");
+    await db.addRelay(rootDomain, "push");
   }
   console.log(`作成しました: ${fullHost}`);
 }
@@ -193,8 +191,9 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
     try {
-      await addRelayEdge(rootDomain, relayHost, "pull");
-      await addRelayEdge(rootDomain, relayHost, "push");
+      const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: rootDomain });
+      await db.addRelay(relayHost, "pull");
+      await db.addRelay(relayHost, "push");
     } catch {
       /* ignore */
     }
@@ -206,7 +205,7 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
         actor,
         "https://www.w3.org/ns/activitystreams#Public",
       );
-      await sendActivityPubObject(inboxUrl, follow, "system", rootDomain);
+      await sendActivityPubObject(inboxUrl, follow, "system", rootDomain, env);
     } catch (err) {
       console.error("Failed to follow relay:", err);
     }
@@ -221,7 +220,8 @@ async function deleteRelay(env: Record<string, string>, id: string) {
   if (rootDomain) {
     try {
       const relayHost = relay.host ?? new URL(relay.inboxUrl).hostname;
-      await removeRelayEdge(rootDomain, relayHost);
+      const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: rootDomain });
+      await db.removeRelay(relayHost);
     } catch {
       /* ignore */
     }
@@ -233,7 +233,13 @@ async function deleteRelay(env: Record<string, string>, id: string) {
         actor,
         "https://www.w3.org/ns/activitystreams#Public",
       );
-      await sendActivityPubObject(relay.inboxUrl, undo, "system", rootDomain);
+      await sendActivityPubObject(
+        relay.inboxUrl,
+        undo,
+        "system",
+        rootDomain,
+        env,
+      );
     } catch (err) {
       console.error("Failed to undo follow:", err);
     }

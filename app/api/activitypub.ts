@@ -1,11 +1,14 @@
 import { Hono } from "hono";
-import Account from "./models/account.ts";
-import { findObjects, saveObject } from "./services/unified_store.ts";
-import KeyPackage from "./models/key_package.ts";
+import { createDB } from "./db.ts";
+import { findAccountByUserName } from "./repositories/account.ts";
+import { listKeyPackages } from "./repositories/key_package.ts";
 import { getEnv } from "../../shared/config.ts";
 
 import { activityHandlers } from "./activity_handlers.ts";
-import RemoteActor from "./models/remote_actor.ts";
+import {
+  findRemoteActorByUrl,
+  upsertRemoteActor,
+} from "./repositories/remote_actor.ts";
 import { getSystemKey } from "./services/system_actor.ts";
 
 import {
@@ -44,7 +47,7 @@ app.get("/.well-known/webfinger", async (c) => {
     };
     return jsonResponse(c, jrd, 200, "application/jrd+json");
   }
-  const account = await Account.findOne({ userName: username });
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
     subject: `acct:${username}@${domain}`,
@@ -82,7 +85,7 @@ app.get("/users/:username", async (c) => {
     });
     return jsonResponse(c, actor, 200, "application/activity+json");
   }
-  const account = await Account.findOne({ userName: username }).lean();
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
 
@@ -91,10 +94,7 @@ app.get("/users/:username", async (c) => {
     displayName: account.displayName,
     publicKey: account.publicKey,
   });
-  const packages = await KeyPackage.find({
-    userName: username,
-    tenant_id: domain,
-  }).lean();
+  const packages = await listKeyPackages(getEnv(c), username);
   actor.keyPackages = {
     type: "Collection",
     id: `https://${domain}/users/${username}/keyPackages`,
@@ -113,7 +113,7 @@ app.get("/users/:username/avatar", async (c) => {
       `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">S</text></svg>`;
     return c.body(svg, 200, { "content-type": "image/svg+xml" });
   }
-  const account = await Account.findOne({ userName: username }).lean();
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return c.body("Not Found", 404);
 
   let icon = account.avatarInitial ||
@@ -159,7 +159,8 @@ app.get("/users/:username/outbox", async (c) => {
   const query: any = { attributedTo: username };
   if (type) query.type = type;
   const env = getEnv(c);
-  const objects = await findObjects(env, query, { published: -1 });
+  const db = createDB(env);
+  const objects = await db.findObjects(query, { published: -1 });
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
@@ -186,7 +187,8 @@ app.post("/users/:username/outbox", async (c) => {
   }
   const domain = getDomain(c);
   const env = getEnv(c);
-  const object = await saveObject(env, {
+  const db = createDB(env);
+  const object = await db.saveObject({
     _id: createObjectId(domain),
     type: body.type,
     attributedTo: username,
@@ -234,11 +236,12 @@ app.post("/users/:username/inbox", async (c) => {
     if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
     const activity = JSON.parse(bodyText);
     if (activity.type === "Create" && typeof activity.object === "object") {
-      await saveObject(getEnv(c), activity.object as Record<string, unknown>);
+      const db = createDB(getEnv(c));
+      await db.saveObject(activity.object as Record<string, unknown>);
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
-  const account = await Account.findOne({ userName: username });
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const bodyText = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
@@ -270,7 +273,7 @@ app.get("/users/:username/followers", async (c) => {
     );
   }
   const page = c.req.query("page");
-  const account = await Account.findOne({ userName: username }).lean();
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.followers ?? [];
@@ -326,7 +329,7 @@ app.get("/users/:username/following", async (c) => {
     );
   }
   const page = c.req.query("page");
-  const account = await Account.findOne({ userName: username }).lean();
+  const account = await findAccountByUserName(getEnv(c), username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.following ?? [];
@@ -379,7 +382,7 @@ app.get("/activitypub/actor-proxy", async (c) => {
     }
 
     // 既存キャッシュを確認
-    const cached = await RemoteActor.findOne({ actorUrl }).lean();
+    const cached = await findRemoteActorByUrl(actorUrl);
     if (cached) {
       return c.json({
         name: cached.name,
@@ -405,17 +408,13 @@ app.get("/activitypub/actor-proxy", async (c) => {
     const actor = await response.json();
 
     // DBに保存
-    await RemoteActor.findOneAndUpdate(
-      { actorUrl },
-      {
-        name: actor.name || "",
-        preferredUsername: actor.preferredUsername || "",
-        icon: actor.icon || null,
-        summary: actor.summary || "",
-        cachedAt: new Date(),
-      },
-      { upsert: true },
-    );
+    await upsertRemoteActor({
+      actorUrl,
+      name: actor.name || "",
+      preferredUsername: actor.preferredUsername || "",
+      icon: actor.icon || null,
+      summary: actor.summary || "",
+    });
 
     // 必要な情報のみを返す（セキュリティのため）
     return c.json({

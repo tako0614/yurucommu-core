@@ -1,9 +1,6 @@
 import type { Context } from "hono";
-import Account from "./models/account.ts";
-import {
-  addFollowEdge,
-  saveObject as storeObject,
-} from "./services/unified_store.ts";
+import { addFollowerByName } from "./repositories/account.ts";
+import { createDB } from "./db.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -46,7 +43,8 @@ async function saveObject(
   };
   if (attachments.length > 0) extra.attachments = attachments;
 
-  await storeObject(env, {
+  const db = createDB(env);
+  await db.saveObject({
     type: obj.type ?? "Note",
     attributedTo: typeof obj.attributedTo === "string"
       ? obj.attributedTo
@@ -89,15 +87,13 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     c: unknown,
   ) {
     if (typeof activity.actor !== "string") return;
-    await Account.updateOne(
-      { userName: username },
-      { $addToSet: { followers: activity.actor } },
-    );
     const env = (c as { get: (k: string) => unknown }).get("env") as Record<
       string,
       string
     >;
-    await addFollowEdge(env["ACTIVITYPUB_DOMAIN"] ?? "", activity.actor);
+    await addFollowerByName(env, username, activity.actor);
+    const db = createDB(env);
+    await db.follow(username, activity.actor);
     const domain = getDomain(c as Context);
     const accept = createAcceptActivity(
       domain,

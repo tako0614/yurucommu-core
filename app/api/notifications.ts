@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import Notification from "./models/notification.ts";
+import {
+  createNotification,
+  deleteNotification,
+  listNotifications,
+  markNotificationRead,
+} from "./repositories/notification.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 
@@ -10,13 +15,9 @@ app.use("/notifications/*", authRequired);
 
 app.get("/notifications", async (c) => {
   const env = getEnv(c);
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const list = await Notification.find({ tenant_id: tenantId }).sort({
-    createdAt: -1,
-  }).lean();
-  // deno-lint-ignore no-explicit-any
-  const formatted = list.map((doc: any) => ({
-    id: doc._id.toString(),
+  const list = await listNotifications(env);
+  const formatted = list.map((doc) => ({
+    id: doc._id!,
     title: doc.title,
     message: doc.message,
     type: doc.type,
@@ -34,23 +35,19 @@ app.post(
   ),
   async (c) => {
     const env = getEnv(c);
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const { title, message, type } = c.req.valid("json") as {
       title: string;
       message: string;
       type: string;
     };
-    const notification = new Notification({
+    const notification = await createNotification(
+      env,
       title,
       message,
       type,
-      tenant_id: tenantId,
-    });
-    (notification as unknown as { $locals?: { env?: Record<string, string> } })
-      .$locals = { env };
-    await notification.save();
+    );
     return c.json({
-      id: notification._id.toString(),
+      id: notification._id!,
       title: notification.title,
       message: notification.message,
       type: notification.type,
@@ -62,28 +59,17 @@ app.post(
 
 app.put("/notifications/:id/read", async (c) => {
   const env = getEnv(c);
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const n = await Notification.findOneAndUpdate(
-    { _id: id, tenant_id: tenantId },
-    { read: true },
-    {
-      new: true,
-    },
-  );
-  if (!n) return c.json({ error: "Notification not found" }, 404);
+  const ok = await markNotificationRead(env, id);
+  if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
 
 app.delete("/notifications/:id", async (c) => {
   const env = getEnv(c);
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const id = c.req.param("id");
-  const n = await Notification.findOneAndDelete({
-    _id: id,
-    tenant_id: tenantId,
-  });
-  if (!n) return c.json({ error: "Notification not found" }, 404);
+  const ok = await deleteNotification(env, id);
+  if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
 

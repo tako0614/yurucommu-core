@@ -40,7 +40,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     const rl = rateLimit({ windowMs: 60_000, limit: 100 });
     await rl(c, next);
   });
-  initVideoModule(e);
+  await initVideoModule(e);
   initVideoWebSocket();
   app.route("/api", wsRouter);
   app.route("/api", login);

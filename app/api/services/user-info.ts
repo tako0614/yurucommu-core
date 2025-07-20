@@ -1,5 +1,12 @@
-import Account from "../models/account.ts";
-import RemoteActor from "../models/remote_actor.ts";
+import {
+  findAccountByUserName,
+  findAccountsByUserNames,
+} from "../repositories/account.ts";
+import {
+  findRemoteActorByUrl,
+  findRemoteActorsByUrls,
+  upsertRemoteActor,
+} from "../repositories/remote_actor.ts";
 import { resolveActor } from "../utils/activitypub.ts";
 
 export interface UserInfo {
@@ -15,7 +22,7 @@ export interface UserInfoCache {
 }
 
 async function fetchExternalActorInfo(actorUrl: string) {
-  let actor = await RemoteActor.findOne({ actorUrl }).lean();
+  let actor = await findRemoteActorByUrl(actorUrl);
   if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
     try {
       const res = await fetch(actorUrl, {
@@ -27,18 +34,14 @@ async function fetchExternalActorInfo(actorUrl: string) {
       });
       if (res.ok) {
         const data = await res.json();
-        await RemoteActor.findOneAndUpdate(
-          { actorUrl },
-          {
-            name: data.name || "",
-            preferredUsername: data.preferredUsername || "",
-            icon: data.icon || null,
-            summary: data.summary || "",
-            cachedAt: new Date(),
-          },
-          { upsert: true },
-        );
-        actor = await RemoteActor.findOne({ actorUrl }).lean();
+        await upsertRemoteActor({
+          actorUrl,
+          name: data.name || "",
+          preferredUsername: data.preferredUsername || "",
+          icon: data.icon || null,
+          summary: data.summary || "",
+        });
+        actor = await findRemoteActorByUrl(actorUrl);
       }
     } catch {
       /* ignore */
@@ -64,6 +67,7 @@ async function fetchExternalActorInfo(actorUrl: string) {
 export async function getUserInfo(
   identifier: string,
   domain: string,
+  env: Record<string, string>,
   cache?: UserInfoCache,
 ): Promise<UserInfo> {
   // キャッシュチェック
@@ -78,7 +82,7 @@ export async function getUserInfo(
   let isLocal = true;
 
   // ローカルユーザーかどうかを判定
-  const account = await Account.findOne({ userName: identifier }).lean();
+  const account = await findAccountByUserName(env, identifier);
 
   if (account) {
     // ローカルユーザーの場合
@@ -101,17 +105,13 @@ export async function getUserInfo(
           ? icon
           : "";
       }
-      await RemoteActor.findOneAndUpdate(
-        { actorUrl: actor.id },
-        {
-          name: actor.name || "",
-          preferredUsername: actor.preferredUsername || "",
-          icon: actor.icon || null,
-          summary: actor.summary || "",
-          cachedAt: new Date(),
-        },
-        { upsert: true },
-      );
+      await upsertRemoteActor({
+        actorUrl: actor.id,
+        name: actor.name || "",
+        preferredUsername: actor.preferredUsername || "",
+        icon: actor.icon || null,
+        summary: actor.summary || "",
+      });
     }
   } else if (typeof identifier === "string" && identifier.startsWith("http")) {
     try {
@@ -125,9 +125,10 @@ export async function getUserInfo(
 
       if (url.hostname === domain && url.pathname.startsWith("/users/")) {
         // ローカルユーザーを URL で指定した場合
-        const localAccount = await Account.findOne({
-          userName: extractedUsername,
-        }).lean();
+        const localAccount = await findAccountByUserName(
+          env,
+          extractedUsername,
+        );
         if (localAccount) {
           displayName = localAccount.displayName || extractedUsername;
           authorAvatar = localAccount.avatarInitial || "";
@@ -177,6 +178,7 @@ export async function getUserInfo(
 export async function getUserInfoBatch(
   identifiers: string[],
   domain: string,
+  env: Record<string, string>,
 ): Promise<UserInfo[]> {
   const cache: UserInfoCache = {};
   const results: UserInfo[] = [];
@@ -206,9 +208,10 @@ export async function getUserInfoBatch(
   }
 
   if (localIds.length > 0) {
-    const accounts = await Account.find({
-      userName: { $in: localIds.map((l) => l.username) },
-    }).lean();
+    const accounts = await findAccountsByUserNames(
+      env,
+      localIds.map((l) => l.username),
+    );
     const accountMap = new Map(accounts.map((acc) => [acc.userName, acc]));
 
     for (const entry of localIds) {
@@ -232,9 +235,7 @@ export async function getUserInfoBatch(
     id.startsWith("http") && !processedLocalIds.has(id)
   );
   if (externalUrls.length > 0) {
-    const remoteActors = await RemoteActor.find({
-      actorUrl: { $in: externalUrls },
-    }).lean();
+    const remoteActors = await findRemoteActorsByUrls(externalUrls);
     const actorMap = new Map(
       remoteActors.map((actor) => [actor.actorUrl, actor]),
     );
@@ -286,7 +287,7 @@ export async function getUserInfoBatch(
       results.push(cache[identifier]);
     } else {
       // キャッシュにない場合は個別に取得
-      const userInfo = await getUserInfo(identifier, domain, cache);
+      const userInfo = await getUserInfo(identifier, domain, env, cache);
       results.push(userInfo);
     }
   }

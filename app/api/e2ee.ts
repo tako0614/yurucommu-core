@@ -1,10 +1,26 @@
 import { Hono } from "hono";
-import KeyPackage from "./models/key_package.ts";
-import EncryptedMessage from "./models/encrypted_message.ts";
-import PublicMessage from "./models/public_message.ts";
-import EncryptedKeyPair from "./models/encrypted_keypair.ts";
-import { saveMessage } from "./services/unified_store.ts";
-import Account from "./models/account.ts";
+import {
+  createKeyPackage,
+  deleteKeyPackage,
+  deleteKeyPackagesByUser,
+  findKeyPackage,
+  listKeyPackages,
+} from "./repositories/key_package.ts";
+import {
+  deleteEncryptedKeyPair,
+  findEncryptedKeyPair,
+  upsertEncryptedKeyPair,
+} from "./repositories/encrypted_keypair.ts";
+import {
+  createEncryptedMessage,
+  findEncryptedMessages,
+} from "./repositories/encrypted_message.ts";
+import {
+  createPublicMessage,
+  findPublicMessages,
+} from "./repositories/public_message.ts";
+import { createDB } from "./db.ts";
+import { findAccountByUserName } from "./repositories/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
@@ -28,7 +44,10 @@ interface ActivityPubActivity {
   to?: unknown;
   cc?: unknown;
 }
-import RemoteActor from "./models/remote_actor.ts";
+import {
+  findRemoteActorByUrl,
+  upsertRemoteActor,
+} from "./repositories/remote_actor.ts";
 
 async function resolveActorCached(
   acct: string,
@@ -37,13 +56,9 @@ async function resolveActorCached(
   const [name, host] = acct.split("@");
   if (!name || !host) return null;
 
-  const hostRegex = new RegExp(
-    `^https?://${host.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}/`,
+  const cached = await findRemoteActorByUrl(
+    acct.startsWith("http") ? acct : "",
   );
-  const cached = await RemoteActor.findOne({
-    preferredUsername: name,
-    actorUrl: { $regex: hostRegex },
-  }).lean();
 
   let actor:
     | (ActivityPubActor & { keyPackages?: string | { id?: string } })
@@ -68,17 +83,13 @@ async function resolveActorCached(
       | (ActivityPubActor & { keyPackages?: string | { id?: string } })
       | null;
     if (actor) {
-      await RemoteActor.findOneAndUpdate(
-        { actorUrl: actor.id },
-        {
-          name: actor.name || "",
-          preferredUsername: actor.preferredUsername || "",
-          icon: actor.icon || null,
-          summary: actor.summary || "",
-          cachedAt: new Date(),
-        },
-        { upsert: true },
-      );
+      await upsertRemoteActor({
+        actorUrl: actor.id,
+        name: actor.name || "",
+        preferredUsername: actor.preferredUsername || "",
+        icon: actor.icon || null,
+        summary: actor.summary || "",
+      });
     }
   }
 
@@ -93,7 +104,7 @@ async function deliverToFollowers(
   activity: unknown,
   domain: string,
 ) {
-  const account = await Account.findOne({ userName: user }).lean();
+  const account = await findAccountByUserName(env, user);
   if (!account || !account.followers) return;
   const followerInboxes = await Promise.all(
     account.followers.map(async (actorUrl: string) => {
@@ -128,10 +139,7 @@ app.get("/users/:user/keyPackages", async (c) => {
   const [user, host] = identifier.split("@");
   if (!host || host === domain) {
     const username = user ?? identifier;
-    const list = await KeyPackage.find({
-      userName: username,
-      tenant_id: domain,
-    }).lean();
+    const list = await listKeyPackages(getEnv(c), username);
     const items = list.map((doc) => ({
       id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
       type: "KeyPackage",
@@ -174,11 +182,7 @@ app.get("/users/:user/keyPackage/:keyId", async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
-  const doc = await KeyPackage.findOne({
-    _id: keyId,
-    userName: user,
-    tenant_id: domain,
-  }).lean();
+  const doc = await findKeyPackage(getEnv(c), user, keyId);
   if (!doc) return c.body("Not Found", 404);
   const object = {
     "@context": [
@@ -202,16 +206,13 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
-  const pkg = new KeyPackage({
-    userName: user,
+  const pkg = await createKeyPackage(
+    getEnv(c),
+    user,
     content,
-    mediaType: mediaType ?? "message/mls",
-    encoding: encoding ?? "base64",
-  });
-  (pkg as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
-    env: getEnv(c),
-  };
-  await pkg.save();
+    mediaType,
+    encoding,
+  );
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   const keyObj = {
@@ -229,18 +230,14 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
-  return c.json({ result: "ok", keyId: pkg._id.toString() });
+  return c.json({ result: "ok", keyId: String(pkg._id) });
 });
 
 app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
-  await KeyPackage.deleteOne({
-    _id: keyId,
-    userName: user,
-    tenant_id: domain,
-  });
+  await deleteKeyPackage(getEnv(c), user, keyId);
   const actorId = `https://${domain}/users/${user}`;
   const removeActivity = createRemoveActivity(
     domain,
@@ -259,7 +256,7 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
 
 app.get("/users/:user/encryptedKeyPair", async (c) => {
   const user = c.req.param("user");
-  const doc = await EncryptedKeyPair.findOne({ userName: user }).lean();
+  const doc = await findEncryptedKeyPair(user);
   if (!doc) return c.json({ content: null });
   return c.json({ content: doc.content });
 });
@@ -270,15 +267,13 @@ app.post("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "invalid body" }, 400);
   }
-  await EncryptedKeyPair.findOneAndUpdate({ userName: user }, { content }, {
-    upsert: true,
-  });
+  await upsertEncryptedKeyPair(user, content);
   return c.json({ result: "ok" });
 });
 
 app.delete("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   const user = c.req.param("user");
-  await EncryptedKeyPair.deleteOne({ userName: user });
+  await deleteEncryptedKeyPair(user);
   return c.json({ result: "removed" });
 });
 
@@ -286,10 +281,7 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const user = c.req.param("user");
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
-  const keyPkgs = await KeyPackage.find({
-    userName: user,
-    tenant_id: domain,
-  }).lean();
+  const keyPkgs = await listKeyPackages(getEnv(c), user);
   for (const pkg of keyPkgs) {
     const removeActivity = createRemoveActivity(
       domain,
@@ -304,8 +296,8 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
     await deliverToFollowers(getEnv(c), user, removeActivity, domain);
     await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
-  await KeyPackage.deleteMany({ userName: user, tenant_id: domain });
-  await EncryptedKeyPair.deleteOne({ userName: user });
+  await deleteKeyPackagesByUser(getEnv(c), user);
+  await deleteEncryptedKeyPair(user);
   return c.json({ result: "reset" });
 });
 
@@ -323,17 +315,18 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const msg = await EncryptedMessage.create({
+    const msg = await createEncryptedMessage({
       from: acct,
       to,
       content,
-      mediaType: mediaType ?? "message/mls",
-      encoding: encoding ?? "base64",
+      mediaType,
+      encoding,
     });
     const domain = getDomain(c);
+    const env = getEnv(c);
+    const db = createDB(env);
     const actorId = `https://${domain}/users/${sender}`;
-    const object = await saveMessage(
-      getEnv(c),
+    const object = await db.saveMessage(
       domain,
       sender,
       content,
@@ -393,17 +386,18 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const msg = await PublicMessage.create({
+    const msg = await createPublicMessage(getEnv(c), {
       from: acct,
       to,
       content,
-      mediaType: mediaType ?? "message/mls",
-      encoding: encoding ?? "base64",
+      mediaType,
+      encoding,
     });
     const domain = getDomain(c);
+    const env = getEnv(c);
+    const db = createDB(env);
     const actorId = `https://${domain}/users/${sender}`;
-    const object = await saveMessage(
-      getEnv(c),
+    const object = await db.saveMessage(
       domain,
       sender,
       content,
@@ -493,14 +487,11 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   );
   const before = c.req.query("before");
   const after = c.req.query("after");
-  const query = EncryptedMessage.find(condition);
-  if (before) {
-    query.where("createdAt").lt(new Date(before) as unknown as number);
-  }
-  if (after) {
-    query.where("createdAt").gt(new Date(after) as unknown as number);
-  }
-  const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
+  const list = await findEncryptedMessages(condition, {
+    before: before ?? undefined,
+    after: after ?? undefined,
+    limit,
+  });
   list.reverse();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),
@@ -559,14 +550,11 @@ app.get("/users/:user/publicMessages", authRequired, async (c) => {
   );
   const before = c.req.query("before");
   const after = c.req.query("after");
-  const query = PublicMessage.find(condition);
-  if (before) {
-    query.where("createdAt").lt(new Date(before) as unknown as number);
-  }
-  if (after) {
-    query.where("createdAt").gt(new Date(after) as unknown as number);
-  }
-  const list = await query.sort({ createdAt: -1 }).limit(limit).lean();
+  const list = await findPublicMessages(getEnv(c), condition, {
+    before: before ?? undefined,
+    after: after ?? undefined,
+    limit,
+  });
   list.reverse();
   const messages = list.map((doc) => ({
     id: doc._id.toString(),

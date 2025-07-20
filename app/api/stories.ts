@@ -1,12 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import {
-  deleteManyObjects,
-  deleteObject,
-  findObjects,
-  saveObject,
-  updateObject,
-} from "./services/unified_store.ts";
+import { createDB } from "./db.ts";
 import authRequired from "./utils/auth.ts";
 import { createObjectId } from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -28,7 +22,8 @@ app.use(
 app.get("/api/stories", async (c) => {
   try {
     const env = getEnv(c);
-    const stories = await findObjects(env, {
+    const db = createDB(env);
+    const stories = await db.findObjects({
       type: "Story",
       "extra.expiresAt": { $gt: new Date() },
     }, { published: -1 });
@@ -84,9 +79,10 @@ app.post("/api/stories", async (c) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    const domain = getEnv(c)["ACTIVITYPUB_DOMAIN"] ?? "";
-    const story = await saveObject(
-      getEnv(c),
+    const env = getEnv(c);
+    const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const db = createDB(env);
+    const story = await db.saveObject(
       {
         _id: createObjectId(domain),
         type: "Story",
@@ -127,8 +123,9 @@ app.post("/api/stories", async (c) => {
 app.post("/api/stories/:id/view", async (c) => {
   try {
     const env = getEnv(c);
+    const db = createDB(env);
     const id = c.req.param("id");
-    const story = await updateObject(env, id, { $inc: { "extra.views": 1 } });
+    const story = await db.updateObject(id, { $inc: { "extra.views": 1 } });
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -156,8 +153,9 @@ app.post("/api/stories/:id/view", async (c) => {
 app.delete("/api/stories/:id", async (c) => {
   try {
     const env = getEnv(c);
+    const db = createDB(env);
     const id = c.req.param("id");
-    const story = await deleteObject(env, id);
+    const story = await db.deleteObject(id);
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
@@ -174,7 +172,8 @@ app.delete("/api/stories/:id", async (c) => {
 app.delete("/api/stories/cleanup", async (c) => {
   try {
     const env = getEnv(c);
-    const result = await deleteManyObjects(env, {
+    const db = createDB(env);
+    const result = await db.deleteManyObjects({
       type: "Story",
       "extra.expiresAt": { $lt: new Date() },
     });

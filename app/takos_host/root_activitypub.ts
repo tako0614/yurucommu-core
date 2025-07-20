@@ -7,7 +7,7 @@ import {
   verifyHttpSignature,
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
-import { getObject, saveObject } from "../api/services/unified_store.ts";
+import { createDB } from "../api/db.ts";
 import { addInboxEntry } from "../api/services/inbox.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
@@ -56,13 +56,13 @@ export function createRootActivityPubApp(env: Record<string, string>) {
       let objectId = typeof activity.object.id === "string"
         ? activity.object.id
         : "";
-      let stored = await getObject(env, objectId);
+      const db = createDB(env);
+      let stored = await db.getObject(objectId);
       if (!stored) {
-        stored = await saveObject(
-          env,
+        stored = await db.saveObject(
           activity.object as Record<string, unknown>,
         );
-        objectId = String(stored._id);
+        objectId = String((stored as { _id?: unknown })._id);
       }
       await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
     }

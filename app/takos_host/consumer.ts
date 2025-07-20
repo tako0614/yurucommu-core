@@ -18,7 +18,7 @@ interface HostUserDoc extends Document {
   salt: string;
   createdAt: Date;
 }
-import { addRelayEdge } from "../api/services/unified_store.ts";
+import { createDB } from "../api/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(
@@ -116,8 +116,9 @@ export function createConsumerApp(
       await inst.save();
       await ensureTenant(fullHost, fullHost);
       if (rootDomain) {
-        await addRelayEdge(fullHost, rootDomain, "pull");
-        await addRelayEdge(fullHost, rootDomain, "push");
+        const db = createDB({ ...env, ACTIVITYPUB_DOMAIN: fullHost });
+        await db.addRelay(rootDomain, "pull");
+        await db.addRelay(rootDomain, "push");
       }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
