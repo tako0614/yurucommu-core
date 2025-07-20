@@ -20,7 +20,6 @@ import {
   findPublicMessages,
 } from "./repositories/public_message.ts";
 import { createDB } from "./db.ts";
-import { findAccountByUserName } from "./repositories/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
@@ -32,11 +31,11 @@ import {
   createDeleteActivity,
   createRemoveActivity,
   deliverActivityPubObject,
-  fetchActorInbox,
   fetchJson,
   getDomain,
   resolveActor,
 } from "./utils/activitypub.ts";
+import { deliverToFollowers } from "./utils/deliver.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -97,40 +96,6 @@ async function resolveActorCached(
 }
 
 const app = new Hono();
-
-async function deliverToFollowers(
-  env: Record<string, string>,
-  user: string,
-  activity: unknown,
-  domain: string,
-) {
-  const account = await findAccountByUserName(env, user);
-  if (!account || !account.followers) return;
-  const followerInboxes = await Promise.all(
-    account.followers.map(async (actorUrl: string) => {
-      try {
-        const url = new URL(actorUrl);
-        if (url.host === domain && url.pathname.startsWith("/users/")) {
-          return null;
-        }
-        return await fetchActorInbox(actorUrl, env);
-      } catch {
-        return null;
-      }
-    }),
-  );
-  const validInboxes = followerInboxes.filter((i): i is string =>
-    typeof i === "string" && !!i
-  );
-  if (validInboxes.length > 0) {
-    deliverActivityPubObject(validInboxes, activity, user, domain, env)
-      .catch(
-        (err) => {
-          console.error("Delivery failed:", err);
-        },
-      );
-  }
-}
 
 app.get("/users/:user/keyPackages", async (c) => {
   const identifier = c.req.param("user");

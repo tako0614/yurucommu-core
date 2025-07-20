@@ -12,96 +12,21 @@ import {
   type ObjectStorage,
 } from "./services/object-storage.ts";
 import { createDB } from "./db.ts";
-import { findAccountByUserName } from "./repositories/account.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
-  deliverActivityPubObject,
-  fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
+import { deliverToFollowers } from "./utils/deliver.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
 let storage: ObjectStorage;
 export async function initVideoModule(env: Record<string, string>) {
   const db = createDB(env);
   storage = await createStorage(env, db);
-}
-
-// --- Helper Functions ---
-async function deliverVideoToFollowers(
-  env: Record<string, string>,
-  video: {
-    toObject: () => Record<string, unknown>;
-    content?: unknown;
-    published?: unknown;
-    extra?: unknown;
-    _id?: unknown;
-  },
-  author: string,
-  domain: string,
-) {
-  try {
-    const account = await findAccountByUserName(env, author);
-    if (!account || !account.followers) return;
-
-    const inboxes = await Promise.all(
-      account.followers.map(async (followerUrl) => {
-        try {
-          const url = new URL(followerUrl);
-          if (url.host === domain && url.pathname.startsWith("/users/")) {
-            return null;
-          }
-          return await fetchActorInbox(followerUrl, env);
-        } catch {
-          return null;
-        }
-      }),
-    );
-
-    const validInboxes = inboxes.filter((i): i is string =>
-      typeof i === "string" && !!i
-    );
-
-    if (validInboxes.length > 0) {
-      const baseObj = video.toObject();
-      const videoObject = buildActivityFromStored(
-        {
-          ...baseObj,
-          content: typeof video.content === "string" ? video.content : "",
-          _id: String(baseObj._id),
-          type: typeof baseObj.type === "string" ? baseObj.type : "Video",
-          published: typeof baseObj.published === "string"
-            ? baseObj.published
-            : new Date().toISOString(),
-          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
-              !Array.isArray(baseObj.extra))
-            ? baseObj.extra as Record<string, unknown>
-            : {},
-        },
-        domain,
-        author,
-        false,
-      );
-      const activity = createCreateActivity(
-        domain,
-        `https://${domain}/users/${author}`,
-        videoObject,
-      );
-      deliverActivityPubObject(
-        validInboxes,
-        activity,
-        author,
-        domain,
-        env,
-      );
-    }
-  } catch (err) {
-    console.error("ActivityPub delivery error:", err);
-  }
 }
 
 const app = new Hono();
@@ -191,12 +116,32 @@ export function initVideoWebSocket() {
           videoUrl,
         },
       );
-      deliverVideoToFollowers(
-        getEnv(c),
-        video,
-        meta.author,
+
+      const baseObj = video.toObject();
+      const videoObject = buildActivityFromStored(
+        {
+          ...baseObj,
+          content: typeof video.content === "string" ? video.content : "",
+          _id: String(baseObj._id),
+          type: typeof baseObj.type === "string" ? baseObj.type : "Video",
+          published: typeof baseObj.published === "string"
+            ? baseObj.published
+            : new Date().toISOString(),
+          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+              !Array.isArray(baseObj.extra))
+            ? baseObj.extra as Record<string, unknown>
+            : {},
+        },
         domain,
+        meta.author,
+        false,
       );
+      const activity = createCreateActivity(
+        domain,
+        `https://${domain}/users/${meta.author}`,
+        videoObject,
+      );
+      deliverToFollowers(getEnv(c), meta.author, activity, domain);
     }
   });
 }
@@ -279,13 +224,31 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     },
   );
 
-  // Fire-and-forget delivery
-  deliverVideoToFollowers(
-    getEnv(c),
-    video,
-    author,
+  const baseObj = video.toObject();
+  const videoObject = buildActivityFromStored(
+    {
+      ...baseObj,
+      content: typeof video.content === "string" ? video.content : "",
+      _id: String(baseObj._id),
+      type: typeof baseObj.type === "string" ? baseObj.type : "Video",
+      published: typeof baseObj.published === "string"
+        ? baseObj.published
+        : new Date().toISOString(),
+      extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+          !Array.isArray(baseObj.extra))
+        ? baseObj.extra as Record<string, unknown>
+        : {},
+    },
     domain,
+    author,
+    false,
   );
+  const activity = createCreateActivity(
+    domain,
+    `https://${domain}/users/${author}`,
+    videoObject,
+  );
+  deliverToFollowers(getEnv(c), author, activity, domain);
 
   const info = await getUserInfo(video.attributedTo as string, domain, env);
 

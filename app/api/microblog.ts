@@ -3,7 +3,6 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { type ActivityObject } from "./services/unified_store.ts";
 import { createDB } from "./db.ts";
-import type { DB } from "../../shared/db.ts";
 
 // 型定義用のimport
 import { getEnv } from "../../shared/config.ts";
@@ -19,6 +18,7 @@ import {
   fetchActorInbox,
   getDomain,
 } from "./utils/activitypub.ts";
+import { deliverToFollowers } from "./utils/deliver.ts";
 import authRequired from "./utils/auth.ts";
 import {
   formatUserInfoForPost,
@@ -27,109 +27,6 @@ import {
 } from "./services/user-info.ts";
 import { addNotification } from "./services/notification.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
-
-// --- Helper Functions ---
-
-async function deliverPostToFollowers(
-  env: Record<string, string>,
-  db: DB,
-  post: ActivityPubObjectType & { toObject: () => Record<string, unknown> },
-  author: string,
-  domain: string,
-  replyToId?: string,
-) {
-  try {
-    const account = await findAccountByUserName(env, author);
-    if (!account || !account.followers) return;
-
-    const followerInboxes = await Promise.all(
-      account.followers.map(async (followerUrl) => {
-        try {
-          // Avoid delivering to local users via HTTP
-          const url = new URL(followerUrl);
-          if (url.host === domain && url.pathname.startsWith("/users/")) {
-            return null;
-          }
-          return await fetchActorInbox(followerUrl, env);
-        } catch {
-          return null;
-        }
-      }),
-    );
-
-    const validInboxes = followerInboxes.filter((inbox): inbox is string =>
-      typeof inbox === "string" && !!inbox
-    );
-
-    if (validInboxes.length > 0) {
-      const baseObj = post.toObject();
-      const noteObject = buildActivityFromStored(
-        {
-          ...baseObj,
-          content: typeof post.content === "string" ? post.content : "",
-          _id: String(baseObj._id),
-          type: typeof baseObj.type === "string" ? baseObj.type : "Note",
-          published: typeof baseObj.published === "string"
-            ? baseObj.published
-            : new Date().toISOString(),
-          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
-              !Array.isArray(baseObj.extra))
-            ? baseObj.extra as Record<string, unknown>
-            : {},
-        },
-        domain,
-        author,
-        false,
-      );
-      const createActivity = createCreateActivity(
-        domain,
-        `https://${domain}/users/${author}`,
-        noteObject,
-      );
-      // Fire-and-forget delivery
-      deliverActivityPubObject(
-        validInboxes,
-        createActivity,
-        author,
-        domain,
-        env,
-      );
-
-      if (replyToId) {
-        const parent = await db.getObject(replyToId);
-        if (
-          parent &&
-          typeof parent.attributedTo === "string" &&
-          parent.attributedTo.startsWith("http")
-        ) {
-          const inbox = await fetchActorInbox(parent.attributedTo, env);
-          if (inbox) {
-            deliverActivityPubObject(
-              [inbox],
-              createActivity,
-              author,
-              domain,
-              env,
-            );
-          }
-        } else if (
-          parent &&
-          typeof parent.attributedTo === "string" &&
-          parent.attributedTo !== author
-        ) {
-          await addNotification(
-            "新しい返信",
-            `${author}さんが${parent.attributedTo}さんの投稿に返信しました`,
-            "info",
-            env,
-          );
-        }
-      }
-    }
-  } catch (err) {
-    console.error("ActivityPub delivery error:", err);
-  }
-}
 
 // --- Hono App ---
 
@@ -226,14 +123,62 @@ app.post(
       );
     }
 
-    deliverPostToFollowers(
-      env,
-      db,
-      post,
-      author,
+    const baseObj = post.toObject();
+    const noteObject = buildActivityFromStored(
+      {
+        ...baseObj,
+        content: typeof post.content === "string" ? post.content : "",
+        _id: String(baseObj._id),
+        type: typeof baseObj.type === "string" ? baseObj.type : "Note",
+        published: typeof baseObj.published === "string"
+          ? baseObj.published
+          : new Date().toISOString(),
+        extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+            !Array.isArray(baseObj.extra))
+          ? baseObj.extra as Record<string, unknown>
+          : {},
+      },
       domain,
-      typeof parentId === "string" ? parentId : undefined,
+      author,
+      false,
     );
+    const createActivity = createCreateActivity(
+      domain,
+      `https://${domain}/users/${author}`,
+      noteObject,
+    );
+    deliverToFollowers(env, author, createActivity, domain);
+
+    if (typeof parentId === "string") {
+      const parent = await db.getObject(parentId);
+      if (
+        parent &&
+        typeof parent.attributedTo === "string" &&
+        parent.attributedTo.startsWith("http")
+      ) {
+        const inbox = await fetchActorInbox(parent.attributedTo, env);
+        if (inbox) {
+          deliverActivityPubObject(
+            [inbox],
+            createActivity,
+            author,
+            domain,
+            env,
+          );
+        }
+      } else if (
+        parent &&
+        typeof parent.attributedTo === "string" &&
+        parent.attributedTo !== author
+      ) {
+        await addNotification(
+          "新しい返信",
+          `${author}さんが${parent.attributedTo}さんの投稿に返信しました`,
+          "info",
+          env,
+        );
+      }
+    }
 
     const userInfo = await getUserInfo(
       post.attributedTo as string,
