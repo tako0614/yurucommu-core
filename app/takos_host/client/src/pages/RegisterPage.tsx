@@ -1,6 +1,7 @@
-import { Component, createSignal, Show } from "solid-js";
+import { Component, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { register as apiRegister, useNavigate } from "../api.ts";
+import MarkdownIt from "markdown-it";
 import {
   emailState,
   loggedInState,
@@ -18,6 +19,16 @@ const RegisterPage: Component = () => {
   const [termsRequired] = useAtom(termsRequiredState);
   const [agreed, setAgreed] = createSignal(false);
   const [error, setError] = createSignal("");
+  const [termsHtml, setTermsHtml] = createSignal("");
+  const md = new MarkdownIt({ breaks: true, linkify: true });
+
+  onMount(async () => {
+    const res = await fetch("/terms");
+    if (res.ok) {
+      const txt = await res.text();
+      setTermsHtml(md.render(txt));
+    }
+  });
 
   const signup = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -90,24 +101,31 @@ const RegisterPage: Component = () => {
               />
             </div>
             <Show when={termsRequired}>
-              <div class="flex items-center">
-                <input
-                  id="agree"
-                  type="checkbox"
-                  checked={agreed()}
-                  onChange={(e) => setAgreed(e.currentTarget.checked)}
-                  class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+              <div>
+                <div
+                  class="text-sm border border-gray-600 rounded-md p-3 max-h-48 overflow-y-auto"
+                  innerHTML={termsHtml() ||
+                    "<p>利用規約が設定されていません</p>"}
                 />
-                <label for="agree" class="ml-2 text-sm text-gray-300">
+                <div class="flex items-center mt-2">
+                  <input
+                    id="agree"
+                    type="checkbox"
+                    checked={agreed()}
+                    onChange={(e) => setAgreed(e.currentTarget.checked)}
+                    class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+                  />
+                  <label for="agree" class="ml-2 text-sm text-gray-300">
+                    利用規約に同意します
+                  </label>
                   <a
                     href="/terms"
-                    class="text-blue-400 hover:underline"
+                    class="text-blue-400 hover:underline ml-2"
                     target="_blank"
                   >
-                    利用規約
+                    別ウィンドウで開く
                   </a>
-                  に同意します
-                </label>
+                </div>
               </div>
             </Show>
             <Show when={error()}>
