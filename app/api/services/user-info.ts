@@ -9,6 +9,15 @@ import {
 } from "../repositories/remote_actor.ts";
 import { resolveActor } from "../utils/activitypub.ts";
 
+function isUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface UserInfo {
   userName: string;
   displayName: string;
@@ -88,7 +97,7 @@ export async function getUserInfo(
     // ローカルユーザーの場合
     displayName = account.displayName || userName;
     authorAvatar = account.avatarInitial || "";
-  } else if (identifier.includes("@") && !identifier.startsWith("http")) {
+  } else if (identifier.includes("@") && !isUrl(identifier)) {
     // user@domain 形式の外部ユーザー
     isLocal = false;
     const [name, host] = identifier.split("@");
@@ -113,7 +122,7 @@ export async function getUserInfo(
         summary: actor.summary || "",
       });
     }
-  } else if (typeof identifier === "string" && identifier.startsWith("http")) {
+  } else if (typeof identifier === "string" && isUrl(identifier)) {
     try {
       const url = new URL(identifier);
       const pathParts = url.pathname.split("/");
@@ -189,9 +198,9 @@ export async function getUserInfoBatch(
   // ローカルユーザーをバッチで取得
   const localIds: { id: string; username: string }[] = [];
   for (const id of uniqueIdentifiers) {
-    if (!id.startsWith("http") && !id.includes("@")) {
+    if (!isUrl(id) && !id.includes("@")) {
       localIds.push({ id, username: id });
-    } else if (id.startsWith("http")) {
+    } else if (isUrl(id)) {
       try {
         const urlObj = new URL(id);
         if (
@@ -232,7 +241,7 @@ export async function getUserInfoBatch(
   // 外部ユーザーをバッチで取得
   const processedLocalIds = new Set(localIds.map((l) => l.id));
   const externalUrls = uniqueIdentifiers.filter((id) =>
-    id.startsWith("http") && !processedLocalIds.has(id)
+    isUrl(id) && !processedLocalIds.has(id)
   );
   if (externalUrls.length > 0) {
     const remoteActors = await findRemoteActorsByUrls(externalUrls);

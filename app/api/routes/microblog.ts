@@ -17,6 +17,7 @@ import {
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
+  isLocalActor,
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import authRequired from "../utils/auth.ts";
@@ -165,10 +166,13 @@ app.post(
       const parent = await db.getObject(parentId) as ActivityObject | null;
       if (
         parent &&
-        typeof parent.attributedTo === "string" &&
-        parent.attributedTo.startsWith("http")
+        typeof (parent as PostDoc).actor_id === "string" &&
+        !isLocalActor((parent as PostDoc).actor_id as string, domain)
       ) {
-        const inbox = await fetchActorInbox(parent.attributedTo, env);
+        const inbox = await fetchActorInbox(
+          (parent as PostDoc).actor_id as string,
+          env,
+        );
         if (inbox) {
           deliverActivityPubObject(
             [inbox],
@@ -180,21 +184,26 @@ app.post(
         }
       } else if (
         parent &&
-        typeof parent.attributedTo === "string" &&
-        parent.attributedTo !== author
+        typeof (parent as PostDoc).actor_id === "string"
       ) {
-        await addNotification(
-          "新しい返信",
-          `${author}さんが${parent.attributedTo}さんの投稿に返信しました`,
-          "info",
-          env,
-        );
+        const url = new URL((parent as PostDoc).actor_id as string);
+        const localName = url.pathname.split("/")[2];
+        if (
+          localName && localName !== author && isLocalActor(url.href, domain)
+        ) {
+          await addNotification(
+            "新しい返信",
+            `${author}さんが${localName}さんの投稿に返信しました`,
+            "info",
+            env,
+          );
+        }
       }
     }
 
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      postData.attributedTo as string,
+      postData.actor_id as string,
       domain,
       env,
     );
@@ -235,7 +244,7 @@ app.get("/microblog/:id/replies", async (c) => {
   const list = await db.findNotes({ "extra.inReplyTo": id }, {
     published: 1,
   }) as ActivityObject[];
-  const ids = list.map((doc) => (doc as PostDoc).attributedTo as string);
+  const ids = list.map((doc) => (doc as PostDoc).actor_id as string);
   const infos = await getUserInfoBatch(ids, domain, env);
   const formatted = list.map((doc, i) =>
     formatUserInfoForPost(infos[i], doc as Record<string, unknown>)
@@ -258,7 +267,7 @@ app.put(
     // 共通ユーザー情報取得サービスを使用
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      postData.attributedTo as string,
+      postData.actor_id as string,
       domain,
       env,
     );
@@ -301,18 +310,16 @@ app.post(
       const objectUrl = `https://${domain}/objects/${postData._id}`;
       let inboxes: string[] = [];
       if (
-        typeof postData.attributedTo === "string" &&
-        postData.attributedTo.startsWith("http")
+        typeof postData.actor_id === "string" &&
+        !isLocalActor(postData.actor_id as string, domain)
       ) {
-        const inbox = await fetchActorInbox(
-          postData.attributedTo as string,
-          env,
-        );
+        const inbox = await fetchActorInbox(postData.actor_id as string, env);
         if (inbox) inboxes.push(inbox);
-      } else {
+      } else if (typeof postData.actor_id === "string") {
+        const url = new URL(postData.actor_id);
         const account = await findAccountByUserName(
           env,
-          postData.attributedTo as string,
+          url.pathname.split("/")[2],
         );
         inboxes = account?.followers ?? [];
       }
@@ -326,18 +333,15 @@ app.post(
       }
 
       let localAuthor: string | null = null;
-      if (typeof postData.attributedTo === "string") {
-        if (postData.attributedTo.startsWith("http")) {
-          try {
-            const url = new URL(postData.attributedTo);
-            if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-              localAuthor = url.pathname.split("/")[2];
-            }
-          } catch {
-            /* ignore */
-          }
-        } else {
-          localAuthor = postData.attributedTo;
+      if (
+        typeof postData.actor_id === "string" &&
+        isLocalActor(postData.actor_id, domain)
+      ) {
+        try {
+          const url = new URL(postData.actor_id);
+          localAuthor = url.pathname.split("/")[2];
+        } catch {
+          /* ignore */
         }
       }
       if (localAuthor) {
@@ -389,13 +393,10 @@ app.post(
       inboxes = account?.followers ?? [];
 
       if (
-        typeof postData.attributedTo === "string" &&
-        postData.attributedTo.startsWith("http")
+        typeof postData.actor_id === "string" &&
+        !isLocalActor(postData.actor_id, domain)
       ) {
-        const inbox = await fetchActorInbox(
-          postData.attributedTo as string,
-          env,
-        );
+        const inbox = await fetchActorInbox(postData.actor_id as string, env);
         if (inbox) inboxes.push(inbox);
       }
 
@@ -410,18 +411,15 @@ app.post(
       }
 
       let localAuthor: string | null = null;
-      if (typeof postData.attributedTo === "string") {
-        if (postData.attributedTo.startsWith("http")) {
-          try {
-            const url = new URL(postData.attributedTo);
-            if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-              localAuthor = url.pathname.split("/")[2];
-            }
-          } catch {
-            /* ignore */
-          }
-        } else {
-          localAuthor = postData.attributedTo;
+      if (
+        typeof postData.actor_id === "string" &&
+        isLocalActor(postData.actor_id, domain)
+      ) {
+        try {
+          const url = new URL(postData.actor_id);
+          localAuthor = url.pathname.split("/")[2];
+        } catch {
+          /* ignore */
         }
       }
       if (localAuthor) {

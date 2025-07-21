@@ -527,6 +527,15 @@ export function getDomain(c: Context): string {
   return env["ACTIVITYPUB_DOMAIN"];
 }
 
+export function isLocalActor(actorId: string, domain: string): boolean {
+  try {
+    const url = new URL(actorId);
+    return url.hostname === domain && url.pathname.startsWith("/users/");
+  } catch {
+    return false;
+  }
+}
+
 export function jsonResponse(
   // deno-lint-ignore no-explicit-any
   c: any,
