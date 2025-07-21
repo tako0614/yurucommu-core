@@ -12,7 +12,7 @@ import {
   removeFollowerByName,
   removeFollowing,
   updateAccountById,
-} from "./repositories/account.ts";
+} from "../repositories/account.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -20,12 +20,12 @@ import {
   fetchActorInbox,
   getDomain,
   jsonResponse,
-} from "./utils/activitypub.ts";
-import authRequired from "./utils/auth.ts";
-import { addNotification } from "./services/notification.ts";
-import { createDB } from "./db.ts";
-import { getEnv } from "../../shared/config.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
+} from "../utils/activitypub.ts";
+import authRequired from "../utils/auth.ts";
+import { addNotification } from "../services/notification.ts";
+import { createDB } from "../db.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { generateKeyPair } from "../../../shared/crypto.ts";
 
 interface AccountDoc {
   _id?: string;

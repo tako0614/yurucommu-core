@@ -5,24 +5,24 @@ import {
   deleteKeyPackagesByUser,
   findKeyPackage,
   listKeyPackages,
-} from "./repositories/key_package.ts";
+} from "../repositories/key_package.ts";
 import {
   deleteEncryptedKeyPair,
   findEncryptedKeyPair,
   upsertEncryptedKeyPair,
-} from "./repositories/encrypted_keypair.ts";
+} from "../repositories/encrypted_keypair.ts";
 import {
   createEncryptedMessage,
   findEncryptedMessages,
-} from "./repositories/encrypted_message.ts";
+} from "../repositories/encrypted_message.ts";
 import {
   createPublicMessage,
   findPublicMessages,
-} from "./repositories/public_message.ts";
-import { createDB } from "./db.ts";
-import authRequired from "./utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
-import { rateLimit } from "./utils/rate_limit.ts";
+} from "../repositories/public_message.ts";
+import { createDB } from "../db.ts";
+import authRequired from "../utils/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { rateLimit } from "../utils/rate_limit.ts";
 import {
   type ActivityPubActor,
   buildActivityFromStored,
@@ -34,8 +34,8 @@ import {
   fetchJson,
   getDomain,
   resolveActor,
-} from "./utils/activitypub.ts";
-import { deliverToFollowers } from "./utils/deliver.ts";
+} from "../utils/activitypub.ts";
+import { deliverToFollowers } from "../utils/deliver.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -46,7 +46,7 @@ interface ActivityPubActivity {
 import {
   findRemoteActorByUrl,
   upsertRemoteActor,
-} from "./repositories/remote_actor.ts";
+} from "../repositories/remote_actor.ts";
 
 async function resolveActorCached(
   acct: string,

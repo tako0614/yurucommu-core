@@ -6,18 +6,18 @@ import {
   deleteRelayById,
   findRelayByHost,
   findRelaysByHosts,
-} from "./repositories/relay.ts";
-import authRequired from "./utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
-import { createDB } from "./db.ts";
+} from "../repositories/relay.ts";
+import authRequired from "../utils/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { createDB } from "../db.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
   getDomain,
   jsonResponse,
   sendActivityPubObject,
-} from "./utils/activitypub.ts";
-import { getSystemKey } from "./services/system_actor.ts";
+} from "../utils/activitypub.ts";
+import { getSystemKey } from "../services/system_actor.ts";
 const app = new Hono();
 app.use("/relays/*", authRequired);
 

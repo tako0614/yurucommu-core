@@ -5,19 +5,19 @@ import {
   findAccountByUserName,
   searchAccounts,
   updateAccountByUserName,
-} from "./repositories/account.ts";
-import { createDB } from "./db.ts";
-import { getEnv } from "../../shared/config.ts";
+} from "../repositories/account.ts";
+import { createDB } from "../db.ts";
+import { getEnv } from "../../../shared/config.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
   getDomain,
-} from "./utils/activitypub.ts";
+} from "../utils/activitypub.ts";
 import {
   formatUserInfoForPost,
   getUserInfoBatch,
-} from "./services/user-info.ts";
-import authRequired from "./utils/auth.ts";
+} from "../services/user-info.ts";
+import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
 app.use("/users/*", authRequired);
