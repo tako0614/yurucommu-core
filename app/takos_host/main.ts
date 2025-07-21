@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { loadConfig } from "../shared/config.ts";
-import { join } from "@std/path";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
@@ -26,7 +25,10 @@ const FCM_KEYS = [
   "FIREBASE_VAPID_KEY",
 ];
 
-async function loadTextFile(path: string, label: string): Promise<string> {
+async function loadTextFile(
+  path: string | URL,
+  label: string,
+): Promise<string> {
   try {
     return await Deno.readTextFile(path);
   } catch {
@@ -35,7 +37,6 @@ async function loadTextFile(path: string, label: string): Promise<string> {
   }
 }
 const hostEnv = await loadConfig();
-
 
 hostEnv["DB_MODE"] = "host";
 await connectDatabase(hostEnv);
@@ -55,7 +56,7 @@ const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "")
 const termsPath = hostEnv["TERMS_FILE"];
 const termsText = termsPath ? await loadTextFile(termsPath, "TERMS_FILE") : "";
 const notFoundHtml = await loadTextFile(
-  new URL("./404.html", import.meta.url).pathname,
+  new URL("./404.html", import.meta.url),
   "404.html",
 );
 const consumerApp = createConsumerApp(
