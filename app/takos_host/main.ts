@@ -12,6 +12,27 @@ import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
+
+const FCM_KEYS = [
+  "FIREBASE_CLIENT_EMAIL",
+  "FIREBASE_PRIVATE_KEY",
+  "FIREBASE_API_KEY",
+  "FIREBASE_AUTH_DOMAIN",
+  "FIREBASE_PROJECT_ID",
+  "FIREBASE_STORAGE_BUCKET",
+  "FIREBASE_MESSAGING_SENDER_ID",
+  "FIREBASE_APP_ID",
+  "FIREBASE_VAPID_KEY",
+];
+
+async function loadTextFile(path: string, label: string): Promise<string> {
+  try {
+    return await Deno.readTextFile(path);
+  } catch {
+    console.error(`${label} ${path} を読み込めませんでした`);
+    return "";
+  }
+}
 const hostEnv = await loadConfig({
   envPath: join("app", "takos_host", ".env"),
 });
@@ -33,22 +54,11 @@ const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "")
   .map((s) => s.trim().toLowerCase())
   .filter((s) => s.length > 0);
 const termsPath = hostEnv["TERMS_FILE"];
-let termsText = "";
-if (termsPath) {
-  try {
-    termsText = await Deno.readTextFile(termsPath);
-  } catch {
-    console.error(`TERMS_FILE ${termsPath} を読み込めませんでした`);
-  }
-}
-let notFoundHtml = "";
-try {
-  notFoundHtml = await Deno.readTextFile(
-    new URL("./404.html", import.meta.url),
-  );
-} catch {
-  console.error("404.html を読み込めませんでした");
-}
+const termsText = termsPath ? await loadTextFile(termsPath, "TERMS_FILE") : "";
+const notFoundHtml = await loadTextFile(
+  new URL("./404.html", import.meta.url).pathname,
+  "404.html",
+);
 const consumerApp = createConsumerApp(
   (host) => {
     apps.delete(host);
@@ -58,18 +68,27 @@ const consumerApp = createConsumerApp(
 const authApp = createAuthApp({ rootDomain, termsRequired: !!termsText });
 const isDev = Deno.env.get("DEV") === "1";
 
+/**
+ * ホスト名部分のみを取り出すユーティリティ
+ */
 function parseHost(value: string | undefined): string {
   return value?.split(":")[0].toLowerCase() ?? "";
 }
 
+/**
+ * リバースプロキシ環境下で実際のホストを取得する
+ */
 function getRealHost(c: Context): string {
   const forwarded = c.req.header("x-forwarded-host");
   const host = forwarded?.split(",")[0].trim() || c.req.header("host");
   return parseHost(host);
 }
 
-function proxy(prefix: string) {
-  return async (c: Context, next: () => Promise<void>) => {
+/**
+ * 開発環境でフロントエンドをプロキシするミドルウェア
+ */
+const proxy =
+  (prefix: string) => async (c: Context, next: () => Promise<void>) => {
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       await next();
       return;
@@ -80,8 +99,10 @@ function proxy(prefix: string) {
     const body = await res.arrayBuffer();
     return new Response(body, { status: res.status, headers: res.headers });
   };
-}
 
+/**
+ * サブドメインに対応する環境変数を取得する
+ */
 async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
@@ -91,18 +112,7 @@ async function getEnvForHost(
     MONGO_URI: hostEnv["MONGO_URI"],
     DB_MODE: "host",
   };
-  const fcmKeys = [
-    "FIREBASE_CLIENT_EMAIL",
-    "FIREBASE_PRIVATE_KEY",
-    "FIREBASE_API_KEY",
-    "FIREBASE_AUTH_DOMAIN",
-    "FIREBASE_PROJECT_ID",
-    "FIREBASE_STORAGE_BUCKET",
-    "FIREBASE_MESSAGING_SENDER_ID",
-    "FIREBASE_APP_ID",
-    "FIREBASE_VAPID_KEY",
-  ];
-  for (const k of fcmKeys) {
+  for (const k of FCM_KEYS) {
     if (hostEnv[k]) baseEnv[k] = hostEnv[k];
   }
   if (rootDomain && host === rootDomain) {
@@ -113,6 +123,9 @@ async function getEnvForHost(
   return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
 }
 
+/**
+ * サブドメイン用のアプリを動的に生成する
+ */
 async function getAppForHost(host: string): Promise<Hono | null> {
   host = parseHost(host);
   let app = apps.get(host);
