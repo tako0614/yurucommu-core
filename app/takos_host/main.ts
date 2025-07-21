@@ -114,6 +114,8 @@ async function getEnvForHost(
     ...takosEnv,
     MONGO_URI: hostEnv["MONGO_URI"],
     DB_MODE: "host",
+    OAUTH_HOST: hostEnv["ROOT_DOMAIN"],
+    
   };
   for (const k of FCM_KEYS) {
     if (hostEnv[k]) baseEnv[k] = hostEnv[k];
