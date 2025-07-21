@@ -8,7 +8,6 @@ import {
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/db.ts";
-import { addInboxEntry } from "../api/services/inbox.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -52,18 +51,14 @@ export function createRootActivityPubApp(env: Record<string, string>) {
     if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
     const activity = JSON.parse(body);
     if (activity.type === "Create" && typeof activity.object === "object") {
-      let objectId = typeof activity.object.id === "string"
+      const objectId = typeof activity.object.id === "string"
         ? activity.object.id
         : "";
       const db = createDB(env);
-      let stored = await db.getObject(objectId);
+      const stored = await db.getObject(objectId);
       if (!stored) {
-        stored = await db.saveObject(
-          activity.object as Record<string, unknown>,
-        );
-        objectId = String((stored as { _id?: unknown })._id);
+        await db.saveObject(activity.object as Record<string, unknown>);
       }
-      await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
