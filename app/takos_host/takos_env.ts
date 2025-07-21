@@ -1,14 +1,20 @@
+import { dirname, fromFileUrl, join } from "@std/path";
+import { loadConfig } from "../shared/config.ts";
+
+const hostEnv = await loadConfig({
+  envPath: join(dirname(fromFileUrl(import.meta.url)), ".env"),
+});
+
 export const takosEnv: Record<string, string> = {
   MONGO_URI: "mongodb://localhost:27017/takos-hono",
-  DB_MODE: "local",
-  hashedPassword:
-    "",
+  DB_MODE: "host",
+  hashedPassword: "",
   salt: "",
   ACTIVITYPUB_DOMAIN: "",
-  OAUTH_HOST: "",
+  OAUTH_HOST: hostEnv["OAUTH_HOST"],
   OAUTH_CLIENT_ID: "",
   OAUTH_CLIENT_SECRET: "",
-  OBJECT_STORAGE_PROVIDER: "local",
+  OBJECT_STORAGE_PROVIDER: "gridfs",
   LOCAL_STORAGE_DIR: "uploads",
   GRIDFS_BUCKET: "uploads",
   FIREBASE_CLIENT_EMAIL: "",
