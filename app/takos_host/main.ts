@@ -36,6 +36,8 @@ async function loadTextFile(path: string, label: string): Promise<string> {
 const hostEnv = await loadConfig({
   envPath: join("app", "takos_host", ".env"),
 });
+
+
 hostEnv["DB_MODE"] = "host";
 await connectDatabase(hostEnv);
 
