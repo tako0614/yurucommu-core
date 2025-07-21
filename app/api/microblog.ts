@@ -28,6 +28,15 @@ import {
 import { addNotification } from "./services/notification.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
 
+interface PostDoc {
+  _id?: string;
+  attributedTo?: string;
+  actor_id?: string;
+  content?: string;
+  published?: string | Date;
+  extra?: Record<string, unknown>;
+}
+
 const app = new Hono();
 app.use("/microblog/*", authRequired);
 
@@ -113,7 +122,12 @@ app.post(
 
     const env = getEnv(c);
     const db = createDB(env);
-    const post = await db.saveNote(domain, author, content, extra) as ActivityObject;
+    const post = await db.saveNote(
+      domain,
+      author,
+      content,
+      extra,
+    ) as ActivityObject;
 
     if (typeof parentId === "string") {
       await db.updateNote(parentId, { $inc: { "extra.replies": 1 } }).catch(
@@ -178,8 +192,9 @@ app.post(
       }
     }
 
+    const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      (post as any).attributedTo as string,
+      postData.attributedTo as string,
       domain,
       env,
     );
@@ -201,12 +216,13 @@ app.get("/microblog/:id", async (c) => {
   const post = await db.getObject(id) as ActivityObject | null;
   if (!post) return c.json({ error: "Not found" }, 404);
 
-  const userInfo = await getUserInfo((post as any).actor_id as string, domain, env);
+  const postData = post as PostDoc;
+  const userInfo = await getUserInfo(postData.actor_id as string, domain, env);
   const data = {
-    _id: (post as any)._id,
-    content: (post as any).content,
-    published: (post as any).published,
-    extra: (post as any).extra,
+    _id: postData._id,
+    content: postData.content,
+    published: postData.published,
+    extra: postData.extra,
   } as Record<string, unknown>;
   return c.json(formatUserInfoForPost(userInfo, data));
 });
@@ -219,7 +235,7 @@ app.get("/microblog/:id/replies", async (c) => {
   const list = await db.findNotes({ "extra.inReplyTo": id }, {
     published: 1,
   }) as ActivityObject[];
-  const ids = list.map((doc) => (doc as any).attributedTo as string);
+  const ids = list.map((doc) => (doc as PostDoc).attributedTo as string);
   const infos = await getUserInfoBatch(ids, domain, env);
   const formatted = list.map((doc, i) =>
     formatUserInfoForPost(infos[i], doc as Record<string, unknown>)
@@ -240,8 +256,9 @@ app.put(
     if (!post) return c.json({ error: "Not found" }, 404);
 
     // 共通ユーザー情報取得サービスを使用
+    const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      (post as any).attributedTo as string,
+      postData.attributedTo as string,
       domain,
       env,
     );
@@ -267,7 +284,8 @@ app.post(
     const post = await db.getObject(id) as ActivityObject | null;
     if (!post) return c.json({ error: "Not found" }, 404);
 
-    const extra = (post as any).extra as Record<string, unknown> ?? {};
+    const postData = post as PostDoc;
+    const extra = (postData.extra as Record<string, unknown>) ?? {};
     const likedBy: string[] = Array.isArray(extra.likedBy)
       ? extra.likedBy as string[]
       : [];
@@ -280,18 +298,21 @@ app.post(
       await db.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
-      const objectUrl = `https://${domain}/objects/${(post as any)._id}`;
+      const objectUrl = `https://${domain}/objects/${postData._id}`;
       let inboxes: string[] = [];
       if (
-        typeof (post as any).attributedTo === "string" &&
-        (post as any).attributedTo.startsWith("http")
+        typeof postData.attributedTo === "string" &&
+        postData.attributedTo.startsWith("http")
       ) {
-        const inbox = await fetchActorInbox((post as any).attributedTo as string, env);
+        const inbox = await fetchActorInbox(
+          postData.attributedTo as string,
+          env,
+        );
         if (inbox) inboxes.push(inbox);
       } else {
         const account = await findAccountByUserName(
           env,
-          (post as any).attributedTo as string,
+          postData.attributedTo as string,
         );
         inboxes = account?.followers ?? [];
       }
@@ -305,10 +326,10 @@ app.post(
       }
 
       let localAuthor: string | null = null;
-      if (typeof (post as any).attributedTo === "string") {
-        if ((post as any).attributedTo.startsWith("http")) {
+      if (typeof postData.attributedTo === "string") {
+        if (postData.attributedTo.startsWith("http")) {
           try {
-            const url = new URL((post as any).attributedTo);
+            const url = new URL(postData.attributedTo);
             if (url.hostname === domain && url.pathname.startsWith("/users/")) {
               localAuthor = url.pathname.split("/")[2];
             }
@@ -316,7 +337,7 @@ app.post(
             /* ignore */
           }
         } else {
-          localAuthor = (post as any).attributedTo;
+          localAuthor = postData.attributedTo;
         }
       }
       if (localAuthor) {
@@ -330,7 +351,7 @@ app.post(
     }
 
     return c.json({
-      likes: ((post as any).extra as Record<string, unknown>)?.likes ?? 0,
+      likes: (postData.extra as Record<string, unknown>)?.likes ?? 0,
     });
   },
 );
@@ -347,7 +368,8 @@ app.post(
     const post = await db.getObject(id) as ActivityObject | null;
     if (!post) return c.json({ error: "Not found" }, 404);
 
-    const extra = (post as any).extra as Record<string, unknown>;
+    const postData = post as PostDoc;
+    const extra = postData.extra as Record<string, unknown>;
     const retweetedBy: string[] = Array.isArray(extra.retweetedBy)
       ? extra.retweetedBy as string[]
       : [];
@@ -360,17 +382,20 @@ app.post(
       await db.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
-      const objectUrl = `https://${domain}/objects/${(post as any)._id}`;
+      const objectUrl = `https://${domain}/objects/${postData._id}`;
 
       let inboxes: string[] = [];
       const account = await findAccountByUserName(env, username);
       inboxes = account?.followers ?? [];
 
       if (
-        typeof (post as any).attributedTo === "string" &&
-        (post as any).attributedTo.startsWith("http")
+        typeof postData.attributedTo === "string" &&
+        postData.attributedTo.startsWith("http")
       ) {
-        const inbox = await fetchActorInbox((post as any).attributedTo as string, env);
+        const inbox = await fetchActorInbox(
+          postData.attributedTo as string,
+          env,
+        );
         if (inbox) inboxes.push(inbox);
       }
 
@@ -385,10 +410,10 @@ app.post(
       }
 
       let localAuthor: string | null = null;
-      if (typeof (post as any).attributedTo === "string") {
-        if ((post as any).attributedTo.startsWith("http")) {
+      if (typeof postData.attributedTo === "string") {
+        if (postData.attributedTo.startsWith("http")) {
           try {
-            const url = new URL((post as any).attributedTo);
+            const url = new URL(postData.attributedTo);
             if (url.hostname === domain && url.pathname.startsWith("/users/")) {
               localAuthor = url.pathname.split("/")[2];
             }
@@ -396,7 +421,7 @@ app.post(
             /* ignore */
           }
         } else {
-          localAuthor = (post as any).attributedTo;
+          localAuthor = postData.attributedTo;
         }
       }
       if (localAuthor) {
@@ -410,7 +435,7 @@ app.post(
     }
 
     return c.json({
-      retweets: ((post as any).extra as Record<string, unknown>)?.retweets ?? 0,
+      retweets: (postData.extra as Record<string, unknown>)?.retweets ?? 0,
     });
   },
 );

@@ -299,9 +299,11 @@ app.post(
       { to, cc: [] },
     );
 
+    const saved = object as { toObject(): Record<string, unknown> };
+
     const privateMessage = buildActivityFromStored(
       {
-        ...object.toObject(),
+        ...saved.toObject(),
         type: "PrivateMessage",
       } as {
         _id: unknown;
@@ -333,7 +335,7 @@ app.post(
       },
     );
 
-    return c.json({ result: "sent", id: msg._id.toString() });
+    return c.json({ result: "sent", id: String(msg._id) });
   },
 );
 
@@ -370,9 +372,11 @@ app.post(
       { to, cc: [] },
     );
 
+    const savedPub = object as { toObject(): Record<string, unknown> };
+
     const publicMessage = buildActivityFromStored(
       {
-        ...object.toObject(),
+        ...savedPub.toObject(),
         type: "PublicMessage",
       } as {
         _id: unknown;
@@ -403,7 +407,7 @@ app.post(
       },
     );
 
-    return c.json({ result: "sent", id: msg._id.toString() });
+    return c.json({ result: "sent", id: String(msg._id) });
   },
 );
 
@@ -459,7 +463,7 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   });
   list.reverse();
   const messages = list.map((doc) => ({
-    id: doc._id.toString(),
+    id: String(doc._id),
     from: doc.from,
     to: doc.to,
     content: doc.content,
@@ -522,7 +526,7 @@ app.get("/users/:user/publicMessages", authRequired, async (c) => {
   });
   list.reverse();
   const messages = list.map((doc) => ({
-    id: doc._id.toString(),
+    id: String(doc._id),
     from: doc.from,
     to: doc.to,
     content: doc.content,

@@ -1,14 +1,15 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/deno";
+import type { WSContext } from "hono/helper/websocket";
 
 export type WsState = Record<string, unknown>;
 export type MessageHandler = (
   payload: unknown,
-  ws: WebSocket,
+  ws: WSContext<WebSocket>,
   state: WsState,
 ) => void | Promise<void>;
 export type LifecycleHandler = (
-  ws: WebSocket,
+  ws: WSContext<WebSocket>,
   state: WsState,
 ) => void | Promise<void>;
 

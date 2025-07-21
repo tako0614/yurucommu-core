@@ -59,7 +59,14 @@ app.get("/search", async (c) => {
   if (type === "all" || type === "posts") {
     const env = getEnv(c);
     const db = createDB(env);
-    const posts = await db.findNotes({ content: regex }, { published: -1 });
+    const posts = await db.findNotes({ content: regex }, {
+      published: -1,
+    }) as Array<{
+      _id?: unknown;
+      content?: string;
+      attributedTo: string;
+      published?: Date;
+    }>;
     const sliced = posts.slice(0, 20);
     const domain = getDomain(c);
     for (const p of sliced) {
