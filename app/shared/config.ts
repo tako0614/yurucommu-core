@@ -19,7 +19,6 @@ function validateEnv(env: Record<string, string>) {
   const schema = z.object({
     MONGO_URI: z.string().min(1),
   });
-  console.log(env)
   schema.parse(env);
 }
 

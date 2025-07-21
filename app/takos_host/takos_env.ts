@@ -4,8 +4,7 @@ export const takosEnv: Record<string, string> = {
   hashedPassword:
     "",
   salt: "",
-  ACTIVITYPUB_DOMAIN: "dev.takos.jp",
-  REGISTRY_URL: "http://localhost:8080/_takopack",
+  ACTIVITYPUB_DOMAIN: "",
   OAUTH_HOST: "",
   OAUTH_CLIENT_ID: "",
   OAUTH_CLIENT_SECRET: "",

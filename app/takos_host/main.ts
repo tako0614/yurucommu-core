@@ -12,6 +12,7 @@ import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
 import { takosEnv } from "./takos_env.ts";
+import { dirname, fromFileUrl, join } from "@std/path";
 
 const FCM_KEYS = [
   "FIREBASE_CLIENT_EMAIL",
@@ -36,7 +37,9 @@ async function loadTextFile(
     return "";
   }
 }
-const hostEnv = await loadConfig();
+const hostEnv = await loadConfig({
+  envPath: join(dirname(fromFileUrl(import.meta.url)), ".env"),
+});
 
 hostEnv["DB_MODE"] = "host";
 await connectDatabase(hostEnv);
