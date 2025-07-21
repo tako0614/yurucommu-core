@@ -1,15 +1,15 @@
 import { Hono } from "hono";
-import { createDB } from "./db.ts";
-import { findAccountByUserName } from "./repositories/account.ts";
-import { listKeyPackages } from "./repositories/key_package.ts";
-import { getEnv } from "../../shared/config.ts";
+import { createDB } from "../db.ts";
+import { findAccountByUserName } from "../repositories/account.ts";
+import { listKeyPackages } from "../repositories/key_package.ts";
+import { getEnv } from "../../../shared/config.ts";
 
-import { activityHandlers } from "./activity_handlers.ts";
+import { activityHandlers } from "../activity_handlers.ts";
 import {
   findRemoteActorByUrl,
   upsertRemoteActor,
-} from "./repositories/remote_actor.ts";
-import { getSystemKey } from "./services/system_actor.ts";
+} from "../repositories/remote_actor.ts";
+import { getSystemKey } from "../services/system_actor.ts";
 
 import {
   buildActivityFromStored,
@@ -19,7 +19,7 @@ import {
   getDomain,
   jsonResponse,
   verifyHttpSignature,
-} from "./utils/activitypub.ts";
+} from "../utils/activitypub.ts";
 
 const app = new Hono();
 

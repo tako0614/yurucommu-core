@@ -6,9 +6,9 @@ import {
   deleteNotification,
   listNotifications,
   markNotificationRead,
-} from "./repositories/notification.ts";
-import authRequired from "./utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
+} from "../repositories/notification.ts";
+import authRequired from "../utils/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
 
 const app = new Hono();
 app.use("/notifications/*", authRequired);

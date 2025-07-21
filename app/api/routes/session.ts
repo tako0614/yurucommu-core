@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { deleteSessionById, findSessionById } from "./repositories/session.ts";
-import authRequired from "./utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
+import { deleteSessionById, findSessionById } from "../repositories/session.ts";
+import authRequired from "../utils/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
 
 const app = new Hono();
 app.use("/session/*", authRequired);

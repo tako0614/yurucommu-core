@@ -10,18 +10,18 @@ import { extname } from "@std/path";
 import {
   createStorage,
   type ObjectStorage,
-} from "./services/object-storage.ts";
-import { createDB } from "./db.ts";
-import authRequired from "./utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
-import { rateLimit } from "./utils/rate_limit.ts";
+} from "../services/object-storage.ts";
+import { createDB } from "../db.ts";
+import authRequired from "../utils/auth.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { rateLimit } from "../utils/rate_limit.ts";
 import {
   buildActivityFromStored,
   createCreateActivity,
   getDomain,
-} from "./utils/activitypub.ts";
-import { deliverToFollowers } from "./utils/deliver.ts";
-import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
+} from "../utils/activitypub.ts";
+import { deliverToFollowers } from "../utils/deliver.ts";
+import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
 
 type VideoDoc = {
   _id: { toString(): string } | string;
@@ -186,7 +186,6 @@ app.get("/videos", async (c) => {
 
   return c.json(result);
 });
-
 
 app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
   const domain = getDomain(c);

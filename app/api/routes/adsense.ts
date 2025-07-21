@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "../../../shared/config.ts";
 
 const app = new Hono();
 

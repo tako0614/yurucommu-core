@@ -3,8 +3,8 @@ import { setCookie } from "hono/cookie";
 import { compare } from "bcrypt"; // bcrypt で検証
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { getEnv } from "../../shared/config.ts";
-import { createSession } from "./repositories/session.ts";
+import { getEnv } from "../../../shared/config.ts";
+import { createSession } from "../repositories/session.ts";
 
 const app = new Hono();
 

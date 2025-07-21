@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { type ActivityObject } from "./services/unified_store.ts";
-import { createDB } from "./db.ts";
+import { type ActivityObject } from "../services/unified_store.ts";
+import { createDB } from "../db.ts";
 
 // 型定義用のimport
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "../../../shared/config.ts";
 
 type ActivityPubObjectType = ActivityObject;
-import { findAccountByUserName } from "./repositories/account.ts";
+import { findAccountByUserName } from "../repositories/account.ts";
 import {
   buildActivityFromStored,
   createAnnounceActivity,
@@ -17,16 +17,16 @@ import {
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
-} from "./utils/activitypub.ts";
-import { deliverToFollowers } from "./utils/deliver.ts";
-import authRequired from "./utils/auth.ts";
+} from "../utils/activitypub.ts";
+import { deliverToFollowers } from "../utils/deliver.ts";
+import authRequired from "../utils/auth.ts";
 import {
   formatUserInfoForPost,
   getUserInfo,
   getUserInfoBatch,
-} from "./services/user-info.ts";
-import { addNotification } from "./services/notification.ts";
-import { rateLimit } from "./utils/rate_limit.ts";
+} from "../services/user-info.ts";
+import { addNotification } from "../services/notification.ts";
+import { rateLimit } from "../utils/rate_limit.ts";
 
 interface PostDoc {
   _id?: string;
