@@ -7,6 +7,7 @@ const hostEnv = await loadConfig({
 
 export const takosEnv: Record<string, string> = {
   DB_MODE: "host",
+  MONGO_URI: hostEnv["MONGO_URI"],
   hashedPassword: "",
   salt: "",
   ACTIVITYPUB_DOMAIN: "",
