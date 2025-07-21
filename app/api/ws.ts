@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/deno";
-import type { WSContext } from "hono/helper/websocket";
+import type { WSContext } from "hono/ws";
 
 export type WsState = Record<string, unknown>;
 export type MessageHandler = (

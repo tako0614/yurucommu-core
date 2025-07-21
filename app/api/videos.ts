@@ -178,6 +178,7 @@ app.get("/videos", async (c) => {
   return c.json(result);
 });
 
+
 app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
   const domain = getDomain(c);
   const contentType = c.req.header("content-type") || "";
