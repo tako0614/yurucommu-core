@@ -119,11 +119,7 @@ async function signAndSend(
     id: `https://${domain}/users/${account.userName}`,
     privateKey: account.privateKey,
   });
-  console.log(res);
-  // Log the response status and body for debugging
   const responseBody = await res.text();
-  console.log(`Response from ${inboxUrl}: ${res.status} ${res.statusText}`);
-  console.log(`Response body: ${responseBody}`);
 
   // Return a new response object because the body has been consumed
   return new Response(responseBody, {

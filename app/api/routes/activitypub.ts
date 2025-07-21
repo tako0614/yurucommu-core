@@ -175,7 +175,6 @@ app.get("/users/:username/outbox", async (c) => {
       )
     ),
   };
-  console.log(outbox);
   return jsonResponse(c, outbox, 200, "application/activity+json");
 });
 
