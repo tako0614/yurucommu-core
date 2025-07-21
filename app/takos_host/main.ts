@@ -107,7 +107,7 @@ async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
   host = parseHost(host);
-  const baseEnv = {
+  const baseEnv: Record<string, string> = {
     ...takosEnv,
     MONGO_URI: hostEnv["MONGO_URI"],
     DB_MODE: "host",
