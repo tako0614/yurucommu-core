@@ -1,4 +1,4 @@
-import HostSession from "../models/session.ts";
+import HostSession from "../../models/takos_host/session.ts";
 
 export interface HostSessionData {
   _id?: string;
@@ -10,7 +10,9 @@ export interface HostSessionData {
 export async function findHostSessionById(
   sessionId: string,
 ): Promise<HostSessionData | null> {
-  return await HostSession.findOne({ sessionId }).lean<HostSessionData | null>();
+  return await HostSession.findOne({ sessionId }).lean<
+    HostSessionData | null
+  >();
 }
 
 export async function createHostSession(

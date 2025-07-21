@@ -4,7 +4,7 @@ import { compare } from "bcrypt"; // bcrypt で検証
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "../../shared/config.ts";
-import { createSession } from "../repositories/session.ts";
+import { createDB } from "../db.ts";
 
 const app = new Hono();
 
@@ -37,8 +37,8 @@ app.post(
       // ✅ セッション生成
       const sessionId = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-      await createSession(
-        env,
+      const db = createDB(env);
+      await db.createSession(
         sessionId,
         expiresAt,
         env["ACTIVITYPUB_DOMAIN"] ?? "",

@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import { addFollowerByName } from "./repositories/account.ts";
 import { createDB } from "./db.ts";
 import {
   createAcceptActivity,
@@ -91,8 +90,8 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       string,
       string
     >;
-    await addFollowerByName(env, username, activity.actor);
     const db = createDB(env);
+    await db.addFollowerByName(username, activity.actor);
     await db.follow(username, activity.actor);
     const domain = getDomain(c as Context);
     const accept = createAcceptActivity(

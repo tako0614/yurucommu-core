@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { searchAccounts } from "../repositories/account.ts";
 import { createDB } from "../db.ts";
 import { getDomain, resolveActor } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -41,7 +40,8 @@ app.get("/search", async (c) => {
   const results: SearchResult[] = [];
 
   if (type === "all" || type === "users") {
-    const users = await searchAccounts(getEnv(c), regex, 20);
+    const db = createDB(getEnv(c));
+    const users = await db.searchAccounts(regex, 20);
     const domain = getDomain(c);
     for (const u of users) {
       results.push({

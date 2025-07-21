@@ -1,4 +1,4 @@
-import Tenant from "../models/tenant.ts";
+import Tenant from "../models/takos_host/tenant.ts";
 
 export async function ensureTenant(id: string, domain: string) {
   const exists = await Tenant.findById(id).lean();

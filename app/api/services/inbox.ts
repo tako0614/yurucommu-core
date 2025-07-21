@@ -1,4 +1,4 @@
-import InboxEntry from "../models/inbox_entry.ts";
+import InboxEntry from "../models/takos/inbox_entry.ts";
 
 export async function addInboxEntry(tenantId: string, objectId: string) {
   await InboxEntry.updateOne(

@@ -1,12 +1,5 @@
-import {
-  findAccountByUserName,
-  findAccountsByUserNames,
-} from "../repositories/account.ts";
-import {
-  findRemoteActorByUrl,
-  findRemoteActorsByUrls,
-  upsertRemoteActor,
-} from "../repositories/remote_actor.ts";
+import { createDB } from "../db.ts";
+import type { DB } from "../../shared/db.ts";
 import { resolveActor } from "../utils/activitypub.ts";
 
 function isUrl(value: string): boolean {
@@ -30,8 +23,8 @@ export interface UserInfoCache {
   [key: string]: UserInfo;
 }
 
-async function fetchExternalActorInfo(actorUrl: string) {
-  let actor = await findRemoteActorByUrl(actorUrl);
+async function fetchExternalActorInfo(actorUrl: string, db: DB) {
+  let actor = await db.findRemoteActorByUrl(actorUrl);
   if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
     try {
       const res = await fetch(actorUrl, {
@@ -43,14 +36,14 @@ async function fetchExternalActorInfo(actorUrl: string) {
       });
       if (res.ok) {
         const data = await res.json();
-        await upsertRemoteActor({
+        await db.upsertRemoteActor({
           actorUrl,
           name: data.name || "",
           preferredUsername: data.preferredUsername || "",
           icon: data.icon || null,
           summary: data.summary || "",
         });
-        actor = await findRemoteActorByUrl(actorUrl);
+        actor = await db.findRemoteActorByUrl(actorUrl);
       }
     } catch {
       /* ignore */
@@ -84,6 +77,8 @@ export async function getUserInfo(
     return cache[identifier];
   }
 
+  const db = createDB(env);
+
   let userName = identifier;
   let displayName = userName;
   let authorAvatar = "";
@@ -91,7 +86,7 @@ export async function getUserInfo(
   let isLocal = true;
 
   // ローカルユーザーかどうかを判定
-  const account = await findAccountByUserName(env, identifier);
+  const account = await db.findAccountByUserName(identifier);
 
   if (account) {
     // ローカルユーザーの場合
@@ -114,7 +109,7 @@ export async function getUserInfo(
           ? icon
           : "";
       }
-      await upsertRemoteActor({
+      await db.upsertRemoteActor({
         actorUrl: actor.id,
         name: actor.name || "",
         preferredUsername: actor.preferredUsername || "",
@@ -134,10 +129,7 @@ export async function getUserInfo(
 
       if (url.hostname === domain && url.pathname.startsWith("/users/")) {
         // ローカルユーザーを URL で指定した場合
-        const localAccount = await findAccountByUserName(
-          env,
-          extractedUsername,
-        );
+        const localAccount = await db.findAccountByUserName(extractedUsername);
         if (localAccount) {
           displayName = localAccount.displayName || extractedUsername;
           authorAvatar = localAccount.avatarInitial || "";
@@ -151,7 +143,7 @@ export async function getUserInfo(
         userDomain = url.hostname;
         isLocal = false;
 
-        const info = await fetchExternalActorInfo(identifier);
+        const info = await fetchExternalActorInfo(identifier, db);
         if (info) {
           displayName = info.displayName || extractedUsername;
           authorAvatar = info.avatar;
@@ -192,6 +184,8 @@ export async function getUserInfoBatch(
   const cache: UserInfoCache = {};
   const results: UserInfo[] = [];
 
+  const db = createDB(env);
+
   // 重複を除去
   const uniqueIdentifiers = [...new Set(identifiers)];
 
@@ -217,8 +211,7 @@ export async function getUserInfoBatch(
   }
 
   if (localIds.length > 0) {
-    const accounts = await findAccountsByUserNames(
-      env,
+    const accounts = await db.findAccountsByUserNames(
       localIds.map((l) => l.username),
     );
     const accountMap = new Map(accounts.map((acc) => [acc.userName, acc]));
@@ -244,7 +237,7 @@ export async function getUserInfoBatch(
     isUrl(id) && !processedLocalIds.has(id)
   );
   if (externalUrls.length > 0) {
-    const remoteActors = await findRemoteActorsByUrls(externalUrls);
+    const remoteActors = await db.findRemoteActorsByUrls(externalUrls);
     const actorMap = new Map(
       remoteActors.map((actor) => [actor.actorUrl, actor]),
     );

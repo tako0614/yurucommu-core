@@ -1,4 +1,4 @@
-import SystemKey from "../models/system_key.ts";
+import SystemKey from "../models/takos/system_key.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
 
 export async function getSystemKey(domain: string) {

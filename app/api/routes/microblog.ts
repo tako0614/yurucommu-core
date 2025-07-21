@@ -1,14 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { type ActivityObject } from "../services/unified_store.ts";
+type ActivityObject = Record<string, unknown>;
 import { createDB } from "../db.ts";
 
 // 型定義用のimport
 import { getEnv } from "../../shared/config.ts";
 
 type ActivityPubObjectType = ActivityObject;
-import { findAccountByUserName } from "../repositories/account.ts";
 import {
   buildActivityFromStored,
   createAnnounceActivity,
@@ -317,8 +316,8 @@ app.post(
         if (inbox) inboxes.push(inbox);
       } else if (typeof postData.actor_id === "string") {
         const url = new URL(postData.actor_id);
-        const account = await findAccountByUserName(
-          env,
+        const db = createDB(env);
+        const account = await db.findAccountByUserName(
           url.pathname.split("/")[2],
         );
         inboxes = account?.followers ?? [];
@@ -389,7 +388,7 @@ app.post(
       const objectUrl = `https://${domain}/objects/${postData._id}`;
 
       let inboxes: string[] = [];
-      const account = await findAccountByUserName(env, username);
+      const account = await db.findAccountByUserName(username);
       inboxes = account?.followers ?? [];
 
       if (

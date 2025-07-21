@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import type { Document } from "mongoose";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import Instance from "./models/instance.ts";
+import Instance from "../models/takos_host/instance.ts";
 import { authRequired, hash } from "./auth.ts";
-import HostDomain from "./models/domain.ts";
-import OAuthClient from "./models/oauth_client.ts";
+import HostDomain from "../models/takos_host/domain.ts";
+import OAuthClient from "../models/takos_host/oauth_client.ts";
 
 interface HostUserDoc extends Document {
   _id: unknown;
