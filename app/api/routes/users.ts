@@ -209,7 +209,7 @@ app.get("/users/:username/followers", async (c) => {
           const followerUsername = followerUrl.split("/").pop();
           const followerUser = await findAccountByUserName(
             env,
-            followerUsername,
+            followerUsername ?? "",
           );
           if (followerUser) {
             followerData.push({
@@ -321,19 +321,17 @@ app.get("/users/:username/timeline", async (c) => {
     const db = createDB(env);
     const posts = await db.findNotes({
       attributedTo: { $in: followingUsernames },
-    }, { published: -1 });
+    }, { published: -1 }) as Record<string, unknown>[];
     const limited = posts.slice(0, 50);
 
     // ユーザー情報をバッチで取得
     const identifiers = limited.map((post) => post.attributedTo as string);
     const userInfos = await getUserInfoBatch(identifiers, domain, getEnv(c));
 
-    const formatted = limited.map(
-      (post: Record<string, unknown>, index: number) => {
-        const userInfo = userInfos[index];
-        return formatUserInfoForPost(userInfo, post);
-      },
-    );
+    const formatted = limited.map((post, index) => {
+      const userInfo = userInfos[index];
+      return formatUserInfoForPost(userInfo, post);
+    });
 
     return c.json(formatted);
   } catch (error) {
