@@ -4,7 +4,7 @@ import { compare, genSalt, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
 import { sendVerifyMail } from "./mailer.ts";
-import { createAuthMiddleware } from "../../shared/auth.ts";
+import { createAuthMiddleware } from "../shared/auth.ts";
 
 /** bcrypt.hash をラップ（saltRounds = 10） */
 export async function hash(text: string): Promise<string> {

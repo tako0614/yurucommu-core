@@ -4,7 +4,7 @@ import {
   jsonResponse,
   verifyHttpSignature,
 } from "../utils/activitypub.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "../activity_handlers.ts";
 import { findAccountByUserName } from "../repositories/account.ts";
 import { createDB } from "../db.ts";

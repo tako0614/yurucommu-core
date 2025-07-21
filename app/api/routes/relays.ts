@@ -8,7 +8,7 @@ import {
   findRelaysByHosts,
 } from "../repositories/relay.ts";
 import authRequired from "../utils/auth.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../db.ts";
 import {
   createFollowActivity,

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import { createSession } from "../repositories/session.ts";
 
 const app = new Hono();

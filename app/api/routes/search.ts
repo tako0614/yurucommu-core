@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { searchAccounts } from "../repositories/account.ts";
 import { createDB } from "../db.ts";
 import { getDomain, resolveActor } from "../utils/activitypub.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
 
 interface SearchResult {

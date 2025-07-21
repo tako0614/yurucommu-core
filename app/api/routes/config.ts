@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { getEnv } from "../../../shared/config.ts";
-import { parseFirebaseClientConfig } from "../../../shared/firebase_config.ts";
+import { getEnv } from "../../shared/config.ts";
+import { parseFirebaseClientConfig } from "../../shared/firebase_config.ts";
 
 const app = new Hono();
 

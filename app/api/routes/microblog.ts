@@ -5,7 +5,7 @@ import { type ActivityObject } from "../services/unified_store.ts";
 import { createDB } from "../db.ts";
 
 // 型定義用のimport
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 
 type ActivityPubObjectType = ActivityObject;
 import { findAccountByUserName } from "../repositories/account.ts";

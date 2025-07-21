@@ -4,9 +4,9 @@ import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
 import { createAccount } from "../repositories/account.ts";
 import { createDB } from "../db.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
-import { generateKeyPair, sha256Hex } from "../../../shared/crypto.ts";
+import { generateKeyPair, sha256Hex } from "../../shared/crypto.ts";
 
 const app = new Hono();
 app.use("/setup", authRequired);

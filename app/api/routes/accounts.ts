@@ -24,8 +24,8 @@ import {
 import authRequired from "../utils/auth.ts";
 import { addNotification } from "../services/notification.ts";
 import { createDB } from "../db.ts";
-import { getEnv } from "../../../shared/config.ts";
-import { generateKeyPair } from "../../../shared/crypto.ts";
+import { getEnv } from "../../shared/config.ts";
+import { generateKeyPair } from "../../shared/crypto.ts";
 
 interface AccountDoc {
   _id?: string;

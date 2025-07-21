@@ -7,7 +7,7 @@ import {
   updateAccountByUserName,
 } from "../repositories/account.ts";
 import { createDB } from "../db.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
