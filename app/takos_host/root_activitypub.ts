@@ -47,7 +47,6 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   });
 
   async function handleInbox(c: Context) {
-    console.log("Received activitypub request");
     const body = await c.req.text();
     const verified = await verifyHttpSignature(c.req.raw, body);
     if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
