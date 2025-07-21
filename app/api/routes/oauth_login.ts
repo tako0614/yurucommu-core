@@ -30,11 +30,13 @@ app.post(
     if (!res.ok) return c.json({ error: "Invalid token" }, 401);
     const data = await res.json();
     if (!data.active) return c.json({ error: "Invalid token" }, 401);
+    const user = data.user;
+    if (!user || !user.id) return c.json({ error: "Invalid user" }, 401);
 
     // ③ セッション発行（7 日間有効）
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await createSession(env, sessionId, expiresAt);
+    await createSession(env, sessionId, expiresAt, user.id);
 
     // ④ Cookie 設定
     setCookie(c, "sessionId", sessionId, {

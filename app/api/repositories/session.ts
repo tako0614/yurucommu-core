@@ -1,53 +1,48 @@
+import Session from "../models/session.ts";
+
 export interface SessionData {
   _id?: string;
   sessionId: string;
   expiresAt: Date;
+  tenant_id: string;
 }
 
-import Session from "../models/session.ts";
-
 export async function createSession(
-  env: Record<string, string>,
+  _env: Record<string, string>,
   sessionId: string,
   expiresAt: Date,
+  tenantId: string,
 ): Promise<SessionData> {
   const doc = new Session({
     sessionId,
     expiresAt,
-    tenant_id: env["ACTIVITYPUB_DOMAIN"] ?? "",
+    tenant_id: tenantId,
   });
   (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
-    env,
+    env: _env,
   };
   await doc.save();
   return doc.toObject() as SessionData;
 }
 
 export async function findSessionById(
-  env: Record<string, string>,
+  _env: Record<string, string>,
   sessionId: string,
 ): Promise<SessionData | null> {
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  return await Session.findOne({ sessionId, tenant_id: tenantId }).lean<
-    SessionData | null
-  >();
+  return await Session.findOne({ sessionId }).lean<SessionData | null>();
 }
 
 export async function deleteSessionById(
-  env: Record<string, string>,
+  _env: Record<string, string>,
   sessionId: string,
 ): Promise<void> {
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  await Session.deleteOne({ sessionId, tenant_id: tenantId });
+  await Session.deleteOne({ sessionId });
 }
 
 export async function updateSessionExpires(
-  env: Record<string, string>,
+  _env: Record<string, string>,
   sessionId: string,
   expires: Date,
 ): Promise<void> {
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  await Session.updateOne({ sessionId, tenant_id: tenantId }, {
-    expiresAt: expires,
-  });
+  await Session.updateOne({ sessionId }, { expiresAt: expires });
 }

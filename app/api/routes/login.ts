@@ -37,7 +37,12 @@ app.post(
       // ✅ セッション生成
       const sessionId = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-      await createSession(env, sessionId, expiresAt);
+      await createSession(
+        env,
+        sessionId,
+        expiresAt,
+        env["ACTIVITYPUB_DOMAIN"] ?? "",
+      );
 
       // ✅ Cookie 設定
       setCookie(c, "sessionId", sessionId, {

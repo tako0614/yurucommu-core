@@ -4,7 +4,10 @@ import { cors } from "hono/cors";
 import OAuthClient from "./models/oauth_client.ts";
 import OAuthCode from "./models/oauth_code.ts";
 import OAuthToken from "./models/oauth_token.ts";
-import HostSession from "./models/session.ts";
+import {
+  findHostSessionById,
+  updateHostSession,
+} from "./repositories/session.ts";
 
 export const oauthApp = new Hono();
 // CORSミドルウェアの節約化
@@ -25,16 +28,16 @@ oauthApp.get("/authorize", async (c) => {
   }
   const sid = getCookie(c, "hostSessionId");
   if (!sid) return c.text("login required", 401);
-  const session = await HostSession.findOne({ sessionId: sid });
+  const session = await findHostSessionById(sid);
   if (!session || session.expiresAt <= new Date()) {
     return c.text("login required", 401);
   }
-  session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await session.save();
+  const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await updateHostSession(sid, newExpiresAt);
   setCookie(c, "hostSessionId", sid, {
     httpOnly: true,
     secure: c.req.url.startsWith("https://"),
-    expires: session.expiresAt,
+    expires: newExpiresAt,
     sameSite: "Lax",
     path: "/",
   });
@@ -110,3 +113,4 @@ oauthApp.post("/verify", async (c) => {
 });
 
 export default oauthApp;
+
