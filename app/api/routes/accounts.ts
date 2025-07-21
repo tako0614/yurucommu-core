@@ -90,7 +90,7 @@ app.get("/accounts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id);
+  const account = await db.findAccountById(id) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     ...formatAccount(account),
@@ -156,7 +156,7 @@ app.get("/accounts/:id/following", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id);
+  const account = await db.findAccountById(id) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, { following: account.following });
 });
@@ -180,7 +180,7 @@ app.post("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string" || typeof userName !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById(id);
+  const accountExist = await db.findAccountById(id) as AccountDoc | null;
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }
@@ -240,7 +240,7 @@ app.delete("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById(id);
+  const accountExist = await db.findAccountById(id) as AccountDoc | null;
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }
