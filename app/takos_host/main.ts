@@ -112,10 +112,6 @@ async function getEnvForHost(
   host = parseHost(host);
   const baseEnv: Record<string, string> = {
     ...takosEnv,
-    MONGO_URI: hostEnv["MONGO_URI"],
-    DB_MODE: "host",
-    OAUTH_HOST: hostEnv["ROOT_DOMAIN"],
-    
   };
   for (const k of FCM_KEYS) {
     if (hostEnv[k]) baseEnv[k] = hostEnv[k];

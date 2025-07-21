@@ -10,7 +10,7 @@ export const takosEnv: Record<string, string> = {
   hashedPassword: "",
   salt: "",
   ACTIVITYPUB_DOMAIN: "",
-  OAUTH_HOST: "",
+  OAUTH_HOST: hostEnv["ROOT_DOMAIN"],
   OAUTH_CLIENT_ID: "",
   OAUTH_CLIENT_SECRET: "",
   OBJECT_STORAGE_PROVIDER: "gridfs",
