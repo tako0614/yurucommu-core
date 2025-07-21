@@ -5,6 +5,22 @@ import authRequired from "./utils/auth.ts";
 import { createObjectId } from "./utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 
+/** ストーリーオブジェクト型定義 */
+type Story = {
+  _id: { toString(): string };
+  attributedTo: string;
+  content: string;
+  published: string | Date;
+  extra: {
+    mediaUrl?: string;
+    mediaType?: string;
+    backgroundColor?: string;
+    textColor?: string;
+    expiresAt?: string | Date;
+    views?: number;
+  };
+};
+
 const app = new Hono();
 app.use("/stories/*", authRequired);
 
@@ -27,20 +43,6 @@ app.get("/api/stories", async (c) => {
       type: "Story",
       "extra.expiresAt": { $gt: new Date() },
     }, { published: -1 });
-    type Story = {
-      _id: { toString(): string };
-      attributedTo: string;
-      content: string;
-      published: string | Date;
-      extra: {
-        mediaUrl?: string;
-        mediaType?: string;
-        backgroundColor?: string;
-        textColor?: string;
-        expiresAt?: string | Date;
-        views?: number;
-      };
-    };
 
     const formatted = stories.map((s) => {
       const story = s as Story;
@@ -100,7 +102,7 @@ app.post("/api/stories", async (c) => {
         actor_id: `https://${domain}/users/${author}`,
         aud: { to: ["https://www.w3.org/ns/activitystreams#Public"], cc: [] },
       },
-    );
+    ) as Story;
     return c.json({
       id: String(story._id),
       author: story.attributedTo,
@@ -125,7 +127,9 @@ app.post("/api/stories/:id/view", async (c) => {
     const env = getEnv(c);
     const db = createDB(env);
     const id = c.req.param("id");
-    const story = await db.updateObject(id, { $inc: { "extra.views": 1 } });
+    const story = await db.updateObject(id, { $inc: { "extra.views": 1 } }) as
+      | Story
+      | null;
 
     if (!story) {
       return c.json({ error: "Story not found" }, 404);
