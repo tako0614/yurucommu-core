@@ -23,26 +23,42 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-async function signAndPost(
-  inboxUrl: string,
+async function applySignature(
+  method: string,
+  url: string,
   body: string,
   key: { id: string; privateKey: string },
-): Promise<Response> {
-  const parsedUrl = new URL(inboxUrl);
-  const host = parsedUrl.hostname;
+  headersToSign: string[],
+  headers: Headers,
+): Promise<void> {
+  const parsed = new URL(url);
+  const host = parsed.hostname;
   const date = new Date().toUTCString();
   const encoder = new TextEncoder();
 
-  const digestValue = arrayBufferToBase64(
-    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
-  );
-  const digest = `SHA-256=${digestValue}`;
+  headers.set("Date", date);
 
-  const fullPath = parsedUrl.pathname + parsedUrl.search;
-  const signingString = `(request-target): post ${fullPath}\n` +
-    `host: ${host}\n` +
-    `date: ${date}\n` +
-    `digest: ${digest}`;
+  let digest = "";
+  if (headersToSign.includes("digest")) {
+    const digestValue = arrayBufferToBase64(
+      await crypto.subtle.digest("SHA-256", encoder.encode(body)),
+    );
+    digest = `SHA-256=${digestValue}`;
+    headers.set("Digest", digest);
+  }
+
+  const fullPath = parsed.pathname + parsed.search;
+  const lines = headersToSign.map((h) => {
+    if (h === "(request-target)") {
+      return `(request-target): ${method.toLowerCase()} ${fullPath}`;
+    }
+    if (h === "host") return `host: ${host}`;
+    if (h === "date") return `date: ${date}`;
+    if (h === "digest") return `digest: ${digest}`;
+    return `${h}: ${headers.get(h) ?? ""}`;
+  });
+
+  const signingString = lines.join("\n");
 
   const normalizedPrivateKey = ensurePem(key.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
@@ -53,7 +69,6 @@ async function signAndPost(
     false,
     ["sign"],
   );
-
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
     cryptoKey,
@@ -61,23 +76,36 @@ async function signAndPost(
   );
   const signatureB64 = arrayBufferToBase64(signature);
   const keyId = `${key.id}#main-key`;
-
-  const headers = new Headers({
-    Date: date,
-    Digest: digest,
-    Accept: "application/activity+json",
-    "Content-Type": "application/activity+json",
-  });
   headers.set(
     "Signature",
-    `keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${signatureB64}"`,
+    `keyId="${keyId}",algorithm="rsa-sha256",headers="${
+      headersToSign.join(" ")
+    }",signature="${signatureB64}"`,
   );
   headers.append("Signature", `sig1=:${signatureB64}:`);
   headers.set(
     "Signature-Input",
-    `sig1="(request-target) host date digest";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
+    `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
   );
+}
 
+async function signAndPost(
+  inboxUrl: string,
+  body: string,
+  key: { id: string; privateKey: string },
+): Promise<Response> {
+  const headers = new Headers({
+    Accept: "application/activity+json",
+    "Content-Type": "application/activity+json",
+  });
+  await applySignature(
+    "POST",
+    inboxUrl,
+    body,
+    key,
+    ["(request-target)", "host", "date", "digest"],
+    headers,
+  );
   return await fetch(inboxUrl, { method: "POST", headers, body });
 }
 
@@ -710,42 +738,17 @@ export async function fetchJson<T = unknown>(
       'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
     );
   }
-  const signedInit = { ...init, headers };
   if (signer) {
-    const parsedUrl = new URL(url);
-    const host = parsedUrl.hostname;
-    const date = new Date().toUTCString();
-    const fullPath = parsedUrl.pathname + parsedUrl.search;
-    const signingString = `(request-target): get ${fullPath}\n` +
-      `host: ${host}\n` +
-      `date: ${date}`;
-    const normalizedPrivateKey = ensurePem(signer.privateKey, "PRIVATE KEY");
-    const keyData = pemToArrayBuffer(normalizedPrivateKey);
-    const key = await crypto.subtle.importKey(
-      "pkcs8",
-      keyData,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const encoder = new TextEncoder();
-    const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      key,
-      encoder.encode(signingString),
-    );
-    const signatureB64 = arrayBufferToBase64(signature);
-    headers.set("Date", date);
-    headers.set(
-      "Signature",
-      `keyId="${signer.id}#main-key",algorithm="rsa-sha256",headers="(request-target) host date",signature="${signatureB64}"`,
-    );
-    headers.append("Signature", `sig1=:${signatureB64}:`);
-    headers.set(
-      "Signature-Input",
-      `sig1="(request-target) host date";keyid="${signer.id}#main-key";alg="rsa-v1_5-sha256"`,
+    await applySignature(
+      "GET",
+      url,
+      "",
+      signer,
+      ["(request-target)", "host", "date"],
+      headers,
     );
   }
+  const signedInit = { ...init, headers };
   const res = await fetch(url, signedInit);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
