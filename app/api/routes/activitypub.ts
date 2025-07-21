@@ -56,7 +56,7 @@ app.get("/.well-known/webfinger", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
     subject: `acct:${username}@${domain}`,
@@ -96,7 +96,7 @@ app.get("/users/:username", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
 
@@ -126,7 +126,7 @@ app.get("/users/:username/avatar", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return c.body("Not Found", 404);
 
   let icon = account.avatarInitial ||
@@ -262,7 +262,7 @@ app.post("/users/:username/inbox", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const bodyText = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
@@ -296,7 +296,7 @@ app.get("/users/:username/followers", async (c) => {
   const page = c.req.query("page");
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.followers ?? [];
@@ -354,7 +354,7 @@ app.get("/users/:username/following", async (c) => {
   const page = c.req.query("page");
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName<AccountDoc>(username);
+  const account = await db.findAccountByUserName(username) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.following ?? [];
@@ -409,7 +409,12 @@ app.get("/activitypub/actor-proxy", async (c) => {
     // 既存キャッシュを確認
     const env = getEnv(c);
     const db = createDB(env);
-    const cached = await db.findRemoteActorByUrl(actorUrl);
+    const cached = await db.findRemoteActorByUrl(actorUrl) as {
+      name?: string;
+      preferredUsername?: string;
+      icon?: unknown;
+      summary?: string;
+    } | null;
     if (cached) {
       return c.json({
         name: cached.name,
@@ -432,7 +437,12 @@ app.get("/activitypub/actor-proxy", async (c) => {
       throw new Error(`Failed to fetch actor: ${response.status}`);
     }
 
-    const actor = await response.json();
+    const actor = await response.json() as {
+      name?: string;
+      preferredUsername?: string;
+      icon?: unknown;
+      summary?: string;
+    };
 
     // DBに保存
     await db.upsertRemoteActor({

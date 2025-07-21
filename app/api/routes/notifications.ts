@@ -5,13 +5,22 @@ import { createDB } from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 
+interface NotificationDoc {
+  _id?: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+  createdAt: Date;
+}
+
 const app = new Hono();
 app.use("/notifications/*", authRequired);
 
 app.get("/notifications", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
-  const list = await db.listNotifications();
+  const list = await db.listNotifications() as NotificationDoc[];
   const formatted = list.map((doc) => ({
     id: doc._id!,
     title: doc.title,
@@ -41,7 +50,7 @@ app.post(
       title,
       message,
       type,
-    );
+    ) as NotificationDoc;
     return c.json({
       id: notification._id!,
       title: notification.title,
