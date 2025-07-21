@@ -26,11 +26,13 @@ objectStoreSchema.pre("save", function (next) {
   };
   const _env: Record<string, string> | undefined = self.$locals?.env;
   if (!this.actor_id && typeof this.attributedTo === "string") {
-    if (this.attributedTo.startsWith("http")) {
-      this.actor_id = this.attributedTo;
-    } else if (_env?.ACTIVITYPUB_DOMAIN) {
-      this.actor_id =
-        `https://${_env.ACTIVITYPUB_DOMAIN}/users/${this.attributedTo}`;
+    try {
+      this.actor_id = new URL(this.attributedTo).href;
+    } catch {
+      if (_env?.ACTIVITYPUB_DOMAIN) {
+        this.actor_id =
+          `https://${_env.ACTIVITYPUB_DOMAIN}/users/${this.attributedTo}`;
+      }
     }
   }
   if (!this.aud) {
