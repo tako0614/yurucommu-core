@@ -24,6 +24,32 @@ interface ActivityPubActivity {
   cc?: unknown;
 }
 
+interface RemoteActorCache {
+  actorUrl: string;
+}
+
+interface KeyPackageDoc {
+  _id?: unknown;
+  content: string;
+  mediaType: string;
+  encoding: string;
+  createdAt: unknown;
+}
+
+interface EncryptedKeyPairDoc {
+  content: string;
+}
+
+interface EncryptedMessageDoc {
+  _id?: unknown;
+  from: string;
+  to: string[];
+  content: string;
+  mediaType: string;
+  encoding: string;
+  createdAt: unknown;
+}
+
 async function resolveActorCached(
   acct: string,
   env: Record<string, string>,
@@ -34,7 +60,7 @@ async function resolveActorCached(
   const db = createDB(env);
   const cached = await db.findRemoteActorByUrl(
     acct.startsWith("http") ? acct : "",
-  );
+  ) as RemoteActorCache | null;
 
   let actor:
     | (ActivityPubActor & { keyPackages?: string | { id?: string } })
@@ -82,7 +108,7 @@ app.get("/users/:user/keyPackages", async (c) => {
   if (!host || host === domain) {
     const username = user ?? identifier;
     const db = createDB(getEnv(c));
-    const list = await db.listKeyPackages(username);
+    const list = await db.listKeyPackages(username) as KeyPackageDoc[];
     const items = list.map((doc) => ({
       id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
       type: "KeyPackage",
@@ -126,7 +152,7 @@ app.get("/users/:user/keyPackage/:keyId", async (c) => {
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
   const db = createDB(getEnv(c));
-  const doc = await db.findKeyPackage(user, keyId);
+  const doc = await db.findKeyPackage(user, keyId) as KeyPackageDoc | null;
   if (!doc) return c.body("Not Found", 404);
   const object = {
     "@context": [
@@ -156,7 +182,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     content,
     mediaType,
     encoding,
-  );
+  ) as KeyPackageDoc;
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   const keyObj = {
@@ -202,7 +228,7 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
 app.get("/users/:user/encryptedKeyPair", async (c) => {
   const user = c.req.param("user");
   const db = createDB(getEnv(c));
-  const doc = await db.findEncryptedKeyPair(user);
+  const doc = await db.findEncryptedKeyPair(user) as EncryptedKeyPairDoc | null;
   if (!doc) return c.json({ content: null });
   return c.json({ content: doc.content });
 });
@@ -230,7 +256,7 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   const db = createDB(getEnv(c));
-  const keyPkgs = await db.listKeyPackages(user);
+  const keyPkgs = await db.listKeyPackages(user) as KeyPackageDoc[];
   for (const pkg of keyPkgs) {
     const removeActivity = createRemoveActivity(
       domain,
@@ -272,7 +298,7 @@ app.post(
       content,
       mediaType,
       encoding,
-    });
+    }) as EncryptedMessageDoc;
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
@@ -337,14 +363,15 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const db = createDB(getEnv(c));
+    const env = getEnv(c);
+    const db = createDB(env);
     const msg = await db.createPublicMessage({
       from: acct,
       to,
       content,
       mediaType,
       encoding,
-    });
+    }) as EncryptedMessageDoc;
     const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
@@ -444,7 +471,7 @@ app.get("/users/:user/messages", authRequired, async (c) => {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
-  });
+  }) as EncryptedMessageDoc[];
   list.reverse();
   const messages = list.map((doc) => ({
     id: String(doc._id),
@@ -508,7 +535,7 @@ app.get("/users/:user/publicMessages", authRequired, async (c) => {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
-  });
+  }) as EncryptedMessageDoc[];
   list.reverse();
   const messages = list.map((doc) => ({
     id: String(doc._id),
