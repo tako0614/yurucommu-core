@@ -89,9 +89,12 @@ export function createConsumerApp(
         env.OAUTH_HOST = rootDomain;
         const redirect = `https://${fullHost}`;
         const clientId = redirect;
-        const clientSecret = crypto.randomUUID();
+        let clientSecret: string;
         const existsCli = await OAuthClient.findOne({ clientId });
-        if (!existsCli) {
+        if (existsCli) {
+          clientSecret = existsCli.clientSecret;
+        } else {
+          clientSecret = crypto.randomUUID();
           const client = new OAuthClient({
             clientId,
             clientSecret,
@@ -141,7 +144,9 @@ export function createConsumerApp(
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
     const inst = await Instance.findOne({ host, owner: user._id }).lean();
-    if (!inst || Array.isArray(inst)) return c.json({ error: "not found" }, 404);
+    if (!inst || Array.isArray(inst)) {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json({ host: inst.host });
   });
 

@@ -118,9 +118,12 @@ async function createInstance(
     instEnv.OAUTH_HOST = rootDomain;
     const redirect = `https://${fullHost}`;
     const clientId = redirect;
-    const clientSecret = crypto.randomUUID();
+    let clientSecret: string;
     const existsCli = await OAuthClient.findOne({ clientId });
-    if (!existsCli) {
+    if (existsCli) {
+      clientSecret = existsCli.clientSecret;
+    } else {
+      clientSecret = crypto.randomUUID();
       const cli = new OAuthClient({
         clientId,
         clientSecret,
