@@ -23,6 +23,15 @@ import {
 import { deliverToFollowers } from "./utils/deliver.ts";
 import { getUserInfo, getUserInfoBatch } from "./services/user-info.ts";
 
+type VideoDoc = {
+  _id: { toString(): string } | string;
+  attributedTo: string;
+  content?: string;
+  published: string | Date;
+  extra: Record<string, unknown>;
+  toObject(): Record<string, unknown>;
+};
+
 let storage: ObjectStorage;
 export async function initVideoModule(env: Record<string, string>) {
   const db = createDB(env);
@@ -115,7 +124,7 @@ export function initVideoWebSocket() {
           thumbnail: `/api/placeholder/${meta.isShort ? "225/400" : "400/225"}`,
           videoUrl,
         },
-      );
+      ) as VideoDoc;
 
       const baseObj = video.toObject();
       const videoObject = buildActivityFromStored(
@@ -150,14 +159,14 @@ app.get("/videos", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
-  const list = await db.findVideos({}, { published: -1 });
+  const list = await db.findVideos({}, { published: -1 }) as VideoDoc[];
 
-  const identifiers = list.map((doc) => doc.attributedTo as string);
+  const identifiers = list.map((doc) => doc.attributedTo);
   const infos = await getUserInfoBatch(identifiers, domain, env);
 
   const result = list.map((doc, idx) => {
     const info = infos[idx];
-    const extra = doc.extra as Record<string, unknown>;
+    const extra = doc.extra;
     return {
       id: String(doc._id),
       title: (extra.title as string) ?? "",
@@ -223,7 +232,7 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
       thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
       videoUrl,
     },
-  );
+  ) as VideoDoc;
 
   const baseObj = video.toObject();
   const videoObject = buildActivityFromStored(
@@ -274,9 +283,9 @@ app.post("/videos/:id/like", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
   const db = createDB(env);
-  const doc = await db.getObject(id);
+  const doc = await db.getObject(id) as VideoDoc | null;
   if (!doc) return c.json({ error: "Not found" }, 404);
-  const extra = doc.extra as Record<string, unknown> ?? {};
+  const extra = doc.extra ?? {} as Record<string, unknown>;
   const likes = typeof extra.likes === "number" ? extra.likes + 1 : 1;
   extra.likes = likes;
   await db.updateVideo(id, { extra });
@@ -287,9 +296,11 @@ app.post("/videos/:id/view", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
   const db = createDB(env);
-  const doc = await db.updateVideo(id, { $inc: { "extra.views": 1 } });
+  const doc = await db.updateVideo(id, { $inc: { "extra.views": 1 } }) as
+    | VideoDoc
+    | null;
   if (!doc) return c.json({ error: "Not found" }, 404);
-  const extra = (doc.extra ?? {}) as Record<string, unknown>;
+  const extra = doc.extra ?? {} as Record<string, unknown>;
   const views = typeof extra.views === "number" ? extra.views : 0;
   return c.json({ views });
 });
