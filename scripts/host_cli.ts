@@ -1,6 +1,6 @@
 import { parse } from "jsr:@std/flags";
-import { loadConfig } from "../shared/config.ts";
-import { connectDatabase } from "../shared/db.ts";
+import { loadConfig } from "../app/shared/config.ts";
+import { connectDatabase } from "../app/shared/db.ts";
 import HostUser from "../app/takos_host/models/user.ts";
 import Instance from "../app/takos_host/models/instance.ts";
 import OAuthClient from "../app/takos_host/models/oauth_client.ts";
