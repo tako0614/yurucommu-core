@@ -42,8 +42,8 @@ app.use("/accounts/*", authRequired);
 app.get("/accounts", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
-  const list = await db.listAccounts<AccountDoc>();
-  const formatted = list.map((doc) => formatAccount(doc));
+  const list = await db.listAccounts();
+  const formatted = (list as AccountDoc[]).map((doc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 
@@ -73,7 +73,7 @@ app.post("/accounts", async (c) => {
   const keys = privateKey && publicKey
     ? { privateKey, publicKey }
     : await generateKeyPair();
-  const account = await db.createAccount<AccountDoc>({
+  const account = await db.createAccount({
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
     avatarInitial: icon ??
@@ -83,14 +83,14 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  return jsonResponse(c, formatAccount(account));
+  return jsonResponse(c, formatAccount(account as AccountDoc));
 });
 
 app.get("/accounts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById<AccountDoc>(id);
+  const account = await db.findAccountById(id) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     ...formatAccount(account),
@@ -114,9 +114,9 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
 
-  const account = await db.updateAccountById<AccountDoc>(id, data);
+  const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  return jsonResponse(c, formatAccount(account));
+  return jsonResponse(c, formatAccount(account as AccountDoc));
 });
 
 app.post("/accounts/:id/followers", async (c) => {
@@ -156,7 +156,7 @@ app.get("/accounts/:id/following", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById<AccountDoc>(id);
+  const account = await db.findAccountById(id) as AccountDoc | null;
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, { following: account.following });
 });
@@ -180,7 +180,7 @@ app.post("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string" || typeof userName !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById<AccountDoc>(id);
+  const accountExist = await db.findAccountById(id) as AccountDoc | null;
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }
@@ -240,7 +240,7 @@ app.delete("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById<AccountDoc>(id);
+  const accountExist = await db.findAccountById(id) as AccountDoc | null;
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }
