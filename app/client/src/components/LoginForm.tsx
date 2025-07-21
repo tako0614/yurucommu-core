@@ -81,10 +81,11 @@ export function LoginForm(props: LoginFormProps) {
             }
             props.onLoginSuccess();
           } else {
-            setError(loginData.error || "OAuthログインに失敗しました");
+            setError(loginData.error || "OAuthログインに失敗しました2");
           }
         } else {
-          setError("OAuthトークン取得に失敗しました");
+          console.log("OAuth token request failed:", tokenRes.status, await tokenRes.text());
+          setError("OAuthトークン取得に失敗しました1");
         }
       } catch {
         setError("通信エラーが発生しました");
