@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { loadConfig } from "../../shared/config.ts";
+import { loadConfig } from "../shared/config.ts";
 import { createTakosApp } from "../api/server.ts";
-import { connectDatabase } from "../../shared/db.ts";
+import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
 import Instance from "./models/instance.ts";
 import { createConsumerApp } from "./consumer.ts";

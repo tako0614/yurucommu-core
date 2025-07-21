@@ -2,10 +2,10 @@ import ObjectStore from "./models/object_store.ts";
 import FollowEdge from "./models/follow_edge.ts";
 import RelayEdge from "./models/relay_edge.ts";
 import mongoose from "mongoose";
-import type { DB, ListOpts } from "../../shared/db.ts";
+import type { DB, ListOpts } from "../shared/db.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
-import { connectDatabase } from "../../shared/db.ts";
+import { connectDatabase } from "../shared/db.ts";
 import { createObjectId } from "../api/utils/activitypub.ts";
 
 /** takos host 用 MongoDB 実装 */

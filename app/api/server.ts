@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { connectDatabase } from "../../shared/db.ts";
-import { initEnv, loadConfig } from "../../shared/config.ts";
+import { connectDatabase } from "../shared/db.ts";
+import { initEnv, loadConfig } from "../shared/config.ts";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
 import oauthLogin from "./routes/oauth_login.ts";
