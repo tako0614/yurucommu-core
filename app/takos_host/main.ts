@@ -12,6 +12,7 @@ import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
+import { takosEnv } from "./takos_env.ts";
 
 const FCM_KEYS = [
   "FIREBASE_CLIENT_EMAIL",
@@ -33,15 +34,11 @@ async function loadTextFile(path: string, label: string): Promise<string> {
     return "";
   }
 }
-const hostEnv = await loadConfig({
-  envPath: join("app", "takos_host", ".env"),
-});
+const hostEnv = await loadConfig();
 
 
 hostEnv["DB_MODE"] = "host";
 await connectDatabase(hostEnv);
-
-const takosEnv = await loadConfig({ envPath: join("app", "api", ".env") });
 
 const apps = new Map<string, Hono>();
 const rootDomain =
