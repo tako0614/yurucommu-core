@@ -550,7 +550,9 @@ export class MongoDBLocal implements DB {
   }
 
   async findRelaysByHosts(hosts: string[]) {
-    const docs = await Relay.find({ host: { $in: hosts } }).lean();
+    const docs = await Relay.find({ host: { $in: hosts } }).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
+    >();
     return docs.map((d) => ({
       _id: String(d._id),
       host: d.host,
@@ -559,7 +561,9 @@ export class MongoDBLocal implements DB {
   }
 
   async findRelayByHost(host: string) {
-    const doc = await Relay.findOne({ host }).lean();
+    const doc = await Relay.findOne({ host }).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
+    >();
     return doc
       ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
       : null;
@@ -572,7 +576,9 @@ export class MongoDBLocal implements DB {
   }
 
   async deleteRelayById(id: string) {
-    const doc = await Relay.findByIdAndDelete(id).lean();
+    const doc = await Relay.findByIdAndDelete(id).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
+    >();
     return doc
       ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
       : null;
@@ -1208,7 +1214,9 @@ export class MongoDBHost implements DB {
   }
 
   async findRelaysByHosts(hosts: string[]) {
-    const docs = await Relay.find({ host: { $in: hosts } }).lean();
+    const docs = await Relay.find({ host: { $in: hosts } }).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
+    >();
     return docs.map((d) => ({
       _id: String(d._id),
       host: d.host,
@@ -1217,7 +1225,9 @@ export class MongoDBHost implements DB {
   }
 
   async findRelayByHost(host: string) {
-    const doc = await Relay.findOne({ host }).lean();
+    const doc = await Relay.findOne({ host }).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
+    >();
     return doc
       ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
       : null;
@@ -1230,7 +1240,9 @@ export class MongoDBHost implements DB {
   }
 
   async deleteRelayById(id: string) {
-    const doc = await Relay.findByIdAndDelete(id).lean();
+    const doc = await Relay.findByIdAndDelete(id).lean<
+      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
+    >();
     return doc
       ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
       : null;
