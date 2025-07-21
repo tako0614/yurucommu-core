@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { createDB } from "../db.ts";
-import { countAccounts } from "../db.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 // NodeInfo は外部からの参照を想定しているため認証は不要
@@ -23,8 +22,8 @@ app.get("/.well-known/nodeinfo", (c) => {
 app.get("/nodeinfo/2.0", async (c) => {
   const env = getEnv(c);
   const version = env["TAKOS_VERSION"] ?? "1.0.0";
-  const users = await countAccounts(env);
   const db = createDB(env);
+  const users = await db.countAccounts();
   const posts = (await db.findObjects({}, {})).length;
 
   return c.json({
@@ -48,8 +47,8 @@ app.get("/api/v1/instance", async (c) => {
   const env = getEnv(c);
   const domain = getDomain(c);
   const version = env["TAKOS_VERSION"] ?? "1.0.0";
-  const userCount = await countAccounts(env);
   const db = createDB(env);
+  const userCount = await db.countAccounts();
   const statusCount = (await db.findObjects({}, {})).length;
 
   return c.json({
@@ -76,8 +75,8 @@ app.get("/api/v1/instance", async (c) => {
 app.get("/.well-known/x-nodeinfo2", async (c) => {
   const env = getEnv(c);
   const version = env["TAKOS_VERSION"] ?? "1.0.0";
-  const users = await countAccounts(env);
   const db = createDB(env);
+  const users = await db.countAccounts();
   const posts = (await db.findObjects({}, {})).length;
 
   return c.json({

@@ -1,11 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import {
-  findAccountByUserName,
-  searchAccounts,
-  updateAccountByUserName,
-} from "../db.ts";
 import { createDB } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import {
@@ -32,7 +27,8 @@ app.get("/users/search", async (c) => {
 
     const domain = getDomain(c);
     const regex = new RegExp(query, "i");
-    const users = await searchAccounts(getEnv(c), regex, 20);
+    const db = createDB(getEnv(c));
+    const users = await db.searchAccounts(regex, 20);
 
     const formatted = users.map((user) => ({
       userName: user.userName,
@@ -56,14 +52,14 @@ app.get("/users/:username", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await findAccountByUserName(env, username);
+    const db = createDB(env);
+    const user = await db.findAccountByUserName(username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
     }
 
     // ユーザーの投稿数を取得
-    const db = createDB(env);
     const postCount =
       (await db.findNotes({ attributedTo: username }, {})).length;
 
@@ -100,13 +96,17 @@ app.post(
       }
 
       // フォロー対象のユーザーを確認
-      const targetUser = await findAccountByUserName(env, targetUsername);
+      const targetUser = await createDB(env).findAccountByUserName(
+        targetUsername,
+      );
       if (!targetUser) {
         return c.json({ error: "Target user not found" }, 404);
       }
 
       // フォロワーのユーザーを確認
-      const followerUser = await findAccountByUserName(env, followerUsername);
+      const followerUser = await createDB(env).findAccountByUserName(
+        followerUsername,
+      );
       if (!followerUser) {
         return c.json({ error: "Follower user not found" }, 404);
       }
@@ -120,11 +120,11 @@ app.post(
       }
 
       // フォロー関係を更新
-      await updateAccountByUserName(env, followerUsername, {
+      await createDB(env).updateAccountByUserName(followerUsername, {
         $addToSet: { following: `https://${domain}/users/${targetUsername}` },
       });
 
-      await updateAccountByUserName(env, targetUsername, {
+      await createDB(env).updateAccountByUserName(targetUsername, {
         $addToSet: { followers: `https://${domain}/users/${followerUsername}` },
       });
 
@@ -161,11 +161,11 @@ app.post(
       const env = getEnv(c);
 
       // フォロー関係を削除
-      await updateAccountByUserName(env, followerUsername, {
+      await createDB(env).updateAccountByUserName(followerUsername, {
         $pull: { following: `https://${domain}/users/${targetUsername}` },
       });
 
-      await updateAccountByUserName(env, targetUsername, {
+      await createDB(env).updateAccountByUserName(targetUsername, {
         $pull: { followers: `https://${domain}/users/${followerUsername}` },
       });
 
@@ -193,7 +193,7 @@ app.get("/users/:username/followers", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await findAccountByUserName(env, username);
+    const user = await createDB(env).findAccountByUserName(username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
@@ -207,8 +207,7 @@ app.get("/users/:username/followers", async (c) => {
         // ローカルユーザーの場合
         if (followerUrl.includes(domain)) {
           const followerUsername = followerUrl.split("/").pop();
-          const followerUser = await findAccountByUserName(
-            env,
+          const followerUser = await createDB(env).findAccountByUserName(
             followerUsername ?? "",
           );
           if (followerUser) {
@@ -249,7 +248,7 @@ app.get("/users/:username/following", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await findAccountByUserName(env, username);
+    const user = await createDB(env).findAccountByUserName(username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);
@@ -263,8 +262,7 @@ app.get("/users/:username/following", async (c) => {
         // ローカルユーザーの場合
         if (followingUrl.includes(domain)) {
           const followingUsername = followingUrl.split("/").pop();
-          const followingUser = await findAccountByUserName(
-            env,
+          const followingUser = await createDB(env).findAccountByUserName(
             followingUsername ?? "",
           );
           if (followingUser) {
@@ -305,7 +303,7 @@ app.get("/users/:username/timeline", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await findAccountByUserName(env, username);
+    const user = await createDB(env).findAccountByUserName(username);
 
     if (!user) {
       return c.json({ error: "User not found" }, 404);

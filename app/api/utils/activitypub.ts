@@ -1,5 +1,4 @@
 import { createDB } from "../db.ts";
-import { findAccountByUserName } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
@@ -142,7 +141,8 @@ export async function sendActivityPubObject(
     const sys = await getSystemKey(domain);
     key = { userName: "system", privateKey: sys.privateKey };
   } else {
-    const account = await findAccountByUserName(env, actor);
+    const db = createDB(env);
+    const account = await db.findAccountByUserName(actor);
     if (!account) throw new Error("actor not found");
     key = { userName: actor, privateKey: account.privateKey };
   }

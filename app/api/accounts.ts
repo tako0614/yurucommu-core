@@ -43,7 +43,7 @@ app.get("/accounts", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const list = await db.listAccounts();
-  const formatted = list.map((doc: AccountDoc) => formatAccount(doc));
+  const formatted = (list as AccountDoc[]).map((doc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 
@@ -83,7 +83,7 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  return jsonResponse(c, formatAccount(account));
+  return jsonResponse(c, formatAccount(account as AccountDoc));
 });
 
 app.get("/accounts/:id", async (c) => {
@@ -93,8 +93,8 @@ app.get("/accounts/:id", async (c) => {
   const account = await db.findAccountById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
-    ...formatAccount(account),
-    privateKey: account.privateKey,
+    ...formatAccount(account as AccountDoc),
+    privateKey: (account as AccountDoc).privateKey,
   });
 });
 
@@ -116,7 +116,7 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  return jsonResponse(c, formatAccount(account));
+  return jsonResponse(c, formatAccount(account as AccountDoc));
 });
 
 app.post("/accounts/:id/followers", async (c) => {

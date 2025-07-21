@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
-import { createAccount } from "../db.ts";
 import { createDB } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
@@ -41,7 +40,8 @@ app.post("/setup", async (c) => {
   await Deno.writeTextFile(envPath, stringify(fileEnv));
 
   const keys = await generateKeyPair();
-  await createAccount(env, {
+  const db = createDB(env);
+  await db.createAccount({
     userName: username,
     displayName: displayName || username,
     avatarInitial: username.charAt(0).toUpperCase().substring(0, 2),

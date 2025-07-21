@@ -23,7 +23,6 @@ interface ActivityPubActivity {
   to?: unknown;
   cc?: unknown;
 }
-import { findRemoteActorByUrl, upsertRemoteActor } from "./db.ts";
 
 async function resolveActorCached(
   acct: string,
@@ -32,7 +31,8 @@ async function resolveActorCached(
   const [name, host] = acct.split("@");
   if (!name || !host) return null;
 
-  const cached = await findRemoteActorByUrl(
+  const db = createDB(env);
+  const cached = await db.findRemoteActorByUrl(
     acct.startsWith("http") ? acct : "",
   );
 
@@ -59,7 +59,7 @@ async function resolveActorCached(
       | (ActivityPubActor & { keyPackages?: string | { id?: string } })
       | null;
     if (actor) {
-      await upsertRemoteActor({
+      await db.upsertRemoteActor({
         actorUrl: actor.id,
         name: actor.name || "",
         preferredUsername: actor.preferredUsername || "",
@@ -201,7 +201,8 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
 
 app.get("/users/:user/encryptedKeyPair", async (c) => {
   const user = c.req.param("user");
-  const doc = await findEncryptedKeyPair(user);
+  const db = createDB(getEnv(c));
+  const doc = await db.findEncryptedKeyPair(user);
   if (!doc) return c.json({ content: null });
   return c.json({ content: doc.content });
 });
@@ -336,7 +337,9 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const msg = await createPublicMessage(getEnv(c), {
+    const env = getEnv(c);
+    const db = createDB(env);
+    const msg = await db.createPublicMessage({
       from: acct,
       to,
       content,
@@ -344,8 +347,6 @@ app.post(
       encoding,
     });
     const domain = getDomain(c);
-    const env = getEnv(c);
-    const db = createDB(env);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,
@@ -439,7 +440,8 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   );
   const before = c.req.query("before");
   const after = c.req.query("after");
-  const list = await findEncryptedMessages(condition, {
+  const db = createDB(getEnv(c));
+  const list = await db.findEncryptedMessages(condition, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
@@ -502,7 +504,8 @@ app.get("/users/:user/publicMessages", authRequired, async (c) => {
   );
   const before = c.req.query("before");
   const after = c.req.query("after");
-  const list = await findPublicMessages(getEnv(c), condition, {
+  const db = createDB(getEnv(c));
+  const list = await db.findPublicMessages(condition, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,

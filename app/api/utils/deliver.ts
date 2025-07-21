@@ -1,4 +1,4 @@
-import { findAccountByUserName } from "../db.ts";
+import { createDB } from "../db.ts";
 import { deliverActivityPubObject, fetchActorInbox } from "./activitypub.ts";
 
 export async function deliverToFollowers(
@@ -7,7 +7,8 @@ export async function deliverToFollowers(
   activity: unknown,
   domain: string,
 ): Promise<void> {
-  const account = await findAccountByUserName(env, user);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName(user);
   if (!account || !account.followers) return;
 
   const inboxes = await Promise.all(

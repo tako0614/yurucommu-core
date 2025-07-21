@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { deleteSessionById, findSessionById } from "../db.ts";
+import { createDB } from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 
@@ -15,13 +15,14 @@ app.get("/session/status", async (c) => {
 
   try {
     const env = getEnv(c);
-    const session = await findSessionById(env, sessionId);
+    const db = createDB(env);
+    const session = await db.findSessionById(sessionId);
     if (session && session.expiresAt > new Date()) {
       return c.json({ login: true });
     } else {
       if (session) {
         // Clean up expired session
-        await deleteSessionById(env, sessionId);
+        await db.deleteSessionById(sessionId);
       }
       return c.json({ login: false });
     }

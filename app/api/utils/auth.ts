@@ -1,9 +1,5 @@
 import { MiddlewareHandler } from "hono";
-import {
-  deleteSessionById,
-  findSessionById,
-  updateSessionExpires,
-} from "../db.ts";
+import { createDB } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createAuthMiddleware } from "../../shared/auth.ts";
 
@@ -12,15 +8,18 @@ const authRequired: MiddlewareHandler = createAuthMiddleware({
   errorMessage: "認証が必要です",
   findSession: async (sid, c) => {
     const env = getEnv(c);
-    return await findSessionById(env, sid);
+    const db = createDB(env);
+    return await db.findSessionById(sid);
   },
   deleteSession: async (sid, c) => {
     const env = getEnv(c);
-    await deleteSessionById(env, sid);
+    const db = createDB(env);
+    await db.deleteSessionById(sid);
   },
   updateSession: async (session, expires, c) => {
     const env = getEnv(c);
-    await updateSessionExpires(env, session.sessionId, expires);
+    const db = createDB(env);
+    await db.updateSessionExpires(session.sessionId, expires);
   },
 });
 

@@ -1,12 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import {
-  createNotification,
-  deleteNotification,
-  listNotifications,
-  markNotificationRead,
-} from "../db.ts";
+import { createDB } from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 
@@ -15,7 +10,8 @@ app.use("/notifications/*", authRequired);
 
 app.get("/notifications", async (c) => {
   const env = getEnv(c);
-  const list = await listNotifications(env);
+  const db = createDB(env);
+  const list = await db.listNotifications();
   const formatted = list.map((doc) => ({
     id: doc._id!,
     title: doc.title,
@@ -40,8 +36,8 @@ app.post(
       message: string;
       type: string;
     };
-    const notification = await createNotification(
-      env,
+    const db = createDB(env);
+    const notification = await db.createNotification(
       title,
       message,
       type,
@@ -59,16 +55,18 @@ app.post(
 
 app.put("/notifications/:id/read", async (c) => {
   const env = getEnv(c);
+  const db = createDB(env);
   const id = c.req.param("id");
-  const ok = await markNotificationRead(env, id);
+  const ok = await db.markNotificationRead(id);
   if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
 
 app.delete("/notifications/:id", async (c) => {
   const env = getEnv(c);
+  const db = createDB(env);
   const id = c.req.param("id");
-  const ok = await deleteNotification(env, id);
+  const ok = await db.deleteNotification(id);
   if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });

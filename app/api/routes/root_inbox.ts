@@ -6,7 +6,6 @@ import {
 } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "../activity_handlers.ts";
-import { findAccountByUserName } from "../db.ts";
 import { createDB } from "../db.ts";
 import { addInboxEntry } from "../services/inbox.ts";
 
@@ -86,7 +85,8 @@ app.post("/inbox", async (c) => {
           }
           continue;
         }
-        const account = await findAccountByUserName(env, username);
+        const db = createDB(env);
+        const account = await db.findAccountByUserName(username);
         if (!account) continue;
         const handler = activityHandlers[activity.type];
         if (handler) await handler(activity, username, c);
