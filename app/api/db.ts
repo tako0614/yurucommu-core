@@ -79,11 +79,11 @@ export class MongoDBLocal implements DB {
     await FollowEdge.deleteOne({ actor_id: target });
   }
 
-  async listAccounts() {
-    return await Account.find({}).lean();
+  async listAccounts<T = unknown>(): Promise<T[]> {
+    return await Account.find({}).lean<T[]>();
   }
 
-  async createAccount(data: Record<string, unknown>) {
+  async createAccount<T = unknown>(data: Record<string, unknown>): Promise<T> {
     const doc = new Account({
       ...data,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
@@ -93,20 +93,25 @@ export class MongoDBLocal implements DB {
         env: this.env,
       };
     await doc.save();
-    return doc.toObject();
+    return doc.toObject() as T;
   }
 
-  async findAccountById(id: string) {
-    return await Account.findOne({ _id: id }).lean();
+  async findAccountById<T = unknown>(id: string): Promise<T | null> {
+    return await Account.findOne({ _id: id }).lean<T | null>();
   }
 
-  async findAccountByUserName(username: string) {
-    return await Account.findOne({ userName: username }).lean();
+  async findAccountByUserName<T = unknown>(
+    username: string,
+  ): Promise<T | null> {
+    return await Account.findOne({ userName: username }).lean<T | null>();
   }
 
-  async updateAccountById(id: string, update: Record<string, unknown>) {
+  async updateAccountById<T = unknown>(
+    id: string,
+    update: Record<string, unknown>,
+  ): Promise<T | null> {
     return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
-      .lean();
+      .lean<T | null>();
   }
 
   async deleteAccountById(id: string) {
@@ -348,12 +353,15 @@ export class MongoDBLocal implements DB {
     });
   }
 
-  async searchAccounts(query: RegExp, limit = 20) {
+  async searchAccounts<T = unknown>(
+    query: RegExp,
+    limit = 20,
+  ): Promise<T[]> {
     return await Account.find({
       $or: [{ userName: query }, { displayName: query }],
     })
       .limit(limit)
-      .lean();
+      .lean<T[]>();
   }
 
   async updateAccountByUserName(
@@ -363,8 +371,10 @@ export class MongoDBLocal implements DB {
     await Account.updateOne({ userName: username }, update);
   }
 
-  async findAccountsByUserNames(usernames: string[]) {
-    return await Account.find({ userName: { $in: usernames } }).lean();
+  async findAccountsByUserNames<T = unknown>(
+    usernames: string[],
+  ): Promise<T[]> {
+    return await Account.find({ userName: { $in: usernames } }).lean<T[]>();
   }
 
   async countAccounts() {
@@ -691,30 +701,35 @@ export class MongoDBHost implements DB {
     });
   }
 
-  async listAccounts() {
-    return await Account.find({}).lean();
+  async listAccounts<T = unknown>(): Promise<T[]> {
+    return await Account.find({}).lean<T[]>();
   }
 
-  async createAccount(data: Record<string, unknown>) {
+  async createAccount<T = unknown>(data: Record<string, unknown>): Promise<T> {
     const doc = new Account({
       ...data,
       tenant_id: this.tenantId,
     });
     await doc.save();
-    return doc.toObject();
+    return doc.toObject() as T;
   }
 
-  async findAccountById(id: string) {
-    return await Account.findOne({ _id: id }).lean();
+  async findAccountById<T = unknown>(id: string): Promise<T | null> {
+    return await Account.findOne({ _id: id }).lean<T | null>();
   }
 
-  async findAccountByUserName(username: string) {
-    return await Account.findOne({ userName: username }).lean();
+  async findAccountByUserName<T = unknown>(
+    username: string,
+  ): Promise<T | null> {
+    return await Account.findOne({ userName: username }).lean<T | null>();
   }
 
-  async updateAccountById(id: string, update: Record<string, unknown>) {
+  async updateAccountById<T = unknown>(
+    id: string,
+    update: Record<string, unknown>,
+  ): Promise<T | null> {
     return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
-      .lean();
+      .lean<T | null>();
   }
 
   async deleteAccountById(id: string) {
@@ -995,12 +1010,15 @@ export class MongoDBHost implements DB {
     });
   }
 
-  async searchAccounts(query: RegExp, limit = 20) {
+  async searchAccounts<T = unknown>(
+    query: RegExp,
+    limit = 20,
+  ): Promise<T[]> {
     return await Account.find({
       $or: [{ userName: query }, { displayName: query }],
     })
       .limit(limit)
-      .lean();
+      .lean<T[]>();
   }
 
   async updateAccountByUserName(
@@ -1010,8 +1028,10 @@ export class MongoDBHost implements DB {
     await Account.updateOne({ userName: username }, update);
   }
 
-  async findAccountsByUserNames(usernames: string[]) {
-    return await Account.find({ userName: { $in: usernames } }).lean();
+  async findAccountsByUserNames<T = unknown>(
+    usernames: string[],
+  ): Promise<T[]> {
+    return await Account.find({ userName: { $in: usernames } }).lean<T[]>();
   }
 
   async countAccounts() {

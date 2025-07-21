@@ -15,14 +15,14 @@ export interface DB {
   listTimeline(actor: string, opts: ListOpts): Promise<unknown[]>;
   follow(follower: string, target: string): Promise<void>;
   unfollow?(follower: string, target: string): Promise<void>;
-  listAccounts(): Promise<unknown[]>;
-  createAccount(data: Record<string, unknown>): Promise<unknown>;
-  findAccountById(id: string): Promise<unknown | null>;
-  findAccountByUserName(username: string): Promise<unknown | null>;
-  updateAccountById(
+  listAccounts<T = unknown>(): Promise<T[]>;
+  createAccount<T = unknown>(data: Record<string, unknown>): Promise<T>;
+  findAccountById<T = unknown>(id: string): Promise<T | null>;
+  findAccountByUserName<T = unknown>(username: string): Promise<T | null>;
+  updateAccountById<T = unknown>(
     id: string,
     update: Record<string, unknown>,
-  ): Promise<unknown | null>;
+  ): Promise<T | null>;
   deleteAccountById(id: string): Promise<boolean>;
   addFollower(id: string, follower: string): Promise<string[]>;
   removeFollower(id: string, follower: string): Promise<string[]>;
@@ -95,12 +95,12 @@ export interface DB {
   removeRelay(relay: string): Promise<void>;
   addFollowerByName(username: string, follower: string): Promise<void>;
   removeFollowerByName(username: string, follower: string): Promise<void>;
-  searchAccounts(query: RegExp, limit?: number): Promise<unknown[]>;
+  searchAccounts<T = unknown>(query: RegExp, limit?: number): Promise<T[]>;
   updateAccountByUserName(
     username: string,
     update: Record<string, unknown>,
   ): Promise<void>;
-  findAccountsByUserNames(usernames: string[]): Promise<unknown[]>;
+  findAccountsByUserNames<T = unknown>(usernames: string[]): Promise<T[]>;
   countAccounts(): Promise<number>;
   createEncryptedMessage(data: {
     from: string;
