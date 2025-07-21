@@ -197,23 +197,30 @@ app.post("/users/:username/outbox", async (c) => {
     extra: body.extra ?? {},
     actor_id: `https://${domain}/users/${username}`,
     aud: { to: body.to ?? [], cc: body.cc ?? [] },
-  });
+  }) as {
+    _id: unknown;
+    type?: string;
+    content?: string;
+    published: unknown;
+    extra?: Record<string, unknown>;
+    to?: string[];
+    cc?: string[];
+  };
   // contentをstringに変換して渡す
-  const stored = object.toObject();
   const activity = buildActivityFromStored(
     {
-      _id: stored._id,
-      type: stored.type ?? "Note",
-      content: stored.content ?? "",
-      published: stored.published,
-      extra: stored.extra ?? {},
+      _id: object._id,
+      type: object.type ?? "Note",
+      content: object.content ?? "",
+      published: object.published,
+      extra: object.extra ?? {},
     },
     domain,
     username,
     true,
   );
   deliverActivityPubObject(
-    [...object.to, ...object.cc],
+    [...(object.to ?? []), ...(object.cc ?? [])],
     activity,
     username,
     domain,
