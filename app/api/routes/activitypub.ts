@@ -17,6 +17,19 @@ import {
 
 const app = new Hono();
 
+interface KeyPackageDoc {
+  _id: unknown;
+}
+
+interface AccountDoc {
+  userName: string;
+  displayName: string;
+  publicKey: string;
+  avatarInitial: string;
+  followers?: string[];
+  following?: string[];
+}
+
 app.get("/.well-known/webfinger", async (c) => {
   const resource = c.req.query("resource");
   if (!resource?.startsWith("acct:")) {
@@ -41,7 +54,9 @@ app.get("/.well-known/webfinger", async (c) => {
     };
     return jsonResponse(c, jrd, 200, "application/jrd+json");
   }
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
     subject: `acct:${username}@${domain}`,
@@ -79,7 +94,9 @@ app.get("/users/:username", async (c) => {
     });
     return jsonResponse(c, actor, 200, "application/activity+json");
   }
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
 
@@ -88,7 +105,7 @@ app.get("/users/:username", async (c) => {
     displayName: account.displayName,
     publicKey: account.publicKey,
   });
-  const packages = await listKeyPackages(getEnv(c), username);
+  const packages = await db.listKeyPackages(username) as KeyPackageDoc[];
   actor.keyPackages = {
     type: "Collection",
     id: `https://${domain}/users/${username}/keyPackages`,
@@ -107,7 +124,9 @@ app.get("/users/:username/avatar", async (c) => {
       `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">S</text></svg>`;
     return c.body(svg, 200, { "content-type": "image/svg+xml" });
   }
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return c.body("Not Found", 404);
 
   let icon = account.avatarInitial ||
@@ -241,7 +260,9 @@ app.post("/users/:username/inbox", async (c) => {
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const bodyText = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
@@ -273,7 +294,9 @@ app.get("/users/:username/followers", async (c) => {
     );
   }
   const page = c.req.query("page");
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.followers ?? [];
@@ -329,7 +352,9 @@ app.get("/users/:username/following", async (c) => {
     );
   }
   const page = c.req.query("page");
-  const account = await findAccountByUserName(getEnv(c), username);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const account = await db.findAccountByUserName<AccountDoc>(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.following ?? [];
@@ -382,7 +407,9 @@ app.get("/activitypub/actor-proxy", async (c) => {
     }
 
     // 既存キャッシュを確認
-    const cached = await findRemoteActorByUrl(actorUrl);
+    const env = getEnv(c);
+    const db = createDB(env);
+    const cached = await db.findRemoteActorByUrl(actorUrl);
     if (cached) {
       return c.json({
         name: cached.name,
@@ -408,7 +435,7 @@ app.get("/activitypub/actor-proxy", async (c) => {
     const actor = await response.json();
 
     // DBに保存
-    await upsertRemoteActor({
+    await db.upsertRemoteActor({
       actorUrl,
       name: actor.name || "",
       preferredUsername: actor.preferredUsername || "",
