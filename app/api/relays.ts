@@ -1,15 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import {
-  createRelay,
-  deleteRelayById,
-  findRelayByHost,
-  findRelaysByHosts,
-} from "./db.ts";
+import { createDB } from "./db.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../shared/config.ts";
-import { createDB } from "./db.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -27,7 +21,7 @@ app.get("/relays", async (c) => {
   const db = createDB(env);
   const hosts = await db.listPullRelays();
   const targets = hosts.filter((h) => h !== rootDomain);
-  const relays = await findRelaysByHosts(targets);
+  const relays = await db.findRelaysByHosts(targets);
   return jsonResponse(c, { relays });
 });
 
@@ -37,11 +31,11 @@ app.post(
   async (c) => {
     const { inboxUrl } = c.req.valid("json") as { inboxUrl: string };
     const host = new URL(inboxUrl).hostname;
-    const exists = await findRelayByHost(host);
+    const db = createDB(getEnv(c));
+    const exists = await db.findRelayByHost(host);
     if (exists) return jsonResponse(c, { error: "Already exists" }, 409);
-    const relay = await createRelay({ host, inboxUrl });
+    const relay = await db.createRelay({ host, inboxUrl });
     const env = getEnv(c);
-    const db = createDB(env);
     try {
       await db.addRelay(host, "pull");
       await db.addRelay(host, "push");
@@ -64,10 +58,11 @@ app.post(
 
 app.delete("/relays/:id", async (c) => {
   const id = c.req.param("id");
-  const relay = await deleteRelayById(id);
+  const db = createDB(getEnv(c));
+  const relay = await db.deleteRelayById(id);
   if (!relay) return jsonResponse(c, { error: "Relay not found" }, 404);
   const env = getEnv(c);
-  const db = createDB(env);
+
   try {
     const host = relay.host ?? new URL(relay.inboxUrl).hostname;
     await db.removeRelay(host);
