@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { loadConfig } from "../shared/config.ts";
+import { join } from "@std/path";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
@@ -11,22 +12,27 @@ import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
-const env = await loadConfig();
-env["DB_MODE"] = "host";
-await connectDatabase(env);
+const hostEnv = await loadConfig({
+  envPath: join("app", "takos_host", ".env"),
+});
+hostEnv["DB_MODE"] = "host";
+await connectDatabase(hostEnv);
+
+const takosEnv = await loadConfig({ envPath: join("app", "api", ".env") });
 
 const apps = new Map<string, Hono>();
-const rootDomain = (env["ROOT_DOMAIN"] ?? env["ACTIVITYPUB_DOMAIN"] ?? "")
-  .toLowerCase();
+const rootDomain =
+  (hostEnv["ROOT_DOMAIN"] ?? hostEnv["ACTIVITYPUB_DOMAIN"] ?? "")
+    .toLowerCase();
 const rootActivityPubApp = rootDomain
-  ? createRootActivityPubApp({ ...env, ACTIVITYPUB_DOMAIN: rootDomain })
+  ? createRootActivityPubApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
   : null;
-const freeLimit = Number(env["FREE_PLAN_LIMIT"] ?? "1");
-const reservedSubdomains = (env["RESERVED_SUBDOMAINS"] ?? "")
+const freeLimit = Number(hostEnv["FREE_PLAN_LIMIT"] ?? "1");
+const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter((s) => s.length > 0);
-const termsPath = env["TERMS_FILE"];
+const termsPath = hostEnv["TERMS_FILE"];
 let termsText = "";
 if (termsPath) {
   try {
@@ -80,22 +86,41 @@ async function getEnvForHost(
   host: string,
 ): Promise<Record<string, string> | null> {
   host = parseHost(host);
+  const baseEnv = {
+    ...takosEnv,
+    MONGO_URI: hostEnv["MONGO_URI"],
+    DB_MODE: "host",
+  };
+  const fcmKeys = [
+    "FIREBASE_CLIENT_EMAIL",
+    "FIREBASE_PRIVATE_KEY",
+    "FIREBASE_API_KEY",
+    "FIREBASE_AUTH_DOMAIN",
+    "FIREBASE_PROJECT_ID",
+    "FIREBASE_STORAGE_BUCKET",
+    "FIREBASE_MESSAGING_SENDER_ID",
+    "FIREBASE_APP_ID",
+    "FIREBASE_VAPID_KEY",
+  ];
+  for (const k of fcmKeys) {
+    if (hostEnv[k]) baseEnv[k] = hostEnv[k];
+  }
   if (rootDomain && host === rootDomain) {
-    return { ...env, ACTIVITYPUB_DOMAIN: rootDomain };
+    return { ...baseEnv, ACTIVITYPUB_DOMAIN: rootDomain };
   }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst || Array.isArray(inst)) return null;
-  return { ...env, ...inst.env, ACTIVITYPUB_DOMAIN: host };
+  return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
 }
 
 async function getAppForHost(host: string): Promise<Hono | null> {
   host = parseHost(host);
   let app = apps.get(host);
   if (app) return app;
-  const hostEnv = await getEnvForHost(host);
-  if (!hostEnv) return null;
+  const appEnv = await getEnvForHost(host);
+  if (!appEnv) return null;
   await ensureTenant(host, host);
-  app = await createTakosApp(hostEnv);
+  app = await createTakosApp(appEnv);
   apps.set(host, app);
   return app;
 }

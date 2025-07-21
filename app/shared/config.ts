@@ -2,15 +2,17 @@ import { load } from "@std/dotenv";
 import { z } from "zod";
 import type { Context, Hono } from "hono";
 
-let cachedEnv: Record<string, string> | null = null;
+const cachedEnv = new Map<string | undefined, Record<string, string>>();
 const envMap = new WeakMap<Hono, Record<string, string>>();
 
 export async function loadConfig(options?: { envPath?: string }) {
-  if (!cachedEnv) {
-    cachedEnv = await load(options);
-    validateEnv(cachedEnv);
-  }
-  return cachedEnv;
+  const key = options?.envPath;
+  const cached = cachedEnv.get(key);
+  if (cached) return cached;
+  const env = await load(options);
+  validateEnv(env);
+  cachedEnv.set(key, env);
+  return env;
 }
 
 function validateEnv(env: Record<string, string>) {
