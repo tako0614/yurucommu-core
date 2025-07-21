@@ -3,7 +3,7 @@ import {
   deleteSessionById,
   findSessionById,
   updateSessionExpires,
-} from "../repositories/session.ts";
+} from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createAuthMiddleware } from "../../shared/auth.ts";
 

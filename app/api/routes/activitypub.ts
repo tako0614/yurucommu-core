@@ -1,14 +1,11 @@
 import { Hono } from "hono";
 import { createDB } from "../db.ts";
-import { findAccountByUserName } from "../repositories/account.ts";
-import { listKeyPackages } from "../repositories/key_package.ts";
+import { findAccountByUserName } from "../db.ts";
+import { listKeyPackages } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
-import {
-  findRemoteActorByUrl,
-  upsertRemoteActor,
-} from "../repositories/remote_actor.ts";
+import { findRemoteActorByUrl, upsertRemoteActor } from "../db.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 
 import {

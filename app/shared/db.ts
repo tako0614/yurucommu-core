@@ -15,6 +15,19 @@ export interface DB {
   listTimeline(actor: string, opts: ListOpts): Promise<unknown[]>;
   follow(follower: string, target: string): Promise<void>;
   unfollow?(follower: string, target: string): Promise<void>;
+  listAccounts(): Promise<unknown[]>;
+  createAccount(data: Record<string, unknown>): Promise<unknown>;
+  findAccountById(id: string): Promise<unknown | null>;
+  findAccountByUserName(username: string): Promise<unknown | null>;
+  updateAccountById(
+    id: string,
+    update: Record<string, unknown>,
+  ): Promise<unknown | null>;
+  deleteAccountById(id: string): Promise<boolean>;
+  addFollower(id: string, follower: string): Promise<string[]>;
+  removeFollower(id: string, follower: string): Promise<string[]>;
+  addFollowing(id: string, target: string): Promise<string[]>;
+  removeFollowing(id: string, target: string): Promise<string[]>;
   saveNote(
     domain: string,
     author: string,
@@ -80,6 +93,79 @@ export interface DB {
   listPullRelays(): Promise<string[]>;
   addRelay(relay: string, mode?: "pull" | "push"): Promise<void>;
   removeRelay(relay: string): Promise<void>;
+  addFollowerByName(username: string, follower: string): Promise<void>;
+  removeFollowerByName(username: string, follower: string): Promise<void>;
+  searchAccounts(query: RegExp, limit?: number): Promise<unknown[]>;
+  updateAccountByUserName(
+    username: string,
+    update: Record<string, unknown>,
+  ): Promise<void>;
+  findAccountsByUserNames(usernames: string[]): Promise<unknown[]>;
+  countAccounts(): Promise<number>;
+  createEncryptedMessage(data: {
+    from: string;
+    to: string[];
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+  }): Promise<unknown>;
+  findEncryptedMessages(
+    condition: Record<string, unknown>,
+    opts?: { before?: string; after?: string; limit?: number },
+  ): Promise<unknown[]>;
+  findEncryptedKeyPair(userName: string): Promise<unknown | null>;
+  upsertEncryptedKeyPair(userName: string, content: string): Promise<void>;
+  deleteEncryptedKeyPair(userName: string): Promise<void>;
+  listKeyPackages(userName: string): Promise<unknown[]>;
+  findKeyPackage(userName: string, id: string): Promise<unknown | null>;
+  createKeyPackage(
+    userName: string,
+    content: string,
+    mediaType?: string,
+    encoding?: string,
+  ): Promise<unknown>;
+  deleteKeyPackage(userName: string, id: string): Promise<void>;
+  deleteKeyPackagesByUser(userName: string): Promise<void>;
+  createPublicMessage(data: {
+    from: string;
+    to: string[];
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+  }): Promise<unknown>;
+  findPublicMessages(
+    condition: Record<string, unknown>,
+    opts?: { before?: string; after?: string; limit?: number },
+  ): Promise<unknown[]>;
+  listNotifications(): Promise<unknown[]>;
+  createNotification(
+    title: string,
+    message: string,
+    type: string,
+  ): Promise<unknown>;
+  markNotificationRead(id: string): Promise<boolean>;
+  deleteNotification(id: string): Promise<boolean>;
+  findRelaysByHosts(hosts: string[]): Promise<unknown[]>;
+  findRelayByHost(host: string): Promise<unknown | null>;
+  createRelay(data: { host: string; inboxUrl: string }): Promise<unknown>;
+  deleteRelayById(id: string): Promise<unknown | null>;
+  findRemoteActorByUrl(url: string): Promise<unknown | null>;
+  findRemoteActorsByUrls(urls: string[]): Promise<unknown[]>;
+  upsertRemoteActor(data: {
+    actorUrl: string;
+    name: string;
+    preferredUsername: string;
+    icon: unknown;
+    summary: string;
+  }): Promise<void>;
+  createSession(
+    sessionId: string,
+    expiresAt: Date,
+    tenantId: string,
+  ): Promise<unknown>;
+  findSessionById(sessionId: string): Promise<unknown | null>;
+  deleteSessionById(sessionId: string): Promise<void>;
+  updateSessionExpires(sessionId: string, expires: Date): Promise<void>;
   getDatabase?(): Promise<Db>;
 }
 

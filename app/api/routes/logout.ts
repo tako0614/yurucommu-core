@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
-import { deleteSessionById } from "../repositories/session.ts";
+import { deleteSessionById } from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 

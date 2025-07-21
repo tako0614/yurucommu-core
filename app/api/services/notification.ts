@@ -1,4 +1,4 @@
-import Notification from "../models/notification.ts";
+import Notification from "../models/takos/notification.ts";
 import { sendNotification as sendFcm } from "./fcm.ts";
 
 /**

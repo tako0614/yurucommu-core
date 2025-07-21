@@ -5,20 +5,14 @@ import {
   deleteKeyPackagesByUser,
   findKeyPackage,
   listKeyPackages,
-} from "../repositories/key_package.ts";
+} from "../db.ts";
 import {
   deleteEncryptedKeyPair,
   findEncryptedKeyPair,
   upsertEncryptedKeyPair,
-} from "../repositories/encrypted_keypair.ts";
-import {
-  createEncryptedMessage,
-  findEncryptedMessages,
-} from "../repositories/encrypted_message.ts";
-import {
-  createPublicMessage,
-  findPublicMessages,
-} from "../repositories/public_message.ts";
+} from "../db.ts";
+import { createEncryptedMessage, findEncryptedMessages } from "../db.ts";
+import { createPublicMessage, findPublicMessages } from "../db.ts";
 import { createDB } from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -43,10 +37,7 @@ interface ActivityPubActivity {
   to?: unknown;
   cc?: unknown;
 }
-import {
-  findRemoteActorByUrl,
-  upsertRemoteActor,
-} from "../repositories/remote_actor.ts";
+import { findRemoteActorByUrl, upsertRemoteActor } from "../db.ts";
 
 async function resolveActorCached(
   acct: string,

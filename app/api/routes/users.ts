@@ -5,7 +5,7 @@ import {
   findAccountByUserName,
   searchAccounts,
   updateAccountByUserName,
-} from "../repositories/account.ts";
+} from "../db.ts";
 import { createDB } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import {

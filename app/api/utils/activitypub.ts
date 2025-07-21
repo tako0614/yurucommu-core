@@ -1,5 +1,5 @@
 import { createDB } from "../db.ts";
-import { findAccountByUserName } from "../repositories/account.ts";
+import { findAccountByUserName } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";

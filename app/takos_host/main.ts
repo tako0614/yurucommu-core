@@ -3,7 +3,7 @@ import { loadConfig } from "../shared/config.ts";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
-import Instance from "./models/instance.ts";
+import Instance from "../models/takos_host/instance.ts";
 import { createConsumerApp } from "./consumer.ts";
 import { createAuthApp } from "./auth.ts";
 import oauthApp from "./oauth.ts";

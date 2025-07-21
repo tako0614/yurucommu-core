@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { searchAccounts } from "./repositories/account.ts";
+import { searchAccounts } from "./db.ts";
 import { createDB } from "./db.ts";
 import { getDomain, resolveActor } from "./utils/activitypub.ts";
 import { getEnv } from "../shared/config.ts";

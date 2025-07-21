@@ -16,13 +16,23 @@ interface DB {
   listTimeline(actor: string, opts: ListOpts): Promise<Object[]>;
   follow(follower: string, target: string): Promise<void>;
   unfollow?(follower: string, target: string): Promise<void>;
+  listAccounts(): Promise<Object[]>;
+  createAccount(data: Object): Promise<Object>;
+  findAccountById(id: string): Promise<Object | null>;
+  findAccountByUserName(name: string): Promise<Object | null>;
+  updateAccountById(id: string, u: Object): Promise<Object | null>;
+  deleteAccountById(id: string): Promise<boolean>;
+  addFollower(id: string, follower: string): Promise<string[]>;
+  removeFollower(id: string, follower: string): Promise<string[]>;
+  addFollowing(id: string, target: string): Promise<string[]>;
+  removeFollowing(id: string, target: string): Promise<string[]>;
   // ...必要に応じて追加
 }
 
 // 実装選択用ユーティリティ
 export function createDB(env: Record<string, string>): DB {
   return env["DB_MODE"] === "host"
-    ? new MongoDBHost(env["ACTIVITYPUB_DOMAIN"] ?? "", env["MONGO_URI"] ?? "")
+    ? new MongoDBHost(env)
     : new MongoDBLocal(env);
 }
 ```
@@ -59,7 +69,7 @@ export function createDB(env: Record<string, string>): DB {
 
 1. `shared/db.ts` などに `DB` インターフェースと共通型を定義する。
 2. `app/api` ではインスタンス単位の `MongoDBLocal` 実装を提供する。
-3. `app/takos_host` では `MongoDBHost` 実装を提供し、統合スキーマを扱う。
+3. `app/api/db.ts` に `MongoDBHost` を含め、統合スキーマを扱う。
 4. 既存のモデルやサービス層は `DB` を受け取る形に書き換え、直接 mongoose
    モデルを参照しないようにする。
 5. テストやスクリプトからも `DB` 実装を選択できるようにする。

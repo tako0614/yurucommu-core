@@ -1,5 +1,5 @@
 import admin from "firebase-admin";
-import FcmToken from "../models/fcm_token.ts";
+import FcmToken from "../models/takos/fcm_token.ts";
 
 let initialized = false;
 

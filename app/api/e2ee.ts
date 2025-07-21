@@ -1,24 +1,4 @@
 import { Hono } from "hono";
-import {
-  createKeyPackage,
-  deleteKeyPackage,
-  deleteKeyPackagesByUser,
-  findKeyPackage,
-  listKeyPackages,
-} from "./repositories/key_package.ts";
-import {
-  deleteEncryptedKeyPair,
-  findEncryptedKeyPair,
-  upsertEncryptedKeyPair,
-} from "./repositories/encrypted_keypair.ts";
-import {
-  createEncryptedMessage,
-  findEncryptedMessages,
-} from "./repositories/encrypted_message.ts";
-import {
-  createPublicMessage,
-  findPublicMessages,
-} from "./repositories/public_message.ts";
 import { createDB } from "./db.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../shared/config.ts";
@@ -43,10 +23,7 @@ interface ActivityPubActivity {
   to?: unknown;
   cc?: unknown;
 }
-import {
-  findRemoteActorByUrl,
-  upsertRemoteActor,
-} from "./repositories/remote_actor.ts";
+import { findRemoteActorByUrl, upsertRemoteActor } from "./db.ts";
 
 async function resolveActorCached(
   acct: string,
@@ -104,7 +81,8 @@ app.get("/users/:user/keyPackages", async (c) => {
   const [user, host] = identifier.split("@");
   if (!host || host === domain) {
     const username = user ?? identifier;
-    const list = await listKeyPackages(getEnv(c), username);
+    const db = createDB(getEnv(c));
+    const list = await db.listKeyPackages(username);
     const items = list.map((doc) => ({
       id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
       type: "KeyPackage",
@@ -147,7 +125,8 @@ app.get("/users/:user/keyPackage/:keyId", async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
-  const doc = await findKeyPackage(getEnv(c), user, keyId);
+  const db = createDB(getEnv(c));
+  const doc = await db.findKeyPackage(user, keyId);
   if (!doc) return c.body("Not Found", 404);
   const object = {
     "@context": [
@@ -171,8 +150,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
-  const pkg = await createKeyPackage(
-    getEnv(c),
+  const db = createDB(getEnv(c));
+  const pkg = await db.createKeyPackage(
     user,
     content,
     mediaType,
@@ -202,7 +181,8 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
-  await deleteKeyPackage(getEnv(c), user, keyId);
+  const db = createDB(getEnv(c));
+  await db.deleteKeyPackage(user, keyId);
   const actorId = `https://${domain}/users/${user}`;
   const removeActivity = createRemoveActivity(
     domain,
@@ -232,13 +212,15 @@ app.post("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "invalid body" }, 400);
   }
-  await upsertEncryptedKeyPair(user, content);
+  const db = createDB(getEnv(c));
+  await db.upsertEncryptedKeyPair(user, content);
   return c.json({ result: "ok" });
 });
 
 app.delete("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   const user = c.req.param("user");
-  await deleteEncryptedKeyPair(user);
+  const db = createDB(getEnv(c));
+  await db.deleteEncryptedKeyPair(user);
   return c.json({ result: "removed" });
 });
 
@@ -246,7 +228,8 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const user = c.req.param("user");
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
-  const keyPkgs = await listKeyPackages(getEnv(c), user);
+  const db = createDB(getEnv(c));
+  const keyPkgs = await db.listKeyPackages(user);
   for (const pkg of keyPkgs) {
     const removeActivity = createRemoveActivity(
       domain,
@@ -261,8 +244,8 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
     await deliverToFollowers(getEnv(c), user, removeActivity, domain);
     await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
-  await deleteKeyPackagesByUser(getEnv(c), user);
-  await deleteEncryptedKeyPair(user);
+  await db.deleteKeyPackagesByUser(user);
+  await db.deleteEncryptedKeyPair(user);
   return c.json({ result: "reset" });
 });
 
@@ -280,7 +263,9 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const msg = await createEncryptedMessage({
+    const env = getEnv(c);
+    const db = createDB(env);
+    const msg = await db.createEncryptedMessage({
       from: acct,
       to,
       content,
@@ -288,8 +273,6 @@ app.post(
       encoding,
     });
     const domain = getDomain(c);
-    const env = getEnv(c);
-    const db = createDB(env);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,

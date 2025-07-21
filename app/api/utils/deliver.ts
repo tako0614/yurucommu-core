@@ -1,4 +1,4 @@
-import { findAccountByUserName } from "../repositories/account.ts";
+import { findAccountByUserName } from "../db.ts";
 import { deliverActivityPubObject, fetchActorInbox } from "./activitypub.ts";
 
 export async function deliverToFollowers(

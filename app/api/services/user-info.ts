@@ -1,12 +1,9 @@
-import {
-  findAccountByUserName,
-  findAccountsByUserNames,
-} from "../repositories/account.ts";
+import { findAccountByUserName, findAccountsByUserNames } from "../db.ts";
 import {
   findRemoteActorByUrl,
   findRemoteActorsByUrls,
   upsertRemoteActor,
-} from "../repositories/remote_actor.ts";
+} from "../db.ts";
 import { resolveActor } from "../utils/activitypub.ts";
 
 function isUrl(value: string): boolean {

@@ -6,7 +6,7 @@ import {
   deleteNotification,
   listNotifications,
   markNotificationRead,
-} from "../repositories/notification.ts";
+} from "../db.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 

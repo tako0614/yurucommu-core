@@ -6,7 +6,7 @@ import {
   deleteRelayById,
   findRelayByHost,
   findRelaysByHosts,
-} from "./repositories/relay.ts";
+} from "./db.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../shared/config.ts";
 import { createDB } from "./db.ts";
