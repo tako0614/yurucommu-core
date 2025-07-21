@@ -1280,14 +1280,7 @@ export class MongoDBHost implements DB {
   }
 }
 
-let cached: { mode: string; db: DB } | null = null;
-
 export function createDB(env: Record<string, string>): DB {
   const mode = env["DB_MODE"] === "host" ? "host" : "local";
-  if (cached && cached.mode === mode) return cached.db;
-  cached = {
-    mode,
-    db: mode === "host" ? new MongoDBHost(env) : new MongoDBLocal(env),
-  };
-  return cached.db;
+  return mode === "host" ? new MongoDBHost(env) : new MongoDBLocal(env);
 }
