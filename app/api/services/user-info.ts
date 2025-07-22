@@ -53,7 +53,7 @@ async function fetchExternalActorInfo(actorUrl: string, db: DB) {
           icon: data.icon || null,
           summary: data.summary || "",
         });
-        actor = await db.findRemoteActorByUrl(actorUrl);
+        actor = await db.findRemoteActorByUrl(actorUrl) as RemoteActorCache | null;
       }
     } catch {
       /* ignore */
