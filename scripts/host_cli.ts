@@ -1,10 +1,10 @@
 import { parse } from "jsr:@std/flags";
 import { loadConfig } from "../app/shared/config.ts";
 import { connectDatabase } from "../app/shared/db.ts";
-import HostUser from "../app/takos_host/models/user.ts";
-import Instance from "../app/takos_host/models/instance.ts";
-import OAuthClient from "../app/takos_host/models/oauth_client.ts";
-import Relay from "../app/api/models/relay.ts";
+import HostUser from "../app/models/takos_host/user.ts";
+import Instance from "../app/models/takos_host/instance.ts";
+import OAuthClient from "../app/models/takos_host/oauth_client.ts";
+import Relay from "../app/models/takos/relay.ts";
 import { createDB } from "../app/api/db.ts";
 import { ensureTenant } from "../app/api/services/tenant.ts";
 import { getSystemKey } from "../app/api/services/system_actor.ts";
@@ -14,7 +14,6 @@ import {
   sendActivityPubObject,
 } from "../app/api/utils/activitypub.ts";
 import { hash } from "../app/takos_host/auth.ts";
-
 interface Args {
   command: string;
   host?: string;
