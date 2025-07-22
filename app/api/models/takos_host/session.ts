@@ -7,8 +7,8 @@ const sessionSchema = new mongoose.Schema({
   tenant_id: { type: String, index: true },
 });
 
-const Session = mongoose.models.HostSession ??
-  mongoose.model("session", sessionSchema);
+const HostSession = mongoose.models.HostSession ??
+  mongoose.model("HostSession", sessionSchema);
 
-export default Session;
+export default HostSession;
 export { sessionSchema };

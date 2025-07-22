@@ -9,8 +9,8 @@ const encryptedKeyPairSchema = new mongoose.Schema({
 
 encryptedKeyPairSchema.index({ userName: 1, tenant_id: 1 }, { unique: true });
 
-const EncryptedKeyPair = mongoose.models.EncryptedKeyPair ??
-  mongoose.model("EncryptedKeyPair", encryptedKeyPairSchema);
+const HostEncryptedKeyPair = mongoose.models.HostEncryptedKeyPair ??
+  mongoose.model("HostEncryptedKeyPair", encryptedKeyPairSchema);
 
-export default EncryptedKeyPair;
+export default HostEncryptedKeyPair;
 export { encryptedKeyPairSchema };
