@@ -421,21 +421,20 @@ export function Chat(props: ChatProps) {
       },
     ];
 
-    const ids = Array.from(
+    const handles = Array.from(
       new Set([
         ...(user.followers ?? []),
         ...(user.following ?? []),
-      ]),
+      ].map((id) => normalizeActor(id))),
     );
-    const normalized = ids.map((id) => normalizeActor(id));
-    if (ids.length > 0) {
+    if (handles.length > 0) {
       try {
-        const infos = await fetchUserInfoBatch(normalized, user.id);
+        const infos = await fetchUserInfoBatch(handles, user.id);
         if (infos.length > 0) {
           infos.forEach((info, idx) => {
-            const actor = ids[idx];
+            const handle = handles[idx];
             rooms.push({
-              id: actor,
+              id: handle,
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
@@ -443,7 +442,7 @@ export function Chat(props: ChatProps) {
                 info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "dm",
-              members: [actor],
+              members: [handle],
               lastMessage: "...",
               lastMessageTime: undefined,
             });
