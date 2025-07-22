@@ -13,8 +13,8 @@ const remoteActorSchema = new mongoose.Schema({
 remoteActorSchema.index({ actorUrl: 1, tenant_id: 1 }, { unique: true });
 remoteActorSchema.index({ cachedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 });
 
-const RemoteActor = mongoose.models.RemoteActor ??
-  mongoose.model("RemoteActor", remoteActorSchema);
+const HostRemoteActor = mongoose.models.HostRemoteActor ??
+  mongoose.model("HostRemoteActor", remoteActorSchema);
 
-export default RemoteActor;
+export default HostRemoteActor;
 export { remoteActorSchema };

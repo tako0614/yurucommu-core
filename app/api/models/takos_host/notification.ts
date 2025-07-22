@@ -9,8 +9,8 @@ const notificationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const Notification = mongoose.models.Notification ??
-  mongoose.model("Notification", notificationSchema);
+const HostNotification = mongoose.models.HostNotification ??
+  mongoose.model("HostNotification", notificationSchema);
 
-export default Notification;
+export default HostNotification;
 export { notificationSchema };

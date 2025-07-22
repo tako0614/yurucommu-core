@@ -59,8 +59,8 @@ objectStoreSchema.pre("save", function (next) {
   next();
 });
 
-const ObjectStore = mongoose.models.ObjectStore ??
-  mongoose.model("ObjectStore", objectStoreSchema, "object_store");
+const HostObjectStore = mongoose.models.HostObjectStore ??
+  mongoose.model("HostObjectStore", objectStoreSchema, "object_store");
 
-export default ObjectStore;
+export default HostObjectStore;
 export { objectStoreSchema };

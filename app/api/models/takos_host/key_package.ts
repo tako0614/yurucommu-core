@@ -11,8 +11,8 @@ const keyPackageSchema = new mongoose.Schema({
 
 keyPackageSchema.index({ userName: 1, tenant_id: 1 });
 
-const KeyPackage = mongoose.models.KeyPackage ??
-  mongoose.model("KeyPackage", keyPackageSchema);
+const HostKeyPackage = mongoose.models.HostKeyPackage ??
+  mongoose.model("HostKeyPackage", keyPackageSchema, "keypackages");
 
-export default KeyPackage;
+export default HostKeyPackage;
 export { keyPackageSchema };

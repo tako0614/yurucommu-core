@@ -10,8 +10,8 @@ const publicMessageSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const PublicMessage = mongoose.models.PublicMessage ??
-  mongoose.model("PublicMessage", publicMessageSchema);
+const HostPublicMessage = mongoose.models.HostPublicMessage ??
+  mongoose.model("HostPublicMessage", publicMessageSchema);
 
-export default PublicMessage;
+export default HostPublicMessage;
 export { publicMessageSchema };
