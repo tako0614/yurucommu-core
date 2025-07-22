@@ -1,5 +1,6 @@
 import admin from "firebase-admin";
-import FcmToken from "../models/takos/fcm_token.ts";
+import { createDB } from "../db.ts";
+import type { DB } from "../../shared/db.ts";
 
 let initialized = false;
 
@@ -24,13 +25,16 @@ export async function registerToken(
   token: string,
   userName: string,
   env: Record<string, string>,
+  dbInst?: DB,
 ) {
   init(env);
-  await FcmToken.updateOne(
+  const db = dbInst ?? createDB(env);
+  const collection = (await db.getDatabase()).collection("fcmtokens");
+  await collection.updateOne(
     env["DB_MODE"] === "host"
       ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
       : { token },
-    { token, userName },
+    { $set: { token, userName } },
     { upsert: true },
   );
 }
@@ -38,26 +42,33 @@ export async function registerToken(
 export async function unregisterToken(
   token: string,
   env: Record<string, string>,
+  dbInst?: DB,
 ) {
+  const db = dbInst ?? createDB(env);
+  const collection = (await db.getDatabase()).collection("fcmtokens");
   const cond = env["DB_MODE"] === "host"
     ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
     : { token };
-  await FcmToken.deleteOne(cond);
+  await collection.deleteOne(cond);
 }
 
 export async function sendNotification(
   title: string,
   body: string,
   env: Record<string, string>,
+  dbInst?: DB,
 ) {
   init(env);
   if (!initialized) return;
+  const db = dbInst ?? createDB(env);
+  const collection = (await db.getDatabase()).collection("fcmtokens");
   const cond = env["DB_MODE"] === "host"
     ? { tenant_id: env["ACTIVITYPUB_DOMAIN"] }
     : {};
-  const list = await FcmToken.find(cond)
-    .lean<Array<{ token: string }>>();
-  const tokens: string[] = list.map((t: { token: string }) => t.token);
+  const list = await collection.find(cond).toArray() as Array<
+    { token: string }
+  >;
+  const tokens: string[] = list.map((t) => t.token);
   if (tokens.length === 0) return;
   await admin.messaging().sendEachForMulticast({
     tokens,

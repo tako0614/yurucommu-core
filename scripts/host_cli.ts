@@ -1,13 +1,10 @@
 import { parse } from "jsr:@std/flags";
 import { loadConfig } from "../app/shared/config.ts";
 import { connectDatabase } from "../app/shared/db.ts";
-import HostUser from "../app/models/takos_host/user.ts";
-import Instance from "../app/models/takos_host/instance.ts";
-import OAuthClient from "../app/models/takos_host/oauth_client.ts";
-import Relay from "../app/models/takos/relay.ts";
 import { createDB } from "../app/api/db.ts";
 import { ensureTenant } from "../app/api/services/tenant.ts";
 import { getSystemKey } from "../app/api/services/system_actor.ts";
+import type { DB } from "../app/shared/db.ts";
 import {
   createFollowActivity,
   createUndoFollowActivity,
@@ -22,6 +19,9 @@ interface Args {
   inboxUrl?: string;
   relayId?: string;
 }
+
+let env: Record<string, string> = {};
+let db: DB;
 
 function showHelp() {
   console.log(`使用方法: deno task host [command] [options]
@@ -63,28 +63,31 @@ function parseArgsFn(): Args | null {
 }
 
 async function getUser(name: string) {
-  const user = await HostUser.findOne({ userName: name });
+  const col = (await db.getDatabase()).collection("hostusers");
+  const user = await col.findOne<{ _id: unknown }>({ userName: name });
   if (!user) throw new Error(`ユーザー ${name} が見つかりません`);
   return user;
 }
 
 async function listInstances(userName: string) {
   const user = await getUser(userName);
-  const list = await Instance.find({ owner: user._id }).lean();
+  const col = (await db.getDatabase()).collection("instances");
+  const list = await col.find({ owner: user._id }).toArray();
   for (const inst of list) {
     console.log(inst.host);
   }
 }
 
 async function createInstance(
-  env: Record<string, string>,
+  cfg: Record<string, string>,
   userName: string,
   host: string,
   pass?: string,
 ) {
   const user = await getUser(userName);
-  const rootDomain = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
-  const reserved = (env["RESERVED_SUBDOMAINS"] ?? "")
+  const col = (await db.getDatabase()).collection("instances");
+  const rootDomain = (cfg["ROOT_DOMAIN"] ?? "").toLowerCase();
+  const reserved = (cfg["RESERVED_SUBDOMAINS"] ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s);
@@ -109,7 +112,7 @@ async function createInstance(
     throw new Error("利用できないサブドメインです");
   }
 
-  const exists = await Instance.findOne({ host: fullHost });
+  const exists = await col.findOne({ host: fullHost });
   if (exists) throw new Error("既に存在します");
 
   const instEnv: Record<string, string> = {};
@@ -118,17 +121,20 @@ async function createInstance(
     const redirect = `https://${fullHost}`;
     const clientId = redirect;
     let clientSecret: string;
-    const existsCli = await OAuthClient.findOne({ clientId });
+    const cliCol = (await db.getDatabase()).collection("oauthclients");
+    const existsCli = await cliCol.findOne<{ clientSecret: string }>({
+      clientId,
+    });
     if (existsCli) {
       clientSecret = existsCli.clientSecret;
     } else {
       clientSecret = crypto.randomUUID();
-      const cli = new OAuthClient({
+      await cliCol.insertOne({
         clientId,
         clientSecret,
         redirectUri: redirect,
+        createdAt: new Date(),
       });
-      await cli.save();
     }
     instEnv.OAUTH_CLIENT_ID = clientId;
     instEnv.OAUTH_CLIENT_SECRET = clientSecret;
@@ -139,61 +145,70 @@ async function createInstance(
     instEnv.hashedPassword = hashed;
     instEnv.salt = salt;
   }
-  const inst = new Instance({ host: fullHost, owner: user._id, env: instEnv });
-  await inst.save();
-  await ensureTenant(fullHost, fullHost);
+  await col.insertOne({
+    host: fullHost,
+    owner: user._id,
+    env: instEnv,
+    createdAt: new Date(),
+  });
+  await ensureTenant(db, fullHost, fullHost);
   if (rootDomain) {
-    const db = createDB({
-      ...env,
+    const relayDb = createDB({
+      ...cfg,
       ACTIVITYPUB_DOMAIN: fullHost,
       DB_MODE: "host",
     });
-    await db.addRelay(rootDomain, "pull");
-    await db.addRelay(rootDomain, "push");
+    await relayDb.addRelay(rootDomain, "pull");
+    await relayDb.addRelay(rootDomain, "push");
   }
   console.log(`作成しました: ${fullHost}`);
 }
 
 async function deleteInstance(userName: string, host: string) {
   const user = await getUser(userName);
-  await Instance.deleteOne({ host: host.toLowerCase(), owner: user._id });
+  const col = (await db.getDatabase()).collection("instances");
+  await col.deleteOne({ host: host.toLowerCase(), owner: user._id });
   console.log("削除しました");
 }
 
 async function setPassword(userName: string, host: string, pass?: string) {
   const user = await getUser(userName);
-  const inst = await Instance.findOne({
-    host: host.toLowerCase(),
-    owner: user._id,
-  });
+  const col = (await db.getDatabase()).collection("instances");
+  const inst = await col.findOne<
+    { _id: unknown; env?: Record<string, string> }
+  >(
+    { host: host.toLowerCase(), owner: user._id },
+  );
   if (!inst) throw new Error("インスタンスが見つかりません");
   if (pass) {
     const salt = crypto.randomUUID();
     const hashed = await hash(pass);
-    inst.env = { ...(inst.env ?? {}), hashedPassword: hashed, salt };
+    const newEnv = { ...(inst.env ?? {}), hashedPassword: hashed, salt };
+    await col.updateOne({ _id: inst._id }, { $set: { env: newEnv } });
   } else if (inst.env) {
-    delete inst.env.hashedPassword;
-    delete inst.env.salt;
+    const newEnv = { ...inst.env };
+    delete newEnv.hashedPassword;
+    delete newEnv.salt;
+    await col.updateOne({ _id: inst._id }, { $set: { env: newEnv } });
   }
-  await inst.save();
   console.log("更新しました");
 }
 
 async function listRelays() {
-  const list = await Relay.find().lean<{
+  const col = (await db.getDatabase()).collection("relays");
+  const list = await col.find().toArray() as Array<{
     _id: unknown;
     host: string;
     inboxUrl: string;
-  }[]>();
+  }>;
   for (const r of list) console.log(`${r._id} ${r.host} ${r.inboxUrl}`);
 }
 
 async function addRelay(env: Record<string, string>, inboxUrl: string) {
   const relayHost = new URL(inboxUrl).hostname;
-  const exists = await Relay.findOne({ host: relayHost });
+  const exists = await db.findRelayByHost(relayHost);
   if (exists) throw new Error("既に存在します");
-  const relay = new Relay({ host: relayHost, inboxUrl });
-  await relay.save();
+  const relay = await db.createRelay({ host: relayHost, inboxUrl });
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
     try {
@@ -208,7 +223,7 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
       /* ignore */
     }
     try {
-      await getSystemKey(rootDomain);
+      await getSystemKey(db, rootDomain);
       const actor = `https://${rootDomain}/users/system`;
       const follow = createFollowActivity(
         rootDomain,
@@ -220,11 +235,11 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
       console.error("Failed to follow relay:", err);
     }
   }
-  console.log(`追加しました: ${relay.id}`);
+  console.log(`追加しました: ${relay._id}`);
 }
 
 async function deleteRelay(env: Record<string, string>, id: string) {
-  const relay = await Relay.findByIdAndDelete(id);
+  const relay = await db.deleteRelayById(id);
   if (!relay) throw new Error("リレーが見つかりません");
   const rootDomain = env["ROOT_DOMAIN"];
   if (rootDomain) {
@@ -240,7 +255,7 @@ async function deleteRelay(env: Record<string, string>, id: string) {
       /* ignore */
     }
     try {
-      await getSystemKey(rootDomain);
+      await getSystemKey(db, rootDomain);
       const actor = `https://${rootDomain}/users/system`;
       const undo = createUndoFollowActivity(
         rootDomain,
@@ -264,9 +279,10 @@ async function deleteRelay(env: Record<string, string>, id: string) {
 async function main() {
   const args = parseArgsFn();
   if (!args) return;
-  const env = await loadConfig();
+  env = await loadConfig();
   env["DB_MODE"] = "host";
   await connectDatabase(env);
+  db = createDB(env);
   const user = args.user ?? "system";
   try {
     switch (args.command) {

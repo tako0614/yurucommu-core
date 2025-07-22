@@ -36,7 +36,8 @@ export function createRootActivityPubApp(env: Record<string, string>) {
 
   app.get("/users/system", async (c) => {
     const domain = getDomain(c);
-    const { publicKey } = await getSystemKey(domain);
+    const db = createDB(env);
+    const { publicKey } = await getSystemKey(db, domain);
     const actor = createActor(domain, {
       userName: "system",
       displayName: "system",

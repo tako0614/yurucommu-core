@@ -3,6 +3,7 @@ import { loadConfig } from "../shared/config.ts";
 import { createTakosApp } from "../api/server.ts";
 import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
+import { createDB } from "../api/db.ts";
 import Instance from "../models/takos_host/instance.ts";
 import { createConsumerApp } from "./consumer.ts";
 import { createAuthApp } from "./auth.ts";
@@ -133,7 +134,8 @@ async function getAppForHost(host: string): Promise<Hono | null> {
   if (app) return app;
   const appEnv = await getEnvForHost(host);
   if (!appEnv) return null;
-  await ensureTenant(host, host);
+  const db = createDB(hostEnv);
+  await ensureTenant(db, host, host);
   app = await createTakosApp(appEnv);
   apps.set(host, app);
   return app;

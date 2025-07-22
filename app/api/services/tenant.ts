@@ -1,9 +1,13 @@
-import Tenant from "../models/takos_host/tenant.ts";
+import type { DB } from "../../shared/db.ts";
 
-export async function ensureTenant(id: string, domain: string) {
-  const exists = await Tenant.findById(id).lean();
+export async function ensureTenant(
+  db: DB,
+  id: string,
+  domain: string,
+) {
+  const collection = (await db.getDatabase()).collection("tenant");
+  const exists = await collection.findOne({ _id: id });
   if (!exists) {
-    const t = new Tenant({ _id: id, domain });
-    await t.save();
+    await collection.insertOne({ _id: id, domain, created_at: new Date() });
   }
 }

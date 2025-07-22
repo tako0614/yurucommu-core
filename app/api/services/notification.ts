@@ -1,4 +1,5 @@
-import Notification from "../models/takos/notification.ts";
+import { createDB } from "../db.ts";
+import type { DB } from "../../shared/db.ts";
 import { sendNotification as sendFcm } from "./fcm.ts";
 
 /**
@@ -9,12 +10,10 @@ export async function addNotification(
   message: string,
   type: string = "info",
   env: Record<string, string>,
+  dbInst?: DB,
 ) {
-  const n = new Notification({ title, message, type });
-  (n as unknown as { $locals?: { env?: Record<string, string> } }).$locals = {
-    env,
-  };
-  await n.save();
-  await sendFcm(title, message, env);
-  return n;
+  const db = dbInst ?? createDB(env);
+  await db.createNotification(title, message, type);
+  await sendFcm(title, message, env, db);
+  return true;
 }
