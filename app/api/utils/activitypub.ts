@@ -136,14 +136,16 @@ export async function sendActivityPubObject(
   env: Record<string, string> = {},
 ): Promise<Response> {
   const body = JSON.stringify(object);
-  let key: { userName: string; privateKey: string } | null = null;
+  let key: { userName: string; privateKey: string };
   if (actor === "system") {
     const sys = await getSystemKey(domain);
     key = { userName: "system", privateKey: sys.privateKey };
   } else {
     const db = createDB(env);
     const account = await db.findAccountByUserName(actor);
-    if (!account) throw new Error("actor not found");
+    if (!account || !account.privateKey) {
+      throw new Error("actor not found or private key missing");
+    }
     key = { userName: actor, privateKey: account.privateKey };
   }
 
