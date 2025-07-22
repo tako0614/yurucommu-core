@@ -2,15 +2,15 @@ import HostObjectStore from "../../models/takos_host/object_store.ts";
 import HostFollowEdge from "../../models/takos_host/follow_edge.ts";
 import HostRelayEdge from "../../models/takos_host/relay_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
-import Account from "../../models/takos/account.ts";
-import EncryptedKeyPair from "../../models/takos/encrypted_keypair.ts";
-import EncryptedMessage from "../../models/takos/encrypted_message.ts";
-import KeyPackage from "../../models/takos/key_package.ts";
-import Notification from "../../models/takos/notification.ts";
-import PublicMessage from "../../models/takos/public_message.ts";
-import Relay from "../../models/takos/relay.ts";
-import RemoteActor from "../../models/takos/remote_actor.ts";
-import Session from "../../models/takos/session.ts";
+import Account from "../../models/takos_host/account.ts";
+import EncryptedKeyPair from "../../models/takos_host/encrypted_keypair.ts";
+import EncryptedMessage from "../../models/takos_host/encrypted_message.ts";
+import KeyPackage from "../../models/takos_host/key_package.ts";
+import Notification from "../../models/takos_host/notification.ts";
+import PublicMessage from "../../models/takos_host/public_message.ts";
+import Relay from "../../models/takos_host/relay.ts";
+import RemoteActor from "../../models/takos_host/remote_actor.ts";
+import HostSession from "../../models/takos_host/session.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -657,7 +657,7 @@ export class MongoDBHost implements DB {
     expiresAt: Date,
     tenantId: string,
   ): Promise<SessionDoc> {
-    const doc = new Session({
+    const doc = new HostSession({
       sessionId,
       expiresAt,
       tenant_id: tenantId,
@@ -671,15 +671,15 @@ export class MongoDBHost implements DB {
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
+    return await HostSession.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
-    await Session.deleteOne({ sessionId });
+    await HostSession.deleteOne({ sessionId });
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await Session.updateOne({ sessionId }, { expiresAt: expires });
+    await HostSession.updateOne({ sessionId }, { expiresAt: expires });
   }
 
   async getDatabase() {
