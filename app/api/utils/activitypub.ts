@@ -169,7 +169,20 @@ export async function deliverActivityPubObject(
   const pushRelays = pushHosts.map((h) => `https://${h}/inbox`);
   const allTargets = [...targets, ...pushRelays];
 
-  const deliveryPromises = allTargets.map(async (iri) => {
+  const deliveryPromises = allTargets.map(async (addr) => {
+    let iri = addr;
+    // acct:username@domain または username@domain 形式を解決
+    if (!iri.startsWith("http")) {
+      const acct = iri.startsWith("acct:") ? iri.slice(5) : iri;
+      try {
+        const actor = await resolveActorFromAcct(acct);
+        if (!actor) throw new Error("acct not found");
+        iri = actor.id;
+      } catch (err) {
+        console.error(`Failed to resolve acct for ${addr}`, err);
+        return Promise.resolve();
+      }
+    }
     // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
       return sendActivityPubObject(iri, object, actor, domain, env).catch(
@@ -211,7 +224,18 @@ export async function deliverActivityPubObjectFromUrl(
   env: Record<string, string> = {},
 ): Promise<void> {
   const body = JSON.stringify(object);
-  const promises = targets.map(async (iri) => {
+  const promises = targets.map(async (addr) => {
+    let iri = addr;
+    if (!iri.startsWith("http")) {
+      const acct = iri.startsWith("acct:") ? iri.slice(5) : iri;
+      try {
+        const actorInfo = await resolveActorFromAcct(acct);
+        if (!actorInfo) throw new Error("acct not found");
+        iri = actorInfo.id;
+      } catch {
+        return;
+      }
+    }
     let target = iri;
     if (!iri.endsWith("/inbox") && !iri.endsWith("/sharedInbox")) {
       try {

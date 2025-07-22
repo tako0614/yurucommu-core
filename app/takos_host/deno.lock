@@ -16,7 +16,6 @@
     "npm:@motionone/solid@^10.16.4": "10.16.4_solid-js@1.9.7__seroval@1.3.2",
     "npm:@tailwindcss/vite@^4.1.11": "4.1.11_vite@7.0.5__picomatch@4.0.3_@types+node@22.15.15",
     "npm:@types/node@*": "22.15.15",
-    "npm:firebase-admin@^13.4.0": "13.4.0",
     "npm:hono@^4.8.4": "4.8.5",
     "npm:mongodb@^6.17.0": "6.17.0",
     "npm:mongoose@^8.16.4": "8.16.4",
@@ -1075,25 +1074,6 @@
         "picomatch"
       ]
     },
-    "firebase-admin@13.4.0": {
-      "integrity": "sha512-Y8DcyKK+4pl4B93ooiy1G8qvdyRMkcNFfBSh+8rbVcw4cW8dgG0VXCCTp5NUwub8sn9vSPsOwpb9tE2OuFmcfQ==",
-      "dependencies": [
-        "@fastify/busboy",
-        "@firebase/database-compat",
-        "@firebase/database-types",
-        "@types/node@22.16.4",
-        "farmhash-modern",
-        "google-auth-library",
-        "jsonwebtoken",
-        "jwks-rsa",
-        "node-forge",
-        "uuid@11.1.0"
-      ],
-      "optionalDependencies": [
-        "@google-cloud/firestore",
-        "@google-cloud/storage"
-      ]
-    },
     "form-data@2.5.4": {
       "integrity": "sha512-Y/3MmRiR8Nd+0CUtrbvcKtKzLWiUfpQ7DFVggH8PwmGt/0r7RSy32GuP4hpCJlQNEBusisSx1DLtD8uD386HJQ==",
       "dependencies": [
@@ -1946,7 +1926,6 @@
       "npm:@hono/zod-validator@0.7",
       "npm:@motionone/solid@^10.16.4",
       "npm:@tailwindcss/vite@^4.1.11",
-      "npm:firebase-admin@^13.4.0",
       "npm:hono@^4.8.4",
       "npm:mongodb@^6.17.0",
       "npm:mongoose@^8.16.4",
