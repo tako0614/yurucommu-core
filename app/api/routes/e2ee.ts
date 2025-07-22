@@ -290,6 +290,11 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
+    const domain = getDomain(c);
+    const selfActor = `https://${domain}/users/${sender}`;
+    if (to.includes(acct) || to.includes(selfActor)) {
+      return c.json({ error: "cannot send message to yourself" }, 400);
+    }
     const env = getEnv(c);
     const db = createDB(env);
     const msg = await db.createEncryptedMessage({
@@ -299,7 +304,6 @@ app.post(
       mediaType,
       encoding,
     }) as EncryptedMessageDoc;
-    const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,
@@ -363,6 +367,11 @@ app.post(
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
+    const domain = getDomain(c);
+    const selfActor = `https://${domain}/users/${sender}`;
+    if (to.includes(acct) || to.includes(selfActor)) {
+      return c.json({ error: "cannot send message to yourself" }, 400);
+    }
     const env = getEnv(c);
     const db = createDB(env);
     const msg = await db.createPublicMessage({
@@ -372,7 +381,6 @@ app.post(
       mediaType,
       encoding,
     }) as EncryptedMessageDoc;
-    const domain = getDomain(c);
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,

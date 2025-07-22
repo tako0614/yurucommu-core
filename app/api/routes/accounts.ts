@@ -116,6 +116,11 @@ app.post("/accounts/:id/followers", async (c) => {
   const { follower } = await c.req.json();
   const exists = await db.findAccountById(id);
   if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
+  const domain = getDomain(c);
+  const selfActor = `https://${domain}/users/${exists.userName}`;
+  if (follower === exists.userName || follower === selfActor) {
+    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
+  }
   const followers = await db.addFollower(id, follower);
   return jsonResponse(c, { followers });
 });
@@ -138,6 +143,11 @@ app.post("/accounts/:id/following", async (c) => {
   const { target } = await c.req.json();
   const exists = await db.findAccountById(id);
   if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
+  const domain = getDomain(c);
+  const selfActor = `https://${domain}/users/${exists.userName}`;
+  if (target === exists.userName || target === selfActor) {
+    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
+  }
   const following = await db.addFollowing(id, target);
   return jsonResponse(c, { following });
 });
@@ -173,6 +183,11 @@ app.post("/accounts/:id/follow", async (c) => {
   const accountExist = await db.findAccountById(id);
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
+  }
+  const domain = getDomain(c);
+  const selfActor = `https://${domain}/users/${userName}`;
+  if (target === userName || target === selfActor) {
+    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
   }
   const following = await db.addFollowing(id, target);
 
