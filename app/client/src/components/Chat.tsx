@@ -453,7 +453,10 @@ export function Chat(props: ChatProps) {
       }
     }
 
-    setChatRooms(rooms);
+    const unique = rooms.filter(
+      (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
+    );
+    setChatRooms(unique);
 
     rooms.forEach(async (room) => {
       await loadMessages(room, false);
@@ -616,7 +619,10 @@ export function Chat(props: ChatProps) {
           lastMessage: "...",
           lastMessageTime: undefined,
         };
-        setChatRooms((prev) => [...prev, newRoom]);
+        setChatRooms((prev) => {
+          if (prev.some((r) => r.id === newRoom.id)) return prev;
+          return [...prev, newRoom];
+        });
         loadMessages(newRoom, true);
       });
     } else {
