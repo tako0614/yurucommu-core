@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { compare, genSalt, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
-import HostSession from "../api/models/takos_host/session.ts";
+import HostSession from "./models/session.ts";
 import { sendVerifyMail } from "./mailer.ts";
 import { createAuthMiddleware } from "../shared/auth.ts";
 

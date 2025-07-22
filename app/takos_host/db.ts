@@ -10,7 +10,7 @@ import Notification from "../api/models/takos_host/notification.ts";
 import PublicMessage from "../api/models/takos_host/public_message.ts";
 import Relay from "../api/models/takos_host/relay.ts";
 import RemoteActor from "../api/models/takos_host/remote_actor.ts";
-import HostSession from "../api/models/takos_host/session.ts";
+import HostSession from "./models/session.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../shared/types.ts";
