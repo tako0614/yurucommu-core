@@ -12,17 +12,7 @@ import { addNotification } from "../services/notification.ts";
 import { createDB } from "../db.ts";
 import { getEnv } from "../../shared/config.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
-
-interface AccountDoc {
-  _id?: string;
-  userName: string;
-  displayName: string;
-  avatarInitial: string;
-  privateKey: string;
-  publicKey: string;
-  followers: string[];
-  following: string[];
-}
+import type { AccountDoc } from "../../shared/types.ts";
 
 function formatAccount(doc: AccountDoc) {
   return {
@@ -42,7 +32,7 @@ app.use("/accounts/*", authRequired);
 app.get("/accounts", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
-  const list = await db.listAccounts() as AccountDoc[];
+  const list = await db.listAccounts();
   const formatted = list.map((doc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
@@ -82,7 +72,7 @@ app.post("/accounts", async (c) => {
     publicKey: keys.publicKey,
     followers: [],
     following: [],
-  }) as AccountDoc;
+  });
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -90,7 +80,7 @@ app.get("/accounts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id) as AccountDoc | null;
+  const account = await db.findAccountById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     ...formatAccount(account),
@@ -114,7 +104,7 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
 
-  const account = await db.updateAccountById(id, data) as AccountDoc | null;
+  const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, formatAccount(account));
 });
@@ -156,7 +146,7 @@ app.get("/accounts/:id/following", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id) as AccountDoc | null;
+  const account = await db.findAccountById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, { following: account.following });
 });
@@ -180,7 +170,7 @@ app.post("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string" || typeof userName !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById(id) as AccountDoc | null;
+  const accountExist = await db.findAccountById(id);
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }
@@ -240,7 +230,7 @@ app.delete("/accounts/:id/follow", async (c) => {
   if (typeof target !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  const accountExist = await db.findAccountById(id) as AccountDoc | null;
+  const accountExist = await db.findAccountById(id);
   if (!accountExist) {
     return jsonResponse(c, { error: "Account not found" }, 404);
   }

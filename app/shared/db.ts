@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
+import type { AccountDoc, RelayDoc, SessionDoc } from "./types.ts";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -15,14 +16,14 @@ export interface DB {
   listTimeline(actor: string, opts: ListOpts): Promise<unknown[]>;
   follow(follower: string, target: string): Promise<void>;
   unfollow?(follower: string, target: string): Promise<void>;
-  listAccounts<T = unknown>(): Promise<T[]>;
-  createAccount<T = unknown>(data: Record<string, unknown>): Promise<T>;
-  findAccountById<T = unknown>(id: string): Promise<T | null>;
-  findAccountByUserName<T = unknown>(username: string): Promise<T | null>;
-  updateAccountById<T = unknown>(
+  listAccounts(): Promise<AccountDoc[]>;
+  createAccount(data: Record<string, unknown>): Promise<AccountDoc>;
+  findAccountById(id: string): Promise<AccountDoc | null>;
+  findAccountByUserName(username: string): Promise<AccountDoc | null>;
+  updateAccountById(
     id: string,
     update: Record<string, unknown>,
-  ): Promise<T | null>;
+  ): Promise<AccountDoc | null>;
   deleteAccountById(id: string): Promise<boolean>;
   addFollower(id: string, follower: string): Promise<string[]>;
   removeFollower(id: string, follower: string): Promise<string[]>;
@@ -95,12 +96,12 @@ export interface DB {
   removeRelay(relay: string): Promise<void>;
   addFollowerByName(username: string, follower: string): Promise<void>;
   removeFollowerByName(username: string, follower: string): Promise<void>;
-  searchAccounts<T = unknown>(query: RegExp, limit?: number): Promise<T[]>;
+  searchAccounts(query: RegExp, limit?: number): Promise<AccountDoc[]>;
   updateAccountByUserName(
     username: string,
     update: Record<string, unknown>,
   ): Promise<void>;
-  findAccountsByUserNames<T = unknown>(usernames: string[]): Promise<T[]>;
+  findAccountsByUserNames(usernames: string[]): Promise<AccountDoc[]>;
   countAccounts(): Promise<number>;
   createEncryptedMessage(data: {
     from: string;
@@ -145,10 +146,10 @@ export interface DB {
   ): Promise<unknown>;
   markNotificationRead(id: string): Promise<boolean>;
   deleteNotification(id: string): Promise<boolean>;
-  findRelaysByHosts(hosts: string[]): Promise<unknown[]>;
-  findRelayByHost(host: string): Promise<unknown | null>;
-  createRelay(data: { host: string; inboxUrl: string }): Promise<unknown>;
-  deleteRelayById(id: string): Promise<unknown | null>;
+  findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]>;
+  findRelayByHost(host: string): Promise<RelayDoc | null>;
+  createRelay(data: { host: string; inboxUrl: string }): Promise<RelayDoc>;
+  deleteRelayById(id: string): Promise<RelayDoc | null>;
   findRemoteActorByUrl(url: string): Promise<unknown | null>;
   findRemoteActorsByUrls(urls: string[]): Promise<unknown[]>;
   upsertRemoteActor(data: {
@@ -162,8 +163,8 @@ export interface DB {
     sessionId: string,
     expiresAt: Date,
     tenantId: string,
-  ): Promise<unknown>;
-  findSessionById(sessionId: string): Promise<unknown | null>;
+  ): Promise<SessionDoc>;
+  findSessionById(sessionId: string): Promise<SessionDoc | null>;
   deleteSessionById(sessionId: string): Promise<void>;
   updateSessionExpires(sessionId: string, expires: Date): Promise<void>;
   getDatabase?(): Promise<Db>;

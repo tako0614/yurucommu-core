@@ -21,15 +21,6 @@ interface KeyPackageDoc {
   _id: unknown;
 }
 
-interface AccountDoc {
-  userName: string;
-  displayName: string;
-  publicKey: string;
-  avatarInitial: string;
-  followers?: string[];
-  following?: string[];
-}
-
 app.get("/.well-known/webfinger", async (c) => {
   const resource = c.req.query("resource");
   if (!resource?.startsWith("acct:")) {
@@ -56,7 +47,7 @@ app.get("/.well-known/webfinger", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
     subject: `acct:${username}@${domain}`,
@@ -96,7 +87,7 @@ app.get("/users/:username", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
 
@@ -126,7 +117,7 @@ app.get("/users/:username/avatar", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return c.body("Not Found", 404);
 
   let icon = account.avatarInitial ||
@@ -262,7 +253,7 @@ app.post("/users/:username/inbox", async (c) => {
   }
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const bodyText = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, bodyText);
@@ -296,7 +287,7 @@ app.get("/users/:username/followers", async (c) => {
   const page = c.req.query("page");
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.followers ?? [];
@@ -354,7 +345,7 @@ app.get("/users/:username/following", async (c) => {
   const page = c.req.query("page");
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountByUserName(username) as AccountDoc | null;
+  const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
   const list = account.following ?? [];

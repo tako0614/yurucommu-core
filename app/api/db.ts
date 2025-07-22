@@ -16,6 +16,7 @@ import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../shared/db.ts";
+import type { AccountDoc, RelayDoc, SessionDoc } from "../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../shared/db.ts";
@@ -79,11 +80,11 @@ export class MongoDBLocal implements DB {
     await FollowEdge.deleteOne({ actor_id: target });
   }
 
-  async listAccounts<T = unknown>(): Promise<T[]> {
-    return await Account.find({}).lean<T[]>();
+  async listAccounts(): Promise<AccountDoc[]> {
+    return await Account.find({}).lean<AccountDoc[]>();
   }
 
-  async createAccount<T = unknown>(data: Record<string, unknown>): Promise<T> {
+  async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
     const doc = new Account({
       ...data,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
@@ -93,25 +94,27 @@ export class MongoDBLocal implements DB {
         env: this.env,
       };
     await doc.save();
-    return doc.toObject() as T;
+    return doc.toObject() as AccountDoc;
   }
 
-  async findAccountById<T = unknown>(id: string): Promise<T | null> {
-    return await Account.findOne({ _id: id }).lean<T | null>();
+  async findAccountById(id: string): Promise<AccountDoc | null> {
+    return await Account.findOne({ _id: id }).lean<AccountDoc | null>();
   }
 
-  async findAccountByUserName<T = unknown>(
+  async findAccountByUserName(
     username: string,
-  ): Promise<T | null> {
-    return await Account.findOne({ userName: username }).lean<T | null>();
+  ): Promise<AccountDoc | null> {
+    return await Account.findOne({ userName: username }).lean<
+      AccountDoc | null
+    >();
   }
 
-  async updateAccountById<T = unknown>(
+  async updateAccountById(
     id: string,
     update: Record<string, unknown>,
-  ): Promise<T | null> {
+  ): Promise<AccountDoc | null> {
     return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
-      .lean<T | null>();
+      .lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
@@ -353,15 +356,15 @@ export class MongoDBLocal implements DB {
     });
   }
 
-  async searchAccounts<T = unknown>(
+  async searchAccounts(
     query: RegExp,
     limit = 20,
-  ): Promise<T[]> {
+  ): Promise<AccountDoc[]> {
     return await Account.find({
       $or: [{ userName: query }, { displayName: query }],
     })
       .limit(limit)
-      .lean<T[]>();
+      .lean<AccountDoc[]>();
   }
 
   async updateAccountByUserName(
@@ -371,10 +374,12 @@ export class MongoDBLocal implements DB {
     await Account.updateOne({ userName: username }, update);
   }
 
-  async findAccountsByUserNames<T = unknown>(
+  async findAccountsByUserNames(
     usernames: string[],
-  ): Promise<T[]> {
-    return await Account.find({ userName: { $in: usernames } }).lean<T[]>();
+  ): Promise<AccountDoc[]> {
+    return await Account.find({ userName: { $in: usernames } }).lean<
+      AccountDoc[]
+    >();
   }
 
   async countAccounts() {
@@ -549,7 +554,7 @@ export class MongoDBLocal implements DB {
     return !!res;
   }
 
-  async findRelaysByHosts(hosts: string[]) {
+  async findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]> {
     const docs = await Relay.find({ host: { $in: hosts } }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
     >();
@@ -560,7 +565,7 @@ export class MongoDBLocal implements DB {
     }));
   }
 
-  async findRelayByHost(host: string) {
+  async findRelayByHost(host: string): Promise<RelayDoc | null> {
     const doc = await Relay.findOne({ host }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
@@ -569,13 +574,15 @@ export class MongoDBLocal implements DB {
       : null;
   }
 
-  async createRelay(data: { host: string; inboxUrl: string }) {
+  async createRelay(
+    data: { host: string; inboxUrl: string },
+  ): Promise<RelayDoc> {
     const doc = new Relay({ host: data.host, inboxUrl: data.inboxUrl });
     await doc.save();
     return { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl };
   }
 
-  async deleteRelayById(id: string) {
+  async deleteRelayById(id: string): Promise<RelayDoc | null> {
     const doc = await Relay.findByIdAndDelete(id).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
@@ -616,7 +623,7 @@ export class MongoDBLocal implements DB {
     sessionId: string,
     expiresAt: Date,
     tenantId: string,
-  ) {
+  ): Promise<SessionDoc> {
     const doc = new Session({
       sessionId,
       expiresAt,
@@ -627,11 +634,11 @@ export class MongoDBLocal implements DB {
         env: this.env,
       };
     await doc.save();
-    return doc.toObject();
+    return doc.toObject() as SessionDoc;
   }
 
-  async findSessionById(sessionId: string) {
-    return await Session.findOne({ sessionId }).lean();
+  async findSessionById(sessionId: string): Promise<SessionDoc | null> {
+    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
@@ -707,35 +714,37 @@ export class MongoDBHost implements DB {
     });
   }
 
-  async listAccounts<T = unknown>(): Promise<T[]> {
-    return await Account.find({}).lean<T[]>();
+  async listAccounts(): Promise<AccountDoc[]> {
+    return await Account.find({}).lean<AccountDoc[]>();
   }
 
-  async createAccount<T = unknown>(data: Record<string, unknown>): Promise<T> {
+  async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
     const doc = new Account({
       ...data,
       tenant_id: this.tenantId,
     });
     await doc.save();
-    return doc.toObject() as T;
+    return doc.toObject() as AccountDoc;
   }
 
-  async findAccountById<T = unknown>(id: string): Promise<T | null> {
-    return await Account.findOne({ _id: id }).lean<T | null>();
+  async findAccountById(id: string): Promise<AccountDoc | null> {
+    return await Account.findOne({ _id: id }).lean<AccountDoc | null>();
   }
 
-  async findAccountByUserName<T = unknown>(
+  async findAccountByUserName(
     username: string,
-  ): Promise<T | null> {
-    return await Account.findOne({ userName: username }).lean<T | null>();
+  ): Promise<AccountDoc | null> {
+    return await Account.findOne({ userName: username }).lean<
+      AccountDoc | null
+    >();
   }
 
-  async updateAccountById<T = unknown>(
+  async updateAccountById(
     id: string,
     update: Record<string, unknown>,
-  ): Promise<T | null> {
+  ): Promise<AccountDoc | null> {
     return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
-      .lean<T | null>();
+      .lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
@@ -1016,15 +1025,15 @@ export class MongoDBHost implements DB {
     });
   }
 
-  async searchAccounts<T = unknown>(
+  async searchAccounts(
     query: RegExp,
     limit = 20,
-  ): Promise<T[]> {
+  ): Promise<AccountDoc[]> {
     return await Account.find({
       $or: [{ userName: query }, { displayName: query }],
     })
       .limit(limit)
-      .lean<T[]>();
+      .lean<AccountDoc[]>();
   }
 
   async updateAccountByUserName(
@@ -1034,10 +1043,12 @@ export class MongoDBHost implements DB {
     await Account.updateOne({ userName: username }, update);
   }
 
-  async findAccountsByUserNames<T = unknown>(
+  async findAccountsByUserNames(
     usernames: string[],
-  ): Promise<T[]> {
-    return await Account.find({ userName: { $in: usernames } }).lean<T[]>();
+  ): Promise<AccountDoc[]> {
+    return await Account.find({ userName: { $in: usernames } }).lean<
+      AccountDoc[]
+    >();
   }
 
   async countAccounts() {
@@ -1213,7 +1224,7 @@ export class MongoDBHost implements DB {
     return !!res;
   }
 
-  async findRelaysByHosts(hosts: string[]) {
+  async findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]> {
     const docs = await Relay.find({ host: { $in: hosts } }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
     >();
@@ -1224,7 +1235,7 @@ export class MongoDBHost implements DB {
     }));
   }
 
-  async findRelayByHost(host: string) {
+  async findRelayByHost(host: string): Promise<RelayDoc | null> {
     const doc = await Relay.findOne({ host }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
@@ -1233,13 +1244,15 @@ export class MongoDBHost implements DB {
       : null;
   }
 
-  async createRelay(data: { host: string; inboxUrl: string }) {
+  async createRelay(
+    data: { host: string; inboxUrl: string },
+  ): Promise<RelayDoc> {
     const doc = new Relay({ host: data.host, inboxUrl: data.inboxUrl });
     await doc.save();
     return { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl };
   }
 
-  async deleteRelayById(id: string) {
+  async deleteRelayById(id: string): Promise<RelayDoc | null> {
     const doc = await Relay.findByIdAndDelete(id).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
@@ -1280,7 +1293,7 @@ export class MongoDBHost implements DB {
     sessionId: string,
     expiresAt: Date,
     tenantId: string,
-  ) {
+  ): Promise<SessionDoc> {
     const doc = new Session({
       sessionId,
       expiresAt,
@@ -1291,11 +1304,11 @@ export class MongoDBHost implements DB {
         env: this.env,
       };
     await doc.save();
-    return doc.toObject();
+    return doc.toObject() as SessionDoc;
   }
 
-  async findSessionById(sessionId: string) {
-    return await Session.findOne({ sessionId }).lean();
+  async findSessionById(sessionId: string): Promise<SessionDoc | null> {
+    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
