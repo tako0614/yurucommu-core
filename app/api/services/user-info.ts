@@ -23,8 +23,18 @@ export interface UserInfoCache {
   [key: string]: UserInfo;
 }
 
+interface RemoteActorCache {
+  actorUrl?: string;
+  name?: string;
+  preferredUsername?: string;
+  icon?: unknown;
+  summary?: string;
+}
+
 async function fetchExternalActorInfo(actorUrl: string, db: DB) {
-  let actor = await db.findRemoteActorByUrl(actorUrl);
+  let actor = await db.findRemoteActorByUrl(actorUrl) as
+    | RemoteActorCache
+    | null;
   if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
     try {
       const res = await fetch(actorUrl, {
@@ -43,7 +53,7 @@ async function fetchExternalActorInfo(actorUrl: string, db: DB) {
           icon: data.icon || null,
           summary: data.summary || "",
         });
-        actor = await db.findRemoteActorByUrl(actorUrl);
+        actor = await db.findRemoteActorByUrl(actorUrl) as RemoteActorCache | null;
       }
     } catch {
       /* ignore */
@@ -237,7 +247,9 @@ export async function getUserInfoBatch(
     isUrl(id) && !processedLocalIds.has(id)
   );
   if (externalUrls.length > 0) {
-    const remoteActors = await db.findRemoteActorsByUrls(externalUrls);
+    const remoteActors = await db.findRemoteActorsByUrls(
+      externalUrls,
+    ) as RemoteActorCache[];
     const actorMap = new Map(
       remoteActors.map((actor) => [actor.actorUrl, actor]),
     );

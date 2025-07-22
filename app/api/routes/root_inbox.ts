@@ -26,7 +26,7 @@ app.post("/system/inbox", async (c) => {
       stored = await db.saveObject(object);
       objectId = String((stored as { _id?: unknown })._id);
     }
-    await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
+    await addInboxEntry(db, env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
@@ -81,7 +81,7 @@ app.post("/inbox", async (c) => {
               );
               objectId = String((stored as { _id?: unknown })._id);
             }
-            await addInboxEntry(env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
+            await addInboxEntry(db, env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
           }
           continue;
         }

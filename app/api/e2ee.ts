@@ -309,11 +309,9 @@ app.post(
       { to, cc: [] },
     );
 
-    const saved = object as { toObject(): Record<string, unknown> };
-
     const privateMessage = buildActivityFromStored(
       {
-        ...saved.toObject(),
+        ...object,
         type: "PrivateMessage",
       } as {
         _id: unknown;
@@ -382,11 +380,9 @@ app.post(
       { to, cc: [] },
     );
 
-    const savedPub = object as { toObject(): Record<string, unknown> };
-
     const publicMessage = buildActivityFromStored(
       {
-        ...savedPub.toObject(),
+        ...object,
         type: "PublicMessage",
       } as {
         _id: unknown;

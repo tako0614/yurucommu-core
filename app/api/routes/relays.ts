@@ -45,7 +45,8 @@ app.post(
     }
     try {
       const domain = getDomain(c);
-      await getSystemKey(domain);
+      const sysDb = createDB(env);
+      await getSystemKey(sysDb, domain);
       const actorId = `https://${domain}/users/system`;
       const target = "https://www.w3.org/ns/activitystreams#Public";
       const follow = createFollowActivity(domain, actorId, target);
@@ -71,7 +72,8 @@ app.delete("/relays/:id", async (c) => {
   }
   try {
     const domain = getDomain(c);
-    await getSystemKey(domain);
+    const sysDb = createDB(env);
+    await getSystemKey(sysDb, domain);
     const actorId = `https://${domain}/users/system`;
     const target = "https://www.w3.org/ns/activitystreams#Public";
     const undo = createUndoFollowActivity(domain, actorId, target);

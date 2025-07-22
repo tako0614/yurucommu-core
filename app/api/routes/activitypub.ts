@@ -64,7 +64,8 @@ app.get("/.well-known/webfinger", async (c) => {
 
 app.get("/users/system", async (c) => {
   const domain = getDomain(c);
-  const { publicKey } = await getSystemKey(domain);
+  const db = createDB(getEnv(c));
+  const { publicKey } = await getSystemKey(db, domain);
   const actor = createActor(domain, {
     userName: "system",
     displayName: "system",
@@ -77,7 +78,8 @@ app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
     const domain = getDomain(c);
-    const { publicKey } = await getSystemKey(domain);
+    const db = createDB(getEnv(c));
+    const { publicKey } = await getSystemKey(db, domain);
     const actor = createActor(domain, {
       userName: "system",
       displayName: "system",

@@ -138,7 +138,7 @@ export async function sendActivityPubObject(
   const body = JSON.stringify(object);
   let key: { userName: string; privateKey: string };
   if (actor === "system") {
-    const sys = await getSystemKey(domain);
+    const sys = await getSystemKey(createDB(env), domain);
     key = { userName: "system", privateKey: sys.privateKey };
   } else {
     const db = createDB(env);
@@ -732,7 +732,7 @@ export async function fetchJson<T = unknown>(
 ): Promise<T> {
   if (!signer) {
     const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
-    const sys = await getSystemKey(domain);
+    const sys = await getSystemKey(createDB(env), domain);
     signer = {
       id: `https://${domain}/users/system`,
       privateKey: sys.privateKey,
