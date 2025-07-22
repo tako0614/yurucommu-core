@@ -1,6 +1,6 @@
 import type { DB } from "../../shared/db.ts";
 import { MongoDBLocal } from "./local.ts";
-import { MongoDBHost } from "./hsot.ts";
+import { MongoDBHost } from "../../takos_host/db.ts";
 
 export { MongoDBHost, MongoDBLocal };
 

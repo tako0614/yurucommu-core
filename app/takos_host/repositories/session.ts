@@ -1,4 +1,4 @@
-import HostSession from "../../models/takos_host/session.ts";
+import HostSession from "../../api/models/takos_host/session.ts";
 
 export interface HostSessionData {
   _id?: string;

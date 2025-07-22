@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
-import OAuthClient from "../models/takos_host/oauth_client.ts";
-import OAuthCode from "../models/takos_host/oauth_code.ts";
-import OAuthToken from "../models/takos_host/oauth_token.ts";
+import OAuthClient from "./models/oauth_client.ts";
+import OAuthCode from "./models/oauth_code.ts";
+import OAuthToken from "./models/oauth_token.ts";
 import {
   findHostSessionById,
   updateHostSession,
@@ -109,7 +109,14 @@ oauthApp.post("/verify", async (c) => {
   if (!t || t.expiresAt <= new Date()) {
     return c.json({ active: false }, 401);
   }
-  return c.json({ active: true, userName: t.user.userName });
+  return c.json({
+    active: true,
+    user: {
+      id: String((t.user as { _id: unknown })._id),
+      userName: (t.user as { userName: string }).userName,
+    },
+  });
 });
+
 
 export default oauthApp;

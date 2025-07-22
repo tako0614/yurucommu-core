@@ -1,7 +1,7 @@
 import { loadConfig } from "../shared/config.ts";
 import { connectDatabase } from "../shared/db.ts";
-import Session from "../app/models/takos/session.ts";
-import HostSession from "../app/models/takos_host/session.ts";
+import Session from "../app/api/models/takos/session.ts";
+import HostSession from "../app/api/models/takos_host/session.ts";
 
 const env = await loadConfig();
 await connectDatabase(env);
