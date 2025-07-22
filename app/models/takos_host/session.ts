@@ -9,6 +9,7 @@ const sessionSchema = new mongoose.Schema({
   },
   expiresAt: { type: Date, required: true, index: { expires: 0 } },
   createdAt: { type: Date, default: Date.now },
+  tenant_id: { type: String, index: true },
 });
 
 const HostSession = mongoose.models.HostSession ??

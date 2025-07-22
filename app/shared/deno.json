@@ -1,9 +1,0 @@
-{
-  "imports": {
-    "mongoose": "npm:mongoose@^8.16.4",
-    "mongodb": "npm:mongodb@^6.17.0",
-    "hono": "npm:hono@^4.8.4",
-    "zod": "npm:zod@^3.25.56",
-    "@std/dotenv": "jsr:@std/dotenv@^0.225.5"
-  }
-}
