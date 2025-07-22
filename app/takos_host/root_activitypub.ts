@@ -7,7 +7,7 @@ import {
   verifyHttpSignature,
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
-import { createDB } from "../api/db.ts";
+import { createDB } from "../api/DB/mod.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {

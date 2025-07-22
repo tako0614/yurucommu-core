@@ -69,7 +69,7 @@ export function createDB(env: Record<string, string>): DB {
 
 1. `shared/db.ts` などに `DB` インターフェースと共通型を定義する。
 2. `app/api` ではインスタンス単位の `MongoDBLocal` 実装を提供する。
-3. `app/api/db.ts` に `MongoDBHost` を含め、統合スキーマを扱う。
+3. `app/api/DB/mod.ts` に `MongoDBHost` を含め、統合スキーマを扱う。
 4. 既存のモデルやサービス層は `DB` を受け取る形に書き換え、直接 mongoose
    モデルを参照しないようにする。
 5. テストやスクリプトからも `DB` 実装を選択できるようにする。

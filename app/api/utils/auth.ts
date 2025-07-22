@@ -1,5 +1,5 @@
 import { MiddlewareHandler } from "hono";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createAuthMiddleware } from "../../shared/auth.ts";
 import type { SessionDoc } from "../../shared/types.ts";

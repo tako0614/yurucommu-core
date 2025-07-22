@@ -14,7 +14,7 @@ interface HostUserDoc {
   salt: string;
   createdAt: Date;
 }
-import { createDB } from "../api/db.ts";
+import { createDB } from "../api/DB/mod.ts";
 import { ensureTenant } from "../api/services/tenant.ts";
 
 export function createConsumerApp(

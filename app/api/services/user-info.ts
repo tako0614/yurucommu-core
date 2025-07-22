@@ -1,4 +1,4 @@
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
 import { resolveActor } from "../utils/activitypub.ts";
 
@@ -53,7 +53,9 @@ async function fetchExternalActorInfo(actorUrl: string, db: DB) {
           icon: data.icon || null,
           summary: data.summary || "",
         });
-        actor = await db.findRemoteActorByUrl(actorUrl) as RemoteActorCache | null;
+        actor = await db.findRemoteActorByUrl(actorUrl) as
+          | RemoteActorCache
+          | null;
       }
     } catch {
       /* ignore */

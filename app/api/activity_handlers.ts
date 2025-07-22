@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { createDB } from "./db.ts";
+import { createDB } from "./DB/mod.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,

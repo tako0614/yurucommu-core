@@ -6,7 +6,7 @@ import {
 } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "../activity_handlers.ts";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import { addInboxEntry } from "../services/inbox.ts";
 
 const app = new Hono();

@@ -1,4 +1,4 @@
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {

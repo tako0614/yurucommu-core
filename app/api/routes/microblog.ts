@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 type ActivityObject = Record<string, unknown>;
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 
 // 型定義用のimport
 import { getEnv } from "../../shared/config.ts";

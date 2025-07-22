@@ -9,7 +9,7 @@ import {
 } from "./utils/activitypub.ts";
 import authRequired from "./utils/auth.ts";
 import { addNotification } from "./services/notification.ts";
-import { createDB } from "./db.ts";
+import { createDB } from "./DB/mod.ts";
 import { getEnv } from "../shared/config.ts";
 import { generateKeyPair } from "../shared/crypto.ts";
 import type { AccountDoc } from "../shared/types.ts";

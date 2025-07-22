@@ -3,7 +3,7 @@ import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "../../shared/config.ts";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 
 const app = new Hono();
 

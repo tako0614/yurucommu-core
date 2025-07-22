@@ -11,7 +11,7 @@ import {
   createStorage,
   type ObjectStorage,
 } from "../services/object-storage.ts";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { rateLimit } from "../utils/rate_limit.ts";
