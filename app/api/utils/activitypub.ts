@@ -166,7 +166,7 @@ export async function deliverActivityPubObject(
 ): Promise<void> {
   const db = createDB(env);
   const pushHosts = await db.listPushRelays();
-  const pushRelays = pushHosts.map((h) => `https://${h}/inbox`);
+  const pushRelays = pushHosts.map((h: any) => `https://${h}/inbox`);
   const allTargets = [...targets, ...pushRelays];
 
   const deliveryPromises = allTargets.map(async (addr) => {
