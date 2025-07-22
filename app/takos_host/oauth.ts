@@ -109,7 +109,14 @@ oauthApp.post("/verify", async (c) => {
   if (!t || t.expiresAt <= new Date()) {
     return c.json({ active: false }, 401);
   }
-  return c.json({ active: true, userName: t.user.userName });
+  return c.json({
+    active: true,
+    user: {
+      id: String((t.user as { _id: unknown })._id),
+      userName: (t.user as { userName: string }).userName,
+    },
+  });
 });
+
 
 export default oauthApp;
