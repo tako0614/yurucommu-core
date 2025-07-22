@@ -10,7 +10,7 @@ import Notification from "../models/takos_host/notification.ts";
 import PublicMessage from "../models/takos_host/public_message.ts";
 import Relay from "../models/takos_host/relay.ts";
 import RemoteActor from "../models/takos_host/remote_actor.ts";
-import HostSession from "../models/takos_host/session.ts";
+import Session from "../models/takos_host/session.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -657,7 +657,7 @@ export class MongoDBHost implements DB {
     expiresAt: Date,
     tenantId: string,
   ): Promise<SessionDoc> {
-    const doc = new HostSession({
+    const doc = new Session({
       sessionId,
       expiresAt,
       tenant_id: tenantId,
@@ -671,15 +671,15 @@ export class MongoDBHost implements DB {
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    return await HostSession.findOne({ sessionId }).lean<SessionDoc | null>();
+    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
-    await HostSession.deleteOne({ sessionId });
+    await Session.deleteOne({ sessionId });
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await HostSession.updateOne({ sessionId }, { expiresAt: expires });
+    await Session.updateOne({ sessionId }, { expiresAt: expires });
   }
 
   async getDatabase() {
