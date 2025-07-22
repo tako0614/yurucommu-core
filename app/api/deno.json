@@ -9,7 +9,8 @@
     "zod": "npm:zod@^3.25.56",
     "mongodb": "npm:mongodb@^6.17.0",
     "firebase-admin": "npm:firebase-admin@^13",
-    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts"
+    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
+    "@cloudflare/workers-types": "npm:@cloudflare/workers-types@^4"
   },
   "tasks": {
     "dev": "deno run -A --unstable-worker-options --watch --no-prompt index.ts"

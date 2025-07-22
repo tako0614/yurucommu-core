@@ -8,6 +8,7 @@ import { dirname, join } from "@std/path";
 import { type Db, GridFSBucket } from "mongodb";
 import { once } from "node:events";
 import { Buffer } from "node:buffer";
+import type { R2Bucket } from "@cloudflare/workers-types";
 
 // 内部ユーティリティ
 
@@ -43,6 +44,30 @@ export class LocalStorage implements ObjectStorage {
   async delete(key: string): Promise<void> {
     const filePath = join(this.baseDir, key);
     await Deno.remove(filePath).catch(() => {});
+  }
+}
+
+/* ==========================
+   R2Storage 実装
+   ========================== */
+
+export class R2Storage implements ObjectStorage {
+  constructor(private bucket: R2Bucket) {}
+
+  async put(key: string, data: Uint8Array): Promise<string> {
+    await this.bucket.put(key, data);
+    return key;
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    const obj = await this.bucket.get(key);
+    if (!obj) return null;
+    const buf = await obj.arrayBuffer();
+    return new Uint8Array(buf);
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.bucket.delete(key);
   }
 }
 
@@ -101,6 +126,19 @@ export async function createStorage(
   db?: DB,
 ): Promise<ObjectStorage> {
   const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
+  if (provider === "r2") {
+    const bucketName = e["R2_BUCKET"];
+    if (!bucketName) {
+      throw new Error("R2_BUCKET is required for R2 storage");
+    }
+    const bucket = (globalThis as Record<string, unknown>)[bucketName] as
+      | R2Bucket
+      | undefined;
+    if (!bucket) {
+      throw new Error(`R2 bucket binding '${bucketName}' not found`);
+    }
+    return new R2Storage(bucket);
+  }
   if (provider === "gridfs") {
     if (!db || !db.getDatabase) {
       throw new Error("DB instance with getDatabase is required for GridFS");
