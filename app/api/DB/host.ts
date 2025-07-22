@@ -2,15 +2,15 @@ import HostObjectStore from "../models/takos_host/object_store.ts";
 import HostFollowEdge from "../models/takos_host/follow_edge.ts";
 import HostRelayEdge from "../models/takos_host/relay_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
-import Account from "../models/takos_host/account.ts";
-import EncryptedKeyPair from "../models/takos_host/encrypted_keypair.ts";
-import EncryptedMessage from "../models/takos_host/encrypted_message.ts";
-import KeyPackage from "../models/takos_host/key_package.ts";
-import Notification from "../models/takos_host/notification.ts";
-import PublicMessage from "../models/takos_host/public_message.ts";
-import Relay from "../models/takos_host/relay.ts";
-import RemoteActor from "../models/takos_host/remote_actor.ts";
-import Session from "../models/takos_host/session.ts";
+import HostAccount from "../models/takos_host/account.ts";
+import HostEncryptedKeyPair from "../models/takos_host/encrypted_keypair.ts";
+import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
+import HostKeyPackage from "../models/takos_host/key_package.ts";
+import HostNotification from "../models/takos_host/notification.ts";
+import HostPublicMessage from "../models/takos_host/public_message.ts";
+import HostRelay from "../models/takos_host/relay.ts";
+import HostRemoteActor from "../models/takos_host/remote_actor.ts";
+import HostSession from "../models/takos_host/session.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -78,11 +78,11 @@ export class MongoDBHost implements DB {
   }
 
   async listAccounts(): Promise<AccountDoc[]> {
-    return await Account.find({}).lean<AccountDoc[]>();
+    return await HostAccount.find({}).lean<AccountDoc[]>();
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
-    const doc = new Account({
+    const doc = new HostAccount({
       ...data,
       tenant_id: this.tenantId,
     });
@@ -91,13 +91,13 @@ export class MongoDBHost implements DB {
   }
 
   async findAccountById(id: string): Promise<AccountDoc | null> {
-    return await Account.findOne({ _id: id }).lean<AccountDoc | null>();
+    return await HostAccount.findOne({ _id: id }).lean<AccountDoc | null>();
   }
 
   async findAccountByUserName(
     username: string,
   ): Promise<AccountDoc | null> {
-    return await Account.findOne({ userName: username }).lean<
+    return await HostAccount.findOne({ userName: username }).lean<
       AccountDoc | null
     >();
   }
@@ -106,38 +106,40 @@ export class MongoDBHost implements DB {
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
+    return await HostAccount.findOneAndUpdate({ _id: id }, update, {
+      new: true,
+    })
       .lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
-    const res = await Account.findOneAndDelete({ _id: id });
+    const res = await HostAccount.findOneAndDelete({ _id: id });
     return !!res;
   }
 
   async addFollower(id: string, follower: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
       $addToSet: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async removeFollower(id: string, follower: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
       $pull: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async addFollowing(id: string, target: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
       $addToSet: { following: target },
     }, { new: true });
     return acc?.following ?? [];
   }
 
   async removeFollowing(id: string, target: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
       $pull: { following: target },
     }, { new: true });
     return acc?.following ?? [];
@@ -377,13 +379,13 @@ export class MongoDBHost implements DB {
   }
 
   async addFollowerByName(username: string, follower: string) {
-    await Account.updateOne({ userName: username }, {
+    await HostAccount.updateOne({ userName: username }, {
       $addToSet: { followers: follower },
     });
   }
 
   async removeFollowerByName(username: string, follower: string) {
-    await Account.updateOne({ userName: username }, {
+    await HostAccount.updateOne({ userName: username }, {
       $pull: { followers: follower },
     });
   }
@@ -392,7 +394,7 @@ export class MongoDBHost implements DB {
     query: RegExp,
     limit = 20,
   ): Promise<AccountDoc[]> {
-    return await Account.find({
+    return await HostAccount.find({
       $or: [{ userName: query }, { displayName: query }],
     })
       .limit(limit)
@@ -403,19 +405,19 @@ export class MongoDBHost implements DB {
     username: string,
     update: Record<string, unknown>,
   ) {
-    await Account.updateOne({ userName: username }, update);
+    await HostAccount.updateOne({ userName: username }, update);
   }
 
   async findAccountsByUserNames(
     usernames: string[],
   ): Promise<AccountDoc[]> {
-    return await Account.find({ userName: { $in: usernames } }).lean<
+    return await HostAccount.find({ userName: { $in: usernames } }).lean<
       AccountDoc[]
     >();
   }
 
   async countAccounts() {
-    return await Account.countDocuments({});
+    return await HostAccount.countDocuments({});
   }
 
   async createEncryptedMessage(data: {
@@ -425,7 +427,7 @@ export class MongoDBHost implements DB {
     mediaType?: string;
     encoding?: string;
   }) {
-    const doc = await EncryptedMessage.create({
+    const doc = await HostEncryptedMessage.create({
       from: data.from,
       to: data.to,
       content: data.content,
@@ -439,7 +441,7 @@ export class MongoDBHost implements DB {
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
-    const query = EncryptedMessage.find(condition);
+    const query = HostEncryptedMessage.find(condition);
     if (opts.before) {
       query.where("createdAt").lt(new Date(opts.before) as unknown as number);
     }
@@ -454,27 +456,31 @@ export class MongoDBHost implements DB {
   }
 
   async findEncryptedKeyPair(userName: string) {
-    return await EncryptedKeyPair.findOne({ userName }).lean();
+    return await HostEncryptedKeyPair.findOne({ userName }).lean();
   }
 
   async upsertEncryptedKeyPair(userName: string, content: string) {
-    await EncryptedKeyPair.findOneAndUpdate({ userName }, { content }, {
+    await HostEncryptedKeyPair.findOneAndUpdate({ userName }, { content }, {
       upsert: true,
     });
   }
 
   async deleteEncryptedKeyPair(userName: string) {
-    await EncryptedKeyPair.deleteOne({ userName });
+    await HostEncryptedKeyPair.deleteOne({ userName });
   }
 
   async listKeyPackages(userName: string) {
     const tenantId = this.tenantId;
-    return await KeyPackage.find({ userName, tenant_id: tenantId }).lean();
+    return await HostKeyPackage.find({ userName, tenant_id: tenantId }).lean();
   }
 
   async findKeyPackage(userName: string, id: string) {
     const tenantId = this.tenantId;
-    return await KeyPackage.findOne({ _id: id, userName, tenant_id: tenantId })
+    return await HostKeyPackage.findOne({
+      _id: id,
+      userName,
+      tenant_id: tenantId,
+    })
       .lean();
   }
 
@@ -484,7 +490,7 @@ export class MongoDBHost implements DB {
     mediaType = "message/mls",
     encoding = "base64",
   ) {
-    const doc = new KeyPackage({
+    const doc = new HostKeyPackage({
       userName,
       content,
       mediaType,
@@ -500,7 +506,7 @@ export class MongoDBHost implements DB {
   }
 
   async deleteKeyPackage(userName: string, id: string) {
-    await KeyPackage.deleteOne({
+    await HostKeyPackage.deleteOne({
       _id: id,
       userName,
       tenant_id: this.tenantId,
@@ -508,7 +514,7 @@ export class MongoDBHost implements DB {
   }
 
   async deleteKeyPackagesByUser(userName: string) {
-    await KeyPackage.deleteMany({ userName, tenant_id: this.tenantId });
+    await HostKeyPackage.deleteMany({ userName, tenant_id: this.tenantId });
   }
 
   async createPublicMessage(data: {
@@ -518,7 +524,7 @@ export class MongoDBHost implements DB {
     mediaType?: string;
     encoding?: string;
   }) {
-    const doc = new PublicMessage({
+    const doc = new HostPublicMessage({
       from: data.from,
       to: data.to,
       content: data.content,
@@ -538,7 +544,7 @@ export class MongoDBHost implements DB {
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
-    const query = PublicMessage.find({
+    const query = HostPublicMessage.find({
       ...condition,
       tenant_id: this.tenantId,
     });
@@ -556,13 +562,13 @@ export class MongoDBHost implements DB {
   }
 
   async listNotifications() {
-    return await Notification.find({ tenant_id: this.tenantId })
+    return await HostNotification.find({ tenant_id: this.tenantId })
       .sort({ createdAt: -1 })
       .lean();
   }
 
   async createNotification(title: string, message: string, type: string) {
-    const doc = new Notification({ title, message, type });
+    const doc = new HostNotification({ title, message, type });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       {
         env: this.env,
@@ -572,7 +578,7 @@ export class MongoDBHost implements DB {
   }
 
   async markNotificationRead(id: string) {
-    const res = await Notification.findOneAndUpdate(
+    const res = await HostNotification.findOneAndUpdate(
       { _id: id, tenant_id: this.tenantId },
       { read: true },
     );
@@ -580,7 +586,7 @@ export class MongoDBHost implements DB {
   }
 
   async deleteNotification(id: string) {
-    const res = await Notification.findOneAndDelete({
+    const res = await HostNotification.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
     });
@@ -588,7 +594,7 @@ export class MongoDBHost implements DB {
   }
 
   async findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]> {
-    const docs = await Relay.find({ host: { $in: hosts } }).lean<
+    const docs = await HostRelay.find({ host: { $in: hosts } }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
     >();
     return docs.map((d) => ({
@@ -599,7 +605,7 @@ export class MongoDBHost implements DB {
   }
 
   async findRelayByHost(host: string): Promise<RelayDoc | null> {
-    const doc = await Relay.findOne({ host }).lean<
+    const doc = await HostRelay.findOne({ host }).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
     return doc
@@ -610,13 +616,13 @@ export class MongoDBHost implements DB {
   async createRelay(
     data: { host: string; inboxUrl: string },
   ): Promise<RelayDoc> {
-    const doc = new Relay({ host: data.host, inboxUrl: data.inboxUrl });
+    const doc = new HostRelay({ host: data.host, inboxUrl: data.inboxUrl });
     await doc.save();
     return { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl };
   }
 
   async deleteRelayById(id: string): Promise<RelayDoc | null> {
-    const doc = await Relay.findByIdAndDelete(id).lean<
+    const doc = await HostRelay.findByIdAndDelete(id).lean<
       { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
     >();
     return doc
@@ -625,11 +631,11 @@ export class MongoDBHost implements DB {
   }
 
   async findRemoteActorByUrl(url: string) {
-    return await RemoteActor.findOne({ actorUrl: url }).lean();
+    return await HostRemoteActor.findOne({ actorUrl: url }).lean();
   }
 
   async findRemoteActorsByUrls(urls: string[]) {
-    return await RemoteActor.find({ actorUrl: { $in: urls } }).lean();
+    return await HostRemoteActor.find({ actorUrl: { $in: urls } }).lean();
   }
 
   async upsertRemoteActor(data: {
@@ -639,7 +645,7 @@ export class MongoDBHost implements DB {
     icon: unknown;
     summary: string;
   }) {
-    await RemoteActor.findOneAndUpdate(
+    await HostRemoteActor.findOneAndUpdate(
       { actorUrl: data.actorUrl },
       {
         name: data.name,
@@ -657,7 +663,7 @@ export class MongoDBHost implements DB {
     expiresAt: Date,
     tenantId: string,
   ): Promise<SessionDoc> {
-    const doc = new Session({
+    const doc = new HostSession({
       sessionId,
       expiresAt,
       tenant_id: tenantId,
@@ -671,15 +677,15 @@ export class MongoDBHost implements DB {
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
+    return await HostSession.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
-    await Session.deleteOne({ sessionId });
+    await HostSession.deleteOne({ sessionId });
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await Session.updateOne({ sessionId }, { expiresAt: expires });
+    await HostSession.updateOne({ sessionId }, { expiresAt: expires });
   }
 
   async getDatabase() {

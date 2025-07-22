@@ -8,7 +8,8 @@ const relaySchema = new mongoose.Schema({
 
 relaySchema.index({ host: 1, tenant_id: 1 }, { unique: true });
 
-const Relay = mongoose.models.Relay ?? mongoose.model("Relay", relaySchema);
+const HostRelay = mongoose.models.HostRelay ??
+  mongoose.model("HostRelay", relaySchema);
 
-export default Relay;
+export default HostRelay;
 export { relaySchema };
