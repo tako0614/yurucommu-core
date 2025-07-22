@@ -65,9 +65,7 @@ export async function sendNotification(
   const cond = env["DB_MODE"] === "host"
     ? { tenant_id: env["ACTIVITYPUB_DOMAIN"] }
     : {};
-  const list = await collection.find(cond).toArray() as Array<
-    { token: string }
-  >;
+  const list = await collection.find<{ token: string }>(cond).toArray();
   const tokens: string[] = list.map((t) => t.token);
   if (tokens.length === 0) return;
   await admin.messaging().sendEachForMulticast({
