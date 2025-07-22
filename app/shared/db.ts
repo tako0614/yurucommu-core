@@ -167,7 +167,7 @@ export interface DB {
   findSessionById(sessionId: string): Promise<SessionDoc | null>;
   deleteSessionById(sessionId: string): Promise<void>;
   updateSessionExpires(sessionId: string, expires: Date): Promise<void>;
-  getDatabase?(): Promise<Db>;
+  getDatabase(): Promise<Db>;
 }
 
 let currentUri = "";
