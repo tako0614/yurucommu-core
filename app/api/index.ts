@@ -1,7 +1,7 @@
 import { createTakosApp } from "./server.ts";
 import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "./services/tenant.ts";
-import { createDB } from "./db.ts";
+import { createDB } from "./DB/mod.ts";
 import { loadConfig } from "../shared/config.ts";
 
 const env = await loadConfig();

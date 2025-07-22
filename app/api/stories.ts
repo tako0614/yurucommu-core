@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createDB } from "./db.ts";
+import { createDB } from "./DB/mod.ts";
 import authRequired from "./utils/auth.ts";
 import { createObjectId } from "./utils/activitypub.ts";
 import { getEnv } from "../shared/config.ts";

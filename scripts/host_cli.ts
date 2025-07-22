@@ -1,7 +1,7 @@
 import { parse } from "jsr:@std/flags";
 import { loadConfig } from "../app/shared/config.ts";
 import { connectDatabase } from "../app/shared/db.ts";
-import { createDB } from "../app/api/db.ts";
+import { createDB } from "../app/api/DB/mod.ts";
 import { ensureTenant } from "../app/api/services/tenant.ts";
 import { getSystemKey } from "../app/api/services/system_actor.ts";
 import type { DB } from "../app/shared/db.ts";

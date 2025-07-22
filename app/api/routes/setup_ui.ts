@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
 import { generateKeyPair, sha256Hex } from "../../shared/crypto.ts";

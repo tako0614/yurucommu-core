@@ -11,7 +11,7 @@ import {
   createStorage,
   type ObjectStorage,
 } from "./services/object-storage.ts";
-import { createDB } from "./db.ts";
+import { createDB } from "./DB/mod.ts";
 import authRequired from "./utils/auth.ts";
 import { getEnv } from "../shared/config.ts";
 import { rateLimit } from "./utils/rate_limit.ts";
@@ -186,7 +186,6 @@ app.get("/videos", async (c) => {
 
   return c.json(result);
 });
-
 
 app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
   const domain = getDomain(c);

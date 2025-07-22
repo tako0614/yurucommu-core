@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createDB } from "../db.ts";
+import { createDB } from "../DB/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 // NodeInfo は外部からの参照を想定しているため認証は不要
