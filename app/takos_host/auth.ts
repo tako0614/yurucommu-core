@@ -202,8 +202,15 @@ export function createAuthApp(options?: {
 export const authRequired: MiddlewareHandler = createAuthMiddleware({
   cookieName: "hostSessionId",
   errorMessage: "unauthorized",
-  findSession: async (sid) =>
-    await HostSession.findOne({ sessionId: sid }).populate("user"),
+  findSession: async (sid) => {
+    const session = await HostSession.findOne({ sessionId: sid }).populate(
+      "user",
+    );
+    if (!session || !(session as unknown as { user?: unknown }).user) {
+      return null;
+    }
+    return session;
+  },
   deleteSession: async (sid) => {
     await HostSession.deleteOne({ sessionId: sid });
   },
