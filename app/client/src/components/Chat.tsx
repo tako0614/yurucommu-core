@@ -610,7 +610,10 @@ export function Chat(props: ChatProps) {
             isMe,
             avatar: room.avatar,
           };
-          setMessages((prev) => [...prev, m]);
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === m.id)) return prev;
+            return [...prev, m];
+          });
           updateRoomLast(room.id, m);
         }
       } catch (err) {
