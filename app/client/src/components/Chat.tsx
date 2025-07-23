@@ -444,10 +444,7 @@ export function Chat(props: ChatProps) {
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
     setChatRooms(unique);
-
-    rooms.forEach(async (room) => {
-      await loadMessages(room, false);
-    });
+    // メッセージの取得は選択時に実行する
   };
 
   const sendMessage = async () => {
@@ -542,10 +539,7 @@ export function Chat(props: ChatProps) {
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
     }
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (room) {
-      loadMessages(room, true);
-    }
+    // メッセージの取得は selectedRoom 監視の createEffect に任せる
   };
 
   // チャット一覧に戻る（モバイル用）
@@ -558,7 +552,7 @@ export function Chat(props: ChatProps) {
   onMount(() => {
     checkMobile();
     globalThis.addEventListener("resize", checkMobile);
-    loadRooms();
+    // ルーム情報はアカウント取得後の createEffect で読み込む
     loadGroupStates();
     ensureKeyPair();
     const wsUrl = apiUrl("/api/ws").replace(/^http/, "ws");
@@ -620,10 +614,8 @@ export function Chat(props: ChatProps) {
         console.error("ws message error", err);
       }
     };
-    const room = chatRooms().find((r) => r.id === selectedRoom());
-    if (room) {
-      loadMessages(room, true);
-    }
+    // 初期表示時のメッセージ読み込みも
+    // selectedRoom 監視の createEffect に任せる
     adjustHeight(textareaRef);
   });
 
