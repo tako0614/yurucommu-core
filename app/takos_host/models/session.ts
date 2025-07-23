@@ -12,7 +12,7 @@ const hostSessionSchema = new mongoose.Schema({
 });
 
 const HostSession = mongoose.models.HostSession ??
-  mongoose.model("HostSession", hostSessionSchema);
+  mongoose.model("TakosHostSession", hostSessionSchema);
 
 export default HostSession;
 export { hostSessionSchema };
