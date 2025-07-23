@@ -471,6 +471,7 @@ export class MongoDBHost implements DB {
 
   async listKeyPackages(userName: string) {
     const tenantId = this.tenantId;
+    console.log("listKeyPackages", userName, tenantId);
     return await HostKeyPackage.find({ userName, tenant_id: tenantId }).lean();
   }
 

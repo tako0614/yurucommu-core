@@ -10,7 +10,7 @@ const relayEdgeSchema = new mongoose.Schema({
 relayEdgeSchema.index({ relay: 1, tenant_id: 1 });
 
 const HostRelayEdge = mongoose.models.HostRelayEdge ??
-  mongoose.model("HostRelayEdge", relayEdgeSchema, "relay_edge");
+  mongoose.model("HostRelayEdge", relayEdgeSchema);
 
 export default HostRelayEdge;
 export { relayEdgeSchema };

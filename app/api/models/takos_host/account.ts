@@ -14,7 +14,8 @@ const accountSchema = new mongoose.Schema({
 accountSchema.index({ userName: 1, tenant_id: 1 }, { unique: true });
 
 const HostAccount = mongoose.models.HostAccount ??
-  mongoose.model("HostAccount", accountSchema, "accounts");
+  mongoose.model("HostAccount", accountSchema);
 
 export default HostAccount;
 export { accountSchema };
+

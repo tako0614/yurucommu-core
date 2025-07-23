@@ -309,9 +309,9 @@ app.post(
       { to, cc: [] },
     );
 
-    const privateMessage = buildActivityFromStored(
+const privateMessage = buildActivityFromStored(
       {
-        ...object,
+        ...(object && typeof object === "object" ? object : {}),
         type: "PrivateMessage",
       } as {
         _id: unknown;
@@ -380,9 +380,9 @@ app.post(
       { to, cc: [] },
     );
 
-    const publicMessage = buildActivityFromStored(
+const publicMessage = buildActivityFromStored(
       {
-        ...object,
+        ...(object && typeof object === "object" ? object : {}),
         type: "PublicMessage",
       } as {
         _id: unknown;
