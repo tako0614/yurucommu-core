@@ -422,7 +422,13 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   }) as EncryptedMessageDoc[];
   const list = [...privateList, ...publicList];
   list.sort((a, b) => {
-    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    const dateA = typeof a.createdAt === "string" || typeof a.createdAt === "number" || a.createdAt instanceof Date
+      ? new Date(a.createdAt)
+      : new Date(0);
+    const dateB = typeof b.createdAt === "string" || typeof b.createdAt === "number" || b.createdAt instanceof Date
+      ? new Date(b.createdAt)
+      : new Date(0);
+    return dateA.getTime() - dateB.getTime();
   });
   list.reverse();
   const messages = list.slice(0, limit).map((doc) => ({
