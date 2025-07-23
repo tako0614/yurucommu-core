@@ -11,7 +11,7 @@ const hostSessionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const HostSession = mongoose.models.HostSession ??
+const HostSession = mongoose.models.TakosHostSession ??
   mongoose.model("TakosHostSession", hostSessionSchema);
 
 export default HostSession;

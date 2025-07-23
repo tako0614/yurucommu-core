@@ -204,7 +204,6 @@ export const authRequired: MiddlewareHandler = createAuthMiddleware({
   errorMessage: "unauthorized",
   findSession: async (sid) => {
     const session = await HostSession.findOne({ sessionId: sid })
-    console.log("authRequired session:", session, sid);
     return session;
   },
   deleteSession: async (sid) => {
