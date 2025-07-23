@@ -292,10 +292,6 @@ app.post(
       return c.json({ error: "invalid body" }, 400);
     }
     const domain = getDomain(c);
-    const selfActor = `https://${domain}/users/${sender}`;
-    if (to.includes(acct) || to.includes(selfActor)) {
-      return c.json({ error: "cannot send message to yourself" }, 400);
-    }
     const env = getEnv(c);
     const db = createDB(env);
     const msg = await db.createEncryptedMessage({
@@ -383,10 +379,6 @@ app.post(
       return c.json({ error: "invalid body" }, 400);
     }
     const domain = getDomain(c);
-    const selfActor = `https://${domain}/users/${sender}`;
-    if (to.includes(acct) || to.includes(selfActor)) {
-      return c.json({ error: "cannot send message to yourself" }, 400);
-    }
     const env = getEnv(c);
     const db = createDB(env);
     const msg = await db.createPublicMessage({
