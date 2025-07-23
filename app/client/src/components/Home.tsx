@@ -99,8 +99,12 @@ export function Home(props: HomeProps) {
         } else if (results.length > 0) {
           setActId(results[0].id);
         }
-      } else if (results.length > 0 && !actId()) {
-        setActId(results[0].id);
+      } else {
+        const currentId = actId();
+        const exists = results.some((acc: Account) => acc.id === currentId);
+        if (!exists && results.length > 0) {
+          setActId(results[0].id);
+        }
       }
     } catch (error) {
       console.error("Failed to load accounts:", error);
