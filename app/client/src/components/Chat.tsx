@@ -21,7 +21,7 @@ import {
   sendEncryptedMessage,
   sendPublicMessage,
 } from "./e2ee/api.ts";
-import { getDomain } from "../utils/config.ts";
+import { apiUrl, getDomain } from "../utils/config.ts";
 import {
   decryptGroupMessage,
   deriveMLSSecret,
@@ -148,7 +148,7 @@ export function Chat(props: ChatProps) {
       return updated ? newRooms : rooms;
     });
   };
-  let poller: number | undefined;
+  let socket: WebSocket | null = null;
   let textareaRef: HTMLTextAreaElement | undefined;
 
   const toggleEncryption = () => {
@@ -390,19 +390,6 @@ export function Chat(props: ChatProps) {
     setLoadingOlder(false);
   };
 
-  const loadLatestMessages = async (room: ChatRoom) => {
-    const last = messages()[messages().length - 1];
-    const after = last ? last.timestamp.toISOString() : undefined;
-    const msgs = await fetchMessagesForRoom(room, {
-      limit: 1,
-      after,
-    });
-    if (msgs.length > 0) {
-      setMessages((prev) => [...prev, ...msgs]);
-      updateRoomLast(room.id, msgs[msgs.length - 1]);
-    }
-  };
-
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
@@ -559,23 +546,12 @@ export function Chat(props: ChatProps) {
     if (room) {
       loadMessages(room, true);
     }
-    if (poller) clearInterval(poller);
-    poller = setInterval(() => {
-      const currentRoomId = selectedRoom();
-      if (currentRoomId) {
-        const currentRoom = chatRooms().find((r) => r.id === currentRoomId);
-        if (currentRoom) {
-          loadLatestMessages(currentRoom);
-        }
-      }
-    }, 5000);
   };
 
   // チャット一覧に戻る（モバイル用）
   const backToRoomList = () => {
     setShowRoomList(true);
     setSelectedRoom(null); // チャンネル選択状態をリセット
-    if (poller) clearInterval(poller);
   };
 
   // イベントリスナーの設定
@@ -585,6 +561,62 @@ export function Chat(props: ChatProps) {
     loadRooms();
     loadGroupStates();
     ensureKeyPair();
+    const wsUrl = apiUrl("/api/ws").replace(/^http/, "ws");
+    socket = new WebSocket(wsUrl);
+    socket.onopen = () => {
+      const user = account();
+      if (user) {
+        socket?.send(
+          JSON.stringify({
+            type: "register",
+            payload: { user: `${user.userName}@${getDomain()}` },
+          }),
+        );
+      }
+    };
+    socket.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "encryptedMessage" || msg.type === "publicMessage") {
+          const data = msg.payload as {
+            id: string;
+            from: string;
+            to: string[];
+            content: string;
+            mediaType: string;
+            encoding: string;
+            createdAt: string;
+          };
+          const user = account();
+          if (!user) return;
+          const self = `${user.userName}@${getDomain()}`;
+          const partnerId = data.from === self
+            ? data.to.find((v) => v !== self) ?? data.to[0]
+            : data.from;
+          const room = chatRooms().find((r) => r.id === partnerId);
+          if (!room) return;
+          const isMe = data.from === self;
+          const displayName = isMe
+            ? user.displayName || user.userName
+            : room.name;
+          const m: ChatMessage = {
+            id: data.id,
+            author: data.from,
+            displayName,
+            address: data.from,
+            content: data.content,
+            timestamp: new Date(data.createdAt),
+            type: "text",
+            isMe,
+            avatar: room.avatar,
+          };
+          setMessages((prev) => [...prev, m]);
+          updateRoomLast(room.id, m);
+        }
+      } catch (err) {
+        console.error("ws message error", err);
+      }
+    };
     const room = chatRooms().find((r) => r.id === selectedRoom());
     if (room) {
       loadMessages(room, true);
@@ -665,7 +697,7 @@ export function Chat(props: ChatProps) {
 
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
-    if (poller) clearInterval(poller);
+    socket?.close();
   });
 
   return (
