@@ -179,6 +179,8 @@ export async function connectDatabase(env: Record<string, string>) {
     return;
   }
   currentUri = uri;
+  // populate の対象パスがスキーマに存在しない場合でもエラーとしない
+  mongoose.set("strictPopulate", false);
   await mongoose.connect(uri)
     .then(() => console.log("Connected to MongoDB"))
     .catch((err: Error) => console.error("MongoDB connection error:", err));

@@ -206,9 +206,6 @@ export const authRequired: MiddlewareHandler = createAuthMiddleware({
     const session = await HostSession.findOne({ sessionId: sid }).populate(
       "user",
     );
-    if (!session || !(session as unknown as { user?: unknown }).user) {
-      return null;
-    }
     return session;
   },
   deleteSession: async (sid) => {
