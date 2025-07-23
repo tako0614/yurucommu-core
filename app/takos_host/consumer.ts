@@ -121,6 +121,13 @@ export function createConsumerApp(
       });
       await ensureTenant(db, fullHost, fullHost);
       if (rootDomain) {
+        const exists = await db.findRelayByHost(rootDomain);
+        if (!exists) {
+          await db.createRelay({
+            host: rootDomain,
+            inboxUrl: `https://${rootDomain}/inbox`,
+          });
+        }
         const relayDb = createDB({
           ...env,
           ACTIVITYPUB_DOMAIN: fullHost,

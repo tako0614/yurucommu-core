@@ -153,6 +153,13 @@ async function createInstance(
   });
   await ensureTenant(db, fullHost, fullHost);
   if (rootDomain) {
+    const existsRelay = await db.findRelayByHost(rootDomain);
+    if (!existsRelay) {
+      await db.createRelay({
+        host: rootDomain,
+        inboxUrl: `https://${rootDomain}/inbox`,
+      });
+    }
     const relayDb = createDB({
       ...cfg,
       ACTIVITYPUB_DOMAIN: fullHost,
@@ -195,7 +202,7 @@ async function setPassword(userName: string, host: string, pass?: string) {
 }
 
 async function listRelays() {
-  const col = (await db.getDatabase()).collection("relays");
+  const col = (await db.getDatabase()).collection("hostrelays");
   const list = await col.find().toArray() as Array<{
     _id: unknown;
     host: string;
