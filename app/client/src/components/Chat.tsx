@@ -208,7 +208,7 @@ export function Chat(props: ChatProps) {
       }
       if (!pair) {
         const encData = await fetchEncryptedKeyPair(
-          `${user.userName}@${getDomain()}`,
+          user.userName,
         );
         if (encData) {
           try {
@@ -238,11 +238,11 @@ export function Chat(props: ChatProps) {
             pass,
           );
           await saveEncryptedKeyPair(
-            `${user.userName}@${getDomain()}`,
+            user.userName,
             encStr,
           );
           await addKeyPackage(
-            `${user.userName}@${getDomain()}`,
+            user.userName,
             { content: pair.publicKey },
           );
         } catch (err) {
