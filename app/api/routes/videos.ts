@@ -29,7 +29,6 @@ type VideoDoc = {
   content?: string;
   published: string | Date;
   extra: Record<string, unknown>;
-  toObject(): Record<string, unknown>;
 };
 
 let storage: ObjectStorage;
@@ -126,7 +125,7 @@ export function initVideoWebSocket() {
         },
       ) as VideoDoc;
 
-      const baseObj = video.toObject();
+      const baseObj = video as Record<string, unknown>;
       const videoObject = buildActivityFromStored(
         {
           ...baseObj,
@@ -233,7 +232,7 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     },
   ) as VideoDoc;
 
-  const baseObj = video.toObject();
+  const baseObj = video as Record<string, unknown>;
   const videoObject = buildActivityFromStored(
     {
       ...baseObj,
