@@ -438,21 +438,19 @@ export const fetchUserInfoBatch = async (
   accountId?: string,
 ): Promise<UserInfo[]> => {
   try {
-    // キャッシュから取得できるものをチェック
-    const cached: UserInfo[] = [];
+    const cachedMap: Record<string, UserInfo> = {};
     const uncached: string[] = [];
 
     for (const identifier of identifiers) {
       const cachedInfo = await getCachedUserInfo(identifier, accountId);
       if (cachedInfo) {
-        cached.push(cachedInfo);
+        cachedMap[identifier] = cachedInfo;
       } else {
         uncached.push(identifier);
       }
     }
 
-    // キャッシュにないものをAPIから取得
-    let fetchedInfos: UserInfo[] = [];
+    const fetchedMap: Record<string, UserInfo> = {};
     if (uncached.length > 0) {
       const response = await apiFetch("/api/user-info/batch", {
         method: "POST",
@@ -463,31 +461,21 @@ export const fetchUserInfoBatch = async (
       });
 
       if (response.ok) {
-        fetchedInfos = await response.json();
+        const fetchedInfos: UserInfo[] = await response.json();
 
-        // 取得した情報をキャッシュに保存
         await Promise.all(
           fetchedInfos.map((info, index) =>
             setCachedUserInfo(uncached[index], info, accountId)
           ),
         );
+
+        fetchedInfos.forEach((info, index) => {
+          fetchedMap[uncached[index]] = info;
+        });
       }
     }
 
-    // 元の順序で結果を並べ替え
-    const result: UserInfo[] = [];
-    let cachedIndex = 0;
-    let fetchedIndex = 0;
-
-    for (const identifier of identifiers) {
-      if (await getCachedUserInfo(identifier, accountId)) {
-        result.push(cached[cachedIndex++]);
-      } else {
-        result.push(fetchedInfos[fetchedIndex++]);
-      }
-    }
-
-    return result;
+    return identifiers.map((id) => cachedMap[id] ?? fetchedMap[id]);
   } catch (error) {
     console.error("Error fetching user info batch:", error);
     return [];
