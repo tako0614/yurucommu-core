@@ -152,7 +152,7 @@ export const sendPublicMessage = async (
 ): Promise<boolean> => {
   try {
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/publicMessages`,
+      `/api/users/${encodeURIComponent(user)}/messages`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -178,7 +178,7 @@ export const fetchPublicMessages = async (
     if (params?.before) search.set("before", params.before);
     if (params?.after) search.set("after", params.after);
     const query = search.toString();
-    const url = `/api/users/${encodeURIComponent(user)}/publicMessages${
+    const url = `/api/users/${encodeURIComponent(user)}/messages${
       query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);

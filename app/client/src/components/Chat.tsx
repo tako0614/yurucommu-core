@@ -16,7 +16,6 @@ import {
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeyPackages,
-  fetchPublicMessages,
   saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
@@ -298,63 +297,41 @@ export function Chat(props: ChatProps) {
         }
       }
     }
-    if (group) {
-      const list = await fetchEncryptedMessages(
-        `${user.userName}@${getDomain()}`,
-        partner,
-        params,
-      );
-      for (const m of list) {
-        const plain = await decryptGroupMessage(group, m.content);
-        let text = plain ?? "";
-        if (plain) {
-          try {
-            const obj = JSON.parse(plain);
-            if (typeof obj.content === "string") text = obj.content;
-          } catch {
-            /* JSON parse failed - keep plain text */
-          }
-        }
-        const fullId = `${user.userName}@${getDomain()}`;
-        const isMe = m.from === fullId;
-        const displayName = isMe
-          ? user.displayName || user.userName
-          : room.name;
-        encryptedMsgs.push({
-          id: m.id,
-          author: m.from,
-          displayName,
-          address: m.from,
-          content: text,
-          timestamp: new Date(m.createdAt),
-          type: "text",
-          isMe,
-          avatar: room.avatar,
-        });
-      }
-    }
-    const publicList = await fetchPublicMessages(
+    const list = await fetchEncryptedMessages(
       `${user.userName}@${getDomain()}`,
       partner,
       params,
     );
-    const publicMsgs = publicList.map((m) => {
+    for (const m of list) {
+      const plain = await decryptGroupMessage(group, m.content);
+      let text: string;
+      if (plain) {
+        text = plain;
+        try {
+          const obj = JSON.parse(plain);
+          if (typeof obj.content === "string") text = obj.content;
+        } catch {
+          /* JSON parse failed - keep plain text */
+        }
+      } else {
+        text = m.content;
+      }
       const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
       const displayName = isMe ? user.displayName || user.userName : room.name;
-      return {
+      encryptedMsgs.push({
         id: m.id,
         author: m.from,
         displayName,
         address: m.from,
-        content: m.content,
+        content: text,
         timestamp: new Date(m.createdAt),
         type: "text",
         isMe,
         avatar: room.avatar,
-      } as ChatMessage;
-    });
-    const msgs = [...encryptedMsgs, ...publicMsgs].sort((a, b) =>
+      });
+    }
+    const msgs = encryptedMsgs.sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
     return msgs;

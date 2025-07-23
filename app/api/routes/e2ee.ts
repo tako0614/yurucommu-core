@@ -364,92 +364,6 @@ app.post(
   },
 );
 
-app.post(
-  "/users/:user/publicMessages",
-  authRequired,
-  rateLimit({ windowMs: 60_000, limit: 20 }),
-  async (c) => {
-    const acct = c.req.param("user");
-    const [sender, senderDomain] = acct.split("@");
-    if (!sender || !senderDomain) {
-      return c.json({ error: "invalid user format" }, 400);
-    }
-    const { to, content, mediaType, encoding } = await c.req.json();
-    if (!Array.isArray(to) || typeof content !== "string") {
-      return c.json({ error: "invalid body" }, 400);
-    }
-    const domain = getDomain(c);
-    const env = getEnv(c);
-    const db = createDB(env);
-    const msg = await db.createPublicMessage({
-      from: acct,
-      to,
-      content,
-      mediaType,
-      encoding,
-    }) as EncryptedMessageDoc;
-    const actorId = `https://${domain}/users/${sender}`;
-    const object = await db.saveMessage(
-      domain,
-      sender,
-      content,
-      { mediaType: msg.mediaType, encoding: msg.encoding },
-      { to, cc: [] },
-    );
-
-    const savedPub = object as Record<string, unknown>;
-
-    const publicMessage = buildActivityFromStored(
-      {
-        ...savedPub,
-        type: "PublicMessage",
-      } as {
-        _id: unknown;
-        type: string;
-        content: string;
-        published: unknown;
-        extra: Record<string, unknown>;
-      },
-      domain,
-      sender,
-      false,
-    );
-    (publicMessage as ActivityPubActivity)["@context"] = [
-      "https://www.w3.org/ns/activitystreams",
-      "https://purl.archive.org/socialweb/mls",
-    ];
-
-    const activity = createCreateActivity(domain, actorId, publicMessage);
-    (activity as ActivityPubActivity)["@context"] = [
-      "https://www.w3.org/ns/activitystreams",
-      "https://purl.archive.org/socialweb/mls",
-    ];
-    (activity as ActivityPubActivity).to = to;
-    (activity as ActivityPubActivity).cc = [];
-    deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
-      (err) => {
-        console.error("deliver failed", err);
-      },
-    );
-
-    const newMsg = {
-      id: String(msg._id),
-      from: acct,
-      to,
-      content,
-      mediaType: msg.mediaType,
-      encoding: msg.encoding,
-      createdAt: msg.createdAt,
-    };
-    sendToUser(acct, { type: "publicMessage", payload: newMsg });
-    for (const t of to) {
-      sendToUser(t, { type: "publicMessage", payload: newMsg });
-    }
-
-    return c.json({ result: "sent", id: String(msg._id) });
-  },
-);
-
 app.get("/users/:user/messages", authRequired, async (c) => {
   const acct = c.req.param("user");
   const [user, userDomain] = acct.split("@");
@@ -496,77 +410,22 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const db = createDB(getEnv(c));
-  const list = await db.findEncryptedMessages(condition, {
+  const privateList = await db.findEncryptedMessages(condition, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
   }) as EncryptedMessageDoc[];
-  list.reverse();
-  const messages = list.map((doc) => ({
-    id: String(doc._id),
-    from: doc.from,
-    to: doc.to,
-    content: doc.content,
-    mediaType: doc.mediaType,
-    encoding: doc.encoding,
-    createdAt: doc.createdAt,
-  }));
-  return c.json(messages);
-});
-
-app.get("/users/:user/publicMessages", authRequired, async (c) => {
-  const acct = c.req.param("user");
-  const [user, userDomain] = acct.split("@");
-  if (!user || !userDomain) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-
-  const actor = await resolveActorCached(
-    acct,
-    getEnv(c),
-  );
-  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
-  const partnerAcct = c.req.query("with");
-  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
-  const partnerActorObj = partnerAcct
-    ? await resolveActorCached(
-      partnerAcct,
-      getEnv(c),
-    )
-    : null;
-  let partnerActor = partnerActorObj?.id;
-  if (!partnerActor && partnerUser && partnerDomain) {
-    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
-  }
-
-  const condition = partnerAcct
-    ? {
-      $or: [
-        { from: partnerAcct, to: { $in: [actorId, acct] } },
-        {
-          from: acct,
-          to: {
-            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
-          },
-        },
-      ],
-    }
-    : { to: { $in: [actorId, acct] } };
-
-  const limit = Math.min(
-    parseInt(c.req.query("limit") ?? "50", 10) || 50,
-    100,
-  );
-  const before = c.req.query("before");
-  const after = c.req.query("after");
-  const db = createDB(getEnv(c));
-  const list = await db.findPublicMessages(condition, {
+  const publicList = await db.findPublicMessages(condition, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
   }) as EncryptedMessageDoc[];
+  const list = [...privateList, ...publicList];
+  list.sort((a, b) => {
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
   list.reverse();
-  const messages = list.map((doc) => ({
+  const messages = list.slice(0, limit).map((doc) => ({
     id: String(doc._id),
     from: doc.from,
     to: doc.to,

@@ -514,7 +514,7 @@ paths:
         schema:
           type: string
     get:
-      summary: メッセージ一覧取得
+      summary: メッセージ一覧取得（公開・非公開共通）
       parameters:
         - name: limit
           in: query
@@ -536,61 +536,7 @@ paths:
         "200":
           description: メッセージの配列
     post:
-      summary: 暗号化メッセージ送信
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                to:
-                  type: array
-                  items:
-                    type: string
-                content:
-                  type: string
-                mediaType:
-                  type: string
-                encoding:
-                  type: string
-              required:
-                - to
-                - content
-      responses:
-        "200":
-          description: 送信結果
-  /users/{user}/publicMessages:
-    parameters:
-      - name: user
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      summary: 公開メッセージ一覧取得
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-        - name: before
-          in: query
-          schema:
-            type: string
-        - name: after
-          in: query
-          schema:
-            type: string
-        - name: with
-          in: query
-          schema:
-            type: string
-      responses:
-        "200":
-          description: メッセージの配列
-    post:
-      summary: 公開メッセージ送信
+      summary: メッセージ送信
       requestBody:
         required: true
         content:
