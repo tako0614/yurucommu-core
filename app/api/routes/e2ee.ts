@@ -16,6 +16,7 @@ import {
   resolveActor,
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
+import { sendToUser } from "./ws.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -349,6 +350,20 @@ app.post(
       },
     );
 
+    const newMsg = {
+      id: String(msg._id),
+      from: acct,
+      to,
+      content,
+      mediaType: msg.mediaType,
+      encoding: msg.encoding,
+      createdAt: msg.createdAt,
+    };
+    sendToUser(acct, { type: "encryptedMessage", payload: newMsg });
+    for (const t of to) {
+      sendToUser(t, { type: "encryptedMessage", payload: newMsg });
+    }
+
     return c.json({ result: "sent", id: String(msg._id) });
   },
 );
@@ -424,6 +439,20 @@ app.post(
         console.error("deliver failed", err);
       },
     );
+
+    const newMsg = {
+      id: String(msg._id),
+      from: acct,
+      to,
+      content,
+      mediaType: msg.mediaType,
+      encoding: msg.encoding,
+      createdAt: msg.createdAt,
+    };
+    sendToUser(acct, { type: "publicMessage", payload: newMsg });
+    for (const t of to) {
+      sendToUser(t, { type: "publicMessage", payload: newMsg });
+    }
 
     return c.json({ result: "sent", id: String(msg._id) });
   },

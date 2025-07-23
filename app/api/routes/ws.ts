@@ -19,6 +19,17 @@ const openHandlers: LifecycleHandler[] = [];
 const closeHandlers: LifecycleHandler[] = [];
 const errorHandlers: LifecycleHandler[] = [];
 
+const userSockets = new Map<string, Set<WSContext<WebSocket>>>();
+
+export function sendToUser(user: string, data: unknown) {
+  const sockets = userSockets.get(user);
+  if (!sockets) return;
+  const message = typeof data === "string" ? data : JSON.stringify(data);
+  for (const s of sockets) {
+    s.send(message);
+  }
+}
+
 export function registerMessageHandler(
   type: string,
   handler: MessageHandler,
@@ -41,6 +52,27 @@ export function registerCloseHandler(handler: LifecycleHandler) {
 export function registerErrorHandler(handler: LifecycleHandler) {
   errorHandlers.push(handler);
 }
+
+registerMessageHandler("register", (payload, ws, state) => {
+  const user = (payload as { user?: string }).user;
+  if (!user) return;
+  state.user = user;
+  let set = userSockets.get(user);
+  if (!set) {
+    set = new Set();
+    userSockets.set(user, set);
+  }
+  set.add(ws);
+});
+
+registerCloseHandler((ws, state) => {
+  const user = state.user as string | undefined;
+  if (!user) return;
+  const set = userSockets.get(user);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) userSockets.delete(user);
+});
 
 const app = new Hono();
 
