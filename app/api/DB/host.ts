@@ -8,9 +8,17 @@ import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
 import HostKeyPackage from "../models/takos_host/key_package.ts";
 import HostNotification from "../models/takos_host/notification.ts";
 import HostPublicMessage from "../models/takos_host/public_message.ts";
+import InboxEntry from "../models/takos/inbox_entry.ts";
+import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
 import HostSession from "../models/takos_host/session.ts";
+import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import FcmToken from "../models/takos/fcm_token.ts";
+import Tenant from "../models/takos/tenant.ts";
+import Instance from "../../takos_host/models/instance.ts";
+import OAuthClient from "../../takos_host/models/oauth_client.ts";
+import HostDomain from "../../takos_host/models/domain.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -26,11 +34,43 @@ export class MongoDBHost implements DB {
     return this.env["ACTIVITYPUB_DOMAIN"] ?? "";
   }
 
-  async getObject(id: string) {
-    return await HostObjectStore.findOne({
-      _id: id,
+  private get rootDomain() {
+    return this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+  }
+
+  private async useLocalObjects() {
+    if (!this.rootDomain) return false;
+    const count = await HostRelayEdge.countDocuments({
       tenant_id: this.tenantId,
-    }).lean();
+      relay: this.rootDomain,
+    });
+    return count > 0;
+  }
+
+  private async searchObjects(
+    filter: Record<string, unknown>,
+    sort?: Record<string, SortOrder>,
+    limit?: number,
+  ) {
+    const conds: Record<string, unknown>[] = [];
+    if (await this.useLocalObjects()) {
+      // takos host 本体のオブジェクトを参照
+      conds.push({ ...filter, tenant_id: this.rootDomain });
+    }
+    const ids = await InboxEntry.find({ tenant_id: this.tenantId }).distinct<
+      string
+    >("object_id");
+    if (ids.length) conds.push({ ...filter, _id: { $in: ids } });
+    if (!conds.length) return [];
+    const query = HostObjectStore.find({ $or: conds });
+    if (sort) query.sort(sort);
+    if (limit) query.limit(limit);
+    return await query.lean();
+  }
+
+  async getObject(id: string) {
+    const list = await this.searchObjects({ _id: id }, undefined, 1);
+    return list[0] ?? null;
   }
 
   async saveObject(obj: Record<string, unknown>) {
@@ -44,22 +84,17 @@ export class MongoDBHost implements DB {
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
-    const docs = await HostFollowEdge.aggregate([
-      { $match: { tenant_id: this.tenantId } },
-      {
-        $lookup: {
-          from: "object_store",
-          localField: "actor_id",
-          foreignField: "actor_id",
-          as: "objs",
-        },
-      },
-      { $unwind: "$objs" },
-      { $match: { "objs.actor_id": actor } },
-      { $sort: { "objs.created_at": -1 } },
-      { $limit: opts.limit ?? 40 },
-    ]).exec();
-    return docs.map((d) => d.objs);
+    const follows = await HostFollowEdge.find({ tenant_id: this.tenantId })
+      .lean<{ actor_id: string }[]>();
+    const ids = follows.map((f) => f.actor_id);
+    if (actor) ids.push(actor);
+    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
+    if (opts.before) filter.created_at = { $lt: opts.before };
+    return await this.searchObjects(
+      filter,
+      { created_at: -1 },
+      opts.limit ?? 40,
+    );
   }
 
   async follow(_: string, target: string) {
@@ -193,21 +228,23 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Note",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Note" },
+      sort,
+    );
   }
 
   async getPublicNotes(limit: number, before?: Date) {
-    const query = HostObjectStore.find({
-      tenant_id: this.tenantId,
+    const filter: Record<string, unknown> = {
       type: "Note",
       "aud.to": "https://www.w3.org/ns/activitystreams#Public",
-    });
-    if (before) query.where("created_at").lt(before.getTime());
-    return await query.sort({ created_at: -1 }).limit(limit).lean();
+    };
+    if (before) filter.created_at = { $lt: before };
+    return await this.searchObjects(
+      filter,
+      { created_at: -1 },
+      limit,
+    );
   }
 
   async saveVideo(
@@ -258,11 +295,10 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Video",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Video" },
+      sort,
+    );
   }
 
   async saveMessage(
@@ -310,21 +346,17 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Message",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Message" },
+      sort,
+    );
   }
 
   async findObjects(
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(filter, sort);
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
@@ -657,6 +689,193 @@ export class MongoDBHost implements DB {
       },
       { upsert: true },
     );
+  }
+
+  async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
+    await InboxEntry.updateOne(
+      { tenant_id: tenantId, object_id: objectId },
+      { $setOnInsert: { received_at: new Date() } },
+      { upsert: true },
+    );
+  }
+
+  async findSystemKey(domain: string) {
+    return await SystemKey.findOne({ domain }).lean<
+      { domain: string; privateKey: string; publicKey: string } | null
+    >();
+  }
+
+  async saveSystemKey(
+    domain: string,
+    privateKey: string,
+    publicKey: string,
+  ) {
+    await SystemKey.create({ domain, privateKey, publicKey });
+  }
+
+  async registerFcmToken(token: string, userName: string) {
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.updateOne(
+        {
+          token,
+          tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+        },
+        { $set: { token, userName } },
+        { upsert: true },
+      );
+    } else {
+      await FcmToken.updateOne({ token }, { $set: { token, userName } }, {
+        upsert: true,
+      });
+    }
+  }
+
+  async unregisterFcmToken(token: string) {
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.deleteOne({
+        token,
+        tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+      });
+    } else {
+      await FcmToken.deleteOne({ token });
+    }
+  }
+
+  async listFcmTokens() {
+    if (this.env["DB_MODE"] === "host") {
+      const docs = await HostFcmToken.find<{ token: string }>(
+        { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] },
+      ).lean();
+      return docs.map((d) => ({ token: d.token }));
+    } else {
+      const docs = await FcmToken.find<{ token: string }>({}).lean();
+      return docs.map((d) => ({ token: d.token }));
+    }
+  }
+
+  async listInstances(owner: string) {
+    const docs = await Instance.find({ owner }).lean<{ host: string }[]>();
+    return docs.map((d) => ({ host: d.host }));
+  }
+
+  async countInstances(owner: string) {
+    return await Instance.countDocuments({ owner });
+  }
+
+  async findInstanceByHost(host: string) {
+    const doc = await Instance.findOne({ host }).lean<
+      {
+        _id: mongoose.Types.ObjectId;
+        host: string;
+        owner: mongoose.Types.ObjectId;
+        env?: Record<string, string>;
+      } | null
+    >();
+    return doc
+      ? {
+        _id: String(doc._id),
+        host: doc.host,
+        owner: String(doc.owner),
+        env: doc.env,
+      }
+      : null;
+  }
+
+  async findInstanceByHostAndOwner(host: string, owner: string) {
+    const doc = await Instance.findOne({ host, owner }).lean<
+      {
+        _id: mongoose.Types.ObjectId;
+        host: string;
+        env?: Record<string, string>;
+      } | null
+    >();
+    return doc ? { _id: String(doc._id), host: doc.host, env: doc.env } : null;
+  }
+
+  async createInstance(
+    data: { host: string; owner: string; env?: Record<string, string> },
+  ) {
+    await Instance.create({
+      host: data.host,
+      owner: data.owner,
+      env: data.env ?? {},
+      createdAt: new Date(),
+    });
+  }
+
+  async updateInstanceEnv(id: string, env: Record<string, string>) {
+    await Instance.updateOne({ _id: id }, { $set: { env } });
+  }
+
+  async deleteInstance(host: string, owner: string) {
+    await Instance.deleteOne({ host, owner });
+  }
+
+  async listOAuthClients() {
+    const docs = await OAuthClient.find({}).lean<
+      { clientId: string; redirectUri: string }[]
+    >();
+    return docs.map((d) => ({
+      clientId: d.clientId,
+      redirectUri: d.redirectUri,
+    }));
+  }
+
+  async findOAuthClient(clientId: string) {
+    const doc = await OAuthClient.findOne({ clientId }).lean<
+      { clientSecret: string } | null
+    >();
+    return doc ? { clientSecret: doc.clientSecret } : null;
+  }
+
+  async createOAuthClient(
+    data: { clientId: string; clientSecret: string; redirectUri: string },
+  ) {
+    await OAuthClient.create({
+      clientId: data.clientId,
+      clientSecret: data.clientSecret,
+      redirectUri: data.redirectUri,
+      createdAt: new Date(),
+    });
+  }
+
+  async listHostDomains(user: string) {
+    const docs = await HostDomain.find({ user }).lean<
+      { domain: string; verified: boolean }[]
+    >();
+    return docs.map((d) => ({ domain: d.domain, verified: d.verified }));
+  }
+
+  async findHostDomain(domain: string, user?: string) {
+    const cond: Record<string, unknown> = { domain };
+    if (user) cond.user = user;
+    const doc = await HostDomain.findOne(cond).lean<
+      { _id: mongoose.Types.ObjectId; token: string; verified: boolean } | null
+    >();
+    return doc
+      ? { _id: String(doc._id), token: doc.token, verified: doc.verified }
+      : null;
+  }
+
+  async createHostDomain(domain: string, user: string, token: string) {
+    await HostDomain.create({
+      domain,
+      user,
+      token,
+      verified: false,
+      createdAt: new Date(),
+    });
+  }
+
+  async verifyHostDomain(id: string) {
+    await HostDomain.updateOne({ _id: id }, { $set: { verified: true } });
+  }
+
+  async ensureTenant(id: string, domain: string) {
+    const exists = await Tenant.findOne({ _id: id }).lean();
+    if (!exists) {
+      await Tenant.create({ _id: id, domain, created_at: new Date() });
+    }
   }
 
   async createSession(

@@ -37,9 +37,8 @@ export function createConsumerApp(
 
   app.get("/instances", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("instances");
-    const list = await col.find({ owner: user._id }).toArray();
-    return c.json(list.map((i) => ({ host: i.host })));
+    const list = await db.listInstances(String(user._id));
+    return c.json(list);
   });
 
   app.post(
@@ -53,8 +52,7 @@ export function createConsumerApp(
       const host = rawHost.toLowerCase();
       const user = c.get("user") as HostUserDoc;
 
-      const instCol = (await db.getDatabase()).collection("instances");
-      const count = await instCol.countDocuments({ owner: user._id });
+      const count = await db.countInstances(String(user._id));
       if (count >= freeLimit) {
         return c.json({ error: "limit" }, 400);
       }
@@ -81,7 +79,7 @@ export function createConsumerApp(
         return c.json({ error: "reserved" }, 400);
       }
 
-      const exists = await instCol.findOne({ host: fullHost });
+      const exists = await db.findInstanceByHost(fullHost);
       if (exists) {
         return c.json({ error: "already exists" }, 400);
       }
@@ -91,19 +89,15 @@ export function createConsumerApp(
         const redirect = `https://${fullHost}`;
         const clientId = redirect;
         let clientSecret: string;
-        const cliCol = (await db.getDatabase()).collection("oauthclients");
-        const existsCli = await cliCol.findOne<{ clientSecret: string }>({
-          clientId,
-        });
+        const existsCli = await db.findOAuthClient(clientId);
         if (existsCli) {
           clientSecret = existsCli.clientSecret;
         } else {
           clientSecret = crypto.randomUUID();
-          await cliCol.insertOne({
+          await db.createOAuthClient({
             clientId,
             clientSecret,
             redirectUri: redirect,
-            createdAt: new Date(),
           });
         }
         env.OAUTH_CLIENT_ID = clientId;
@@ -115,11 +109,10 @@ export function createConsumerApp(
         env.hashedPassword = hashedPassword;
         env.salt = salt;
       }
-      await instCol.insertOne({
+      await db.createInstance({
         host: fullHost,
-        owner: user._id,
+        owner: String(user._id),
         env,
-        createdAt: new Date(),
       });
       await ensureTenant(db, fullHost, fullHost);
       if (rootDomain) {
@@ -146,8 +139,7 @@ export function createConsumerApp(
   app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("instances");
-    await col.deleteOne({ host, owner: user._id });
+    await db.deleteInstance(host, String(user._id));
     invalidate?.(host);
     return c.json({ success: true });
   });
@@ -155,9 +147,8 @@ export function createConsumerApp(
   app.get("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("instances");
-    const inst = await col.findOne({ host, owner: user._id });
-    if (!inst || Array.isArray(inst)) {
+    const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
+    if (!inst) {
       return c.json({ error: "not found" }, 404);
     }
     return c.json({ host: inst.host });
@@ -170,23 +161,18 @@ export function createConsumerApp(
       const host = c.req.param("host").toLowerCase();
       const { password } = c.req.valid("json");
       const user = c.get("user") as HostUserDoc;
-      const col = (await db.getDatabase()).collection("instances");
-      const inst = await col.findOne<
-        { _id: ObjectId; env?: Record<string, string> }
-      >(
-        { host, owner: user._id },
-      );
+      const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
       if (!inst) return c.json({ error: "not found" }, 404);
       if (password) {
         const salt = crypto.randomUUID();
         const hashedPassword = await hash(password);
         const newEnv = { ...(inst.env ?? {}), hashedPassword, salt };
-        await col.updateOne({ _id: inst._id }, { $set: { env: newEnv } });
+        await db.updateInstanceEnv(inst._id, newEnv);
       } else if (inst.env) {
         const newEnv = { ...inst.env };
         delete newEnv.hashedPassword;
         delete newEnv.salt;
-        await col.updateOne({ _id: inst._id }, { $set: { env: newEnv } });
+        await db.updateInstanceEnv(inst._id, newEnv);
       }
       invalidate?.(host);
       return c.json({ success: true });
@@ -196,22 +182,15 @@ export function createConsumerApp(
   app.post("/instances/:host/restart", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("instances");
-    const inst = await col.findOne({ host, owner: user._id });
+    const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
     if (!inst) return c.json({ error: "not found" }, 404);
     invalidate?.(host);
     return c.json({ success: true });
   });
 
   app.get("/oauth/clients", async (c) => {
-    const col = (await db.getDatabase()).collection("oauthclients");
-    const list = await col.find().toArray();
-    return c.json(
-      list.map((cli) => ({
-        clientId: cli.clientId,
-        redirectUri: cli.redirectUri,
-      })),
-    );
+    const list = await db.listOAuthClients();
+    return c.json(list);
   });
 
   app.post(
@@ -226,26 +205,17 @@ export function createConsumerApp(
     ),
     async (c) => {
       const { clientId, clientSecret, redirectUri } = c.req.valid("json");
-      const col = (await db.getDatabase()).collection("oauthclients");
-      const exists = await col.findOne({ clientId });
+      const exists = await db.findOAuthClient(clientId);
       if (exists) return c.json({ error: "exists" }, 400);
-      await col.insertOne({
-        clientId,
-        clientSecret,
-        redirectUri,
-        createdAt: new Date(),
-      });
+      await db.createOAuthClient({ clientId, clientSecret, redirectUri });
       return c.json({ success: true });
     },
   );
 
   app.get("/domains", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("hostdomains");
-    const list = await col.find({ user: user._id }).toArray();
-    return c.json(
-      list.map((d) => ({ domain: d.domain, verified: d.verified })),
-    );
+    const list = await db.listHostDomains(String(user._id));
+    return c.json(list);
   });
 
   app.post(
@@ -254,17 +224,10 @@ export function createConsumerApp(
     async (c) => {
       const { domain } = c.req.valid("json");
       const user = c.get("user") as HostUserDoc;
-      const col = (await db.getDatabase()).collection("hostdomains");
-      const exists = await col.findOne({ domain });
+      const exists = await db.findHostDomain(domain);
       if (exists) return c.json({ error: "exists" }, 400);
       const token = crypto.randomUUID();
-      await col.insertOne({
-        domain,
-        user: user._id,
-        token,
-        verified: false,
-        createdAt: new Date(),
-      });
+      await db.createHostDomain(domain, String(user._id), token);
       return c.json({ success: true, token });
     },
   );
@@ -272,12 +235,7 @@ export function createConsumerApp(
   app.post("/domains/:domain/verify", async (c) => {
     const domain = c.req.param("domain");
     const user = c.get("user") as HostUserDoc;
-    const col = (await db.getDatabase()).collection("hostdomains");
-    const doc = await col.findOne<
-      { _id: ObjectId; token: string; verified: boolean }
-    >(
-      { domain, user: user._id },
-    );
+    const doc = await db.findHostDomain(domain, String(user._id));
     if (!doc) return c.json({ error: "not found" }, 404);
     try {
       const res = await fetch(
@@ -286,10 +244,7 @@ export function createConsumerApp(
       if (res.ok) {
         const text = (await res.text()).trim();
         if (text === doc.token) {
-          await col.updateOne(
-            { _id: doc._id },
-            { $set: { verified: true } },
-          );
+          await db.verifyHostDomain(doc._id);
           return c.json({ success: true });
         }
       }

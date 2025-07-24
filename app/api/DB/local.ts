@@ -11,9 +11,17 @@ import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
 import PublicMessage from "../models/takos/public_message.ts";
+import InboxEntry from "../models/takos/inbox_entry.ts";
+import SystemKey from "../models/takos/system_key.ts";
 import Relay from "../models/takos/relay.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
+import FcmToken from "../models/takos/fcm_token.ts";
+import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import Instance from "../../takos_host/models/instance.ts";
+import OAuthClient from "../../takos_host/models/oauth_client.ts";
+import HostDomain from "../../takos_host/models/domain.ts";
+import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -614,6 +622,194 @@ export class MongoDBLocal implements DB {
       },
       { upsert: true },
     );
+  }
+
+  async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
+    if (this.env["DB_MODE"] !== "host") return;
+    await InboxEntry.updateOne(
+      { tenant_id: tenantId, object_id: objectId },
+      { $setOnInsert: { received_at: new Date() } },
+      { upsert: true },
+    );
+  }
+
+  async findSystemKey(domain: string) {
+    return await SystemKey.findOne({ domain }).lean<
+      { domain: string; privateKey: string; publicKey: string } | null
+    >();
+  }
+
+  async saveSystemKey(
+    domain: string,
+    privateKey: string,
+    publicKey: string,
+  ) {
+    await SystemKey.create({ domain, privateKey, publicKey });
+  }
+
+  async registerFcmToken(token: string, userName: string) {
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.updateOne(
+        {
+          token,
+          tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+        },
+        { $set: { token, userName } },
+        { upsert: true },
+      );
+    } else {
+      await FcmToken.updateOne({ token }, { $set: { token, userName } }, {
+        upsert: true,
+      });
+    }
+  }
+
+  async unregisterFcmToken(token: string) {
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.deleteOne({
+        token,
+        tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+      });
+    } else {
+      await FcmToken.deleteOne({ token });
+    }
+  }
+
+  async listFcmTokens() {
+    if (this.env["DB_MODE"] === "host") {
+      const docs = await HostFcmToken.find<{ token: string }>(
+        { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] },
+      ).lean();
+      return docs.map((d) => ({ token: d.token }));
+    } else {
+      const docs = await FcmToken.find<{ token: string }>({}).lean();
+      return docs.map((d) => ({ token: d.token }));
+    }
+  }
+
+  async listInstances(owner: string) {
+    const docs = await Instance.find({ owner }).lean<{ host: string }[]>();
+    return docs.map((d) => ({ host: d.host }));
+  }
+
+  async countInstances(owner: string) {
+    return await Instance.countDocuments({ owner });
+  }
+
+  async findInstanceByHost(host: string) {
+    const doc = await Instance.findOne({ host }).lean<
+      {
+        _id: mongoose.Types.ObjectId;
+        host: string;
+        owner: mongoose.Types.ObjectId;
+        env?: Record<string, string>;
+      } | null
+    >();
+    return doc
+      ? {
+        _id: String(doc._id),
+        host: doc.host,
+        owner: String(doc.owner),
+        env: doc.env,
+      }
+      : null;
+  }
+
+  async findInstanceByHostAndOwner(host: string, owner: string) {
+    const doc = await Instance.findOne({ host, owner }).lean<
+      {
+        _id: mongoose.Types.ObjectId;
+        host: string;
+        env?: Record<string, string>;
+      } | null
+    >();
+    return doc ? { _id: String(doc._id), host: doc.host, env: doc.env } : null;
+  }
+
+  async createInstance(
+    data: { host: string; owner: string; env?: Record<string, string> },
+  ) {
+    await Instance.create({
+      host: data.host,
+      owner: data.owner,
+      env: data.env ?? {},
+      createdAt: new Date(),
+    });
+  }
+
+  async updateInstanceEnv(id: string, env: Record<string, string>) {
+    await Instance.updateOne({ _id: id }, { $set: { env } });
+  }
+
+  async deleteInstance(host: string, owner: string) {
+    await Instance.deleteOne({ host, owner });
+  }
+
+  async listOAuthClients() {
+    const docs = await OAuthClient.find({}).lean<
+      { clientId: string; redirectUri: string }[]
+    >();
+    return docs.map((d) => ({
+      clientId: d.clientId,
+      redirectUri: d.redirectUri,
+    }));
+  }
+
+  async findOAuthClient(clientId: string) {
+    const doc = await OAuthClient.findOne({ clientId }).lean<
+      { clientSecret: string } | null
+    >();
+    return doc ? { clientSecret: doc.clientSecret } : null;
+  }
+
+  async createOAuthClient(
+    data: { clientId: string; clientSecret: string; redirectUri: string },
+  ) {
+    await OAuthClient.create({
+      clientId: data.clientId,
+      clientSecret: data.clientSecret,
+      redirectUri: data.redirectUri,
+      createdAt: new Date(),
+    });
+  }
+
+  async listHostDomains(user: string) {
+    const docs = await HostDomain.find({ user }).lean<
+      { domain: string; verified: boolean }[]
+    >();
+    return docs.map((d) => ({ domain: d.domain, verified: d.verified }));
+  }
+
+  async findHostDomain(domain: string, user?: string) {
+    const cond: Record<string, unknown> = { domain };
+    if (user) cond.user = user;
+    const doc = await HostDomain.findOne(cond).lean<
+      { _id: mongoose.Types.ObjectId; token: string; verified: boolean } | null
+    >();
+    return doc
+      ? { _id: String(doc._id), token: doc.token, verified: doc.verified }
+      : null;
+  }
+
+  async createHostDomain(domain: string, user: string, token: string) {
+    await HostDomain.create({
+      domain,
+      user,
+      token,
+      verified: false,
+      createdAt: new Date(),
+    });
+  }
+
+  async verifyHostDomain(id: string) {
+    await HostDomain.updateOne({ _id: id }, { $set: { verified: true } });
+  }
+
+  async ensureTenant(id: string, domain: string) {
+    const exists = await Tenant.findOne({ _id: id }).lean();
+    if (!exists) {
+      await Tenant.create({ _id: id, domain, created_at: new Date() });
+    }
   }
 
   async createSession(
