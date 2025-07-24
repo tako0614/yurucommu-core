@@ -54,7 +54,8 @@ export class MongoDBHost implements DB {
   ) {
     const conds: Record<string, unknown>[] = [];
     if (await this.useLocalObjects()) {
-      conds.push({ ...filter, tenant_id: this.tenantId });
+      // takos host 本体のオブジェクトを参照
+      conds.push({ ...filter, tenant_id: this.rootDomain });
     }
     const ids = await InboxEntry.find({ tenant_id: this.tenantId }).distinct<
       string
