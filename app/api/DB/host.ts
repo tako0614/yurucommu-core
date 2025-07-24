@@ -13,6 +13,9 @@ import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
 import HostSession from "../models/takos_host/session.ts";
+import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import FcmToken from "../models/takos/fcm_token.ts";
+import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
@@ -684,36 +687,47 @@ export class MongoDBHost implements DB {
   }
 
   async registerFcmToken(token: string, userName: string) {
-    const collection = (await this.getDatabase()).collection("fcmtokens");
-    const cond = this.env["DB_MODE"] === "host"
-      ? { token, tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
-      : { token };
-    await collection.updateOne(cond, { $set: { token, userName } }, {
-      upsert: true,
-    });
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.updateOne(
+        {
+          token,
+          tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+        },
+        { $set: { token, userName } },
+        { upsert: true },
+      );
+    } else {
+      await FcmToken.updateOne({ token }, { $set: { token, userName } }, {
+        upsert: true,
+      });
+    }
   }
 
   async unregisterFcmToken(token: string) {
-    const collection = (await this.getDatabase()).collection("fcmtokens");
-    const cond = this.env["DB_MODE"] === "host"
-      ? { token, tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
-      : { token };
-    await collection.deleteOne(cond);
+    if (this.env["DB_MODE"] === "host") {
+      await HostFcmToken.deleteOne({
+        token,
+        tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
+      });
+    } else {
+      await FcmToken.deleteOne({ token });
+    }
   }
 
   async listFcmTokens() {
-    const collection = (await this.getDatabase()).collection("fcmtokens");
-    const cond = this.env["DB_MODE"] === "host"
-      ? { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
-      : {};
-    return await collection.find<{ token: string }>(cond).toArray();
+    if (this.env["DB_MODE"] === "host") {
+      return await HostFcmToken.find<{ token: string }>(
+        { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] },
+      ).lean();
+    } else {
+      return await FcmToken.find<{ token: string }>({}).lean();
+    }
   }
 
   async ensureTenant(id: string, domain: string) {
-    const collection = (await this.getDatabase()).collection("tenant");
-    const exists = await collection.findOne({ _id: id });
+    const exists = await Tenant.findOne({ _id: id }).lean();
     if (!exists) {
-      await collection.insertOne({ _id: id, domain, created_at: new Date() });
+      await Tenant.create({ _id: id, domain, created_at: new Date() });
     }
   }
 
