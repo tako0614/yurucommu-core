@@ -6,8 +6,6 @@ const tenantSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now },
 });
 
-tenantSchema.index({ _id: 1 }, { unique: true });
-
 const Tenant = mongoose.models.Tenant ??
   mongoose.model("Tenant", tenantSchema);
 
