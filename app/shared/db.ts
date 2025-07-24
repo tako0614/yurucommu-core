@@ -146,6 +146,23 @@ export interface DB {
   ): Promise<unknown>;
   markNotificationRead(id: string): Promise<boolean>;
   deleteNotification(id: string): Promise<boolean>;
+  addInboxEntry(tenantId: string, objectId: string): Promise<void>;
+  findSystemKey(domain: string): Promise<
+    {
+      domain: string;
+      privateKey: string;
+      publicKey: string;
+    } | null
+  >;
+  saveSystemKey(
+    domain: string,
+    privateKey: string,
+    publicKey: string,
+  ): Promise<void>;
+  registerFcmToken(token: string, userName: string): Promise<void>;
+  unregisterFcmToken(token: string): Promise<void>;
+  listFcmTokens(): Promise<{ token: string }[]>;
+  ensureTenant(id: string, domain: string): Promise<void>;
   findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]>;
   findRelayByHost(host: string): Promise<RelayDoc | null>;
   createRelay(data: { host: string; inboxUrl: string }): Promise<RelayDoc>;

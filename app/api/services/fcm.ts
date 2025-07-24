@@ -91,14 +91,7 @@ export async function registerToken(
   dbInst?: DB,
 ) {
   const db = dbInst ?? createDB(env);
-  const collection = (await db.getDatabase()).collection("fcmtokens");
-  await collection.updateOne(
-    env["DB_MODE"] === "host"
-      ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
-      : { token },
-    { $set: { token, userName } },
-    { upsert: true },
-  );
+  await db.registerFcmToken(token, userName);
 }
 
 export async function unregisterToken(
@@ -107,11 +100,7 @@ export async function unregisterToken(
   dbInst?: DB,
 ) {
   const db = dbInst ?? createDB(env);
-  const collection = (await db.getDatabase()).collection("fcmtokens");
-  const cond = env["DB_MODE"] === "host"
-    ? { token, tenant_id: env["ACTIVITYPUB_DOMAIN"] }
-    : { token };
-  await collection.deleteOne(cond);
+  await db.unregisterFcmToken(token);
 }
 
 export async function sendNotification(
@@ -123,11 +112,7 @@ export async function sendNotification(
   const accessToken = await getAccessToken(env);
   if (!accessToken) return;
   const db = dbInst ?? createDB(env);
-  const collection = (await db.getDatabase()).collection("fcmtokens");
-  const cond = env["DB_MODE"] === "host"
-    ? { tenant_id: env["ACTIVITYPUB_DOMAIN"] }
-    : {};
-  const list = await collection.find<{ token: string }>(cond).toArray();
+  const list = await db.listFcmTokens();
   const projectId = env["FIREBASE_PROJECT_ID"];
   const url =
     `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;

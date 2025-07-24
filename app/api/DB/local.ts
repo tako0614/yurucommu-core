@@ -11,6 +11,8 @@ import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
 import PublicMessage from "../models/takos/public_message.ts";
+import InboxEntry from "../models/takos/inbox_entry.ts";
+import SystemKey from "../models/takos/system_key.ts";
 import Relay from "../models/takos/relay.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
@@ -614,6 +616,62 @@ export class MongoDBLocal implements DB {
       },
       { upsert: true },
     );
+  }
+
+  async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
+    await InboxEntry.updateOne(
+      { tenant_id: tenantId, object_id: objectId },
+      { $setOnInsert: { received_at: new Date() } },
+      { upsert: true },
+    );
+  }
+
+  async findSystemKey(domain: string) {
+    return await SystemKey.findOne({ domain }).lean<
+      { domain: string; privateKey: string; publicKey: string } | null
+    >();
+  }
+
+  async saveSystemKey(
+    domain: string,
+    privateKey: string,
+    publicKey: string,
+  ) {
+    await SystemKey.create({ domain, privateKey, publicKey });
+  }
+
+  async registerFcmToken(token: string, userName: string) {
+    const collection = (await this.getDatabase()).collection("fcmtokens");
+    const cond = this.env["DB_MODE"] === "host"
+      ? { token, tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
+      : { token };
+    await collection.updateOne(cond, { $set: { token, userName } }, {
+      upsert: true,
+    });
+  }
+
+  async unregisterFcmToken(token: string) {
+    const collection = (await this.getDatabase()).collection("fcmtokens");
+    const cond = this.env["DB_MODE"] === "host"
+      ? { token, tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
+      : { token };
+    await collection.deleteOne(cond);
+  }
+
+  async listFcmTokens() {
+    const collection = (await this.getDatabase()).collection("fcmtokens");
+    const cond = this.env["DB_MODE"] === "host"
+      ? { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] }
+      : {};
+    return await collection.find<{ token: string }>(cond).toArray();
+  }
+
+  async ensureTenant(id: string, domain: string) {
+    const collection = (await this.getDatabase()).collection("tenant");
+    const exists = await collection.findOne({ _id: id });
+    if (!exists) {
+      await collection.insertOne({ _id: id, domain, created_at: new Date() });
+    }
   }
 
   async createSession(
