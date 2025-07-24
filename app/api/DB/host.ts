@@ -34,11 +34,42 @@ export class MongoDBHost implements DB {
     return this.env["ACTIVITYPUB_DOMAIN"] ?? "";
   }
 
-  async getObject(id: string) {
-    return await HostObjectStore.findOne({
-      _id: id,
+  private get rootDomain() {
+    return this.env["ROOT_DOMAIN"] ?? "";
+  }
+
+  private async useLocalObjects() {
+    if (!this.rootDomain) return false;
+    const count = await HostRelayEdge.countDocuments({
       tenant_id: this.tenantId,
-    }).lean();
+      relay: this.rootDomain,
+    });
+    return count > 0;
+  }
+
+  private async searchObjects(
+    filter: Record<string, unknown>,
+    sort?: Record<string, SortOrder>,
+    limit?: number,
+  ) {
+    const conds: Record<string, unknown>[] = [];
+    if (await this.useLocalObjects()) {
+      conds.push({ ...filter, tenant_id: this.tenantId });
+    }
+    const ids = await InboxEntry.find({ tenant_id: this.tenantId }).distinct<
+      string
+    >("object_id");
+    if (ids.length) conds.push({ ...filter, _id: { $in: ids } });
+    if (!conds.length) return [];
+    const query = HostObjectStore.find({ $or: conds });
+    if (sort) query.sort(sort);
+    if (limit) query.limit(limit);
+    return await query.lean();
+  }
+
+  async getObject(id: string) {
+    const list = await this.searchObjects({ _id: id }, undefined, 1);
+    return list[0] ?? null;
   }
 
   async saveObject(obj: Record<string, unknown>) {
@@ -52,22 +83,17 @@ export class MongoDBHost implements DB {
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
-    const docs = await HostFollowEdge.aggregate([
-      { $match: { tenant_id: this.tenantId } },
-      {
-        $lookup: {
-          from: "object_store",
-          localField: "actor_id",
-          foreignField: "actor_id",
-          as: "objs",
-        },
-      },
-      { $unwind: "$objs" },
-      { $match: { "objs.actor_id": actor } },
-      { $sort: { "objs.created_at": -1 } },
-      { $limit: opts.limit ?? 40 },
-    ]).exec();
-    return docs.map((d) => d.objs);
+    const follows = await HostFollowEdge.find({ tenant_id: this.tenantId })
+      .lean<{ actor_id: string }[]>();
+    const ids = follows.map((f) => f.actor_id);
+    if (actor) ids.push(actor);
+    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
+    if (opts.before) filter.created_at = { $lt: opts.before };
+    return await this.searchObjects(
+      filter,
+      { created_at: -1 },
+      opts.limit ?? 40,
+    );
   }
 
   async follow(_: string, target: string) {
@@ -201,21 +227,23 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Note",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Note" },
+      sort,
+    );
   }
 
   async getPublicNotes(limit: number, before?: Date) {
-    const query = HostObjectStore.find({
-      tenant_id: this.tenantId,
+    const filter: Record<string, unknown> = {
       type: "Note",
       "aud.to": "https://www.w3.org/ns/activitystreams#Public",
-    });
-    if (before) query.where("created_at").lt(before.getTime());
-    return await query.sort({ created_at: -1 }).limit(limit).lean();
+    };
+    if (before) filter.created_at = { $lt: before };
+    return await this.searchObjects(
+      filter,
+      { created_at: -1 },
+      limit,
+    );
   }
 
   async saveVideo(
@@ -266,11 +294,10 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Video",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Video" },
+      sort,
+    );
   }
 
   async saveMessage(
@@ -318,21 +345,17 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-      type: "Message",
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(
+      { ...filter, type: "Message" },
+      sort,
+    );
   }
 
   async findObjects(
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await HostObjectStore.find({
-      ...filter,
-      tenant_id: this.tenantId,
-    }).sort(sort ?? {}).lean();
+    return await this.searchObjects(filter, sort);
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
