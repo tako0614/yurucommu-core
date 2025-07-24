@@ -58,11 +58,9 @@ export class MongoDBHost implements DB {
       conds.push({ ...filter, tenant_id: this.rootDomain });
     }
     const query = conds.length > 1
-      ? HostObjectStore.find({ $or: conds })
-      : HostObjectStore.find(conds[0]);
-    if (sort) query.sort(sort);
-    if (limit) query.limit(limit);
-    return await query.lean();
+      ? await HostObjectStore.find({ $or: conds }).limit(limit ?? 20).sort(sort)
+      : await HostObjectStore.find(conds[0]).limit(limit ?? 20).sort(sort);
+    return query;
   }
 
   async getObject(id: string) {
@@ -234,7 +232,7 @@ export class MongoDBHost implements DB {
   async getPublicNotes(limit: number, before?: Date) {
     const filter: Record<string, unknown> = {
       type: "Note",
-      "aud.to": "https://www.w3.org/ns/activitystreams#Public",
+      to: "https://www.w3.org/ns/activitystreams#Public",
     };
     if (before) filter.created_at = { $lt: before };
     return await this.searchObjects(
