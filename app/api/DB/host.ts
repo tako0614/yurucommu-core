@@ -719,11 +719,13 @@ export class MongoDBHost implements DB {
 
   async listFcmTokens() {
     if (this.env["DB_MODE"] === "host") {
-      return await HostFcmToken.find<{ token: string }>(
+      const docs = await HostFcmToken.find<{ token: string }>(
         { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] },
       ).lean();
+      return docs.map((d) => ({ token: d.token }));
     } else {
-      return await FcmToken.find<{ token: string }>({}).lean();
+      const docs = await FcmToken.find<{ token: string }>({}).lean();
+      return docs.map((d) => ({ token: d.token }));
     }
   }
 
