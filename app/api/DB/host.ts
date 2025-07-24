@@ -34,7 +34,7 @@ export class MongoDBHost implements DB {
   }
 
   private get rootDomain() {
-    return this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    return this.env["ROOT_DOMAIN"] ?? "";
   }
 
   private async useLocalObjects() {
