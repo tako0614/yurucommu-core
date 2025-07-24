@@ -1,6 +1,5 @@
 import HostObjectStore from "../models/takos_host/object_store.ts";
 import HostFollowEdge from "../models/takos_host/follow_edge.ts";
-import HostRelayEdge from "../models/takos_host/relay_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import HostAccount from "../models/takos_host/account.ts";
 import HostEncryptedKeyPair from "../models/takos_host/encrypted_keypair.ts";
@@ -40,9 +39,9 @@ export class MongoDBHost implements DB {
 
   private async useLocalObjects() {
     if (!this.rootDomain) return false;
-    const count = await HostRelayEdge.countDocuments({
+    const count = await HostRelay.countDocuments({
       tenant_id: this.tenantId,
-      relay: this.rootDomain,
+      host: this.rootDomain,
     });
     return count > 0;
   }
@@ -382,32 +381,23 @@ export class MongoDBHost implements DB {
     });
   }
 
-  async listPushRelays() {
-    const docs = await HostRelayEdge.find({
-      tenant_id: this.tenantId,
-      mode: "push",
-    }).lean<{ relay: string }[]>();
-    return docs.map((d) => d.relay);
+  async listRelays() {
+    const docs = await HostRelay.find({ tenant_id: this.tenantId }).lean<
+      { host: string }[]
+    >();
+    return docs.map((d) => d.host);
   }
 
-  async listPullRelays() {
-    const docs = await HostRelayEdge.find({
-      tenant_id: this.tenantId,
-      mode: "pull",
-    }).lean<{ relay: string }[]>();
-    return docs.map((d) => d.relay);
-  }
-
-  async addRelay(relay: string, mode: "pull" | "push" = "pull") {
-    await HostRelayEdge.updateOne(
-      { tenant_id: this.tenantId, relay, mode },
+  async addRelay(relay: string) {
+    await HostRelay.updateOne(
+      { tenant_id: this.tenantId, host: relay },
       { $setOnInsert: { since: new Date() } },
       { upsert: true },
     );
   }
 
   async removeRelay(relay: string) {
-    await HostRelayEdge.deleteMany({ tenant_id: this.tenantId, relay });
+    await HostRelay.deleteOne({ tenant_id: this.tenantId, host: relay });
   }
 
   async addFollowerByName(username: string, follower: string) {

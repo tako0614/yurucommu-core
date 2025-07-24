@@ -165,8 +165,7 @@ async function createInstance(
       ACTIVITYPUB_DOMAIN: fullHost,
       DB_MODE: "host",
     });
-    await relayDb.addRelay(rootDomain, "pull");
-    await relayDb.addRelay(rootDomain, "push");
+    await relayDb.addRelay(rootDomain);
   }
   console.log(`作成しました: ${fullHost}`);
 }
@@ -224,8 +223,7 @@ async function addRelay(env: Record<string, string>, inboxUrl: string) {
         ACTIVITYPUB_DOMAIN: rootDomain,
         DB_MODE: "host",
       });
-      await db.addRelay(relayHost, "pull");
-      await db.addRelay(relayHost, "push");
+      await db.addRelay(relayHost);
     } catch {
       /* ignore */
     }
