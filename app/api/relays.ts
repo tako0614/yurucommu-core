@@ -19,7 +19,7 @@ app.get("/relays", async (c) => {
   const env = getEnv(c);
   const rootDomain = env["ROOT_DOMAIN"] ?? "";
   const db = createDB(env);
-  const hosts = await db.listPullRelays();
+  const hosts = await db.listRelays();
   const targets = hosts.filter((h) => h !== rootDomain);
   const relays = await db.findRelaysByHosts(targets);
   return jsonResponse(c, { relays });
@@ -37,8 +37,7 @@ app.post(
     const relay = await db.createRelay({ host, inboxUrl });
     const env = getEnv(c);
     try {
-      await db.addRelay(host, "pull");
-      await db.addRelay(host, "push");
+      await db.addRelay(host);
     } catch {
       // URL パース失敗時は無視
     }

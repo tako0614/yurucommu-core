@@ -3,7 +3,6 @@ import Note from "../models/takos/note.ts";
 import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
-import RelayEdge from "../models/takos/relay_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
 import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
@@ -323,30 +322,21 @@ export class MongoDBLocal implements DB {
     return await ObjectStore.deleteMany({ ...filter });
   }
 
-  async listPushRelays() {
-    const docs = await RelayEdge.find({ mode: "push" }).lean<
-      { relay: string }[]
-    >();
-    return docs.map((d) => d.relay);
+  async listRelays() {
+    const docs = await Relay.find({}).lean<{ host: string }[]>();
+    return docs.map((d) => d.host);
   }
 
-  async listPullRelays() {
-    const docs = await RelayEdge.find({ mode: "pull" }).lean<
-      { relay: string }[]
-    >();
-    return docs.map((d) => d.relay);
-  }
-
-  async addRelay(relay: string, mode: "pull" | "push" = "pull") {
-    await RelayEdge.updateOne(
-      { relay, mode },
+  async addRelay(relay: string) {
+    await Relay.updateOne(
+      { host: relay },
       { $setOnInsert: { since: new Date() } },
       { upsert: true },
     );
   }
 
   async removeRelay(relay: string) {
-    await RelayEdge.deleteMany({ relay });
+    await Relay.deleteOne({ host: relay });
   }
 
   async addFollowerByName(username: string, follower: string) {

@@ -62,7 +62,7 @@ export function createDB(env: Record<string, string>): DB {
   - `object_store` : `_id` で一意なオブジェクトを保存し `tenant_id` で区別
   - `tenant` : インスタンス情報 (ドメインなど)
   - `follow_edge` : `{ tenant_id, actor_id, ... }`
-  - `relay_edge` : リレー設定
+  - `relays` : `{ tenant_id, host, inboxUrl, since }`
 - すべてのクエリで `tenant_id` を条件に含め、データが混在しないようにする。
 
 ## 5. 実装方針

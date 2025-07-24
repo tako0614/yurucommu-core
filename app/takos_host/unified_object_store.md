@@ -36,7 +36,7 @@ _Draft v0.3  2025‑07‑14_
 │  HTTP (署名付き JSON)        │
 └────────────────────────────┘
           ▲     ▲
-          │pull │push
+          │follow│
 ┌──────────┴─────┴─────┐
 │ 配送オーケストレータ │  (stateless ワーカー)
 └──────▲────────▲──────┘
@@ -92,11 +92,11 @@ _Draft v0.3  2025‑07‑14_
 // Index: { actor_id: 1, tenant_id: 1 }
 ```
 
-### 5.4 `relay_edge`
+### 5.4 `relays`
 
 ```
-{ tenant_id: UUID, relay: "some.relay", mode: "pull"|"push", since: ISODate() }
-// Index: { relay: 1, tenant_id: 1 }
+{ tenant_id: UUID, host: "some.relay", inboxUrl: string, since: ISODate() }
+// Index: { host: 1, tenant_id: 1 }
 ```
 
 ### 5.5 `timeline_event` (インクリメンタル材質化を採用する場合)
@@ -140,20 +140,20 @@ db.follow_edge.aggregate([
 
 ### 6.2 リレー参加を含める
 
-- `relay_edge` を `$lookup` で join
+- `relays` を `$lookup` で join
   し、**リレー許可ドメインのアクター**もマッチさせる。
-- or materialize パスでは **follow\_edge + relay\_edge 無い** TL
+- or materialize パスでは **follow\_edge + relays 無い** TL
   対象は事前展開しない。
 
 ## 7 Audience 判定ルール
 
-| 条件                                                 | TL へ載せるか | 備考            |
-| ---------------------------------------------------- | ------------- | --------------- |
-| 投稿の `aud.to / cc` に _自アクター_ が含まれる      | ○             | メンション / DM |
-| `aud.to` に `#Public` が含まれる                     | ○             | 公開投稿        |
-| 投稿者を `follow_edge` に持つ                        | ○             | フォロー TL     |
-| 投稿者ドメインが `relay_edge` に登録され _pull_ 設定 | ○             | リレー TL       |
-| 上記いずれも満たさない                               | ×             | 取得対象外      |
+| 条件                                            | TL へ載せるか | 備考            |
+| ----------------------------------------------- | ------------- | --------------- |
+| 投稿の `aud.to / cc` に _自アクター_ が含まれる | ○             | メンション / DM |
+| `aud.to` に `#Public` が含まれる                | ○             | 公開投稿        |
+| 投稿者を `follow_edge` に持つ                   | ○             | フォロー TL     |
+| 投稿者ドメインが `relays` に登録されている      | ○             | リレー TL       |
+| 上記いずれも満たさない                          | ×             | 取得対象外      |
 
 > **ポイント**: `public / followers / local / direct` 列を持たず、純粋に
 > _フォロー/リレー/オーディエンス配列_ だけで判断。
@@ -189,7 +189,7 @@ db.follow_edge.aggregate([
 
 ## 13 今後の検討項目
 
-- **Relay edge** に _tag-based_ サブスコープを追加（例: 動画のみ転送）。
+- **Relays** に _tag-based_ サブスコープを追加（例: 動画のみ転送）。
 - 高速化のため `actor_id` → shard map キャッシュを導入。
 - takos自体のタイムラインをリレーサーバーとして公開
 

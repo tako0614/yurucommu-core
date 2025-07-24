@@ -30,13 +30,11 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 設定してください。未設定の場合はリクエストされたホスト名が利用されます。 以前の
 `TENANT_ID` 変数は廃止され、ドメイン名そのものがテナント ID として扱われます。
 リレーサーバーの設定は UI から追加・削除でき、データベースに保存されます。
-登録時には `relay_edge` コレクションに pull/push モード別のエントリが作成され、
-pull モードのリレーは定期ポーリングで投稿が取り込まれ、push モードのリレーには
-投稿配信時に自動で送信されます。 `getEnv(c)` で取得した環境変数を `fetchJson` や
-`deliverActivityPubObject` へ渡すことで
-マルチテナント環境でも正しいドメインが利用されます。 `RELAY_POLL_INTERVAL`
-で指定した間隔ごとに、登録済みリレーの `/api/microblog` を取得し、新規投稿を
-`object_store` へ自動保存します。
+登録したリレーとは `Follow` を送っておくことで投稿が inbox に届きます。
+`getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
+へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
+`RELAY_POLL_INTERVAL` で指定した 間隔ごとに、登録済みリレーの `/api/microblog`
+を取得し、新規投稿を `object_store` へ 自動保存します。
 
 ### 初期設定
 
@@ -158,11 +156,8 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
   を送信して追加
 - `DELETE /api/relays/:id` – リレーを削除
 
-各インスタンスのリストは `relay_edge` コレクションに基づきます。 takos host
+各インスタンスのリストは `relays` コレクションに基づきます。 takos host
 のデフォルトリレーは自動登録されますが、一覧には表示されません。
-
-pull モードのリレーは一定間隔で `/api/microblog` を取得し、投稿を自動で取り込み
-ます。push モードのリレーには投稿作成時に自動配信されます。
 
 ## クライアントでのデータ保存
 

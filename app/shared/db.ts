@@ -90,9 +90,8 @@ export interface DB {
   deleteManyObjects(
     filter: Record<string, unknown>,
   ): Promise<{ deletedCount?: number }>;
-  listPushRelays(): Promise<string[]>;
-  listPullRelays(): Promise<string[]>;
-  addRelay(relay: string, mode?: "pull" | "push"): Promise<void>;
+  listRelays(): Promise<string[]>;
+  addRelay(relay: string): Promise<void>;
   removeRelay(relay: string): Promise<void>;
   addFollowerByName(username: string, follower: string): Promise<void>;
   removeFollowerByName(username: string, follower: string): Promise<void>;

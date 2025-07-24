@@ -128,8 +128,7 @@ export function createConsumerApp(
           ACTIVITYPUB_DOMAIN: fullHost,
           DB_MODE: "host",
         });
-        await relayDb.addRelay(rootDomain, "pull");
-        await relayDb.addRelay(rootDomain, "push");
+        await relayDb.addRelay(rootDomain);
       }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
