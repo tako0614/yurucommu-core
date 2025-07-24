@@ -167,6 +167,55 @@ export interface DB {
   findRelayByHost(host: string): Promise<RelayDoc | null>;
   createRelay(data: { host: string; inboxUrl: string }): Promise<RelayDoc>;
   deleteRelayById(id: string): Promise<RelayDoc | null>;
+  /** インスタンス一覧取得 */
+  listInstances(owner: string): Promise<{ host: string }[]>;
+  /** インスタンス数取得 */
+  countInstances(owner: string): Promise<number>;
+  /** ホスト名でインスタンス検索 */
+  findInstanceByHost(
+    host: string,
+  ): Promise<
+    | { _id: string; host: string; owner: string; env?: Record<string, string> }
+    | null
+  >;
+  /** ホスト名と所有者でインスタンス検索 */
+  findInstanceByHostAndOwner(
+    host: string,
+    owner: string,
+  ): Promise<
+    { _id: string; host: string; env?: Record<string, string> } | null
+  >;
+  /** インスタンス作成 */
+  createInstance(
+    data: { host: string; owner: string; env?: Record<string, string> },
+  ): Promise<void>;
+  /** インスタンス環境変数更新 */
+  updateInstanceEnv(id: string, env: Record<string, string>): Promise<void>;
+  /** インスタンス削除 */
+  deleteInstance(host: string, owner: string): Promise<void>;
+  /** OAuth クライアント一覧 */
+  listOAuthClients(): Promise<{ clientId: string; redirectUri: string }[]>;
+  /** OAuth クライアント検索 */
+  findOAuthClient(
+    clientId: string,
+  ): Promise<{ clientSecret: string } | null>;
+  /** OAuth クライアント作成 */
+  createOAuthClient(
+    data: { clientId: string; clientSecret: string; redirectUri: string },
+  ): Promise<void>;
+  /** ドメイン一覧取得 */
+  listHostDomains(
+    user: string,
+  ): Promise<{ domain: string; verified: boolean }[]>;
+  /** ドメイン検索 */
+  findHostDomain(
+    domain: string,
+    user?: string,
+  ): Promise<{ _id: string; token: string; verified: boolean } | null>;
+  /** ドメイン登録 */
+  createHostDomain(domain: string, user: string, token: string): Promise<void>;
+  /** ドメイン認証フラグ更新 */
+  verifyHostDomain(id: string): Promise<void>;
   findRemoteActorByUrl(url: string): Promise<unknown | null>;
   findRemoteActorsByUrls(urls: string[]): Promise<unknown[]>;
   upsertRemoteActor(data: {
