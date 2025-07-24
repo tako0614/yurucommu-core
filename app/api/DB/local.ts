@@ -327,10 +327,11 @@ export class MongoDBLocal implements DB {
     return docs.map((d) => d.host);
   }
 
-  async addRelay(relay: string) {
+  async addRelay(relay: string, inboxUrl?: string) {
+    const url = inboxUrl ?? `https://${relay}/inbox`;
     await Relay.updateOne(
       { host: relay },
-      { $setOnInsert: { since: new Date() } },
+      { $set: { inboxUrl: url }, $setOnInsert: { since: new Date() } },
       { upsert: true },
     );
   }

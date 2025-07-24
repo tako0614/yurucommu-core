@@ -91,7 +91,7 @@ export interface DB {
     filter: Record<string, unknown>,
   ): Promise<{ deletedCount?: number }>;
   listRelays(): Promise<string[]>;
-  addRelay(relay: string): Promise<void>;
+  addRelay(relay: string, inboxUrl?: string): Promise<void>;
   removeRelay(relay: string): Promise<void>;
   addFollowerByName(username: string, follower: string): Promise<void>;
   removeFollowerByName(username: string, follower: string): Promise<void>;

@@ -128,7 +128,7 @@ export function createConsumerApp(
           ACTIVITYPUB_DOMAIN: fullHost,
           DB_MODE: "host",
         });
-        await relayDb.addRelay(rootDomain);
+        await relayDb.addRelay(rootDomain, `https://${rootDomain}/inbox`);
       }
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });

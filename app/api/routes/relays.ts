@@ -38,7 +38,7 @@ app.post(
     const relay = await db.createRelay({ host, inboxUrl });
     const env = getEnv(c);
     try {
-      await db.addRelay(host);
+      await db.addRelay(host, inboxUrl);
     } catch {
       // URL パース失敗時は無視
     }
