@@ -45,7 +45,13 @@ async function fetchExternalActorInfo(actorUrl: string, db: DB) {
         },
       });
       if (res.ok) {
-        const data = await res.json();
+        interface ActorApiResponse {
+          name?: string;
+          preferredUsername?: string;
+          icon?: unknown;
+          summary?: string;
+        }
+        const data = await res.json() as ActorApiResponse;
         await db.upsertRemoteActor({
           actorUrl,
           name: data.name || "",
