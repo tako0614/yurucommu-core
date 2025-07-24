@@ -625,6 +625,7 @@ export class MongoDBLocal implements DB {
   }
 
   async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
+    if (this.env["DB_MODE"] !== "host") return;
     await InboxEntry.updateOne(
       { tenant_id: tenantId, object_id: objectId },
       { $setOnInsert: { received_at: new Date() } },
