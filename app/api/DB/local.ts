@@ -10,7 +10,6 @@ import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
 import PublicMessage from "../models/takos/public_message.ts";
-import InboxEntry from "../models/takos/inbox_entry.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import Relay from "../models/takos/relay.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
@@ -611,15 +610,6 @@ export class MongoDBLocal implements DB {
         summary: data.summary,
         cachedAt: new Date(),
       },
-      { upsert: true },
-    );
-  }
-
-  async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
-    if (this.env["DB_MODE"] !== "host") return;
-    await InboxEntry.updateOne(
-      { tenant_id: tenantId, object_id: objectId },
-      { $setOnInsert: { received_at: new Date() } },
       { upsert: true },
     );
   }

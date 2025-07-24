@@ -8,7 +8,6 @@ import {
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/DB/mod.ts";
-import { addInboxEntry } from "../api/services/inbox.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -64,7 +63,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
         );
         objectId = String((stored as { _id?: unknown })._id);
       }
-      await addInboxEntry(db, env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
+      // tenant_id 付きで保存されるため inbox_entry への記録は不要
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
