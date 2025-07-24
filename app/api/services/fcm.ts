@@ -79,7 +79,11 @@ async function getAccessToken(
     console.error("Failed to get FCM token", await res.text());
     return null;
   }
-  const json = await res.json();
+  interface TokenApiResponse {
+    access_token: string;
+    expires_in: number;
+  }
+  const json = await res.json() as TokenApiResponse;
   cache = { token: json.access_token, exp: now + json.expires_in };
   return cache.token;
 }
