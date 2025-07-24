@@ -6,6 +6,7 @@
     "jsr:@std/internal@^1.0.9": "1.0.9",
     "jsr:@std/path@^1.1.0": "1.1.1",
     "jsr:@std/path@^1.1.1": "1.1.1",
+    "npm:@cloudflare/workers-types@4": "4.20250313.0",
     "npm:@hono/zod-validator@0.7": "0.7.1_hono@4.8.5_zod@3.25.76",
     "npm:@types/node@*": "22.15.15",
     "npm:hono@^4.7.11": "4.8.5",
@@ -35,6 +36,9 @@
     }
   },
   "npm": {
+    "@cloudflare/workers-types@4.20250313.0": {
+      "integrity": "sha512-iqyzZwogC+3yL8h58vMhjYQUHUZA8XazE3Q+ofR59wDOnsPe/u9W6+aCl408N0iNBhMPvpJQQ3/lkz0iJN2fhA=="
+    },
     "@fastify/busboy@3.1.1": {
       "integrity": "sha512-5DGmA8FTdB2XbDeEwc/5ZXBl6UbBAyBOOLlPuBnZ/N1SwdH9Ii+cOX3tBROlDgcTXxjOYnLMVoKk9+FXAw0CJw=="
     },
@@ -1064,6 +1068,7 @@
       "jsr:@std/dotenv@~0.225.5",
       "jsr:@std/fs@^1.0.18",
       "jsr:@std/path@^1.1.0",
+      "npm:@cloudflare/workers-types@4",
       "npm:@hono/zod-validator@0.7",
       "npm:hono@^4.7.11",
       "npm:mongodb@^6.17.0",
