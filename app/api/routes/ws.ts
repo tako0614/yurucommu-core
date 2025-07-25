@@ -30,6 +30,15 @@ export function sendToUser(user: string, data: unknown) {
   }
 }
 
+export function broadcast(data: unknown) {
+  const message = typeof data === "string" ? data : JSON.stringify(data);
+  for (const set of userSockets.values()) {
+    for (const s of set) {
+      s.send(message);
+    }
+  }
+}
+
 export function registerMessageHandler(
   type: string,
   handler: MessageHandler,

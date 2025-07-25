@@ -27,6 +27,7 @@ import {
   viewStory,
 } from "./microblog/api.ts";
 import type { MicroblogPost, Story } from "./microblog/types.ts";
+import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
   // タブ切り替え: "following" | "latest"
@@ -88,6 +89,7 @@ export function Microblog() {
   };
 
   let observer: IntersectionObserver | undefined;
+  let wsCleanup: (() => void) | undefined;
 
   const setupObserver = () => {
     if (observer || !sentinel || targetPostId()) return;
@@ -107,6 +109,30 @@ export function Microblog() {
     } else {
       loadInitialPosts();
     }
+    const handler = (msg: unknown) => {
+      if (
+        typeof msg === "object" &&
+        msg !== null &&
+        (msg as { type?: string }).type === "newPost"
+      ) {
+        const data = (msg as {
+          payload: { post: MicroblogPost; timeline: "latest" | "following" };
+        }).payload;
+        if (data.timeline === "latest") {
+          setPosts((prev) => {
+            if (prev.some((p) => p.id === data.post.id)) return prev;
+            return [data.post, ...prev];
+          });
+        } else {
+          mutateFollowing((prev) => {
+            if (prev?.some((p) => p.id === data.post.id)) return prev;
+            return [data.post, ...(prev ?? [])];
+          });
+        }
+      }
+    };
+    addMessageHandler(handler);
+    wsCleanup = () => removeMessageHandler(handler);
   });
 
   createEffect(() => {
@@ -129,13 +155,16 @@ export function Microblog() {
 
   onCleanup(() => {
     observer?.disconnect();
+    wsCleanup?.();
   });
   // フォロー中投稿の取得
-  const [followingTimelinePosts, { refetch: _refetchFollowing }] =
-    createResource(() => {
-      const user = account();
-      return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
-    });
+  const [
+    followingTimelinePosts,
+    { refetch: _refetchFollowing, mutate: mutateFollowing },
+  ] = createResource(() => {
+    const user = account();
+    return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
+  });
   // ストーリー
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);

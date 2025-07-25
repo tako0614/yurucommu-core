@@ -27,6 +27,7 @@ import {
 } from "../services/user-info.ts";
 import { addNotification } from "../services/notification.ts";
 import { rateLimit } from "../utils/rate_limit.ts";
+import { broadcast, sendToUser } from "./ws.ts";
 
 interface PostDoc {
   _id?: string;
@@ -206,13 +207,43 @@ app.post(
       domain,
       env,
     );
-    return c.json(
-      formatUserInfoForPost(
-        userInfo,
-        post as Record<string, unknown>,
-      ),
-      201,
+    const formatted = formatUserInfoForPost(
+      userInfo,
+      post as Record<string, unknown>,
     );
+
+    // 新しい投稿を最新タイムライン向けに配信
+    broadcast({
+      type: "newPost",
+      payload: { timeline: "latest", post: formatted },
+    });
+
+    // ローカルのフォロワーへ個別に配信
+    const account = await db.findAccountByUserName(author);
+    const followers = account?.followers ?? [];
+    const localFollowers = followers
+      .map((url) => {
+        try {
+          const u = new URL(url);
+          if (u.hostname !== domain || !u.pathname.startsWith("/users/")) {
+            return null;
+          }
+          return `${u.pathname.split("/")[2]}@${domain}`;
+        } catch {
+          return null;
+        }
+      })
+      .filter((v): v is string => !!v);
+    // 投稿者自身にも送信
+    localFollowers.push(`${author}@${domain}`);
+    for (const f of localFollowers) {
+      sendToUser(f, {
+        type: "newPost",
+        payload: { timeline: "following", post: formatted },
+      });
+    }
+
+    return c.json(formatted, 201);
   },
 );
 
