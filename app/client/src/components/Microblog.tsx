@@ -11,8 +11,8 @@ import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
 import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
+import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import {
-  _replyToPost,
   createPost,
   deletePost,
   deleteStory,
@@ -30,7 +30,6 @@ import type { MicroblogPost, Story } from "./microblog/types.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
-  // タブ切り替え: "following" | "latest"
   const [account] = useAtom(activeAccount);
   const [tab, setTab] = createSignal<"following" | "latest">(
     "following",
@@ -49,17 +48,27 @@ export function Microblog() {
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
+
+  // State for the detail view
+  const [selectedPost, setSelectedPost] = createSignal<MicroblogPost | null>(
+    null,
+  );
+  const [selectedPostReplies, setSelectedPostReplies] = createSignal<
+    MicroblogPost[]
+  >([]);
+
   const loadPostById = async (id: string) => {
     const p = await fetchPostById(id);
     if (!p) {
-      setPosts([]);
-      setCursor(null);
+      setSelectedPost(null);
+      setSelectedPostReplies([]);
       return;
     }
     const replies = await fetchPostReplies(id);
-    setPosts([p, ...replies]);
-    setCursor(null);
+    setSelectedPost(p);
+    setSelectedPostReplies(replies);
   };
+
   let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
@@ -118,7 +127,14 @@ export function Microblog() {
         const data = (msg as {
           payload: { post: MicroblogPost; timeline: "latest" | "following" };
         }).payload;
-        if (targetPostId()) return;
+        const currentPostId = targetPostId();
+        if (currentPostId) {
+          // If we're viewing a post, check if the new post is a reply to it
+          if (data.post.replyTo === currentPostId) {
+            setSelectedPostReplies((prev) => [data.post, ...prev]);
+          }
+          return;
+        }
         if (data.timeline === "latest") {
           setPosts((prev) => {
             if (prev.some((p) => p.id === data.post.id)) return prev;
@@ -150,6 +166,9 @@ export function Microblog() {
     if (id) {
       loadPostById(id);
     } else {
+      // Clear detail view state when returning to timeline
+      setSelectedPost(null);
+      setSelectedPostReplies([]);
       resetPosts();
     }
   });
@@ -158,7 +177,7 @@ export function Microblog() {
     observer?.disconnect();
     wsCleanup?.();
   });
-  // フォロー中投稿の取得
+
   const [
     followingTimelinePosts,
     { refetch: _refetchFollowing, mutate: mutateFollowing },
@@ -166,13 +185,12 @@ export function Microblog() {
     const user = account();
     return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
   });
-  // ストーリー
+
   const [stories, { refetch: refetchStories }] = createResource(fetchStories);
   const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
   const [showStoryViewer, setShowStoryViewer] = createSignal(false);
   const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
 
-  // ストーリー関連のハンドラー
   const handleViewStory = async (story: Story, index: number) => {
     await viewStory(story.id);
     setSelectedStory(story);
@@ -217,16 +235,10 @@ export function Microblog() {
     const query = searchQuery().toLowerCase();
     let postsToFilter: MicroblogPost[] = [];
 
-    if (targetPostId()) {
+    if (tab() === "latest") {
       postsToFilter = posts() || [];
-    } else {
-      if (tab() === "latest") {
-        postsToFilter = posts() || [];
-      } else if (tab() === "following") {
-        postsToFilter = followingTimelinePosts() || [];
-      } else {
-        postsToFilter = [];
-      }
+    } else if (tab() === "following") {
+      postsToFilter = followingTimelinePosts() || [];
     }
 
     if (!query) return postsToFilter;
@@ -268,26 +280,64 @@ export function Microblog() {
     }
   };
 
+  const handleReplySubmit = async (
+    content: string,
+    attachments: { url: string; type: "image" | "video" | "audio" }[],
+  ) => {
+    const user = account();
+    if (!user) {
+      alert("アカウントが選択されていません");
+      return;
+    }
+    const postId = targetPostId();
+    if (!postId) return;
+
+    const success = await createPost(
+      content,
+      user.userName,
+      attachments,
+      postId,
+    );
+    if (success) {
+      // リプライリストを更新
+      await loadPostById(postId);
+    } else {
+      alert("返信の投稿に失敗しました");
+    }
+  };
+
   const handleLike = async (id: string) => {
     const user = account();
     if (!user) return;
     const likes = await likePost(id, user.userName);
-    if (likes !== null) {
-      setPosts((prev) =>
-        prev.map((p) => p.id === id ? { ...p, likes, isLiked: true } : p)
-      );
+    if (likes === null) return;
+
+    const update = (p: MicroblogPost) =>
+      p.id === id ? { ...p, likes, isLiked: !p.isLiked } : p;
+
+    if (selectedPost()?.id === id) {
+      setSelectedPost(update(selectedPost()!));
     }
+    setSelectedPostReplies((prev) => prev.map(update));
+    setPosts((prev) => prev.map(update));
+    mutateFollowing((prev) => prev?.map(update));
   };
 
   const handleRetweet = async (id: string) => {
     const user = account();
     if (!user) return;
     const retweets = await retweetPost(id, user.userName);
-    if (retweets !== null) {
-      setPosts((prev) =>
-        prev.map((p) => p.id === id ? { ...p, retweets, isRetweeted: true } : p)
-      );
+    if (retweets === null) return;
+
+    const update = (p: MicroblogPost) =>
+      p.id === id ? { ...p, retweets, isRetweeted: !p.isRetweeted } : p;
+
+    if (selectedPost()?.id === id) {
+      setSelectedPost(update(selectedPost()!));
     }
+    setSelectedPostReplies((prev) => prev.map(update));
+    setPosts((prev) => prev.map(update));
+    mutateFollowing((prev) => prev?.map(update));
   };
 
   const handleQuote = (id: string) => {
@@ -309,7 +359,12 @@ export function Microblog() {
     if (!trimmed) return;
     const success = await updatePost(id, trimmed);
     if (success) {
-      resetPosts();
+      const postId = targetPostId();
+      if (postId) {
+        loadPostById(postId);
+      } else {
+        resetPosts();
+      }
     } else {
       alert("投稿の更新に失敗しました");
     }
@@ -319,7 +374,18 @@ export function Microblog() {
     if (!confirm("この投稿を削除しますか？")) return;
     const success = await deletePost(id);
     if (success) {
-      resetPosts();
+      const postId = targetPostId();
+      if (postId) {
+        // If the deleted post is the main post, go back to timeline
+        if (postId === id) {
+          setTargetPostId(null);
+        } else {
+          // If it's a reply, just reload the replies
+          loadPostById(postId);
+        }
+      } else {
+        resetPosts();
+      }
     } else {
       alert("投稿の削除に失敗しました");
     }
@@ -357,124 +423,126 @@ export function Microblog() {
       `}
       </style>
       <div class="min-h-screen text-white relative">
-        {/* ヘッダー + タブ */}
-        <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
-          <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <Show when={targetPostId()}>
-                  <button
-                    type="button"
-                    onClick={() => setTargetPostId(null)}
-                    class="p-2 text-gray-400 hover:text-white"
-                  >
-                    ← 戻る
-                  </button>
-                </Show>
+        <Show
+          when={targetPostId() && selectedPost()}
+          fallback={
+            <>
+              {/* Header + Tabs */}
+              <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
+                <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2"></div>
+                    <div class="flex justify-end flex-1 relative">
+                      <input
+                        type="text"
+                        placeholder="投稿・ユーザー・タグ検索"
+                        value={searchQuery()}
+                        onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                        class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <svg
+                        class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
+                      </svg>
+                    </div>
+                    <div class="ml-4">
+                      <select
+                        value={limit()}
+                        onChange={(e) => {
+                          const v = parseInt(e.currentTarget.value, 10);
+                          setLimit(v);
+                          resetPosts();
+                        }}
+                        class="bg-gray-800 rounded px-2 py-1 text-sm"
+                      >
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </div>
+                  </div>
+                  {/* Tabs */}
+                  <div class="flex gap-4 justify-center">
+                    <button
+                      type="button"
+                      class={`tab-btn ${
+                        tab() === "following" ? "tab-btn-active" : ""
+                      }`}
+                      onClick={() => setTab("following")}
+                    >
+                      フォロー中
+                    </button>
+                    <button
+                      type="button"
+                      class={`tab-btn ${
+                        tab() === "latest" ? "tab-btn-active" : ""
+                      }`}
+                      onClick={() => setTab("latest")}
+                    >
+                      新しい順
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div class="flex justify-end flex-1 relative">
-                <input
-                  type="text"
-                  placeholder="投稿・ユーザー・タグ検索"
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                  class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div class="max-w-2xl mx-auto">
+                <StoryTray
+                  stories={stories() || []}
+                  refetchStories={refetchStories}
+                  handleViewStory={handleViewStory}
                 />
-                <svg
-                  class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+                <PostList
+                  posts={filteredPosts()}
+                  tab={tab()}
+                  handleReply={handleReply}
+                  handleRetweet={handleRetweet}
+                  handleQuote={handleQuote}
+                  handleLike={handleLike}
+                  handleEdit={handleEdit}
+                  handleDelete={handleDelete}
+                  formatDate={formatDate}
+                />
+                <Show when={tab() === "following" && filteredPosts().length === 0}>
+                  <div class="p-8 text-center">
+                    <p class="text-gray-400 text-lg">
+                      フォロー中の投稿はありません
+                    </p>
+                    <p class="text-gray-500 text-sm mt-2">
+                      気になるユーザーをフォローしてみましょう
+                    </p>
+                  </div>
+                </Show>
+                <div ref={(el) => (sentinel = el)} class="h-4"></div>
+                {loadingMore() && (
+                  <div class="text-center py-4 text-gray-400">
+                    読み込み中...
+                  </div>
+                )}
               </div>
-              <div class="ml-4">
-                <select
-                  value={limit()}
-                  onChange={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    setLimit(v);
-                    resetPosts();
-                  }}
-                  class="bg-gray-800 rounded px-2 py-1 text-sm"
-                >
-                  <option value="20">20</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-            </div>
-            {/* タブ */}
-            <div class="flex gap-4 justify-center">
-              <button
-                type="button"
-                class={`tab-btn ${
-                  tab() === "following" ? "tab-btn-active" : ""
-                }`}
-                onClick={() => {
-                  setTab("following");
-                }}
-              >
-                フォロー中
-              </button>
-              <button
-                type="button"
-                class={`tab-btn ${tab() === "latest" ? "tab-btn-active" : ""}`}
-                onClick={() => {
-                  setTab("latest");
-                }}
-              >
-                新しい順
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="max-w-2xl mx-auto">
-          {(tab() === "latest" || tab() === "following") && (
-            <StoryTray
-              stories={stories() || []}
-              refetchStories={refetchStories}
-              handleViewStory={handleViewStory}
-            />
-          )}
-
-          {(tab() === "latest" || tab() === "following") && (
-            <PostList
-              posts={filteredPosts()}
-              tab={tab()}
-              handleReply={handleReply}
-              handleRetweet={handleRetweet}
-              handleQuote={handleQuote}
-              handleLike={handleLike}
-              handleEdit={handleEdit}
-              handleDelete={handleDelete}
-              formatDate={formatDate}
-              isThread={!!targetPostId()}
-            />
-          )}
-
-          <Show when={tab() === "following" && filteredPosts().length === 0}>
-            <div class="p-8 text-center">
-              <p class="text-gray-400 text-lg">フォロー中の投稿はありません</p>
-              <p class="text-gray-500 text-sm mt-2">
-                気になるユーザーをフォローしてみましょう
-              </p>
-            </div>
-          </Show>
-
-          <Show when={!targetPostId()}>
-            <div ref={(el) => (sentinel = el)} class="h-4"></div>
-            {loadingMore() && (
-              <div class="text-center py-4 text-gray-400">読み込み中...</div>
-            )}
-          </Show>
-        </div>
+            </>
+          }
+        >
+          <PostDetailView
+            post={selectedPost()!}
+            replies={selectedPostReplies()}
+            onBack={() => setTargetPostId(null)}
+            onReplySubmit={handleReplySubmit}
+            handleLike={handleLike}
+            handleRetweet={handleRetweet}
+            handleQuote={handleQuote}
+            handleEdit={handleEdit}
+            handleDelete={handleDelete}
+            formatDate={formatDate}
+          />
+        </Show>
 
         <StoryViewer
           showStoryViewer={showStoryViewer()}
