@@ -1,13 +1,16 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
+import { activeAccount } from "../states/account.ts";
 import { Home } from "./Home.tsx";
 import { Microblog } from "./Microblog.tsx";
 import { Chat } from "./Chat.tsx";
 import { Videos } from "./Videos.tsx";
 import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
+import { connectWebSocket, registerUser } from "../utils/ws.ts";
+import { getDomain } from "../utils/config.ts";
 
 interface ApplicationProps {
   onShowEncryptionKeyForm?: () => void;
@@ -16,6 +19,7 @@ interface ApplicationProps {
 export function Application(props: ApplicationProps) {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
+  const [account] = useAtom(activeAccount);
   const [isMobile, setIsMobile] = createSignal(false);
 
   // モバイルかどうかを判定
@@ -26,8 +30,16 @@ export function Application(props: ApplicationProps) {
 
     checkMobile();
     globalThis.addEventListener("resize", checkMobile);
+    connectWebSocket();
 
     return () => globalThis.removeEventListener("resize", checkMobile);
+  });
+
+  createEffect(() => {
+    const user = account();
+    if (user) {
+      registerUser(`${user.userName}@${getDomain()}`);
+    }
   });
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成

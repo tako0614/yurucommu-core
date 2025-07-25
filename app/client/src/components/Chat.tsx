@@ -20,7 +20,8 @@ import {
   sendEncryptedMessage,
   sendPublicMessage,
 } from "./e2ee/api.ts";
-import { apiUrl, getDomain } from "../utils/config.ts";
+import { getDomain } from "../utils/config.ts";
+import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
   decryptGroupMessage,
   deriveMLSSecret,
@@ -147,8 +148,8 @@ export function Chat(props: ChatProps) {
       return updated ? newRooms : rooms;
     });
   };
-  let socket: WebSocket | null = null;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let wsCleanup: (() => void) | undefined;
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -532,24 +533,15 @@ export function Chat(props: ChatProps) {
     // ルーム情報はアカウント取得後の createEffect で読み込む
     loadGroupStates();
     ensureKeyPair();
-    const wsUrl = apiUrl("/api/ws").replace(/^http/, "ws");
-    socket = new WebSocket(wsUrl);
-    socket.onopen = () => {
-      const user = account();
-      if (user) {
-        socket?.send(
-          JSON.stringify({
-            type: "register",
-            payload: { user: `${user.userName}@${getDomain()}` },
-          }),
-        );
-      }
-    };
-    socket.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg.type === "encryptedMessage" || msg.type === "publicMessage") {
-          const data = msg.payload as {
+    const handler = (msg: unknown) => {
+      if (
+        typeof msg === "object" &&
+        msg !== null &&
+        ((msg as { type?: string }).type === "encryptedMessage" ||
+          (msg as { type?: string }).type === "publicMessage")
+      ) {
+        const data = (msg as {
+          payload: {
             id: string;
             from: string;
             to: string[];
@@ -558,39 +550,39 @@ export function Chat(props: ChatProps) {
             encoding: string;
             createdAt: string;
           };
-          const user = account();
-          if (!user) return;
-          const self = `${user.userName}@${getDomain()}`;
-          const partnerId = data.from === self
-            ? data.to.find((v) => v !== self) ?? data.to[0]
-            : data.from;
-          const room = chatRooms().find((r) => r.id === partnerId);
-          if (!room) return;
-          const isMe = data.from === self;
-          const displayName = isMe
-            ? user.displayName || user.userName
-            : room.name;
-          const m: ChatMessage = {
-            id: data.id,
-            author: data.from,
-            displayName,
-            address: data.from,
-            content: data.content,
-            timestamp: new Date(data.createdAt),
-            type: "text",
-            isMe,
-            avatar: room.avatar,
-          };
-          setMessages((prev) => {
-            if (prev.some((msg) => msg.id === m.id)) return prev;
-            return [...prev, m];
-          });
-          updateRoomLast(room.id, m);
-        }
-      } catch (err) {
-        console.error("ws message error", err);
+        }).payload;
+        const user = account();
+        if (!user) return;
+        const self = `${user.userName}@${getDomain()}`;
+        const partnerId = data.from === self
+          ? data.to.find((v) => v !== self) ?? data.to[0]
+          : data.from;
+        const room = chatRooms().find((r) => r.id === partnerId);
+        if (!room) return;
+        const isMe = data.from === self;
+        const displayName = isMe
+          ? user.displayName || user.userName
+          : room.name;
+        const m: ChatMessage = {
+          id: data.id,
+          author: data.from,
+          displayName,
+          address: data.from,
+          content: data.content,
+          timestamp: new Date(data.createdAt),
+          type: "text",
+          isMe,
+          avatar: room.avatar,
+        };
+        setMessages((prev) => {
+          if (prev.some((msg) => msg.id === m.id)) return prev;
+          return [...prev, m];
+        });
+        updateRoomLast(room.id, m);
       }
     };
+    addMessageHandler(handler);
+    wsCleanup = () => removeMessageHandler(handler);
     // 初期表示時のメッセージ読み込みも
     // selectedRoom 監視の createEffect に任せる
     adjustHeight(textareaRef);
@@ -669,7 +661,7 @@ export function Chat(props: ChatProps) {
 
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
-    socket?.close();
+    wsCleanup?.();
   });
 
   return (
