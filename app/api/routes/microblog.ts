@@ -45,7 +45,7 @@ app.get("/microblog", async (c) => {
   const env = getEnv(c);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const actor = c.req.query("actor");
-  const timeline = c.req.query("timeline") ?? "recommend";
+  const timeline = c.req.query("timeline") ?? "latest";
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
@@ -215,42 +215,6 @@ app.post(
     );
   },
 );
-
-app.get("/microblog/recommend", async (c) => {
-  const domain = getDomain(c);
-  const env = getEnv(c);
-  const limit = Math.min(
-    parseInt(c.req.query("limit") ?? "50", 10) || 50,
-    100,
-  );
-  const before = c.req.query("before");
-  const db = createDB(env);
-
-  // TODO: ここに独自のおすすめアルゴリズムを実装する
-  const list = await db.getPublicNotes(
-    limit,
-    before ? new Date(before) : undefined,
-  ) as ActivityObject[];
-
-  const identifiers = list.map((doc) => doc.actor_id as string);
-  const userInfos = await getUserInfoBatch(
-    identifiers as string[],
-    domain,
-    env,
-  );
-  const formatted = list.map((doc, index) => {
-    const userInfo = userInfos[index];
-    const postData = {
-      _id: doc._id,
-      content: doc.content,
-      published: doc.published,
-      extra: doc.extra,
-    } as Record<string, unknown>;
-    return formatUserInfoForPost(userInfo, postData);
-  });
-
-  return c.json(formatted);
-});
 
 app.get("/microblog/:id", async (c) => {
   const domain = getDomain(c);

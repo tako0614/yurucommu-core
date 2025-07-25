@@ -116,10 +116,10 @@ deno task build
 
 ## Microblog API
 
-簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
+-簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
 
 - `GET /api/microblog` –
-  おすすめタイムラインを取得（登録済みリレーからの投稿も含む）
+  公開タイムラインを取得（登録済みリレーからの投稿も含む）
 - `GET /api/microblog?timeline=followers&actor=URI` –
   フォロー中アクターの投稿のみ取得
 - `POST /api/microblog` – 投稿を作成

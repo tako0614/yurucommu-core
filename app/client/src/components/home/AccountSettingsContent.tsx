@@ -452,7 +452,7 @@ const AccountSettingsContent: Component<{
               <div class="mb-8">
                 <PostList
                   posts={posts() || []}
-                  tab="recommend"
+                  tab="latest"
                   handleReply={() => {}}
                   handleRetweet={() => {}}
                   handleQuote={() => {}}

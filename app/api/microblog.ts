@@ -45,7 +45,7 @@ app.get("/microblog", async (c) => {
   const env = getEnv(c);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const actor = c.req.query("actor");
-  const timeline = c.req.query("timeline") ?? "recommend";
+  const timeline = c.req.query("timeline") ?? "latest";
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,

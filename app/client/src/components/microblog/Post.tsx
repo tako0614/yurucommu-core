@@ -141,7 +141,7 @@ function formatUserInfo(post: MicroblogPost) {
 
 type PostItemProps = {
   post: MicroblogPost;
-  tab: "recommend" | "following" | "community";
+  tab: "latest" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
   handleQuote: (postId: string) => void;
@@ -443,7 +443,7 @@ function PostItem(props: PostItemProps) {
 
 export function PostList(props: {
   posts: MicroblogPost[];
-  tab: "recommend" | "following" | "community";
+  tab: "latest" | "following" | "community";
   handleReply: (postId: string) => void;
   handleRetweet: (postId: string) => void;
   handleQuote: (postId: string) => void;
