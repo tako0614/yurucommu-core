@@ -56,46 +56,6 @@ export interface SearchResult {
   };
 }
 
-// モックデータ
-const mockUsers: User[] = [
-  {
-    id: "1",
-    username: "tech_enthusiast",
-    displayName: "テックマニア",
-    avatar: "",
-    bio: "プログラミングと新技術が大好きです",
-    followerCount: 1250,
-    followingCount: 340,
-    isFollowing: false,
-    isBlocked: false,
-    lastSeen: "2024-07-05T10:30:00Z",
-  },
-  {
-    id: "2",
-    username: "creative_designer",
-    displayName: "クリエイティブデザイナー",
-    avatar: "",
-    bio: "UI/UXデザインとアートに情熱を注いでいます",
-    followerCount: 890,
-    followingCount: 456,
-    isFollowing: true,
-    isBlocked: false,
-    lastSeen: "2024-07-05T09:15:00Z",
-  },
-  {
-    id: "3",
-    username: "game_lover",
-    displayName: "ゲーム愛好家",
-    avatar: "",
-    bio: "インディーゲームから大作まで何でもプレイします",
-    followerCount: 2100,
-    followingCount: 180,
-    isFollowing: false,
-    isBlocked: false,
-    lastSeen: "2024-07-05T08:45:00Z",
-  },
-];
-
 export default function UnifiedToolsContent() {
   const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
@@ -107,7 +67,7 @@ export default function UnifiedToolsContent() {
   const [searchType, setSearchType] = createSignal<
     "users" | "posts" | "videos"
   >("users");
-  const [users, setUsers] = createSignal<User[]>(mockUsers);
+  const [users, setUsers] = createSignal<User[]>([]);
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
   );
