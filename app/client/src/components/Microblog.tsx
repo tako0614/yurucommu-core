@@ -458,6 +458,15 @@ export function Microblog() {
             />
           )}
 
+          <Show when={tab() === "following" && filteredPosts().length === 0}>
+            <div class="p-8 text-center">
+              <p class="text-gray-400 text-lg">フォロー中の投稿はありません</p>
+              <p class="text-gray-500 text-sm mt-2">
+                気になるユーザーをフォローしてみましょう
+              </p>
+            </div>
+          </Show>
+
           <Show when={!targetPostId()}>
             <div ref={(el) => (sentinel = el)} class="h-4"></div>
             {loadingMore() && (
