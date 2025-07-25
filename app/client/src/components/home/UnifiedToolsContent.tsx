@@ -352,7 +352,7 @@ export default function UnifiedToolsContent() {
       <Show when={post()}>
         {(p) => (
           <PostItem
-            post={p}
+            post={p()}
             tab="latest"
             handleReply={() => {}}
             handleRetweet={() => {}}
@@ -431,20 +431,6 @@ export default function UnifiedToolsContent() {
       {/* タブナビゲーション */}
       <div class="flex justify-center">
         <div class="flex space-x-1 bg-gray-800/50 p-1 rounded-full">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("search");
-              setSearchType("all");
-            }}
-            class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
-              activeTab() === "search"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-gray-400 hover:bg-gray-700/50"
-            }`}
-          >
-            すべて
-          </button>
           <button
             type="button"
             onClick={() => {
@@ -535,142 +521,6 @@ export default function UnifiedToolsContent() {
           </Show>
         </div>
 
-        {/* 総合検索タブ */}
-        <Show when={activeTab() === "search"}>
-          <div class="space-y-6">
-            {/* 検索結果 */}
-            <Show when={searchQuery()}>
-              <div class="space-y-3">
-                <h3 class="text-lg font-semibold text-gray-200">検索結果</h3>
-                <div class="space-y-2">
-                  <For each={searchResults()}>
-                    {(result) => (
-                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
-                        <div class="flex items-center justify-between">
-                          <div class="flex items-center space-x-3">
-                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center text-white font-semibold overflow-hidden">
-                              <Show
-                                when={result.avatar}
-                                fallback={result.title.charAt(0)}
-                              >
-                                <img
-                                  src={result.avatar!}
-                                  alt="avatar"
-                                  class="w-full h-full object-cover"
-                                />
-                              </Show>
-                            </div>
-                            <div>
-                              <div class="flex items-center space-x-2">
-                                <h4 class="font-semibold text-gray-200">
-                                  {result.title}
-                                </h4>
-                                <span
-                                  class={`px-2 py-1 rounded-full text-xs ${
-                                    result.type === "user"
-                                      ? "bg-green-600/20 text-green-400"
-                                      : result.type === "video"
-                                      ? "bg-purple-600/20 text-purple-400"
-                                      : "bg-yellow-600/20 text-yellow-400"
-                                  }`}
-                                >
-                                  {result.type === "user"
-                                    ? "ユーザー"
-                                    : result.type === "video"
-                                    ? "動画"
-                                    : "投稿"}
-                                </span>
-                              </div>
-                              <p class="text-sm text-gray-400 truncate max-w-md">
-                                {result.subtitle}
-                              </p>
-                              <Show when={result.metadata}>
-                                <div class="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                                  <Show when={result.metadata!.followers}>
-                                    <span>
-                                      {formatNumber(
-                                        result.metadata!.followers!,
-                                      )} フォロワー
-                                    </span>
-                                  </Show>
-                                  <Show when={result.metadata!.members}>
-                                    <span>
-                                      {formatNumber(result.metadata!.members!)}
-                                      {" "}
-                                      メンバー
-                                    </span>
-                                  </Show>
-                                </div>
-                              </Show>
-                            </div>
-                          </div>
-                          <div class="flex space-x-2">
-                            <Show when={result.type === "user"}>
-                              {(() => {
-                                const user = users().find((u) =>
-                                  u.id === result.id
-                                );
-                                const followed =
-                                  followStatus()[result.actor ?? ""] ??
-                                    user?.isFollowing;
-                                return followed
-                                  ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleUnfollow(
-                                          result.actor || "",
-                                          result.id,
-                                        )}
-                                      class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                    >
-                                      フォロー中
-                                    </button>
-                                  )
-                                  : (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleFollow(
-                                          result.actor || "",
-                                          result.id,
-                                        )}
-                                      class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
-                                    >
-                                      フォロー
-                                    </button>
-                                  );
-                              })()}
-                            </Show>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                  <Show when={searchResults().length === 0}>
-                    <div class="text-center py-8 text-gray-400">
-                      <svg
-                        class="w-12 h-12 mx-auto mb-4 opacity-50"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
-                      </svg>
-                      <p>検索結果が見つかりませんでした</p>
-                    </div>
-                  </Show>
-                </div>
-              </div>
-            </Show>
-          </div>
-        </Show>
-
         {/* 動画タブ */}
         <Show when={activeTab() === "videos"}>
           <div class="space-y-6">
@@ -700,7 +550,11 @@ export default function UnifiedToolsContent() {
                 }
               >
                 <div class="space-y-2">
-                  <For each={searchResults().filter((r) => r.type === "video")}>
+                  <For
+                    each={searchResults().filter((r: SearchResult) =>
+                      r.type === "video"
+                    )}
+                  >
                     {(v) => (
                       <div class="bg-gray-800/50 rounded-lg p-4 flex space-x-3 hover:bg-gray-800 transition-all duration-200">
                         <Show when={v.avatar}>

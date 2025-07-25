@@ -75,7 +75,10 @@ export function createRootActivityPubApp(env: Record<string, string>) {
         (typeof activity.actor === "string" ? activity.actor : "");
       const domain = getDomain(c);
       const userInfo = await getUserInfo(actorId, domain, env);
-      const formatted = formatUserInfoForPost(userInfo, stored);
+      const formatted = formatUserInfoForPost(
+        userInfo,
+        stored as Record<string, unknown>,
+      );
       broadcast({
         type: "newPost",
         payload: { timeline: "latest", post: formatted },
