@@ -118,6 +118,7 @@ export function Microblog() {
         const data = (msg as {
           payload: { post: MicroblogPost; timeline: "latest" | "following" };
         }).payload;
+        if (targetPostId()) return;
         if (data.timeline === "latest") {
           setPosts((prev) => {
             if (prev.some((p) => p.id === data.post.id)) return prev;
