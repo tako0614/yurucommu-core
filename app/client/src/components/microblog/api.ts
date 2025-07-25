@@ -86,6 +86,27 @@ export const fetchPostReplies = async (
   }
 };
 
+export const fetchRecommendedPosts = async (
+  params?: { limit?: number; before?: string },
+): Promise<MicroblogPost[]> => {
+  try {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.before) search.set("before", params.before);
+    const query = search.toString();
+    const response = await apiFetch(
+      `/api/microblog/recommend${query ? `?${query}` : ""}`,
+    );
+    if (!response.ok) {
+      throw new Error("Failed to fetch recommended posts");
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching recommended posts:", error);
+    return [];
+  }
+};
+
 export const fetchFollowingPosts = async (
   username: string,
 ): Promise<MicroblogPost[]> => {

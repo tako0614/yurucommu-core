@@ -7,7 +7,6 @@ import {
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "../activity_handlers.ts";
 import { createDB } from "../DB/mod.ts";
-import { addInboxEntry } from "../services/inbox.ts";
 
 const app = new Hono();
 
@@ -26,9 +25,7 @@ app.post("/system/inbox", async (c) => {
       stored = await db.saveObject(object);
       objectId = String((stored as { _id?: unknown })._id);
     }
-    if (env["DB_MODE"] === "host") {
-      await addInboxEntry(db, env["ACTIVITYPUB_DOMAIN"] ?? "", objectId);
-    }
+    // オブジェクトは tenant_id 付きで保存されるため追加処理は不要
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
@@ -83,13 +80,7 @@ app.post("/inbox", async (c) => {
               );
               objectId = String((stored as { _id?: unknown })._id);
             }
-            if (env["DB_MODE"] === "host") {
-              await addInboxEntry(
-                db,
-                env["ACTIVITYPUB_DOMAIN"] ?? "",
-                objectId,
-              );
-            }
+            // tenant_id 付きで保存されるため inbox_entry は不要
           }
           continue;
         }

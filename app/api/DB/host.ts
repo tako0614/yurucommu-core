@@ -7,7 +7,6 @@ import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
 import HostKeyPackage from "../models/takos_host/key_package.ts";
 import HostNotification from "../models/takos_host/notification.ts";
 import HostPublicMessage from "../models/takos_host/public_message.ts";
-import InboxEntry from "../models/takos/inbox_entry.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
@@ -51,20 +50,17 @@ export class MongoDBHost implements DB {
     sort?: Record<string, SortOrder>,
     limit?: number,
   ) {
-    const conds: Record<string, unknown>[] = [];
+    const conds: Record<string, unknown>[] = [
+      { ...filter, tenant_id: this.tenantId },
+    ];
     if (await this.useLocalObjects()) {
-      // takos host 本体のオブジェクトを参照
+      // takos host 本体のオブジェクトも参照
       conds.push({ ...filter, tenant_id: this.rootDomain });
     }
-    const ids = await InboxEntry.find({ tenant_id: this.tenantId }).distinct<
-      string
-    >("object_id");
-    if (ids.length) conds.push({ ...filter, _id: { $in: ids } });
-    if (!conds.length) return [];
-    const query = HostObjectStore.find({ $or: conds });
-    if (sort) query.sort(sort);
-    if (limit) query.limit(limit);
-    return await query.lean();
+    const query = conds.length > 1
+      ? await HostObjectStore.find({ $or: conds }).limit(limit ?? 20).sort(sort)
+      : await HostObjectStore.find(conds[0]).limit(limit ?? 20).sort(sort);
+    return query;
   }
 
   async getObject(id: string) {
@@ -236,7 +232,7 @@ export class MongoDBHost implements DB {
   async getPublicNotes(limit: number, before?: Date) {
     const filter: Record<string, unknown> = {
       type: "Note",
-      "aud.to": "https://www.w3.org/ns/activitystreams#Public",
+      to: "https://www.w3.org/ns/activitystreams#Public",
     };
     if (before) filter.created_at = { $lt: before };
     return await this.searchObjects(
@@ -678,14 +674,6 @@ export class MongoDBHost implements DB {
         summary: data.summary,
         cachedAt: new Date(),
       },
-      { upsert: true },
-    );
-  }
-
-  async addInboxEntry(tenantId: string, objectId: string): Promise<void> {
-    await InboxEntry.updateOne(
-      { tenant_id: tenantId, object_id: objectId },
-      { $setOnInsert: { received_at: new Date() } },
       { upsert: true },
     );
   }

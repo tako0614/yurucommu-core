@@ -145,7 +145,6 @@ export interface DB {
   ): Promise<unknown>;
   markNotificationRead(id: string): Promise<boolean>;
   deleteNotification(id: string): Promise<boolean>;
-  addInboxEntry(tenantId: string, objectId: string): Promise<void>;
   findSystemKey(domain: string): Promise<
     {
       domain: string;
