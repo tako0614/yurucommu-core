@@ -6,6 +6,8 @@ import {
   extractAttachments,
   getDomain,
 } from "./utils/activitypub.ts";
+import { broadcast, sendToUser } from "./routes/ws.ts";
+import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
 
 export type ActivityHandler = (
   activity: Record<string, unknown>,
@@ -17,7 +19,7 @@ async function saveObject(
   env: Record<string, string>,
   obj: Record<string, unknown>,
   actor: string,
-) {
+): Promise<Record<string, unknown>> {
   // 外部ユーザーの情報を抽出
   let actorInfo = {};
   if (typeof actor === "string" && actor.startsWith("http")) {
@@ -43,7 +45,7 @@ async function saveObject(
   if (attachments.length > 0) extra.attachments = attachments;
 
   const db = createDB(env);
-  await db.saveObject({
+  return await db.saveObject({
     type: obj.type ?? "Note",
     attributedTo: typeof obj.attributedTo === "string"
       ? obj.attributedTo
@@ -69,14 +71,33 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       const actor = typeof activity.actor === "string"
         ? activity.actor
         : username;
-      await saveObject(
-        (c as { get: (k: string) => unknown }).get("env") as Record<
-          string,
-          string
-        >,
+      const env = (c as { get: (k: string) => unknown }).get("env") as Record<
+        string,
+        string
+      >;
+      const saved = await saveObject(
+        env,
         activity.object as Record<string, unknown>,
         actor,
       );
+      const domain = getDomain(c as Context);
+      const userInfo = await getUserInfo(
+        (saved.actor_id as string) ?? actor,
+        domain,
+        env,
+      );
+      const formatted = formatUserInfoForPost(
+        userInfo,
+        saved,
+      );
+      broadcast({
+        type: "newPost",
+        payload: { timeline: "latest", post: formatted },
+      });
+      sendToUser(`${username}@${domain}`, {
+        type: "newPost",
+        payload: { timeline: "following", post: formatted },
+      });
     }
   },
 

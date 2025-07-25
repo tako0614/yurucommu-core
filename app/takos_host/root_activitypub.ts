@@ -8,6 +8,12 @@ import {
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/DB/mod.ts";
+import { broadcast, sendToUser } from "../api/routes/ws.ts";
+import {
+  formatUserInfoForPost,
+  getUserInfo,
+} from "../api/services/user-info.ts";
+import HostAccount from "../api/models/takos_host/account.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -62,6 +68,26 @@ export function createRootActivityPubApp(env: Record<string, string>) {
           activity.object as Record<string, unknown>,
         );
         objectId = String((stored as { _id?: unknown })._id);
+      }
+      const actorId = (stored as { actor_id?: unknown }).actor_id as
+        | string
+        | undefined ??
+        (typeof activity.actor === "string" ? activity.actor : "");
+      const domain = getDomain(c);
+      const userInfo = await getUserInfo(actorId, domain, env);
+      const formatted = formatUserInfoForPost(userInfo, stored);
+      broadcast({
+        type: "newPost",
+        payload: { timeline: "latest", post: formatted },
+      });
+      const followers = await HostAccount.find({
+        following: actorId,
+      }).lean<{ userName: string; tenant_id: string }[]>();
+      for (const acc of followers) {
+        sendToUser(`${acc.userName}@${acc.tenant_id}`, {
+          type: "newPost",
+          payload: { timeline: "following", post: formatted },
+        });
       }
       // tenant_id 付きで保存されるため inbox_entry への記録は不要
     }

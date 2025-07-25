@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { Motion } from "@motionone/solid";
 import { renderNoteContent } from "../../utils/render.ts";
 import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
@@ -463,18 +464,24 @@ export function PostList(props: {
       <For each={props.posts}>
         {(post, i) => (
           <>
-            <PostItem
-              post={post}
-              tab={props.tab}
-              handleReply={props.handleReply}
-              handleRetweet={props.handleRetweet}
-              handleQuote={props.handleQuote}
-              handleLike={props.handleLike}
-              handleEdit={props.handleEdit}
-              handleDelete={props.handleDelete}
-              formatDate={props.formatDate}
-              isReply={props.isThread && i() > 0}
-            />
+            <Motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <PostItem
+                post={post}
+                tab={props.tab}
+                handleReply={props.handleReply}
+                handleRetweet={props.handleRetweet}
+                handleQuote={props.handleQuote}
+                handleLike={props.handleLike}
+                handleEdit={props.handleEdit}
+                handleDelete={props.handleDelete}
+                formatDate={props.formatDate}
+                isReply={props.isThread && i() > 0}
+              />
+            </Motion.div>
             <Show when={showAds() && i() === 4}>
               <div class="my-4">
                 <GoogleAd />
