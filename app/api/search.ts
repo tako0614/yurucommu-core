@@ -5,14 +5,14 @@ import { getEnv } from "../shared/config.ts";
 import authRequired from "./utils/auth.ts";
 
 interface SearchResult {
-  type: "user" | "post";
+  type: "user" | "post" | "video";
   id: string;
   title: string;
   subtitle: string;
   avatar?: string;
   actor?: string;
   origin?: string;
-  metadata?: { createdAt?: Date };
+  metadata?: { createdAt?: Date; views?: number };
 }
 
 const app = new Hono();
@@ -76,6 +76,32 @@ app.get("/search", async (c) => {
         title: (p.content ?? "").slice(0, 80),
         subtitle: p.attributedTo,
         metadata: { createdAt: p.published },
+        origin: domain,
+      });
+    }
+  }
+
+  if (type === "all" || type === "videos") {
+    const env = getEnv(c);
+    const db = createDB(env);
+    const videos = await db.findVideos({
+      $or: [
+        { content: regex },
+        { "extra.title": regex },
+      ],
+    }, { published: -1 });
+    const sliced = (videos as Array<
+      { _id?: unknown; extra: Record<string, unknown>; attributedTo: string }
+    >).slice(0, 20);
+    const domain = getDomain(c);
+    for (const v of sliced) {
+      results.push({
+        type: "video",
+        id: String(v._id),
+        title: (v.extra?.title as string) ?? "",
+        subtitle: v.attributedTo,
+        avatar: v.extra?.thumbnail as string | undefined,
+        metadata: { views: Number(v.extra?.views) || 0 },
         origin: domain,
       });
     }

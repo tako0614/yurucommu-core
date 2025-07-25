@@ -14,6 +14,8 @@ import {
   fetchAccounts,
 } from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
+import { fetchPostById } from "../microblog/api.ts";
+import { PostItem } from "../microblog/Post.tsx";
 import QRCode from "qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
 
@@ -30,24 +32,16 @@ export interface User {
   lastSeen?: string;
 }
 
-export interface Community {
+export interface VideoResult {
   id: string;
-  name: string;
-  description: string;
-  avatar: string;
-  banner: string;
-  memberCount: number;
-  postCount: number;
-  isJoined: boolean;
-  isPrivate: boolean;
-  tags: string[];
-  rules: string[];
-  createdAt: string;
-  moderators: string[];
+  title: string;
+  author: string;
+  thumbnail?: string;
+  views: number;
 }
 
 export interface SearchResult {
-  type: "user" | "community" | "post";
+  type: "user" | "post" | "video";
   id: string;
   title: string;
   subtitle: string;
@@ -56,9 +50,9 @@ export interface SearchResult {
   origin?: string;
   metadata?: {
     followers?: number;
-    members?: number;
     likes?: number;
     createdAt?: string;
+    views?: number;
   };
 }
 
@@ -102,84 +96,18 @@ const mockUsers: User[] = [
   },
 ];
 
-const mockCommunities: Community[] = [
-  {
-    id: "1",
-    name: "技術討論",
-    description: "プログラミングや最新技術について議論する場所",
-    avatar: "",
-    banner: "",
-    memberCount: 1250,
-    postCount: 3420,
-    isJoined: true,
-    isPrivate: false,
-    tags: ["プログラミング", "技術", "開発"],
-    rules: ["相手を尊重する", "建設的な議論を心がける", "スパムは禁止"],
-    createdAt: "2024-01-15T00:00:00Z",
-    moderators: ["admin", "tech_lead"],
-  },
-  {
-    id: "2",
-    name: "デザイン研究室",
-    description: "UI/UXデザインやグラフィックデザインについて学び合う",
-    avatar: "",
-    banner: "",
-    memberCount: 756,
-    postCount: 1890,
-    isJoined: false,
-    isPrivate: false,
-    tags: ["デザイン", "UI", "UX", "グラフィック"],
-    rules: ["作品には建設的なフィードバックを", "著作権を尊重する"],
-    createdAt: "2024-02-20T00:00:00Z",
-    moderators: ["design_lead"],
-  },
-  {
-    id: "3",
-    name: "ゲーム開発同盟",
-    description: "インディーゲーム開発者のためのコミュニティ",
-    avatar: "",
-    banner: "",
-    memberCount: 892,
-    postCount: 2156,
-    isJoined: true,
-    isPrivate: false,
-    tags: ["ゲーム開発", "インディー", "プログラミング"],
-    rules: ["開発過程の共有を推奨", "他の開発者を支援する"],
-    createdAt: "2024-03-05T00:00:00Z",
-    moderators: ["game_dev_master"],
-  },
-  {
-    id: "4",
-    name: "秘密の料理研究会",
-    description: "特別なレシピと料理技術を共有する限定コミュニティ",
-    avatar: "",
-    banner: "",
-    memberCount: 156,
-    postCount: 445,
-    isJoined: false,
-    isPrivate: true,
-    tags: ["料理", "レシピ", "グルメ"],
-    rules: ["レシピの外部流出禁止", "写真付きの投稿を推奨"],
-    createdAt: "2024-04-10T00:00:00Z",
-    moderators: ["chef_secret"],
-  },
-];
-
 export default function UnifiedToolsContent() {
   const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
   const [accounts, setAccountsState] = useAtom(accountsAtom);
   const [activeTab, setActiveTab] = createSignal<
-    "search" | "users" | "posts" | "communities"
-  >("search");
+    "users" | "posts" | "videos"
+  >("users");
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchType, setSearchType] = createSignal<
-    "all" | "users" | "communities" | "posts"
-  >("all");
+    "users" | "posts" | "videos"
+  >("users");
   const [users, setUsers] = createSignal<User[]>(mockUsers);
-  const [communities, setCommunities] = createSignal<Community[]>(
-    mockCommunities,
-  );
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
   );
@@ -229,8 +157,8 @@ export default function UnifiedToolsContent() {
         return "ユーザー検索... (外部ユーザーは userName@example.com 形式)";
       case "posts":
         return "投稿内容、ハッシュタグで検索...";
-      case "communities":
-        return "コミュニティ名、説明、タグで検索...";
+      case "videos":
+        return "動画タイトル、説明で検索...";
       default:
         return "検索... (外部ユーザーは userName@example.com 形式で入力)";
     }
@@ -291,7 +219,7 @@ export default function UnifiedToolsContent() {
       const localResults: SearchResult[] = [];
 
       // ユーザーのキャッシュから検索
-      if (searchType() === "all" || searchType() === "users") {
+      if (searchType() === "users") {
         const filteredUsers = users().filter((user) =>
           user.username.toLowerCase().includes(
             parsed.searchTerm.toLowerCase(),
@@ -312,34 +240,6 @@ export default function UnifiedToolsContent() {
             origin: new URL(getOrigin()).host,
             metadata: {
               followers: user.followerCount,
-            },
-          });
-        }
-      }
-
-      // コミュニティのキャッシュから検索
-      if (searchType() === "all" || searchType() === "communities") {
-        const filteredCommunities = communities().filter((community) =>
-          community.name.toLowerCase().includes(
-            parsed.searchTerm.toLowerCase(),
-          ) ||
-          community.description.toLowerCase().includes(
-            parsed.searchTerm.toLowerCase(),
-          ) ||
-          community.tags.some((tag) =>
-            tag.toLowerCase().includes(parsed.searchTerm.toLowerCase())
-          )
-        );
-
-        for (const community of filteredCommunities) {
-          localResults.push({
-            type: "community",
-            id: community.id,
-            title: community.name,
-            subtitle: community.description,
-            origin: new URL(getOrigin()).host,
-            metadata: {
-              members: community.memberCount,
             },
           });
         }
@@ -427,47 +327,6 @@ export default function UnifiedToolsContent() {
     }
   };
 
-  // コミュニティ関連の処理
-  const handleJoinCommunity = (communityId: string) => {
-    try {
-      // TODO: API呼び出し
-      console.log("Joining community:", communityId);
-      setCommunities((prev) =>
-        prev.map((community) =>
-          community.id === communityId
-            ? {
-              ...community,
-              isJoined: true,
-              memberCount: community.memberCount + 1,
-            }
-            : community
-        )
-      );
-    } catch (error) {
-      console.error("Failed to join community:", error);
-    }
-  };
-
-  const handleLeaveCommunity = (communityId: string) => {
-    try {
-      // TODO: API呼び出し
-      console.log("Leaving community:", communityId);
-      setCommunities((prev) =>
-        prev.map((community) =>
-          community.id === communityId
-            ? {
-              ...community,
-              isJoined: false,
-              memberCount: community.memberCount - 1,
-            }
-            : community
-        )
-      );
-    } catch (error) {
-      console.error("Failed to leave community:", error);
-    }
-  };
-
   const formatNumber = (num: number) => {
     if (num >= 1000) {
       return `${(num / 1000).toFixed(1)}K`;
@@ -525,6 +384,28 @@ export default function UnifiedToolsContent() {
       setScanError("QRコードを読み取れませんでした");
     }
   };
+
+  function SearchPost(props: { id: string }) {
+    const [post] = createResource(() => fetchPostById(props.id));
+    const formatDate = (date: string) => new Date(date).toLocaleString("ja-JP");
+    return (
+      <Show when={post()}>
+        {(p) => (
+          <PostItem
+            post={p}
+            tab="latest"
+            handleReply={() => {}}
+            handleRetweet={() => {}}
+            handleQuote={() => {}}
+            handleLike={() => {}}
+            handleEdit={() => {}}
+            handleDelete={() => {}}
+            formatDate={formatDate}
+          />
+        )}
+      </Show>
+    );
+  }
 
   return (
     <div class="h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
@@ -635,16 +516,16 @@ export default function UnifiedToolsContent() {
           <button
             type="button"
             onClick={() => {
-              setActiveTab("communities");
-              setSearchType("communities");
+              setActiveTab("videos");
+              setSearchType("videos");
             }}
             class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
-              activeTab() === "communities"
+              activeTab() === "videos"
                 ? "bg-blue-600 text-white shadow-sm"
                 : "text-gray-400 hover:bg-gray-700/50"
             }`}
           >
-            コミュニティ
+            動画
           </button>
         </div>
       </div>
@@ -728,15 +609,15 @@ export default function UnifiedToolsContent() {
                                   class={`px-2 py-1 rounded-full text-xs ${
                                     result.type === "user"
                                       ? "bg-green-600/20 text-green-400"
-                                      : result.type === "community"
-                                      ? "bg-blue-600/20 text-blue-400"
+                                      : result.type === "video"
+                                      ? "bg-purple-600/20 text-purple-400"
                                       : "bg-yellow-600/20 text-yellow-400"
                                   }`}
                                 >
                                   {result.type === "user"
                                     ? "ユーザー"
-                                    : result.type === "community"
-                                    ? "コミュニティ"
+                                    : result.type === "video"
+                                    ? "動画"
                                     : "投稿"}
                                 </span>
                               </div>
@@ -801,34 +682,6 @@ export default function UnifiedToolsContent() {
                                   );
                               })()}
                             </Show>
-                            <Show when={result.type === "community"}>
-                              {(() => {
-                                const community = communities().find((c) =>
-                                  c.id === result.id
-                                );
-                                return community?.isJoined
-                                  ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleLeaveCommunity(result.id)}
-                                      class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                    >
-                                      参加中
-                                    </button>
-                                  )
-                                  : (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleJoinCommunity(result.id)}
-                                      class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
-                                    >
-                                      参加
-                                    </button>
-                                  );
-                              })()}
-                            </Show>
                           </div>
                         </div>
                       </div>
@@ -855,6 +708,63 @@ export default function UnifiedToolsContent() {
                 </div>
               </div>
             </Show>
+          </div>
+        </Show>
+
+        {/* 動画タブ */}
+        <Show when={activeTab() === "videos"}>
+          <div class="space-y-6">
+            <div class="space-y-3">
+              <h3 class="text-lg font-semibold text-gray-200">動画検索</h3>
+              <Show
+                when={searchResults().filter((r: SearchResult) =>
+                  r.type === "video"
+                ).length > 0}
+                fallback={
+                  <div class="text-center py-8 text-gray-400">
+                    <svg
+                      class="w-12 h-12 mx-auto mb-4 opacity-50"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                    <p>検索結果が見つかりませんでした</p>
+                  </div>
+                }
+              >
+                <div class="space-y-2">
+                  <For each={searchResults().filter((r) => r.type === "video")}>
+                    {(v) => (
+                      <div class="bg-gray-800/50 rounded-lg p-4 flex space-x-3 hover:bg-gray-800 transition-all duration-200">
+                        <Show when={v.avatar}>
+                          <img
+                            src={v.avatar!}
+                            alt="thumb"
+                            class="w-24 h-16 object-cover rounded"
+                          />
+                        </Show>
+                        <div class="flex-1">
+                          <p class="text-gray-200">{v.title}</p>
+                          <p class="text-xs text-gray-400">{v.subtitle}</p>
+                          <Show when={v.metadata?.views}>
+                            <p class="text-xs text-gray-500">
+                              {formatNumber(v.metadata!.views!)} 回視聴
+                            </p>
+                          </Show>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
           </div>
         </Show>
 
@@ -1038,168 +948,10 @@ export default function UnifiedToolsContent() {
                       r.type === "post"
                     )}
                   >
-                    {(post) => (
-                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
-                        <p class="text-gray-200 mb-1">{post.title}</p>
-                        <span class="text-xs text-gray-400">
-                          {post.subtitle}
-                        </span>
-                      </div>
-                    )}
+                    {(post) => <SearchPost id={post.id} />}
                   </For>
                 </div>
               </Show>
-            </div>
-          </div>
-        </Show>
-
-        {/* コミュニティタブ */}
-        <Show when={activeTab() === "communities"}>
-          <div class="space-y-6">
-            {/* コミュニティ一覧 */}
-            <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-gray-200">
-                コミュニティ一覧
-              </h3>
-              <div class="space-y-3">
-                <For
-                  each={searchResults().filter((result: SearchResult) =>
-                    result.type === "community"
-                  )}
-                >
-                  {(result: SearchResult) => {
-                    // ローカルコミュニティの詳細情報を取得
-                    const localCommunity = communities().find((c) =>
-                      c.id === result.id
-                    );
-
-                    return (
-                      <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
-                        <div class="flex items-start justify-between">
-                          <div class="flex items-start space-x-3 flex-1">
-                            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white font-semibold overflow-hidden">
-                              <Show
-                                when={result.avatar || localCommunity?.avatar}
-                                fallback={result.title.charAt(0)}
-                              >
-                                <img
-                                  src={result.avatar || localCommunity?.avatar!}
-                                  alt="avatar"
-                                  class="w-full h-full object-cover"
-                                />
-                              </Show>
-                            </div>
-                            <div class="flex-1">
-                              <div class="flex items-center space-x-2 mb-1">
-                                <h4 class="font-semibold text-gray-200">
-                                  {result.title}
-                                </h4>
-                                <Show when={localCommunity?.isPrivate}>
-                                  <span class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded-full text-xs">
-                                    プライベート
-                                  </span>
-                                </Show>
-                                <Show when={result.origin}>
-                                  <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
-                                    {result.origin}
-                                  </span>
-                                </Show>
-                              </div>
-                              <p class="text-sm text-gray-400 mb-2">
-                                {result.subtitle}
-                              </p>
-                              <div class="flex items-center space-x-4 text-xs text-gray-500 mb-2">
-                                <Show
-                                  when={result.metadata?.members ||
-                                    localCommunity?.memberCount}
-                                >
-                                  <span>
-                                    {formatNumber(
-                                      result.metadata?.members ||
-                                        localCommunity?.memberCount || 0,
-                                    )} メンバー
-                                  </span>
-                                </Show>
-                                <Show when={localCommunity?.postCount}>
-                                  <span>
-                                    {formatNumber(localCommunity!.postCount)}
-                                    {" "}
-                                    投稿
-                                  </span>
-                                </Show>
-                                <Show when={localCommunity?.createdAt}>
-                                  <span>
-                                    作成:{" "}
-                                    {formatDate(localCommunity!.createdAt)}
-                                  </span>
-                                </Show>
-                              </div>
-                              <Show when={localCommunity?.tags}>
-                                <div class="flex flex-wrap gap-1">
-                                  <For each={localCommunity!.tags}>
-                                    {(tag: string) => (
-                                      <span class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded-full text-xs">
-                                        #{tag}
-                                      </span>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                            </div>
-                          </div>
-                          <div class="flex flex-col space-y-2 ml-4">
-                            <Show when={localCommunity}>
-                              {localCommunity!.isJoined
-                                ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleLeaveCommunity(localCommunity!.id)}
-                                    class="px-3 py-1 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    参加中
-                                  </button>
-                                )
-                                : (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleJoinCommunity(localCommunity!.id)}
-                                    class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
-                                  >
-                                    参加
-                                  </button>
-                                )}
-                            </Show>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }}
-                </For>
-                <Show
-                  when={searchResults().filter((result: SearchResult) =>
-                    result.type === "community"
-                  ).length === 0}
-                >
-                  <div class="text-center py-8 text-gray-400">
-                    <svg
-                      class="w-12 h-12 mx-auto mb-4 opacity-50"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                      />
-                    </svg>
-                    <p>コミュニティが見つかりませんでした</p>
-                  </div>
-                </Show>
-              </div>
             </div>
           </div>
         </Show>

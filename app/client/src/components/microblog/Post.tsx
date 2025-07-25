@@ -153,7 +153,7 @@ type PostItemProps = {
   isReply?: boolean;
 };
 
-function PostItem(props: PostItemProps) {
+export function PostItem(props: PostItemProps) {
   const {
     post,
     tab,
