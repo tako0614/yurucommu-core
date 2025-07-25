@@ -70,9 +70,6 @@ export class MongoDBHost implements DB {
 
   async saveObject(obj: Record<string, unknown>) {
     const data = { ...obj };
-    if (!data._id) {
-      data._id = createObjectId(this.tenantId);
-    }
     const doc = new HostObjectStore({ ...data, tenant_id: this.tenantId });
     await doc.save();
     return doc.toObject();

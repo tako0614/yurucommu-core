@@ -1,7 +1,10 @@
 import mongoose from "mongoose";
 
 const objectStoreSchema = new mongoose.Schema({
-  _id: { type: String },
+  _id: {
+    type: String,
+    default: () => new mongoose.Types.ObjectId().toString(),
+  },
   type: { type: String, index: true },
   attributedTo: { type: String, required: true },
   content: { type: String },
