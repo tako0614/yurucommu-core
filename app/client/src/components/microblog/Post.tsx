@@ -213,7 +213,7 @@ export function PostItem(props: PostItemProps) {
   const openPost = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest("button, a")) return;
-    globalThis.location.hash = `#/post/${post.id}`;
+    globalThis.location.hash = `#/post/${encodeURIComponent(post.id)}`;
   };
 
   return (
@@ -242,7 +242,7 @@ export function PostItem(props: PostItemProps) {
             </span>
             <span class="text-gray-500">·</span>
             <a
-              href={`#/post/${post.id}`}
+              href={`#/post/${encodeURIComponent(post.id)}`}
               class="text-gray-500 text-sm whitespace-nowrap hover:underline"
             >
               {formatDate(post.createdAt)}

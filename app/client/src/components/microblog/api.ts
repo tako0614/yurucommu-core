@@ -64,7 +64,7 @@ export const fetchPostById = async (
   id: string,
 ): Promise<MicroblogPost | null> => {
   try {
-    const res = await apiFetch(`/api/microblog/${id}`);
+    const res = await apiFetch(`/api/microblog/${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     return await res.json();
   } catch (error) {
@@ -77,7 +77,9 @@ export const fetchPostReplies = async (
   id: string,
 ): Promise<MicroblogPost[]> => {
   try {
-    const res = await apiFetch(`/api/microblog/${id}/replies`);
+    const res = await apiFetch(
+      `/api/microblog/${encodeURIComponent(id)}/replies`,
+    );
     if (!res.ok) return [];
     return await res.json();
   } catch (error) {
@@ -181,13 +183,16 @@ export const updatePost = async (
   content: string,
 ): Promise<boolean> => {
   try {
-    const response = await apiFetch(`/api/microblog/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await apiFetch(
+      `/api/microblog/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content }),
       },
-      body: JSON.stringify({ content }),
-    });
+    );
     return response.ok;
   } catch (error) {
     console.error("Error updating post:", error);
@@ -197,9 +202,12 @@ export const updatePost = async (
 
 export const deletePost = async (id: string): Promise<boolean> => {
   try {
-    const response = await apiFetch(`/api/microblog/${id}`, {
-      method: "DELETE",
-    });
+    const response = await apiFetch(
+      `/api/microblog/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+      },
+    );
     return response.ok;
   } catch (error) {
     console.error("Error deleting post:", error);
@@ -212,11 +220,14 @@ export const likePost = async (
   username: string,
 ): Promise<number | null> => {
   try {
-    const response = await apiFetch(`/api/microblog/${id}/like`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username }),
-    });
+    const response = await apiFetch(
+      `/api/microblog/${encodeURIComponent(id)}/like`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      },
+    );
     if (!response.ok) return null;
     const data = await response.json();
     return typeof data.likes === "number" ? data.likes : null;
@@ -231,11 +242,14 @@ export const retweetPost = async (
   username: string,
 ): Promise<number | null> => {
   try {
-    const response = await apiFetch(`/api/microblog/${id}/retweet`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username }),
-    });
+    const response = await apiFetch(
+      `/api/microblog/${encodeURIComponent(id)}/retweet`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      },
+    );
     if (!response.ok) return null;
     const data = await response.json();
     return typeof data.retweets === "number" ? data.retweets : null;
