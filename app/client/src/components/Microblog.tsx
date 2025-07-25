@@ -20,6 +20,7 @@ import {
   fetchPostById,
   fetchPostReplies,
   fetchPosts,
+  fetchRecommendedPosts,
   fetchStories,
   likePost,
   retweetPost,
@@ -29,9 +30,11 @@ import {
 import type { MicroblogPost, Story } from "./microblog/types.ts";
 
 export function Microblog() {
-  // タブ切り替え: "recommend" | "following"
+  // タブ切り替え: "following" | "recommend" | "latest"
   const [account] = useAtom(activeAccount);
-  const [tab, setTab] = createSignal<"recommend" | "following">("recommend");
+  const [tab, setTab] = createSignal<"following" | "recommend" | "latest">(
+    "following",
+  );
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -128,6 +131,11 @@ export function Microblog() {
   onCleanup(() => {
     observer?.disconnect();
   });
+  const [recommendedPosts, { refetch: refetchRecommended }] = createResource(
+    () => {
+      return fetchRecommendedPosts();
+    },
+  );
   // フォロー中投稿の取得
   const [followingTimelinePosts, { refetch: _refetchFollowing }] =
     createResource(() => {
@@ -188,11 +196,12 @@ export function Microblog() {
     if (targetPostId()) {
       postsToFilter = posts() || [];
     } else {
-      // タブに応じて投稿を選択
-      if (tab() === "recommend") {
+      if (tab() === "latest") {
         postsToFilter = posts() || [];
       } else if (tab() === "following") {
         postsToFilter = followingTimelinePosts() || [];
+      } else if (tab() === "recommend") {
+        postsToFilter = recommendedPosts() || [];
       } else {
         postsToFilter = [];
       }
@@ -384,6 +393,17 @@ export function Microblog() {
               <button
                 type="button"
                 class={`tab-btn ${
+                  tab() === "following" ? "tab-btn-active" : ""
+                }`}
+                onClick={() => {
+                  setTab("following");
+                }}
+              >
+                フォロー中
+              </button>
+              <button
+                type="button"
+                class={`tab-btn ${
                   tab() === "recommend" ? "tab-btn-active" : ""
                 }`}
                 onClick={() => {
@@ -395,19 +415,19 @@ export function Microblog() {
               <button
                 type="button"
                 class={`tab-btn ${
-                  tab() === "following" ? "tab-btn-active" : ""
+                  tab() === "latest" ? "tab-btn-active" : ""
                 }`}
                 onClick={() => {
-                  setTab("following");
+                  setTab("latest");
                 }}
               >
-                フォロー中
+                新しい順
               </button>
             </div>
           </div>
         </div>
         <div class="max-w-2xl mx-auto">
-          {(tab() === "recommend" || tab() === "following") && (
+          {(tab() === "latest" || tab() === "following" || tab() === "recommend") && (
             <StoryTray
               stories={stories() || []}
               refetchStories={refetchStories}
@@ -415,7 +435,7 @@ export function Microblog() {
             />
           )}
 
-          {(tab() === "recommend" || tab() === "following") && (
+          {(tab() === "latest" || tab() === "following" || tab() === "recommend") && (
             <PostList
               posts={filteredPosts()}
               tab={tab()}
