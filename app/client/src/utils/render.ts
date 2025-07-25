@@ -2,6 +2,7 @@ import MarkdownIt from "markdown-it";
 import LinkifyIt from "linkify-it";
 import createDOMPurify from "dompurify";
 import type { DOMPurify } from "dompurify";
+import { replaceShortcodes } from "./emoji.ts";
 
 // --- 型定義 ----------------------------------------------------------
 export interface APTag {
@@ -139,6 +140,12 @@ export function renderNoteContent(
 
     let txt = tNode.data;
     let replaced = false;
+
+    const replacedTxt = replaceShortcodes(txt);
+    if (replacedTxt !== txt) {
+      txt = replacedTxt;
+      replaced = true;
+    }
 
     // 1) URL を先にリンク化（ネスト防止）
     if (linkify.pretest(txt)) {

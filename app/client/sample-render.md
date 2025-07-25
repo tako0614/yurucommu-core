@@ -60,6 +60,7 @@
 
 - `tag[].type="Emoji"` を `<img class="emoji">` に置換。([Mastodon Docs][2])
 - テキストに残った `:shortcode:` はローカル絵文字辞書で変換。
+- 辞書は `app/client/src/utils/emoji.ts` にあります。
 - 代替テキスト (alt) を必ず入れてアクセシビリティ確保。
 
 ---
