@@ -74,6 +74,13 @@ export default function Profile() {
   const followTarget = () =>
     info() ? `https://${info()!.domain}/users/${info()!.userName}` : "";
 
+  const followIdentifier = () =>
+    info()
+      ? info()!.domain === getDomain()
+        ? info()!.userName
+        : `${info()!.userName}@${info()!.domain}`
+      : "";
+
   const isFollowing = () => {
     const user = account();
     if (!user) return false;
@@ -83,7 +90,7 @@ export default function Profile() {
 
   const handleFollow = async () => {
     if (!account() || !info()) return;
-    const ok = await followUser(info()!.userName, account()!.userName);
+    const ok = await followUser(followIdentifier(), account()!.userName);
     if (ok) {
       const target = followTarget();
       setAccounts(
@@ -98,7 +105,7 @@ export default function Profile() {
 
   const handleUnfollow = async () => {
     if (!account() || !info()) return;
-    const ok = await unfollowUser(info()!.userName, account()!.userName);
+    const ok = await unfollowUser(followIdentifier(), account()!.userName);
     if (ok) {
       const target = followTarget();
       setAccounts(

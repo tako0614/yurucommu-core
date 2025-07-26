@@ -231,12 +231,12 @@ export default function UnifiedToolsContent() {
   const handleFollow = async (actor: string, userId?: string) => {
     try {
       if (selectedAccountId()) {
-        await apiFetch(`/api/accounts/${selectedAccountId()}/follow`, {
+        await apiFetch("/api/follow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            follower: currentAccount()?.userName ?? "",
             target: actor,
-            userName: currentAccount()?.userName ?? "",
           }),
         });
       }
@@ -262,10 +262,13 @@ export default function UnifiedToolsContent() {
   const handleUnfollow = async (actor: string, userId?: string) => {
     try {
       if (selectedAccountId()) {
-        await apiFetch(`/api/accounts/${selectedAccountId()}/follow`, {
+        await apiFetch("/api/follow", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target: actor }),
+          body: JSON.stringify({
+            follower: currentAccount()?.userName ?? "",
+            target: actor,
+          }),
         });
       }
       if (userId) {

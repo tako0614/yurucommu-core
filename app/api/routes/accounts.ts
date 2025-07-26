@@ -1,14 +1,6 @@
 import { Hono } from "hono";
-import {
-  createFollowActivity,
-  createUndoFollowActivity,
-  deliverActivityPubObject,
-  fetchActorInbox,
-  getDomain,
-  jsonResponse,
-} from "../utils/activitypub.ts";
+import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
-import { addNotification } from "../services/notification.ts";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
@@ -169,117 +161,6 @@ app.delete("/accounts/:id/following", async (c) => {
   const exists = await db.findAccountById(id);
   if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
   const following = await db.removeFollowing(id, target);
-  return jsonResponse(c, { following });
-});
-
-app.post("/accounts/:id/follow", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { target, userName } = await c.req.json();
-  if (typeof target !== "string" || typeof userName !== "string") {
-    return jsonResponse(c, { error: "Invalid body" }, 400);
-  }
-  const accountExist = await db.findAccountById(id);
-  if (!accountExist) {
-    return jsonResponse(c, { error: "Account not found" }, 404);
-  }
-  const domain = getDomain(c);
-  const selfActor = `https://${domain}/users/${userName}`;
-  if (target === userName || target === selfActor) {
-    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
-  }
-  const following = await db.addFollowing(id, target);
-
-  try {
-    const domain = getDomain(c);
-    const actorId = `https://${domain}/users/${userName}`;
-    const targetUrl = new URL(target);
-    if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
-      const username = targetUrl.pathname.split("/")[2];
-      await db.addFollowerByName(username, actorId);
-    } else {
-      const inbox = await fetchActorInbox(target, getEnv(c));
-      if (inbox) {
-        const follow = createFollowActivity(domain, actorId, target);
-        deliverActivityPubObject([inbox], follow, userName, domain, getEnv(c))
-          .catch((err) => console.error("Delivery failed:", err));
-      }
-      await db.follow(userName, target);
-    }
-  } catch (err) {
-    console.error("Follow request failed:", err);
-  }
-
-  try {
-    const domain = getDomain(c);
-    let localTarget: string | null = null;
-    if (target.startsWith("http")) {
-      const url = new URL(target);
-      if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-        localTarget = url.pathname.split("/")[2];
-      }
-    } else {
-      localTarget = target;
-    }
-    if (localTarget) {
-      await addNotification(
-        "新しいフォロー",
-        `${userName}さんが${localTarget}さんをフォローしました`,
-        "info",
-        env,
-      );
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return jsonResponse(c, { following });
-});
-
-app.delete("/accounts/:id/follow", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { target } = await c.req.json();
-  if (typeof target !== "string") {
-    return jsonResponse(c, { error: "Invalid body" }, 400);
-  }
-  const accountExist = await db.findAccountById(id);
-  if (!accountExist) {
-    return jsonResponse(c, { error: "Account not found" }, 404);
-  }
-  const following = await db.removeFollowing(id, target);
-
-  try {
-    const domain = getDomain(c);
-    const actorId = `https://${domain}/users/${accountExist.userName}`;
-    const targetUrl = new URL(target);
-    if (targetUrl.host === domain && targetUrl.pathname.startsWith("/users/")) {
-      const username = targetUrl.pathname.split("/")[2];
-      await db.removeFollowerByName(username, actorId);
-    } else {
-      const inbox = await fetchActorInbox(target, getEnv(c));
-      if (inbox) {
-        const undo = createUndoFollowActivity(domain, actorId, target);
-        deliverActivityPubObject(
-          [inbox],
-          undo,
-          accountExist.userName,
-          domain,
-          getEnv(c),
-        ).catch(
-          (err) => console.error("Delivery failed:", err),
-        );
-      }
-      if (db.unfollow) {
-        await db.unfollow(accountExist.userName, target);
-      }
-    }
-  } catch (err) {
-    console.error("Unfollow request failed:", err);
-  }
-
   return jsonResponse(c, { following });
 });
 

@@ -163,9 +163,9 @@ paths:
       responses:
         "200":
           description: 更新後のフォロー一覧
-  /accounts/{id}/follow:
+  /follow:
     post:
-      summary: リモートアクターのフォロー
+      summary: ユーザーをフォロー
       requestBody:
         required: true
         content:
@@ -173,18 +173,18 @@ paths:
             schema:
               type: object
               properties:
+                follower:
+                  type: string
                 target:
                   type: string
-                userName:
-                  type: string
               required:
+                - follower
                 - target
-                - userName
       responses:
         "200":
           description: フォロー送信結果
     delete:
-      summary: リモートアクターのアンフォロー
+      summary: ユーザーのフォロー解除
       requestBody:
         required: true
         content:
@@ -192,9 +192,12 @@ paths:
             schema:
               type: object
               properties:
+                follower:
+                  type: string
                 target:
                   type: string
               required:
+                - follower
                 - target
       responses:
         "200":

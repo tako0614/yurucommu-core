@@ -123,12 +123,12 @@ export const followUser = async (
   followerUsername: string,
 ) => {
   try {
-    const response = await apiFetch(`/api/users/${username}/follow`, {
+    const response = await apiFetch("/api/follow", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ followerUsername }),
+      body: JSON.stringify({ follower: followerUsername, target: username }),
     });
     return response.ok;
   } catch (error) {
@@ -142,12 +142,12 @@ export const unfollowUser = async (
   followerUsername: string,
 ) => {
   try {
-    const response = await apiFetch(`/api/users/${username}/unfollow`, {
-      method: "POST",
+    const response = await apiFetch("/api/follow", {
+      method: "DELETE",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ followerUsername }),
+      body: JSON.stringify({ follower: followerUsername, target: username }),
     });
     return response.ok;
   } catch (error) {
