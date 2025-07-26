@@ -270,3 +270,46 @@ export const resetKeyData = async (user: string): Promise<boolean> => {
     return false;
   }
 };
+
+export const fetchDmList = async (id: string): Promise<string[]> => {
+  try {
+    const res = await apiFetch(`/api/accounts/${id}/dms`);
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    return Array.isArray(data.dms) ? data.dms : [];
+  } catch (err) {
+    console.error("Error fetching dm list:", err);
+    return [];
+  }
+};
+
+export const addDm = async (id: string, target: string): Promise<boolean> => {
+  try {
+    const res = await apiFetch(`/api/accounts/${id}/dms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("Error adding dm:", err);
+    return false;
+  }
+};
+
+export const removeDm = async (
+  id: string,
+  target: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(`/api/accounts/${id}/dms`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("Error removing dm:", err);
+    return false;
+  }
+};

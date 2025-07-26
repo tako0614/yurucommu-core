@@ -8,6 +8,7 @@ const accountSchema = new mongoose.Schema({
   publicKey: { type: String, default: "" },
   followers: { type: [String], default: [] },
   following: { type: [String], default: [] },
+  dms: { type: [String], default: [] },
   tenant_id: { type: String, index: true },
 });
 
@@ -18,4 +19,3 @@ const HostAccount = mongoose.models.HostAccount ??
 
 export default HostAccount;
 export { accountSchema };
-

@@ -12,10 +12,13 @@ import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
+  addDm,
   addKeyPackage,
+  fetchDmList,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeyPackages,
+  removeDm,
   saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
@@ -218,6 +221,33 @@ export function Chat(props: ChatProps) {
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
+  let longPressTimer: number | undefined;
+
+  const removeRoom = async (roomId: string) => {
+    const user = account();
+    if (!user) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room || room.type !== "dm") return;
+    if (!confirm(`${room.name} をDMリストから削除しますか？`)) return;
+    if (await removeDm(user.id, roomId)) {
+      setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
+      if (selectedRoom() === roomId) {
+        setSelectedRoom(null);
+        setMessages([]);
+      }
+    }
+  };
+
+  const startLongPress = (id: string) => {
+    longPressTimer = globalThis.setTimeout(() => removeRoom(id), 600);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer) {
+      globalThis.clearTimeout(longPressTimer);
+      longPressTimer = undefined;
+    }
+  };
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -467,11 +497,8 @@ export function Chat(props: ChatProps) {
       },
     ];
 
-    const handles = Array.from(
-      new Set([
-        ...(user.followers ?? []),
-        ...(user.following ?? []),
-      ].map((id) => normalizeActor(id))),
+    const handles = (await fetchDmList(user.id)).map((id) =>
+      normalizeActor(id)
     );
     if (handles.length > 0) {
       try {
@@ -567,6 +594,9 @@ export function Chat(props: ChatProps) {
         alert("メッセージの送信に失敗しました");
         return;
       }
+      if (room.type === "dm") {
+        await addDm(user.id, room.members[0]);
+      }
     } else {
       const note: Record<string, unknown> = {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -598,6 +628,9 @@ export function Chat(props: ChatProps) {
       if (!success) {
         alert("メッセージの送信に失敗しました");
         return;
+      }
+      if (room.type === "dm") {
+        await addDm(user.id, room.members[0]);
       }
     }
     const img = imageFile();
@@ -681,8 +714,33 @@ export function Chat(props: ChatProps) {
         const partnerId = data.from === self
           ? data.to.find((v) => v !== self) ?? data.to[0]
           : data.from;
-        const room = chatRooms().find((r) => r.id === partnerId);
-        if (!room) return;
+        let room = chatRooms().find((r) => r.id === partnerId);
+        if (!room) {
+          if (confirm(`${partnerId} からDMが届きました。許可しますか？`)) {
+            const info = await fetchUserInfo(normalizeActor(partnerId));
+            if (info) {
+              room = {
+                id: partnerId,
+                name: info.displayName || info.userName,
+                userName: info.userName,
+                domain: info.domain,
+                avatar: info.authorAvatar ||
+                  info.userName.charAt(0).toUpperCase(),
+                unreadCount: 0,
+                type: "dm",
+                members: [partnerId],
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              };
+              setChatRooms((prev) => [...prev, room!]);
+              await addDm(user.id, partnerId);
+            } else {
+              return;
+            }
+          } else {
+            return;
+          }
+        }
         const isMe = data.from === self;
         const displayName = isMe
           ? user.displayName || user.userName
@@ -877,6 +935,14 @@ export function Chat(props: ChatProps) {
                         selectedRoom() === room.id ? "is-active" : ""
                       } flex items-center cursor-pointer`}
                       onClick={() => selectRoom(room.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        removeRoom(room.id);
+                      }}
+                      onTouchStart={() => startLongPress(room.id)}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      onTouchCancel={cancelLongPress}
                     >
                       <div class="flex items-center w-full">
                         <span

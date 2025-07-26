@@ -8,6 +8,7 @@ import {
 } from "./microblog/api.ts";
 import { PostList } from "./microblog/Post.tsx";
 import { UserAvatar } from "./microblog/UserAvatar.tsx";
+import { addDm } from "./e2ee/api.ts";
 import {
   accounts as accountsAtom,
   activeAccount,
@@ -118,10 +119,26 @@ export default function Profile() {
     }
   };
 
-  const openDM = () => {
+  const normalizeActor = (actor: string): string => {
+    if (actor.startsWith("http")) {
+      try {
+        const url = new URL(actor);
+        const name = url.pathname.split("/").pop()!;
+        return `${name}@${url.hostname}`;
+      } catch {
+        return actor;
+      }
+    }
+    return actor;
+  };
+
+  const openDM = async () => {
     const name = username();
-    if (!name) return;
-    setRoom(name);
+    const user = account();
+    if (!name || !user) return;
+    const handle = normalizeActor(name);
+    await addDm(user.id, handle);
+    setRoom(handle);
     setApp("chat");
   };
 

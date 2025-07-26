@@ -9,6 +9,7 @@ export interface Account {
   publicKey: string;
   followers: string[];
   following: string[];
+  dms: string[];
 }
 
 const STORAGE_KEY = "takos-active-account-id";

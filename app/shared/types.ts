@@ -7,6 +7,7 @@ export interface AccountDoc {
   publicKey: string;
   followers?: string[];
   following?: string[];
+  dms?: string[];
 }
 
 export interface RelayDoc {
