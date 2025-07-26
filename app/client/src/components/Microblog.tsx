@@ -510,7 +510,9 @@ export function Microblog() {
                   handleDelete={handleDelete}
                   formatDate={formatDate}
                 />
-                <Show when={tab() === "following" && filteredPosts().length === 0}>
+                <Show
+                  when={tab() === "following" && filteredPosts().length === 0}
+                >
                   <div class="p-8 text-center">
                     <p class="text-gray-400 text-lg">
                       フォロー中の投稿はありません
@@ -568,6 +570,31 @@ export function Microblog() {
           quoteId={quoteTarget()}
           currentUser={account() || undefined}
         />
+        <Show when={account()}>
+          <button
+            type="button"
+            class="fixed bottom-20 right-6 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-full shadow-lg transition-colors"
+            onClick={() => {
+              _setReplyingTo(null);
+              setQuoteTarget(null);
+              setShowPostForm(true);
+            }}
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </button>
+        </Show>
       </div>
     </>
   );
