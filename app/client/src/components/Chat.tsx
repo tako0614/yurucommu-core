@@ -1324,6 +1324,7 @@ export function Chat(props: ChatProps) {
                           type="file"
                           accept="image/*"
                           class="hidden"
+                          style="display:none;"
                           onChange={(e) => {
                             const f = (e.currentTarget as HTMLInputElement)
                               .files?.[0];
