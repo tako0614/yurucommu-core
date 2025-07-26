@@ -74,6 +74,19 @@ function b64ToBuf(b64: string): Uint8Array {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
+// ActivityPub の Note 形式のテキストから content を取り出す
+function parseActivityPubContent(text: string): string {
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === "object" && typeof obj.content === "string") {
+      return obj.content;
+    }
+  } catch {
+    /* JSON ではない場合はそのまま返す */
+  }
+  return text;
+}
+
 async function encryptFile(file: File) {
   const buf = new Uint8Array(await file.arrayBuffer());
   const key = await crypto.subtle.generateKey(
@@ -360,7 +373,7 @@ export function Chat(props: ChatProps) {
     );
     for (const m of list) {
       const plain = await decryptGroupMessage(group, m.content);
-      const text = plain ?? m.content;
+      const text = parseActivityPubContent(plain ?? m.content);
       let attachments: { data: string; mediaType: string }[] | undefined;
       if (Array.isArray(m.attachments)) {
         attachments = [];
@@ -737,7 +750,7 @@ export function Chat(props: ChatProps) {
           author: data.from,
           displayName,
           address: data.from,
-          content: text,
+          content: parseActivityPubContent(text),
           attachments,
           timestamp: new Date(data.createdAt),
           type: attachments && attachments.length > 0 ? "image" : "text",
