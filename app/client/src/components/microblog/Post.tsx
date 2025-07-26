@@ -690,6 +690,7 @@ export function PostForm(props: {
                       multiple
                       accept="image/*,video/*,audio/*"
                       class="hidden"
+                      style="display:none;"
                       onChange={handleFileChange}
                     />
                   </button>
