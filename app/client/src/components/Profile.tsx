@@ -20,7 +20,7 @@ export default function Profile() {
 
   const [info] = createResource(
     () => username(),
-    (name) => (name ? fetchUserProfile(name) : null)
+    (name) => (name ? fetchUserProfile(name) : null),
   );
   const [posts] = createResource(
     () => username(),
@@ -62,68 +62,70 @@ export default function Profile() {
   return (
     <div class="max-w-3xl mx-auto">
       <div class="min-h-screen text-white">
-      <Show
-        when={!info.loading}
-        fallback={<div class="p-4">Loading...</div>}
-      >
         <Show
-          when={info()}
-          fallback={<div class="p-4">ユーザーが見つかりません</div>}
+          when={!info.loading}
+          fallback={<div class="p-4">Loading...</div>}
         >
-          {(info) => (
-            <>
-              <div class="relative">
-                <div class="h-48 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" />
-                <div class="absolute -bottom-16 left-4">
-                  <UserAvatar
-                    avatarUrl={info()?.avatarInitial}
-                    username={info()?.userName}
-                    size="w-32 h-32"
+          <Show
+            when={info()}
+            fallback={<div class="p-4">ユーザーが見つかりません</div>}
+          >
+            {(info) => (
+              <>
+                <div class="relative">
+                  <div class="h-48 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" />
+                  <div class="absolute -bottom-16 left-4">
+                    <UserAvatar
+                      avatarUrl={info()?.avatarInitial}
+                      username={info()?.userName}
+                      size="w-32 h-32"
+                    />
+                  </div>
+                </div>
+                <div class="pt-20 px-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <h2 class="text-2xl font-bold">{info()?.displayName}</h2>
+                      <p class="text-gray-400">
+                        @{info()?.userName}@{info()?.domain}
+                      </p>
+                    </div>
+                    <Show when={isOwnProfile()}>
+                      <select
+                        value={activeId() || ""}
+                        onChange={(e) => handleSwitch(e.currentTarget.value)}
+                        class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+                      >
+                        <For each={accounts()}>
+                          {(a) => <option value={a.id}>{a.displayName}</option>}
+                        </For>
+                      </select>
+                    </Show>
+                  </div>
+                  <div class="flex space-x-6 mt-4 text-gray-400 text-sm">
+                    <span>投稿 {info()?.postCount ?? 0}</span>
+                    <span>フォロー中 {info()?.followingCount ?? 0}</span>
+                    <span>フォロワー {info()?.followersCount ?? 0}</span>
+                  </div>
+                </div>
+                <div class="mt-8 px-4">
+                  <PostList
+                    posts={posts() || []}
+                    tab="latest"
+                    handleReply={() => {}}
+                    handleRetweet={() => {}}
+                    handleQuote={() => {}}
+                    handleLike={() => {}}
+                    handleEdit={() => {}}
+                    handleDelete={() => {}}
+                    formatDate={formatDate}
                   />
                 </div>
-              </div>
-              <div class="pt-20 px-4">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <h2 class="text-2xl font-bold">{info()?.displayName}</h2>
-                    <p class="text-gray-400">@{info()?.userName}</p>
-                  </div>
-                  <Show when={isOwnProfile()}>
-                    <select
-                      value={activeId() || ""}
-                      onChange={(e) => handleSwitch(e.currentTarget.value)}
-                      class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
-                    >
-                      <For each={accounts()}>
-                        {(a) => <option value={a.id}>{a.displayName}</option>}
-                      </For>
-                    </select>
-                  </Show>
-                </div>
-                <div class="flex space-x-6 mt-4 text-gray-400 text-sm">
-                  <span>投稿 {info()?.postCount ?? 0}</span>
-                  <span>フォロー中 {info()?.followingCount ?? 0}</span>
-                  <span>フォロワー {info()?.followersCount ?? 0}</span>
-                </div>
-              </div>
-              <div class="mt-8 px-4">
-                <PostList
-                  posts={posts() || []}
-                  tab="latest"
-                  handleReply={() => {}}
-                  handleRetweet={() => {}}
-                  handleQuote={() => {}}
-                  handleLike={() => {}}
-                  handleEdit={() => {}}
-                  handleDelete={() => {}}
-                  formatDate={formatDate}
-                />
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </Show>
         </Show>
-      </Show>
-    </div>
+      </div>
     </div>
   );
 }
