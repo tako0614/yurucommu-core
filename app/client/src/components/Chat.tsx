@@ -64,6 +64,55 @@ function adjustHeight(el?: HTMLTextAreaElement) {
   }
 }
 
+function bufToB64(buf: ArrayBuffer): string {
+  const u8 = new Uint8Array(buf);
+  return btoa(String.fromCharCode(...u8));
+}
+
+function b64ToBuf(b64: string): Uint8Array {
+  const bin = atob(b64);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+async function encryptFile(file: File) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const key = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, buf);
+  const rawKey = await crypto.subtle.exportKey("raw", key);
+  return {
+    data: bufToB64(enc),
+    key: bufToB64(rawKey),
+    iv: bufToB64(iv.buffer),
+    mediaType: file.type,
+  };
+}
+
+async function decryptFile(
+  data: string,
+  keyB64: string,
+  ivB64: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    b64ToBuf(keyB64),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  );
+  const iv = b64ToBuf(ivB64);
+  const dec = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    b64ToBuf(data),
+  );
+  return bufToB64(dec);
+}
+
 function getSelfRoomId(user: Account | null): string | null {
   return user ? `${user.userName}@${getDomain()}` : null;
 }
@@ -76,6 +125,7 @@ interface ChatMessage {
   displayName: string;
   address: string;
   content: string;
+  attachments?: { data: string; mediaType: string }[];
   timestamp: Date;
   type: "text" | "image" | "file";
   avatar?: string;
@@ -105,6 +155,8 @@ export function Chat(props: ChatProps) {
   const [account] = useAtom(activeAccount);
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [newMessage, setNewMessage] = createSignal("");
+  const [imageFile, setImageFile] = createSignal<File | null>(null);
+  const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
   const [chatRooms, setChatRooms] = createSignal<ChatRoom[]>([]);
@@ -126,6 +178,7 @@ export function Chat(props: ChatProps) {
   const [hasMore, setHasMore] = createSignal(true);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
   let chatMainRef: HTMLDivElement | undefined;
+  let fileInput: HTMLInputElement | undefined;
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
@@ -134,7 +187,9 @@ export function Chat(props: ChatProps) {
       let updated = false;
       const newRooms = rooms.map((r) => {
         if (r.id !== roomId) return r;
-        const lastMessage = msg?.content ?? "";
+        const lastMessage = msg?.attachments && msg.attachments.length > 0
+          ? "[画像]" + (msg.content ? " " + msg.content : "")
+          : msg?.content ?? "";
         const lastMessageTime = msg?.timestamp;
         if (
           r.lastMessage !== lastMessage ||
@@ -305,17 +360,29 @@ export function Chat(props: ChatProps) {
     );
     for (const m of list) {
       const plain = await decryptGroupMessage(group, m.content);
-      let text: string;
-      if (plain) {
-        text = plain;
-        try {
-          const obj = JSON.parse(plain);
-          if (typeof obj.content === "string") text = obj.content;
-        } catch {
-          /* JSON parse failed - keep plain text */
+      const text = plain ?? m.content;
+      let attachments: { data: string; mediaType: string }[] | undefined;
+      if (Array.isArray(m.attachments)) {
+        attachments = [];
+        for (const at of m.attachments) {
+          if (
+            typeof at.url === "string" && typeof at.key === "string" &&
+            typeof at.iv === "string"
+          ) {
+            try {
+              const res = await fetch(at.url);
+              const buf = await res.arrayBuffer();
+              const encData = bufToB64(buf);
+              const dec = await decryptFile(encData, at.key, at.iv);
+              const mt = typeof at.mediaType === "string"
+                ? at.mediaType
+                : "image/png";
+              attachments.push({ data: dec, mediaType: mt });
+            } catch {
+              /* ignore */
+            }
+          }
         }
-      } else {
-        text = m.content;
       }
       const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
@@ -326,8 +393,9 @@ export function Chat(props: ChatProps) {
         displayName,
         address: m.from,
         content: text,
+        attachments,
         timestamp: new Date(m.createdAt),
-        type: "text",
+        type: attachments && attachments.length > 0 ? "image" : "text",
         isMe,
         avatar: room.avatar,
       });
@@ -429,7 +497,7 @@ export function Chat(props: ChatProps) {
     const text = newMessage().trim();
     const roomId = selectedRoom();
     const user = account();
-    if (!text || !roomId || !user) return;
+    if (!text && !imageFile() || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
     if (useEncryption()) {
@@ -456,18 +524,30 @@ export function Chat(props: ChatProps) {
         setPartnerHasKey(false);
         return;
       }
-      const note = {
+      const note: Record<string, unknown> = {
         "@context": "https://www.w3.org/ns/activitystreams",
         type: "Note",
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
+      let atts: unknown[] | undefined;
+      if (imageFile()) {
+        const enc = await encryptFile(imageFile()!);
+        atts = [{
+          type: "Image",
+          mediaType: enc.mediaType,
+          content: enc.data,
+          key: enc.key,
+          iv: enc.iv,
+        }];
+      }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const success = await sendEncryptedMessage(
         `${user.userName}@${getDomain()}`,
         {
           to: room.members,
           content: cipher,
+          attachments: atts,
         },
       );
       if (!success) {
@@ -475,13 +555,31 @@ export function Chat(props: ChatProps) {
         return;
       }
     } else {
+      const note: Record<string, unknown> = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        type: "Note",
+        id: `urn:uuid:${crypto.randomUUID()}`,
+        content: text,
+      };
+      let atts: unknown[] | undefined;
+      if (imageFile()) {
+        const enc = await encryptFile(imageFile()!);
+        atts = [{
+          type: "Image",
+          mediaType: enc.mediaType,
+          content: enc.data,
+          key: enc.key,
+          iv: enc.iv,
+        }];
+      }
       const success = await sendPublicMessage(
         `${user.userName}@${getDomain()}`,
         {
           to: room.members,
-          content: text,
-          mediaType: "text/plain",
+          content: JSON.stringify(note),
+          mediaType: "application/json",
           encoding: "utf-8",
+          attachments: atts,
         },
       );
       if (!success) {
@@ -489,13 +587,20 @@ export function Chat(props: ChatProps) {
         return;
       }
     }
+    const img = imageFile();
+    const imgPrev = imagePreview();
     setNewMessage("");
+    setImageFile(null);
+    setImagePreview(null);
     updateRoomLast(roomId, {
       id: "temp",
       author: `${user.userName}@${getDomain()}`,
       displayName: user.displayName || user.userName,
       address: `${user.userName}@${getDomain()}`,
       content: text,
+      attachments: img
+        ? [{ data: imgPrev ?? "", mediaType: img.type }]
+        : undefined,
       timestamp: new Date(),
       type: "text",
       isMe: true,
@@ -533,7 +638,7 @@ export function Chat(props: ChatProps) {
     // ルーム情報はアカウント取得後の createEffect で読み込む
     loadGroupStates();
     ensureKeyPair();
-    const handler = (msg: unknown) => {
+    const handler = async (msg: unknown) => {
       if (
         typeof msg === "object" &&
         msg !== null &&
@@ -549,6 +654,12 @@ export function Chat(props: ChatProps) {
             mediaType: string;
             encoding: string;
             createdAt: string;
+            attachments?: {
+              url: string;
+              mediaType: string;
+              key?: string;
+              iv?: string;
+            }[];
           };
         }).payload;
         const user = account();
@@ -563,14 +674,73 @@ export function Chat(props: ChatProps) {
         const displayName = isMe
           ? user.displayName || user.userName
           : room.name;
+        let text = data.content;
+        let attachments: { data: string; mediaType: string }[] | undefined;
+        if ((msg as { type?: string }).type === "encryptedMessage") {
+          const group = groups()[room.id];
+          if (group) {
+            const plain = await decryptGroupMessage(group, data.content);
+            if (plain) {
+              text = plain;
+              if (Array.isArray(data.attachments)) {
+                attachments = [];
+                for (const at of data.attachments) {
+                  if (
+                    typeof at.url === "string" &&
+                    typeof at.key === "string" &&
+                    typeof at.iv === "string"
+                  ) {
+                    try {
+                      const res = await fetch(at.url);
+                      const buf = await res.arrayBuffer();
+                      const enc = bufToB64(buf);
+                      const dec = await decryptFile(enc, at.key, at.iv);
+                      const mt = typeof at.mediaType === "string"
+                        ? at.mediaType
+                        : "image/png";
+                      attachments.push({ data: dec, mediaType: mt });
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          if (Array.isArray(data.attachments)) {
+            attachments = [];
+            for (const at of data.attachments) {
+              if (
+                typeof at.url === "string" &&
+                typeof at.key === "string" &&
+                typeof at.iv === "string"
+              ) {
+                try {
+                  const res = await fetch(at.url);
+                  const buf = await res.arrayBuffer();
+                  const enc = bufToB64(buf);
+                  const dec = await decryptFile(enc, at.key, at.iv);
+                  const mt = typeof at.mediaType === "string"
+                    ? at.mediaType
+                    : "image/png";
+                  attachments.push({ data: dec, mediaType: mt });
+                } catch {
+                  /* ignore */
+                }
+              }
+            }
+          }
+        }
         const m: ChatMessage = {
           id: data.id,
           author: data.from,
           displayName,
           address: data.from,
-          content: data.content,
+          content: text,
+          attachments,
           timestamp: new Date(data.createdAt),
-          type: "text",
+          type: attachments && attachments.length > 0 ? "image" : "text",
           isMe,
           avatar: room.avatar,
         };
@@ -889,18 +1059,25 @@ export function Chat(props: ChatProps) {
                                     </span>
                                   </Show>
                                   <div class="c-talk-chat-msg">
+                                    <Show when={message.content}>
+                                      <p>{message.content}</p>
+                                    </Show>
                                     <Show
-                                      when={message.type === "image"}
-                                      fallback={<p>{message.content}</p>}
+                                      when={message.attachments &&
+                                        message.attachments.length > 0}
                                     >
-                                      <img
-                                        src={`data:image/*;base64,${message.content}`}
-                                        alt="image"
-                                        style={{
-                                          "max-width": "200px",
-                                          "max-height": "200px",
-                                        }}
-                                      />
+                                      <For each={message.attachments}>
+                                        {(att) => (
+                                          <img
+                                            src={`data:${att.mediaType};base64,${att.data}`}
+                                            alt="image"
+                                            style={{
+                                              "max-width": "200px",
+                                              "max-height": "200px",
+                                            }}
+                                          />
+                                        )}
+                                      </For>
                                     </Show>
                                   </div>
                                   <Show when={!message.isMe}>
@@ -969,6 +1146,18 @@ export function Chat(props: ChatProps) {
                           }}
                         />
                       </label>
+                      <Show when={imagePreview()}>
+                        <div class="ml-2">
+                          <img
+                            src={imagePreview()!}
+                            alt="preview"
+                            style={{
+                              "max-width": "80px",
+                              "max-height": "80px",
+                            }}
+                          />
+                        </div>
+                      </Show>
                     </div>
                     <div class="flex items-center gap-1 mt-1">
                       <div
@@ -1021,10 +1210,10 @@ export function Chat(props: ChatProps) {
                           </svg>
                         </div>
                       </div>
-                      {/* 画像ボタン（ダミー/本来は画像送信） */}
+                      {/* 画像添付ボタン */}
                       <div
                         class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                        // onClick={handleMediaSelect}
+                        onClick={() => fileInput?.click()}
                         title="写真・動画を送信"
                         style="min-height:28px;"
                       >
@@ -1051,6 +1240,23 @@ export function Chat(props: ChatProps) {
                           <circle cx="8.5" cy="8.5" r="1.5"></circle>
                           <polyline points="21 15 16 10 5 21"></polyline>
                         </svg>
+                        <input
+                          ref={(el) => (fileInput = el)}
+                          type="file"
+                          accept="image/*"
+                          class="hidden"
+                          onChange={(e) => {
+                            const f = (e.currentTarget as HTMLInputElement)
+                              .files?.[0];
+                            if (!f) return;
+                            setImageFile(f);
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setImagePreview(reader.result as string);
+                            };
+                            reader.readAsDataURL(f);
+                          }}
+                        />
                       </div>
                       {/* 送信ボタン */}
                       <div

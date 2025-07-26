@@ -287,7 +287,8 @@ app.post(
     if (!sender || !senderDomain) {
       return c.json({ error: "invalid user format" }, 400);
     }
-    const { to, content, mediaType, encoding } = await c.req.json();
+    const { to, content, mediaType, encoding, attachments } = await c.req
+      .json();
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
@@ -301,12 +302,21 @@ app.post(
       mediaType,
       encoding,
     }) as EncryptedMessageDoc;
+
+    const extra: Record<string, unknown> = {
+      mediaType: msg.mediaType,
+      encoding: msg.encoding,
+    };
+    if (Array.isArray(attachments)) {
+      extra.attachments = attachments;
+    }
+
     const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,
       sender,
       content,
-      { mediaType: msg.mediaType, encoding: msg.encoding },
+      extra,
       { to, cc: [] },
     );
 
@@ -354,6 +364,15 @@ app.post(
       mediaType: msg.mediaType,
       encoding: msg.encoding,
       createdAt: msg.createdAt,
+      attachments: Array.isArray(attachments)
+        ? attachments.map((att, idx) => ({
+          url: `https://${domain}/api/message-attachments/${msg._id}/${idx}`,
+          mediaType: (att as { mediaType?: string }).mediaType ||
+            "application/octet-stream",
+          key: (att as { key?: string }).key,
+          iv: (att as { iv?: string }).iv,
+        }))
+        : undefined,
     };
     sendToUser(acct, { type: "encryptedMessage", payload: newMsg });
     for (const t of to) {
@@ -388,6 +407,7 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   if (!partnerActor && partnerUser && partnerDomain) {
     partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
   }
+  const domain = getDomain(c);
 
   const condition = partnerAcct
     ? {
@@ -422,12 +442,16 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   }) as EncryptedMessageDoc[];
   const list = [...privateList, ...publicList];
   list.sort((a, b) => {
-    const dateA = typeof a.createdAt === "string" || typeof a.createdAt === "number" || a.createdAt instanceof Date
-      ? new Date(a.createdAt)
-      : new Date(0);
-    const dateB = typeof b.createdAt === "string" || typeof b.createdAt === "number" || b.createdAt instanceof Date
-      ? new Date(b.createdAt)
-      : new Date(0);
+    const dateA =
+      typeof a.createdAt === "string" || typeof a.createdAt === "number" ||
+        a.createdAt instanceof Date
+        ? new Date(a.createdAt)
+        : new Date(0);
+    const dateB =
+      typeof b.createdAt === "string" || typeof b.createdAt === "number" ||
+        b.createdAt instanceof Date
+        ? new Date(b.createdAt)
+        : new Date(0);
     return dateA.getTime() - dateB.getTime();
   });
   list.reverse();
@@ -439,6 +463,21 @@ app.get("/users/:user/messages", authRequired, async (c) => {
     mediaType: doc.mediaType,
     encoding: doc.encoding,
     createdAt: doc.createdAt,
+    attachments:
+      Array.isArray((doc.extra as Record<string, unknown>)?.attachments)
+        ? (doc.extra as { attachments: unknown[] }).attachments.map(
+          (_: unknown, idx: number) => ({
+            url: `https://${domain}/api/message-attachments/${doc._id}/${idx}`,
+            mediaType: ((doc.extra as { attachments: { mediaType?: string }[] })
+              .attachments[idx].mediaType) ||
+              "application/octet-stream",
+            key: ((doc.extra as { attachments: { key?: string }[] })
+              .attachments[idx].key),
+            iv: ((doc.extra as { attachments: { iv?: string }[] })
+              .attachments[idx].iv),
+          }),
+        )
+        : undefined,
   }));
   return c.json(messages);
 });

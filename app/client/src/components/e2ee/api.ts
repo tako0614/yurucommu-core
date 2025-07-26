@@ -17,6 +17,12 @@ export interface EncryptedMessage {
   mediaType: string;
   encoding: string;
   createdAt: string;
+  attachments?: {
+    url: string;
+    mediaType: string;
+    key?: string;
+    iv?: string;
+  }[];
 }
 
 export const fetchKeyPackages = async (
@@ -86,6 +92,7 @@ export const sendEncryptedMessage = async (
     content: string;
     mediaType?: string;
     encoding?: string;
+    attachments?: unknown[];
   },
 ): Promise<boolean> => {
   try {
@@ -139,6 +146,12 @@ export interface PublicMessage {
   mediaType: string;
   encoding: string;
   createdAt: string;
+  attachments?: {
+    url: string;
+    mediaType: string;
+    key?: string;
+    iv?: string;
+  }[];
 }
 
 export const sendPublicMessage = async (
@@ -148,6 +161,7 @@ export const sendPublicMessage = async (
     content: string;
     mediaType?: string;
     encoding?: string;
+    attachments?: unknown[];
   },
 ): Promise<boolean> => {
   try {
