@@ -328,24 +328,20 @@ app.get("/users/:username/timeline", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
 
-    const following = user.following || [];
-    const followingUsernames = following
-      .filter((url: string | string[]) => url.includes(domain))
-      .map((url: string) => url.split("/").pop())
-      .filter(Boolean);
-
-    // 自分自身の投稿も含める
-    followingUsernames.push(username);
+    const following = (user.following || [])
+      .filter((v): v is string => typeof v === "string");
+    const actorIds = following.slice();
+    actorIds.push(`https://${domain}/users/${username}`);
 
     // フォロー中ユーザーの投稿を取得
     const db = createDB(env);
     const posts = await db.findNotes({
-      attributedTo: { $in: followingUsernames },
+      actor_id: { $in: actorIds },
     }, { published: -1 }) as Record<string, unknown>[];
     const limited = posts.slice(0, 50);
 
     // ユーザー情報をバッチで取得
-    const identifiers = limited.map((post) => post.attributedTo as string);
+    const identifiers = limited.map((post) => post.actor_id as string);
     const userInfos = await getUserInfoBatch(identifiers, domain, getEnv(c));
 
     const formatted = limited.map((post, index) => {

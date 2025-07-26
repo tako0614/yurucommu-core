@@ -54,21 +54,28 @@ export class MongoDBLocal implements DB {
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
-    const docs = await FollowEdge.aggregate([
-      {
-        $lookup: {
-          from: "notes",
-          localField: "actor_id",
-          foreignField: "actor_id",
-          as: "objs",
-        },
-      },
-      { $unwind: "$objs" },
-      { $match: { "objs.actor_id": actor } },
-      { $sort: { "objs.created_at": -1 } },
-      { $limit: opts.limit ?? 40 },
-    ]).exec();
-    return docs.map((d) => d.objs);
+    let name = actor;
+    try {
+      const url = new URL(actor);
+      if (
+        url.hostname === this.env["ACTIVITYPUB_DOMAIN"] &&
+        url.pathname.startsWith("/users/")
+      ) {
+        name = url.pathname.split("/")[2];
+      }
+    } catch {
+      // actor is not URL
+    }
+    const account = await Account.findOne({ userName: name })
+      .lean<{ following?: string[] } | null>();
+    const ids = account?.following ?? [];
+    if (actor) ids.push(actor);
+    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
+    if (opts.before) filter.created_at = { $lt: opts.before };
+    return await Note.find(filter)
+      .sort({ created_at: -1 })
+      .limit(opts.limit ?? 40)
+      .lean();
   }
 
   async follow(_: string, target: string) {

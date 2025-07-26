@@ -76,9 +76,25 @@ export class MongoDBHost implements DB {
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
-    const follows = await HostFollowEdge.find({ tenant_id: this.tenantId })
-      .lean<{ actor_id: string }[]>();
-    const ids = follows.map((f) => f.actor_id);
+    let account: { following?: string[] } | null = null;
+    try {
+      const url = new URL(actor);
+      if (
+        url.hostname === this.tenantId && url.pathname.startsWith("/users/")
+      ) {
+        const name = url.pathname.split("/")[2];
+        account = await HostAccount.findOne({
+          userName: name,
+          tenant_id: this.tenantId,
+        }).lean<{ following?: string[] } | null>();
+      }
+    } catch {
+      account = await HostAccount.findOne({
+        userName: actor,
+        tenant_id: this.tenantId,
+      }).lean<{ following?: string[] } | null>();
+    }
+    const ids = account?.following ?? [];
     if (actor) ids.push(actor);
     const filter: Record<string, unknown> = { actor_id: { $in: ids } };
     if (opts.before) filter.created_at = { $lt: opts.before };
