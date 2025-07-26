@@ -1,6 +1,11 @@
 import { createResource, For, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { fetchActivityPubObjects, fetchUserProfile } from "./microblog/api.ts";
+import {
+  fetchActivityPubObjects,
+  fetchUserProfile,
+  followUser,
+  unfollowUser,
+} from "./microblog/api.ts";
 import { PostList } from "./microblog/Post.tsx";
 import { UserAvatar } from "./microblog/UserAvatar.tsx";
 import {
@@ -9,13 +14,17 @@ import {
   activeAccountId,
 } from "../states/account.ts";
 import { profileUserState } from "../states/router.ts";
+import { selectedAppState } from "../states/app.ts";
+import { selectedRoomState } from "../states/chat.ts";
 import { getDomain } from "../utils/config.ts";
 
 export default function Profile() {
   const [username, setUsername] = useAtom(profileUserState);
   const [account] = useAtom(activeAccount);
-  const [accounts] = useAtom(accountsAtom);
+  const [accounts, setAccounts] = useAtom(accountsAtom);
   const [activeId, setActiveId] = useAtom(activeAccountId);
+  const [, setApp] = useAtom(selectedAppState);
+  const [, setRoom] = useAtom(selectedRoomState);
 
   const isOwnProfile = () =>
     account() && `${account()!.userName}@${getDomain()}` === username();
@@ -62,6 +71,53 @@ export default function Profile() {
     if (acc) setUsername(`${acc.userName}@${getDomain()}`);
   };
 
+  const followTarget = () =>
+    info() ? `https://${info()!.domain}/users/${info()!.userName}` : "";
+
+  const isFollowing = () => {
+    const user = account();
+    if (!user) return false;
+    const target = followTarget();
+    return user.following.includes(target);
+  };
+
+  const handleFollow = async () => {
+    if (!account() || !info()) return;
+    const ok = await followUser(info()!.userName, account()!.userName);
+    if (ok) {
+      const target = followTarget();
+      setAccounts(
+        accounts().map((a) =>
+          a.id === activeId()
+            ? { ...a, following: [...a.following, target] }
+            : a
+        ),
+      );
+    }
+  };
+
+  const handleUnfollow = async () => {
+    if (!account() || !info()) return;
+    const ok = await unfollowUser(info()!.userName, account()!.userName);
+    if (ok) {
+      const target = followTarget();
+      setAccounts(
+        accounts().map((a) =>
+          a.id === activeId()
+            ? { ...a, following: a.following.filter((f) => f !== target) }
+            : a
+        ),
+      );
+    }
+  };
+
+  const openDM = () => {
+    const name = username();
+    if (!name) return;
+    setRoom(name);
+    setApp("chat");
+  };
+
   return (
     <div class="min-h-screen text-white">
       <div>
@@ -104,6 +160,35 @@ export default function Profile() {
                           {(a) => <option value={a.id}>{a.displayName}</option>}
                         </For>
                       </select>
+                    </Show>
+                    <Show when={!isOwnProfile()}>
+                      <div class="flex space-x-2">
+                        <button
+                          type="button"
+                          onClick={openDM}
+                          class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
+                        >
+                          DM
+                        </button>
+                        <Show when={isFollowing()}>
+                          <button
+                            type="button"
+                            onClick={handleUnfollow}
+                            class="px-4 py-2 bg-gray-600 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-200"
+                          >
+                            フォロー中
+                          </button>
+                        </Show>
+                        <Show when={!isFollowing()}>
+                          <button
+                            type="button"
+                            onClick={handleFollow}
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                          >
+                            フォロー
+                          </button>
+                        </Show>
+                      </div>
                     </Show>
                   </div>
                   <div class="flex space-x-6 mt-4 text-gray-400 text-sm">
