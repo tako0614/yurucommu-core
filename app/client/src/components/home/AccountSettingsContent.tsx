@@ -15,6 +15,7 @@ import {
 } from "../microblog/api.ts";
 import { PostList } from "../microblog/Post.tsx";
 import { UserAvatar } from "../microblog/UserAvatar.tsx";
+import { getDomain } from "../../utils/config.ts";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
@@ -102,7 +103,7 @@ const AccountSettingsContent: Component<{
       setEditingIcon(account.avatarInitial); // avatarInitialはデータURLまたはサーバーからの初期値
       setHasChanges(false);
       // ユーザー統計情報を取得
-      fetchUserProfile(account.userName).then((data) => {
+      fetchUserProfile(`${account.userName}@${getDomain()}`).then((data) => {
         if (data) {
           setPostCount(data.postCount ?? 0);
           setFollowingCount(data.followingCount ?? 0);

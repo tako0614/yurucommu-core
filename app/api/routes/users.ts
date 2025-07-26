@@ -51,10 +51,19 @@ app.get("/users/search", async (c) => {
 app.get("/users/:username", async (c) => {
   try {
     const domain = getDomain(c);
-    const username = c.req.param("username");
+    const raw = c.req.param("username");
+    if (!raw.includes("@")) {
+      return c.json(
+        { error: "user@example.com の形式で指定してください" },
+        400,
+      );
+    }
+    const [username, reqDomain] = raw.split("@");
     const env = getEnv(c);
     const db = createDB(env);
-    const user = await db.findAccountByUserName(username);
+    const user = reqDomain === domain
+      ? await db.findAccountByUserName(username)
+      : null;
 
     if (user) {
       // ユーザーの投稿数を取得
@@ -72,20 +81,16 @@ app.get("/users/:username", async (c) => {
       });
     }
 
-    if (username.includes("@")) {
-      const info = await getUserInfo(username, domain, env);
-      return c.json({
-        userName: info.userName,
-        displayName: info.displayName,
-        avatarInitial: info.authorAvatar,
-        domain: info.domain,
-        followersCount: 0,
-        followingCount: 0,
-        postCount: 0,
-      });
-    }
-
-    return c.json({ error: "User not found" }, 404);
+    const info = await getUserInfo(raw, domain, env);
+    return c.json({
+      userName: info.userName,
+      displayName: info.displayName,
+      avatarInitial: info.authorAvatar,
+      domain: info.domain,
+      followersCount: 0,
+      followingCount: 0,
+      postCount: 0,
+    });
   } catch (error) {
     console.error("Error fetching user:", error);
     return c.json({ error: "Failed to fetch user" }, 500);

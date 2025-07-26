@@ -226,7 +226,11 @@ export function PostItem(props: PostItemProps) {
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <a
-            href={`#/user/${encodeURIComponent(finalUserInfo().userName)}`}
+            href={`#/user/${
+              encodeURIComponent(
+                `${finalUserInfo().userName}@${finalUserInfo().domain}`,
+              )
+            }`}
             class="block"
           >
             <UserAvatar
@@ -240,7 +244,11 @@ export function PostItem(props: PostItemProps) {
         <div class="flex-1 min-w-0">
           <div class="flex flex-wrap items-center gap-x-2 mb-1">
             <a
-              href={`#/user/${encodeURIComponent(finalUserInfo().userName)}`}
+              href={`#/user/${
+                encodeURIComponent(
+                  `${finalUserInfo().userName}@${finalUserInfo().domain}`,
+                )
+              }`}
               class="flex items-center space-x-1 hover:underline"
             >
               <span class="font-bold text-white truncate">

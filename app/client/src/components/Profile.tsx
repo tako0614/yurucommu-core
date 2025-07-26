@@ -9,6 +9,7 @@ import {
   activeAccountId,
 } from "../states/account.ts";
 import { profileUserState } from "../states/router.ts";
+import { getDomain } from "../utils/config.ts";
 
 export default function Profile() {
   const [username, setUsername] = useAtom(profileUserState);
@@ -16,7 +17,8 @@ export default function Profile() {
   const [accounts] = useAtom(accountsAtom);
   const [activeId, setActiveId] = useAtom(activeAccountId);
 
-  const isOwnProfile = () => account()?.userName === username();
+  const isOwnProfile = () =>
+    account() && `${account()!.userName}@${getDomain()}` === username();
 
   const [info] = createResource(
     () => username(),
@@ -26,7 +28,8 @@ export default function Profile() {
     () => username(),
     async (name) => {
       if (!name) return [];
-      const objs = await fetchActivityPubObjects(name, "Note");
+      const localName = name.includes("@") ? name.split("@")[0] : name;
+      const objs = await fetchActivityPubObjects(localName, "Note");
       const displayName = info()?.displayName || name;
       const avatar = info()?.avatarInitial || "";
       return objs.map((o) => ({
@@ -56,12 +59,12 @@ export default function Profile() {
   const handleSwitch = (id: string) => {
     setActiveId(id);
     const acc = accounts().find((a) => a.id === id);
-    if (acc) setUsername(acc.userName);
+    if (acc) setUsername(`${acc.userName}@${getDomain()}`);
   };
 
   return (
-    <div class="max-w-3xl mx-auto">
-      <div class="min-h-screen text-white">
+    <div class="min-h-screen text-white">
+      <div>
         <Show
           when={!info.loading}
           fallback={<div class="p-4">Loading...</div>}
@@ -73,21 +76,22 @@ export default function Profile() {
             {(info) => (
               <>
                 <div class="relative">
-                  <div class="h-48 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" />
-                  <div class="absolute -bottom-16 left-4">
+                  <div class="h-48 md:h-64 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" />
+                  <div class="absolute -bottom-16 max-w-4xl mx-auto left-0 right-0 px-4 md:px-8">
                     <UserAvatar
                       avatarUrl={info()?.avatarInitial}
                       username={info()?.userName}
                       size="w-32 h-32"
+                      className="border-4 border-black"
                     />
                   </div>
                 </div>
-                <div class="pt-20 px-4">
+                <div class="max-w-4xl mx-auto px-4 md:px-8 pt-20 pb-8">
                   <div class="flex items-center justify-between">
                     <div>
                       <h2 class="text-2xl font-bold">{info()?.displayName}</h2>
                       <p class="text-gray-400">
-                        @{info()?.userName}@{info()?.domain}
+                        {info()?.userName}@{info()?.domain}
                       </p>
                     </div>
                     <Show when={isOwnProfile()}>

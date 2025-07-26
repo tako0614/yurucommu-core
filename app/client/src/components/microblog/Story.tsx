@@ -2,6 +2,7 @@ import { createSignal, For } from "solid-js";
 import type { Story } from "./types.ts";
 import { createStory } from "./api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
+import { getDomain } from "../../utils/config.ts";
 
 export function StoryTray(props: {
   stories: Story[];
@@ -111,7 +112,13 @@ export function StoryTray(props: {
                       : (
                         <div class="w-full h-full rounded-full overflow-hidden">
                           <a
-                            href={`#/user/${encodeURIComponent(story.author)}`}
+                            href={`#/user/${
+                              encodeURIComponent(
+                                story.author.includes("@")
+                                  ? story.author
+                                  : `${story.author}@${getDomain()}`,
+                              )
+                            }`}
                             class="block"
                           >
                             <UserAvatar
@@ -125,7 +132,13 @@ export function StoryTray(props: {
                   </div>
                 </div>
                 <a
-                  href={`#/user/${encodeURIComponent(story.author)}`}
+                  href={`#/user/${
+                    encodeURIComponent(
+                      story.author.includes("@")
+                        ? story.author
+                        : `${story.author}@${getDomain()}`,
+                    )
+                  }`}
                   class="text-xs text-gray-400 group-hover:text-white transition-colors max-w-16 truncate"
                 >
                   {story.author}
