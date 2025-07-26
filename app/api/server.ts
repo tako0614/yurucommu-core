@@ -14,6 +14,7 @@ import search from "./routes/search.ts";
 import users from "./routes/users.ts";
 import userInfo from "./routes/user-info.ts";
 import follow from "./routes/follow.ts";
+import dms from "./routes/dms.ts";
 import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
 import e2ee from "./routes/e2ee.ts";
@@ -62,6 +63,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     adsense,
     setupUI,
     videos,
+    dms,
     messageAttachments,
     search,
     relays,

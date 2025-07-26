@@ -15,6 +15,7 @@ function formatAccount(doc: AccountDoc) {
     publicKey: doc.publicKey,
     followers: doc.followers,
     following: doc.following,
+    dms: doc.dms,
   };
 }
 
@@ -64,6 +65,7 @@ app.post("/accounts", async (c) => {
     publicKey: keys.publicKey,
     followers: [],
     following: [],
+    dms: [],
   });
   return jsonResponse(c, formatAccount(account));
 });
@@ -95,6 +97,7 @@ app.put("/accounts/:id", async (c) => {
   if (updates.publicKey) data.publicKey = updates.publicKey;
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
+  if (Array.isArray(updates.dms)) data.dms = updates.dms;
 
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);

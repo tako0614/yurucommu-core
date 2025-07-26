@@ -12,7 +12,9 @@ import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
+  addDm,
   addKeyPackage,
+  fetchDmList,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeyPackages,
@@ -454,11 +456,8 @@ export function Chat(props: ChatProps) {
       },
     ];
 
-    const handles = Array.from(
-      new Set([
-        ...(user.followers ?? []),
-        ...(user.following ?? []),
-      ].map((id) => normalizeActor(id))),
+    const handles = (await fetchDmList(user.id)).map((id) =>
+      normalizeActor(id)
     );
     if (handles.length > 0) {
       try {
@@ -554,6 +553,9 @@ export function Chat(props: ChatProps) {
         alert("メッセージの送信に失敗しました");
         return;
       }
+      if (room.type === "dm") {
+        await addDm(user.id, room.members[0]);
+      }
     } else {
       const note: Record<string, unknown> = {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -585,6 +587,9 @@ export function Chat(props: ChatProps) {
       if (!success) {
         alert("メッセージの送信に失敗しました");
         return;
+      }
+      if (room.type === "dm") {
+        await addDm(user.id, room.members[0]);
       }
     }
     const img = imageFile();
@@ -668,8 +673,33 @@ export function Chat(props: ChatProps) {
         const partnerId = data.from === self
           ? data.to.find((v) => v !== self) ?? data.to[0]
           : data.from;
-        const room = chatRooms().find((r) => r.id === partnerId);
-        if (!room) return;
+        let room = chatRooms().find((r) => r.id === partnerId);
+        if (!room) {
+          if (confirm(`${partnerId} からDMが届きました。許可しますか？`)) {
+            const info = await fetchUserInfo(normalizeActor(partnerId));
+            if (info) {
+              room = {
+                id: partnerId,
+                name: info.displayName || info.userName,
+                userName: info.userName,
+                domain: info.domain,
+                avatar: info.authorAvatar ||
+                  info.userName.charAt(0).toUpperCase(),
+                unreadCount: 0,
+                type: "dm",
+                members: [partnerId],
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              };
+              setChatRooms((prev) => [...prev, room!]);
+              await addDm(user.id, partnerId);
+            } else {
+              return;
+            }
+          } else {
+            return;
+          }
+        }
         const isMe = data.from === self;
         const displayName = isMe
           ? user.displayName || user.userName
