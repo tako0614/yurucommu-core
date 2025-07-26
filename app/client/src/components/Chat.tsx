@@ -18,6 +18,7 @@ import {
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeyPackages,
+  removeDm,
   saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
@@ -207,6 +208,33 @@ export function Chat(props: ChatProps) {
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
+  let longPressTimer: number | undefined;
+
+  const removeRoom = async (roomId: string) => {
+    const user = account();
+    if (!user) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room || room.type !== "dm") return;
+    if (!confirm(`${room.name} をDMリストから削除しますか？`)) return;
+    if (await removeDm(user.id, roomId)) {
+      setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
+      if (selectedRoom() === roomId) {
+        setSelectedRoom(null);
+        setMessages([]);
+      }
+    }
+  };
+
+  const startLongPress = (id: string) => {
+    longPressTimer = globalThis.setTimeout(() => removeRoom(id), 600);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer) {
+      globalThis.clearTimeout(longPressTimer);
+      longPressTimer = undefined;
+    }
+  };
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -894,6 +922,14 @@ export function Chat(props: ChatProps) {
                         selectedRoom() === room.id ? "is-active" : ""
                       } flex items-center cursor-pointer`}
                       onClick={() => selectRoom(room.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        removeRoom(room.id);
+                      }}
+                      onTouchStart={() => startLongPress(room.id)}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      onTouchCancel={cancelLongPress}
                     >
                       <div class="flex items-center w-full">
                         <span
