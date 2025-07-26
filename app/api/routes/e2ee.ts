@@ -295,13 +295,24 @@ app.post(
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
-    const msg = await db.createEncryptedMessage({
-      from: acct,
-      to,
-      content,
-      mediaType,
-      encoding,
-    }) as EncryptedMessageDoc;
+
+    const isPublic = mediaType !== undefined || encoding !== undefined;
+
+    const msg = isPublic
+      ? await db.createPublicMessage({
+        from: acct,
+        to,
+        content,
+        mediaType,
+        encoding,
+      }) as EncryptedMessageDoc
+      : await db.createEncryptedMessage({
+        from: acct,
+        to,
+        content,
+        mediaType,
+        encoding,
+      }) as EncryptedMessageDoc;
 
     const extra: Record<string, unknown> = {
       mediaType: msg.mediaType,
@@ -322,10 +333,10 @@ app.post(
 
     const saved = object as Record<string, unknown>;
 
-    const privateMessage = buildActivityFromStored(
+    const activityObj = buildActivityFromStored(
       {
         ...saved,
-        type: "PrivateMessage",
+        type: isPublic ? "PublicMessage" : "PrivateMessage",
       } as {
         _id: unknown;
         type: string;
@@ -337,12 +348,12 @@ app.post(
       sender,
       false,
     );
-    (privateMessage as ActivityPubActivity)["@context"] = [
+    (activityObj as ActivityPubActivity)["@context"] = [
       "https://www.w3.org/ns/activitystreams",
       "https://purl.archive.org/socialweb/mls",
     ];
 
-    const activity = createCreateActivity(domain, actorId, privateMessage);
+    const activity = createCreateActivity(domain, actorId, activityObj);
     (activity as ActivityPubActivity)["@context"] = [
       "https://www.w3.org/ns/activitystreams",
       "https://purl.archive.org/socialweb/mls",
@@ -374,9 +385,10 @@ app.post(
         }))
         : undefined,
     };
-    sendToUser(acct, { type: "encryptedMessage", payload: newMsg });
+    const msgType = isPublic ? "publicMessage" : "encryptedMessage";
+    sendToUser(acct, { type: msgType, payload: newMsg });
     for (const t of to) {
-      sendToUser(t, { type: "encryptedMessage", payload: newMsg });
+      sendToUser(t, { type: msgType, payload: newMsg });
     }
 
     return c.json({ result: "sent", id: String(msg._id) });
