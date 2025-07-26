@@ -60,7 +60,8 @@ export default function Profile() {
   };
 
   return (
-    <div class="min-h-screen text-white">
+    <div class="max-w-3xl mx-auto">
+      <div class="min-h-screen text-white">
       <Show
         when={!info.loading}
         fallback={<div class="p-4">Loading...</div>}
@@ -69,14 +70,14 @@ export default function Profile() {
           when={info()}
           fallback={<div class="p-4">ユーザーが見つかりません</div>}
         >
-          {(data) => (
+          {(info) => (
             <>
               <div class="relative">
                 <div class="h-48 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" />
                 <div class="absolute -bottom-16 left-4">
                   <UserAvatar
-                    avatarUrl={data().authorAvatar}
-                    username={data().userName}
+                    avatarUrl={info()?.avatarInitial}
+                    username={info()?.userName}
                     size="w-32 h-32"
                   />
                 </div>
@@ -84,8 +85,8 @@ export default function Profile() {
               <div class="pt-20 px-4">
                 <div class="flex items-center justify-between">
                   <div>
-                    <h2 class="text-2xl font-bold">{data().displayName}</h2>
-                    <p class="text-gray-400">@{data().userName}</p>
+                    <h2 class="text-2xl font-bold">{info()?.displayName}</h2>
+                    <p class="text-gray-400">@{info()?.userName}</p>
                   </div>
                   <Show when={isOwnProfile()}>
                     <select
@@ -100,9 +101,9 @@ export default function Profile() {
                   </Show>
                 </div>
                 <div class="flex space-x-6 mt-4 text-gray-400 text-sm">
-                  <span>投稿 {data().postCount ?? 0}</span>
-                  <span>フォロー中 {data().followingCount ?? 0}</span>
-                  <span>フォロワー {data().followersCount ?? 0}</span>
+                  <span>投稿 {info()?.postCount ?? 0}</span>
+                  <span>フォロー中 {info()?.followingCount ?? 0}</span>
+                  <span>フォロワー {info()?.followersCount ?? 0}</span>
                 </div>
               </div>
               <div class="mt-8 px-4">
@@ -122,6 +123,7 @@ export default function Profile() {
           )}
         </Show>
       </Show>
+    </div>
     </div>
   );
 }
