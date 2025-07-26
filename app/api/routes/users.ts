@@ -334,6 +334,9 @@ app.get("/users/:username/timeline", async (c) => {
       .map((url: string) => url.split("/").pop())
       .filter(Boolean);
 
+    // 自分自身の投稿も含める
+    followingUsernames.push(username);
+
     // フォロー中ユーザーの投稿を取得
     const db = createDB(env);
     const posts = await db.findNotes({
