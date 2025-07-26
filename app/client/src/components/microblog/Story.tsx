@@ -110,18 +110,26 @@ export function StoryTray(props: {
                       )
                       : (
                         <div class="w-full h-full rounded-full overflow-hidden">
-                          <UserAvatar
-                            username={story.author}
-                            size="w-full h-full"
-                            className="border-0"
-                          />
+                          <a
+                            href={`#/user/${encodeURIComponent(story.author)}`}
+                            class="block"
+                          >
+                            <UserAvatar
+                              username={story.author}
+                              size="w-full h-full"
+                              className="border-0"
+                            />
+                          </a>
                         </div>
                       )}
                   </div>
                 </div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors max-w-16 truncate">
+                <a
+                  href={`#/user/${encodeURIComponent(story.author)}`}
+                  class="text-xs text-gray-400 group-hover:text-white transition-colors max-w-16 truncate"
+                >
                   {story.author}
-                </span>
+                </a>
               </button>
             )}
           </For>

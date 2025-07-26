@@ -50,7 +50,7 @@ export function useHashRouter() {
         setIfChanged(profile, setProfile, null);
         break;
       case "user":
-        setIfChanged(app, setApp, "home");
+        setIfChanged(app, setApp, "profile");
         setIfChanged(profile, setProfile, param ?? null);
         setIfChanged(room, setRoom, null);
         setIfChanged(postId, setPostId, null);
@@ -82,7 +82,7 @@ export function useHashRouter() {
       case "post":
         return param ? `#/post/${encodeURIComponent(param)}` : "#/microblog";
       case "user":
-        return param ? `#/user/${encodeURIComponent(param)}` : "#/home";
+        return param ? `#/user/${encodeURIComponent(param)}` : "#/profile";
       case undefined:
         return "";
       default:
@@ -102,9 +102,11 @@ export function useHashRouter() {
         ? `#/post/${encodeURIComponent(postId()!)}`
         : "#/microblog";
     } else if (app() === "home") {
+      newHash = "#/home";
+    } else if (app() === "profile") {
       newHash = profile()
         ? `#/user/${encodeURIComponent(profile()!)}`
-        : "#/home";
+        : "#/profile";
     } else {
       newHash = `#/${app()}`;
     }

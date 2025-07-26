@@ -225,21 +225,31 @@ export function PostItem(props: PostItemProps) {
     >
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
-          <UserAvatar
-            avatarUrl={finalUserInfo().authorAvatar}
-            username={finalUserInfo().userName}
-            size="w-12 h-12"
-            isExternal={!userInfo.isLocalUser}
-          />
+          <a
+            href={`#/user/${encodeURIComponent(finalUserInfo().userName)}`}
+            class="block"
+          >
+            <UserAvatar
+              avatarUrl={finalUserInfo().authorAvatar}
+              username={finalUserInfo().userName}
+              size="w-12 h-12"
+              isExternal={!userInfo.isLocalUser}
+            />
+          </a>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex flex-wrap items-center gap-x-2 mb-1">
-            <span class="font-bold text-white hover:underline cursor-pointer truncate">
-              {finalUserInfo().displayName}
-            </span>
-            <span class="text-gray-500 truncate">
-              @{finalUserInfo().userName}
-            </span>
+            <a
+              href={`#/user/${encodeURIComponent(finalUserInfo().userName)}`}
+              class="flex items-center space-x-1 hover:underline"
+            >
+              <span class="font-bold text-white truncate">
+                {finalUserInfo().displayName}
+              </span>
+              <span class="text-gray-500 truncate">
+                @{finalUserInfo().userName}
+              </span>
+            </a>
             <span class="text-gray-500">·</span>
             <a
               href={`#/post/${encodeURIComponent(post.id)}`}

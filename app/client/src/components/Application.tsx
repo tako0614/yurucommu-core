@@ -4,6 +4,7 @@ import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { activeAccount } from "../states/account.ts";
 import { Home } from "./Home.tsx";
+import Profile from "./Profile.tsx";
 import { Microblog } from "./Microblog.tsx";
 import { Chat } from "./Chat.tsx";
 import { Videos } from "./Videos.tsx";
@@ -56,6 +57,9 @@ export function Application(props: ApplicationProps) {
       <main class={wrapperClass()}>
         <Show when={selectedApp() === "home"}>
           <Home onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
+        </Show>
+        <Show when={selectedApp() === "profile"}>
+          <Profile />
         </Show>
         <Show when={selectedApp() === "microblog"}>
           <Microblog />

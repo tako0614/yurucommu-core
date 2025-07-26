@@ -10,6 +10,7 @@ import {
 } from "../utils/activitypub.ts";
 import {
   formatUserInfoForPost,
+  getUserInfo,
   getUserInfoBatch,
 } from "../services/user-info.ts";
 import authRequired from "../utils/auth.ts";
@@ -55,23 +56,36 @@ app.get("/users/:username", async (c) => {
     const db = createDB(env);
     const user = await db.findAccountByUserName(username);
 
-    if (!user) {
-      return c.json({ error: "User not found" }, 404);
+    if (user) {
+      // ユーザーの投稿数を取得
+      const postCount =
+        (await db.findNotes({ attributedTo: username }, {})).length;
+
+      return c.json({
+        userName: user.userName,
+        displayName: user.displayName,
+        avatarInitial: user.avatarInitial || "",
+        domain,
+        followersCount: user.followers?.length || 0,
+        followingCount: user.following?.length || 0,
+        postCount,
+      });
     }
 
-    // ユーザーの投稿数を取得
-    const postCount =
-      (await db.findNotes({ attributedTo: username }, {})).length;
+    if (username.includes("@")) {
+      const info = await getUserInfo(username, domain, env);
+      return c.json({
+        userName: info.userName,
+        displayName: info.displayName,
+        avatarInitial: info.authorAvatar,
+        domain: info.domain,
+        followersCount: 0,
+        followingCount: 0,
+        postCount: 0,
+      });
+    }
 
-    return c.json({
-      userName: user.userName,
-      displayName: user.displayName,
-      avatarInitial: user.avatarInitial || "",
-      domain,
-      followersCount: user.followers?.length || 0,
-      followingCount: user.following?.length || 0,
-      postCount,
-    });
+    return c.json({ error: "User not found" }, 404);
   } catch (error) {
     console.error("Error fetching user:", error);
     return c.json({ error: "Failed to fetch user" }, 500);
