@@ -50,7 +50,6 @@ function plainTextToHtml(text: string): string {
   return escapeHtml(text).replace(/\r?\n/g, "<br>");
 }
 
-const INVISIBLE_CLS = "invisible";
 const MAX_VISIBLE = 45;
 
 function linkifyUrls(text: string, linkify: LinkifyIt, shorten = true): string {
@@ -60,18 +59,13 @@ function linkifyUrls(text: string, linkify: LinkifyIt, shorten = true): string {
     out += escapeHtml(text.slice(last, m.index));
 
     const url = m.url;
-    const protocol = url.match(/^[a-z][\w.+-]*:\/\//i)?.[0] ?? "";
-    const body = url.slice(protocol.length);
 
     let inner: string;
     if (!shorten || url.length <= MAX_VISIBLE) {
       inner = escapeHtml(url);
     } else {
-      const visible = body.slice(0, MAX_VISIBLE) + "…";
-      const hidden = body.slice(MAX_VISIBLE);
-      inner = `<span class="${INVISIBLE_CLS}">${escapeHtml(protocol)}</span>` +
-        `<span>${escapeHtml(visible)}</span>` +
-        `<span class="${INVISIBLE_CLS}">${escapeHtml(hidden)}</span>`;
+      const truncated = url.slice(0, MAX_VISIBLE) + "…";
+      inner = escapeHtml(truncated);
     }
 
     out += `<a href="${
