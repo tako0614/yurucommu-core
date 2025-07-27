@@ -249,7 +249,9 @@ export function Chat(props: ChatProps) {
   const [hasMore, setHasMore] = createSignal(true);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
   let chatMainRef: HTMLDivElement | undefined;
-  let fileInput: HTMLInputElement | undefined;
+  let fileInputImage: HTMLInputElement | undefined;
+  let fileInputFile: HTMLInputElement | undefined;
+  const [showMenu, setShowMenu] = createSignal(false);
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
@@ -1339,7 +1341,142 @@ export function Chat(props: ChatProps) {
                     class="p-talk-chat-send__form m-0"
                     onSubmit={(e) => e.preventDefault()}
                   >
-                    <div class="p-talk-chat-send__msg flex items-center gap-1">
+                    {/* メニューボタン */}
+                    <div class="relative">
+                      <div
+                        class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+                        onClick={() => setShowMenu(!showMenu())}
+                        title="メニューを開く"
+                        style="min-height:28px;"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <line x1="12" y1="5" x2="12" y2="19"></line>
+                          <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                      </div>
+                      <Show when={showMenu()}>
+                        <div class="absolute bottom-full mb-1 left-0 bg-[#2e2e2e] p-2 rounded shadow flex flex-col gap-1">
+                          <button
+                            type="button"
+                            class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
+                            onClick={() => {
+                              setShowMenu(false);
+                              fileInputFile?.click();
+                            }}
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <rect
+                                x="3"
+                                y="3"
+                                width="18"
+                                height="18"
+                                rx="2"
+                                ry="2"
+                              >
+                              </rect>
+                              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                              <polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                            <span class="text-sm">ファイル</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
+                            onClick={() => {
+                              setShowMenu(false);
+                              toggleEncryption();
+                            }}
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              class="h-4 w-4"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path
+                                fill-rule="evenodd"
+                                d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                clip-rule="evenodd"
+                              />
+                            </svg>
+                            <span class="text-sm">
+                              {useEncryption() ? "暗号化中" : "暗号化"}
+                            </span>
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
+                    {/* 画像ボタン */}
+                    <div
+                      class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+                      onClick={() => fileInputImage?.click()}
+                      title="画像を送信"
+                      style="min-height:28px;"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect
+                          x="3"
+                          y="3"
+                          width="18"
+                          height="18"
+                          rx="2"
+                          ry="2"
+                        >
+                        </rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                      </svg>
+                      <input
+                        ref={(el) => (fileInputImage = el)}
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        style="display:none;"
+                        onChange={(e) => {
+                          const f = (e.currentTarget as HTMLInputElement).files
+                            ?.[0];
+                          if (!f) return;
+                          setMediaFile(f);
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setMediaPreview(reader.result as string);
+                          };
+                          reader.readAsDataURL(f);
+                        }}
+                      />
+                    </div>
+                    {/* メッセージ入力 */}
+                    <div class="p-talk-chat-send__msg flex items-center gap-1 flex-1">
                       <div
                         class="p-talk-chat-send__dummy"
                         aria-hidden="true"
@@ -1419,120 +1556,39 @@ export function Chat(props: ChatProps) {
                         </div>
                       </Show>
                     </div>
-                    <div class="flex items-center gap-1 mt-1">
-                      <div
-                        class={`flex items-center px-2 py-0.5 rounded-full text-xs ${
-                          useEncryption()
-                            ? "bg-green-700 bg-opacity-25 text-green-400"
-                            : "bg-gray-700 bg-opacity-25 text-gray-300"
-                        }`}
-                        title={useEncryption()
-                          ? "暗号化オン (クリックで切り替え)"
-                          : "暗号化オフ (クリックで切り替え)"}
-                        style="cursor: pointer; min-height:28px;"
-                        onClick={toggleEncryption}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          class="h-3.5 w-3.5 mr-1"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fill-rule="evenodd"
-                            d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                            clip-rule="evenodd"
-                          />
-                        </svg>
-                        {useEncryption() ? "暗号化" : "平文"}
-                      </div>
-                      {/* メニューボタン（ダミー/本来はメニュー展開） */}
-                      <div class="relative">
-                        <div
-                          class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                          // onClick={toggleMenu}
-                          title="メニューを開く"
-                          style="min-height:28px;"
-                        >
+                    {/* 送信/音声ボタン */}
+                    <div
+                      class={useEncryption() && !encryptionKey()
+                        ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
+                        : newMessage().trim() || mediaFile()
+                        ? "p-talk-chat-send__button is-active"
+                        : "p-talk-chat-send__button"}
+                      onClick={useEncryption() && !encryptionKey()
+                        ? undefined
+                        : newMessage().trim() || mediaFile()
+                        ? sendMessage
+                        : () => alert("録音機能は未実装です")}
+                      style="min-height:28px;"
+                      title={useEncryption() && !encryptionKey()
+                        ? "暗号化キー未入力のため送信できません"
+                        : ""}
+                    >
+                      <Show
+                        when={newMessage().trim() || mediaFile()}
+                        fallback={
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="20"
-                            height="20"
+                            class="h-5 w-5"
                             viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
+                            fill="currentColor"
                           >
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <path
+                              fill-rule="evenodd"
+                              d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a7 7 0 0014 0v-1a1 1 0 10-2 0v1a5 5 0 11-10 0v-1a1 1 0 10-2 0v1z"
+                              clip-rule="evenodd"
+                            />
                           </svg>
-                        </div>
-                      </div>
-                      {/* メディア添付ボタン */}
-                      <div
-                        class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                        onClick={() => fileInput?.click()}
-                        title="ファイルを送信"
-                        style="min-height:28px;"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <rect
-                            x="3"
-                            y="3"
-                            width="18"
-                            height="18"
-                            rx="2"
-                            ry="2"
-                          >
-                          </rect>
-                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                          <polyline points="21 15 16 10 5 21"></polyline>
-                        </svg>
-                        <input
-                          ref={(el) => (fileInput = el)}
-                          type="file"
-                          accept="*/*"
-                          class="hidden"
-                          style="display:none;"
-                          onChange={(e) => {
-                            const f = (e.currentTarget as HTMLInputElement)
-                              .files?.[0];
-                            if (!f) return;
-                            setMediaFile(f);
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              setMediaPreview(reader.result as string);
-                            };
-                            reader.readAsDataURL(f);
-                          }}
-                        />
-                      </div>
-                      {/* 送信ボタン */}
-                      <div
-                        class={useEncryption() && !encryptionKey()
-                          ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
-                          : newMessage().trim() || mediaFile()
-                          ? "p-talk-chat-send__button is-active"
-                          : "p-talk-chat-send__button"}
-                        onClick={useEncryption() && !encryptionKey()
-                          ? undefined
-                          : sendMessage}
-                        style="min-height:28px;"
-                        title={useEncryption() && !encryptionKey()
-                          ? "暗号化キー未入力のため送信できません"
-                          : ""}
+                        }
                       >
                         <svg
                           width="800px"
@@ -1548,25 +1604,43 @@ export function Chat(props: ChatProps) {
                             </g>
                           </g>
                         </svg>
-                      </div>
-                      <Show when={useEncryption() && !encryptionKey()}>
-                        <button
-                          type="button"
-                          onClick={() => props.onShowEncryptionKeyForm?.()}
-                          class="p-talk-chat-send__button is-active"
-                          title="暗号化キーを設定する"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-6 w-6"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                          >
-                            <path d="M12 2C9.243 2 7 4.243 7 7v3H6a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7c0-2.757-2.243-5-5-5zm0 2c1.654 0 3 1.346 3 3v3h-6V7c0-1.654 1.346-3 3-3z" />
-                          </svg>
-                        </button>
                       </Show>
                     </div>
+                    <Show when={useEncryption() && !encryptionKey()}>
+                      <button
+                        type="button"
+                        onClick={() => props.onShowEncryptionKeyForm?.()}
+                        class="p-talk-chat-send__button is-active"
+                        title="暗号化キーを設定する"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          class="h-6 w-6"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                        >
+                          <path d="M12 2C9.243 2 7 4.243 7 7v3H6a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7c0-2.757-2.243-5-5-5zm0 2c1.654 0 3 1.346 3 3v3h-6V7c0-1.654 1.346-3 3-3z" />
+                        </svg>
+                      </button>
+                    </Show>
+                    <input
+                      ref={(el) => (fileInputFile = el)}
+                      type="file"
+                      accept="*/*"
+                      class="hidden"
+                      style="display:none;"
+                      onChange={(e) => {
+                        const f = (e.currentTarget as HTMLInputElement).files
+                          ?.[0];
+                        if (!f) return;
+                        setMediaFile(f);
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setMediaPreview(reader.result as string);
+                        };
+                        reader.readAsDataURL(f);
+                      }}
+                    />
                   </form>
                 </div>
                 {/* --- 送信UIここまで --- */}
