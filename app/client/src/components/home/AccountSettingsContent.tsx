@@ -44,9 +44,7 @@ const AccountSettingsContent: Component<{
   const [followingCount, setFollowingCount] = createSignal(0);
   const [followerCount, setFollowerCount] = createSignal(0);
 
-  const [activeView, setActiveView] = createSignal<
-    "profile" | "posts" | "following" | "followers"
-  >("profile");
+  // プロフィール表示時に常に投稿一覧を表示するため、ビュー切り替え用の状態は削除
   const [showFollowingModal, setShowFollowingModal] = createSignal(false);
   const [showFollowersModal, setShowFollowersModal] = createSignal(false);
 
@@ -97,7 +95,6 @@ const AccountSettingsContent: Component<{
   createEffect(() => {
     const account = selectedAccount();
     if (account) {
-      setActiveView("profile");
       setEditingDisplayName(account.displayName);
       setEditingUserName(account.userName);
       setEditingIcon(account.avatarInitial); // avatarInitialはデータURLまたはサーバーからの初期値
@@ -394,14 +391,10 @@ const AccountSettingsContent: Component<{
 
             {/* フォロー/フォロワー統計（SNS風） */}
             <div class="flex space-x-6 mb-8">
-              <button
-                type="button"
-                onClick={() => setActiveView("posts")}
-                class="text-center"
-              >
+              <div class="text-center">
                 <div class="text-xl font-bold text-white">{postCount()}</div>
                 <div class="text-sm text-gray-400">投稿</div>
-              </button>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowFollowingModal(true)}
@@ -448,22 +441,20 @@ const AccountSettingsContent: Component<{
               </Show>
             </div>
 
-            {/* 投稿・フォロー一覧表示 */}
-            <Show when={activeView() === "posts"}>
-              <div class="mb-8">
-                <PostList
-                  posts={posts() || []}
-                  tab="latest"
-                  handleReply={() => {}}
-                  handleRetweet={() => {}}
-                  handleQuote={() => {}}
-                  handleLike={() => {}}
-                  handleEdit={() => {}}
-                  handleDelete={() => {}}
-                  formatDate={(d) => new Date(d).toLocaleString("ja-JP")}
-                />
-              </div>
-            </Show>
+            {/* 投稿・フォロー一覧表示を常に表示 */}
+            <div class="mb-8">
+              <PostList
+                posts={posts() || []}
+                tab="latest"
+                handleReply={() => {}}
+                handleRetweet={() => {}}
+                handleQuote={() => {}}
+                handleLike={() => {}}
+                handleEdit={() => {}}
+                handleDelete={() => {}}
+                formatDate={(d) => new Date(d).toLocaleString("ja-JP")}
+              />
+            </div>
             {/* フォロー中モーダル */}
             <Show when={showFollowingModal()}>
               <div
