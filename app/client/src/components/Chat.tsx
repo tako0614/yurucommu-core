@@ -1330,10 +1330,10 @@ export function Chat(props: ChatProps) {
                   </ul>
                 </div>
                 <div
-                  class="p-talk-chat-send relative bg-[#1e1e1e]"
+                  class="relative bg-[#1e1e1e]"
                 >
                   <form
-                    class="p-talk-chat-send__form"
+                    class="p-talk-chat-send__form py-2"
                     onSubmit={(e) => e.preventDefault()}
                   >
                     {/* メニューボタン */}
@@ -1608,14 +1608,21 @@ export function Chat(props: ChatProps) {
                         class="p-talk-chat-send__button is-active"
                         title="暗号化キーを設定する"
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          class="h-6 w-6"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                        >
-                          <path d="M12 2C9.243 2 7 4.243 7 7v3H6a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7c0-2.757-2.243-5-5-5zm0 2c1.654 0 3 1.346 3 3v3h-6V7c0-1.654 1.346-3 3-3z" />
-                        </svg>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    class="h-6 w-6"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="9" y="2" width="6" height="12" rx="3" />
+    <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+    <line x1="8" y1="22" x2="16" y2="22" />
+  </svg>
                       </button>
                     </Show>
                     <input
