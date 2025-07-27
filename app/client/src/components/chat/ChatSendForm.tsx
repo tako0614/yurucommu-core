@@ -153,13 +153,13 @@ export function ChatSendForm(props: ChatSendFormProps) {
             <div class="mb-2">
               <Switch
                 fallback={
-                  <a
-                    href={props.mediaPreview!}
-                    download
-                    class="text-blue-400 underline"
-                  >
-                    {props.mediaFile?.name || "ファイル"}
-                  </a>
+                    <a
+                      href={props.mediaPreview!}
+                      download={props.mediaFile?.name || ""}
+                      class="text-blue-400 underline"
+                    >
+                      {props.mediaFile?.name || "ファイル"}
+                    </a>
                 }
               >
                 <Match when={props.mediaFile?.type.startsWith("image/")}>
