@@ -258,6 +258,24 @@ export const deleteEncryptedKeyPair = async (
   }
 };
 
+export const uploadFile = async (
+  data: { content: string; mediaType?: string; key?: string; iv?: string },
+): Promise<string | null> => {
+  try {
+    const res = await apiFetch("/api/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return typeof d.url === "string" ? d.url : null;
+  } catch (err) {
+    console.error("Error uploading attachment:", err);
+    return null;
+  }
+};
+
 export const resetKeyData = async (user: string): Promise<boolean> => {
   try {
     const res = await apiFetch(

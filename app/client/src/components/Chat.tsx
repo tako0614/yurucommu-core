@@ -22,6 +22,7 @@ import {
   saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
+  uploadFile,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -570,16 +571,23 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      let atts: unknown[] | undefined;
       if (imageFile()) {
         const enc = await encryptFile(imageFile()!);
-        atts = [{
-          type: "Image",
-          mediaType: enc.mediaType,
+        const url = await uploadFile({
           content: enc.data,
+          mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
-        }];
+        });
+        if (url) {
+          note.attachment = [{
+            type: "Image",
+            url,
+            mediaType: enc.mediaType,
+            key: enc.key,
+            iv: enc.iv,
+          }];
+        }
       }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const success = await sendEncryptedMessage(
@@ -587,7 +595,6 @@ export function Chat(props: ChatProps) {
         {
           to: room.members,
           content: cipher,
-          attachments: atts,
         },
       );
       if (!success) {
@@ -604,16 +611,23 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      let atts: unknown[] | undefined;
       if (imageFile()) {
         const enc = await encryptFile(imageFile()!);
-        atts = [{
-          type: "Image",
-          mediaType: enc.mediaType,
+        const url = await uploadFile({
           content: enc.data,
+          mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
-        }];
+        });
+        if (url) {
+          note.attachment = [{
+            type: "Image",
+            url,
+            mediaType: enc.mediaType,
+            key: enc.key,
+            iv: enc.iv,
+          }];
+        }
       }
       const success = await sendPublicMessage(
         `${user.userName}@${getDomain()}`,
@@ -622,7 +636,6 @@ export function Chat(props: ChatProps) {
           content: JSON.stringify(note),
           mediaType: "application/json",
           encoding: "utf-8",
-          attachments: atts,
         },
       );
       if (!success) {
