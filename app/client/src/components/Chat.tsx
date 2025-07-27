@@ -1329,9 +1329,7 @@ export function Chat(props: ChatProps) {
                     </For>
                   </ul>
                 </div>
-                <div
-                  class="relative bg-[#1e1e1e]"
-                >
+                <div class="relative bg-[#1e1e1e]">
                   <form
                     class="p-talk-chat-send__form py-1"
                     onSubmit={(e) => e.preventDefault()}
@@ -1470,43 +1468,10 @@ export function Chat(props: ChatProps) {
                         }}
                       />
                     </div>
-                    {/* メッセージ入力 */}
-                    <div class="p-talk-chat-send__msg flex items-center gap-1 flex-1">
-                      <div
-                        class="p-talk-chat-send__dummy"
-                        aria-hidden="true"
-                        style="min-width:0;"
-                      >
-                        {newMessage().split("\n").map((row) => (
-                          <>
-                            {row}
-                            <br />
-                          </>
-                        ))}
-                      </div>
-                      <label class="flex-1">
-                        <textarea
-                          id="msg"
-                          class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
-                          rows="1"
-                          ref={(el) => (textareaRef = el)}
-                          value={newMessage()}
-                          placeholder="メッセージを入力"
-                          style="min-height:32px;max-height:80px;"
-                          onInput={(e) => {
-                            setNewMessage(e.target.value);
-                            adjustHeight(textareaRef);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              sendMessage();
-                            }
-                          }}
-                        />
-                      </label>
+                    {/* 入力欄とプレビュー */}
+                    <div class="flex flex-col flex-1">
                       <Show when={mediaPreview()}>
-                        <div class="ml-2">
+                        <div class="mb-2">
                           <Switch
                             fallback={
                               <a
@@ -1550,6 +1515,42 @@ export function Chat(props: ChatProps) {
                           </Switch>
                         </div>
                       </Show>
+                      {/* メッセージ入力 */}
+                      <div class="p-talk-chat-send__msg flex items-center gap-1 flex-1">
+                        <div
+                          class="p-talk-chat-send__dummy"
+                          aria-hidden="true"
+                          style="min-width:0;"
+                        >
+                          {newMessage().split("\n").map((row) => (
+                            <>
+                              {row}
+                              <br />
+                            </>
+                          ))}
+                        </div>
+                        <label class="flex-1">
+                          <textarea
+                            id="msg"
+                            class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
+                            rows="1"
+                            ref={(el) => (textareaRef = el)}
+                            value={newMessage()}
+                            placeholder="メッセージを入力"
+                            style="min-height:32px;max-height:80px;"
+                            onInput={(e) => {
+                              setNewMessage(e.target.value);
+                              adjustHeight(textareaRef);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage();
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
                     {/* 送信/音声ボタン */}
                     <div
@@ -1608,21 +1609,21 @@ export function Chat(props: ChatProps) {
                         class="p-talk-chat-send__button is-active"
                         title="暗号化キーを設定する"
                       >
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    class="h-6 w-6"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  >
-    <rect x="9" y="2" width="6" height="12" rx="3" />
-    <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
-    <line x1="12" y1="19" x2="12" y2="22" />
-    <line x1="8" y1="22" x2="16" y2="22" />
-  </svg>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          class="h-6 w-6"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="9" y="2" width="6" height="12" rx="3" />
+                          <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
+                          <line x1="12" y1="19" x2="12" y2="22" />
+                          <line x1="8" y1="22" x2="16" y2="22" />
+                        </svg>
                       </button>
                     </Show>
                     <input
