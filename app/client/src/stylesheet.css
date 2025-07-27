@@ -386,9 +386,6 @@ input {
     padding: 8px;
   }
 }
-.p-talk-chat-send {
-  padding: 0 18px 12px;
-}
 .p-talk-chat-send__form {
   height: 100%;
   border-radius: 12px;

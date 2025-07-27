@@ -1329,16 +1329,11 @@ export function Chat(props: ChatProps) {
                     </For>
                   </ul>
                 </div>
-                {/* --- ここから送信UIをold_takosui/send.tsx風に --- */}
                 <div
-                  class="p-talk-chat-send relative bg-[#1e1e1e] py-1 px-2"
-                  style={{
-                    "padding-bottom":
-                      "calc(env(safe-area-inset-bottom, 4px) + 4px)",
-                  }}
+                  class="p-talk-chat-send relative bg-[#1e1e1e]"
                 >
                   <form
-                    class="p-talk-chat-send__form m-0"
+                    class="p-talk-chat-send__form"
                     onSubmit={(e) => e.preventDefault()}
                   >
                     {/* メニューボタン */}
