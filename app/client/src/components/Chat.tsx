@@ -1333,7 +1333,7 @@ export function Chat(props: ChatProps) {
                   class="relative bg-[#1e1e1e]"
                 >
                   <form
-                    class="p-talk-chat-send__form py-2"
+                    class="p-talk-chat-send__form py-1"
                     onSubmit={(e) => e.preventDefault()}
                   >
                     {/* メニューボタン */}
