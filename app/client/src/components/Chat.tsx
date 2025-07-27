@@ -3,9 +3,11 @@ import {
   createMemo,
   createSignal,
   For,
+  Match,
   onCleanup,
   onMount,
   Show,
+  Switch,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
@@ -224,8 +226,8 @@ export function Chat(props: ChatProps) {
   const [account] = useAtom(activeAccount);
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [newMessage, setNewMessage] = createSignal("");
-  const [imageFile, setImageFile] = createSignal<File | null>(null);
-  const [imagePreview, setImagePreview] = createSignal<string | null>(null);
+  const [mediaFile, setMediaFile] = createSignal<File | null>(null);
+  const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
   const [chatRooms, setChatRooms] = createSignal<ChatRoom[]>([]);
@@ -257,7 +259,7 @@ export function Chat(props: ChatProps) {
       const newRooms = rooms.map((r) => {
         if (r.id !== roomId) return r;
         const lastMessage = msg?.attachments && msg.attachments.length > 0
-          ? "[画像]" + (msg.content ? " " + msg.content : "")
+          ? "[添付]" + (msg.content ? " " + msg.content : "")
           : msg?.content ?? "";
         const lastMessageTime = msg?.timestamp;
         if (
@@ -495,7 +497,9 @@ export function Chat(props: ChatProps) {
         content: text,
         attachments,
         timestamp: new Date(m.createdAt),
-        type: attachments && attachments.length > 0 ? "image" : "text",
+        type: attachments && attachments.length > 0
+          ? attachments[0].mediaType.startsWith("image/") ? "image" : "file"
+          : "text",
         isMe,
         avatar: room.avatar,
       });
@@ -594,7 +598,7 @@ export function Chat(props: ChatProps) {
     const text = newMessage().trim();
     const roomId = selectedRoom();
     const user = account();
-    if (!text && !imageFile() || !roomId || !user) return;
+    if (!text && !mediaFile() || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
     if (useEncryption()) {
@@ -627,8 +631,9 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      if (imageFile()) {
-        const enc = await encryptFile(imageFile()!);
+      if (mediaFile()) {
+        const file = mediaFile()!;
+        const enc = await encryptFile(file);
         const url = await uploadFile({
           content: enc.data,
           mediaType: enc.mediaType,
@@ -636,8 +641,15 @@ export function Chat(props: ChatProps) {
           iv: enc.iv,
         });
         if (url) {
+          const attType = file.type.startsWith("image/")
+            ? "Image"
+            : file.type.startsWith("video/")
+            ? "Video"
+            : file.type.startsWith("audio/")
+            ? "Audio"
+            : "Document";
           note.attachment = [{
-            type: "Image",
+            type: attType,
             url,
             mediaType: enc.mediaType,
             key: enc.key,
@@ -667,8 +679,9 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      if (imageFile()) {
-        const enc = await encryptFile(imageFile()!);
+      if (mediaFile()) {
+        const file = mediaFile()!;
+        const enc = await encryptFile(file);
         const url = await uploadFile({
           content: enc.data,
           mediaType: enc.mediaType,
@@ -676,8 +689,15 @@ export function Chat(props: ChatProps) {
           iv: enc.iv,
         });
         if (url) {
+          const attType = file.type.startsWith("image/")
+            ? "Image"
+            : file.type.startsWith("video/")
+            ? "Video"
+            : file.type.startsWith("audio/")
+            ? "Audio"
+            : "Document";
           note.attachment = [{
-            type: "Image",
+            type: attType,
             url,
             mediaType: enc.mediaType,
             key: enc.key,
@@ -702,22 +722,22 @@ export function Chat(props: ChatProps) {
         await addDm(user.id, room.members[0]);
       }
     }
-    const img = imageFile();
-    const imgPrev = imagePreview();
+    const file = mediaFile();
+    const prev = mediaPreview();
     setNewMessage("");
-    setImageFile(null);
-    setImagePreview(null);
+    setMediaFile(null);
+    setMediaPreview(null);
     updateRoomLast(roomId, {
       id: "temp",
       author: `${user.userName}@${getDomain()}`,
       displayName: user.displayName || user.userName,
       address: `${user.userName}@${getDomain()}`,
       content: text,
-      attachments: img
-        ? [{ data: imgPrev ?? "", mediaType: img.type }]
+      attachments: file
+        ? [{ data: prev ?? "", mediaType: file.type }]
         : undefined,
       timestamp: new Date(),
-      type: "text",
+      type: file ? file.type.startsWith("image/") ? "image" : "file" : "text",
       isMe: true,
       avatar: room.avatar,
     });
@@ -893,7 +913,9 @@ export function Chat(props: ChatProps) {
           content: parseActivityPubContent(text),
           attachments,
           timestamp: new Date(data.createdAt),
-          type: attachments && attachments.length > 0 ? "image" : "text",
+          type: attachments && attachments.length > 0
+            ? attachments[0].mediaType.startsWith("image/") ? "image" : "file"
+            : "text",
           isMe,
           avatar: room.avatar,
         };
@@ -1227,18 +1249,62 @@ export function Chat(props: ChatProps) {
                                       when={message.attachments &&
                                         message.attachments.length > 0}
                                     >
-                                      <For each={message.attachments}>
-                                        {(att) => (
-                                          <img
-                                            src={`data:${att.mediaType};base64,${att.data}`}
-                                            alt="image"
-                                            style={{
-                                              "max-width": "200px",
-                                              "max-height": "200px",
-                                            }}
-                                          />
-                                        )}
-                                      </For>
+                                      <div style="margin-top:4px;">
+                                        <For each={message.attachments}>
+                                          {(att) => (
+                                            <Switch
+                                              fallback={
+                                                <a
+                                                  href={`data:${att.mediaType};base64,${att.data}`}
+                                                  download
+                                                  class="text-blue-400 underline"
+                                                >
+                                                  ファイル
+                                                </a>
+                                              }
+                                            >
+                                              <Match
+                                                when={att.mediaType.startsWith(
+                                                  "image/",
+                                                )}
+                                              >
+                                                <img
+                                                  src={`data:${att.mediaType};base64,${att.data}`}
+                                                  alt="image"
+                                                  style={{
+                                                    "max-width": "200px",
+                                                    "max-height": "200px",
+                                                  }}
+                                                />
+                                              </Match>
+                                              <Match
+                                                when={att.mediaType.startsWith(
+                                                  "video/",
+                                                )}
+                                              >
+                                                <video
+                                                  src={`data:${att.mediaType};base64,${att.data}`}
+                                                  controls
+                                                  style={{
+                                                    "max-width": "200px",
+                                                    "max-height": "200px",
+                                                  }}
+                                                />
+                                              </Match>
+                                              <Match
+                                                when={att.mediaType.startsWith(
+                                                  "audio/",
+                                                )}
+                                              >
+                                                <audio
+                                                  src={`data:${att.mediaType};base64,${att.data}`}
+                                                  controls
+                                                />
+                                              </Match>
+                                            </Switch>
+                                          )}
+                                        </For>
+                                      </div>
                                     </Show>
                                   </div>
                                   <Show when={!message.isMe}>
@@ -1307,16 +1373,49 @@ export function Chat(props: ChatProps) {
                           }}
                         />
                       </label>
-                      <Show when={imagePreview()}>
+                      <Show when={mediaPreview()}>
                         <div class="ml-2">
-                          <img
-                            src={imagePreview()!}
-                            alt="preview"
-                            style={{
-                              "max-width": "80px",
-                              "max-height": "80px",
-                            }}
-                          />
+                          <Switch
+                            fallback={
+                              <a
+                                href={mediaPreview()!}
+                                download
+                                class="text-blue-400 underline"
+                              >
+                                {mediaFile()?.name || "ファイル"}
+                              </a>
+                            }
+                          >
+                            <Match
+                              when={mediaFile()?.type.startsWith("image/")}
+                            >
+                              <img
+                                src={mediaPreview()!}
+                                alt="preview"
+                                style={{
+                                  "max-width": "80px",
+                                  "max-height": "80px",
+                                }}
+                              />
+                            </Match>
+                            <Match
+                              when={mediaFile()?.type.startsWith("video/")}
+                            >
+                              <video
+                                src={mediaPreview()!}
+                                controls
+                                style={{
+                                  "max-width": "80px",
+                                  "max-height": "80px",
+                                }}
+                              />
+                            </Match>
+                            <Match
+                              when={mediaFile()?.type.startsWith("audio/")}
+                            >
+                              <audio src={mediaPreview()!} controls />
+                            </Match>
+                          </Switch>
                         </div>
                       </Show>
                     </div>
@@ -1371,11 +1470,11 @@ export function Chat(props: ChatProps) {
                           </svg>
                         </div>
                       </div>
-                      {/* 画像添付ボタン */}
+                      {/* メディア添付ボタン */}
                       <div
                         class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
                         onClick={() => fileInput?.click()}
-                        title="写真・動画を送信"
+                        title="ファイルを送信"
                         style="min-height:28px;"
                       >
                         <svg
@@ -1404,17 +1503,17 @@ export function Chat(props: ChatProps) {
                         <input
                           ref={(el) => (fileInput = el)}
                           type="file"
-                          accept="image/*"
+                          accept="*/*"
                           class="hidden"
                           style="display:none;"
                           onChange={(e) => {
                             const f = (e.currentTarget as HTMLInputElement)
                               .files?.[0];
                             if (!f) return;
-                            setImageFile(f);
+                            setMediaFile(f);
                             const reader = new FileReader();
                             reader.onload = () => {
-                              setImagePreview(reader.result as string);
+                              setMediaPreview(reader.result as string);
                             };
                             reader.readAsDataURL(f);
                           }}
@@ -1424,7 +1523,7 @@ export function Chat(props: ChatProps) {
                       <div
                         class={useEncryption() && !encryptionKey()
                           ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
-                          : newMessage().trim()
+                          : newMessage().trim() || mediaFile()
                           ? "p-talk-chat-send__button is-active"
                           : "p-talk-chat-send__button"}
                         onClick={useEncryption() && !encryptionKey()
