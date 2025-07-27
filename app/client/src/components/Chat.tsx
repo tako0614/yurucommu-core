@@ -2,12 +2,9 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
-  Match,
   onCleanup,
   onMount,
   Show,
-  Switch,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
@@ -50,18 +47,12 @@ import {
 } from "./e2ee/storage.ts";
 import { decryptWithPassword, encryptWithPassword } from "../utils/crypto.ts";
 import { encryptionKeyState } from "../states/session.ts";
-import { GoogleAd } from "./GoogleAd.tsx";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
-
-function isUrl(value?: string): boolean {
-  if (!value) return false;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+import { ChatRoomList } from "./chat/ChatRoomList.tsx";
+import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
+import { ChatMessageList } from "./chat/ChatMessageList.tsx";
+import { ChatSendForm } from "./chat/ChatSendForm.tsx";
+import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -188,35 +179,6 @@ function getSelfRoomId(user: Account | null): string | null {
   return user ? `${user.userName}@${getDomain()}` : null;
 }
 
-type ActorID = string;
-
-interface ChatMessage {
-  id: string;
-  author: string;
-  displayName: string;
-  address: string;
-  content: string;
-  attachments?: { data: string; mediaType: string }[];
-  timestamp: Date;
-  type: "text" | "image" | "file";
-  avatar?: string;
-  isMe?: boolean;
-}
-
-interface ChatRoom {
-  id: string;
-  name: string;
-  userName: string;
-  domain: string;
-  lastMessage?: string;
-  lastMessageTime?: Date;
-  unreadCount: number;
-  isOnline?: boolean;
-  avatar?: string;
-  type: "dm" | "group" | "memo";
-  members: ActorID[];
-}
-
 interface ChatProps {
   onShowEncryptionKeyForm?: () => void;
 }
@@ -248,10 +210,6 @@ export function Chat(props: ChatProps) {
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [hasMore, setHasMore] = createSignal(true);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
-  let chatMainRef: HTMLDivElement | undefined;
-  let fileInputImage: HTMLInputElement | undefined;
-  let fileInputFile: HTMLInputElement | undefined;
-  const [showMenu, setShowMenu] = createSignal(false);
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
@@ -1020,104 +978,16 @@ export function Chat(props: ChatProps) {
           } flex`}
           id="chatmain"
         >
-          {/* ...existing code... (room list, chat header, message list) ... */}
-          <div class="p-talk-list min-h-screen">
-            {/* ...existing code... */}
-            <div class="p-talk-list-title">チャット</div>
-            <div class="p-talk-list-search">
-              <input type="text" placeholder="チャンネルを検索..." />
-              <Show when={showAds()}>
-                <div class="my-2">
-                  <GoogleAd />
-                </div>
-              </Show>
-            </div>
-            <div class="p-talk-list-rooms pb-14 scrollbar">
-              <ul class="p-talk-list-rooms__ul h-[calc(100vh-120px)] pb-[70px] scrollbar">
-                <For each={chatRooms()}>
-                  {(room) => (
-                    <li
-                      class={`c-talk-rooms ${
-                        selectedRoom() === room.id ? "is-active" : ""
-                      } flex items-center cursor-pointer`}
-                      onClick={() => selectRoom(room.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        removeRoom(room.id);
-                      }}
-                      onTouchStart={() => startLongPress(room.id)}
-                      onTouchEnd={cancelLongPress}
-                      onTouchMove={cancelLongPress}
-                      onTouchCancel={cancelLongPress}
-                    >
-                      <div class="flex items-center w-full">
-                        <span
-                          class="c-talk-rooms-icon"
-                          style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;"
-                        >
-                          {isUrl(room.avatar) ||
-                              (typeof room.avatar === "string" &&
-                                room.avatar.startsWith("data:image/"))
-                            ? (
-                              <img
-                                src={room.avatar}
-                                alt="avatar"
-                                style={{
-                                  width: "40px",
-                                  height: "40px",
-                                  "object-fit": "cover",
-                                  "border-radius": "50%",
-                                }}
-                              />
-                            )
-                            : (
-                              <span
-                                style={{
-                                  width: "40px",
-                                  height: "40px",
-                                  display: "flex",
-                                  "align-items": "center",
-                                  "justify-content": "center",
-                                  background: room.type === "memo"
-                                    ? "#16a34a"
-                                    : "#444",
-                                  color: "#fff",
-                                  "border-radius": "50%",
-                                  "font-size": "20px",
-                                }}
-                              >
-                                {room.avatar}
-                              </span>
-                            )}
-                        </span>
-                        <span class="c-talk-rooms-box w-full">
-                          <span class="c-talk-rooms-name flex justify-between items-center w-full">
-                            <span class="c-talk-rooms-nickname" style="flex:1;">
-                              {room.name}
-                            </span>
-                            <span
-                              class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap"
-                              style="margin-left:auto; text-align:right;"
-                            >
-                              {room.lastMessageTime
-                                ? room.lastMessageTime.toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })
-                                : ""}
-                            </span>
-                          </span>
-                          <span class="c-talk-rooms-msg flex justify-between items-center">
-                            <p class="truncate">{room.lastMessage}</p>
-                          </span>
-                        </span>
-                      </div>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </div>
-          </div>
+          {/* ルームリスト */}
+          <ChatRoomList
+            rooms={chatRooms()}
+            selectedRoom={selectedRoom()}
+            onSelect={selectRoom}
+            onRemove={removeRoom}
+            onStartLongPress={startLongPress}
+            onCancelLongPress={cancelLongPress}
+            showAds={showAds()}
+          />
           <div class="p-talk-chat">
             <Show
               when={selectedRoom()}
@@ -1152,501 +1022,34 @@ export function Chat(props: ChatProps) {
               }
             >
               <div class="p-talk-chat-container min-h-dvh flex flex-col">
-                {/* ...existing code... (chat header, message list) ... */}
-                <div
-                  class={`p-talk-chat-title ${selectedRoom() ? "" : "hidden"}`}
-                  id="chatHeader"
-                >
-                  <div class="flex items-center gap-2 p-4">
-                    <Show when={isMobile()}>
-                      <button
-                        type="button"
-                        class="h-full"
-                        onClick={backToRoomList}
-                      >
-                        <svg
-                          role="img"
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          stroke="#ffffff"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          fill="none"
-                          class="w-5 h-5"
-                        >
-                          <polyline points="14 18 8 12 14 6" />
-                        </svg>
-                      </button>
-                    </Show>
-                    <h2>{selectedRoomInfo()?.name}</h2>
-                  </div>
-                </div>
-                <div
-                  class="p-talk-chat-main flex-grow overflow-y-auto pt-[48px]"
-                  ref={(el) => (chatMainRef = el)}
-                  onScroll={() => {
-                    if (!chatMainRef) return;
-                    if (chatMainRef.scrollTop < 100) {
-                      const roomId = selectedRoom();
-                      if (roomId) {
-                        const room = chatRooms().find((r) => r.id === roomId);
-                        if (room) loadOlderMessages(room);
-                      }
+                <ChatTitleBar
+                  isMobile={isMobile()}
+                  selectedRoom={selectedRoomInfo()}
+                  onBack={backToRoomList}
+                />
+                <ChatMessageList
+                  messages={messages()}
+                  onReachTop={() => {
+                    const roomId = selectedRoom();
+                    if (roomId) {
+                      const room = chatRooms().find((r) => r.id === roomId);
+                      if (room) loadOlderMessages(room);
                     }
                   }}
-                >
-                  <ul class="p-talk-chat-main__ul">
-                    <For each={messages()}>
-                      {(message, i) => {
-                        const prev = messages()[i() - 1];
-                        const isPrimary = !prev ||
-                          prev.author !== message.author;
-                        const cls = `c-talk-chat ${
-                          message.isMe ? "self" : "other"
-                        } ${isPrimary ? "primary" : "subsequent"}`;
-                        return (
-                          <li class={cls}>
-                            <div class="c-talk-chat-box">
-                              <Show when={!message.isMe && isPrimary}>
-                                <div class="c-talk-chat-icon">
-                                  {isUrl(message.avatar) ||
-                                      (typeof message.avatar === "string" &&
-                                        message.avatar.startsWith(
-                                          "data:image/",
-                                        ))
-                                    ? (
-                                      <img
-                                        src={message.avatar}
-                                        alt="avatar"
-                                        class="rounded-full"
-                                      />
-                                    )
-                                    : message.avatar}
-                                </div>
-                              </Show>
-                              <div class="c-talk-chat-right">
-                                <Show when={!message.isMe && isPrimary}>
-                                  <p class="c-talk-chat-name">
-                                    {message.displayName}
-                                  </p>
-                                </Show>
-                                <div class="flex items-end">
-                                  <Show when={message.isMe}>
-                                    <span class="text-xs text-gray-500 mr-2">
-                                      {message.timestamp.toLocaleTimeString(
-                                        [],
-                                        {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        },
-                                      )}
-                                    </span>
-                                  </Show>
-                                  <div class="c-talk-chat-msg">
-                                    <Show when={message.content}>
-                                      <p>{message.content}</p>
-                                    </Show>
-                                    <Show
-                                      when={message.attachments &&
-                                        message.attachments.length > 0}
-                                    >
-                                      <div style="margin-top:4px;">
-                                        <For each={message.attachments}>
-                                          {(att) => (
-                                            <Switch
-                                              fallback={
-                                                <a
-                                                  href={`data:${att.mediaType};base64,${att.data}`}
-                                                  download
-                                                  class="text-blue-400 underline"
-                                                >
-                                                  ファイル
-                                                </a>
-                                              }
-                                            >
-                                              <Match
-                                                when={att.mediaType.startsWith(
-                                                  "image/",
-                                                )}
-                                              >
-                                                <img
-                                                  src={`data:${att.mediaType};base64,${att.data}`}
-                                                  alt="image"
-                                                  style={{
-                                                    "max-width": "200px",
-                                                    "max-height": "200px",
-                                                  }}
-                                                />
-                                              </Match>
-                                              <Match
-                                                when={att.mediaType.startsWith(
-                                                  "video/",
-                                                )}
-                                              >
-                                                <video
-                                                  src={`data:${att.mediaType};base64,${att.data}`}
-                                                  controls
-                                                  style={{
-                                                    "max-width": "200px",
-                                                    "max-height": "200px",
-                                                  }}
-                                                />
-                                              </Match>
-                                              <Match
-                                                when={att.mediaType.startsWith(
-                                                  "audio/",
-                                                )}
-                                              >
-                                                <audio
-                                                  src={`data:${att.mediaType};base64,${att.data}`}
-                                                  controls
-                                                />
-                                              </Match>
-                                            </Switch>
-                                          )}
-                                        </For>
-                                      </div>
-                                    </Show>
-                                  </div>
-                                  <Show when={!message.isMe}>
-                                    <span class="text-xs text-gray-500 ml-2">
-                                      {message.timestamp.toLocaleTimeString(
-                                        [],
-                                        {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        },
-                                      )}
-                                    </span>
-                                  </Show>
-                                </div>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      }}
-                    </For>
-                  </ul>
-                </div>
-                <div class="relative bg-[#1e1e1e]">
-                  <form
-                    class="p-talk-chat-send__form py-1"
-                    onSubmit={(e) => e.preventDefault()}
-                  >
-                    {/* メニューボタン */}
-                    <div class="relative">
-                      <div
-                        class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                        onClick={() => setShowMenu(!showMenu())}
-                        title="メニューを開く"
-                        style="min-height:28px;"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <line x1="12" y1="5" x2="12" y2="19"></line>
-                          <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                      </div>
-                      <Show when={showMenu()}>
-                        <div class="absolute bottom-full mb-1 left-0 bg-[#2e2e2e] p-2 rounded shadow flex flex-col gap-1">
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
-                            onClick={() => {
-                              setShowMenu(false);
-                              fileInputFile?.click();
-                            }}
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                            >
-                              <rect
-                                x="3"
-                                y="3"
-                                width="18"
-                                height="18"
-                                rx="2"
-                                ry="2"
-                              >
-                              </rect>
-                              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                              <polyline points="21 15 16 10 5 21"></polyline>
-                            </svg>
-                            <span class="text-sm">ファイル</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
-                            onClick={() => {
-                              setShowMenu(false);
-                              toggleEncryption();
-                            }}
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              class="h-4 w-4"
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                            >
-                              <path
-                                fill-rule="evenodd"
-                                d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                                clip-rule="evenodd"
-                              />
-                            </svg>
-                            <span class="text-sm">
-                              {useEncryption() ? "暗号化中" : "暗号化"}
-                            </span>
-                          </button>
-                        </div>
-                      </Show>
-                    </div>
-                    {/* 画像ボタン */}
-                    <div
-                      class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-                      onClick={() => fileInputImage?.click()}
-                      title="画像を送信"
-                      style="min-height:28px;"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <rect
-                          x="3"
-                          y="3"
-                          width="18"
-                          height="18"
-                          rx="2"
-                          ry="2"
-                        >
-                        </rect>
-                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                        <polyline points="21 15 16 10 5 21"></polyline>
-                      </svg>
-                      <input
-                        ref={(el) => (fileInputImage = el)}
-                        type="file"
-                        accept="image/*"
-                        class="hidden"
-                        style="display:none;"
-                        onChange={(e) => {
-                          const f = (e.currentTarget as HTMLInputElement).files
-                            ?.[0];
-                          if (!f) return;
-                          setMediaFile(f);
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            setMediaPreview(reader.result as string);
-                          };
-                          reader.readAsDataURL(f);
-                        }}
-                      />
-                    </div>
-                    {/* 入力欄とプレビュー */}
-                    <div class="flex flex-col flex-1">
-                      <Show when={mediaPreview()}>
-                        <div class="mb-2">
-                          <Switch
-                            fallback={
-                              <a
-                                href={mediaPreview()!}
-                                download
-                                class="text-blue-400 underline"
-                              >
-                                {mediaFile()?.name || "ファイル"}
-                              </a>
-                            }
-                          >
-                            <Match
-                              when={mediaFile()?.type.startsWith("image/")}
-                            >
-                              <img
-                                src={mediaPreview()!}
-                                alt="preview"
-                                style={{
-                                  "max-width": "80px",
-                                  "max-height": "80px",
-                                }}
-                              />
-                            </Match>
-                            <Match
-                              when={mediaFile()?.type.startsWith("video/")}
-                            >
-                              <video
-                                src={mediaPreview()!}
-                                controls
-                                style={{
-                                  "max-width": "80px",
-                                  "max-height": "80px",
-                                }}
-                              />
-                            </Match>
-                            <Match
-                              when={mediaFile()?.type.startsWith("audio/")}
-                            >
-                              <audio src={mediaPreview()!} controls />
-                            </Match>
-                          </Switch>
-                        </div>
-                      </Show>
-                      {/* メッセージ入力 */}
-                      <div class="p-talk-chat-send__msg flex items-center gap-1 flex-1">
-                        <div
-                          class="p-talk-chat-send__dummy"
-                          aria-hidden="true"
-                          style="min-width:0;"
-                        >
-                          {newMessage().split("\n").map((row) => (
-                            <>
-                              {row}
-                              <br />
-                            </>
-                          ))}
-                        </div>
-                        <label class="flex-1">
-                          <textarea
-                            id="msg"
-                            class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
-                            rows="1"
-                            ref={(el) => (textareaRef = el)}
-                            value={newMessage()}
-                            placeholder="メッセージを入力"
-                            style="min-height:32px;max-height:80px;"
-                            onInput={(e) => {
-                              setNewMessage(e.target.value);
-                              adjustHeight(textareaRef);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                sendMessage();
-                              }
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                    {/* 送信/音声ボタン */}
-                    <div
-                      class={useEncryption() && !encryptionKey()
-                        ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
-                        : newMessage().trim() || mediaFile()
-                        ? "p-talk-chat-send__button is-active"
-                        : "p-talk-chat-send__button"}
-                      onClick={useEncryption() && !encryptionKey()
-                        ? undefined
-                        : newMessage().trim() || mediaFile()
-                        ? sendMessage
-                        : () => alert("録音機能は未実装です")}
-                      style="min-height:28px;"
-                      title={useEncryption() && !encryptionKey()
-                        ? "暗号化キー未入力のため送信できません"
-                        : ""}
-                    >
-                      <Show
-                        when={newMessage().trim() || mediaFile()}
-                        fallback={
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-5 w-5"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                          >
-                            <path
-                              fill-rule="evenodd"
-                              d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a7 7 0 0014 0v-1a1 1 0 10-2 0v1a5 5 0 11-10 0v-1a1 1 0 10-2 0v1z"
-                              clip-rule="evenodd"
-                            />
-                          </svg>
-                        }
-                      >
-                        <svg
-                          width="800px"
-                          height="800px"
-                          viewBox="0 0 28 28"
-                          version="1.1"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <g stroke="none" stroke-width="1" fill="none">
-                            <g fill="#000000">
-                              <path d="M3.78963301,2.77233335 L24.8609339,12.8499121 C25.4837277,13.1477699 25.7471402,13.8941055 25.4492823,14.5168992 C25.326107,14.7744476 25.1184823,14.9820723 24.8609339,15.1052476 L3.78963301,25.1828263 C3.16683929,25.4806842 2.42050372,25.2172716 2.12264586,24.5944779 C1.99321184,24.3238431 1.96542524,24.015685 2.04435886,23.7262618 L4.15190935,15.9983421 C4.204709,15.8047375 4.36814355,15.6614577 4.56699265,15.634447 L14.7775879,14.2474874 C14.8655834,14.2349166 14.938494,14.177091 14.9721837,14.0981464 L14.9897199,14.0353553 C15.0064567,13.9181981 14.9390703,13.8084248 14.8334007,13.7671556 L14.7775879,13.7525126 L4.57894108,12.3655968 C4.38011873,12.3385589 4.21671819,12.1952832 4.16392965,12.0016992 L2.04435886,4.22889788 C1.8627142,3.56286745 2.25538645,2.87569101 2.92141688,2.69404635 C3.21084015,2.61511273 3.51899823,2.64289932 3.78963301,2.77233335 Z">
-                              </path>
-                            </g>
-                          </g>
-                        </svg>
-                      </Show>
-                    </div>
-                    <Show when={useEncryption() && !encryptionKey()}>
-                      <button
-                        type="button"
-                        onClick={() => props.onShowEncryptionKeyForm?.()}
-                        class="p-talk-chat-send__button is-active"
-                        title="暗号化キーを設定する"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          class="h-6 w-6"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <rect x="9" y="2" width="6" height="12" rx="3" />
-                          <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
-                          <line x1="12" y1="19" x2="12" y2="22" />
-                          <line x1="8" y1="22" x2="16" y2="22" />
-                        </svg>
-                      </button>
-                    </Show>
-                    <input
-                      ref={(el) => (fileInputFile = el)}
-                      type="file"
-                      accept="*/*"
-                      class="hidden"
-                      style="display:none;"
-                      onChange={(e) => {
-                        const f = (e.currentTarget as HTMLInputElement).files
-                          ?.[0];
-                        if (!f) return;
-                        setMediaFile(f);
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          setMediaPreview(reader.result as string);
-                        };
-                        reader.readAsDataURL(f);
-                      }}
-                    />
-                  </form>
-                </div>
-                {/* --- 送信UIここまで --- */}
+                />
+                <ChatSendForm
+                  newMessage={newMessage()}
+                  setNewMessage={setNewMessage}
+                  mediaFile={mediaFile()}
+                  setMediaFile={setMediaFile}
+                  mediaPreview={mediaPreview()}
+                  setMediaPreview={setMediaPreview}
+                  useEncryption={useEncryption()}
+                  encryptionKey={encryptionKey()}
+                  toggleEncryption={toggleEncryption}
+                  sendMessage={sendMessage}
+                  onShowEncryptionKeyForm={props.onShowEncryptionKeyForm}
+                />
               </div>
             </Show>
           </div>
