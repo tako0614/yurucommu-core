@@ -22,6 +22,7 @@ import {
   saveEncryptedKeyPair,
   sendEncryptedMessage,
   sendPublicMessage,
+  uploadFile,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -88,6 +89,58 @@ function parseActivityPubContent(text: string): string {
     /* JSON ではない場合はそのまま返す */
   }
   return text;
+}
+
+interface ActivityPubAttachment {
+  url: string;
+  mediaType: string;
+  key?: string;
+  iv?: string;
+}
+
+interface ParsedActivityPubNote {
+  content: string;
+  attachments?: ActivityPubAttachment[];
+}
+
+function parseActivityPubNote(text: string): ParsedActivityPubNote {
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === "object" && typeof obj.content === "string") {
+      const attachments =
+        Array.isArray((obj as { attachment?: unknown }).attachment)
+          ? (obj as { attachment?: unknown }).attachment
+            .map((a: unknown) => {
+              if (
+                a && typeof a === "object" &&
+                typeof (a as { url?: unknown }).url === "string"
+              ) {
+                return {
+                  url: (a as { url: string }).url,
+                  mediaType:
+                    typeof (a as { mediaType?: unknown }).mediaType === "string"
+                      ? (a as { mediaType: string }).mediaType
+                      : "application/octet-stream",
+                  key: typeof (a as { key?: unknown }).key === "string"
+                    ? (a as { key: string }).key
+                    : undefined,
+                  iv: typeof (a as { iv?: unknown }).iv === "string"
+                    ? (a as { iv: string }).iv
+                    : undefined,
+                } as ActivityPubAttachment;
+              }
+              return null;
+            })
+            .filter((
+              a: ActivityPubAttachment | null,
+            ): a is ActivityPubAttachment => !!a)
+          : undefined;
+      return { content: obj.content, attachments };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { content: text };
 }
 
 async function encryptFile(file: File) {
@@ -403,24 +456,28 @@ export function Chat(props: ChatProps) {
     );
     for (const m of list) {
       const plain = await decryptGroupMessage(group, m.content);
-      const text = parseActivityPubContent(plain ?? m.content);
+      const note = parseActivityPubNote(plain ?? m.content);
+      const text = note.content;
+      const listAtt = Array.isArray(m.attachments)
+        ? m.attachments
+        : note.attachments;
       let attachments: { data: string; mediaType: string }[] | undefined;
-      if (Array.isArray(m.attachments)) {
+      if (Array.isArray(listAtt)) {
         attachments = [];
-        for (const at of m.attachments) {
-          if (
-            typeof at.url === "string" && typeof at.key === "string" &&
-            typeof at.iv === "string"
-          ) {
+        for (const at of listAtt) {
+          if (typeof at.url === "string") {
             try {
               const res = await fetch(at.url);
               const buf = await res.arrayBuffer();
               const encData = bufToB64(buf);
-              const dec = await decryptFile(encData, at.key, at.iv);
+              let data = encData;
+              if (typeof at.key === "string" && typeof at.iv === "string") {
+                data = await decryptFile(encData, at.key, at.iv);
+              }
               const mt = typeof at.mediaType === "string"
                 ? at.mediaType
                 : "image/png";
-              attachments.push({ data: dec, mediaType: mt });
+              attachments.push({ data, mediaType: mt });
             } catch {
               /* ignore */
             }
@@ -570,16 +627,23 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      let atts: unknown[] | undefined;
       if (imageFile()) {
         const enc = await encryptFile(imageFile()!);
-        atts = [{
-          type: "Image",
-          mediaType: enc.mediaType,
+        const url = await uploadFile({
           content: enc.data,
+          mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
-        }];
+        });
+        if (url) {
+          note.attachment = [{
+            type: "Image",
+            url,
+            mediaType: enc.mediaType,
+            key: enc.key,
+            iv: enc.iv,
+          }];
+        }
       }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const success = await sendEncryptedMessage(
@@ -587,7 +651,6 @@ export function Chat(props: ChatProps) {
         {
           to: room.members,
           content: cipher,
-          attachments: atts,
         },
       );
       if (!success) {
@@ -604,16 +667,23 @@ export function Chat(props: ChatProps) {
         id: `urn:uuid:${crypto.randomUUID()}`,
         content: text,
       };
-      let atts: unknown[] | undefined;
       if (imageFile()) {
         const enc = await encryptFile(imageFile()!);
-        atts = [{
-          type: "Image",
-          mediaType: enc.mediaType,
+        const url = await uploadFile({
           content: enc.data,
+          mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
-        }];
+        });
+        if (url) {
+          note.attachment = [{
+            type: "Image",
+            url,
+            mediaType: enc.mediaType,
+            key: enc.key,
+            iv: enc.iv,
+          }];
+        }
       }
       const success = await sendPublicMessage(
         `${user.userName}@${getDomain()}`,
@@ -622,7 +692,6 @@ export function Chat(props: ChatProps) {
           content: JSON.stringify(note),
           mediaType: "application/json",
           encoding: "utf-8",
-          attachments: atts,
         },
       );
       if (!success) {
@@ -752,20 +821,26 @@ export function Chat(props: ChatProps) {
           if (group) {
             const plain = await decryptGroupMessage(group, data.content);
             if (plain) {
-              text = plain;
-              if (Array.isArray(data.attachments)) {
+              const note = parseActivityPubNote(plain);
+              text = note.content;
+              const listAtt = Array.isArray(data.attachments)
+                ? data.attachments
+                : note.attachments;
+              if (Array.isArray(listAtt)) {
                 attachments = [];
-                for (const at of data.attachments) {
-                  if (
-                    typeof at.url === "string" &&
-                    typeof at.key === "string" &&
-                    typeof at.iv === "string"
-                  ) {
+                for (const at of listAtt) {
+                  if (typeof at.url === "string") {
                     try {
                       const res = await fetch(at.url);
                       const buf = await res.arrayBuffer();
                       const enc = bufToB64(buf);
-                      const dec = await decryptFile(enc, at.key, at.iv);
+                      let dec = enc;
+                      if (
+                        typeof at.key === "string" &&
+                        typeof at.iv === "string"
+                      ) {
+                        dec = await decryptFile(enc, at.key, at.iv);
+                      }
                       const mt = typeof at.mediaType === "string"
                         ? at.mediaType
                         : "image/png";
@@ -779,19 +854,26 @@ export function Chat(props: ChatProps) {
             }
           }
         } else {
-          if (Array.isArray(data.attachments)) {
+          const note = parseActivityPubNote(data.content);
+          text = note.content;
+          const listAtt = Array.isArray(data.attachments)
+            ? data.attachments
+            : note.attachments;
+          if (Array.isArray(listAtt)) {
             attachments = [];
-            for (const at of data.attachments) {
-              if (
-                typeof at.url === "string" &&
-                typeof at.key === "string" &&
-                typeof at.iv === "string"
-              ) {
+            for (const at of listAtt) {
+              if (typeof at.url === "string") {
                 try {
                   const res = await fetch(at.url);
                   const buf = await res.arrayBuffer();
                   const enc = bufToB64(buf);
-                  const dec = await decryptFile(enc, at.key, at.iv);
+                  let dec = enc;
+                  if (
+                    typeof at.key === "string" &&
+                    typeof at.iv === "string"
+                  ) {
+                    dec = await decryptFile(enc, at.key, at.iv);
+                  }
                   const mt = typeof at.mediaType === "string"
                     ? at.mediaType
                     : "image/png";

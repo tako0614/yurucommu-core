@@ -376,13 +376,25 @@ app.post(
       encoding: msg.encoding,
       createdAt: msg.createdAt,
       attachments: Array.isArray(attachments)
-        ? attachments.map((att, idx) => ({
-          url: `https://${domain}/api/message-attachments/${msg._id}/${idx}`,
-          mediaType: (att as { mediaType?: string }).mediaType ||
-            "application/octet-stream",
-          key: (att as { key?: string }).key,
-          iv: (att as { iv?: string }).iv,
-        }))
+        ? attachments.map((att, idx) => {
+          const a = att as Record<string, unknown>;
+          if (typeof a.url === "string") {
+            return {
+              url: a.url,
+              mediaType: typeof a.mediaType === "string"
+                ? a.mediaType
+                : "application/octet-stream",
+              key: a.key,
+              iv: a.iv,
+            };
+          }
+          return {
+            url: `https://${domain}/api/message-attachments/${msg._id}/${idx}`,
+            mediaType: (a.mediaType as string) || "application/octet-stream",
+            key: a.key as string | undefined,
+            iv: a.iv as string | undefined,
+          };
+        })
         : undefined,
     };
     const msgType = isPublic ? "publicMessage" : "encryptedMessage";
@@ -478,16 +490,26 @@ app.get("/users/:user/messages", authRequired, async (c) => {
     attachments:
       Array.isArray((doc.extra as Record<string, unknown>)?.attachments)
         ? (doc.extra as { attachments: unknown[] }).attachments.map(
-          (_: unknown, idx: number) => ({
-            url: `https://${domain}/api/message-attachments/${doc._id}/${idx}`,
-            mediaType: ((doc.extra as { attachments: { mediaType?: string }[] })
-              .attachments[idx].mediaType) ||
-              "application/octet-stream",
-            key: ((doc.extra as { attachments: { key?: string }[] })
-              .attachments[idx].key),
-            iv: ((doc.extra as { attachments: { iv?: string }[] })
-              .attachments[idx].iv),
-          }),
+          (att: unknown, idx: number) => {
+            const a = att as Record<string, unknown>;
+            if (typeof a.url === "string") {
+              return {
+                url: a.url,
+                mediaType: typeof a.mediaType === "string"
+                  ? a.mediaType
+                  : "application/octet-stream",
+                key: a.key,
+                iv: a.iv,
+              };
+            }
+            return {
+              url:
+                `https://${domain}/api/message-attachments/${doc._id}/${idx}`,
+              mediaType: (a.mediaType as string) || "application/octet-stream",
+              key: a.key as string | undefined,
+              iv: a.iv as string | undefined,
+            };
+          },
         )
         : undefined,
   }));

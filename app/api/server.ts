@@ -24,6 +24,7 @@ import videos, {
   initVideoWebSocket,
 } from "./routes/videos.ts";
 import messageAttachments from "./routes/message_attachments.ts";
+import files from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
 import fcm from "./routes/fcm.ts";
@@ -65,6 +66,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     videos,
     dms,
     messageAttachments,
+    files,
     search,
     relays,
     users,
