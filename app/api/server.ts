@@ -77,7 +77,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     relays,
     users,
     e2ee,
-    activitypub, // ActivityPubプロキシAPI用
   ];
   if (e["OAUTH_HOST"] || e["ROOT_DOMAIN"]) {
     apiRoutes.splice(3, 0, oauthLogin);
@@ -85,6 +84,9 @@ export async function createTakosApp(env?: Record<string, string>) {
   for (const r of apiRoutes) {
     app.route("/api", r);
   }
+
+  // ActivityPub ルートは /activitypub プレフィックスでも利用可能にする
+  app.route("/activitypub", activitypub);
 
   const rootRoutes = [nodeinfo, activitypub, rootInbox, e2ee];
   // e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
