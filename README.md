@@ -182,9 +182,22 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 各インスタンスのリストは `relays` コレクションに基づきます。 takos host
 のデフォルトリレーは自動登録されますが、一覧には表示されません。
 
+## アカウント管理 API
+
+ローカルアカウントの作成や編集に利用するエンドポイントです。公開ユーザー情報の取得
+やチャット関連機能を提供する `/api/users/*` とは目的が異なります。
+
+- `GET /api/accounts` – アカウント一覧取得
+- `POST /api/accounts` – アカウント作成
+- `GET /api/accounts/:id` – アカウント取得（鍵情報を含む）
+- `PUT /api/accounts/:id` – アカウント更新
+- `DELETE /api/accounts/:id` – アカウント削除
+
 ## チャット API
 
-エンドツーエンド暗号化に対応したチャット機能の API です。
+エンドツーエンド暗号化に対応したチャット機能の API です。 `/api/users/*`
+プレフィックスには公開ユーザー情報取得用のエンドポイントも含まれますが、
+アカウント管理機能は `/api/accounts/*` で提供されます。
 
 - `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
 - `POST /api/users/:user/keyPackages` – KeyPackage 登録
