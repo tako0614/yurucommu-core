@@ -530,7 +530,7 @@ paths:
           description: 送信結果
   /files:
     post:
-      summary: ファイルアップロード
+      summary: ファイルアップロード（HTTP のみ）
       requestBody:
         required: true
         content:
@@ -541,6 +541,14 @@ paths:
                 file:
                   type: string
                   format: binary
+                key:
+                  type: string
+                  description: 暗号化鍵（Base64）
+                iv:
+                  type: string
+                  description: 暗号化 IV（Base64）
+              required:
+                - file
       responses:
         "201":
           description: アップロード結果

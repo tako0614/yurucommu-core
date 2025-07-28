@@ -1,4 +1,4 @@
-import { apiFetch, apiUrl } from "../../utils/config.ts";
+import { apiFetch } from "../../utils/config.ts";
 
 export interface KeyPackage {
   id: string;
@@ -268,9 +268,6 @@ export const uploadFile = async (
   },
 ): Promise<string | null> => {
   try {
-    if (data.content.byteLength > 4 * 1024 * 1024) {
-      return await uploadFileWebSocket(data);
-    }
     const form = new FormData();
     form.append(
       "file",
@@ -290,57 +287,6 @@ export const uploadFile = async (
     console.error("Error uploading attachment:", err);
     return null;
   }
-};
-
-export const uploadFileWebSocket = (
-  data: {
-    content: ArrayBuffer;
-    mediaType?: string;
-    key?: string;
-    iv?: string;
-    name?: string;
-  },
-): Promise<string | null> => {
-  return new Promise((resolve) => {
-    try {
-      const wsUrl = apiUrl("/api/ws").replace(/^http/, "ws");
-      const ws = new WebSocket(wsUrl);
-      ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            type: "file-meta",
-            payload: {
-              originalName: data.name ?? "file",
-              mediaType: data.mediaType ?? "application/octet-stream",
-              key: data.key,
-              iv: data.iv,
-            },
-          }),
-        );
-      };
-      ws.onmessage = (evt) => {
-        const msg = JSON.parse(evt.data);
-        if (msg.status === "ready for binary") {
-          const chunkSize = 1024 * 512;
-          for (
-            let offset = 0;
-            offset < data.content.byteLength;
-            offset += chunkSize
-          ) {
-            const slice = data.content.slice(offset, offset + chunkSize);
-            ws.send(slice);
-          }
-          ws.send(JSON.stringify({ type: "file-finish" }));
-        } else if (msg.status === "uploaded") {
-          ws.close();
-          resolve(typeof msg.url === "string" ? msg.url : null);
-        }
-      };
-      ws.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
 };
 
 export const resetKeyData = async (user: string): Promise<boolean> => {
