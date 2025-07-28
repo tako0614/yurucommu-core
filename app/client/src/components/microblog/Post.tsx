@@ -5,7 +5,7 @@ import { getDomain } from "../../utils/config.ts";
 import type { MicroblogPost } from "./types.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 import {
-  fetchActivityPubActor,
+  fetchUserInfo,
   getCachedUserInfo,
   type UserInfo as _UserInfo,
 } from "./api.ts";
@@ -170,12 +170,7 @@ export function PostItem(props: PostItemProps) {
   const userInfo = formatUserInfo(post);
 
   // 外部ユーザーの追加情報を取得
-  type ExternalInfo = {
-    displayName: string;
-    avatarUrl?: string;
-    authorAvatar?: string;
-  };
-  const [externalUserInfo] = createResource<ExternalInfo | null>(
+  const [externalUserInfo] = createResource<_UserInfo | null>(
     () => {
       if (
         !userInfo.isLocalUser && post.userName &&
@@ -183,7 +178,7 @@ export function PostItem(props: PostItemProps) {
       ) {
         // まずキャッシュを確認
         return getCachedUserInfo(post.userName).then((cached) =>
-          cached ?? fetchActivityPubActor(post.userName)
+          cached ?? fetchUserInfo(post.userName)
         );
       }
       return Promise.resolve(null);
@@ -194,14 +189,10 @@ export function PostItem(props: PostItemProps) {
   const finalUserInfo = () => {
     const external = externalUserInfo();
     if (!userInfo.isLocalUser && external) {
-      // UserInfo型の場合とlegacy形式の場合を適切に処理
-      const avatar = "authorAvatar" in external
-        ? external.authorAvatar
-        : external.avatarUrl;
       return {
         ...userInfo,
         displayName: external.displayName || userInfo.displayName,
-        authorAvatar: avatar || post.authorAvatar,
+        authorAvatar: external.authorAvatar || post.authorAvatar,
       };
     }
     return {
