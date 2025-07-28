@@ -40,6 +40,12 @@ paths:
       responses:
         "200":
           description: login フィールドを含む JSON を返します。
+  /config:
+    get:
+      summary: クライアント設定取得
+      responses:
+        "200":
+          description: OAuth 情報のほか firebase と vapidKey を含む JSON を返します。
   /accounts:
     get:
       summary: アカウント一覧取得
