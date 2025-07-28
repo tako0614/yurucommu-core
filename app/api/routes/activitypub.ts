@@ -18,6 +18,22 @@ import {
 
 const app = new Hono();
 
+export async function getActivityPubFollowCollection(
+  username: string,
+  type: "followers" | "following",
+  page: string | undefined,
+  domain: string,
+  env: Record<string, string>,
+) {
+  return await buildActivityPubFollowCollection(
+    username,
+    type,
+    page,
+    domain,
+    env,
+  );
+}
+
 interface KeyPackageDoc {
   _id: unknown;
 }
@@ -292,7 +308,7 @@ app.get("/users/:username/followers", async (c) => {
   const domain = getDomain(c);
   let data: Record<string, unknown>;
   try {
-    data = await buildActivityPubFollowCollection(
+    data = await getActivityPubFollowCollection(
       username,
       "followers",
       page,
@@ -328,7 +344,7 @@ app.get("/users/:username/following", async (c) => {
   const domain = getDomain(c);
   let data: Record<string, unknown>;
   try {
-    data = await buildActivityPubFollowCollection(
+    data = await getActivityPubFollowCollection(
       username,
       "following",
       page,
