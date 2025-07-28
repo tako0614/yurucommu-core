@@ -70,6 +70,7 @@ export class MongoDBLocal implements DB {
       .lean<{ following?: string[] } | null>();
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
+    // タイムラインには Note のみを表示する
     const filter: Record<string, unknown> = { actor_id: { $in: ids } };
     if (opts.before) filter.created_at = { $lt: opts.before };
     return await Note.find(filter)
