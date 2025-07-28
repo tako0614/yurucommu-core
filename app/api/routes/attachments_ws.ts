@@ -6,24 +6,17 @@ import {
   registerMessageHandler,
   registerOpenHandler,
 } from "./ws.ts";
-import { createDB } from "../DB/mod.ts";
-import {
-  createStorage,
-  type ObjectStorage,
-} from "../services/object-storage.ts";
 import { getEnv } from "../../shared/config.ts";
+import { initFileService, saveFile } from "../services/file.ts";
 
-let storage: ObjectStorage;
 export async function initAttachmentWsModule(env: Record<string, string>) {
-  const db = createDB(env);
-  storage = await createStorage(env, db);
+  await initFileService(env);
 }
 
 export function initAttachmentWebSocket() {
   registerOpenHandler((_ws, state) => {
     state.chunks = [];
     state.fileMeta = undefined;
-    state.storageKey = undefined;
   });
 
   registerMessageHandler("file-meta", (payload, ws, state) => {
@@ -37,26 +30,23 @@ export function initAttachmentWebSocket() {
       ws.close(1003, "Invalid metadata payload");
       return;
     }
-    const ext = extname(data.originalName);
     state.fileMeta = data;
     state.chunks = [];
-    state.storageKey = `${crypto.randomUUID()}${ext}`;
     ws.send(JSON.stringify({ status: "ready for binary" }));
   });
 
   registerMessageHandler("file-finish", async (_payload, ws, state) => {
     const c = state.context as Context;
     const env = getEnv(c);
-    const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const meta = state.fileMeta as {
       originalName: string;
       mediaType?: string;
       key?: string;
       iv?: string;
     } | undefined;
-    const key = state.storageKey as string | undefined;
+    const ext = meta ? extname(meta.originalName) : "";
     const chunks = state.chunks as Uint8Array[];
-    if (!meta || !key || chunks.length === 0) {
+    if (!meta || chunks.length === 0) {
       ws.close(1003, "No data");
       return;
     }
@@ -66,24 +56,13 @@ export function initAttachmentWebSocket() {
       data.set(ch, offset);
       offset += ch.length;
     }
-    await storage.put(`files/${key}`, data);
-    const db = createDB(env);
-    const obj = await db.saveObject({
-      type: "Attachment",
-      attributedTo: `https://${domain}/system`,
-      extra: {
-        mediaType: meta.mediaType ?? "application/octet-stream",
-        key: meta.key,
-        iv: meta.iv,
-        storageKey: `files/${key}`,
-      },
+    const { url } = await saveFile(data, env, {
+      mediaType: meta.mediaType ?? "application/octet-stream",
+      key: meta.key,
+      iv: meta.iv,
+      ext,
     });
-    ws.send(
-      JSON.stringify({
-        status: "uploaded",
-        url: `https://${domain}/api/files/${obj._id}`,
-      }),
-    );
+    ws.send(JSON.stringify({ status: "uploaded", url }));
   });
 
   registerBinaryHandler((payload, ws, state) => {
@@ -98,6 +77,5 @@ export function initAttachmentWebSocket() {
   registerCloseHandler((_ws, state) => {
     state.chunks = [];
     state.fileMeta = undefined;
-    state.storageKey = undefined;
   });
 }

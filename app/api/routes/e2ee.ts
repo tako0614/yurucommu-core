@@ -389,7 +389,7 @@ app.post(
             };
           }
           return {
-            url: `https://${domain}/api/message-attachments/${msg._id}/${idx}`,
+            url: `https://${domain}/api/files/messages/${msg._id}/${idx}`,
             mediaType: (a.mediaType as string) || "application/octet-stream",
             key: a.key as string | undefined,
             iv: a.iv as string | undefined,
@@ -503,8 +503,7 @@ app.get("/users/:user/messages", authRequired, async (c) => {
               };
             }
             return {
-              url:
-                `https://${domain}/api/message-attachments/${doc._id}/${idx}`,
+              url: `https://${domain}/api/files/messages/${doc._id}/${idx}`,
               mediaType: (a.mediaType as string) || "application/octet-stream",
               key: a.key as string | undefined,
               iv: a.iv as string | undefined,

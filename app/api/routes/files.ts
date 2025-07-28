@@ -1,17 +1,16 @@
 import { Hono } from "hono";
 import { extname } from "@std/path";
-import { createDB } from "../DB/mod.ts";
 import authRequired from "../utils/auth.ts";
-import {
-  createStorage,
-  type ObjectStorage,
-} from "../services/object-storage.ts";
 import { getEnv } from "../../shared/config.ts";
+import {
+  getFile,
+  getMessageAttachment,
+  initFileService,
+  saveFile,
+} from "../services/file.ts";
 
-let storage: ObjectStorage;
 export async function initFileModule(env: Record<string, string>) {
-  const db = createDB(env);
-  storage = await createStorage(env, db);
+  await initFileService(env);
 }
 
 const app = new Hono();
@@ -19,7 +18,6 @@ app.use("/files/*", authRequired);
 
 app.post("/files", async (c) => {
   const env = getEnv(c);
-  const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const contentType = c.req.header("content-type") || "";
   let bytes: Uint8Array | null = null;
   let mediaType = "application/octet-stream";
@@ -61,45 +59,25 @@ app.post("/files", async (c) => {
     return c.json({ error: "invalid body" }, 400);
   }
 
-  const filename = `${crypto.randomUUID()}${ext}`;
-  const storageKey = `files/${filename}`;
-  await storage.put(storageKey, bytes);
-
-  const db = createDB(env);
-  const obj = await db.saveObject({
-    type: "Attachment",
-    attributedTo: `https://${domain}/system`,
-    extra: { mediaType, key, iv, storageKey },
-  });
-  return c.json({ url: `https://${domain}/api/files/${obj._id}` }, 201);
+  const { url } = await saveFile(bytes, env, { mediaType, key, iv, ext });
+  return c.json({ url }, 201);
 });
 
 app.get("/files/:id", async (c) => {
   const id = c.req.param("id");
   const env = getEnv(c);
-  const db = createDB(env);
-  const doc = await db.getObject(id) as {
-    content?: string;
-    extra?: Record<string, unknown>;
-  } | null;
-  if (!doc) return c.text("Not Found", 404);
-  const mediaType = typeof doc.extra?.mediaType === "string"
-    ? doc.extra.mediaType
-    : "application/octet-stream";
-  const storageKey = typeof doc.extra?.storageKey === "string"
-    ? doc.extra.storageKey
-    : undefined;
-  let data: Uint8Array | null = null;
-  if (storageKey) {
-    data = await storage.get(storageKey);
-  } else if (typeof doc.content === "string") {
-    const bin = atob(doc.content);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    data = bytes;
-  }
-  if (!data) return c.text("Not Found", 404);
-  return new Response(data, { headers: { "content-type": mediaType } });
+  const res = await getFile(id, env);
+  if (!res) return c.text("Not Found", 404);
+  return new Response(res.data, { headers: { "content-type": res.mediaType } });
+});
+
+app.get("/files/messages/:id/:index", async (c) => {
+  const id = c.req.param("id");
+  const index = parseInt(c.req.param("index"), 10) || 0;
+  const env = getEnv(c);
+  const res = await getMessageAttachment(id, index, env);
+  if (!res) return c.text("Not Found", 404);
+  return new Response(res.data, { headers: { "content-type": res.mediaType } });
 });
 
 export default app;
