@@ -428,7 +428,7 @@ export const fetchUserInfo = async (
     }
 
     const response = await apiFetch(
-      `/api/user-info/${encodeURIComponent(identifier)}`,
+      `/api/users/${encodeURIComponent(identifier)}`,
     );
     if (!response.ok) {
       throw new Error("Failed to fetch user info");
@@ -466,7 +466,7 @@ export const fetchUserInfoBatch = async (
 
     const fetchedMap: Record<string, UserInfo> = {};
     if (uncached.length > 0) {
-      const response = await apiFetch("/api/user-info/batch", {
+      const response = await apiFetch("/api/users/batch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -48,40 +48,35 @@ app.get("/users/search", async (c) => {
 });
 
 // ユーザー詳細取得
-app.get("/users/:username", async (c) => {
+app.get("/users/:identifier", async (c) => {
   try {
     const domain = getDomain(c);
-    const raw = c.req.param("username");
-    if (!raw.includes("@")) {
-      return c.json(
-        { error: "user@example.com の形式で指定してください" },
-        400,
-      );
-    }
-    const [username, reqDomain] = raw.split("@");
+    const identifier = c.req.param("identifier");
     const env = getEnv(c);
     const db = createDB(env);
-    const user = reqDomain === domain
-      ? await db.findAccountByUserName(username)
+
+    const info = await getUserInfo(identifier, domain, env);
+
+    const user = info.isLocal
+      ? await db.findAccountByUserName(info.userName)
       : null;
 
     if (user) {
       // ユーザーの投稿数を取得
       const postCount =
-        (await db.findNotes({ attributedTo: username }, {})).length;
+        (await db.findNotes({ attributedTo: info.userName }, {})).length;
 
       return c.json({
-        userName: user.userName,
-        displayName: user.displayName,
-        avatarInitial: user.avatarInitial || "",
-        domain,
+        userName: info.userName,
+        displayName: info.displayName,
+        avatarInitial: info.authorAvatar || user.avatarInitial || "",
+        domain: info.domain,
         followersCount: user.followers?.length || 0,
         followingCount: user.following?.length || 0,
         postCount,
       });
     }
 
-    const info = await getUserInfo(raw, domain, env);
     return c.json({
       userName: info.userName,
       displayName: info.displayName,
@@ -96,6 +91,28 @@ app.get("/users/:username", async (c) => {
     return c.json({ error: "Failed to fetch user" }, 500);
   }
 });
+
+// ユーザー情報バッチ取得
+app.post(
+  "/users/batch",
+  zValidator("json", z.object({ identifiers: z.array(z.string()).min(1) })),
+  async (c) => {
+    try {
+      const domain = getDomain(c);
+      const { identifiers } = c.req.valid("json") as { identifiers: string[] };
+
+      if (identifiers.length > 100) {
+        return c.json({ error: "Too many identifiers (max 100)" }, 400);
+      }
+
+      const infos = await getUserInfoBatch(identifiers, domain, getEnv(c));
+      return c.json(infos);
+    } catch (error) {
+      console.error("Error fetching user info batch:", error);
+      return c.json({ error: "Failed to fetch user info batch" }, 500);
+    }
+  },
+);
 
 // フォロー
 app.post(
