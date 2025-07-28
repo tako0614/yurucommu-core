@@ -114,6 +114,11 @@ deno task build
 }
 ```
 
+## フォロー API
+
+- `POST /api/follow` – 他のユーザーをフォロー
+- `DELETE /api/follow` – フォロー解除
+
 ## Microblog API
 
 -簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
