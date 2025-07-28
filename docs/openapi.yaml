@@ -369,15 +369,36 @@ paths:
       responses:
         "200":
           description: 成功
-  /user-info/{identifier}:
+  /users/{identifier}:
+    parameters:
+      - name: identifier
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       summary: ユーザー情報取得
+      description: |
+        ローカルユーザー名、`user@domain` 形式、または ActivityPub URL を指定します。
       responses:
         "200":
           description: ユーザー情報
-  /user-info/batch:
+  /users/batch:
     post:
       summary: ユーザー情報バッチ取得
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identifiers:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - identifiers
       responses:
         "200":
           description: ユーザー情報の配列

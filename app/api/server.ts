@@ -12,7 +12,6 @@ import activitypub from "./routes/activitypub.ts";
 import microblog from "./routes/microblog.ts";
 import search from "./routes/search.ts";
 import users from "./routes/users.ts";
-import userInfo from "./routes/user-info.ts";
 import follow from "./routes/follow.ts";
 import dms from "./routes/dms.ts";
 import rootInbox from "./routes/root_inbox.ts";
@@ -77,7 +76,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     search,
     relays,
     users,
-    userInfo,
     e2ee,
     activitypub, // ActivityPubプロキシAPI用
   ];
