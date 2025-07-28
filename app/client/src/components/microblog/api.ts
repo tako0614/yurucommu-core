@@ -48,7 +48,7 @@ export const fetchPosts = async (
     if (params?.before) search.set("before", params.before);
     const query = search.toString();
     const response = await apiFetch(
-      `/api/microblog${query ? `?${query}` : ""}`,
+      `/api/posts${query ? `?${query}` : ""}`,
     );
     if (!response.ok) {
       throw new Error("Failed to fetch posts");
@@ -64,7 +64,7 @@ export const fetchPostById = async (
   id: string,
 ): Promise<MicroblogPost | null> => {
   try {
-    const res = await apiFetch(`/api/microblog/${encodeURIComponent(id)}`);
+    const res = await apiFetch(`/api/posts/${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     return await res.json();
   } catch (error) {
@@ -78,7 +78,7 @@ export const fetchPostReplies = async (
 ): Promise<MicroblogPost[]> => {
   try {
     const res = await apiFetch(
-      `/api/microblog/${encodeURIComponent(id)}/replies`,
+      `/api/posts/${encodeURIComponent(id)}/replies`,
     );
     if (!res.ok) return [];
     return await res.json();
@@ -97,7 +97,7 @@ export const fetchFollowingPosts = async (
       timeline: "followers",
       actor: `https://${domain}/users/${encodeURIComponent(username)}`,
     });
-    const response = await apiFetch(`/api/microblog?${params.toString()}`);
+    const response = await apiFetch(`/api/posts?${params.toString()}`);
     if (!response.ok) {
       throw new Error("Failed to fetch following posts");
     }
@@ -169,7 +169,7 @@ export const createPost = async (
   quoteId?: string,
 ): Promise<boolean> => {
   try {
-    const response = await apiFetch("/api/microblog", {
+    const response = await apiFetch("/api/posts", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -189,7 +189,7 @@ export const updatePost = async (
 ): Promise<boolean> => {
   try {
     const response = await apiFetch(
-      `/api/microblog/${encodeURIComponent(id)}`,
+      `/api/posts/${encodeURIComponent(id)}`,
       {
         method: "PUT",
         headers: {
@@ -208,7 +208,7 @@ export const updatePost = async (
 export const deletePost = async (id: string): Promise<boolean> => {
   try {
     const response = await apiFetch(
-      `/api/microblog/${encodeURIComponent(id)}`,
+      `/api/posts/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
       },
@@ -226,7 +226,7 @@ export const likePost = async (
 ): Promise<number | null> => {
   try {
     const response = await apiFetch(
-      `/api/microblog/${encodeURIComponent(id)}/like`,
+      `/api/posts/${encodeURIComponent(id)}/like`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -248,7 +248,7 @@ export const retweetPost = async (
 ): Promise<number | null> => {
   try {
     const response = await apiFetch(
-      `/api/microblog/${encodeURIComponent(id)}/retweet`,
+      `/api/posts/${encodeURIComponent(id)}/retweet`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -269,7 +269,7 @@ export const _replyToPost = async (
   content: string,
 ): Promise<boolean> => {
   try {
-    const response = await apiFetch("/api/microblog", {
+    const response = await apiFetch("/api/posts", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

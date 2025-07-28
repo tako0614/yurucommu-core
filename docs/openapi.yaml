@@ -137,7 +137,7 @@ paths:
       responses:
         "200":
           description: アンフォロー送信結果
-  /microblog:
+  /posts:
     get:
       summary: 投稿一覧取得
       parameters:
@@ -171,7 +171,7 @@ paths:
       responses:
         "201":
           description: 作成された投稿
-  /microblog/{id}:
+  /posts/{id}:
     parameters:
       - name: id
         in: path
@@ -204,13 +204,13 @@ paths:
       responses:
         "200":
           description: 成功
-  /microblog/{id}/replies:
+  /posts/{id}/replies:
     get:
       summary: リプライ一覧取得
       responses:
         "200":
           description: リプライの配列
-  /microblog/{id}/like:
+  /posts/{id}/like:
     post:
       summary: いいね
       requestBody:
@@ -227,7 +227,7 @@ paths:
       responses:
         "200":
           description: いいね数
-  /microblog/{id}/retweet:
+  /posts/{id}/retweet:
     post:
       summary: リツイート
       requestBody:

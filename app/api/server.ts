@@ -9,7 +9,7 @@ import session from "./routes/session.ts";
 import accounts from "./routes/accounts.ts";
 import notifications from "./routes/notifications.ts";
 import activitypub from "./routes/activitypub.ts";
-import microblog from "./routes/microblog.ts";
+import posts from "./routes/posts.ts";
 import search from "./routes/search.ts";
 import users from "./routes/users.ts";
 import follow from "./routes/follow.ts";
@@ -64,7 +64,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     accounts,
     follow,
     notifications,
-    microblog,
+    posts,
     config,
     fcm,
     adsense,

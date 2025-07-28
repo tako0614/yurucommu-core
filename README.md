@@ -33,7 +33,7 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 登録したリレーとは `Follow` を送っておくことで投稿が inbox に届きます。
 `getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
 へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
-`RELAY_POLL_INTERVAL` で指定した 間隔ごとに、登録済みリレーの `/api/microblog`
+`RELAY_POLL_INTERVAL` で指定した 間隔ごとに、登録済みリレーの `/api/posts`
 を取得し、新規投稿を `object_store` へ 自動保存します。
 
 ### 初期設定
@@ -122,20 +122,20 @@ deno task build
 - `POST /api/follow` – 他のユーザーをフォロー
 - `DELETE /api/follow` – フォロー解除
 
-## Microblog API
+## JSON 投稿 API
 
--簡単なテキスト投稿を行う `/api/microblog` エンドポイントも利用できます。
+ローカル向けの JSON 版エンドポイント `/api/posts` では手軽に投稿の作成・取得が
+できます。外部との連携には ActivityPub の `/users/:username/outbox` を利用して
+ください。
 
-- `GET /api/microblog` –
-  公開タイムラインを取得（登録済みリレーからの投稿も含む）
-- `GET /api/microblog?timeline=followers&actor=URI` –
+- `GET /api/posts` – 公開タイムラインを取得（登録済みリレーからの投稿も含む）
+- `GET /api/posts?timeline=followers&actor=URI` –
   フォロー中アクターの投稿のみ取得
-- `POST /api/microblog` – 投稿を作成
-  (`{ "author": "user", "content": "hello" }`)
-- `PUT /api/microblog/:id` – 投稿を更新 (`{ "content": "edited" }`)
-- `DELETE /api/microblog/:id` – 投稿を削除
-- `POST /api/microblog/:id/like` – いいねを追加
-- `POST /api/microblog/:id/retweet` – リツイートを追加
+- `POST /api/posts` – 投稿を作成 (`{ "author": "user", "content": "hello" }`)
+- `PUT /api/posts/:id` – 投稿を更新 (`{ "content": "edited" }`)
+- `DELETE /api/posts/:id` – 投稿を削除
+- `POST /api/posts/:id/like` – いいねを追加
+- `POST /api/posts/:id/retweet` – リツイートを追加
 
 ## 検索 API
 
