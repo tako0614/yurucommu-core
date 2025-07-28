@@ -133,11 +133,13 @@ paths:
   /api/accounts:
     get:
       summary: アカウント一覧取得
+      description: ローカルアカウントの一覧を取得します。
       responses:
         "200":
           description: アカウントの配列
     post:
       summary: アカウント作成
+      description: 新しいローカルアカウントを作成します。
       requestBody:
         required: true
         content:
@@ -163,11 +165,13 @@ paths:
           type: string
     get:
       summary: アカウント取得
+      description: 対象アカウントの詳細情報を返します。
       responses:
         "200":
           description: アカウント情報
     put:
       summary: アカウント更新
+      description: アカウント情報を更新します。
       requestBody:
         required: true
         content:
@@ -179,6 +183,7 @@ paths:
           description: 更新後のアカウント
     delete:
       summary: アカウント削除
+      description: アカウントを削除します。
       responses:
         "200":
           description: 成功
@@ -463,13 +468,15 @@ paths:
     get:
       summary: ユーザー情報取得
       description: |
-        ローカルユーザー名、`user@domain` 形式、または ActivityPub URL を指定します。
+        ローカルユーザー名、`user@domain` 形式、または ActivityPub URL を指定して
+        公開プロフィールを取得します。
       responses:
         "200":
           description: ユーザー情報
   /api/users/batch:
     post:
       summary: ユーザー情報バッチ取得
+      description: 複数の識別子からユーザーの公開情報をまとめて取得します。
       requestBody:
         required: true
         content:
@@ -524,11 +531,13 @@ paths:
           type: string
     get:
       summary: KeyPackage一覧取得
+      description: チャット用MLSキーの公開情報を取得します。
       responses:
         "200":
           description: KeyPackageのコレクション
     post:
       summary: KeyPackage登録
+      description: チャット用KeyPackageを登録します。
       requestBody:
         required: true
         content:
@@ -561,11 +570,13 @@ paths:
           type: string
     get:
       summary: KeyPackage取得
+      description: 指定IDのKeyPackageを取得します。
       responses:
         "200":
           description: KeyPackage
     delete:
       summary: KeyPackage削除
+      description: KeyPackageを削除します。
       responses:
         "200":
           description: 成功
@@ -578,11 +589,13 @@ paths:
           type: string
     get:
       summary: 暗号化鍵ペア取得
+      description: クライアント側で復号するための鍵ペアを取得します。
       responses:
         "200":
           description: 鍵ペア
     post:
       summary: 暗号化鍵ペア保存
+      description: 鍵ペアを保存します。
       requestBody:
         required: true
         content:
@@ -599,6 +612,7 @@ paths:
           description: 保存結果
     delete:
       summary: 暗号化鍵ペア削除
+      description: 保存済みの鍵ペアを削除します。
       responses:
         "200":
           description: 成功
@@ -611,6 +625,7 @@ paths:
           type: string
     post:
       summary: 鍵情報リセット
+      description: 既存のKeyPackageと鍵ペアをすべて削除します。
       responses:
         "200":
           description: リセット結果
@@ -623,6 +638,7 @@ paths:
           type: string
     get:
       summary: メッセージ一覧取得（公開・非公開共通）
+      description: 2者間のメッセージ履歴を取得します。
       parameters:
         - name: limit
           in: query
@@ -645,6 +661,7 @@ paths:
           description: メッセージの配列
     post:
       summary: メッセージ送信
+      description: メッセージを送信します。
       requestBody:
         required: true
         content:
