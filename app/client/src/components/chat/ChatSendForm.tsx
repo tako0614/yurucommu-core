@@ -112,7 +112,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
         <div
           class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
           onClick={() => fileInputImage?.click()}
-          title="画像を送信"
+          title="画像・動画を送信"
           style="min-height:28px;"
         >
           <svg
@@ -133,7 +133,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
           <input
             ref={(el) => (fileInputImage = el)}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             class="hidden"
             style="display:none;"
             onChange={(e) => {
@@ -153,13 +153,13 @@ export function ChatSendForm(props: ChatSendFormProps) {
             <div class="mb-2">
               <Switch
                 fallback={
-                    <a
-                      href={props.mediaPreview!}
-                      download={props.mediaFile?.name || ""}
-                      class="text-blue-400 underline"
-                    >
-                      {props.mediaFile?.name || "ファイル"}
-                    </a>
+                  <a
+                    href={props.mediaPreview!}
+                    download={props.mediaFile?.name || ""}
+                    class="text-blue-400 underline"
+                  >
+                    {props.mediaFile?.name || "ファイル"}
+                  </a>
                 }
               >
                 <Match when={props.mediaFile?.type.startsWith("image/")}>

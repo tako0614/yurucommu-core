@@ -429,18 +429,18 @@ export function Chat(props: ChatProps) {
         attachments = [];
         for (const at of listAtt) {
           if (typeof at.url === "string") {
+            const mt = typeof at.mediaType === "string"
+              ? at.mediaType
+              : "application/octet-stream";
             try {
               const res = await fetch(at.url);
               let buf = await res.arrayBuffer();
               if (typeof at.key === "string" && typeof at.iv === "string") {
                 buf = await decryptFile(buf, at.key, at.iv);
               }
-              const mt = typeof at.mediaType === "string"
-                ? at.mediaType
-                : "image/png";
               attachments.push({ data: bufToB64(buf), mediaType: mt });
             } catch {
-              /* ignore */
+              attachments.push({ url: at.url, mediaType: mt });
             }
           }
         }
@@ -822,10 +822,13 @@ export function Chat(props: ChatProps) {
                       }
                       const mt = typeof at.mediaType === "string"
                         ? at.mediaType
-                        : "image/png";
+                        : "application/octet-stream";
                       attachments.push({ data: bufToB64(buf), mediaType: mt });
                     } catch {
-                      /* ignore */
+                      const mt = typeof at.mediaType === "string"
+                        ? at.mediaType
+                        : "application/octet-stream";
+                      attachments.push({ url: at.url, mediaType: mt });
                     }
                   }
                 }
@@ -842,6 +845,9 @@ export function Chat(props: ChatProps) {
             attachments = [];
             for (const at of listAtt) {
               if (typeof at.url === "string") {
+                const mt = typeof at.mediaType === "string"
+                  ? at.mediaType
+                  : "application/octet-stream";
                 try {
                   const res = await fetch(at.url);
                   let buf = await res.arrayBuffer();
@@ -851,12 +857,9 @@ export function Chat(props: ChatProps) {
                   ) {
                     buf = await decryptFile(buf, at.key, at.iv);
                   }
-                  const mt = typeof at.mediaType === "string"
-                    ? at.mediaType
-                    : "image/png";
                   attachments.push({ data: bufToB64(buf), mediaType: mt });
                 } catch {
-                  /* ignore */
+                  attachments.push({ url: at.url, mediaType: mt });
                 }
               }
             }

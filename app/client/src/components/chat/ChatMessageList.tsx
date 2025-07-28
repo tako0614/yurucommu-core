@@ -72,7 +72,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                 <Switch
                                   fallback={
                                     <a
-                                      href={`data:${att.mediaType};base64,${att.data}`}
+                                      href={att.data
+                                        ? `data:${att.mediaType};base64,${att.data}`
+                                        : att.url}
                                       download
                                       class="text-blue-400 underline"
                                     >
@@ -84,7 +86,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                     when={att.mediaType.startsWith("image/")}
                                   >
                                     <img
-                                      src={`data:${att.mediaType};base64,${att.data}`}
+                                      src={att.data
+                                        ? `data:${att.mediaType};base64,${att.data}`
+                                        : att.url!}
                                       alt="image"
                                       style={{
                                         "max-width": "200px",
@@ -96,7 +100,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                     when={att.mediaType.startsWith("video/")}
                                   >
                                     <video
-                                      src={`data:${att.mediaType};base64,${att.data}`}
+                                      src={att.data
+                                        ? `data:${att.mediaType};base64,${att.data}`
+                                        : att.url!}
                                       controls
                                       style={{
                                         "max-width": "200px",
@@ -108,7 +114,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                     when={att.mediaType.startsWith("audio/")}
                                   >
                                     <audio
-                                      src={`data:${att.mediaType};base64,${att.data}`}
+                                      src={att.data
+                                        ? `data:${att.mediaType};base64,${att.data}`
+                                        : att.url!}
                                       controls
                                     />
                                   </Match>
