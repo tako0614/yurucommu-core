@@ -6,7 +6,11 @@ export interface ChatMessage {
   displayName: string;
   address: string;
   content: string;
-  attachments?: { data: string; mediaType: string }[];
+  attachments?: {
+    data?: string;
+    url?: string;
+    mediaType: string;
+  }[];
   timestamp: Date;
   type: "text" | "image" | "file";
   avatar?: string;

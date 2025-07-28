@@ -66,6 +66,11 @@ function bufToB64(buf: ArrayBuffer): string {
   return btoa(String.fromCharCode(...u8));
 }
 
+function bufToUrl(buf: ArrayBuffer, type: string): string {
+  const blob = new Blob([buf], { type });
+  return URL.createObjectURL(blob);
+}
+
 function b64ToBuf(b64: string): Uint8Array {
   const bin = atob(b64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -424,23 +429,33 @@ export function Chat(props: ChatProps) {
       const listAtt = Array.isArray(m.attachments)
         ? m.attachments
         : note.attachments;
-      let attachments: { data: string; mediaType: string }[] | undefined;
+      let attachments:
+        | { data?: string; url?: string; mediaType: string }[]
+        | undefined;
       if (Array.isArray(listAtt)) {
         attachments = [];
         for (const at of listAtt) {
           if (typeof at.url === "string") {
+            const mt = typeof at.mediaType === "string"
+              ? at.mediaType
+              : "application/octet-stream";
             try {
               const res = await fetch(at.url);
               let buf = await res.arrayBuffer();
               if (typeof at.key === "string" && typeof at.iv === "string") {
                 buf = await decryptFile(buf, at.key, at.iv);
               }
-              const mt = typeof at.mediaType === "string"
-                ? at.mediaType
-                : "image/png";
-              attachments.push({ data: bufToB64(buf), mediaType: mt });
+              if (
+                mt.startsWith("video/") ||
+                mt.startsWith("audio/") ||
+                buf.byteLength > 1024 * 1024
+              ) {
+                attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+              } else {
+                attachments.push({ data: bufToB64(buf), mediaType: mt });
+              }
             } catch {
-              /* ignore */
+              attachments.push({ url: at.url, mediaType: mt });
             }
           }
         }
@@ -796,7 +811,9 @@ export function Chat(props: ChatProps) {
           ? user.displayName || user.userName
           : room.name;
         let text = data.content;
-        let attachments: { data: string; mediaType: string }[] | undefined;
+        let attachments:
+          | { data?: string; url?: string; mediaType: string }[]
+          | undefined;
         if ((msg as { type?: string }).type === "encryptedMessage") {
           const group = groups()[room.id];
           if (group) {
@@ -822,10 +839,27 @@ export function Chat(props: ChatProps) {
                       }
                       const mt = typeof at.mediaType === "string"
                         ? at.mediaType
-                        : "image/png";
-                      attachments.push({ data: bufToB64(buf), mediaType: mt });
+                        : "application/octet-stream";
+                      if (
+                        mt.startsWith("video/") ||
+                        mt.startsWith("audio/") ||
+                        buf.byteLength > 1024 * 1024
+                      ) {
+                        attachments.push({
+                          url: bufToUrl(buf, mt),
+                          mediaType: mt,
+                        });
+                      } else {
+                        attachments.push({
+                          data: bufToB64(buf),
+                          mediaType: mt,
+                        });
+                      }
                     } catch {
-                      /* ignore */
+                      const mt = typeof at.mediaType === "string"
+                        ? at.mediaType
+                        : "application/octet-stream";
+                      attachments.push({ url: at.url, mediaType: mt });
                     }
                   }
                 }
@@ -842,6 +876,9 @@ export function Chat(props: ChatProps) {
             attachments = [];
             for (const at of listAtt) {
               if (typeof at.url === "string") {
+                const mt = typeof at.mediaType === "string"
+                  ? at.mediaType
+                  : "application/octet-stream";
                 try {
                   const res = await fetch(at.url);
                   let buf = await res.arrayBuffer();
@@ -851,12 +888,17 @@ export function Chat(props: ChatProps) {
                   ) {
                     buf = await decryptFile(buf, at.key, at.iv);
                   }
-                  const mt = typeof at.mediaType === "string"
-                    ? at.mediaType
-                    : "image/png";
-                  attachments.push({ data: bufToB64(buf), mediaType: mt });
+                  if (
+                    mt.startsWith("video/") ||
+                    mt.startsWith("audio/") ||
+                    buf.byteLength > 1024 * 1024
+                  ) {
+                    attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                  } else {
+                    attachments.push({ data: bufToB64(buf), mediaType: mt });
+                  }
                 } catch {
-                  /* ignore */
+                  attachments.push({ url: at.url, mediaType: mt });
                 }
               }
             }

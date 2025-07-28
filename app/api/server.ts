@@ -23,6 +23,10 @@ import videos, {
   initVideoModule,
   initVideoWebSocket,
 } from "./routes/videos.ts";
+import {
+  initAttachmentWebSocket,
+  initAttachmentWsModule,
+} from "./routes/attachments_ws.ts";
 import messageAttachments from "./routes/message_attachments.ts";
 import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
@@ -49,7 +53,9 @@ export async function createTakosApp(env?: Record<string, string>) {
   });
   await initFileModule(e);
   await initVideoModule(e);
+  await initAttachmentWsModule(e);
   initVideoWebSocket();
+  initAttachmentWebSocket();
 
   const apiRoutes = [
     wsRouter,
