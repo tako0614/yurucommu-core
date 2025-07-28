@@ -2,7 +2,7 @@
 
 Takos では Firebase Cloud Messaging
 を利用して通知を配信できます。クライアントには Firebase
-の設定情報を埋め込まず、サーバーから `/api/fcm/config` 経由で取得します。
+の設定情報を埋め込まず、サーバーから `/api/config` 経由で取得します。
 
 ## 必要な環境変数
 

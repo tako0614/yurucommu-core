@@ -10,11 +10,13 @@ app.get("/config", (c) => {
   const clientId = env["OAUTH_CLIENT_ID"] ?? null;
   const clientSecret = env["OAUTH_CLIENT_SECRET"] ?? null;
   const firebaseConfig = parseFirebaseClientConfig(env);
+  const vapidKey = env["FIREBASE_VAPID_KEY"] ?? null;
   return c.json({
     oauthHost: host,
     oauthClientId: clientId,
     oauthClientSecret: clientSecret,
-    firebaseConfig,
+    firebase: firebaseConfig,
+    vapidKey,
   });
 });
 

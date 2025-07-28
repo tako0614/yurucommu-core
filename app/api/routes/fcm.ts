@@ -3,22 +3,11 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
-import { parseFirebaseClientConfig } from "../../shared/firebase_config.ts";
 import { registerToken, unregisterToken } from "../services/fcm.ts";
 
 const app = new Hono();
 
 app.use("/fcm/*", authRequired);
-
-app.get("/fcm/config", (c) => {
-  const env = getEnv(c);
-  const firebaseConfig = parseFirebaseClientConfig(env);
-  if (!firebaseConfig) return c.json({});
-  return c.json({
-    firebase: firebaseConfig,
-    vapidKey: env["FIREBASE_VAPID_KEY"] ?? null,
-  });
-});
 
 app.post(
   "/fcm/token",

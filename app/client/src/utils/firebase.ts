@@ -29,7 +29,7 @@ function isValidVapidKey(key: string): boolean {
 async function loadConfig(): Promise<Record<string, unknown> | null> {
   if (firebaseConfig) return firebaseConfig;
   try {
-    const res = await apiFetch("/api/fcm/config");
+    const res = await apiFetch("/api/config");
     if (res.ok) {
       const data = await res.json();
       firebaseConfig = data.firebase ?? null;
