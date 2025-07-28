@@ -79,7 +79,7 @@ $ deno task dev
 
 各インスタンスでは基本的に OAuth を利用してログインします。まず
 `/oauth/authorize` と `/oauth/token` を経由してアクセストークンを取得し、
-インスタンスの `/api/oauth/login`
+インスタンスの `/api/login`
 へ送信することでダッシュボードへアクセスできます。インスタンス作成時に 必要な
 OAuth クライアントは自動登録されますが、追加で登録したい場合は
 `/user/oauth/clients` を利用してください。

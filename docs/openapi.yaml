@@ -17,18 +17,27 @@ paths:
   /login:
     post:
       summary: ログイン
-      description: パスワードを送信しセッション Cookie を受け取ります。
+      description: パスワードまたは OAuth アクセストークンを送信しセッション Cookie を受け取ります。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                password:
-                  type: string
-              required:
-                - password
+              oneOf:
+                - type: object
+                  required:
+                    - password
+                  properties:
+                    password:
+                      type: string
+                      description: ローカルログイン用パスワード
+                - type: object
+                  required:
+                    - accessToken
+                  properties:
+                    accessToken:
+                      type: string
+                      description: OAuth ログイン用トークン
       responses:
         "200":
           description: 成功時は success フィールドを含む JSON を返します。
