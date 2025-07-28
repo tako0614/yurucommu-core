@@ -160,11 +160,15 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 
 - `WebSocket /api/ws` – 動画アップロードや今後の双方向機能で利用する統一
   WebSocket
-
 - `GET /api/videos` – 動画一覧を取得
 - `POST /api/videos` – 動画を作成するとフォロワーへ `Create` Activity を配信
 - `POST /api/videos/:id/like` – いいね数を増加
 - `POST /api/videos/:id/view` – 再生数を増加
+
+動画のアップロードは WebSocket と HTTP POST の両方に対応しています。 HTTP
+版はフォーム送信など単純な利用向けで、WebSocket 版は進捗表示など
+インタラクティブな制御を行いたい場合に利用します。サーバー側の保存処理
+は共通化されており、どちらの方法を選んでも同じ結果が得られます。
 
 ## リレー API
 

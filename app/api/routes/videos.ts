@@ -37,6 +37,72 @@ export async function initVideoModule(env: Record<string, string>) {
   storage = await createStorage(env, db);
 }
 
+type UploadMeta = {
+  author: string;
+  title: string;
+  description: string;
+  hashtagsStr: string;
+  isShort: boolean;
+  duration: string;
+  originalName: string;
+};
+
+async function saveVideoBytes(c: Context, bytes: Uint8Array, meta: UploadMeta) {
+  const ext = extname(meta.originalName) || ".mp4";
+  const filename = `${crypto.randomUUID()}${ext}`;
+  const stored = await storage.put(`videos/${filename}`, bytes);
+  const videoUrl = stored.startsWith("http")
+    ? stored
+    : `/api/video-files/${filename}`;
+
+  const domain = getDomain(c);
+  const env = getEnv(c);
+  const db = createDB(env);
+  const video = await db.saveVideo(
+    domain,
+    meta.author,
+    meta.description,
+    {
+      title: meta.title,
+      hashtags: meta.hashtagsStr ? meta.hashtagsStr.split(" ") : [],
+      isShort: meta.isShort,
+      duration: meta.duration || "",
+      likes: 0,
+      views: 0,
+      thumbnail: `/api/placeholder/${meta.isShort ? "225/400" : "400/225"}`,
+      videoUrl,
+    },
+  ) as VideoDoc;
+
+  const baseObj = video as Record<string, unknown>;
+  const videoObject = buildActivityFromStored(
+    {
+      ...baseObj,
+      content: typeof video.content === "string" ? video.content : "",
+      _id: String(baseObj._id),
+      type: typeof baseObj.type === "string" ? baseObj.type : "Video",
+      published: typeof baseObj.published === "string"
+        ? baseObj.published
+        : new Date().toISOString(),
+      extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
+          !Array.isArray(baseObj.extra))
+        ? baseObj.extra as Record<string, unknown>
+        : {},
+    },
+    domain,
+    meta.author,
+    false,
+  );
+  const activity = createCreateActivity(
+    domain,
+    `https://${domain}/users/${meta.author}`,
+    videoObject,
+  );
+  deliverToFollowers(env, meta.author, activity, domain);
+
+  return { video, videoUrl };
+}
+
 const app = new Hono();
 app.use("/videos/*", authRequired);
 app.use("/video-files/*", authRequired);
@@ -44,7 +110,6 @@ app.use("/video-files/*", authRequired);
 export function initVideoWebSocket() {
   registerOpenHandler((ws, state) => {
     state.chunks = [];
-    state.storageKey = undefined;
     state.videoMetadata = undefined;
     ws.send(JSON.stringify({ status: "ready for metadata" }));
   });
@@ -66,90 +131,26 @@ export function initVideoWebSocket() {
     }
 
     state.videoMetadata = data;
-    const ext = extname(data.originalName) || ".mp4";
-    state.storageKey = `${crypto.randomUUID()}${ext}`;
     ws.send(JSON.stringify({ status: "ready for binary" }));
   });
 
-  registerBinaryHandler((payload, ws, state) => {
-    const key = state.storageKey as string | undefined;
-    if (key) {
-      const chunks = state.chunks as Uint8Array[];
-      chunks.push(new Uint8Array(payload as ArrayBuffer));
-    } else {
-      ws.close(1003, "Not ready for binary data");
-    }
+  registerBinaryHandler((payload, _ws, state) => {
+    const chunks = state.chunks as Uint8Array[];
+    chunks.push(new Uint8Array(payload as ArrayBuffer));
   });
 
   registerCloseHandler(async (_ws, state) => {
     const c = state.context as Context;
-    const key = state.storageKey as string | undefined;
-    const meta = state.videoMetadata as {
-      author: string;
-      title: string;
-      description: string;
-      hashtagsStr: string;
-      isShort: boolean;
-      duration: string;
-      originalName: string;
-    } | undefined;
+    const meta = state.videoMetadata as UploadMeta | undefined;
     const chunks = state.chunks as Uint8Array[];
-    if (key && meta && chunks.length > 0) {
+    if (meta && chunks.length > 0) {
       const data = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
       let offset = 0;
       for (const cbuf of chunks) {
         data.set(cbuf, offset);
         offset += cbuf.length;
       }
-      const stored = await storage.put(`videos/${key}`, data);
-      const videoUrl = stored.startsWith("http")
-        ? stored
-        : `/api/video-files/${key}`;
-
-      const domain = getDomain(c);
-      const env = getEnv(c);
-      const db = createDB(env);
-      const video = await db.saveVideo(
-        domain,
-        meta.author,
-        meta.description,
-        {
-          title: meta.title,
-          hashtags: meta.hashtagsStr ? meta.hashtagsStr.split(" ") : [],
-          isShort: meta.isShort,
-          duration: meta.duration || "",
-          likes: 0,
-          views: 0,
-          thumbnail: `/api/placeholder/${meta.isShort ? "225/400" : "400/225"}`,
-          videoUrl,
-        },
-      ) as VideoDoc;
-
-      const baseObj = video as Record<string, unknown>;
-      const videoObject = buildActivityFromStored(
-        {
-          ...baseObj,
-          content: typeof video.content === "string" ? video.content : "",
-          _id: String(baseObj._id),
-          type: typeof baseObj.type === "string" ? baseObj.type : "Video",
-          published: typeof baseObj.published === "string"
-            ? baseObj.published
-            : new Date().toISOString(),
-          extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
-              !Array.isArray(baseObj.extra))
-            ? baseObj.extra as Record<string, unknown>
-            : {},
-        },
-        domain,
-        meta.author,
-        false,
-      );
-      const activity = createCreateActivity(
-        domain,
-        `https://${domain}/users/${meta.author}`,
-        videoObject,
-      );
-      deliverToFollowers(getEnv(c), meta.author, activity, domain);
+      await saveVideoBytes(c, data, meta);
     }
   });
 }
@@ -206,58 +207,18 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     return c.json({ error: "Invalid body" }, 400);
   }
 
-  const ext = extname(file.name) || ".mp4";
-  const filename = `${crypto.randomUUID()}${ext}`;
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const stored = await storage.put(`videos/${filename}`, bytes);
-  const videoUrl = stored.startsWith("http")
-    ? stored
-    : `/api/video-files/${filename}`;
+  const { video, videoUrl } = await saveVideoBytes(c, bytes, {
+    author,
+    title,
+    description,
+    hashtagsStr,
+    isShort,
+    duration,
+    originalName: file.name,
+  });
 
   const env = getEnv(c);
-  const db = createDB(env);
-  const video = await db.saveVideo(
-    domain,
-    author,
-    description,
-    {
-      title,
-      hashtags: hashtagsStr ? hashtagsStr.split(" ") : [],
-      isShort,
-      duration: duration || "",
-      likes: 0,
-      views: 0,
-      thumbnail: `/api/placeholder/${isShort ? "225/400" : "400/225"}`,
-      videoUrl,
-    },
-  ) as VideoDoc;
-
-  const baseObj = video as Record<string, unknown>;
-  const videoObject = buildActivityFromStored(
-    {
-      ...baseObj,
-      content: typeof video.content === "string" ? video.content : "",
-      _id: String(baseObj._id),
-      type: typeof baseObj.type === "string" ? baseObj.type : "Video",
-      published: typeof baseObj.published === "string"
-        ? baseObj.published
-        : new Date().toISOString(),
-      extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
-          !Array.isArray(baseObj.extra))
-        ? baseObj.extra as Record<string, unknown>
-        : {},
-    },
-    domain,
-    author,
-    false,
-  );
-  const activity = createCreateActivity(
-    domain,
-    `https://${domain}/users/${author}`,
-    videoObject,
-  );
-  deliverToFollowers(getEnv(c), author, activity, domain);
-
   const info = await getUserInfo(video.attributedTo as string, domain, env);
 
   return c.json({
