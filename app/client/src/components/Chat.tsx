@@ -137,7 +137,7 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
 }
 
 async function encryptFile(file: File) {
-  const buf = new Uint8Array(await file.arrayBuffer());
+  const buf = await file.arrayBuffer();
   const key = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
@@ -147,18 +147,19 @@ async function encryptFile(file: File) {
   const enc = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, buf);
   const rawKey = await crypto.subtle.exportKey("raw", key);
   return {
-    data: bufToB64(enc),
+    data: enc,
     key: bufToB64(rawKey),
     iv: bufToB64(iv.buffer),
     mediaType: file.type,
+    name: file.name,
   };
 }
 
 async function decryptFile(
-  data: string,
+  data: ArrayBuffer,
   keyB64: string,
   ivB64: string,
-): Promise<string> {
+): Promise<ArrayBuffer> {
   const key = await crypto.subtle.importKey(
     "raw",
     b64ToBuf(keyB64),
@@ -170,9 +171,9 @@ async function decryptFile(
   const dec = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv },
     key,
-    b64ToBuf(data),
+    data,
   );
-  return bufToB64(dec);
+  return dec;
 }
 
 function getSelfRoomId(user: Account | null): string | null {
@@ -430,16 +431,14 @@ export function Chat(props: ChatProps) {
           if (typeof at.url === "string") {
             try {
               const res = await fetch(at.url);
-              const buf = await res.arrayBuffer();
-              const encData = bufToB64(buf);
-              let data = encData;
+              let buf = await res.arrayBuffer();
               if (typeof at.key === "string" && typeof at.iv === "string") {
-                data = await decryptFile(encData, at.key, at.iv);
+                buf = await decryptFile(buf, at.key, at.iv);
               }
               const mt = typeof at.mediaType === "string"
                 ? at.mediaType
                 : "image/png";
-              attachments.push({ data, mediaType: mt });
+              attachments.push({ data: bufToB64(buf), mediaType: mt });
             } catch {
               /* ignore */
             }
@@ -599,6 +598,7 @@ export function Chat(props: ChatProps) {
           mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
+          name: file.name,
         });
         if (url) {
           const attType = file.type.startsWith("image/")
@@ -647,6 +647,7 @@ export function Chat(props: ChatProps) {
           mediaType: enc.mediaType,
           key: enc.key,
           iv: enc.iv,
+          name: file.name,
         });
         if (url) {
           const attType = file.type.startsWith("image/")
@@ -812,19 +813,17 @@ export function Chat(props: ChatProps) {
                   if (typeof at.url === "string") {
                     try {
                       const res = await fetch(at.url);
-                      const buf = await res.arrayBuffer();
-                      const enc = bufToB64(buf);
-                      let dec = enc;
+                      let buf = await res.arrayBuffer();
                       if (
                         typeof at.key === "string" &&
                         typeof at.iv === "string"
                       ) {
-                        dec = await decryptFile(enc, at.key, at.iv);
+                        buf = await decryptFile(buf, at.key, at.iv);
                       }
                       const mt = typeof at.mediaType === "string"
                         ? at.mediaType
                         : "image/png";
-                      attachments.push({ data: dec, mediaType: mt });
+                      attachments.push({ data: bufToB64(buf), mediaType: mt });
                     } catch {
                       /* ignore */
                     }
@@ -845,19 +844,17 @@ export function Chat(props: ChatProps) {
               if (typeof at.url === "string") {
                 try {
                   const res = await fetch(at.url);
-                  const buf = await res.arrayBuffer();
-                  const enc = bufToB64(buf);
-                  let dec = enc;
+                  let buf = await res.arrayBuffer();
                   if (
                     typeof at.key === "string" &&
                     typeof at.iv === "string"
                   ) {
-                    dec = await decryptFile(enc, at.key, at.iv);
+                    buf = await decryptFile(buf, at.key, at.iv);
                   }
                   const mt = typeof at.mediaType === "string"
                     ? at.mediaType
                     : "image/png";
-                  attachments.push({ data: dec, mediaType: mt });
+                  attachments.push({ data: bufToB64(buf), mediaType: mt });
                 } catch {
                   /* ignore */
                 }

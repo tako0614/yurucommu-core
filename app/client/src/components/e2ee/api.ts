@@ -259,13 +259,26 @@ export const deleteEncryptedKeyPair = async (
 };
 
 export const uploadFile = async (
-  data: { content: string; mediaType?: string; key?: string; iv?: string },
+  data: {
+    content: ArrayBuffer;
+    mediaType?: string;
+    key?: string;
+    iv?: string;
+    name?: string;
+  },
 ): Promise<string | null> => {
   try {
+    const form = new FormData();
+    form.append(
+      "file",
+      new Blob([data.content], { type: data.mediaType }),
+      data.name ?? "file",
+    );
+    if (data.key) form.append("key", data.key);
+    if (data.iv) form.append("iv", data.iv);
     const res = await apiFetch("/api/files", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: form,
     });
     if (!res.ok) return null;
     const d = await res.json();
