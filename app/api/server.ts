@@ -3,7 +3,6 @@ import { connectDatabase } from "../shared/db.ts";
 import { initEnv, loadConfig } from "../shared/config.ts";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
-import oauthLogin from "./routes/oauth_login.ts";
 import setupUI from "./routes/setup_ui.ts";
 import session from "./routes/session.ts";
 import accounts from "./routes/accounts.ts";
@@ -76,9 +75,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     users,
     e2ee,
   ];
-  if (e["OAUTH_HOST"] || e["ROOT_DOMAIN"]) {
-    apiRoutes.splice(3, 0, oauthLogin);
-  }
   for (const r of apiRoutes) {
     app.route("/api", r);
   }

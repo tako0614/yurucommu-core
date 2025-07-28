@@ -60,7 +60,7 @@ export function LoginForm(props: LoginFormProps) {
         });
         if (tokenRes.ok) {
           const tokenData = await tokenRes.json();
-          const loginRes = await apiFetch("/api/oauth/login", {
+          const loginRes = await apiFetch("/api/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ accessToken: tokenData.access_token }),
@@ -84,7 +84,11 @@ export function LoginForm(props: LoginFormProps) {
             setError(loginData.error || "OAuthログインに失敗しました2");
           }
         } else {
-          console.log("OAuth token request failed:", tokenRes.status, await tokenRes.text());
+          console.log(
+            "OAuth token request failed:",
+            tokenRes.status,
+            await tokenRes.text(),
+          );
           setError("OAuthトークン取得に失敗しました1");
         }
       } catch {
