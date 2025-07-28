@@ -31,7 +31,6 @@ import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
 import fcm from "./routes/fcm.ts";
-import adsense from "./routes/adsense.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -67,7 +66,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     posts,
     config,
     fcm,
-    adsense,
     setupUI,
     videos,
     dms,

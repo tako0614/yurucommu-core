@@ -43,6 +43,7 @@ ADSENSE_ACCOUNT=ca-pub-xxxxxxxxxxxxxxxx
 
 設定すると投稿一覧の途中や、チャットのチャンネル検索欄の下に広告が表示されます。`ADSENSE_ACCOUNT`
 を指定すると `<meta name="google-adsense-account">` が自動で追加されます。
+広告設定は他のクライアント設定と同様 `/api/config` から取得します。
 
 ## 備考
 

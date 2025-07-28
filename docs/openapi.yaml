@@ -45,7 +45,7 @@ paths:
       summary: クライアント設定取得
       responses:
         "200":
-          description: OAuth 情報のほか firebase と vapidKey を含む JSON を返します。
+          description: OAuth 情報に加え firebase、vapidKey、Google AdSense 設定を含む JSON を返します。
   /accounts:
     get:
       summary: アカウント一覧取得
