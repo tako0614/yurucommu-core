@@ -5,7 +5,7 @@ import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
-import { formatFollowList, getFollowList } from "../services/follow-info.ts";
+import { getFormattedFollowInfo } from "../services/follow-info.ts";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
@@ -84,8 +84,12 @@ app.get("/users/:username/followers", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const list = await getFollowList(username, "followers", env);
-    const data = await formatFollowList(list, domain, env);
+    const data = await getFormattedFollowInfo(
+      username,
+      "followers",
+      domain,
+      env,
+    );
     return c.json(data);
   } catch (error) {
     console.error("Error fetching followers:", error);
@@ -102,8 +106,12 @@ app.get("/users/:username/following", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const list = await getFollowList(username, "following", env);
-    const data = await formatFollowList(list, domain, env);
+    const data = await getFormattedFollowInfo(
+      username,
+      "following",
+      domain,
+      env,
+    );
     return c.json(data);
   } catch (error) {
     console.error("Error fetching following:", error);

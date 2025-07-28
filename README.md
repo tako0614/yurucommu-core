@@ -121,6 +121,12 @@ deno task build
 
 - `POST /api/follow` – 他のユーザーをフォロー
 - `DELETE /api/follow` – フォロー解除
+- `GET /api/users/:username/followers` – フォロワー一覧を JSON で取得
+- `GET /api/users/:username/following` – フォロー中ユーザー一覧を JSON で取得
+
+ActivityPub 形式の一覧が必要な場合は、`/activitypub/users/:username/followers`
+や `/activitypub/users/:username/following` を利用します。こちらは
+`OrderedCollection` 形式で返され、ページングに対応しています。
 
 ## JSON 投稿 API
 
