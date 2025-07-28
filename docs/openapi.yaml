@@ -14,7 +14,7 @@ servers:
   - url: http://localhost:8000
     description: ローカル開発環境
 paths:
-  /login:
+  /api/login:
     post:
       summary: ログイン
       description: パスワードまたは OAuth アクセストークンを送信しセッション Cookie を受け取ります。
@@ -43,19 +43,94 @@ paths:
           description: 成功時は success フィールドを含む JSON を返します。
         "401":
           description: 認証失敗
-  /session/status:
+  /api/logout:
+    post:
+      summary: ログアウト
+      description: セッション Cookie を削除します。
+      responses:
+        "200":
+          description: 成功
+  /api/session/status:
     get:
       summary: セッション状態取得
       responses:
         "200":
           description: login フィールドを含む JSON を返します。
-  /config:
+  /api/config:
     get:
       summary: クライアント設定取得
       responses:
         "200":
           description: OAuth 情報に加え firebase、vapidKey、Google AdSense 設定を含む JSON を返します。
-  /accounts:
+  /api/setup/status:
+    get:
+      summary: 初期設定状態取得
+      responses:
+        "200":
+          description: configured フィールドを含む JSON を返します。
+  /api/setup:
+    post:
+      summary: 初期設定実行
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                username:
+                  type: string
+                displayName:
+                  type: string
+                follow:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - password
+                - username
+      responses:
+        "200":
+          description: 成功
+  /api/fcm/token:
+    post:
+      summary: FCM トークン登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                userName:
+                  type: string
+              required:
+                - token
+                - userName
+      responses:
+        "200":
+          description: 成功
+    delete:
+      summary: FCM トークン削除
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+                - token
+      responses:
+        "200":
+          description: 成功
+  /api/accounts:
     get:
       summary: アカウント一覧取得
       responses:
@@ -79,7 +154,7 @@ paths:
       responses:
         "201":
           description: 作成されたアカウント
-  /accounts/{id}:
+  /api/accounts/{id}:
     parameters:
       - name: id
         in: path
@@ -107,7 +182,51 @@ paths:
       responses:
         "200":
           description: 成功
-  /follow:
+  /api/accounts/{id}/dms:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: DM 設定一覧取得
+      responses:
+        "200":
+          description: dms フィールドを含む JSON
+    post:
+      summary: DM 送信先追加
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+              required:
+                - target
+      responses:
+        "200":
+          description: 更新後の dms 配列
+    delete:
+      summary: DM 送信先削除
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+              required:
+                - target
+      responses:
+        "200":
+          description: 更新後の dms 配列
+  /api/follow:
     post:
       summary: ユーザーをフォロー
       requestBody:
@@ -146,7 +265,7 @@ paths:
       responses:
         "200":
           description: アンフォロー送信結果
-  /posts:
+  /api/posts:
     get:
       summary: 投稿一覧取得
       parameters:
@@ -180,7 +299,7 @@ paths:
       responses:
         "201":
           description: 作成された投稿
-  /posts/{id}:
+  /api/posts/{id}:
     parameters:
       - name: id
         in: path
@@ -213,13 +332,13 @@ paths:
       responses:
         "200":
           description: 成功
-  /posts/{id}/replies:
+  /api/posts/{id}/replies:
     get:
       summary: リプライ一覧取得
       responses:
         "200":
           description: リプライの配列
-  /posts/{id}/like:
+  /api/posts/{id}/like:
     post:
       summary: いいね
       requestBody:
@@ -236,7 +355,7 @@ paths:
       responses:
         "200":
           description: いいね数
-  /posts/{id}/retweet:
+  /api/posts/{id}/retweet:
     post:
       summary: リツイート
       requestBody:
@@ -253,7 +372,7 @@ paths:
       responses:
         "200":
           description: リツイート数
-  /videos:
+  /api/videos:
     get:
       summary: 動画一覧取得
       responses:
@@ -278,19 +397,40 @@ paths:
       responses:
         "201":
           description: 作成された動画
-  /videos/{id}/like:
+  /api/videos/{id}/like:
     post:
       summary: 動画へのいいね
       responses:
         "200":
           description: いいね数
-  /videos/{id}/view:
+  /api/videos/{id}/view:
     post:
       summary: 動画再生数カウント
       responses:
         "200":
           description: 再生数
-  /notifications:
+  /api/search:
+    get:
+      summary: 検索
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [all, users, posts, videos]
+        - name: server
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 検索結果の配列
+  /api/notifications:
     get:
       summary: 通知一覧
       responses:
@@ -301,19 +441,19 @@ paths:
       responses:
         "200":
           description: 作成された通知
-  /notifications/{id}/read:
+  /api/notifications/{id}/read:
     put:
       summary: 通知既読
       responses:
         "200":
           description: 成功
-  /notifications/{id}:
+  /api/notifications/{id}:
     delete:
       summary: 通知削除
       responses:
         "200":
           description: 成功
-  /users/{identifier}:
+  /api/users/{identifier}:
     parameters:
       - name: identifier
         in: path
@@ -327,7 +467,7 @@ paths:
       responses:
         "200":
           description: ユーザー情報
-  /users/batch:
+  /api/users/batch:
     post:
       summary: ユーザー情報バッチ取得
       requestBody:
@@ -346,7 +486,7 @@ paths:
       responses:
         "200":
           description: ユーザー情報の配列
-  /relays:
+  /api/relays:
     get:
       summary: リレー一覧
       responses:
@@ -357,13 +497,13 @@ paths:
       responses:
         "201":
           description: 追加されたリレー
-  /relays/{id}:
+  /api/relays/{id}:
     delete:
       summary: リレー削除
       responses:
         "200":
           description: 成功
-  /ogp:
+  /api/ogp:
     get:
       summary: OGP情報取得
       parameters:
