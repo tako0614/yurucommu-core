@@ -96,11 +96,13 @@ export default function UnifiedToolsContent() {
     if (!id) return;
     (async () => {
       try {
-        const res = await apiFetch(`/api/accounts/${id}/following`);
+        const username = accounts().find((a) => a.id === id)?.userName;
+        if (!username) return;
+        const res = await apiFetch(`/api/users/${username}/following`);
         if (res.ok) {
           const data = await res.json();
           const map: Record<string, boolean> = {};
-          for (const actor of data.following as string[]) {
+          for (const actor of data as string[]) {
             map[actor] = true;
           }
           setFollowStatus((prev) => ({ ...map, ...prev }));
