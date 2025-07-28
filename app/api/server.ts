@@ -26,7 +26,6 @@ import {
   initAttachmentWebSocket,
   initAttachmentWsModule,
 } from "./routes/attachments_ws.ts";
-import messageAttachments from "./routes/message_attachments.ts";
 import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
@@ -69,7 +68,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     setupUI,
     videos,
     dms,
-    messageAttachments,
     files,
     search,
     relays,

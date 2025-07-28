@@ -519,3 +519,48 @@ paths:
       responses:
         "200":
           description: 送信結果
+  /files:
+    post:
+      summary: ファイルアップロード
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: アップロード結果
+  /files/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: ファイル取得
+      responses:
+        "200":
+          description: ファイルデータ
+  /files/messages/{messageId}/{index}:
+    parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: index
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: メッセージ添付ファイル取得
+      responses:
+        "200":
+          description: ファイルデータ
