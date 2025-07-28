@@ -83,8 +83,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     app.route("/api", r);
   }
 
-  // ActivityPub ルートは /activitypub プレフィックスでも利用可能にする
-  app.route("/activitypub", activitypub);
+  // ActivityPub ルートは / のみにマウントする
 
   const rootRoutes = [nodeinfo, activitypub, rootInbox, e2ee];
   // e2ee アプリは最後に配置し、ActivityPub ルートへ認証不要でアクセスできるようにする
