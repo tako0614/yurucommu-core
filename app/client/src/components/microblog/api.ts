@@ -496,49 +496,6 @@ export const fetchUserInfoBatch = async (
   }
 };
 
-// ActivityPub ユーザー情報を取得（外部ユーザー用）
-export const fetchActivityPubActor = async (actorUrl: string) => {
-  try {
-    // まずキャッシュから確認
-    const cached = await getCachedUserInfo(actorUrl);
-    if (cached) {
-      return cached;
-    }
-
-    // プロキシ経由でActivityPubアクターを取得
-    const response = await apiFetch(
-      `/api/activitypub/actor-proxy?url=${encodeURIComponent(actorUrl)}`,
-    );
-    if (!response.ok) {
-      throw new Error("Failed to fetch ActivityPub actor");
-    }
-
-    const actor = await response.json();
-    const displayName = actor.name || actor.preferredUsername ||
-      "External User";
-    const avatarUrl = typeof actor.icon === "object" && actor.icon?.url
-      ? actor.icon.url
-      : typeof actor.icon === "string"
-      ? actor.icon
-      : undefined;
-
-    // 新しいUserInfo形式でキャッシュに保存
-    const userInfo: UserInfo = {
-      userName: actor.preferredUsername || "external_user",
-      displayName,
-      authorAvatar: avatarUrl || "",
-      domain: new URL(actorUrl).hostname,
-      isLocal: false,
-    };
-    await setCachedUserInfo(actorUrl, userInfo);
-
-    return { displayName, avatarUrl };
-  } catch (error) {
-    console.error("Error fetching ActivityPub actor:", error);
-    return null;
-  }
-};
-
 // 指定ユーザーのフォロワー一覧を取得
 export const fetchFollowers = async (username: string) => {
   try {
