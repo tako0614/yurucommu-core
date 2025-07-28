@@ -111,7 +111,7 @@ export const fetchFollowingPosts = async (
 export const searchUsers = async (query: string) => {
   try {
     const response = await apiFetch(
-      `/api/users/search?q=${encodeURIComponent(query)}`,
+      `/api/search?q=${encodeURIComponent(query)}&type=users`,
     );
     if (!response.ok) {
       throw new Error("Failed to search users");
