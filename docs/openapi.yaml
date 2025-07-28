@@ -375,7 +375,7 @@ paths:
       responses:
         "200":
           description: OGPデータ
-  /users/{user}/keyPackages:
+  /api/users/{user}/keyPackages:
     parameters:
       - name: user
         in: path
@@ -407,7 +407,7 @@ paths:
       responses:
         "200":
           description: 登録結果
-  /users/{user}/keyPackages/{keyId}:
+  /api/users/{user}/keyPackages/{keyId}:
     parameters:
       - name: user
         in: path
@@ -429,7 +429,7 @@ paths:
       responses:
         "200":
           description: 成功
-  /users/{user}/encryptedKeyPair:
+  /api/users/{user}/encryptedKeyPair:
     parameters:
       - name: user
         in: path
@@ -462,7 +462,7 @@ paths:
       responses:
         "200":
           description: 成功
-  /users/{user}/resetKeys:
+  /api/users/{user}/resetKeys:
     parameters:
       - name: user
         in: path
@@ -474,7 +474,7 @@ paths:
       responses:
         "200":
           description: リセット結果
-  /users/{user}/messages:
+  /api/users/{user}/messages:
     parameters:
       - name: user
         in: path
@@ -528,7 +528,7 @@ paths:
       responses:
         "200":
           description: 送信結果
-  /files:
+  /api/files:
     post:
       summary: ファイルアップロード（HTTP のみ）
       requestBody:
@@ -552,7 +552,7 @@ paths:
       responses:
         "201":
           description: アップロード結果
-  /files/{id}:
+  /api/files/{id}:
     parameters:
       - name: id
         in: path
@@ -564,7 +564,7 @@ paths:
       responses:
         "200":
           description: ファイルデータ
-  /files/messages/{messageId}/{index}:
+  /api/files/messages/{messageId}/{index}:
     parameters:
       - name: messageId
         in: path
