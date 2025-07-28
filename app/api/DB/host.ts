@@ -96,7 +96,11 @@ export class MongoDBHost implements DB {
     }
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
-    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
+    // タイムラインには Note のみを表示する
+    const filter: Record<string, unknown> = {
+      actor_id: { $in: ids },
+      type: "Note",
+    };
     if (opts.before) filter.created_at = { $lt: opts.before };
     return await this.searchObjects(
       filter,
