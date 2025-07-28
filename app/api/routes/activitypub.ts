@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
+import { getFollowList } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
@@ -288,11 +289,13 @@ app.get("/users/:username/followers", async (c) => {
   }
   const page = c.req.query("page");
   const env = getEnv(c);
-  const db = createDB(env);
-  const account = await db.findAccountByUserName(username);
-  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+  let list: string[];
+  try {
+    list = await getFollowList(username, "followers", env);
+  } catch {
+    return jsonResponse(c, { error: "Not found" }, 404);
+  }
   const domain = getDomain(c);
-  const list = account.followers ?? [];
   const baseId = `https://${domain}/users/${username}/followers`;
 
   if (page) {
@@ -346,11 +349,13 @@ app.get("/users/:username/following", async (c) => {
   }
   const page = c.req.query("page");
   const env = getEnv(c);
-  const db = createDB(env);
-  const account = await db.findAccountByUserName(username);
-  if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+  let list: string[];
+  try {
+    list = await getFollowList(username, "following", env);
+  } catch {
+    return jsonResponse(c, { error: "Not found" }, 404);
+  }
   const domain = getDomain(c);
-  const list = account.following ?? [];
   const baseId = `https://${domain}/users/${username}/following`;
 
   if (page) {

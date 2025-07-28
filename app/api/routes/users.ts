@@ -5,6 +5,7 @@ import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
+import { formatFollowList, getFollowList } from "../services/follow-info.ts";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
@@ -83,51 +84,14 @@ app.get("/users/:username/followers", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await createDB(env).findAccountByUserName(username);
-
-    if (!user) {
-      return c.json({ error: "User not found" }, 404);
-    }
-
-    const followers = user.followers || [];
-    const followerData = [];
-
-    for (const followerUrl of followers) {
-      try {
-        // ローカルユーザーの場合
-        if (followerUrl.includes(domain)) {
-          const followerUsername = followerUrl.split("/").pop();
-          const followerUser = await createDB(env).findAccountByUserName(
-            followerUsername ?? "",
-          );
-          if (followerUser) {
-            followerData.push({
-              userName: followerUser.userName,
-              displayName: followerUser.displayName,
-              avatarInitial: followerUser.avatarInitial || "",
-              domain,
-            });
-          }
-        } else {
-          // リモートユーザーの場合（簡易実装）
-          const followerUsername = followerUrl.split("/").pop();
-          const followerDomain = new URL(followerUrl).host;
-          followerData.push({
-            userName: followerUsername,
-            displayName: followerUsername,
-            avatarInitial: "",
-            domain: followerDomain,
-          });
-        }
-      } catch (error) {
-        console.error("Error processing follower:", error);
-        continue;
-      }
-    }
-
-    return c.json(followerData);
+    const list = await getFollowList(username, "followers", env);
+    const data = await formatFollowList(list, domain, env);
+    return c.json(data);
   } catch (error) {
     console.error("Error fetching followers:", error);
+    if (error instanceof Error && error.message === "User not found") {
+      return c.json({ error: "User not found" }, 404);
+    }
     return c.json({ error: "Failed to fetch followers" }, 500);
   }
 });
@@ -138,51 +102,14 @@ app.get("/users/:username/following", async (c) => {
     const domain = getDomain(c);
     const username = c.req.param("username");
     const env = getEnv(c);
-    const user = await createDB(env).findAccountByUserName(username);
-
-    if (!user) {
-      return c.json({ error: "User not found" }, 404);
-    }
-
-    const following = user.following || [];
-    const followingData = [];
-
-    for (const followingUrl of following) {
-      try {
-        // ローカルユーザーの場合
-        if (followingUrl.includes(domain)) {
-          const followingUsername = followingUrl.split("/").pop();
-          const followingUser = await createDB(env).findAccountByUserName(
-            followingUsername ?? "",
-          );
-          if (followingUser) {
-            followingData.push({
-              userName: followingUser.userName,
-              displayName: followingUser.displayName,
-              avatarInitial: followingUser.avatarInitial || "",
-              domain,
-            });
-          }
-        } else {
-          // リモートユーザーの場合（簡易実装）
-          const followingUsername = followingUrl.split("/").pop();
-          const followingDomain = new URL(followingUrl).host;
-          followingData.push({
-            userName: followingUsername,
-            displayName: followingUsername,
-            avatarInitial: "",
-            domain: followingDomain,
-          });
-        }
-      } catch (error) {
-        console.error("Error processing following:", error);
-        continue;
-      }
-    }
-
-    return c.json(followingData);
+    const list = await getFollowList(username, "following", env);
+    const data = await formatFollowList(list, domain, env);
+    return c.json(data);
   } catch (error) {
     console.error("Error fetching following:", error);
+    if (error instanceof Error && error.message === "User not found") {
+      return c.json({ error: "User not found" }, 404);
+    }
     return c.json({ error: "Failed to fetch following" }, 500);
   }
 });
