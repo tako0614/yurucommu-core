@@ -137,6 +137,12 @@ deno task build
 - `POST /api/microblog/:id/like` – いいねを追加
 - `POST /api/microblog/:id/retweet` – リツイートを追加
 
+## 検索 API
+
+- `GET /api/search?q=QUERY&type=users|posts|videos|all` –
+  キーワードからユーザーや投稿、動画を検索します。 `type`
+  を省略するとすべてが対象です。
+
 ### リンクプレビュー
 
 投稿内にURLを含めると、最初に出現したリンクを基にOGP情報を取得し、タイムラインでカード形式のプレビューを表示します。

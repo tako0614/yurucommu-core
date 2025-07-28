@@ -10,35 +10,6 @@ import authRequired from "../utils/auth.ts";
 const app = new Hono();
 app.use("/users/*", authRequired);
 
-// ユーザー検索
-app.get("/users/search", async (c) => {
-  try {
-    const query = c.req.query("q");
-    if (!query || typeof query !== "string") {
-      return c.json({ error: "Search query is required" }, 400);
-    }
-
-    const domain = getDomain(c);
-    const regex = new RegExp(query, "i");
-    const db = createDB(getEnv(c));
-    const users = await db.searchAccounts(regex, 20);
-
-    const formatted = users.map((user) => ({
-      userName: user.userName,
-      displayName: user.displayName,
-      avatarInitial: user.avatarInitial || "",
-      domain,
-      followersCount: user.followers?.length || 0,
-      followingCount: user.following?.length || 0,
-    }));
-
-    return c.json(formatted);
-  } catch (error) {
-    console.error("Error searching users:", error);
-    return c.json({ error: "Failed to search users" }, 500);
-  }
-});
-
 // ユーザー詳細取得
 app.get("/users/:identifier", async (c) => {
   try {
