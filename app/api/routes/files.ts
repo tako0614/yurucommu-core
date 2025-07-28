@@ -102,5 +102,4 @@ app.get("/files/:id", async (c) => {
   return new Response(data, { headers: { "content-type": mediaType } });
 });
 
-export { initFileModule };
 export default app;
