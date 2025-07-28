@@ -105,6 +105,9 @@ deno task build
 - `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
   Activity をそれぞれの inbox 処理へ振り分けます。
 
+これらのルートは `/activitypub` プレフィックス付きでもアクセスでき、
+`/api/users` と競合しません。例: `/activitypub/users/alice`。
+
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 
 ```json
