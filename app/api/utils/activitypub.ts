@@ -209,51 +209,6 @@ export async function deliverActivityPubObject(
   await Promise.all(deliveryPromises);
 }
 
-async function signAndSendFromUrl(
-  inboxUrl: string,
-  body: string,
-  actor: { id: string; privateKey: string },
-): Promise<Response> {
-  return await signAndPost(inboxUrl, body, actor);
-}
-
-export async function deliverActivityPubObjectFromUrl(
-  targets: string[],
-  object: unknown,
-  actor: { id: string; privateKey: string },
-  env: Record<string, string> = {},
-): Promise<void> {
-  const body = JSON.stringify(object);
-  const promises = targets.map(async (addr) => {
-    let iri = addr;
-    if (!iri.startsWith("http")) {
-      const acct = iri.startsWith("acct:") ? iri.slice(5) : iri;
-      try {
-        const actorInfo = await resolveActorFromAcct(acct);
-        if (!actorInfo) throw new Error("acct not found");
-        iri = actorInfo.id;
-      } catch {
-        return;
-      }
-    }
-    let target = iri;
-    if (!iri.endsWith("/inbox") && !iri.endsWith("/sharedInbox")) {
-      try {
-        const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
-        target = sharedInbox ?? inbox;
-      } catch {
-        return;
-      }
-    }
-    try {
-      await signAndSendFromUrl(target, body, actor);
-    } catch (err) {
-      console.error("Delivery failed:", err);
-    }
-  });
-  await Promise.all(promises);
-}
-
 export function ensurePem(
   key: string,
   type: "PUBLIC KEY" | "PRIVATE KEY",
@@ -842,43 +797,6 @@ export async function resolveRemoteActor(
     sharedInbox: actor.endpoints?.sharedInbox,
     publicKeyId,
   };
-}
-
-/**
- * ActivityPub配信（inbox/sharedInbox限定POST）
- * @param activity 配信するActivityPubオブジェクト
- * @param recipientActorIri 配信先アクターIRI
- * @param sign HTTP Signature生成関数（Host/Date/Signature付与用）
- */
-export async function deliver(
-  activity: unknown,
-  recipientActorIri: string,
-  sign: (options: { url: string; headers: Headers }) => string,
-  env: Record<string, string> = {},
-): Promise<void> {
-  const actor = await resolveRemoteActor(recipientActorIri, env);
-  const target = actor.sharedInbox ?? actor.inbox;
-
-  const headers = new Headers({
-    "Content-Type": "application/activity+json",
-    Host: new URL(target).host,
-    Date: new Date().toUTCString(),
-  });
-
-  headers.set("Signature", sign({ url: target, headers }));
-
-  const res = await fetch(target, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(activity),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `deliver: ${target} ${res.status} ${res.statusText} ${text}`,
-    );
-  }
 }
 
 export function extractAttachments(
