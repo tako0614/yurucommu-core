@@ -39,9 +39,9 @@ interface PostDoc {
 }
 
 const app = new Hono();
-app.use("/microblog/*", authRequired);
+app.use("/posts/*", authRequired);
 
-app.get("/microblog", async (c) => {
+app.get("/posts", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
@@ -87,7 +87,7 @@ app.get("/microblog", async (c) => {
 });
 
 app.post(
-  "/microblog",
+  "/posts",
   rateLimit({ windowMs: 60_000, limit: 10 }),
   zValidator(
     "json",
@@ -247,7 +247,7 @@ app.post(
   },
 );
 
-app.get("/microblog/:id", async (c) => {
+app.get("/posts/:id", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const id = c.req.param("id");
@@ -266,7 +266,7 @@ app.get("/microblog/:id", async (c) => {
   return c.json(formatUserInfoForPost(userInfo, data));
 });
 
-app.get("/microblog/:id/replies", async (c) => {
+app.get("/posts/:id/replies", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const id = c.req.param("id");
@@ -283,7 +283,7 @@ app.get("/microblog/:id/replies", async (c) => {
 });
 
 app.put(
-  "/microblog/:id",
+  "/posts/:id",
   zValidator("json", z.object({ content: z.string() })),
   async (c) => {
     const domain = getDomain(c);
@@ -312,7 +312,7 @@ app.put(
 );
 
 app.post(
-  "/microblog/:id/like",
+  "/posts/:id/like",
   zValidator("json", z.object({ username: z.string() })),
   async (c) => {
     const domain = getDomain(c);
@@ -391,7 +391,7 @@ app.post(
 );
 
 app.post(
-  "/microblog/:id/retweet",
+  "/posts/:id/retweet",
   zValidator("json", z.object({ username: z.string() })),
   async (c) => {
     const domain = getDomain(c);
@@ -468,7 +468,7 @@ app.post(
   },
 );
 
-app.delete("/microblog/:id", async (c) => {
+app.delete("/posts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
