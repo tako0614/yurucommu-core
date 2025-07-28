@@ -182,6 +182,24 @@ ActivityPub の `Video` オブジェクトを利用して動画を投稿でき�
 各インスタンスのリストは `relays` コレクションに基づきます。 takos host
 のデフォルトリレーは自動登録されますが、一覧には表示されません。
 
+## チャット API
+
+エンドツーエンド暗号化に対応したチャット機能の API です。
+
+- `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
+- `POST /api/users/:user/keyPackages` – KeyPackage 登録
+- `GET /api/users/:user/keyPackages/:keyId` – KeyPackage 取得
+- `DELETE /api/users/:user/keyPackages/:keyId` – KeyPackage 削除
+- `GET /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア取得
+- `POST /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア保存
+- `DELETE /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア削除
+- `POST /api/users/:user/resetKeys` – 鍵情報リセット
+- `GET /api/users/:user/messages` – メッセージ一覧取得
+- `POST /api/users/:user/messages` – メッセージ送信
+- `POST /api/files` – ファイルアップロード（HTTP のみ）
+- `GET /api/files/:id` – ファイル取得
+- `GET /api/files/messages/:messageId/:index` – メッセージ添付ファイル取得
+
 ## クライアントでのデータ保存
 
 チャット機能で利用するMLS関連データは、ブラウザのIndexedDBに保存します。データベースは
