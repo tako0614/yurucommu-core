@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDomain, jsonResponse } from "../utils/activitypub.ts";
+import { jsonResponse } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -102,69 +102,6 @@ app.put("/accounts/:id", async (c) => {
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, formatAccount(account));
-});
-
-app.post("/accounts/:id/followers", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { follower } = await c.req.json();
-  const exists = await db.findAccountById(id);
-  if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
-  const domain = getDomain(c);
-  const selfActor = `https://${domain}/users/${exists.userName}`;
-  if (follower === exists.userName || follower === selfActor) {
-    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
-  }
-  const followers = await db.addFollower(id, follower);
-  return jsonResponse(c, { followers });
-});
-
-app.delete("/accounts/:id/followers", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { follower } = await c.req.json();
-  const exists = await db.findAccountById(id);
-  if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
-  const followers = await db.removeFollower(id, follower);
-  return jsonResponse(c, { followers });
-});
-
-app.post("/accounts/:id/following", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { target } = await c.req.json();
-  const exists = await db.findAccountById(id);
-  if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
-  const domain = getDomain(c);
-  const selfActor = `https://${domain}/users/${exists.userName}`;
-  if (target === exists.userName || target === selfActor) {
-    return jsonResponse(c, { error: "Cannot follow yourself" }, 400);
-  }
-  const following = await db.addFollowing(id, target);
-  return jsonResponse(c, { following });
-});
-
-app.get("/accounts/:id/following", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const account = await db.findAccountById(id);
-  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  return jsonResponse(c, { following: account.following });
-});
-
-app.delete("/accounts/:id/following", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const { target } = await c.req.json();
-  const exists = await db.findAccountById(id);
-  if (!exists) return jsonResponse(c, { error: "Account not found" }, 404);
-  const following = await db.removeFollowing(id, target);
-  return jsonResponse(c, { following });
 });
 
 app.delete("/accounts/:id", async (c) => {
