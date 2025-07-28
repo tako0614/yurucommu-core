@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
-import { getFollowList } from "../services/follow-info.ts";
+import { buildActivityPubFollowCollection } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
@@ -289,44 +289,20 @@ app.get("/users/:username/followers", async (c) => {
   }
   const page = c.req.query("page");
   const env = getEnv(c);
-  let list: string[];
+  const domain = getDomain(c);
+  let data: Record<string, unknown>;
   try {
-    list = await getFollowList(username, "followers", env);
+    data = await buildActivityPubFollowCollection(
+      username,
+      "followers",
+      page,
+      domain,
+      env,
+    );
   } catch {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
-  const domain = getDomain(c);
-  const baseId = `https://${domain}/users/${username}/followers`;
-
-  if (page) {
-    return jsonResponse(
-      c,
-      {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${baseId}?page=1`,
-        type: "OrderedCollectionPage",
-        partOf: baseId,
-        orderedItems: list,
-        next: null,
-        prev: null,
-      },
-      200,
-      "application/activity+json",
-    );
-  }
-
-  return jsonResponse(
-    c,
-    {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: baseId,
-      type: "OrderedCollection",
-      totalItems: list.length,
-      first: `${baseId}?page=1`,
-    },
-    200,
-    "application/activity+json",
-  );
+  return jsonResponse(c, data, 200, "application/activity+json");
 });
 
 app.get("/users/:username/following", async (c) => {
@@ -349,44 +325,20 @@ app.get("/users/:username/following", async (c) => {
   }
   const page = c.req.query("page");
   const env = getEnv(c);
-  let list: string[];
+  const domain = getDomain(c);
+  let data: Record<string, unknown>;
   try {
-    list = await getFollowList(username, "following", env);
+    data = await buildActivityPubFollowCollection(
+      username,
+      "following",
+      page,
+      domain,
+      env,
+    );
   } catch {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
-  const domain = getDomain(c);
-  const baseId = `https://${domain}/users/${username}/following`;
-
-  if (page) {
-    return jsonResponse(
-      c,
-      {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${baseId}?page=1`,
-        type: "OrderedCollectionPage",
-        partOf: baseId,
-        orderedItems: list,
-        next: null,
-        prev: null,
-      },
-      200,
-      "application/activity+json",
-    );
-  }
-
-  return jsonResponse(
-    c,
-    {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: baseId,
-      type: "OrderedCollection",
-      totalItems: list.length,
-      first: `${baseId}?page=1`,
-    },
-    200,
-    "application/activity+json",
-  );
+  return jsonResponse(c, data, 200, "application/activity+json");
 });
 
 export default app;

@@ -65,3 +65,50 @@ export async function formatFollowList(
   }
   return result;
 }
+
+/**
+ * API 用フォロー情報取得
+ */
+export async function getFormattedFollowInfo(
+  username: string,
+  type: "followers" | "following",
+  domain: string,
+  env: Record<string, string>,
+  dbInst?: DB,
+): Promise<FollowInfo[]> {
+  const list = await getFollowList(username, type, env, dbInst);
+  return await formatFollowList(list, domain, env, dbInst);
+}
+
+/**
+ * ActivityPub 用フォロー情報生成
+ */
+export async function buildActivityPubFollowCollection(
+  username: string,
+  type: "followers" | "following",
+  page: string | undefined,
+  domain: string,
+  env: Record<string, string>,
+  dbInst?: DB,
+): Promise<Record<string, unknown>> {
+  const list = await getFollowList(username, type, env, dbInst);
+  const baseId = `https://${domain}/users/${username}/${type}`;
+  if (page) {
+    return {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `${baseId}?page=1`,
+      type: "OrderedCollectionPage",
+      partOf: baseId,
+      orderedItems: list,
+      next: null,
+      prev: null,
+    };
+  }
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: baseId,
+    type: "OrderedCollection",
+    totalItems: list.length,
+    first: `${baseId}?page=1`,
+  };
+}
