@@ -4,11 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getDomain } from "../utils/activitypub.ts";
-import {
-  formatUserInfoForPost,
-  getUserInfo,
-  getUserInfoBatch,
-} from "../services/user-info.ts";
+import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
@@ -217,46 +213,6 @@ app.get("/users/:username/following", async (c) => {
   } catch (error) {
     console.error("Error fetching following:", error);
     return c.json({ error: "Failed to fetch following" }, 500);
-  }
-});
-
-// フォロー中ユーザーの投稿取得
-app.get("/users/:username/timeline", async (c) => {
-  try {
-    const domain = getDomain(c);
-    const username = c.req.param("username");
-    const env = getEnv(c);
-    const user = await createDB(env).findAccountByUserName(username);
-
-    if (!user) {
-      return c.json({ error: "User not found" }, 404);
-    }
-
-    const following = (user.following || [])
-      .filter((v): v is string => typeof v === "string");
-    const actorIds = following.slice();
-    actorIds.push(`https://${domain}/users/${username}`);
-
-    // フォロー中ユーザーの投稿を取得
-    const db = createDB(env);
-    const posts = await db.findNotes({
-      actor_id: { $in: actorIds },
-    }, { published: -1 }) as Record<string, unknown>[];
-    const limited = posts.slice(0, 50);
-
-    // ユーザー情報をバッチで取得
-    const identifiers = limited.map((post) => post.actor_id as string);
-    const userInfos = await getUserInfoBatch(identifiers, domain, getEnv(c));
-
-    const formatted = limited.map((post, index) => {
-      const userInfo = userInfos[index];
-      return formatUserInfoForPost(userInfo, post);
-    });
-
-    return c.json(formatted);
-  } catch (error) {
-    console.error("Error fetching timeline:", error);
-    return c.json({ error: "Failed to fetch timeline" }, 500);
   }
 });
 

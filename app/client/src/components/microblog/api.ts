@@ -1,5 +1,5 @@
 import type { ActivityPubObject, MicroblogPost, Story } from "./types.ts";
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, getDomain } from "../../utils/config.ts";
 import { loadCacheEntry, saveCacheEntry } from "../e2ee/storage.ts";
 
 /**
@@ -92,7 +92,12 @@ export const fetchFollowingPosts = async (
   username: string,
 ): Promise<MicroblogPost[]> => {
   try {
-    const response = await apiFetch(`/api/users/${username}/timeline`);
+    const domain = getDomain();
+    const params = new URLSearchParams({
+      timeline: "followers",
+      actor: `https://${domain}/users/${encodeURIComponent(username)}`,
+    });
+    const response = await apiFetch(`/api/microblog?${params.toString()}`);
     if (!response.ok) {
       throw new Error("Failed to fetch following posts");
     }
