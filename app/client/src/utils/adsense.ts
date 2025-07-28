@@ -13,13 +13,13 @@ export async function loadAdsenseConfig(): Promise<AdsenseConfig | null> {
   if (loaded) return config;
   loaded = true;
   try {
-    const res = await apiFetch("/api/adsense/config");
+    const res = await apiFetch("/api/config");
     if (res.ok) {
       const data = await res.json();
       config = {
-        client: data.client ?? null,
-        slot: data.slot ?? null,
-        account: data.account ?? null,
+        client: data.adsenseClient ?? null,
+        slot: data.adsenseSlot ?? null,
+        account: data.adsenseAccount ?? null,
       };
     }
   } catch {
