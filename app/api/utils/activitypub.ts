@@ -535,8 +535,8 @@ export function createActor(
     },
     inbox: `https://${domain}/users/${account.userName}/inbox`,
     outbox: `https://${domain}/users/${account.userName}/outbox`,
-    followers: `https://${domain}/users/${account.userName}/followers`,
-    following: `https://${domain}/users/${account.userName}/following`,
+    followers: `https://${domain}/ap/users/${account.userName}/followers`,
+    following: `https://${domain}/ap/users/${account.userName}/following`,
     publicKey: {
       id: `https://${domain}/users/${account.userName}#main-key`,
       owner: `https://${domain}/users/${account.userName}`,
@@ -659,7 +659,7 @@ export function createCreateActivity(
     actor,
     object,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [`https://${domain}/users/${actor.split("/").pop()}/followers`],
+    cc: [`https://${domain}/ap/users/${actor.split("/").pop()}/followers`],
   };
 }
 
