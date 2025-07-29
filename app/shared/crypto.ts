@@ -1,3 +1,5 @@
+import { b64ToBuf, bufToB64 } from "./buffer.ts";
+
 export async function hashSha256(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
   const hash = await crypto.subtle.digest("SHA-256", buf);
@@ -10,17 +12,14 @@ export function bufferToPem(
   buffer: ArrayBuffer,
   type: "PRIVATE KEY" | "PUBLIC KEY",
 ) {
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  const b64 = bufToB64(buffer);
   const lines = b64.match(/.{1,64}/g)?.join("\n") ?? b64;
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
 }
 
 export function pemToArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
+  return b64ToBuf(b64).buffer;
 }
 
 export async function generateKeyPair() {
