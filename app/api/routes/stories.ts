@@ -26,7 +26,7 @@ app.use("/stories/*", authRequired);
 
 // CORSミドルウェア
 app.use(
-  "/api/stories/*",
+  "/stories/*",
   cors({
     origin: "*",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -34,8 +34,13 @@ app.use(
   }),
 );
 
+<<<<<<< ours
 // ストーリー一覧取得
 app.get("/api/stories", async (c) => {
+=======
+// ストーリー一覧取得（自分とフォロー先）
+app.get("/stories/:actor", async (c) => {
+>>>>>>> theirs
   try {
     const env = getEnv(c);
     const db = createDB(env);
@@ -67,7 +72,7 @@ app.get("/api/stories", async (c) => {
 });
 
 // ストーリー作成
-app.post("/api/stories", async (c) => {
+app.post("/stories", async (c) => {
   try {
     const body = await c.req.json();
     const { author, content, mediaUrl, mediaType, backgroundColor, textColor } =
@@ -122,7 +127,7 @@ app.post("/api/stories", async (c) => {
 });
 
 // ストーリー閲覧
-app.post("/api/stories/:id/view", async (c) => {
+app.post("/stories/:id/view", async (c) => {
   try {
     const env = getEnv(c);
     const db = createDB(env);
@@ -154,7 +159,7 @@ app.post("/api/stories/:id/view", async (c) => {
 });
 
 // ストーリー削除
-app.delete("/api/stories/:id", async (c) => {
+app.delete("/stories/:id", async (c) => {
   try {
     const env = getEnv(c);
     const db = createDB(env);
@@ -173,7 +178,7 @@ app.delete("/api/stories/:id", async (c) => {
 });
 
 // 期限切れストーリーのクリーンアップ（定期実行用）
-app.delete("/api/stories/cleanup", async (c) => {
+app.delete("/stories/cleanup", async (c) => {
   try {
     const env = getEnv(c);
     const db = createDB(env);
