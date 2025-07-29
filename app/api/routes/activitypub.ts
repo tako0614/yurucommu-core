@@ -14,8 +14,8 @@ import {
   deliverActivityPubObject,
   getDomain,
   jsonResponse,
-  verifyHttpSignature,
 } from "../utils/activitypub.ts";
+import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
 
 const app = new Hono();
 
@@ -259,24 +259,19 @@ app.post("/users/:username/outbox", async (c) => {
 app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
-    const bodyText = await c.req.text();
-    const verified = await verifyHttpSignature(c.req.raw, bodyText);
-    if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-    const activity = JSON.parse(bodyText);
-    if (activity.type === "Create" && typeof activity.object === "object") {
-      const db = createDB(getEnv(c));
-      await db.saveObject(activity.object as Record<string, unknown>);
-    }
+    const result = await parseActivityRequest(c);
+    if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+    const { activity } = result;
+    await storeCreateActivity(activity, getEnv(c));
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
-  const bodyText = await c.req.text();
-  const verified = await verifyHttpSignature(c.req.raw, bodyText);
-  if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-  const activity = JSON.parse(bodyText);
+  const result = await parseActivityRequest(c);
+  if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const { activity } = result;
   const handler = activityHandlers[activity.type];
   if (handler) {
     await handler(activity, username, c);

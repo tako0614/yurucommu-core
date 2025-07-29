@@ -1,41 +1,26 @@
 import { Hono } from "hono";
-import {
-  getDomain,
-  jsonResponse,
-  verifyHttpSignature,
-} from "../utils/activitypub.ts";
+import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import { activityHandlers } from "../activity_handlers.ts";
 import { createDB } from "../DB/mod.ts";
+import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
 
 const app = new Hono();
 
 app.post("/system/inbox", async (c) => {
-  const body = await c.req.text();
-  const verified = await verifyHttpSignature(c.req.raw, body);
-  if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-  const activity = JSON.parse(body);
-  if (activity.type === "Create" && typeof activity.object === "object") {
-    const env = getEnv(c);
-    const db = createDB(env);
-    const object = activity.object as Record<string, unknown>;
-    let objectId = typeof object.id === "string" ? object.id : "";
-    let stored = await db.getObject(objectId);
-    if (!stored) {
-      stored = await db.saveObject(object);
-      objectId = String((stored as { _id?: unknown })._id);
-    }
-    // オブジェクトは tenant_id 付きで保存されるため追加処理は不要
-  }
+  const result = await parseActivityRequest(c);
+  if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const { activity } = result;
+  const env = getEnv(c);
+  await storeCreateActivity(activity, env);
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
 app.post("/inbox", async (c) => {
-  const body = await c.req.text();
-  const verified = await verifyHttpSignature(c.req.raw, body);
-  if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const result = await parseActivityRequest(c);
+  if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const { activity } = result;
   const env = getEnv(c);
-  const activity = JSON.parse(body);
   const domain = getDomain(c);
 
   function collect(list: unknown): string[] {
@@ -66,22 +51,7 @@ app.post("/inbox", async (c) => {
       if (parts[0] === "users" && parts[1]) {
         const username = parts[1];
         if (username === "system") {
-          if (
-            activity.type === "Create" && typeof activity.object === "object"
-          ) {
-            let objectId = typeof activity.object.id === "string"
-              ? activity.object.id
-              : "";
-            const db = createDB(env);
-            let stored = await db.getObject(objectId);
-            if (!stored) {
-              stored = await db.saveObject(
-                activity.object as Record<string, unknown>,
-              );
-              objectId = String((stored as { _id?: unknown })._id);
-            }
-            // tenant_id 付きで保存されるため inbox_entry は不要
-          }
+          await storeCreateActivity(activity, env);
           continue;
         }
         const db = createDB(env);
