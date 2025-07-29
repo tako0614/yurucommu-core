@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { createCookieOpts } from "./auth.ts";
 import { cors } from "hono/cors";
 import OAuthClient from "./models/oauth_client.ts";
 import OAuthCode from "./models/oauth_code.ts";
@@ -34,13 +35,7 @@ oauthApp.get("/authorize", async (c) => {
   }
   const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await updateHostSession(sid, newExpiresAt);
-  setCookie(c, "hostSessionId", sid, {
-    httpOnly: true,
-    secure: c.req.url.startsWith("https://"),
-    expires: newExpiresAt,
-    sameSite: "Lax",
-    path: "/",
-  });
+  setCookie(c, "hostSessionId", sid, createCookieOpts(c, newExpiresAt));
   const code = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   const oauthCode = new OAuthCode({
@@ -117,6 +112,5 @@ oauthApp.post("/verify", async (c) => {
     },
   });
 });
-
 
 export default oauthApp;
