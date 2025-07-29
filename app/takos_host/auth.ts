@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { Context } from "hono";
 import { compare, genSalt, hash as bcryptHash } from "bcrypt";
 import HostUser from "./models/user.ts";
 import HostSession from "./models/session.ts";
@@ -10,6 +11,17 @@ import { createAuthMiddleware } from "../shared/auth.ts";
 export async function hash(text: string): Promise<string> {
   const salt = await genSalt(10);
   return await bcryptHash(text, salt);
+}
+
+/** Cookie オプションを生成するヘルパー */
+export function createCookieOpts(c: Context, expires: Date) {
+  return {
+    httpOnly: true,
+    secure: c.req.url.startsWith("https://"),
+    expires,
+    sameSite: "Lax" as const,
+    path: "/",
+  };
 }
 
 export function createAuthApp(options?: {
@@ -116,13 +128,7 @@ export function createAuthApp(options?: {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await new HostSession({ sessionId, user: user._id, expiresAt }).save();
 
-    setCookie(c, "hostSessionId", sessionId, {
-      httpOnly: true,
-      secure: c.req.url.startsWith("https://"),
-      expires: expiresAt,
-      sameSite: "Lax",
-      path: "/",
-    });
+    setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
 
     return c.json({ success: true });
   });
@@ -145,13 +151,7 @@ export function createAuthApp(options?: {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     await new HostSession({ sessionId, user: user._id, expiresAt }).save();
 
-    setCookie(c, "hostSessionId", sessionId, {
-      httpOnly: true,
-      secure: c.req.url.startsWith("https://"),
-      expires: expiresAt,
-      sameSite: "Lax",
-      path: "/",
-    });
+    setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
 
     return c.json({ success: true });
   });
@@ -166,13 +166,12 @@ export function createAuthApp(options?: {
       // 期限延長
       session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await session.save();
-      setCookie(c, "hostSessionId", sid, {
-        httpOnly: true,
-        secure: c.req.url.startsWith("https://"),
-        expires: session.expiresAt,
-        sameSite: "Lax",
-        path: "/",
-      });
+      setCookie(
+        c,
+        "hostSessionId",
+        sid,
+        createCookieOpts(c, session.expiresAt),
+      );
       return c.json({
         login: true,
         user: session.user,
@@ -203,7 +202,7 @@ export const authRequired: MiddlewareHandler = createAuthMiddleware({
   cookieName: "hostSessionId",
   errorMessage: "unauthorized",
   findSession: async (sid) => {
-    const session = await HostSession.findOne({ sessionId: sid })
+    const session = await HostSession.findOne({ sessionId: sid });
     return session;
   },
   deleteSession: async (sid) => {
