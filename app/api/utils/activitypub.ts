@@ -1,5 +1,6 @@
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
+import { pemToArrayBuffer } from "../../shared/crypto.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 
@@ -8,11 +9,6 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  return base64ToArrayBuffer(b64);
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {

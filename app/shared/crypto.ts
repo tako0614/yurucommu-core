@@ -15,6 +15,14 @@ export function bufferToPem(
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
 }
 
+export function pemToArrayBuffer(pem: string): ArrayBuffer {
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export async function generateKeyPair() {
   const pair = await crypto.subtle.generateKey(
     {
