@@ -104,6 +104,10 @@ deno task build
   新しい Activity を追加しやすくしています。
 - `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
   Activity をそれぞれの inbox 処理へ振り分けます。
+- `/.well-known/nodeinfo` – NodeInfo へのリンクを返します
+- `/nodeinfo/2.0` – NodeInfo 本体を返します
+- `/.well-known/x-nodeinfo2` – `/nodeinfo/2.0` へリダイレクト
+- `/api/v1/instance` – Mastodon 互換のインスタンス情報
 
 これらのルートは `/` 直下に配置されており、`/api` のルートとは競合しません。
 
