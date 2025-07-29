@@ -1,13 +1,6 @@
 import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
+import { pemToArrayBuffer } from "../../shared/crypto.ts";
 
 function encodeBase64Url(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
