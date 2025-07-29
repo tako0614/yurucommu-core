@@ -5,7 +5,7 @@ import { join } from "jsr:@std/path";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
-import { generateKeyPair, sha256Hex } from "../../shared/crypto.ts";
+import { generateKeyPair, hashSha256 } from "../../shared/crypto.ts";
 
 const app = new Hono();
 app.use("/setup", authRequired);
@@ -28,7 +28,7 @@ app.post("/setup", async (c) => {
   }
 
   const salt = crypto.randomUUID().replace(/-/g, "");
-  const hashed = await sha256Hex(password + salt);
+  const hashed = await hashSha256(password + salt);
   env.hashedPassword = hashed;
   env.salt = salt;
 
