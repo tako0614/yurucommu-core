@@ -122,7 +122,7 @@ app.get("/users/:username", async (c) => {
     id: `https://${domain}/users/${username}/keyPackages`,
     totalItems: packages.length,
     items: packages.map((p) =>
-      `https://${domain}/users/${username}/keyPackage/${p._id}`
+      `https://${domain}/users/${username}/keyPackages/${p._id}`
     ),
   };
   return jsonResponse(c, actor, 200, "application/activity+json");
