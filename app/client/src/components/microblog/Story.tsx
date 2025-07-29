@@ -152,7 +152,7 @@ export function StoryTray(props: {
       {/* ストーリー作成フォーム（モーダル形式） */}
       {showStoryForm() && (
         <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div class="bg-gray-900 rounded-xl p-6 w-full max-w-lg mx-4 border border-gray-700">
+          <div class="bg-gray-900 rounded-xl p-6 w-full max-w-lg mx-4 border border-gray-700 max-h-screen overflow-y-auto">
             <div class="flex items-center justify-between mb-4">
               <h2 class="text-lg font-bold">新しいストーリー</h2>
               <button
