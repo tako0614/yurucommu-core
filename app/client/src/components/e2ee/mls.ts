@@ -1,4 +1,5 @@
 // MLSヘルパー関数の継続実装
+import { b64ToBuf, bufToB64 } from "../../../../shared/buffer.ts";
 
 type ActorID = string;
 
@@ -22,7 +23,7 @@ export const generateMLSKeyPair = async (): Promise<MLSKeyPair> => {
     ["deriveKey"],
   );
   const raw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
-  const pub = btoa(String.fromCharCode(...new Uint8Array(raw)));
+  const pub = bufToB64(raw);
   return { publicKey: pub, privateKey: keyPair.privateKey };
 };
 
@@ -88,16 +89,6 @@ export const createMLSGroup = async (
 
 function strToBuf(str: string): Uint8Array {
   return new TextEncoder().encode(str);
-}
-
-function bufToB64(buf: ArrayBuffer): string {
-  const u8 = new Uint8Array(buf);
-  return btoa(String.fromCharCode(...u8));
-}
-
-function b64ToBuf(b64: string): Uint8Array {
-  const bin = atob(b64);
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 /**

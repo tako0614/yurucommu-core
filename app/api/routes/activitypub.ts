@@ -5,6 +5,7 @@ import { buildActivityPubFollowCollection } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
 
 import {
   buildActivityFromStored,
@@ -146,9 +147,7 @@ app.get("/users/:username/avatar", async (c) => {
     const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
     if (match) {
       const [, type, data] = match;
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = b64ToBuf(data);
       return c.body(bytes, 200, { "content-type": type });
     }
   }
