@@ -1,4 +1,4 @@
-export async function sha256Hex(text: string): Promise<string> {
+export async function hashSha256(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
   const hash = await crypto.subtle.digest("SHA-256", buf);
   return Array.from(new Uint8Array(hash))

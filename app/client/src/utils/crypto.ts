@@ -1,4 +1,5 @@
 import { hashSync } from "bcryptjs";
+import { hashSha256 } from "../../../shared/crypto.ts";
 
 export const encryptWithPassword = async (
   data: string,
@@ -68,14 +69,6 @@ export const decryptWithPassword = async (
   }
 };
 
-export const sha256 = async (text: string): Promise<string> => {
-  const data = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-};
-
 const ENCRYPTION_PASS_SALT = "takos";
 const BCRYPT_SALT = "$2b$10$GxW5ntweCe9L1LiK1roc/3";
 
@@ -88,3 +81,5 @@ export const hashEncryptionPassword = (
 ): string => {
   return hashSync(ENCRYPTION_PASS_SALT + password, BCRYPT_SALT);
 };
+
+export { hashSha256 };
