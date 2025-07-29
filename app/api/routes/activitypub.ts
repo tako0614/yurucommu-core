@@ -284,11 +284,11 @@ app.post("/users/:username/inbox", async (c) => {
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
-app.get("/users/:username/followers", async (c) => {
+app.get("/ap/users/:username/followers", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
     const domain = getDomain(c);
-    const baseId = `https://${domain}/users/system/followers`;
+    const baseId = `https://${domain}/ap/users/system/followers`;
     return jsonResponse(
       c,
       {
@@ -320,11 +320,11 @@ app.get("/users/:username/followers", async (c) => {
   return jsonResponse(c, data, 200, "application/activity+json");
 });
 
-app.get("/users/:username/following", async (c) => {
+app.get("/ap/users/:username/following", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
     const domain = getDomain(c);
-    const baseId = `https://${domain}/users/system/following`;
+    const baseId = `https://${domain}/ap/users/system/following`;
     return jsonResponse(
       c,
       {
