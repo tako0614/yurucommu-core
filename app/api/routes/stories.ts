@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { createDB } from "../DB/mod.ts";
 import authRequired from "../utils/auth.ts";
 import { createObjectId } from "../utils/activitypub.ts";
-import { getEnv } from "../../../shared/config.ts";
+import { getEnv } from "../../shared/config.ts";
 
 /** ストーリーオブジェクト型定義 */
 type Story = {
