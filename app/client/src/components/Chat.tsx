@@ -53,6 +53,7 @@ import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
+import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -61,19 +62,9 @@ function adjustHeight(el?: HTMLTextAreaElement) {
   }
 }
 
-function bufToB64(buf: ArrayBuffer): string {
-  const u8 = new Uint8Array(buf);
-  return btoa(String.fromCharCode(...u8));
-}
-
 function bufToUrl(buf: ArrayBuffer, type: string): string {
   const blob = new Blob([buf], { type });
   return URL.createObjectURL(blob);
-}
-
-function b64ToBuf(b64: string): Uint8Array {
-  const bin = atob(b64);
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 // ActivityPub の Note 形式のテキストから content を取り出す

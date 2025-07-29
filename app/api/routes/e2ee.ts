@@ -111,7 +111,7 @@ app.get("/users/:user/keyPackages", async (c) => {
     const db = createDB(getEnv(c));
     const list = await db.listKeyPackages(username) as KeyPackageDoc[];
     const items = list.map((doc) => ({
-      id: `https://${domain}/users/${username}/keyPackage/${doc._id}`,
+      id: `https://${domain}/users/${username}/keyPackages/${doc._id}`,
       type: "KeyPackage",
       content: doc.content,
       mediaType: doc.mediaType,
@@ -148,7 +148,7 @@ app.get("/users/:user/keyPackages", async (c) => {
   }
 });
 
-app.get("/users/:user/keyPackage/:keyId", async (c) => {
+app.get("/users/:user/keyPackages/:keyId", async (c) => {
   const user = c.req.param("user");
   const keyId = c.req.param("keyId");
   const domain = getDomain(c);
@@ -160,7 +160,7 @@ app.get("/users/:user/keyPackage/:keyId", async (c) => {
       "https://www.w3.org/ns/activitystreams",
       "https://purl.archive.org/socialweb/mls",
     ],
-    id: `https://${domain}/users/${user}/keyPackage/${keyId}`,
+    id: `https://${domain}/users/${user}/keyPackages/${keyId}`,
     type: "KeyPackage",
     attributedTo: `https://${domain}/users/${user}`,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
@@ -191,7 +191,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
       "https://www.w3.org/ns/activitystreams",
       "https://purl.archive.org/socialweb/mls",
     ],
-    id: `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
+    id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
     type: "KeyPackage",
     attributedTo: actorId,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
@@ -214,12 +214,12 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const removeActivity = createRemoveActivity(
     domain,
     actorId,
-    `https://${domain}/users/${user}/keyPackage/${keyId}`,
+    `https://${domain}/users/${user}/keyPackages/${keyId}`,
   );
   const deleteActivity = createDeleteActivity(
     domain,
     actorId,
-    `https://${domain}/users/${user}/keyPackage/${keyId}`,
+    `https://${domain}/users/${user}/keyPackages/${keyId}`,
   );
   await deliverToFollowers(getEnv(c), user, removeActivity, domain);
   await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
@@ -262,12 +262,12 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
     const removeActivity = createRemoveActivity(
       domain,
       actorId,
-      `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
+      `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
     );
     const deleteActivity = createDeleteActivity(
       domain,
       actorId,
-      `https://${domain}/users/${user}/keyPackage/${pkg._id}`,
+      `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
     );
     await deliverToFollowers(getEnv(c), user, removeActivity, domain);
     await deliverToFollowers(getEnv(c), user, deleteActivity, domain);

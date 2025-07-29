@@ -5,6 +5,7 @@ import { buildActivityPubFollowCollection } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
 
 import {
   buildActivityFromStored,
@@ -13,8 +14,8 @@ import {
   deliverActivityPubObject,
   getDomain,
   jsonResponse,
-  verifyHttpSignature,
 } from "../utils/activitypub.ts";
+import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
 
 const app = new Hono();
 
@@ -121,7 +122,7 @@ app.get("/users/:username", async (c) => {
     id: `https://${domain}/users/${username}/keyPackages`,
     totalItems: packages.length,
     items: packages.map((p) =>
-      `https://${domain}/users/${username}/keyPackage/${p._id}`
+      `https://${domain}/users/${username}/keyPackages/${p._id}`
     ),
   };
   return jsonResponse(c, actor, 200, "application/activity+json");
@@ -146,9 +147,7 @@ app.get("/users/:username/avatar", async (c) => {
     const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
     if (match) {
       const [, type, data] = match;
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = b64ToBuf(data);
       return c.body(bytes, 200, { "content-type": type });
     }
   }
@@ -260,24 +259,19 @@ app.post("/users/:username/outbox", async (c) => {
 app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
-    const bodyText = await c.req.text();
-    const verified = await verifyHttpSignature(c.req.raw, bodyText);
-    if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-    const activity = JSON.parse(bodyText);
-    if (activity.type === "Create" && typeof activity.object === "object") {
-      const db = createDB(getEnv(c));
-      await db.saveObject(activity.object as Record<string, unknown>);
-    }
+    const result = await parseActivityRequest(c);
+    if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+    const { activity } = result;
+    await storeCreateActivity(activity, getEnv(c));
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
-  const bodyText = await c.req.text();
-  const verified = await verifyHttpSignature(c.req.raw, bodyText);
-  if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-  const activity = JSON.parse(bodyText);
+  const result = await parseActivityRequest(c);
+  if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+  const { activity } = result;
   const handler = activityHandlers[activity.type];
   if (handler) {
     await handler(activity, username, c);
@@ -285,11 +279,11 @@ app.post("/users/:username/inbox", async (c) => {
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
-app.get("/users/:username/followers", async (c) => {
+app.get("/ap/users/:username/followers", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
     const domain = getDomain(c);
-    const baseId = `https://${domain}/users/system/followers`;
+    const baseId = `https://${domain}/ap/users/system/followers`;
     return jsonResponse(
       c,
       {
@@ -321,11 +315,11 @@ app.get("/users/:username/followers", async (c) => {
   return jsonResponse(c, data, 200, "application/activity+json");
 });
 
-app.get("/users/:username/following", async (c) => {
+app.get("/ap/users/:username/following", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
     const domain = getDomain(c);
-    const baseId = `https://${domain}/users/system/following`;
+    const baseId = `https://${domain}/ap/users/system/following`;
     return jsonResponse(
       c,
       {

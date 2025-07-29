@@ -1,5 +1,6 @@
 import { createDB } from "../DB/mod.ts";
 import { createStorage, type ObjectStorage } from "./object-storage.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
 
 let storage: ObjectStorage | undefined;
 
@@ -52,10 +53,7 @@ export async function getFile(
   if (storageKey) {
     data = await storage!.get(storageKey);
   } else if (typeof doc.content === "string") {
-    const bin = atob(doc.content);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    data = bytes;
+    data = b64ToBuf(doc.content);
   }
   if (!data) return null;
   return { data, mediaType };
@@ -79,8 +77,6 @@ export async function getMessageAttachment(
   const mediaType = typeof att.mediaType === "string"
     ? att.mediaType
     : "application/octet-stream";
-  const bin = atob(content);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bytes = b64ToBuf(content);
   return { data: bytes, mediaType };
 }

@@ -92,7 +92,7 @@ export async function buildActivityPubFollowCollection(
   dbInst?: DB,
 ): Promise<Record<string, unknown>> {
   const list = await getFollowList(username, type, env, dbInst);
-  const baseId = `https://${domain}/users/${username}/${type}`;
+  const baseId = `https://${domain}/ap/users/${username}/${type}`;
   if (page) {
     return {
       "@context": "https://www.w3.org/ns/activitystreams",

@@ -107,9 +107,10 @@ deno task build
 - `/.well-known/nodeinfo` – NodeInfo へのリンクを返します
 - `/nodeinfo/2.0` – NodeInfo 本体を返します
 - `/.well-known/x-nodeinfo2` – `/nodeinfo/2.0` へリダイレクト
-- `/api/v1/instance` – Mastodon 互換のインスタンス情報
-
-これらのルートは `/` 直下に配置されており、`/api` のルートとは競合しません。
+- `/api/v1/instance` – Mastodon 互換のインスタンス情報 これらのルートは `/`
+  直下に配置されており、`/api` のルートとは競合しません。
+  フォロー一覧用のコレクションは `/ap/users/:username/followers` や
+  `/ap/users/:username/following` から取得できます。
 
 `outbox` へ `POST` すると以下の形式でノートを作成できます。
 
@@ -127,9 +128,9 @@ deno task build
 - `GET /api/users/:username/followers` – フォロワー一覧を JSON で取得
 - `GET /api/users/:username/following` – フォロー中ユーザー一覧を JSON で取得
 
-ActivityPub 形式の一覧が必要な場合は、`/activitypub/users/:username/followers`
-や `/activitypub/users/:username/following` を利用します。こちらは
-`OrderedCollection` 形式で返され、ページングに対応しています。
+ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/followers` や
+`/ap/users/:username/following` を利用します。こちらは `OrderedCollection`
+形式で返され、ページングに対応しています。
 
 ## JSON 投稿 API
 

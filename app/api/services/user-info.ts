@@ -1,15 +1,7 @@
 import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
 import { resolveActor } from "../utils/activitypub.ts";
-
-function isUrl(value: string): boolean {
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { isUrl } from "../../shared/url.ts";
 
 export interface UserInfo {
   userName: string;

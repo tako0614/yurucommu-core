@@ -4,7 +4,6 @@ import {
   createActor,
   getDomain,
   jsonResponse,
-  verifyHttpSignature,
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/DB/mod.ts";
@@ -14,6 +13,10 @@ import {
   getUserInfo,
 } from "../api/services/user-info.ts";
 import HostAccount from "../api/models/takos_host/account.ts";
+import {
+  parseActivityRequest,
+  storeCreateActivity,
+} from "../api/utils/inbox.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -53,31 +56,17 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   });
 
   async function handleInbox(c: Context) {
-    const body = await c.req.text();
-    const verified = await verifyHttpSignature(c.req.raw, body);
-    if (!verified) return jsonResponse(c, { error: "Invalid signature" }, 401);
-    const activity = JSON.parse(body);
-    if (activity.type === "Create" && typeof activity.object === "object") {
-      let objectId = typeof activity.object.id === "string"
-        ? activity.object.id
-        : "";
-      const db = createDB(env);
-      let stored = await db.getObject(objectId);
-      if (!stored) {
-        stored = await db.saveObject(
-          activity.object as Record<string, unknown>,
-        );
-        objectId = String((stored as { _id?: unknown })._id);
-      }
-      const actorId = (stored as { actor_id?: unknown }).actor_id as
-        | string
-        | undefined ??
-        (typeof activity.actor === "string" ? activity.actor : "");
+    const result = await parseActivityRequest(c);
+    if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
+    const { activity } = result;
+    const storedInfo = await storeCreateActivity(activity, env);
+    if (storedInfo) {
+      const { stored, actorId } = storedInfo;
       const domain = getDomain(c);
       const userInfo = await getUserInfo(actorId, domain, env);
       const formatted = formatUserInfoForPost(
         userInfo,
-        stored as Record<string, unknown>,
+        stored,
       );
       broadcast({
         type: "newPost",
@@ -92,7 +81,6 @@ export function createRootActivityPubApp(env: Record<string, string>) {
           payload: { timeline: "following", post: formatted },
         });
       }
-      // tenant_id 付きで保存されるため inbox_entry への記録は不要
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }

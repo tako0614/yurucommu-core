@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
 import {
   getFile,
   getMessageAttachment,
@@ -46,10 +47,7 @@ app.post("/files", async (c) => {
     if (typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
-    const bin = atob(content);
-    const buf = new Uint8Array(bin.length);
-    for (let i2 = 0; i2 < bin.length; i2++) buf[i2] = bin.charCodeAt(i2);
-    bytes = buf;
+    bytes = b64ToBuf(content);
     mediaType = typeof mt === "string" ? mt : mediaType;
     key = typeof k === "string" ? k : undefined;
     iv = typeof i === "string" ? i : undefined;
