@@ -1,185 +1,214 @@
-以下は **「一覧（リール）／作成（エディタ）／表示（プレイヤー）」** を最短で作るための指針と要点です。
-Takos（SolidJS 前提）想定ですが、React/Vue でも同じ構成でいけます。
+## 1) 位置づけ（vocabulary 拡張）
+
+* ベース: ActivityStreams 2.0（`as:`）
+* 拡張語彙（例）: `story:` = `https://example.org/ns/story#`
+  ※ 固定ではなく、実装側でホスト可能。
+* 新規タイプ:
+
+  * `story:Story` … エフェメラル or 常設のストーリー全体（＝シーケンス / ページ束）
+  * `story:Page` … 1 つの表示ページ（タップで次へ等）
+  * `story:Item` … ページ内に自由配置される要素の基底クラス
+
+    * `story:ImageItem`
+    * `story:VideoItem`
+    * `story:TextItem`
+    * （任意: `story:StickerItem`, `story:ShapeItem`, `story:AudioItem` など）
 
 ---
 
-## 1) UX要件（まずここを固定）
+## 2) レンダリングモデル（自由配置）
 
-* **一覧（リール）**
+**座標系**はビューポートに対する **正規化値**（0.0–1.0）を基本とし、UI 差異に強い相互運用を確保。
 
-  * 丸いアバター + リング（未読=カラー、既読=グレー）
-  * 並び順：フォロー中の最新 `published` 降順。自分→相互→その他の順にブースト可
-  * 既読管理：`Story.id` ごとの lastSeen をローカルに保持
-* **プレイヤー**
+共通プロパティ（`story:Item`）:
 
-  * 9:16 全画面（縦モバイル想定。デスクトップは 360×640 のモーダル）
-  * タップ右=次フレーム、左=前フレーム／長押し=一時停止／上スワイプ=リンク／下スワイプ=クローズ
-  * 上部に複数バー（フレーム進行）。自動進行（画像: 5s 目安、動画: duration）
-  * 音量トグル・ミュートを常時表示
-* **作成（エディタ）**
+* `bbox`: `{ "x": 0–1, "y": 0–1, "w": 0–1, "h": 0–1, "units": "fraction" }`
+* `rotation`: 度数（時計回り）
+* `zIndex`: レイヤ順（整数）
+* `opacity`: 0–1
+* `transform`: 省略可。必要なら CSS 互換の 2D/3D 行列文字列
+* `anchor`: `"center"|"topLeft"|...`（配置基準点）
+* `visibleFrom` / `visibleUntil`: ページ内での相対表示時間（秒）
+* `tapAction`: `{ "type": "link|reply|none", "href": "...", "target": "_blank|_self" }`
+* `contentWarning`: 文字列（CW がある場合はタップで展開）
+* `accessibilityLabel`: 代替説明（スクリーンリーダ用）
 
-  * 取り込み：カメラ or ギャラリー
-  * トリミング：9:16 固定（パン＆ズーム）
-  * オーバレイ：Text / Mention / Hashtag / Link（移動・拡大縮小・回転）
-  * 受け手選択：Followers / Close Friends / DM（`to/cc/bto/bcc`）
-  * 24h 期限（`expiresAt` 自動 24h 後）＋ハイライトへ保存（任意）
+ページ（`story:Page`）:
 
----
+* `duration`: 推奨 5–10s（実装は任意）
+* `background`: `{ "type": "color|gradient|image|video", ... }`
+* `safeArea`: `{ "top":0–1, "bottom":0–1, "left":0–1, "right":0–1 }`（UI で隠れやすい領域）
+* `items`: `story:Item[]`
 
-## 2) コンポーネント分割（SolidJS 例）
+ストーリー本体（`story:Story`）:
 
-* `StoryReel`：一覧（水平スクロール）
-* `StoryAvatar`：アバター＋リング＋未読ドット
-* `StoryViewer`：全画面/モーダルのプレイヤー（状態機械式）
-* `StoryFrame`：単一フレーム（Image/Video + Overlays）
-* `StoryEditor`：作成エディタ（メディア取り込み～投稿）
-* `OverlayCanvas`：<svg> でオーバレイ描画・編集
-* `useStories()`：取得・既読・プリフェッチのフック
-* `useStoryPlayer()`：再生制御（タイマー、ジェスチャ、プログレス）
-
-**状態機械（簡略）**
-
-```
-Idle -> Opening -> Playing <-> Paused -> Dismissed
-events: TAP_LEFT/RIGHT, HOLD, RELEASE, SWIPE_UP/DOWN, MEDIA_END, CLOSE
-```
+* `aspectRatio`: 例 `"9:16"`（任意）
+* `pages`: `story:Page[]`
+* `expiresAt`: ISO8601（エフェメラル期限。省略可）
+* `poster`: プレビュー用静止画
+* `audioTrack`: （任意）BGM。`{ "href": "...", "start": 秒, "gain": -60〜+6 }`
 
 ---
 
-## 3) データ契約（フロント⇔サーバ）
+## 3) 要素タイプ詳細
 
-* **一覧** `GET /users/:name/stories`
+### ImageItem
 
-  * `OrderedCollection { orderedItems: Story[] }`
-  * `Story.items: StoryItem[]`（最初の1枚でサムネ）
-* **作成** `POST /ap/users/:name/outbox/story`
+* `type`: `"story:ImageItem"`
+* `media`: ActivityStreams の `url` / `href`（コンテンツの URL / MediaType）
+* `crop`: `{ "shape":"rect|circle|rounded", "radius":0–1, "focusX":0–1, "focusY":0–1 }`
+* `filters`: `[{ "name":"brightness|contrast|saturate|blur|hueRotate", "value": number }]`
+* `alt`: 代替テキスト（`accessibilityLabel` とどちらか必須推奨）
 
-  * `Create{Story}` を投げる（`expiresAt`無ければサーバで +24h）
-* **既読**（ローカル集計推奨）
+### VideoItem
 
-  * `POST /ap/local/story-view { story: IRI, at: ISO }`（連合はしない）
+* `type`: `"story:VideoItem"`
+* `media`: （同上）
+* `autoplay`: `true`（既定）
+* `loop`: `true|false`
+* `muted`: 既定 `true`
+* `trim`: `{ "start": 秒, "end": 秒 }`
+* `poster`: サムネイル
 
----
+### TextItem
 
-## 4) プレイヤー実装の要点
+* `type`: `"story:TextItem"`
+* `text`: プレーンテキスト or `content`（AS 準拠）
+* `style`: `{ "fontFamily": string, "fontWeight": 100–900, "fontSize": em/px 相当の相対値, "lineHeight": number, "align":"left|center|right", "color": "#RRGGBBAA", "stroke": {"color":"#RRGGBB","width":number}, "shadow": {...}, "background": {...}, "padding": number }`
+* `rtl`: `true|false`（双方向テキスト対応）
+* `mentions`: `as:Tag[]`（`type:"Mention"` を推奨）
 
-* **メディア**
-
-  * 画像：`<img>`。表示直前に `decode()` 呼ぶ
-  * 動画：モバイル安定なら MP4/H.264。長尺や分割は HLS（Safari ネイティブ、他は hls.js）
-  * **プリロード**：現在の前後 1 フレームを先読み。次のユーザの 1 フレームも余力があれば
-* **タイマー**
-
-  * `requestAnimationFrame` ベースで残り時間を更新（`setInterval` は誤差が出やすい）
-  * 長押しで **一時停止**（動画 `pause()`、画像はタイマー停止）
-* **オーバレイ**
-
-  * `<svg viewBox="0 0 1000 1000">` を土台に、`x,y,w,h` を比率→座標変換
-  * Text は `<foreignObject>` + CSS か `<text>`、Mention/Hashtag はクリックで詳細へ
-* **操作と退出**
-
-  * クリック領域（左右 30–35%）を分けて前後移動
-  * 上スワイプで `Link` があれば開く
-  * 下スワイプ or ESC で閉じる、背景クリックは無効化（誤操作防止）
-* **エラー/フォールバック**
-
-  * 動画ロード失敗→`fallback` 画像へ即切替
-  * メディア失効後は UI から消す（`expiresAt` を常時チェック）
+（任意）StickerItem/ShapeItem などは `media` or `shape` と簡易アニメーション（`keyframes`）を許容。
 
 ---
 
-## 5) 作成エディタの要点
+## 4) ActivityPub での配信
 
-* **入力→キャンバス**
-
-  * 画像/動画を 9:16 にフィット（cover/pan で crop 可能）
-  * Web 動画は最大 15s/フレーム推奨（長い場合は分割 or トリム UI）
-* **オーバレイ編集**
-
-  * バウンディングボックス（ドラッグ/ピンチ/回転ハンドル）
-  * フォントサイズ・色・スタイル（`style` を key-value として保存）
-* **アクセシビリティ**
-
-  * `alt` 入力を必須化（音声読み上げ用）
-  * カラーコントラスト自動チェック（警告を出す）
-* **投稿フロー**
-
-  * 先にメディアをアップロード→URL 受領→`Create{Story}` 組み立てて送信
-  * `fallback` 画像は最初のフレームの縮小版をサーバ側で生成
-* **可視範囲**
-
-  * 受け手選択（Followers / Close Friends / DM）を明示
-  * 期限（24h）は固定。ハイライトに保存で恒久化
+* 作成: `as:Create{ object: story:Story }`
+* 更新: `as:Update{ object: story:Story }`（軽微編集）
+* 削除: `as:Delete{ object: story:Story }`
+  ※ `expiresAt` 到来時、送信サーバは `Delete` の送出が望ましい（受信側も期限越えは非表示）。
+* 受信互換: `to`/`cc`/`audience` で公開範囲。`as:Reply` による返信、`EmojiReaction` 拡張でリアクションを表現可。
+* メディア配送: `media` は通常の添付（`as:attachment` / `url`）か、署名付き一時 URL。HTTP Signatures/LD-Signatures は既存運用に準拠。
 
 ---
 
-## 6) パフォーマンス指針
+## 5) 後方互換（フォールバック）
 
-* 画像は `loading="eager"`（最初の1枚）、以降は先読みキューで管理
-* 動画は `preload="metadata"`、再生直前で `auto`。終了直前に次を `play()` 準備
-* 使い終えた Blob/URL は即 `revokeObjectURL`、動画 `srcObject` を `null` に
-* アニメーションは transform/opacity のみ（GPU 合成）
-* メモリ：同時に保持するフレームは「現在 + 前後 1」まで
+* `story:Story` は **必ず** フォールバックを持つこと:
 
----
-
-## 7) アクセシビリティ & 国際化
-
-* キーボード：`←/→` 前後、`Space` 一時停止、`Esc` 閉じる
-* `prefers-reduced-motion` で自動進行を遅く/停止するオプション
-* 代替テキスト必須／字幕（動画の `track`）対応
-* CJK/RTL の折り返しとフォントフォールバックをテスト
+  * `as:Note` か `as:Video`/`as:Image` を **併記**（`summary` と `poster` を付与）。
+  * 未対応サーバはそれをタイムライン表示できる。対応サーバは `story:` 語彙を解釈しリッチ表示。
+* プレビュー: `poster` と最初のページのサマリテキストを `summary` に複製。
 
 ---
 
-## 8) セキュリティ/プライバシー
+## 6) プライバシー / 安全
 
-* `expiresAt` を UI 側でも強制（失効後は一覧に出さない・プレイヤーで閉じる）
-* **bto/bcc**（Close Friends/DM）はシェア UI を隠す・スクショ注意のトグル表示（技術的防止は不可能）
-* リンクは `rel="noopener noreferrer"`／同ドメイン以外は遷移前確認
-
----
-
-## 9) テレメトリ（ローカル集計）
-
-* `view`（開始）、`complete`（最後まで視聴）、`exit`（中断）、`tap_next/prev`、`swipe_up` など
-* 1ユーザ1ストーリーにつき重複カウント抑制（一定時間でデバウンス）
+* `expiresAt` 満了時は UI 非表示、検索非対象推奨。
+  （法的・運用上、完全消去は保証しないことを `sensitive`/`contentWarning` と合わせて明示可能）
+* `sensitive: true` と `contentWarning` による閲覧前ガード。
+* アクセシビリティ: `alt` / `accessibilityLabel` は必須推奨。自動字幕（VideoItem）用に `captions`（WebVTT）を許容。
 
 ---
 
-## 10) エッジケースとQAチェック
+## 7) 例（JSON‑LD）
 
-* ネット遅延（3G）・パケロス時：タイムアウト→次フレームにスキップ
-* 動画の無音/音あり切替、ミュート初期化（ブラウザの自動再生ポリシー対策）
-* 端末回転（orientation change）でキャンバス再レイアウト
-* 期限直前に開いた場合：視聴中に失効→次のストーリーへフェールオーバー
-* 外部サーバのメディア 403/410：即フォールバック
-
----
-
-## 11) 最小 MVP の実装順（おすすめ）
-
-1. **StoryReel**：サムネとリングだけ（未読管理含む）
-2. **StoryViewer**：画像フレームの自動進行・左右タップ
-3. **Video 対応**：duration/ミュート/自動再生
-4. **Overlays 表示**（読み取り専用）
-5. **Editor（画像のみ）** → その後動画・オーバレイ編集へ拡張
-
----
-
-## 12) 参考インターフェース（ごく小さな雛形）
-
-```ts
-// フレーム進行（画像5s / 動画はduration）
-function nextFrame(state) {
-  const items = state.story.items;
-  const i = state.index + 1;
-  if (i < items.length) return { ...state, index: i, t0: performance.now() };
-  return "NEXT_STORY";
+```json
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    { "story": "https://example.org/ns/story#" }
+  ],
+  "id": "https://alice.example/stories/abc123",
+  "type": "story:Story",
+  "attributedTo": "https://alice.example/users/alice",
+  "published": "2025-07-30T03:12:00Z",
+  "expiresAt": "2025-07-31T03:12:00Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "aspectRatio": "9:16",
+  "poster": {
+    "type": "Image",
+    "url": "https://cdn.example/abc123/poster.jpg",
+    "mediaType": "image/jpeg"
+  },
+  "pages": [{
+    "type": "story:Page",
+    "duration": 6.5,
+    "background": { "type": "color", "value": "#101018" },
+    "safeArea": { "top": 0.08, "bottom": 0.08, "left": 0.04, "right": 0.04 },
+    "items": [
+      {
+        "type": "story:ImageItem",
+        "media": { "type": "Link", "href": "https://cdn.example/abc123/photo1.jpg", "mediaType": "image/jpeg" },
+        "bbox": { "x": 0.05, "y": 0.10, "w": 0.6, "h": 0.45, "units": "fraction" },
+        "rotation": -2.5,
+        "zIndex": 1,
+        "alt": "朝焼けの街並み"
+      },
+      {
+        "type": "story:TextItem",
+        "text": "おはよう！",
+        "style": {
+          "fontFamily": "Inter",
+          "fontWeight": 700,
+          "fontSize": 0.06,
+          "align": "left",
+          "color": "#FFFFFF",
+          "stroke": { "color": "#000000", "width": 0.004 }
+        },
+        "bbox": { "x": 0.07, "y": 0.58, "w": 0.5, "h": 0.12, "units": "fraction" },
+        "zIndex": 2,
+        "accessibilityLabel": "おはようという挨拶のテキスト"
+      },
+      {
+        "type": "story:VideoItem",
+        "media": { "type": "Link", "href": "https://cdn.example/abc123/clip.mp4", "mediaType": "video/mp4" },
+        "bbox": { "x": 0.62, "y": 0.15, "w": 0.30, "h": 0.30, "units": "fraction" },
+        "poster": { "type": "Link", "href": "https://cdn.example/abc123/clip.jpg", "mediaType": "image/jpeg" },
+        "autoplay": true, "loop": true, "muted": true,
+        "visibleFrom": 1.0, "visibleUntil": 6.5,
+        "zIndex": 3
+      },
+      {
+        "type": "story:TextItem",
+        "text": "#sunrise @bob",
+        "mentions": [
+          { "type": "Hashtag", "name": "sunrise" },
+          { "type": "Mention", "href": "https://social.example/users/bob" }
+        ],
+        "bbox": { "x": 0.05, "y": 0.92, "w": 0.9, "h": 0.05, "units": "fraction" },
+        "style": { "fontSize": 0.035, "align": "left", "color": "#DDDDDD" },
+        "tapAction": { "type": "link", "href": "https://alice.example/links/more" }
+      }
+    ]
+  }],
+  "attachment": [
+    {
+      "type": "Note",
+      "summary": "ストーリーのプレビュー",
+      "content": "おはよう！",
+      "url": "https://alice.example/stories/abc123",
+      "mediaType": "text/html"
+    }
+  ]
 }
 ```
 
 ---
 
-必要なら、この指針を **実装チェックリスト**と\*\*UIコンポーネント雛形（SolidJS）\*\*に展開して、そのままリポジトリに置ける形で出します。
-「MVP からやる順」に落とし込んだタスク群も用意できますが、どこから着手しますか？（例：まずリール→画像プレイヤー）
+## 8) 相互運用のガイド
+
+* **正規化座標**により、端末解像度差や UI オーバーレイに強い。エクスポート時に 9:16 以外でも同一表現を維持。
+* **期限と削除**: `expiresAt` 経過 → 受信側は非表示。送信側は `as:Delete` を送ることが望ましい。
+* **返信 / リアクション**: `as:Create{object:Note, inReplyTo: <story or page>}`、`EmojiReaction` 拡張など。
+* **ハイライト**（常設）: `story:Highlight`（任意）を `Collection` として定義し、`story:Story` を収蔵。
+
+---
+
+## 9) 実装メモ（最小要件）
+
+1. 受信時、`story:` 未対応でも `poster` と `attachment` を使ってタイムラインで静的プレビュー表示。
+2. 対応クライアントは `pages[].items[]` を解釈し、タップでページ進行・リンク遷移。
+3. 投稿 UI は `ImageItem / VideoItem / TextItem` の編集（bbox, rotation, zIndex）を提供。
+4. サーバはメディアに `mediaType` と `Content-Length` を付け、範囲リクエスト対応推奨。
