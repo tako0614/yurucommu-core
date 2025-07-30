@@ -1,4 +1,3 @@
-import HostObjectStore from "../models/takos_host/object_store.ts";
 import HostFollowEdge from "../models/takos_host/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import HostAccount from "../models/takos_host/account.ts";
@@ -63,21 +62,25 @@ export class MongoDBHost implements DB {
     if (await this.useLocalObjects()) {
       conds.push({ ...baseFilter, tenant_id: this.rootDomain });
     }
-    let Model: typeof HostObjectStore = HostObjectStore;
-    if (type === "Note") Model = HostNote as unknown as typeof HostObjectStore;
-    if (type === "Video") {
-      Model = HostVideo as unknown as typeof HostObjectStore;
-    }
-    if (type === "Message") {
-      Model = HostMessage as unknown as typeof HostObjectStore;
-    }
-    if (type === "Story") {
-      Model = HostStory as unknown as typeof HostObjectStore;
-    }
-    const query = conds.length > 1
-      ? await Model.find({ $or: conds }).limit(limit ?? 20).sort(sort)
-      : await Model.find(conds[0]).limit(limit ?? 20).sort(sort);
-    return query;
+    const exec = async (
+      M:
+        | typeof HostNote
+        | typeof HostVideo
+        | typeof HostMessage
+        | typeof HostStory,
+    ) =>
+      conds.length > 1
+        ? await M.find({ $or: conds }).limit(limit ?? 20).sort(sort)
+        : await M.find(conds[0]).limit(limit ?? 20).sort(sort);
+    if (type === "Note") return await exec(HostNote);
+    if (type === "Video") return await exec(HostVideo);
+    if (type === "Message") return await exec(HostMessage);
+    if (type === "Story") return await exec(HostStory);
+    const notes = await exec(HostNote);
+    const videos = await exec(HostVideo);
+    const messages = await exec(HostMessage);
+    const stories = await exec(HostStory);
+    return [...notes, ...videos, ...messages, ...stories];
   }
 
   async getObject(id: string) {
@@ -89,12 +92,18 @@ export class MongoDBHost implements DB {
     if (doc) return doc;
     doc = await HostStory.findOne({ _id: id }).lean();
     if (doc) return doc;
-    const list = await this.searchObjects({ _id: id }, undefined, 1);
-    return list[0] ?? null;
+    return null;
   }
 
   async saveObject(obj: Record<string, unknown>) {
     const data = { ...obj };
+    if (!data.actor_id && typeof data.attributedTo === "string") {
+      try {
+        data.actor_id = new URL(data.attributedTo).href;
+      } catch {
+        data.actor_id = data.attributedTo;
+      }
+    }
     if (data.type === "Note") {
       const doc = new HostNote({ ...data, tenant_id: this.tenantId });
       await doc.save();
@@ -115,9 +124,7 @@ export class MongoDBHost implements DB {
       await doc.save();
       return doc.toObject();
     }
-    const doc = new HostObjectStore({ ...data, tenant_id: this.tenantId });
-    await doc.save();
-    return doc.toObject();
+    return null;
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
@@ -502,12 +509,7 @@ export class MongoDBHost implements DB {
       update,
       { new: true },
     ).lean();
-    if (doc) return doc;
-    return await HostObjectStore.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    return doc ?? null;
   }
 
   async deleteObject(id: string) {
@@ -527,11 +529,6 @@ export class MongoDBHost implements DB {
     });
     if (res) return true;
     res = await HostStory.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
-    if (res) return true;
-    res = await HostObjectStore.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
     });
@@ -560,10 +557,7 @@ export class MongoDBHost implements DB {
         tenant_id: this.tenantId,
       });
     }
-    return await HostObjectStore.deleteMany({
-      ...filter,
-      tenant_id: this.tenantId,
-    });
+    return { deletedCount: 0 };
   }
 
   async listRelays() {

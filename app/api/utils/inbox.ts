@@ -29,6 +29,7 @@ export async function storeCreateActivity(
   let stored = await db.getObject(objectId);
   if (!stored) {
     stored = await db.saveObject(object);
+    if (!stored) return null;
     objectId = String((stored as { _id?: unknown })._id);
   }
   const actorId = (stored as { actor_id?: unknown }).actor_id as
