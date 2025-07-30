@@ -34,13 +34,7 @@ app.use(
   }),
 );
 
-<<<<<<< ours
-// ストーリー一覧取得
-app.get("/api/stories", async (c) => {
-=======
-// ストーリー一覧取得（自分とフォロー先）
-app.get("/stories/:actor", async (c) => {
->>>>>>> theirs
+app.get("/stories", async (c) => {
   try {
     const env = getEnv(c);
     const db = createDB(env);
