@@ -1,4 +1,3 @@
-import ObjectStore from "../models/takos/object_store.ts";
 import Note from "../models/takos/note.ts";
 import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
@@ -41,11 +40,22 @@ export class MongoDBLocal implements DB {
     if (doc) return doc;
     doc = await Story.findOne({ _id: id }).lean();
     if (doc) return doc;
-    return await ObjectStore.findOne({ _id: id }).lean();
+    return null;
   }
 
   async saveObject(obj: Record<string, unknown>) {
     const data = { ...obj };
+    if (!data.actor_id && typeof data.attributedTo === "string") {
+      try {
+        data.actor_id = new URL(data.attributedTo).href;
+      } catch {
+        if (this.env["ACTIVITYPUB_DOMAIN"]) {
+          data.actor_id = `https://${
+            this.env["ACTIVITYPUB_DOMAIN"]
+          }/users/${data.attributedTo}`;
+        }
+      }
+    }
     if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
       data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
     }
@@ -109,11 +119,7 @@ export class MongoDBLocal implements DB {
       await doc.save();
       return doc.toObject();
     }
-    const doc = new ObjectStore(data);
-    (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
-      { env: this.env };
-    await doc.save();
-    return doc.toObject();
+    return null;
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
@@ -412,10 +418,7 @@ export class MongoDBLocal implements DB {
     doc = await Story.findOneAndUpdate({ _id: id }, update, { new: true })
       .lean();
     if (doc) return doc;
-    return await ObjectStore.findOneAndUpdate({ _id: id }, update, {
-      new: true,
-    })
-      .lean();
+    return null;
   }
 
   async deleteObject(id: string) {
@@ -426,8 +429,6 @@ export class MongoDBLocal implements DB {
     res = await Message.findOneAndDelete({ _id: id });
     if (res) return true;
     res = await Story.findOneAndDelete({ _id: id });
-    if (res) return true;
-    res = await ObjectStore.findOneAndDelete({ _id: id });
     return !!res;
   }
 
@@ -444,7 +445,7 @@ export class MongoDBLocal implements DB {
     if (filter.type === "Story") {
       return await Story.deleteMany({ ...filter });
     }
-    return await ObjectStore.deleteMany({ ...filter });
+    return { deletedCount: 0 };
   }
 
   async listRelays() {

@@ -34,7 +34,7 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 `getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
 へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
 `RELAY_POLL_INTERVAL` で指定した 間隔ごとに、登録済みリレーの `/api/posts`
-を取得し、新規投稿を `object_store` へ 自動保存します。
+を取得し、新規投稿を Note や Video などのコレクションへ自動保存します。
 
 ### 初期設定
 
@@ -47,26 +47,12 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 deno run -A setup.ts
 ```
 
-### 統合オブジェクトストア
+### 投稿オブジェクトの保存
 
-すべての ActivityPub オブジェクトは `object_store` コレクションに保存されます。
-各ドキュメントには投稿元ドメインを示す `tenant_id` フィールドが追加され、
-複数インスタンスで同じ MongoDB を共有しても互いのデータが混在しません。スキーマ
-は次の通りです。
-
-```jsonc
-{
-  _id: "https://example.org/objects/xxx",
-  raw: { ... },
-  type: "Note",
-  actor_id: "https://example.org/users/alice",
-  tenant_id: "example.org",
-  created_at: ISODate(),
-  updated_at: ISODate(),
-  deleted_at: Optional<ISODate>,
-  aud: { to: ["...#Public"], cc: [] }
-}
-```
+投稿データは `notes`、`videos`、`messages`、`stories` の各コレクションに
+分割して保存されます。各ドキュメントには投稿元ドメインを示す `tenant_id`
+フィールドが追加され、複数インスタンスで同じ MongoDB を共有しても
+互いのデータが混在しません。
 
 `ACTIVITYPUB_DOMAIN` がテナント ID を兼ねており、ドメインごとにフォロー情報を
 `follow_edge` コレクションで管理します。
@@ -99,7 +85,7 @@ deno task build
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
 - `/users/:username/outbox` – `Note` の投稿と取得
 - `/users/:username/inbox` – ActivityPub 受信エンドポイント。`Create` Activity
-  の場合はオブジェクトを `object_store` に保存し、他の Activity
+  の場合はオブジェクトを各コレクションに保存し、他の Activity
   は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
   新しい Activity を追加しやすくしています。
 - `/inbox` – サイト全体の共有 inbox。`to` などにローカルアクターが含まれる
