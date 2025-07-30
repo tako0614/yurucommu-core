@@ -2,6 +2,7 @@ import ObjectStore from "../models/takos/object_store.ts";
 import Note from "../models/takos/note.ts";
 import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
+import Story from "../models/takos/story.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
@@ -38,6 +39,8 @@ export class MongoDBLocal implements DB {
     if (doc) return doc;
     doc = await Message.findOne({ _id: id }).lean();
     if (doc) return doc;
+    doc = await Story.findOne({ _id: id }).lean();
+    if (doc) return doc;
     return await ObjectStore.findOne({ _id: id }).lean();
   }
 
@@ -45,6 +48,66 @@ export class MongoDBLocal implements DB {
     const data = { ...obj };
     if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
       data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
+    }
+    if (data.type === "Note") {
+      const doc = new Note({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Video") {
+      const doc = new Video({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Message") {
+      const doc = new Message({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Story") {
+      const doc = new Story({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+      await doc.save();
+      return doc.toObject();
     }
     const doc = new ObjectStore(data);
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
@@ -332,21 +395,55 @@ export class MongoDBLocal implements DB {
     const notes = await Note.find({ ...filter }).sort(sort ?? {}).lean();
     const videos = await Video.find({ ...filter }).sort(sort ?? {}).lean();
     const messages = await Message.find({ ...filter }).sort(sort ?? {}).lean();
-    return [...notes, ...videos, ...messages];
+    const stories = await Story.find({ ...filter }).sort(sort ?? {}).lean();
+    return [...notes, ...videos, ...messages, ...stories];
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
+    let doc = await Note.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
+    if (doc) return doc;
+    doc = await Video.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
+    if (doc) return doc;
+    doc = await Message.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
+    if (doc) return doc;
+    doc = await Story.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
+    if (doc) return doc;
     return await ObjectStore.findOneAndUpdate({ _id: id }, update, {
       new: true,
-    }).lean();
+    })
+      .lean();
   }
 
   async deleteObject(id: string) {
-    const res = await ObjectStore.findOneAndDelete({ _id: id });
+    let res = await Note.findOneAndDelete({ _id: id });
+    if (res) return true;
+    res = await Video.findOneAndDelete({ _id: id });
+    if (res) return true;
+    res = await Message.findOneAndDelete({ _id: id });
+    if (res) return true;
+    res = await Story.findOneAndDelete({ _id: id });
+    if (res) return true;
+    res = await ObjectStore.findOneAndDelete({ _id: id });
     return !!res;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
+    if (filter.type === "Note") {
+      return await Note.deleteMany({ ...filter });
+    }
+    if (filter.type === "Video") {
+      return await Video.deleteMany({ ...filter });
+    }
+    if (filter.type === "Message") {
+      return await Message.deleteMany({ ...filter });
+    }
+    if (filter.type === "Story") {
+      return await Story.deleteMany({ ...filter });
+    }
     return await ObjectStore.deleteMany({ ...filter });
   }
 

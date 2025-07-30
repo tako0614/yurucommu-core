@@ -7,6 +7,10 @@ import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
 import HostKeyPackage from "../models/takos_host/key_package.ts";
 import HostNotification from "../models/takos_host/notification.ts";
 import HostPublicMessage from "../models/takos_host/public_message.ts";
+import HostNote from "../models/takos_host/note.ts";
+import HostVideo from "../models/takos_host/video.ts";
+import HostMessage from "../models/takos_host/message.ts";
+import HostStory from "../models/takos_host/story.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
@@ -50,26 +54,67 @@ export class MongoDBHost implements DB {
     sort?: Record<string, SortOrder>,
     limit?: number,
   ) {
+    const type = filter.type as string | undefined;
+    const baseFilter = { ...filter };
+    delete (baseFilter as Record<string, unknown>).type;
     const conds: Record<string, unknown>[] = [
-      { ...filter, tenant_id: this.tenantId },
+      { ...baseFilter, tenant_id: this.tenantId },
     ];
     if (await this.useLocalObjects()) {
-      // takos host 本体のオブジェクトも参照
-      conds.push({ ...filter, tenant_id: this.rootDomain });
+      conds.push({ ...baseFilter, tenant_id: this.rootDomain });
+    }
+    let Model: typeof HostObjectStore = HostObjectStore;
+    if (type === "Note") Model = HostNote as unknown as typeof HostObjectStore;
+    if (type === "Video") {
+      Model = HostVideo as unknown as typeof HostObjectStore;
+    }
+    if (type === "Message") {
+      Model = HostMessage as unknown as typeof HostObjectStore;
+    }
+    if (type === "Story") {
+      Model = HostStory as unknown as typeof HostObjectStore;
     }
     const query = conds.length > 1
-      ? await HostObjectStore.find({ $or: conds }).limit(limit ?? 20).sort(sort)
-      : await HostObjectStore.find(conds[0]).limit(limit ?? 20).sort(sort);
+      ? await Model.find({ $or: conds }).limit(limit ?? 20).sort(sort)
+      : await Model.find(conds[0]).limit(limit ?? 20).sort(sort);
     return query;
   }
 
   async getObject(id: string) {
+    let doc = await HostNote.findOne({ _id: id }).lean();
+    if (doc) return doc;
+    doc = await HostVideo.findOne({ _id: id }).lean();
+    if (doc) return doc;
+    doc = await HostMessage.findOne({ _id: id }).lean();
+    if (doc) return doc;
+    doc = await HostStory.findOne({ _id: id }).lean();
+    if (doc) return doc;
     const list = await this.searchObjects({ _id: id }, undefined, 1);
     return list[0] ?? null;
   }
 
   async saveObject(obj: Record<string, unknown>) {
     const data = { ...obj };
+    if (data.type === "Note") {
+      const doc = new HostNote({ ...data, tenant_id: this.tenantId });
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Video") {
+      const doc = new HostVideo({ ...data, tenant_id: this.tenantId });
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Message") {
+      const doc = new HostMessage({ ...data, tenant_id: this.tenantId });
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Story") {
+      const doc = new HostStory({ ...data, tenant_id: this.tenantId });
+      await doc.save();
+      return doc.toObject();
+    }
     const doc = new HostObjectStore({ ...data, tenant_id: this.tenantId });
     await doc.save();
     return doc.toObject();
@@ -222,9 +267,8 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostObjectStore({
+    const doc = new HostNote({
       _id: id,
-      type: "Note",
       attributedTo: author,
       actor_id: actor,
       content,
@@ -241,18 +285,17 @@ export class MongoDBHost implements DB {
   }
 
   async updateNote(id: string, update: Record<string, unknown>) {
-    return await HostObjectStore.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId, type: "Note" },
+    return await HostNote.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
       update,
       { new: true },
     ).lean();
   }
 
   async deleteNote(id: string) {
-    const res = await HostObjectStore.findOneAndDelete({
+    const res = await HostNote.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
-      type: "Note",
     });
     return !!res;
   }
@@ -261,20 +304,16 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects(
-      { ...filter, type: "Note" },
-      sort,
-    );
+    return await this.searchObjects({ ...filter, type: "Note" }, sort);
   }
 
   async getPublicNotes(limit: number, before?: Date) {
     const filter: Record<string, unknown> = {
-      type: "Note",
       to: "https://www.w3.org/ns/activitystreams#Public",
     };
     if (before) filter.created_at = { $lt: before };
     return await this.searchObjects(
-      filter,
+      { ...filter, type: "Note" },
       { created_at: -1 },
       limit,
     );
@@ -289,9 +328,8 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostObjectStore({
+    const doc = new HostVideo({
       _id: id,
-      type: "Video",
       attributedTo: author,
       actor_id: actor,
       content,
@@ -308,18 +346,17 @@ export class MongoDBHost implements DB {
   }
 
   async updateVideo(id: string, update: Record<string, unknown>) {
-    return await HostObjectStore.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId, type: "Video" },
+    return await HostVideo.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
       update,
       { new: true },
     ).lean();
   }
 
   async deleteVideo(id: string) {
-    const res = await HostObjectStore.findOneAndDelete({
+    const res = await HostVideo.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
-      type: "Video",
     });
     return !!res;
   }
@@ -328,10 +365,7 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects(
-      { ...filter, type: "Video" },
-      sort,
-    );
+    return await this.searchObjects({ ...filter, type: "Video" }, sort);
   }
 
   async saveMessage(
@@ -343,9 +377,8 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostObjectStore({
+    const doc = new HostMessage({
       _id: id,
-      type: "Message",
       attributedTo: author,
       actor_id: actor,
       content,
@@ -359,18 +392,17 @@ export class MongoDBHost implements DB {
   }
 
   async updateMessage(id: string, update: Record<string, unknown>) {
-    return await HostObjectStore.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId, type: "Message" },
+    return await HostMessage.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
       update,
       { new: true },
     ).lean();
   }
 
   async deleteMessage(id: string) {
-    const res = await HostObjectStore.findOneAndDelete({
+    const res = await HostMessage.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
-      type: "Message",
     });
     return !!res;
   }
@@ -379,20 +411,98 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects(
-      { ...filter, type: "Message" },
-      sort,
-    );
+    return await this.searchObjects({ ...filter, type: "Message" }, sort);
+  }
+
+  async saveStory(
+    domain: string,
+    author: string,
+    content: string,
+    extra: Record<string, unknown>,
+    aud: { to: string[]; cc: string[] },
+  ) {
+    const id = createObjectId(domain);
+    const actor = `https://${domain}/users/${author}`;
+    const doc = new HostStory({
+      _id: id,
+      attributedTo: author,
+      actor_id: actor,
+      content,
+      extra,
+      tenant_id: this.tenantId,
+      published: new Date(),
+      aud,
+    });
+    await doc.save();
+    return doc.toObject();
+  }
+
+  async updateStory(id: string, update: Record<string, unknown>) {
+    return await HostStory.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean();
+  }
+
+  async deleteStory(id: string) {
+    const res = await HostStory.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
+    return !!res;
+  }
+
+  async findStories(
+    filter: Record<string, unknown>,
+    sort?: Record<string, SortOrder>,
+  ) {
+    return await this.searchObjects({ ...filter, type: "Story" }, sort);
   }
 
   async findObjects(
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects(filter, sort);
+    const notes = await this.searchObjects({ ...filter, type: "Note" }, sort);
+    const videos = await this.searchObjects({ ...filter, type: "Video" }, sort);
+    const messages = await this.searchObjects(
+      { ...filter, type: "Message" },
+      sort,
+    );
+    const stories = await this.searchObjects(
+      { ...filter, type: "Story" },
+      sort,
+    );
+    const others = await this.searchObjects(filter, sort);
+    return [...notes, ...videos, ...messages, ...stories, ...others];
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
+    let doc = await HostNote.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean();
+    if (doc) return doc;
+    doc = await HostVideo.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean();
+    if (doc) return doc;
+    doc = await HostMessage.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean();
+    if (doc) return doc;
+    doc = await HostStory.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean();
+    if (doc) return doc;
     return await HostObjectStore.findOneAndUpdate(
       { _id: id, tenant_id: this.tenantId },
       update,
@@ -401,7 +511,27 @@ export class MongoDBHost implements DB {
   }
 
   async deleteObject(id: string) {
-    const res = await HostObjectStore.findOneAndDelete({
+    let res = await HostNote.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
+    if (res) return true;
+    res = await HostVideo.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
+    if (res) return true;
+    res = await HostMessage.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
+    if (res) return true;
+    res = await HostStory.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
+    if (res) return true;
+    res = await HostObjectStore.findOneAndDelete({
       _id: id,
       tenant_id: this.tenantId,
     });
@@ -409,6 +539,27 @@ export class MongoDBHost implements DB {
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
+    if (filter.type === "Note") {
+      return await HostNote.deleteMany({ ...filter, tenant_id: this.tenantId });
+    }
+    if (filter.type === "Video") {
+      return await HostVideo.deleteMany({
+        ...filter,
+        tenant_id: this.tenantId,
+      });
+    }
+    if (filter.type === "Message") {
+      return await HostMessage.deleteMany({
+        ...filter,
+        tenant_id: this.tenantId,
+      });
+    }
+    if (filter.type === "Story") {
+      return await HostStory.deleteMany({
+        ...filter,
+        tenant_id: this.tenantId,
+      });
+    }
     return await HostObjectStore.deleteMany({
       ...filter,
       tenant_id: this.tenantId,
