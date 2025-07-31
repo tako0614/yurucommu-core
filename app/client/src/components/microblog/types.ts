@@ -19,20 +19,6 @@ export interface MicroblogPost {
   domain?: string;
 }
 
-export interface Story {
-  id: string;
-  author: string;
-  content: string;
-  mediaUrl?: string;
-  mediaType?: "image" | "video";
-  createdAt: string;
-  expiresAt: string;
-  views: number;
-  isViewed?: boolean;
-  backgroundColor?: string;
-  textColor?: string;
-}
-
 export interface Note {
   id: string;
   content: string;
@@ -53,7 +39,7 @@ export interface Note {
  */
 export interface ActivityPubObject {
   id: string;
-  type: string; // Note, Image, Article, Story など
+  type: string; // Note, Image, Article など
   attributedTo: string;
   content?: string;
   to?: string[];

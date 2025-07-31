@@ -414,69 +414,6 @@ paths:
       responses:
         "200":
           description: 再生数
-  /api/stories:
-    get:
-      summary: ストーリー一覧取得
-      responses:
-        "200":
-          description: ストーリーの配列
-    post:
-      summary: ストーリー作成
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                author:
-                  type: string
-                content:
-                  type: string
-                mediaUrl:
-                  type: string
-                mediaType:
-                  type: string
-                backgroundColor:
-                  type: string
-                textColor:
-                  type: string
-              required:
-                - author
-                - content
-      responses:
-        "201":
-          description: 作成されたストーリー
-  /api/stories/{id}/view:
-    post:
-      summary: ストーリー閲覧
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: 閲覧後のストーリー
-  /api/stories/{id}:
-    delete:
-      summary: ストーリー削除
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: 成功
-  /api/stories/cleanup:
-    delete:
-      summary: 期限切れストーリー削除
-      responses:
-        "200":
-          description: 削除件数を含むメッセージ
   /api/search:
     get:
       summary: 検索

@@ -1,9 +1,9 @@
-import type { ActivityPubObject, MicroblogPost, Story } from "./types.ts";
+import type { ActivityPubObject, MicroblogPost } from "./types.ts";
 import { apiFetch, getDomain } from "../../utils/config.ts";
 import { loadCacheEntry, saveCacheEntry } from "../e2ee/storage.ts";
 
 /**
- * ActivityPub Object（Note, Story, etc.）を取得
+ * ActivityPub Object を取得
  */
 export const fetchActivityPubObjects = async (
   username: string,
@@ -279,72 +279,6 @@ export const _replyToPost = async (
     return response.ok;
   } catch (error) {
     console.error("Error replying to post:", error);
-    return false;
-  }
-};
-
-export const fetchStories = async (): Promise<Story[]> => {
-  try {
-    const response = await apiFetch("/api/stories");
-    if (!response.ok) {
-      throw new Error("Failed to fetch stories");
-    }
-    return await response.json();
-  } catch (error) {
-    console.error("Error fetching stories:", error);
-    return [];
-  }
-};
-
-export const createStory = async (
-  content: string,
-  mediaUrl?: string,
-  mediaType?: "image" | "video",
-  backgroundColor?: string,
-  textColor?: string,
-): Promise<boolean> => {
-  try {
-    const response = await apiFetch("/api/stories", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        author: "user",
-        content,
-        mediaUrl,
-        mediaType,
-        backgroundColor,
-        textColor,
-      }),
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error creating story:", error);
-    return false;
-  }
-};
-
-export const viewStory = async (id: string): Promise<boolean> => {
-  try {
-    const response = await apiFetch(`/api/stories/${id}/view`, {
-      method: "POST",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error viewing story:", error);
-    return false;
-  }
-};
-
-export const deleteStory = async (id: string): Promise<boolean> => {
-  try {
-    const response = await apiFetch(`/api/stories/${id}`, {
-      method: "DELETE",
-    });
-    return response.ok;
-  } catch (error) {
-    console.error("Error deleting story:", error);
     return false;
   }
 };

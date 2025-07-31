@@ -9,24 +9,20 @@ import {
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
-import { StoryTray, StoryViewer } from "./microblog/Story.tsx";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import {
   createPost,
   deletePost,
-  deleteStory,
   fetchFollowingPosts,
   fetchPostById,
   fetchPostReplies,
   fetchPosts,
-  fetchStories,
   likePost,
   retweetPost,
   updatePost,
-  viewStory,
 } from "./microblog/api.ts";
-import type { MicroblogPost, Story } from "./microblog/types.ts";
+import type { MicroblogPost } from "./microblog/types.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
@@ -185,51 +181,6 @@ export function Microblog() {
     const user = account();
     return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
   });
-
-  const [stories, { refetch: refetchStories }] = createResource(fetchStories);
-  const [selectedStory, setSelectedStory] = createSignal<Story | null>(null);
-  const [showStoryViewer, setShowStoryViewer] = createSignal(false);
-  const [currentStoryIndex, setCurrentStoryIndex] = createSignal(0);
-
-  const handleViewStory = async (story: Story, index: number) => {
-    await viewStory(story.id);
-    setSelectedStory(story);
-    setCurrentStoryIndex(index);
-    setShowStoryViewer(true);
-    refetchStories();
-  };
-
-  const nextStory = () => {
-    const storiesArray = stories() || [];
-    const nextIndex = (currentStoryIndex() + 1) % storiesArray.length;
-    setCurrentStoryIndex(nextIndex);
-    setSelectedStory(storiesArray[nextIndex]);
-  };
-
-  const previousStory = () => {
-    const storiesArray = stories() || [];
-    const prevIndex = currentStoryIndex() === 0
-      ? storiesArray.length - 1
-      : currentStoryIndex() - 1;
-    setCurrentStoryIndex(prevIndex);
-    setSelectedStory(storiesArray[prevIndex]);
-  };
-
-  const closeStoryViewer = () => {
-    setShowStoryViewer(false);
-    setSelectedStory(null);
-  };
-
-  const handleDeleteStory = async (id: string) => {
-    if (!confirm("このストーリーを削除しますか？")) return;
-    const success = await deleteStory(id);
-    if (success) {
-      refetchStories();
-      closeStoryViewer();
-    } else {
-      alert("ストーリーの削除に失敗しました");
-    }
-  };
 
   const filteredPosts = () => {
     const query = searchQuery().toLowerCase();
@@ -494,11 +445,6 @@ export function Microblog() {
                 </div>
               </div>
               <div class="max-w-2xl mx-auto">
-                <StoryTray
-                  stories={stories() || []}
-                  refetchStories={refetchStories}
-                  handleViewStory={handleViewStory}
-                />
                 <PostList
                   posts={filteredPosts()}
                   tab={tab()}
@@ -545,18 +491,6 @@ export function Microblog() {
             formatDate={formatDate}
           />
         </Show>
-
-        <StoryViewer
-          showStoryViewer={showStoryViewer()}
-          selectedStory={selectedStory()}
-          stories={stories() || []}
-          currentStoryIndex={currentStoryIndex()}
-          previousStory={previousStory}
-          nextStory={nextStory}
-          closeStoryViewer={closeStoryViewer}
-          handleDeleteStory={handleDeleteStory}
-          formatDate={formatDate}
-        />
 
         <PostForm
           showPostForm={_showPostForm()}

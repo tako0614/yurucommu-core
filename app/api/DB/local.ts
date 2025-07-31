@@ -1,7 +1,6 @@
 import Note from "../models/takos/note.ts";
 import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
-import Story from "../models/takos/story.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
@@ -37,8 +36,6 @@ export class MongoDBLocal implements DB {
     doc = await Video.findOne({ _id: id }).lean();
     if (doc) return doc;
     doc = await Message.findOne({ _id: id }).lean();
-    if (doc) return doc;
-    doc = await Story.findOne({ _id: id }).lean();
     if (doc) return doc;
     return null;
   }
@@ -91,21 +88,6 @@ export class MongoDBLocal implements DB {
     }
     if (data.type === "Message") {
       const doc = new Message({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        content: String(data.content ?? ""),
-        extra: data.extra ?? {},
-        published: data.published ?? new Date(),
-        aud: data.aud ?? { to: [], cc: [] },
-      });
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-      await doc.save();
-      return doc.toObject();
-    }
-    if (data.type === "Story") {
-      const doc = new Story({
         _id: data._id,
         attributedTo: String(data.attributedTo),
         actor_id: String(data.actor_id),
@@ -401,8 +383,7 @@ export class MongoDBLocal implements DB {
     const notes = await Note.find({ ...filter }).sort(sort ?? {}).lean();
     const videos = await Video.find({ ...filter }).sort(sort ?? {}).lean();
     const messages = await Message.find({ ...filter }).sort(sort ?? {}).lean();
-    const stories = await Story.find({ ...filter }).sort(sort ?? {}).lean();
-    return [...notes, ...videos, ...messages, ...stories];
+    return [...notes, ...videos, ...messages];
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
@@ -415,9 +396,6 @@ export class MongoDBLocal implements DB {
     doc = await Message.findOneAndUpdate({ _id: id }, update, { new: true })
       .lean();
     if (doc) return doc;
-    doc = await Story.findOneAndUpdate({ _id: id }, update, { new: true })
-      .lean();
-    if (doc) return doc;
     return null;
   }
 
@@ -428,8 +406,7 @@ export class MongoDBLocal implements DB {
     if (res) return true;
     res = await Message.findOneAndDelete({ _id: id });
     if (res) return true;
-    res = await Story.findOneAndDelete({ _id: id });
-    return !!res;
+    return false;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
@@ -441,9 +418,6 @@ export class MongoDBLocal implements DB {
     }
     if (filter.type === "Message") {
       return await Message.deleteMany({ ...filter });
-    }
-    if (filter.type === "Story") {
-      return await Story.deleteMany({ ...filter });
     }
     return { deletedCount: 0 };
   }

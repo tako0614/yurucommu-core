@@ -9,7 +9,6 @@ import HostPublicMessage from "../models/takos_host/public_message.ts";
 import HostNote from "../models/takos_host/note.ts";
 import HostVideo from "../models/takos_host/video.ts";
 import HostMessage from "../models/takos_host/message.ts";
-import HostStory from "../models/takos_host/story.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
@@ -66,8 +65,7 @@ export class MongoDBHost implements DB {
       M:
         | typeof HostNote
         | typeof HostVideo
-        | typeof HostMessage
-        | typeof HostStory,
+        | typeof HostMessage,
     ) =>
       conds.length > 1
         ? await M.find({ $or: conds }).limit(limit ?? 20).sort(sort)
@@ -75,12 +73,10 @@ export class MongoDBHost implements DB {
     if (type === "Note") return await exec(HostNote);
     if (type === "Video") return await exec(HostVideo);
     if (type === "Message") return await exec(HostMessage);
-    if (type === "Story") return await exec(HostStory);
     const notes = await exec(HostNote);
     const videos = await exec(HostVideo);
     const messages = await exec(HostMessage);
-    const stories = await exec(HostStory);
-    return [...notes, ...videos, ...messages, ...stories];
+    return [...notes, ...videos, ...messages];
   }
 
   async getObject(id: string) {
@@ -89,8 +85,6 @@ export class MongoDBHost implements DB {
     doc = await HostVideo.findOne({ _id: id }).lean();
     if (doc) return doc;
     doc = await HostMessage.findOne({ _id: id }).lean();
-    if (doc) return doc;
-    doc = await HostStory.findOne({ _id: id }).lean();
     if (doc) return doc;
     return null;
   }
@@ -116,11 +110,6 @@ export class MongoDBHost implements DB {
     }
     if (data.type === "Message") {
       const doc = new HostMessage({ ...data, tenant_id: this.tenantId });
-      await doc.save();
-      return doc.toObject();
-    }
-    if (data.type === "Story") {
-      const doc = new HostStory({ ...data, tenant_id: this.tenantId });
       await doc.save();
       return doc.toObject();
     }
@@ -421,52 +410,6 @@ export class MongoDBHost implements DB {
     return await this.searchObjects({ ...filter, type: "Message" }, sort);
   }
 
-  async saveStory(
-    domain: string,
-    author: string,
-    content: string,
-    extra: Record<string, unknown>,
-    aud: { to: string[]; cc: string[] },
-  ) {
-    const id = createObjectId(domain);
-    const actor = `https://${domain}/users/${author}`;
-    const doc = new HostStory({
-      _id: id,
-      attributedTo: author,
-      actor_id: actor,
-      content,
-      extra,
-      tenant_id: this.tenantId,
-      published: new Date(),
-      aud,
-    });
-    await doc.save();
-    return doc.toObject();
-  }
-
-  async updateStory(id: string, update: Record<string, unknown>) {
-    return await HostStory.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
-  }
-
-  async deleteStory(id: string) {
-    const res = await HostStory.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
-    return !!res;
-  }
-
-  async findStories(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-  ) {
-    return await this.searchObjects({ ...filter, type: "Story" }, sort);
-  }
-
   async findObjects(
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
@@ -477,12 +420,8 @@ export class MongoDBHost implements DB {
       { ...filter, type: "Message" },
       sort,
     );
-    const stories = await this.searchObjects(
-      { ...filter, type: "Story" },
-      sort,
-    );
     const others = await this.searchObjects(filter, sort);
-    return [...notes, ...videos, ...messages, ...stories, ...others];
+    return [...notes, ...videos, ...messages, ...others];
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
@@ -499,12 +438,6 @@ export class MongoDBHost implements DB {
     ).lean();
     if (doc) return doc;
     doc = await HostMessage.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
-    if (doc) return doc;
-    doc = await HostStory.findOneAndUpdate(
       { _id: id, tenant_id: this.tenantId },
       update,
       { new: true },
@@ -528,11 +461,7 @@ export class MongoDBHost implements DB {
       tenant_id: this.tenantId,
     });
     if (res) return true;
-    res = await HostStory.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
-    return !!res;
+    return false;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
@@ -547,12 +476,6 @@ export class MongoDBHost implements DB {
     }
     if (filter.type === "Message") {
       return await HostMessage.deleteMany({
-        ...filter,
-        tenant_id: this.tenantId,
-      });
-    }
-    if (filter.type === "Story") {
-      return await HostStory.deleteMany({
         ...filter,
         tenant_id: this.tenantId,
       });

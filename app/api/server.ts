@@ -9,7 +9,6 @@ import accounts from "./routes/accounts.ts";
 import notifications from "./routes/notifications.ts";
 import activitypub from "./routes/activitypub.ts";
 import posts from "./routes/posts.ts";
-import stories from "./routes/stories.ts";
 import search from "./routes/search.ts";
 import users from "./routes/users.ts";
 import follow from "./routes/follow.ts";
@@ -57,7 +56,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     follow,
     notifications,
     posts,
-    stories,
     config,
     fcm,
     setupUI,
