@@ -20,6 +20,7 @@ export const createVideo = (
     isShort?: boolean;
     duration?: string;
     file: File;
+    thumbnail?: File;
   } & { author: string },
 ): Promise<Video | null> => {
   return new Promise((resolve) => {
@@ -31,6 +32,13 @@ export const createVideo = (
       ws.onmessage = async (evt) => {
         const msg = JSON.parse(evt.data);
         if (msg.status === "ready for metadata") {
+          let thumbStr: string | undefined;
+          if (data.thumbnail) {
+            const buf = await data.thumbnail.arrayBuffer();
+            const bin = new Uint8Array(buf);
+            const b64 = btoa(String.fromCharCode(...bin));
+            thumbStr = `data:${data.thumbnail.type};base64,${b64}`;
+          }
           ws.send(
             JSON.stringify({
               type: "metadata",
@@ -42,6 +50,7 @@ export const createVideo = (
                 isShort: data.isShort ?? false,
                 duration: data.duration ?? "",
                 originalName: data.file.name,
+                thumbnail: thumbStr,
               },
             }),
           );

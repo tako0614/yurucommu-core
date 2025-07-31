@@ -395,6 +395,9 @@ paths:
                 file:
                   type: string
                   format: binary
+                thumbnail:
+                  type: string
+                  format: binary
                 author:
                   type: string
                 title:

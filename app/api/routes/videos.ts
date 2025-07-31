@@ -45,18 +45,61 @@ type UploadMeta = {
   isShort: boolean;
   duration: string;
   originalName: string;
+  thumbnail?: string;
+  thumbnailFile?: Uint8Array;
 };
 
 async function saveVideoBytes(c: Context, bytes: Uint8Array, meta: UploadMeta) {
+  const env = getEnv(c);
+  const domain = getDomain(c);
   const ext = extname(meta.originalName) || ".mp4";
   const filename = `${crypto.randomUUID()}${ext}`;
   const stored = await storage.put(`videos/${filename}`, bytes);
-  const videoUrl = stored.startsWith("http")
+  let videoUrl = stored.startsWith("http")
     ? stored
     : `/api/video-files/${filename}`;
 
-  const domain = getDomain(c);
-  const env = getEnv(c);
+  let thumbnailUrl = `/api/placeholder/${meta.isShort ? "225/400" : "400/225"}`;
+  if (meta.thumbnailFile || meta.thumbnail) {
+    let bytesThumb: Uint8Array | null = null;
+    let extThumb = ".png";
+    if (meta.thumbnailFile) {
+      bytesThumb = meta.thumbnailFile;
+    } else if (meta.thumbnail) {
+      try {
+        const idx = meta.thumbnail.indexOf(",");
+        const dataPart = idx >= 0
+          ? meta.thumbnail.slice(idx + 1)
+          : meta.thumbnail;
+        const mimePart = idx >= 0 ? meta.thumbnail.slice(0, idx) : "";
+        const match = /image\/([\w+.-]+)/.exec(mimePart);
+        if (match) extThumb = `.${match[1].split("+")[0]}`;
+        const bin = atob(dataPart);
+        bytesThumb = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytesThumb[i] = bin.charCodeAt(i);
+      } catch {
+        bytesThumb = null;
+      }
+    }
+    if (bytesThumb) {
+      const nameT = `${crypto.randomUUID()}${extThumb}`;
+      const storedT = await storage.put(
+        `videos/thumbnails/${nameT}`,
+        bytesThumb,
+      );
+      thumbnailUrl = storedT.startsWith("http")
+        ? storedT
+        : `/api/video-thumbnails/${nameT}`;
+    }
+  }
+
+  if (!videoUrl.startsWith("http")) {
+    videoUrl = `https://${domain}${videoUrl}`;
+  }
+  if (!thumbnailUrl.startsWith("http")) {
+    thumbnailUrl = `https://${domain}${thumbnailUrl}`;
+  }
+
   const db = createDB(env);
   const video = await db.saveVideo(
     domain,
@@ -69,7 +112,7 @@ async function saveVideoBytes(c: Context, bytes: Uint8Array, meta: UploadMeta) {
       duration: meta.duration || "",
       likes: 0,
       views: 0,
-      thumbnail: `/api/placeholder/${meta.isShort ? "225/400" : "400/225"}`,
+      thumbnail: thumbnailUrl,
       videoUrl,
     },
   ) as VideoDoc;
@@ -123,6 +166,7 @@ export function initVideoWebSocket() {
       isShort: boolean;
       duration: string;
       originalName: string;
+      thumbnail?: string;
     };
 
     if (!data || !data.originalName) {
@@ -202,12 +246,17 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
   const hashtagsStr = form.get("hashtags")?.toString() || "";
   const isShort = form.get("isShort")?.toString() === "true";
   const duration = form.get("duration")?.toString() || "";
+  const thumbnail = form.get("thumbnail");
 
   if (!(file instanceof File) || !author || !title) {
     return c.json({ error: "Invalid body" }, 400);
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
+  let thumbBytes: Uint8Array | undefined;
+  if (thumbnail instanceof File) {
+    thumbBytes = new Uint8Array(await thumbnail.arrayBuffer());
+  }
   const { video, videoUrl } = await saveVideoBytes(c, bytes, {
     author,
     title,
@@ -216,6 +265,7 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     isShort,
     duration,
     originalName: file.name,
+    thumbnailFile: thumbBytes,
   });
 
   const env = getEnv(c);
@@ -273,6 +323,43 @@ app.get("/video-files/:name", async (c) => {
     ? "video/mp4"
     : ext === ".webm"
     ? "video/webm"
+    : "application/octet-stream";
+  const range = c.req.header("range");
+  if (range) {
+    const match = /bytes=(\d+)-(\d+)?/.exec(range);
+    if (match) {
+      const start = Number(match[1]);
+      const end = match[2] ? Number(match[2]) : data.length - 1;
+      const chunk = data.subarray(start, end + 1);
+      const headers = {
+        "Content-Type": mime,
+        "Content-Range": `bytes ${start}-${end}/${data.length}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(chunk.length),
+      };
+      return new Response(chunk, { status: 206, headers });
+    }
+  }
+  return new Response(data, {
+    headers: {
+      "Content-Type": mime,
+      "Content-Length": String(data.length),
+      "Accept-Ranges": "bytes",
+    },
+  });
+});
+
+app.get("/video-thumbnails/:name", async (c) => {
+  const name = c.req.param("name");
+  const data = await storage.get(`videos/thumbnails/${name}`);
+  if (!data) return c.text("Not found", 404);
+  const ext = extname(name).toLowerCase();
+  const mime = ext === ".jpg" || ext === ".jpeg"
+    ? "image/jpeg"
+    : ext === ".png"
+    ? "image/png"
+    : ext === ".webp"
+    ? "image/webp"
     : "application/octet-stream";
   return new Response(data, { headers: { "Content-Type": mime } });
 });

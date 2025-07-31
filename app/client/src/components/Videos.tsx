@@ -14,12 +14,14 @@ export function Videos() {
   );
   const [selectedShortIndex, setSelectedShortIndex] = createSignal(0);
   const [showUploadModal, setShowUploadModal] = createSignal(false);
+  const [openedVideo, setOpenedVideo] = createSignal<Video | null>(null);
   const [uploadForm, setUploadForm] = createSignal({
     title: "",
     description: "",
     hashtags: "",
     isShort: false,
     file: null as File | null,
+    thumbnail: null as File | null,
   });
 
   const [videos, { mutate: setVideos }] = createResource(fetchVideos);
@@ -58,6 +60,12 @@ export function Videos() {
     }
   };
 
+  const handleThumbnailUpload = (event: Event) => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0] || null;
+    setUploadForm((prev) => ({ ...prev, thumbnail: file }));
+  };
+
   const submitUpload = async () => {
     const form = uploadForm();
     if (!form.title.trim() || !form.file) return;
@@ -70,6 +78,7 @@ export function Videos() {
       isShort: form.isShort,
       duration: form.isShort ? "0:30" : "5:00",
       file: form.file,
+      thumbnail: form.thumbnail ?? undefined,
     });
     if (!newVideo) return;
 
@@ -82,6 +91,7 @@ export function Videos() {
       hashtags: "",
       isShort: false,
       file: null,
+      thumbnail: null,
     });
     setShowUploadModal(false);
 
@@ -177,6 +187,21 @@ export function Videos() {
                     type="file"
                     accept="video/*"
                     onChange={handleFileUpload}
+                    class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-red-600 file:text-white file:font-medium file:cursor-pointer hover:file:bg-red-700 hover:border-gray-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* サムネイル選択 */}
+              <div>
+                <label class="block text-sm font-medium text-gray-300 mb-3">
+                  サムネイル画像
+                </label>
+                <div class="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleThumbnailUpload}
                     class="w-full px-4 py-3 bg-[#181818] border border-gray-600 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-red-600 file:text-white file:font-medium file:cursor-pointer hover:file:bg-red-700 hover:border-gray-500 transition-colors"
                   />
                 </div>
@@ -291,7 +316,7 @@ export function Videos() {
       </Show>
 
       {/* YouTube風タイムライン表示 */}
-      <Show when={currentView() === "timeline"}>
+      <Show when={currentView() === "timeline" && !openedVideo()}>
         <div class="flex-1 overflow-y-auto bg-[#0f0f0f]">
           {/* ヘッダー */}
           <div class="sticky top-0 z-10 bg-[#0f0f0f]/95 backdrop-blur-sm border-b border-gray-800/50 px-6 py-4">
@@ -505,14 +530,14 @@ export function Videos() {
                     <div
                       class="group cursor-pointer"
                       onClick={() => {
-                        console.log("Video clicked:", video.id);
+                        setOpenedVideo(video);
                       }}
                     >
                       <div class="relative aspect-video rounded-xl overflow-hidden mb-3 group-hover:rounded-lg transition-all duration-200">
-                        <video
+                        <img
                           class="w-full h-full object-cover"
-                          src={video.videoUrl}
-                          controls
+                          src={video.thumbnail}
+                          alt={video.title}
                         />
                         <div class="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-medium">
                           {video.duration}
@@ -838,6 +863,59 @@ export function Videos() {
                 </div>
               </div>
             </Show>
+          </div>
+        </div>
+      </Show>
+      <Show when={openedVideo()}>
+        <div class="flex-1 overflow-y-auto bg-[#0f0f0f]">
+          <div class="max-w-screen-2xl mx-auto px-6 py-6 flex flex-col lg:flex-row space-y-6 lg:space-y-0 lg:space-x-6">
+            <div class="flex-1">
+              <button
+                type="button"
+                onClick={() => setOpenedVideo(null)}
+                class="text-red-500 hover:underline mb-4"
+              >
+                戻る
+              </button>
+              <video
+                src={openedVideo()!.videoUrl}
+                controls
+                autoplay
+                preload="metadata"
+                class="w-full rounded-xl"
+              />
+              <h2 class="text-lg font-semibold text-white mt-4">
+                {openedVideo()!.title}
+              </h2>
+              <p class="text-sm text-gray-300 mt-2">
+                {openedVideo()!.description}
+              </p>
+              <div class="bg-[#181818] p-4 rounded mt-4">
+                <p class="text-gray-400 text-sm">コメント機能は未実装です</p>
+              </div>
+            </div>
+            <div class="w-full lg:w-80 space-y-4">
+              <For each={_longVideos()}>
+                {(video) => (
+                  <div
+                    class="flex space-x-3 cursor-pointer"
+                    onClick={() => setOpenedVideo(video)}
+                  >
+                    <img
+                      class="w-40 h-24 object-cover rounded"
+                      src={video.thumbnail}
+                      alt={video.title}
+                    />
+                    <div class="flex-1">
+                      <p class="text-white text-sm line-clamp-2">
+                        {video.title}
+                      </p>
+                      <p class="text-gray-400 text-xs">{video.author}</p>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
         </div>
       </Show>
