@@ -20,6 +20,7 @@ export function Videos() {
     description: "",
     hashtags: "",
     isShort: false,
+    duration: "",
     file: null as File | null,
     thumbnail: null as File | null,
   });
@@ -57,6 +58,20 @@ export function Videos() {
       const isVertical = file.name.includes("short") ||
         file.name.includes("vertical");
       setUploadForm((prev) => ({ ...prev, isShort: isVertical }));
+
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        const seconds = video.duration;
+        if (!Number.isNaN(seconds)) {
+          const m = Math.floor(seconds / 60);
+          const s = Math.floor(seconds % 60);
+          const str = `${m}:${s.toString().padStart(2, "0")}`;
+          setUploadForm((prev) => ({ ...prev, duration: str }));
+        }
+        URL.revokeObjectURL(video.src);
+      };
+      video.src = URL.createObjectURL(file);
     }
   };
 
@@ -76,7 +91,7 @@ export function Videos() {
       description: form.description,
       hashtags: form.hashtags.split(" ").filter((tag) => tag.startsWith("#")),
       isShort: form.isShort,
-      duration: form.isShort ? "0:30" : "5:00",
+      duration: form.duration,
       file: form.file,
       thumbnail: form.thumbnail ?? undefined,
     });
@@ -90,6 +105,7 @@ export function Videos() {
       description: "",
       hashtags: "",
       isShort: false,
+      duration: "",
       file: null,
       thumbnail: null,
     });
