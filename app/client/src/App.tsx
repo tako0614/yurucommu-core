@@ -9,7 +9,6 @@ import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { useHashRouter } from "./utils/router.ts";
 import "./App.css";
-import "./stylesheet.css";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
