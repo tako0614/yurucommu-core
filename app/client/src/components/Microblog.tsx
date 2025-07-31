@@ -12,6 +12,7 @@ import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
+import { createMemo } from "solid-js";
 import {
   createPost,
   deletePost,
@@ -31,6 +32,7 @@ export function Microblog() {
   const [tab, setTab] = createSignal<"following" | "latest">(
     "following",
   );
+  const [mobileTab, setMobileTab] = createSignal<"following" | "latest" | "trends">("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -127,7 +129,7 @@ export function Microblog() {
         const currentPostId = targetPostId();
         if (currentPostId) {
           // If we're viewing a post, check if the new post is a reply to it
-          if (data.post.replyTo === currentPostId) {
+          if (data.post.parentId === currentPostId) {
             setSelectedPostReplies((prev) => [data.post, ...prev]);
           }
           return;
@@ -184,22 +186,25 @@ export function Microblog() {
   });
 
   const filteredPosts = () => {
-    const query = searchQuery().toLowerCase();
-    let postsToFilter: MicroblogPost[] = [];
-
+    // 検索を無効化: クエリフィルタせずそのまま返却
     if (tab() === "latest") {
-      postsToFilter = posts() || [];
-    } else if (tab() === "following") {
-      postsToFilter = followingTimelinePosts() || [];
+      return posts() || [];
     }
+    if (tab() === "following") {
+      return followingTimelinePosts() || [];
+    }
+    return [];
+  };
 
-    if (!query) return postsToFilter;
-    return postsToFilter.filter((post) =>
-      post.content.toLowerCase().includes(query) ||
-      post.userName.toLowerCase().includes(query) ||
-      (post.hashtags &&
-        post.hashtags.some((tag) => tag.toLowerCase().includes(query)))
-    );
+  const filteredPostsMobile = () => {
+    // モバイル時: 検索無効化。タブに応じてそのまま返す
+    if (mobileTab() === "latest") {
+      return posts() || [];
+    }
+    if (mobileTab() === "following") {
+      return followingTimelinePosts() || [];
+    }
+    return []; // trends のときは投稿リストは表示しない
   };
 
   const _handleSubmit = async (e: Event) => {
@@ -347,6 +352,8 @@ export function Microblog() {
     return new Date(dateString).toLocaleString("ja-JP");
   };
 
+  const isDesktop = createMemo(() => window.matchMedia("(min-width: 1024px)").matches);
+
   return (
     <>
       <style>
@@ -372,6 +379,85 @@ export function Microblog() {
         .tab-btn-active:hover {
           background: rgba(59, 130, 246, 0.15);
         }
+        .layout-desktop {
+          display: grid;
+          /* 右（トレンド）を少し小さくする配分 */
+          grid-template-columns: 1fr 1fr 0.8fr;
+          gap: clamp(16px, 2vw, 32px);
+        }
+        .col-card {
+          background: rgba(31, 41, 55, 0.25); /* 彩度/不透明度を下げて控えめに */
+          border: 1px solid rgba(107, 114, 128, 0.18); /* ボーダーも薄めに */
+          border-radius: 10px;
+          backdrop-filter: blur(2px); /* ブラーも弱めに */
+        }
+        .col-divider {
+          position: relative;
+        }
+        /* 左カラム（最新）の右側だけ薄い仕切り線を出す */
+        .col-divider.left::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          right: -0.75vw;
+          width: 1px;
+          height: 100%;
+          background: linear-gradient(
+            to bottom,
+            transparent,
+            rgba(107,114,128,0.25) 18%,
+            rgba(107,114,128,0.25) 82%,
+            transparent
+          );
+        }
+        /* 中央と右の間（フォロー中とトレンドの間）は線を出さない */
+        .col-divider.center::after {
+          display: none;
+        }
+        @media (max-width: 1023px) {
+          .col-divider.left::after,
+          .col-divider.center::after {
+            display: none;
+          }
+        }
+        @media (max-width: 1023px) {
+          .col-divider::after {
+            display: none;
+          }
+        }
+        @media (max-width: 1023px) {
+          .layout-desktop {
+            display: block;
+          }
+        }
+        .sticky-col {
+          position: sticky;
+          top: 72px;
+          /* sticky領域の高さを少し伸ばしつつ、左右に余白を確保 */
+          height: calc(100vh - 96px);
+          overflow-y: auto;
+          overflow-x: hidden; /* X軸スクロールを抑止 */
+        }
+        .no-x-scroll {
+          overflow-x: hidden; /* カード全体でも水平スクロール抑止 */
+        }
+        .fit-width {
+          max-width: 100%;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .content-wrap {
+          max-width: 100%;
+          overflow-x: hidden; /* 内部要素のはみ出しを抑止 */
+        }
+        .content-wrap * {
+          max-width: 100%;
+        }
+        .content-wrap img, .content-wrap video, .content-wrap audio, .content-wrap iframe {
+          max-width: 100%;
+          height: auto;
+          display: block;
+        }
       `}
       </style>
       <div class="min-h-screen text-white relative">
@@ -380,32 +466,11 @@ export function Microblog() {
           fallback={
             <>
               {/* Header + Tabs */}
-              <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
-                <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+              <div class="sticky top-0 z-20 backdrop-blur-md border-gray-800">
+                <div class="w-full px-6 py-4 flex flex-col gap-2">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2"></div>
-                    <div class="flex justify-end flex-1 relative">
-                      <input
-                        type="text"
-                        placeholder="投稿・ユーザー・タグ検索"
-                        value={searchQuery()}
-                        onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                        class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <svg
-                        class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
-                      </svg>
-                    </div>
+                    <div class="flex-1" />
                     <div class="ml-4">
                       <select
                         value={limit()}
@@ -424,58 +489,99 @@ export function Microblog() {
                   </div>
                   {/* Tabs */}
                   <div class="flex gap-4 justify-center">
-                    <button
-                      type="button"
-                      class={`tab-btn ${
-                        tab() === "following" ? "tab-btn-active" : ""
-                      }`}
-                      onClick={() => setTab("following")}
-                    >
-                      フォロー中
-                    </button>
-                    <button
-                      type="button"
-                      class={`tab-btn ${
-                        tab() === "latest" ? "tab-btn-active" : ""
-                      }`}
-                      onClick={() => setTab("latest")}
-                    >
-                      新しい順
-                    </button>
+                    {/* デスクトップ: タブは表示せず（3カラムで常時表示） */}
+                    {/* モバイル: タブで切替 */}
+                    <div style={`display: ${isDesktop() ? "none" : "flex"}`} class="gap-4 justify-center w-full">
+                      <button
+                        type="button"
+                        class={`tab-btn ${mobileTab() === "following" ? "tab-btn-active" : ""}`}
+                        onClick={() => setMobileTab("following")}
+                      >
+                        フォロー中
+                      </button>
+                      <button
+                        type="button"
+                        class={`tab-btn ${mobileTab() === "latest" ? "tab-btn-active" : ""}`}
+                        onClick={() => setMobileTab("latest")}
+                      >
+                        新しい順
+                      </button>
+                      <button
+                        type="button"
+                        class={`tab-btn ${mobileTab() === "trends" ? "tab-btn-active" : ""}`}
+                        onClick={() => setMobileTab("trends")}
+                      >
+                        トレンド
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="max-w-2xl mx-auto">
-                <Trends />
-                <PostList
-                  posts={filteredPosts()}
-                  tab={tab()}
-                  handleReply={handleReply}
-                  handleRetweet={handleRetweet}
-                  handleQuote={handleQuote}
-                  handleLike={handleLike}
-                  handleEdit={handleEdit}
-                  handleDelete={handleDelete}
-                  formatDate={formatDate}
-                />
-                <Show
-                  when={tab() === "following" && filteredPosts().length === 0}
+
+              {/* 本文レイアウト: デスクトップ3カラム（左:最新 / 中央:フォロー中 / 右:トレンド） / モバイル1カラム */}
+              <div class="w-full px-6 layout-desktop">
+                {/* 左カラム（デスクトップ: 新しい順） / モバイル: タブがlatestのとき */}
+                <div class="sticky-col pr-2 col-card col-divider left no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "latest" ? "block" : "none"}`}
                 >
-                  <div class="p-8 text-center">
-                    <p class="text-gray-400 text-lg">
-                      フォロー中の投稿はありません
-                    </p>
-                    <p class="text-gray-500 text-sm mt-2">
-                      気になるユーザーをフォローしてみましょう
-                    </p>
+                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>新しい順</h3>
+                  <div class="content-wrap">
+                    <PostList
+                      posts={isDesktop() ? (posts() || []) : filteredPostsMobile()}
+                      tab={"latest" as any}
+                      handleReply={handleReply}
+                      handleRetweet={handleRetweet}
+                      handleQuote={handleQuote}
+                      handleLike={handleLike}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      formatDate={formatDate}
+                    />
                   </div>
-                </Show>
-                <div ref={(el) => (sentinel = el)} class="h-4"></div>
-                {loadingMore() && (
-                  <div class="text-center py-4 text-gray-400">
-                    読み込み中...
+                </div>
+
+                {/* 中央カラム（デスクトップ: フォロー中＝メイン） / モバイル: タブがfollowingのとき */}
+                <div class="w-full col-card col-divider center no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "following" ? "block" : "none"}`}
+                >
+                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>フォロー中</h3>
+                  <div class="content-wrap">
+                    <PostList
+                      posts={isDesktop() ? (followingTimelinePosts() || []) : filteredPostsMobile()}
+                      tab={"following" as any}
+                      handleReply={handleReply}
+                      handleRetweet={handleRetweet}
+                      handleQuote={handleQuote}
+                      handleLike={handleLike}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      formatDate={formatDate}
+                    />
                   </div>
-                )}
+                  <Show when={(!isDesktop()) && mobileTab() === "following" && filteredPostsMobile().length === 0}>
+                    <div class="p-8 text-center">
+                      <p class="text-gray-400 text-lg">
+                        フォロー中の投稿はありません
+                      </p>
+                      <p class="text-gray-500 text-sm mt-2">
+                        気になるユーザーをフォローしてみましょう
+                      </p>
+                    </div>
+                  </Show>
+                  <div ref={(el) => (sentinel = el)} class="h-4" style={`display: ${isDesktop() ? "none" : "block"}`}></div>
+                  {(!isDesktop()) && loadingMore() && (
+                    <div class="text-center py-4 text-gray-400">
+                      読み込み中...
+                    </div>
+                  )}
+                </div>
+
+                {/* 右カラム（デスクトップ: トレンド） / モバイル: タブがtrendsのとき */}
+                <div class="sticky-col pl-2 col-card no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "trends" ? "block" : "none"}`}
+                >
+                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>トレンド</h3>
+                  <div class="text-sm content-wrap">
+                    <Trends />
+                  </div>
+                </div>
               </div>
             </>
           }
