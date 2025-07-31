@@ -11,6 +11,7 @@ import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
+import { Trends } from "./microblog/Trends.tsx";
 import {
   createPost,
   deletePost,
@@ -445,6 +446,7 @@ export function Microblog() {
                 </div>
               </div>
               <div class="max-w-2xl mx-auto">
+                <Trends />
                 <PostList
                   posts={filteredPosts()}
                   tab={tab()}
