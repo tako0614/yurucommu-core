@@ -32,56 +32,6 @@ input {
   border: 1px solid #333333; /* ホワイトモード廃止: 入力欄ボーダー色変更 */
 }
 
-.l-header {
-  background-color: #252526; /* ホワイトモード廃止: 背景色変更 */
-  display: block;
-  position: fixed;
-  z-index: 4;
-  transition: transform 0.25s cubic-bezier(0.11, 0.91, 0.4, 0.94);
-}
-.l-header-logo {
-  margin-bottom: 25px;
-  position: relative;
-  transition: 0.2s background-color ease;
-  border-radius: 6px;
-}
-.l-header-logo:hover {
-  background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
-}
-.l-header__ul {
-  padding: 0;
-  margin: 0;
-  display: flex;
-  gap: 12px; /* 最小間隔を8pxから12pxに変更 */
-  /* スクロールバー非表示 (Firefox) */
-  scrollbar-width: none;
-  /* スクロールバー非表示 (IE/Edge) */
-  -ms-overflow-style: none;
-}
-/* スクロールバー非表示 (WebKit系) - 正しい構文に修正 */
-.l-header__ul::-webkit-scrollbar {
-  display: none;
-}
-.l-header__ul-item {
-  border-radius: 6px;
-  position: relative;
-  transition: 0.2s background-color ease;
-}
-.l-header__ul-item svg {
-  stroke: #ffffff; /* ホワイトモード廃止: アイコン色変更 */
-}
-.l-header__ul-item.is-active svg {
-  fill: #ff6060;
-}
-.l-header__ul-item:hover {
-  background-color: #3c3c3c; /* ホワイトモード廃止: ホバー背景色変更 */
-}
-.l-header__ul-item a {
-  display: block;
-  width: 100%;
-  padding: 12px;
-}
-
 @media (min-width: 769px) {
   .wrapper {
     padding-left: 78px;
@@ -90,24 +40,6 @@ input {
     overflow-y: auto; /* MainContentがはみ出た場合にスクロールできるように */
   }
   /* デスクトップ版ではチャット時でもヘッダーは表示されるのでno-headerクラスは無効 */
-  .l-header--desktop {
-    width: 78px;
-    height: 100%;
-    padding: 50px 14px;
-    top: 0;
-    left: 0;
-    right: 0;
-  }
-  .l-header--desktop .l-header__ul {
-    flex-direction: column;
-    overflow-y: auto; /* スクロールを有効化 */
-    /* ヘッダーの上下padding (50px * 2) + ロゴの高さ (仮に40px) + ロゴのmargin-bottom (25px) を引いた値を最大高さとする */
-    /* ロゴ画像の実際の高さや、ul自体のpadding/marginによって調整が必要 */
-    max-height: calc(100vh - 100px - 40px - 25px);
-  }
-  .l-header--desktop .l-header__ul-item {
-    width: 100%;
-  }
 }
 @media (max-width: 768px) {
   .wrapper {
@@ -128,25 +60,6 @@ input {
     display: flex !important;
     flex-direction: column !important;
     flex: 1 1 auto !important;
-  }
-  .l-header--mobile {
-    width: 100%;
-    height: 64px;
-    padding: 8px;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    display: flex;
-  }
-  .l-header--mobile .l-header__ul {
-    width: 100%;
-    justify-content: space-evenly;
-    overflow-x: auto;
-    white-space: nowrap;
-  }
-  .l-header--mobile .l-header__ul-item {
-    height: 48px;
-    aspect-ratio: 1/1;
   }
 }
 .p-talk {

@@ -1,21 +1,28 @@
 import { JSX } from "solid-js/jsx-runtime";
-import { createSignal, onMount, Show } from "solid-js";
+import { type Accessor, createSignal, onMount, Show } from "solid-js";
 // Import atom state for navigation
 import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
 
-const HeaderButton = (props: { page: AppPage; children: JSX.Element }) => {
+const HeaderButton = (
+  props: {
+    page: AppPage;
+    isMobile: Accessor<boolean>;
+    children: (active: boolean) => JSX.Element;
+  },
+) => {
   const [selectedApp, setSelectedApp] = useAtom(selectedAppState);
+  const isActive = () => selectedApp() === props.page;
 
   return (
     <li
-      class={`l-header__ul-item ${
-        selectedApp() === props.page ? "is-active" : ""
+      class={`relative rounded-md transition-colors duration-200 hover:bg-[#3c3c3c] ${
+        props.isMobile() ? "h-12 aspect-square" : "w-full"
       }`}
       onClick={() => setSelectedApp(props.page)}
     >
-      {props.children}
+      <a class="block w-full p-3">{props.children(isActive())}</a>
     </li>
   );
 };
@@ -46,14 +53,24 @@ export default function ChatHeader() {
   return (
     <Show when={!shouldHideHeader()}>
       <header
-        class={`l-header ${
-          isMobile() ? "l-header--mobile" : "l-header--desktop"
+        class={`bg-[#252526] fixed transition-transform duration-200 ease-[cubic-bezier(0.11,0.91,0.4,0.94)] ${
+          isMobile()
+            ? "w-full h-16 p-2 bottom-0 left-0 right-0 flex"
+            : "w-[78px] h-full py-[50px] px-[14px] top-0 left-0 right-0"
         }`}
+        style={{ "z-index": 4 }}
         id="header"
       >
-        <ul class="l-header__ul">
-          <HeaderButton page="home">
-            <a>
+        <ul
+          class={`flex gap-3 ${
+            isMobile()
+              ? "w-full justify-evenly overflow-x-auto whitespace-nowrap"
+              : "flex-col overflow-y-auto max-h-[calc(100vh_-_100px_-_40px_-_25px)]"
+          }`}
+          style={{ "scrollbar-width": "none", "-ms-overflow-style": "none" }}
+        >
+          <HeaderButton page="home" isMobile={isMobile}>
+            {(active) => (
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -61,7 +78,9 @@ export default function ChatHeader() {
                 height="100%"
                 viewBox="0 0 24 24"
                 aria-labelledby="homeAltIconTitle"
-                stroke="#ffffff"
+                class={`w-full h-full stroke-white ${
+                  active ? "fill-[#ff6060]" : ""
+                }`}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -71,10 +90,10 @@ export default function ChatHeader() {
                 <path d="M3 10.182V22h18V10.182L12 2z" />{" "}
                 <rect width="6" height="8" x="9" y="14" />
               </svg>
-            </a>
+            )}
           </HeaderButton>
-          <HeaderButton page="chat">
-            <a>
+          <HeaderButton page="chat" isMobile={isMobile}>
+            {(active) => (
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -82,7 +101,9 @@ export default function ChatHeader() {
                 height="100%"
                 viewBox="0 0 24 24"
                 aria-labelledby="chatIconTitle"
-                stroke="#ffffff"
+                class={`w-full h-full stroke-white ${
+                  active ? "fill-[#ff6060]" : ""
+                }`}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -91,11 +112,11 @@ export default function ChatHeader() {
                 <title id="chatIconTitle">Chat</title>
                 <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
-            </a>
+            )}
           </HeaderButton>
 
-          <HeaderButton page="tools">
-            <a>
+          <HeaderButton page="tools" isMobile={isMobile}>
+            {(active) => (
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -103,7 +124,9 @@ export default function ChatHeader() {
                 height="100%"
                 viewBox="0 0 24 24"
                 aria-labelledby="searchIconTitle"
-                stroke="#ffffff"
+                class={`w-full h-full stroke-white ${
+                  active ? "fill-[#ff6060]" : ""
+                }`}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -113,11 +136,11 @@ export default function ChatHeader() {
                 <circle cx="11" cy="11" r="8" />
                 <path d="M21 21l-4.35-4.35" />
               </svg>
-            </a>
+            )}
           </HeaderButton>
 
-          <HeaderButton page="microblog">
-            <a>
+          <HeaderButton page="microblog" isMobile={isMobile}>
+            {(active) => (
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -125,7 +148,9 @@ export default function ChatHeader() {
                 height="100%"
                 viewBox="0 0 24 24"
                 aria-labelledby="microblogIconTitle"
-                stroke="#ffffff"
+                class={`w-full h-full stroke-white ${
+                  active ? "fill-[#ff6060]" : ""
+                }`}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -135,11 +160,11 @@ export default function ChatHeader() {
                 <path d="M4 21h16" />
                 <path d="M15.232 5.232l3.536 3.536L9 18.536H5.464V15L15.232 5.232z" />
               </svg>
-            </a>
+            )}
           </HeaderButton>
 
-          <HeaderButton page="videos">
-            <a>
+          <HeaderButton page="videos" isMobile={isMobile}>
+            {(active) => (
               <svg
                 role="img"
                 xmlns="http://www.w3.org/2000/svg"
@@ -147,7 +172,9 @@ export default function ChatHeader() {
                 height="100%"
                 viewBox="0 0 24 24"
                 aria-labelledby="videosIconTitle"
-                stroke="#ffffff"
+                class={`w-full h-full stroke-white ${
+                  active ? "fill-[#ff6060]" : ""
+                }`}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -157,7 +184,7 @@ export default function ChatHeader() {
                 <polygon points="23 7 16 12 23 17 23 7" />
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
               </svg>
-            </a>
+            )}
           </HeaderButton>
         </ul>
       </header>
