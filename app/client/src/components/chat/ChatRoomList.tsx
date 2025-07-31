@@ -15,24 +15,32 @@ interface ChatRoomListProps {
 
 export function ChatRoomList(props: ChatRoomListProps) {
   return (
-    <div class="p-talk-list min-h-screen">
-      <div class="p-talk-list-title">チャット</div>
-      <div class="p-talk-list-search">
-        <input type="text" placeholder="チャンネルを検索..." />
+    <div class="min-h-screen p-3 pb-[76px] bg-[#1e1e1e] z-[3] w-screen lg:w-[360px] lg:flex-none lg:shrink-0 lg:border-r lg:border-[#333333]">
+      <div class="text-[32px] mt-[6px] mx-[3px] mb-[12px] font-bold text-white">
+        チャット
+      </div>
+      <div class="block">
+        <input
+          type="text"
+          placeholder="チャンネルを検索..."
+          class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
+        />
         <Show when={props.showAds}>
           <div class="my-2">
             <GoogleAd />
           </div>
         </Show>
       </div>
-      <div class="p-talk-list-rooms pb-14 scrollbar">
-        <ul class="p-talk-list-rooms__ul h-[calc(100vh-120px)] pb-[70px] scrollbar">
+      <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
+        <ul class="w-full h-[calc(100vh-120px)] pb-[70px] scrollbar">
           <For each={props.rooms}>
             {(room) => (
               <li
-                class={`c-talk-rooms ${
-                  props.selectedRoom === room.id ? "is-active" : ""
-                } flex items-center cursor-pointer`}
+                class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
+                  props.selectedRoom === room.id
+                    ? "bg-[#4a4a4a]"
+                    : "hover:bg-[#3c3c3c]"
+                }`}
                 onClick={() => props.onSelect(room.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -44,10 +52,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
                 onTouchCancel={props.onCancelLongPress}
               >
                 <div class="flex items-center w-full">
-                  <span
-                    class="c-talk-rooms-icon"
-                    style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;"
-                  >
+                  <span class="relative block h-full aspect-square flex items-center justify-center w-[40px] h-[40px]">
                     {isUrl(room.avatar) ||
                         (typeof room.avatar === "string" &&
                           room.avatar.startsWith("data:image/"))
@@ -55,42 +60,27 @@ export function ChatRoomList(props: ChatRoomListProps) {
                         <img
                           src={room.avatar}
                           alt="avatar"
-                          style={{
-                            width: "40px",
-                            height: "40px",
-                            "object-fit": "cover",
-                            "border-radius": "50%",
-                          }}
+                          class="w-[40px] h-[40px] object-cover rounded-full"
                         />
                       )
                       : (
                         <span
-                          style={{
-                            width: "40px",
-                            height: "40px",
-                            display: "flex",
-                            "align-items": "center",
-                            "justify-content": "center",
-                            background: room.type === "memo"
-                              ? "#16a34a"
-                              : "#444",
-                            color: "#fff",
-                            "border-radius": "50%",
-                            "font-size": "20px",
-                          }}
+                          class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
+                            room.type === "memo" ? "bg-green-600" : "bg-[#444]"
+                          }`}
                         >
                           {room.avatar}
                         </span>
                       )}
                   </span>
-                  <span class="c-talk-rooms-box w-full">
-                    <span class="c-talk-rooms-name flex justify-between items-center w-full">
-                      <span class="c-talk-rooms-nickname" style="flex:1;">
+                  <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
+                    <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
+                      <span class="font-bold flex-1">
                         {room.name}
                       </span>
                       <span
-                        class="c-talk-rooms-time text-xs text-gray-500 whitespace-nowrap"
-                        style="margin-left:auto; text-align:right;"
+                        class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
+                        style="text-align:right;"
                       >
                         {room.lastMessageTime
                           ? room.lastMessageTime.toLocaleTimeString([], {
@@ -100,7 +90,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
                           : ""}
                       </span>
                     </span>
-                    <span class="c-talk-rooms-msg flex justify-between items-center">
+                    <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
                       <p class="truncate">{room.lastMessage}</p>
                     </span>
                   </span>
