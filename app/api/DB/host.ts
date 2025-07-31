@@ -305,7 +305,7 @@ export class MongoDBHost implements DB {
 
   async getPublicNotes(limit: number, before?: Date) {
     const filter: Record<string, unknown> = {
-      to: "https://www.w3.org/ns/activitystreams#Public",
+      "aud.to": "https://www.w3.org/ns/activitystreams#Public",
     };
     if (before) filter.created_at = { $lt: before };
     return await this.searchObjects(
