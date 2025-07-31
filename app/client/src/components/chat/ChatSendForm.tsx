@@ -186,39 +186,25 @@ export function ChatSendForm(props: ChatSendFormProps) {
             </div>
           </Show>
           <div class="relative flex items-center gap-1 flex-1 border border-[#333333] bg-[#3c3c3c] rounded-[16px] shadow-[1px_1px_10px_rgba(0,0,0,0.2)] pr-2">
-            <div
-              class="w-full h-full text-[15px] py-[10px] pl-4 m-0 overflow-hidden whitespace-pre-wrap break-words invisible bg-transparent text-white"
-              aria-hidden="true"
-              style="min-width:0;"
-            >
-              {props.newMessage.split("\n").map((row) => (
-                <>
-                  {row}
-                  <br />
-                </>
-              ))}
-            </div>
-            <label class="flex-1 absolute inset-0 pr-12">
-              <textarea
-                id="msg"
-                class="w-full h-full text-[15px] py-[10px] pl-4 m-0 resize-none bg-transparent whitespace-pre-wrap break-words text-white"
-                rows="1"
-                ref={(el) => (textareaRef = el)}
-                value={props.newMessage}
-                placeholder="メッセージを入力"
-                style="min-height:32px;max-height:80px;"
-                onInput={(e) => {
-                  props.setNewMessage(e.currentTarget.value);
-                  adjustHeight(textareaRef);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    props.sendMessage();
-                  }
-                }}
-              />
-            </label>
+            <textarea
+              id="msg"
+              class="flex-1 w-full text-[15px] m-0 resize-none bg-transparent whitespace-pre-wrap break-words text-white"
+              rows="1"
+              ref={(el) => (textareaRef = el)}
+              value={props.newMessage}
+              placeholder="メッセージを入力"
+              style="box-sizing:border-box;min-height:32px;max-height:120px;padding:10px 48px 10px 16px;overflow:auto;"
+              onInput={(e) => {
+                props.setNewMessage(e.currentTarget.value);
+                adjustHeight(textareaRef);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  props.sendMessage();
+                }
+              }}
+            />
           </div>
         </div>
         <div

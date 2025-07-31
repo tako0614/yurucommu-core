@@ -32,6 +32,20 @@ input {
   border: 1px solid #333333; /* ホワイトモード廃止: 入力欄ボーダー色変更 */
 }
 
+/* フォーカス時に枠が太くなる/青いアウトラインが出るのを抑制 */
+input:focus,
+textarea:focus,
+button:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* 可能ならフォーカス可視性は色だけで表現（太くしない） */
+input:focus,
+textarea:focus {
+  border-color: #4a90e2; /* 任意: わずかに色だけ変える。不要ならこの2行を削除可 */
+}
+
 .c-talk-chat {
   display: flex;
   margin-top: 3px;
