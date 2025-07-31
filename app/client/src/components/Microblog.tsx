@@ -11,6 +11,8 @@ import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
+import { Trends } from "./microblog/Trends.tsx";
+import { createMemo } from "solid-js";
 import {
   createPost,
   deletePost,
@@ -30,6 +32,7 @@ export function Microblog() {
   const [tab, setTab] = createSignal<"following" | "latest">(
     "following",
   );
+  const [mobileTab, setMobileTab] = createSignal<"following" | "latest" | "trends">("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -126,7 +129,7 @@ export function Microblog() {
         const currentPostId = targetPostId();
         if (currentPostId) {
           // If we're viewing a post, check if the new post is a reply to it
-          if (data.post.replyTo === currentPostId) {
+          if (data.post.parentId === currentPostId) {
             setSelectedPostReplies((prev) => [data.post, ...prev]);
           }
           return;
@@ -183,22 +186,25 @@ export function Microblog() {
   });
 
   const filteredPosts = () => {
-    const query = searchQuery().toLowerCase();
-    let postsToFilter: MicroblogPost[] = [];
-
+    // 検索を無効化: クエリフィルタせずそのまま返却
     if (tab() === "latest") {
-      postsToFilter = posts() || [];
-    } else if (tab() === "following") {
-      postsToFilter = followingTimelinePosts() || [];
+      return posts() || [];
     }
+    if (tab() === "following") {
+      return followingTimelinePosts() || [];
+    }
+    return [];
+  };
 
-    if (!query) return postsToFilter;
-    return postsToFilter.filter((post) =>
-      post.content.toLowerCase().includes(query) ||
-      post.userName.toLowerCase().includes(query) ||
-      (post.hashtags &&
-        post.hashtags.some((tag) => tag.toLowerCase().includes(query)))
-    );
+  const filteredPostsMobile = () => {
+    // モバイル時: 検索無効化。タブに応じてそのまま返す
+    if (mobileTab() === "latest") {
+      return posts() || [];
+    }
+    if (mobileTab() === "following") {
+      return followingTimelinePosts() || [];
+    }
+    return []; // trends のときは投稿リストは表示しない
   };
 
   const _handleSubmit = async (e: Event) => {
@@ -346,65 +352,22 @@ export function Microblog() {
     return new Date(dateString).toLocaleString("ja-JP");
   };
 
+  const isDesktop = createMemo(() => window.matchMedia("(min-width: 1024px)").matches);
+
   return (
     <>
-      <style>
-        {`
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .tab-btn { 
-          @apply px-4 py-2 font-medium transition-all duration-200 ease-in-out;
-          border-radius: 8px;
-          background: transparent;
-          color: #9ca3af;
-          border-bottom: 2px solid transparent;
-        }
-        .tab-btn:hover {
-          color: #d1d5db;
-          background: rgba(75, 85, 99, 0.3);
-        }
-        .tab-btn-active { 
-          color: #ffffff;
-          background: rgba(59, 130, 246, 0.1);
-          border-bottom-color: #3b82f6;
-        }
-        .tab-btn-active:hover {
-          background: rgba(59, 130, 246, 0.15);
-        }
-      `}
-      </style>
+      
       <div class="min-h-screen text-white relative">
         <Show
           when={targetPostId() && selectedPost()}
           fallback={
             <>
               {/* Header + Tabs */}
-              <div class="sticky top-0 z-20 backdrop-blur-md border-b border-gray-800">
-                <div class="max-w-2xl mx-auto px-4 py-4 flex flex-col gap-2">
+              <div class="sticky top-0 z-20 backdrop-blur-md border-gray-800">
+                <div class="w-full px-6 py-4 flex flex-col gap-2">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2"></div>
-                    <div class="flex justify-end flex-1 relative">
-                      <input
-                        type="text"
-                        placeholder="投稿・ユーザー・タグ検索"
-                        value={searchQuery()}
-                        onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                        class="bg-gray-800 rounded-full px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <svg
-                        class="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
-                      </svg>
-                    </div>
+                    <div class="flex-1" />
                     <div class="ml-4">
                       <select
                         value={limit()}
@@ -422,58 +385,98 @@ export function Microblog() {
                     </div>
                   </div>
                   {/* Tabs */}
-                  <div class="flex gap-4 justify-center">
-                    <button
-                      type="button"
-                      class={`tab-btn ${
-                        tab() === "following" ? "tab-btn-active" : ""
-                      }`}
-                      onClick={() => setTab("following")}
-                    >
-                      フォロー中
-                    </button>
-                    <button
-                      type="button"
-                      class={`tab-btn ${
-                        tab() === "latest" ? "tab-btn-active" : ""
-                      }`}
-                      onClick={() => setTab("latest")}
-                    >
-                      新しい順
-                    </button>
+                  <div class="flex justify-center">
+                    {/* デスクトップ: タブ非表示 / モバイルのみ表示 */}
+                    <div class={`${isDesktop() ? "hidden" : "flex"} gap-4 w-full justify-center`}>
+                      <button
+                        type="button"
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "following" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
+                        onClick={() => setMobileTab("following")}
+                      >
+                        フォロー中
+                      </button>
+                      <button
+                        type="button"
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "latest" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
+                        onClick={() => setMobileTab("latest")}
+                      >
+                        新しい順
+                      </button>
+                      <button
+                        type="button"
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "trends" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
+                        onClick={() => setMobileTab("trends")}
+                      >
+                        トレンド
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="max-w-2xl mx-auto">
-                <PostList
-                  posts={filteredPosts()}
-                  tab={tab()}
-                  handleReply={handleReply}
-                  handleRetweet={handleRetweet}
-                  handleQuote={handleQuote}
-                  handleLike={handleLike}
-                  handleEdit={handleEdit}
-                  handleDelete={handleDelete}
-                  formatDate={formatDate}
-                />
-                <Show
-                  when={tab() === "following" && filteredPosts().length === 0}
-                >
-                  <div class="p-8 text-center">
-                    <p class="text-gray-400 text-lg">
-                      フォロー中の投稿はありません
-                    </p>
-                    <p class="text-gray-500 text-sm mt-2">
-                      気になるユーザーをフォローしてみましょう
-                    </p>
+
+              {/* 本文レイアウト: デスクトップ3カラム（左:最新 / 中央:フォロー中 / 右:トレンド） / モバイル1カラム */}
+              <div class="w-full px-6 grid gap-[clamp(16px,2vw,32px)] grid-cols-[1fr_1fr_0.8fr] max-[1023px]:block">
+                {/* 左カラム（デスクトップ: 新しい順） / モバイル: タブがlatestのとき */}
+                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pr-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "latest" ? "" : "hidden")} relative`}>
+                  {/* 左と中央の区切り（デスクトップのみ） */}
+                  <div class="hidden lg:block absolute top-0 -right-[0.75vw] w-px h-full bg-gradient-to-b from-transparent via-gray-500/25 to-transparent pointer-events-none"></div>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>新しい順</h3>
+                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
+                    <PostList
+                      posts={isDesktop() ? (posts() || []) : filteredPostsMobile()}
+                      tab={"latest" as any}
+                      handleReply={handleReply}
+                      handleRetweet={handleRetweet}
+                      handleQuote={handleQuote}
+                      handleLike={handleLike}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      formatDate={formatDate}
+                    />
                   </div>
-                </Show>
-                <div ref={(el) => (sentinel = el)} class="h-4"></div>
-                {loadingMore() && (
-                  <div class="text-center py-4 text-gray-400">
-                    読み込み中...
+                </div>
+
+                {/* 中央カラム（デスクトップ: フォロー中＝メイン） / モバイル: タブがfollowingのとき */}
+                <div class={`w-full rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "following" ? "" : "hidden")} max-w-full overflow-x-hidden`}>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>フォロー中</h3>
+                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
+                    <PostList
+                      posts={isDesktop() ? (followingTimelinePosts() || []) : filteredPostsMobile()}
+                      tab={"following" as any}
+                      handleReply={handleReply}
+                      handleRetweet={handleRetweet}
+                      handleQuote={handleQuote}
+                      handleLike={handleLike}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      formatDate={formatDate}
+                    />
                   </div>
-                )}
+                  <Show when={(!isDesktop()) && mobileTab() === "following" && filteredPostsMobile().length === 0}>
+                    <div class="p-8 text-center">
+                      <p class="text-gray-400 text-lg">
+                        フォロー中の投稿はありません
+                      </p>
+                      <p class="text-gray-500 text-sm mt-2">
+                        気になるユーザーをフォローしてみましょう
+                      </p>
+                    </div>
+                  </Show>
+                  <div ref={(el) => (sentinel = el)} class="h-4" style={`display: ${isDesktop() ? "none" : "block"}`}></div>
+                  {(!isDesktop()) && loadingMore() && (
+                    <div class="text-center py-4 text-gray-400">
+                      読み込み中...
+                    </div>
+                  )}
+                </div>
+
+                {/* 右カラム（デスクトップ: トレンド） / モバイル: タブがtrendsのとき */}
+                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pl-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "trends" ? "" : "hidden")} max-w-full`}>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>トレンド</h3>
+                  <div class="text-sm max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
+                    <Trends />
+                  </div>
+                </div>
               </div>
             </>
           }

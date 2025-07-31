@@ -462,3 +462,17 @@ export const fetchFollowing = async (username: string) => {
     return [];
   }
 };
+
+// トレンドを取得
+export const fetchTrends = async (): Promise<
+  { tag: string; count: number }[]
+> => {
+  try {
+    const res = await apiFetch("/api/trends");
+    if (!res.ok) throw new Error("Failed to fetch trends");
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching trends:", error);
+    return [];
+  }
+};
