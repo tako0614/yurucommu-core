@@ -25,14 +25,15 @@ export function ChatMessageList(props: ChatMessageListProps) {
           {(message, i) => {
             const prev = props.messages[i() - 1];
             const isPrimary = !prev || prev.author !== message.author;
-            const cls = `c-talk-chat ${message.isMe ? "self" : "other"} ${
-              isPrimary ? "primary" : "subsequent"
-            }`;
             return (
-              <li class={cls}>
-                <div class="c-talk-chat-box">
+              <li
+                class={`relative z-0 flex mt-[3px] ${
+                  isPrimary ? "mt-[10px]" : ""
+                } ${message.isMe ? "justify-end mr-3" : ""}`}
+              >
+                <div class="flex max-w-[80%]">
                   <Show when={!message.isMe && isPrimary}>
-                    <div class="c-talk-chat-icon">
+                    <div class="h-9 aspect-square">
                       {isUrl(message.avatar) ||
                           (typeof message.avatar === "string" &&
                             message.avatar.startsWith("data:image/"))
@@ -46,9 +47,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         : message.avatar}
                     </div>
                   </Show>
-                  <div class="c-talk-chat-right">
+                  <div class="flex-grow">
                     <Show when={!message.isMe && isPrimary}>
-                      <p class="c-talk-chat-name">{message.displayName}</p>
+                      <p class="text-[10px] font-bold my-[2px] ml-[10px] text-[#bbbbbb]">
+                        {message.displayName}
+                      </p>
                     </Show>
                     <div class="flex items-end">
                       <Show when={message.isMe}>
@@ -59,9 +62,23 @@ export function ChatMessageList(props: ChatMessageListProps) {
                           })}
                         </span>
                       </Show>
-                      <div class="c-talk-chat-msg">
+                      <div
+                        class={`relative px-[12px] py-[6px] rounded-[12px] z-[2] text-[15px] leading-[20px] w-fit ${
+                          message.isMe
+                            ? "bg-[#ff3b3b] text-white shadow-[1px_1px_10px_rgba(0,0,0,0.2)]"
+                            : "bg-[#3c3c3c] text-white shadow-[1px_1px_10px_rgba(0,0,0,0.2)]"
+                        } ${
+                          !message.isMe && isPrimary
+                            ? "ml-[10px] rounded-tl-[2px]"
+                            : ""
+                        } ${!message.isMe && !isPrimary ? "ml-[46px]" : ""} ${
+                          message.isMe && isPrimary ? "rounded-tr-[2px]" : ""
+                        }`}
+                      >
                         <Show when={message.content}>
-                          <p>{message.content}</p>
+                          <p class="w-fit max-w-full break-all">
+                            {message.content}
+                          </p>
                         </Show>
                         <Show
                           when={message.attachments &&
