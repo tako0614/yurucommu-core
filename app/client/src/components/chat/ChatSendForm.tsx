@@ -42,14 +42,15 @@ export function ChatSendForm(props: ChatSendFormProps) {
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
+              width="24"
+              height="24"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="2.2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              style="display:block"
             >
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -67,14 +68,15 @@ export function ChatSendForm(props: ChatSendFormProps) {
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
+                  width="20"
+                  height="20"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="2"
+                  stroke-width="2.2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
+                  style="display:block"
                 >
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                   <circle cx="8.5" cy="8.5" r="1.5"></circle>
@@ -117,14 +119,15 @@ export function ChatSendForm(props: ChatSendFormProps) {
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
+            width="24"
+            height="24"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
+            stroke-width="2.2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            style="display:block"
           >
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
             <circle cx="8.5" cy="8.5" r="1.5"></circle>
@@ -242,26 +245,32 @@ export function ChatSendForm(props: ChatSendFormProps) {
             fallback={
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="h-6 w-6"
-                viewBox="0 0 24 24"
+                class="h-7 w-7"
+                viewBox="0 0 512 512"
+                style="color:#ffffff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));display:block"
                 fill="currentColor"
-                style="color:#ffffff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));"
               >
-                <path
-                  fill="#ffffff"
-                  fill-rule="evenodd"
-                  d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a7 7 0 0014 0v-1a1 1 0 10-2 0v1a5 5 0 11-10 0v-1a1 1 0 10-2 0v1z"
-                  clip-rule="evenodd"
-                />
+                <g>
+                  <path d="M397.749,224.857v26.108c-0.01,39.105-15.863,74.438-41.566,100.174
+		c-25.73,25.702-61.068,41.561-100.18,41.572c-39.111-0.011-74.449-15.87-100.18-41.572
+		c-25.708-25.736-41.567-61.069-41.572-100.174v-26.108h-34.6v26.108c0.028,89.441,66.897,163.282,153.286,174.657V512h46.134
+		v-86.378c86.388-11.375,153.246-85.216,153.28-174.657v-26.108H397.749z" />
+                  <path d="M256.003,340.811c49.592-0.033,89.818-40.254,89.851-89.846V89.857C345.821,40.266,305.6,0.034,256.003,0
+		c-49.597,0.034-89.818,40.266-89.852,89.857v161.108C166.185,300.557,206.411,340.778,256.003,340.811z M200.752,89.857
+		c0.006-15.261,6.166-28.98,16.208-39.049c10.069-10.047,23.782-16.196,39.044-16.22c15.262,0.023,28.974,6.173,39.044,16.22
+		c10.041,10.069,16.202,23.788,16.208,39.049v161.108c-0.006,15.261-6.166,28.98-16.208,39.037
+		c-10.064,10.036-23.782,16.196-39.044,16.208c-15.262-0.012-28.98-6.172-39.044-16.208c-10.041-10.057-16.202-23.776-16.208-39.037
+		V89.857z" />
+                </g>
               </svg>
             }
           >
             <svg
-              class="h-6 w-6"
+              class="h-7 w-7"
               viewBox="0 0 28 28"
               xmlns="http://www.w3.org/2000/svg"
               fill="currentColor"
-              style="color:#ffffff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));"
+              style="color:#ffffff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));display:block"
             >
               <g stroke="none" stroke-width="1" fill="none" style="fill:none">
                 <g>
@@ -280,13 +289,14 @@ export function ChatSendForm(props: ChatSendFormProps) {
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-6 w-6"
+              class="h-7 w-7"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="2.2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              style="display:block"
             >
               <rect x="9" y="2" width="6" height="12" rx="3" />
               <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
