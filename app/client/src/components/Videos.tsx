@@ -585,8 +585,22 @@ export function Videos() {
       <Show when={currentView() === "shorts"}>
         <div class="flex-1 relative bg-black">
           {/* 縦スクロール動画ビューア */}
-          <div class="h-screen overflow-hidden">
-            <Show when={shortVideos().length > 0}>
+          <div class="h-screen overflow-hidden flex items-center justify-center">
+            <Show
+              when={shortVideos().length > 0}
+              fallback={
+                <div class="text-center space-y-4">
+                  <p class="text-white">ショート動画がありません</p>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView("timeline")}
+                    class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                  >
+                    タイムラインに戻る
+                  </button>
+                </div>
+              }
+            >
               <div class="relative h-full flex items-center justify-center">
                 {(() => {
                   const currentShort = shortVideos()[selectedShortIndex()];
