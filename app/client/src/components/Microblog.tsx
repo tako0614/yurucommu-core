@@ -356,110 +356,7 @@ export function Microblog() {
 
   return (
     <>
-      <style>
-        {`
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .tab-btn { 
-          @apply px-4 py-2 font-medium transition-all duration-200 ease-in-out;
-          border-radius: 8px;
-          background: transparent;
-          color: #9ca3af;
-          border-bottom: 2px solid transparent;
-        }
-        .tab-btn:hover {
-          color: #d1d5db;
-          background: rgba(75, 85, 99, 0.3);
-        }
-        .tab-btn-active { 
-          color: #ffffff;
-          background: rgba(59, 130, 246, 0.1);
-          border-bottom-color: #3b82f6;
-        }
-        .tab-btn-active:hover {
-          background: rgba(59, 130, 246, 0.15);
-        }
-        .layout-desktop {
-          display: grid;
-          /* 右（トレンド）を少し小さくする配分 */
-          grid-template-columns: 1fr 1fr 0.8fr;
-          gap: clamp(16px, 2vw, 32px);
-        }
-        .col-card {
-          background: rgba(31, 41, 55, 0.25); /* 彩度/不透明度を下げて控えめに */
-          border: 1px solid rgba(107, 114, 128, 0.18); /* ボーダーも薄めに */
-          border-radius: 10px;
-          backdrop-filter: blur(2px); /* ブラーも弱めに */
-        }
-        .col-divider {
-          position: relative;
-        }
-        /* 左カラム（最新）の右側だけ薄い仕切り線を出す */
-        .col-divider.left::after {
-          content: "";
-          position: absolute;
-          top: 0;
-          right: -0.75vw;
-          width: 1px;
-          height: 100%;
-          background: linear-gradient(
-            to bottom,
-            transparent,
-            rgba(107,114,128,0.25) 18%,
-            rgba(107,114,128,0.25) 82%,
-            transparent
-          );
-        }
-        /* 中央と右の間（フォロー中とトレンドの間）は線を出さない */
-        .col-divider.center::after {
-          display: none;
-        }
-        @media (max-width: 1023px) {
-          .col-divider.left::after,
-          .col-divider.center::after {
-            display: none;
-          }
-        }
-        @media (max-width: 1023px) {
-          .col-divider::after {
-            display: none;
-          }
-        }
-        @media (max-width: 1023px) {
-          .layout-desktop {
-            display: block;
-          }
-        }
-        .sticky-col {
-          position: sticky;
-          top: 72px;
-          /* sticky領域の高さを少し伸ばしつつ、左右に余白を確保 */
-          height: calc(100vh - 96px);
-          overflow-y: auto;
-          overflow-x: hidden; /* X軸スクロールを抑止 */
-        }
-        .no-x-scroll {
-          overflow-x: hidden; /* カード全体でも水平スクロール抑止 */
-        }
-        .fit-width {
-          max-width: 100%;
-          width: 100%;
-          box-sizing: border-box;
-        }
-        .content-wrap {
-          max-width: 100%;
-          overflow-x: hidden; /* 内部要素のはみ出しを抑止 */
-        }
-        .content-wrap * {
-          max-width: 100%;
-        }
-        .content-wrap img, .content-wrap video, .content-wrap audio, .content-wrap iframe {
-          max-width: 100%;
-          height: auto;
-          display: block;
-        }
-      `}
-      </style>
+      
       <div class="min-h-screen text-white relative">
         <Show
           when={targetPostId() && selectedPost()}
@@ -488,27 +385,26 @@ export function Microblog() {
                     </div>
                   </div>
                   {/* Tabs */}
-                  <div class="flex gap-4 justify-center">
-                    {/* デスクトップ: タブは表示せず（3カラムで常時表示） */}
-                    {/* モバイル: タブで切替 */}
-                    <div style={`display: ${isDesktop() ? "none" : "flex"}`} class="gap-4 justify-center w-full">
+                  <div class="flex justify-center">
+                    {/* デスクトップ: タブ非表示 / モバイルのみ表示 */}
+                    <div class={`${isDesktop() ? "hidden" : "flex"} gap-4 w-full justify-center`}>
                       <button
                         type="button"
-                        class={`tab-btn ${mobileTab() === "following" ? "tab-btn-active" : ""}`}
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "following" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
                         onClick={() => setMobileTab("following")}
                       >
                         フォロー中
                       </button>
                       <button
                         type="button"
-                        class={`tab-btn ${mobileTab() === "latest" ? "tab-btn-active" : ""}`}
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "latest" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
                         onClick={() => setMobileTab("latest")}
                       >
                         新しい順
                       </button>
                       <button
                         type="button"
-                        class={`tab-btn ${mobileTab() === "trends" ? "tab-btn-active" : ""}`}
+                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "trends" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
                         onClick={() => setMobileTab("trends")}
                       >
                         トレンド
@@ -519,12 +415,13 @@ export function Microblog() {
               </div>
 
               {/* 本文レイアウト: デスクトップ3カラム（左:最新 / 中央:フォロー中 / 右:トレンド） / モバイル1カラム */}
-              <div class="w-full px-6 layout-desktop">
+              <div class="w-full px-6 grid gap-[clamp(16px,2vw,32px)] grid-cols-[1fr_1fr_0.8fr] max-[1023px]:block">
                 {/* 左カラム（デスクトップ: 新しい順） / モバイル: タブがlatestのとき */}
-                <div class="sticky-col pr-2 col-card col-divider left no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "latest" ? "block" : "none"}`}
-                >
-                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>新しい順</h3>
-                  <div class="content-wrap">
+                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pr-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "latest" ? "" : "hidden")} relative`}>
+                  {/* 左と中央の区切り（デスクトップのみ） */}
+                  <div class="hidden lg:block absolute top-0 -right-[0.75vw] w-px h-full bg-gradient-to-b from-transparent via-gray-500/25 to-transparent pointer-events-none"></div>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>新しい順</h3>
+                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
                     <PostList
                       posts={isDesktop() ? (posts() || []) : filteredPostsMobile()}
                       tab={"latest" as any}
@@ -540,10 +437,9 @@ export function Microblog() {
                 </div>
 
                 {/* 中央カラム（デスクトップ: フォロー中＝メイン） / モバイル: タブがfollowingのとき */}
-                <div class="w-full col-card col-divider center no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "following" ? "block" : "none"}`}
-                >
-                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>フォロー中</h3>
-                  <div class="content-wrap">
+                <div class={`w-full rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "following" ? "" : "hidden")} max-w-full overflow-x-hidden`}>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>フォロー中</h3>
+                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
                     <PostList
                       posts={isDesktop() ? (followingTimelinePosts() || []) : filteredPostsMobile()}
                       tab={"following" as any}
@@ -575,10 +471,9 @@ export function Microblog() {
                 </div>
 
                 {/* 右カラム（デスクトップ: トレンド） / モバイル: タブがtrendsのとき */}
-                <div class="sticky-col pl-2 col-card no-x-scroll fit-width" style={`display: ${isDesktop() ? "block" : mobileTab() === "trends" ? "block" : "none"}`}
-                >
-                  <h3 class="text-sm text-gray-400 font-semibold px-3 py-2" style={`display: ${isDesktop() ? "block" : "none"}`}>トレンド</h3>
-                  <div class="text-sm content-wrap">
+                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pl-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "trends" ? "" : "hidden")} max-w-full`}>
+                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>トレンド</h3>
+                  <div class="text-sm max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
                     <Trends />
                   </div>
                 </div>
