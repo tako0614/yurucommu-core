@@ -41,7 +41,6 @@ export function Microblog() {
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
-  const [searchQuery, setSearchQuery] = createSignal("");
   const [limit, setLimit] = createSignal(20);
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
