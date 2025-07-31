@@ -30,7 +30,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
   return (
     <div class="relative bg-[#1e1e1e]">
       <form
-        class="p-talk-chat-send__form py-1"
+        class="flex items-end gap-[6px] bg-[#252526] h-full py-1"
         onSubmit={(e) => e.preventDefault()}
       >
         <div class="relative">
@@ -182,9 +182,9 @@ export function ChatSendForm(props: ChatSendFormProps) {
               </Switch>
             </div>
           </Show>
-          <div class="p-talk-chat-send__msg flex items-center gap-1 flex-1">
+          <div class="relative flex items-center gap-1 flex-1 border border-[#333333] bg-[#3c3c3c] rounded-[16px] shadow-[1px_1px_10px_rgba(0,0,0,0.2)]">
             <div
-              class="p-talk-chat-send__dummy"
+              class="w-full h-full text-[15px] py-[10px] pl-4 m-0 overflow-hidden whitespace-pre-wrap break-words invisible bg-transparent text-white"
               aria-hidden="true"
               style="min-width:0;"
             >
@@ -195,10 +195,10 @@ export function ChatSendForm(props: ChatSendFormProps) {
                 </>
               ))}
             </div>
-            <label class="flex-1">
+            <label class="flex-1 absolute inset-0">
               <textarea
                 id="msg"
-                class="p-talk-chat-send__textarea w-full py-1 px-2 text-base leading-tight resize-none"
+                class="w-full h-full text-[15px] py-[10px] pl-4 m-0 resize-none bg-transparent whitespace-pre-wrap break-words text-white"
                 rows="1"
                 ref={(el) => (textareaRef = el)}
                 value={props.newMessage}
@@ -220,10 +220,10 @@ export function ChatSendForm(props: ChatSendFormProps) {
         </div>
         <div
           class={props.useEncryption && !props.encryptionKey
-            ? "p-talk-chat-send__button opacity-50 cursor-not-allowed"
+            ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent opacity-50 cursor-not-allowed text-white"
             : props.newMessage.trim() || props.mediaFile
-            ? "p-talk-chat-send__button is-active"
-            : "p-talk-chat-send__button"}
+            ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#ff3b3b] cursor-pointer hover:bg-[#db3232] text-white"
+            : "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent cursor-default text-white"}
           style="min-height:28px;"
           title={props.useEncryption && !props.encryptionKey
             ? "暗号化キー未入力のため送信できません"
@@ -242,7 +242,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
             fallback={
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5"
+                class="h-6 w-6"
                 viewBox="0 0 24 24"
                 fill="currentColor"
               >
@@ -255,14 +255,13 @@ export function ChatSendForm(props: ChatSendFormProps) {
             }
           >
             <svg
-              width="800px"
-              height="800px"
+              class="h-6 w-6"
               viewBox="0 0 28 28"
-              version="1.1"
               xmlns="http://www.w3.org/2000/svg"
+              fill="currentColor"
             >
               <g stroke="none" stroke-width="1" fill="none">
-                <g fill="#000000">
+                <g>
                   <path d="M3.78963301,2.77233335 L24.8609339,12.8499121 C25.4837277,13.1477699 25.7471402,13.8941055 25.4492823,14.5168992 C25.326107,14.7744476 25.1184823,14.9820723 24.8609339,15.1052476 L3.78963301,25.1828263 C3.16683929,25.4806842 2.42050372,25.2172716 2.12264586,24.5944779 C1.99321184,24.3238431 1.96542524,24.015685 2.04435886,23.7262618 L4.15190935,15.9983421 C4.204709,15.8047375 4.36814355,15.6614577 4.56699265,15.634447 L14.7775879,14.2474874 C14.8655834,14.2349166 14.938494,14.177091 14.9721837,14.0981464 L14.9897199,14.0353553 C15.0064567,13.9181981 14.9390703,13.8084248 14.8334007,13.7671556 L14.7775879,13.7525126 L4.57894108,12.3655968 C4.38011873,12.3385589 4.21671819,12.1952832 4.16392965,12.0016992 L2.04435886,4.22889788 C1.8627142,3.56286745 2.25538645,2.87569101 2.92141688,2.69404635 C3.21084015,2.61511273 3.51899823,2.64289932 3.78963301,2.77233335 Z" />
                 </g>
               </g>
@@ -273,7 +272,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
           <button
             type="button"
             onClick={() => props.onShowEncryptionKeyForm?.()}
-            class="p-talk-chat-send__button is-active"
+            class="h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#ff3b3b] cursor-pointer hover:bg-[#db3232]"
             title="暗号化キーを設定する"
           >
             <svg

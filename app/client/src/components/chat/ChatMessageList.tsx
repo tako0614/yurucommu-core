@@ -12,14 +12,15 @@ export function ChatMessageList(props: ChatMessageListProps) {
 
   return (
     <div
-      class="p-talk-chat-main flex-grow overflow-y-auto pt-[48px]"
+      class="flex-grow overflow-y-auto pt-[48px]"
+      style={{ "scroll-padding-block-start": "200px" }}
       ref={(el) => (listRef = el)}
       onScroll={() => {
         if (!listRef) return;
         if (listRef.scrollTop < 100) props.onReachTop();
       }}
     >
-      <ul class="p-talk-chat-main__ul">
+      <ul class="p-2 md:p-4">
         <For each={props.messages}>
           {(message, i) => {
             const prev = props.messages[i() - 1];

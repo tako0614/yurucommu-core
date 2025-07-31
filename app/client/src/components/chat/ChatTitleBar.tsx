@@ -10,7 +10,9 @@ interface ChatTitleBarProps {
 export function ChatTitleBar(props: ChatTitleBarProps) {
   return (
     <div
-      class={`p-talk-chat-title ${props.selectedRoom ? "" : "hidden"}`}
+      class={`absolute w-full h-12 flex items-center font-bold text-[20px] border-b border-[#333333] bg-[rgba(30,30,30,0.85)] backdrop-blur-md shadow-[0_3px_18px_rgba(0,0,0,0.2)] text-white z-[2] md:px-[18px] ${
+        props.selectedRoom ? "" : "hidden"
+      }`}
       id="chatHeader"
     >
       <div class="flex items-center gap-2 p-4">

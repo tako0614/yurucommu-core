@@ -706,7 +706,7 @@ export function PostForm(props: {
                       </svg>
                     </button>
                     {showEmojiPicker() && (
-                      <div class="absolute bottom-full mb-2 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700 grid grid-cols-6 gap-2">
+                      <div class="absolute bottom-full mb-2 bg-gray-800 rounded-lg p-3 shadow-lg border border-gray-700 grid grid-cols-6 gap-2 w-[90%] max-w-[90%] sm:w-auto sm:max-w-none">
                         <For each={emojis}>
                           {(emoji) => (
                             <button

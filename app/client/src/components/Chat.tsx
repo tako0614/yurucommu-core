@@ -1003,9 +1003,13 @@ export function Chat(props: ChatProps) {
     <>
       <div class="w-full h-screen overflow-hidden">
         <div
-          class={`p-talk ${
-            isMobile() ? (showRoomList() ? "" : "is-inview") : ""
-          } flex`}
+          class={`${
+            isMobile()
+              ? "w-[200vw] h-dvh flex-row transition-transform duration-200 ease-[cubic-bezier(0.11,0.91,0.4,0.94)]"
+              : "w-full"
+          } flex h-full ${
+            isMobile() ? (showRoomList() ? "" : "-translate-x-[100vw]") : ""
+          }`}
           id="chatmain"
         >
           {/* ルームリスト */}
@@ -1018,7 +1022,7 @@ export function Chat(props: ChatProps) {
             onCancelLongPress={cancelLongPress}
             showAds={showAds()}
           />
-          <div class="p-talk-chat">
+          <div class="flex-grow w-full">
             <Show
               when={selectedRoom()}
               fallback={
@@ -1051,7 +1055,7 @@ export function Chat(props: ChatProps) {
                 </div>
               }
             >
-              <div class="p-talk-chat-container min-h-dvh flex flex-col">
+              <div class="relative flex flex-col bg-[#1e1e1e] min-h-dvh h-full">
                 <ChatTitleBar
                   isMobile={isMobile()}
                   selectedRoom={selectedRoomInfo()}

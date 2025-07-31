@@ -45,10 +45,15 @@ export function Application(props: ApplicationProps) {
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成
   const wrapperClass = () => {
-    const baseClass = "wrapper";
-    const isHeaderHidden = selectedApp() === "chat" && isMobile() &&
+    const headerHidden = selectedApp() === "chat" && isMobile() &&
       selectedRoom() !== null;
-    return isHeaderHidden ? `${baseClass} no-header` : baseClass;
+    return [
+      "flex flex-col flex-1 box-border overflow-y-auto min-h-dvh h-dvh",
+      isMobile() ? "p-0 pb-16 overflow-x-clip" : "pl-[78px]",
+      headerHidden && "pb-0",
+    ]
+      .filter(Boolean)
+      .join(" ");
   };
 
   return (
