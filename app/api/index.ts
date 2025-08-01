@@ -12,4 +12,5 @@ if (env["ACTIVITYPUB_DOMAIN"]) {
   await ensureTenant(db, domain, domain);
 }
 const app = await createTakosApp(env);
-Deno.serve(app.fetch);
+const hostname = env["SERVER_HOST"];
+Deno.serve({ hostname }, app.fetch);

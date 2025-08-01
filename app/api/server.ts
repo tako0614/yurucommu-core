@@ -134,5 +134,6 @@ if (import.meta.main) {
   const env = await loadConfig();
   await connectDatabase(env);
   const app = await createTakosApp(env);
-  Deno.serve(app.fetch);
+  const hostname = env["SERVER_HOST"];
+  Deno.serve({ hostname }, app.fetch);
 }

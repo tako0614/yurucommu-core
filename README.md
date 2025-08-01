@@ -20,6 +20,8 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 ## 🚀 GET started(backend)
 
 環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
+特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`
+を設定してください。
 
 MongoDB にはセッション自動削除用の TTL インデックスが必要です。初回起動前に
 `scripts/create_session_indexes.ts` を実行して `Session` と `HostSession`
