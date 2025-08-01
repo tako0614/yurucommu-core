@@ -107,6 +107,8 @@ OAuth ボタンを表示します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
 
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
+   特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`
+   を設定してください。
 
 ## CLI 管理ツール
 
