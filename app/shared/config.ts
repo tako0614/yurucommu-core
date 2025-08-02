@@ -9,7 +9,22 @@ export async function loadConfig(options?: { envPath?: string }) {
   const key = options?.envPath;
   const cached = cachedEnv.get(key);
   if (cached) return cached;
-  const env = await load(options);
+
+  // Windows での file URL や先頭スラッシュ付パス "/C:/..." をローカルパスに正規化
+  let envPath = options?.envPath;
+  if (envPath) {
+    if (envPath.startsWith("file://")) {
+      // file URL -> ローカルパス
+      envPath = new URL(envPath).pathname;
+    }
+    // "/C:/..." のような先頭スラッシュを除去
+    if (/^\/[A-Za-z]:\//.test(envPath)) {
+      envPath = envPath.slice(1);
+    }
+  }
+
+  const env = await load(envPath ? { envPath } : undefined);
+
   validateEnv(env);
   cachedEnv.set(key, env);
   return env;
