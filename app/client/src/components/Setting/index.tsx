@@ -1,5 +1,8 @@
 import { useAtom } from "solid-jotai";
-import { languageState } from "../../states/settings.ts";
+import {
+  languageState,
+  microblogPostLimitState,
+} from "../../states/settings.ts";
 import { encryptionKeyState, loginState } from "../../states/session.ts";
 import RelaySettings from "./RelaySettings.tsx";
 import { apiFetch } from "../../utils/config.ts";
@@ -11,6 +14,7 @@ export interface SettingProps {
 }
 export function Setting(props: SettingProps) {
   const [language, setLanguage] = useAtom(languageState);
+  const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [, setIsLoggedIn] = useAtom(loginState);
   const [, setEncryptionKey] = useAtom(encryptionKeyState);
   const [accs] = useAtom(accountsAtom);
@@ -42,6 +46,20 @@ export function Setting(props: SettingProps) {
         >
           <option value="ja">日本語</option>
           <option value="en">English</option>
+        </select>
+      </div>
+      <div>
+        <label for="microblogLimit" class="block mb-1">
+          マイクロブログ表示件数
+        </label>
+        <select
+          id="microblogLimit"
+          value={postLimit()}
+          onChange={(e) => setPostLimit(parseInt(e.currentTarget.value, 10))}
+        >
+          <option value="20">20件</option>
+          <option value="50">50件</option>
+          <option value="100">100件</option>
         </select>
       </div>
       <RelaySettings />

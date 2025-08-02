@@ -12,6 +12,7 @@ import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
+import { microblogPostLimitState } from "../states/settings.ts";
 import {
   createPost,
   deletePost,
@@ -39,7 +40,7 @@ export function Microblog() {
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
-  const [limit, setLimit] = createSignal(20);
+  const [limit] = useAtom(microblogPostLimitState);
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
@@ -95,6 +96,15 @@ export function Microblog() {
 
   let observer: IntersectionObserver | undefined;
   let wsCleanup: (() => void) | undefined;
+
+  let lastLimit = limit();
+  createEffect(() => {
+    const current = limit();
+    if (current !== lastLimit) {
+      lastLimit = current;
+      resetPosts();
+    }
+  });
 
   const setupObserver = () => {
     if (observer || !sentinel || targetPostId()) return;
@@ -371,23 +381,6 @@ export function Microblog() {
                     トレンド
                   </button>
                 </div>
-              </div>
-
-              {/* 表示件数セレクター（右上固定） */}
-              <div class="fixed top-4 right-4 z-40 lg:top-6 lg:right-6">
-                <select
-                  value={limit()}
-                  onChange={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    setLimit(v);
-                    resetPosts();
-                  }}
-                  class="bg-[#1B222C]/80 backdrop-blur-sm border border-[#2B3340]/60 rounded-lg px-3 py-2 text-sm text-[#D5D7DB] hover:bg-[#222A35]/80 transition-colors shadow-md"
-                >
-                  <option value="20">20件</option>
-                  <option value="50">50件</option>
-                  <option value="100">100件</option>
-                </select>
               </div>
 
               {/* メインレイアウト: デスクトップ3カラム / モバイル1カラム */}

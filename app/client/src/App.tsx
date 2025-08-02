@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { encryptionKeyState, loginState } from "./states/session.ts";
-import { languageState } from "./states/settings.ts";
+import { languageState, microblogPostLimitState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { EncryptionKeyForm } from "./components/EncryptionKeyForm.tsx";
 import { Application } from "./components/Application.tsx";
@@ -14,6 +14,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
   const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [language, setLanguage] = useAtom(languageState);
+  const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [skippedEncryptionKey, setSkippedEncryptionKey] = createSignal(false);
 
   // 共通の初期データ取得
@@ -31,6 +32,11 @@ function App() {
     const storedLang = localStorage.getItem("language");
     if (storedLang) {
       setLanguage(storedLang);
+    }
+
+    const storedLimit = localStorage.getItem("microblogPostLimit");
+    if (storedLimit) {
+      setPostLimit(parseInt(storedLimit, 10));
     }
 
     const skipped = sessionStorage.getItem("skippedEncryptionKey");
@@ -55,6 +61,10 @@ function App() {
 
   createEffect(() => {
     localStorage.setItem("language", language());
+  });
+
+  createEffect(() => {
+    localStorage.setItem("microblogPostLimit", String(postLimit()));
   });
 
   const [encryptionKeyFormVisible, setEncryptionKeyFormVisible] = createSignal(
