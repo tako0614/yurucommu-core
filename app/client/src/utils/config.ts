@@ -25,23 +25,38 @@ export function isTauri(): boolean {
   );
 }
 
-export function apiFetch(path: string, init?: RequestInit) {
+// サーバーから取得したドメインを保持
+let domain = "";
+
+export async function apiFetch(path: string, init?: RequestInit) {
   // Tauri環境判定
   const is = isTauri();
   console.log("isTauri:" + is);
-  if (is) {
-    return tauriFetch(apiUrl(path), init);
+  const res = is
+    ? await tauriFetch(apiUrl(path), init)
+    : await fetch(apiUrl(path), init);
+  if (path.endsWith("/config")) {
+    try {
+      const data = await res.clone().json();
+      if (data.domain) domain = data.domain;
+    } catch {
+      // ignore
+    }
   }
-  return fetch(apiUrl(path), init);
+  return res;
 }
 
 export function getOrigin(): string {
   return apiBase ? new URL(apiBase).origin : globalThis.location.origin;
 }
 
-export function getDomain(): string {
-  return import.meta.env.VITE_ACTIVITYPUB_DOMAIN ||
+if (!domain) {
+  domain = import.meta.env.VITE_ACTIVITYPUB_DOMAIN ||
     new URL(getOrigin()).hostname;
+}
+
+export function getDomain(): string {
+  return domain;
 }
 
 // --- 複数サーバー管理 ---
