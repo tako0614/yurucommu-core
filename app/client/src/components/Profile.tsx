@@ -225,7 +225,7 @@ export default function Profile() {
                     <span>フォロワー {info()?.followersCount ?? 0}</span>
                   </div>
                 </div>
-                <div class="mt-8 px-4">
+                <div class="mt-8 max-w-4xl mx-auto px-4 md:px-8">
                   <PostList
                     posts={posts() || []}
                     tab="latest"

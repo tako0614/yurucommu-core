@@ -17,6 +17,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -296,7 +297,17 @@ app.post(
     const env = getEnv(c);
     const db = createDB(env);
 
-    const isPublic = mediaType !== undefined || encoding !== undefined;
+    let msgType = "PrivateMessage";
+    try {
+      const decoded = new TextDecoder().decode(b64ToBuf(content));
+      const obj = JSON.parse(decoded) as { type?: unknown };
+      if (obj && typeof obj.type === "string" && obj.type === "PublicMessage") {
+        msgType = "PublicMessage";
+      }
+    } catch {
+      /* ignore */
+    }
+    const isPublic = msgType === "PublicMessage";
 
     const msg = isPublic
       ? await db.createPublicMessage({
@@ -336,7 +347,7 @@ app.post(
     const activityObj = buildActivityFromStored(
       {
         ...saved,
-        type: isPublic ? "PublicMessage" : "PrivateMessage",
+        type: msgType,
       } as {
         _id: unknown;
         type: string;
@@ -397,10 +408,10 @@ app.post(
         })
         : undefined,
     };
-    const msgType = isPublic ? "publicMessage" : "encryptedMessage";
-    sendToUser(acct, { type: msgType, payload: newMsg });
+    const wsType = isPublic ? "publicMessage" : "encryptedMessage";
+    sendToUser(acct, { type: wsType, payload: newMsg });
     for (const t of to) {
-      sendToUser(t, { type: msgType, payload: newMsg });
+      sendToUser(t, { type: wsType, payload: newMsg });
     }
 
     return c.json({ result: "sent", id: String(msg._id) });

@@ -172,6 +172,15 @@ async function decryptFile(
   return dec;
 }
 
+// MLSメッセージをJSON化してBase64エンコード
+function encodeMLSMessage(
+  type: "PublicMessage" | "PrivateMessage",
+  body: string,
+): string {
+  const json = JSON.stringify({ type, body });
+  return bufToB64(new TextEncoder().encode(json));
+}
+
 function getSelfRoomId(user: Account | null): string | null {
   return user ? `${user.userName}@${getDomain()}` : null;
 }
@@ -624,11 +633,14 @@ export function Chat(props: ChatProps) {
         }
       }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
+      const msg = encodeMLSMessage("PrivateMessage", cipher);
       const success = await sendEncryptedMessage(
         `${user.userName}@${getDomain()}`,
         {
           to: room.members,
-          content: cipher,
+          content: msg,
+          mediaType: "message/mls",
+          encoding: "base64",
         },
       );
       if (!success) {
@@ -672,13 +684,14 @@ export function Chat(props: ChatProps) {
           }];
         }
       }
+      const msg = encodeMLSMessage("PublicMessage", JSON.stringify(note));
       const success = await sendPublicMessage(
         `${user.userName}@${getDomain()}`,
         {
           to: room.members,
-          content: JSON.stringify(note),
-          mediaType: "application/json",
-          encoding: "utf-8",
+          content: msg,
+          mediaType: "message/mls",
+          encoding: "base64",
         },
       );
       if (!success) {
