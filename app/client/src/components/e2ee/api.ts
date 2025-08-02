@@ -314,12 +314,30 @@ export const fetchDmList = async (id: string): Promise<string[]> => {
   }
 };
 
+function normalizeActor(actor: string): string {
+  if (actor.startsWith("http")) {
+    try {
+      const url = new URL(actor);
+      const name = url.pathname.split("/").pop()!;
+      return `${name}@${url.hostname}`;
+    } catch {
+      return actor;
+    }
+  }
+  return actor;
+}
+
 export const addDm = async (id: string, target: string): Promise<boolean> => {
+  const handle = normalizeActor(target);
+  if (!/^[^@]+@[^@]+$/.test(handle)) {
+    console.error("invalid target", target);
+    return false;
+  }
   try {
     const res = await apiFetch(`/api/accounts/${id}/dms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target }),
+      body: JSON.stringify({ target: handle }),
     });
     return res.ok;
   } catch (err) {
@@ -332,11 +350,16 @@ export const removeDm = async (
   id: string,
   target: string,
 ): Promise<boolean> => {
+  const handle = normalizeActor(target);
+  if (!/^[^@]+@[^@]+$/.test(handle)) {
+    console.error("invalid target", target);
+    return false;
+  }
   try {
     const res = await apiFetch(`/api/accounts/${id}/dms`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target }),
+      body: JSON.stringify({ target: handle }),
     });
     return res.ok;
   } catch (err) {

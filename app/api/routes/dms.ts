@@ -18,10 +18,17 @@ app.get("/accounts/:id/dms", async (c) => {
 app.post("/accounts/:id/dms", async (c) => {
   const id = c.req.param("id");
   const { target } = await c.req.json();
-  if (typeof target !== "string") {
-    return jsonResponse(c, { error: "invalid body" }, 400);
+  if (
+    typeof target !== "string" ||
+    !/^[^@]+@[^@]+$/.test(target)
+  ) {
+    return jsonResponse(c, { error: "invalid target" }, 400);
   }
   const db = createDB(getEnv(c));
+  const account = await db.findAccountById(id);
+  if (!account) {
+    return jsonResponse(c, { error: "Account not found" }, 404);
+  }
   const dms = await db.addDm(id, target);
   return jsonResponse(c, { dms });
 });
@@ -29,10 +36,17 @@ app.post("/accounts/:id/dms", async (c) => {
 app.delete("/accounts/:id/dms", async (c) => {
   const id = c.req.param("id");
   const { target } = await c.req.json();
-  if (typeof target !== "string") {
-    return jsonResponse(c, { error: "invalid body" }, 400);
+  if (
+    typeof target !== "string" ||
+    !/^[^@]+@[^@]+$/.test(target)
+  ) {
+    return jsonResponse(c, { error: "invalid target" }, 400);
   }
   const db = createDB(getEnv(c));
+  const account = await db.findAccountById(id);
+  if (!account) {
+    return jsonResponse(c, { error: "Account not found" }, 404);
+  }
   const dms = await db.removeDm(id, target);
   return jsonResponse(c, { dms });
 });

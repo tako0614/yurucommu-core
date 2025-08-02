@@ -137,7 +137,11 @@ export default function Profile() {
     const user = account();
     if (!name || !user) return;
     const handle = normalizeActor(name);
-    await addDm(user.id, handle);
+    const ok = await addDm(user.id, handle);
+    if (!ok) {
+      alert("DMの追加に失敗しました");
+      return;
+    }
     setRoom(handle);
     setApp("chat");
   };

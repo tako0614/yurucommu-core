@@ -210,6 +210,8 @@ paths:
               properties:
                 target:
                   type: string
+                  pattern: "^[^@]+@[^@]+$"
+                  description: ユーザーID（ユーザー名@ドメイン）
               required:
                 - target
       responses:
@@ -226,6 +228,8 @@ paths:
               properties:
                 target:
                   type: string
+                  pattern: "^[^@]+@[^@]+$"
+                  description: ユーザーID（ユーザー名@ドメイン）
               required:
                 - target
       responses:
