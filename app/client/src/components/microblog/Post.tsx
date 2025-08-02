@@ -103,39 +103,35 @@ function formatUserInfo(post: MicroblogPost) {
     }
   }
 
-  // domainの処理：自サーバーと外部サーバーを適切に区別
+  // ユーザー名とドメインを分離
   let domain = post.domain;
   let userName = post.userName;
 
   if (post.userName.includes("@")) {
-    // userName が user@domain 形式の場合
     const parts = post.userName.split("@");
     userName = parts[0];
-    if (!domain && parts.length > 1) {
-      domain = parts[1];
-    }
+    if (!domain && parts[1]) domain = parts[1];
   } else if (post.userName.startsWith("http")) {
-    // userNameがURLの場合、ドメインを抽出
     try {
       const url = new URL(post.userName);
       domain = url.hostname;
-      // URLの最後の部分をユーザー名として使用
       const pathParts = url.pathname.split("/").filter(Boolean);
       userName = pathParts.at(-1) || userName;
     } catch {
-      // URL解析に失敗した場合のフォールバック
       domain = "external";
     }
   }
 
-  // 自サーバーのドメインかどうかを判定（実際のサーバードメインに置き換えてください）
-  const isLocalUser = !domain || domain === getDomain() ||
-    domain === "localhost";
+  // domain が未設定の場合は自サーバーのドメインを使用
+  const localDomain = getDomain();
+  if (!domain) domain = localDomain;
+
+  const isLocalUser = domain === localDomain || domain === "localhost";
 
   return {
     displayName,
-    userName: isLocalUser ? userName : `${userName}@${domain}`,
-    domain: isLocalUser ? "" : domain,
+    userName,
+    domain,
     isLocalUser,
   };
 }
@@ -201,6 +197,8 @@ export function PostItem(props: PostItemProps) {
     };
   };
 
+  const acct = () => `${finalUserInfo().userName}@${finalUserInfo().domain}`;
+
   const openPost = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest("button, a")) return;
@@ -217,16 +215,12 @@ export function PostItem(props: PostItemProps) {
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <a
-            href={`#/user/${
-              encodeURIComponent(
-                `${finalUserInfo().userName}@${finalUserInfo().domain}`,
-              )
-            }`}
+            href={`#/user/${encodeURIComponent(acct())}`}
             class="block"
           >
             <UserAvatar
               avatarUrl={finalUserInfo().authorAvatar}
-              username={finalUserInfo().userName}
+              username={acct()}
               size="w-12 h-12"
               isExternal={!userInfo.isLocalUser}
             />
@@ -235,18 +229,14 @@ export function PostItem(props: PostItemProps) {
         <div class="flex-1 min-w-0">
           <div class="flex flex-wrap items-center gap-x-2 mb-1">
             <a
-              href={`#/user/${
-                encodeURIComponent(
-                  `${finalUserInfo().userName}@${finalUserInfo().domain}`,
-                )
-              }`}
+              href={`#/user/${encodeURIComponent(acct())}`}
               class="flex items-center space-x-1 hover:underline"
             >
               <span class="font-bold text-white truncate">
                 {finalUserInfo().displayName}
               </span>
               <span class="text-gray-500 truncate">
-                @{finalUserInfo().userName}
+                @{acct()}
               </span>
             </a>
             <span class="text-gray-500">·</span>
