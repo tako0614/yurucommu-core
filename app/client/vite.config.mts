@@ -4,6 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import process from "node:process";
 
+const devPort = Number(process.env.VITE_DEV_PORT ?? "1420");
+const apiPort = Number(process.env.VITE_API_PORT ?? "80");
+
 export default defineConfig({
   plugins: [
     solid(),
@@ -15,7 +18,7 @@ export default defineConfig({
 
   server: {
     host: "0.0.0.0",
-    port: 1420,
+    port: devPort,
     strictPort: true,
 
     // 外部アクセスを許可
@@ -31,20 +34,20 @@ export default defineConfig({
 
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
       },
 
       "/.well-known": {
-        target: "http://localhost:8000",
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
       },
       "/users": {
-        target: "http://localhost:8000",
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
       },
       "/inbox": {
-        target: "http://localhost:8000",
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
       },
     },
