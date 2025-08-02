@@ -67,10 +67,12 @@ export class MongoDBHost implements DB {
         | typeof HostNote
         | typeof HostVideo
         | typeof HostMessage,
-    ) =>
-      conds.length > 1
-        ? await M.find({ $or: conds }).limit(limit ?? 20).sort(sort)
-        : await M.find(conds[0]).limit(limit ?? 20).sort(sort);
+    ) => {
+      const query = conds.length > 1
+        ? M.find({ $or: conds })
+        : M.find(conds[0]);
+      return await query.limit(limit ?? 20).sort(sort).lean();
+    };
     if (type === "Note") return await exec(HostNote);
     if (type === "Video") return await exec(HostVideo);
     if (type === "Message") return await exec(HostMessage);
