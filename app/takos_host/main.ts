@@ -220,4 +220,24 @@ root.all("/*", async (c) => {
 
 root.use(logger());
 const hostname = hostEnv["SERVER_HOST"];
-Deno.serve({ port: 80, hostname }, root.fetch);
+// サーバーのポート番号 (未指定時は 80)
+const port = Number(hostEnv["SERVER_PORT"] ?? "80");
+const certFile = hostEnv["SERVER_CERT_FILE"];
+const keyFile = hostEnv["SERVER_KEY_FILE"];
+let serveOptions: Deno.ServeTlsOptions | Deno.ServeOptions = {
+  port,
+  hostname,
+};
+if (certFile && keyFile) {
+  try {
+    serveOptions = {
+      port,
+      hostname,
+      cert: await Deno.readTextFile(certFile),
+      key: await Deno.readTextFile(keyFile),
+    };
+  } catch (e) {
+    console.error("SSL証明書を読み込めませんでした:", e);
+  }
+}
+Deno.serve(serveOptions, root.fetch);

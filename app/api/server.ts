@@ -32,6 +32,8 @@ import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 
+const isDev = Deno.env.get("DEV") === "1";
+
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await loadConfig();
 
@@ -95,8 +97,6 @@ export async function createTakosApp(env?: Record<string, string>) {
       return c.json({ error: "Failed to fetch OGP data" }, 500);
     }
   });
-  const isDev = Deno.env.get("DEV") === "1";
-
   function proxy() {
     return async (c: Context, next: () => Promise<void>) => {
       if (c.req.method !== "GET" && c.req.method !== "HEAD") {
@@ -135,5 +135,24 @@ if (import.meta.main) {
   await connectDatabase(env);
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
-  Deno.serve({ hostname }, app.fetch);
+  const port = Number(env["SERVER_PORT"] ?? "80");
+  const certFile = env["SERVER_CERT_FILE"];
+  const keyFile = env["SERVER_KEY_FILE"];
+  let options: Deno.ServeTlsOptions | Deno.ServeOptions = {
+    port,
+    hostname,
+  };
+  if (certFile && keyFile) {
+    try {
+      options = {
+        port,
+        hostname,
+        cert: await Deno.readTextFile(certFile),
+        key: await Deno.readTextFile(keyFile),
+      };
+    } catch (e) {
+      console.error("SSL証明書を読み込めませんでした:", e);
+    }
+  }
+  Deno.serve(options, app.fetch);
 }
