@@ -17,7 +17,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import { b64ToBuf } from "../../shared/buffer.ts";
+import { decodeMLSMessage } from "../../shared/mls_message.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -298,14 +298,9 @@ app.post(
     const db = createDB(env);
 
     let msgType = "PrivateMessage";
-    try {
-      const decoded = new TextDecoder().decode(b64ToBuf(content));
-      const obj = JSON.parse(decoded) as { type?: unknown };
-      if (obj && typeof obj.type === "string" && obj.type === "PublicMessage") {
-        msgType = "PublicMessage";
-      }
-    } catch {
-      /* ignore */
+    const decoded = decodeMLSMessage(content);
+    if (decoded && decoded.type === "PublicMessage") {
+      msgType = "PublicMessage";
     }
     const isPublic = msgType === "PublicMessage";
 

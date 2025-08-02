@@ -54,6 +54,10 @@ import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
+import {
+  decodeMLSMessage,
+  encodeMLSMessage,
+} from "../../../shared/mls_message.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -170,15 +174,6 @@ async function decryptFile(
     data,
   );
   return dec;
-}
-
-// MLSメッセージをJSON化してBase64エンコード
-function encodeMLSMessage(
-  type: "PublicMessage" | "PrivateMessage",
-  body: string,
-): string {
-  const json = JSON.stringify({ type, body });
-  return bufToB64(new TextEncoder().encode(json));
 }
 
 function getSelfRoomId(user: Account | null): string | null {
@@ -423,8 +418,13 @@ export function Chat(props: ChatProps) {
       params,
     );
     for (const m of list) {
-      const plain = await decryptGroupMessage(group, m.content);
-      const note = parseActivityPubNote(plain ?? m.content);
+      const decoded = decodeMLSMessage(m.content);
+      if (!decoded) continue;
+      const note = decoded.type === "PrivateMessage"
+        ? parseActivityPubNote(
+          (await decryptGroupMessage(group, decoded.body)) ?? decoded.body,
+        )
+        : parseActivityPubNote(decoded.body);
       const text = note.content;
       const listAtt = Array.isArray(m.attachments)
         ? m.attachments
@@ -814,14 +814,16 @@ export function Chat(props: ChatProps) {
         const displayName = isMe
           ? user.displayName || user.userName
           : room.name;
-        let text = data.content;
+        const decoded = decodeMLSMessage(data.content);
+        if (!decoded) return;
+        let text = decoded.body;
         let attachments:
           | { data?: string; url?: string; mediaType: string }[]
           | undefined;
         if ((msg as { type?: string }).type === "encryptedMessage") {
           const group = groups()[room.id];
           if (group) {
-            const plain = await decryptGroupMessage(group, data.content);
+            const plain = await decryptGroupMessage(group, decoded.body);
             if (plain) {
               const note = parseActivityPubNote(plain);
               text = note.content;
@@ -871,7 +873,7 @@ export function Chat(props: ChatProps) {
             }
           }
         } else {
-          const note = parseActivityPubNote(data.content);
+          const note = parseActivityPubNote(decoded.body);
           text = note.content;
           const listAtt = Array.isArray(data.attachments)
             ? data.attachments
