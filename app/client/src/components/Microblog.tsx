@@ -12,7 +12,6 @@ import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
-import { createMemo } from "solid-js";
 import {
   createPost,
   deletePost,
@@ -29,9 +28,6 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
   const [account] = useAtom(activeAccount);
-  const [tab, setTab] = createSignal<"following" | "latest">(
-    "following",
-  );
   const [mobileTab, setMobileTab] = createSignal<"following" | "latest" | "trends">("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
@@ -184,28 +180,6 @@ export function Microblog() {
     return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
   });
 
-  const filteredPosts = () => {
-    // 検索を無効化: クエリフィルタせずそのまま返却
-    if (tab() === "latest") {
-      return posts() || [];
-    }
-    if (tab() === "following") {
-      return followingTimelinePosts() || [];
-    }
-    return [];
-  };
-
-  const filteredPostsMobile = () => {
-    // モバイル時: 検索無効化。タブに応じてそのまま返す
-    if (mobileTab() === "latest") {
-      return posts() || [];
-    }
-    if (mobileTab() === "following") {
-      return followingTimelinePosts() || [];
-    }
-    return []; // trends のときは投稿リストは表示しない
-  };
-
   const _handleSubmit = async (e: Event) => {
     e.preventDefault();
     const content = newPostContent().trim();
@@ -351,130 +325,228 @@ export function Microblog() {
     return new Date(dateString).toLocaleString("ja-JP");
   };
 
-  const isDesktop = createMemo(() => window.matchMedia("(min-width: 1024px)").matches);
-
   return (
     <>
-      
       <div class="min-h-screen text-white relative">
         <Show
           when={targetPostId() && selectedPost()}
           fallback={
             <>
-              {/* Header + Tabs */}
-              <div class="sticky top-0 z-20 backdrop-blur-md border-gray-800">
-                <div class="w-full px-6 py-4 flex flex-col gap-2">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2"></div>
-                    <div class="flex-1" />
-                    <div class="ml-4">
-                      <select
-                        value={limit()}
-                        onChange={(e) => {
-                          const v = parseInt(e.currentTarget.value, 10);
-                          setLimit(v);
-                          resetPosts();
-                        }}
-                        class="bg-gray-800 rounded px-2 py-1 text-sm"
-                      >
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                      </select>
-                    </div>
-                  </div>
-                  {/* Tabs */}
-                  <div class="flex justify-center">
-                    {/* デスクトップ: タブ非表示 / モバイルのみ表示 */}
-                    <div class={`${isDesktop() ? "hidden" : "flex"} gap-4 w-full justify-center`}>
-                      <button
-                        type="button"
-                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "following" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
-                        onClick={() => setMobileTab("following")}
-                      >
-                        フォロー中
-                      </button>
-                      <button
-                        type="button"
-                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "latest" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
-                        onClick={() => setMobileTab("latest")}
-                      >
-                        新しい順
-                      </button>
-                      <button
-                        type="button"
-                        class={`px-4 py-2 font-medium transition-all duration-200 ease-in-out rounded-lg bg-transparent text-gray-400 border-b-2 border-transparent hover:text-gray-300 hover:bg-gray-700/30 ${mobileTab() === "trends" ? "text-white bg-blue-500/10 border-blue-500 hover:bg-blue-500/15" : ""}`}
-                        onClick={() => setMobileTab("trends")}
-                      >
-                        トレンド
-                      </button>
-                    </div>
-                  </div>
+              {/* モバイル用タブナビゲーション */}
+              <div class="lg:hidden sticky top-0 z-30 bg-gray-900/95 backdrop-blur-md border-b border-gray-700/50">
+                <div class="flex">
+                  <button
+                    type="button"
+                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
+                      mobileTab() === "following" 
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                    }`}
+                    onClick={() => setMobileTab("following")}
+                  >
+                    フォロー中
+                  </button>
+                  <button
+                    type="button"
+                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
+                      mobileTab() === "latest" 
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                    }`}
+                    onClick={() => setMobileTab("latest")}
+                  >
+                    最新
+                  </button>
+                  <button
+                    type="button"
+                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
+                      mobileTab() === "trends" 
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                    }`}
+                    onClick={() => setMobileTab("trends")}
+                  >
+                    トレンド
+                  </button>
                 </div>
               </div>
 
-              {/* 本文レイアウト: デスクトップ3カラム（左:最新 / 中央:フォロー中 / 右:トレンド） / モバイル1カラム */}
-              <div class="w-full px-6 grid gap-[clamp(16px,2vw,32px)] grid-cols-[1fr_1fr_0.8fr] max-[1023px]:block">
-                {/* 左カラム（デスクトップ: 新しい順） / モバイル: タブがlatestのとき */}
-                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pr-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "latest" ? "" : "hidden")} relative`}>
-                  {/* 左と中央の区切り（デスクトップのみ） */}
-                  <div class="hidden lg:block absolute top-0 -right-[0.75vw] w-px h-full bg-gradient-to-b from-transparent via-gray-500/25 to-transparent pointer-events-none"></div>
-                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>新しい順</h3>
-                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
-                    <PostList
-                      posts={isDesktop() ? (posts() || []) : filteredPostsMobile()}
-                      tab={"latest" as any}
-                      handleReply={handleReply}
-                      handleRetweet={handleRetweet}
-                      handleQuote={handleQuote}
-                      handleLike={handleLike}
-                      handleEdit={handleEdit}
-                      handleDelete={handleDelete}
-                      formatDate={formatDate}
-                    />
+              {/* 表示件数セレクター（右上固定） */}
+              <div class="fixed top-4 right-4 z-40 lg:top-6 lg:right-6">
+                <select
+                  value={limit()}
+                  onChange={(e) => {
+                    const v = parseInt(e.currentTarget.value, 10);
+                    setLimit(v);
+                    resetPosts();
+                  }}
+                  class="bg-gray-800/90 backdrop-blur-sm border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-700/90 transition-colors shadow-lg"
+                >
+                  <option value="20">20件</option>
+                  <option value="50">50件</option>
+                  <option value="100">100件</option>
+                </select>
+              </div>
+
+              {/* メインレイアウト: デスクトップ3カラム / モバイル1カラム */}
+              <div class="lg:grid lg:grid-cols-[1fr_1.2fr_0.8fr] lg:gap-6 lg:px-6 lg:py-4 max-lg:pb-20">
+                {/* 左カラム（デスクトップ: 最新投稿） */}
+                <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
+                    <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        最新投稿
+                      </h3>
+                    </div>
+                    <div class="p-4 overflow-x-hidden">
+                      <PostList
+                        posts={posts() || []}
+                        tab="latest"
+                        handleReply={handleReply}
+                        handleRetweet={handleRetweet}
+                        handleQuote={handleQuote}
+                        handleLike={handleLike}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        formatDate={formatDate}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* 中央カラム（デスクトップ: フォロー中＝メイン） / モバイル: タブがfollowingのとき */}
-                <div class={`w-full rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "following" ? "" : "hidden")} max-w-full overflow-x-hidden`}>
-                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>フォロー中</h3>
-                  <div class="max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
-                    <PostList
-                      posts={isDesktop() ? (followingTimelinePosts() || []) : filteredPostsMobile()}
-                      tab={"following" as any}
-                      handleReply={handleReply}
-                      handleRetweet={handleRetweet}
-                      handleQuote={handleQuote}
-                      handleLike={handleLike}
-                      handleEdit={handleEdit}
-                      handleDelete={handleDelete}
-                      formatDate={formatDate}
-                    />
+                {/* 中央カラム（デスクトップ: フォロー中投稿） / モバイル: 選択されたタブの内容 */}
+                <div class="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-hidden max-lg:min-h-screen">
+                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full lg:flex lg:flex-col">
+                    {/* デスクトップ用ヘッダー */}
+                    <div class="hidden lg:block sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        フォロー中
+                      </h3>
+                    </div>
+                    
+                    {/* コンテンツエリア */}
+                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16">
+                      {/* モバイル: タブに応じた表示 */}
+                      <div class="lg:hidden">
+                        <Show when={mobileTab() === "following"}>
+                          <PostList
+                            posts={followingTimelinePosts() || []}
+                            tab="following"
+                            handleReply={handleReply}
+                            handleRetweet={handleRetweet}
+                            handleQuote={handleQuote}
+                            handleLike={handleLike}
+                            handleEdit={handleEdit}
+                            handleDelete={handleDelete}
+                            formatDate={formatDate}
+                          />
+                          <Show when={(followingTimelinePosts() || []).length === 0}>
+                            <div class="p-8 text-center">
+                              <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                                <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                              </div>
+                              <p class="text-gray-400 text-lg font-medium mb-2">
+                                フォロー中の投稿はありません
+                              </p>
+                              <p class="text-gray-500 text-sm">
+                                気になるユーザーをフォローしてタイムラインを充実させましょう
+                              </p>
+                            </div>
+                          </Show>
+                        </Show>
+                        
+                        <Show when={mobileTab() === "latest"}>
+                          <PostList
+                            posts={posts() || []}
+                            tab="latest"
+                            handleReply={handleReply}
+                            handleRetweet={handleRetweet}
+                            handleQuote={handleQuote}
+                            handleLike={handleLike}
+                            handleEdit={handleEdit}
+                            handleDelete={handleDelete}
+                            formatDate={formatDate}
+                          />
+                        </Show>
+                        
+                        <Show when={mobileTab() === "trends"}>
+                          <div class="p-4">
+                            <Trends />
+                          </div>
+                        </Show>
+                      </div>
+                      
+                      {/* デスクトップ: フォロー中投稿のみ */}
+                      <div class="hidden lg:block">
+                        <PostList
+                          posts={followingTimelinePosts() || []}
+                          tab="following"
+                          handleReply={handleReply}
+                          handleRetweet={handleRetweet}
+                          handleQuote={handleQuote}
+                          handleLike={handleLike}
+                          handleEdit={handleEdit}
+                          handleDelete={handleDelete}
+                          formatDate={formatDate}
+                        />
+                        <Show when={(followingTimelinePosts() || []).length === 0}>
+                          <div class="p-8 text-center">
+                            <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                              <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                              </svg>
+                            </div>
+                            <p class="text-gray-400 text-lg font-medium mb-2">
+                              フォロー中の投稿はありません
+                            </p>
+                            <p class="text-gray-500 text-sm">
+                              気になるユーザーをフォローしてタイムラインを充実させましょう
+                            </p>
+                          </div>
+                        </Show>
+                      </div>
+                    </div>
                   </div>
-                  <Show when={(!isDesktop()) && mobileTab() === "following" && filteredPostsMobile().length === 0}>
-                    <div class="p-8 text-center">
-                      <p class="text-gray-400 text-lg">
-                        フォロー中の投稿はありません
-                      </p>
-                      <p class="text-gray-500 text-sm mt-2">
-                        気になるユーザーをフォローしてみましょう
-                      </p>
+                </div>
+
+                {/* 右カラム（デスクトップ: トレンド） */}
+                <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
+                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
+                    <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                        </svg>
+                        トレンド
+                      </h3>
+                    </div>
+                    <div class="p-4 overflow-x-hidden">
+                      <Trends />
+                    </div>
+                  </div>
+                </div>
+
+                {/* モバイル用無限スクロール要素 */}
+                <div class="lg:hidden">
+                  <div ref={(el) => (sentinel = el)} class="h-4"></div>
+                  <Show when={loadingMore()}>
+                    <div class="text-center py-8">
+                      <div class="inline-flex items-center gap-2 text-gray-400">
+                        <svg class="animate-spin w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        読み込み中...
+                      </div>
                     </div>
                   </Show>
-                  <div ref={(el) => (sentinel = el)} class="h-4" style={`display: ${isDesktop() ? "none" : "block"}`}></div>
-                  {(!isDesktop()) && loadingMore() && (
-                    <div class="text-center py-4 text-gray-400">
-                      読み込み中...
-                    </div>
-                  )}
-                </div>
-
-                {/* 右カラム（デスクトップ: トレンド） / モバイル: タブがtrendsのとき */}
-                <div class={`sticky top-[72px] h-[calc(100vh-96px)] overflow-y-auto overflow-x-hidden pl-2 rounded-xl border border-gray-500/20 bg-slate-800/25 backdrop-blur-sm ${isDesktop() ? "" : (mobileTab() === "trends" ? "" : "hidden")} max-w-full`}>
-                  <h3 class={`text-sm text-gray-400 font-semibold px-3 py-2 ${isDesktop() ? "" : "hidden"}`}>トレンド</h3>
-                  <div class="text-sm max-w-full overflow-x-hidden [&_*]:max-w-full [&_img]:max-w-full [&_video]:max-w-full [&_audio]:max-w-full [&_iframe]:max-w-full">
-                    <Trends />
-                  </div>
                 </div>
               </div>
             </>
@@ -509,7 +581,7 @@ export function Microblog() {
         <Show when={account()}>
           <button
             type="button"
-            class="fixed bottom-20 right-6 bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-full shadow-lg transition-colors"
+            class="fixed bottom-6 right-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-105 z-50"
             onClick={() => {
               _setReplyingTo(null);
               setQuoteTarget(null);
