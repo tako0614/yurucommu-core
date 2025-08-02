@@ -39,7 +39,13 @@ function run(
 async function main() {
   // コマンドライン引数から .env のパスを取得
   const envPath = getEnvPath();
-  const serverArgs = ["run", "-A", "--watch", "main.ts"];
+  const serverArgs = [
+    "run",
+    "-A",
+    "--watch",
+    "--unsafely-ignore-certificate-errors",
+    "main.ts",
+  ];
   if (envPath) serverArgs.push("--env", envPath);
   const server = run(serverArgs, "./", { DEV: "1" });
   const client = run(["task", "dev"], "./client");

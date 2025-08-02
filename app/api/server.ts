@@ -34,17 +34,6 @@ import { rateLimit } from "./utils/rate_limit.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
-if (isDev) {
-  const client = Deno.createHttpClient({
-    unsafelyIgnoreCertificateErrors: true,
-  });
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = ((
-    input: Request | URL | string,
-    init?: RequestInit,
-  ) => originalFetch(input, { ...init, client })) as typeof fetch;
-}
-
 export async function createTakosApp(env?: Record<string, string>) {
   const e = env ?? await loadConfig();
 

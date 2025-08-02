@@ -1,7 +1,7 @@
 {
   "tasks": {
-    "serve": "deno run -A --watch main.ts --",
-    "dev": "deno run -A dev.ts --",
+    "serve": "deno run -A --watch --unsafely-ignore-certificate-errors main.ts --",
+    "dev": "deno run -A --unsafely-ignore-certificate-errors dev.ts --",
     "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
     "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
   },
