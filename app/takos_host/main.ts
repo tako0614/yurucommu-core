@@ -220,4 +220,4 @@ root.all("/*", async (c) => {
 
 root.use(logger());
 const hostname = hostEnv["SERVER_HOST"];
-Deno.serve({ port: 8001, hostname }, root.fetch);
+Deno.serve({ port: 80, hostname }, root.fetch);
