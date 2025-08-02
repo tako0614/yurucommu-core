@@ -422,14 +422,25 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    const notes = await this.searchObjects({ ...filter, type: "Note" }, sort);
-    const videos = await this.searchObjects({ ...filter, type: "Video" }, sort);
-    const messages = await this.searchObjects(
-      { ...filter, type: "Message" },
-      sort,
-    );
-    const others = await this.searchObjects(filter, sort);
-    return [...notes, ...videos, ...messages, ...others];
+    const { type, ...rest } = filter;
+    const result: unknown[] = [];
+    // type が指定されている場合は対象のモデルのみ検索する
+    if (!type || type === "Note") {
+      const notes = await this.searchObjects({ ...rest, type: "Note" }, sort);
+      result.push(...notes.map((n) => ({ ...n, type: "Note" })));
+    }
+    if (!type || type === "Video") {
+      const videos = await this.searchObjects({ ...rest, type: "Video" }, sort);
+      result.push(...videos.map((v) => ({ ...v, type: "Video" })));
+    }
+    if (!type || type === "Message") {
+      const messages = await this.searchObjects(
+        { ...rest, type: "Message" },
+        sort,
+      );
+      result.push(...messages.map((m) => ({ ...m, type: "Message" })));
+    }
+    return result;
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {

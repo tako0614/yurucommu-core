@@ -176,13 +176,13 @@ app.get("/users/:username/outbox", async (c) => {
     );
   }
   const domain = getDomain(c);
-  const type = c.req.query("type");
-  // deno-lint-ignore no-explicit-any
-  const query: any = { attributedTo: username };
-  if (type) query.type = type;
   const env = getEnv(c);
   const db = createDB(env);
-  const objects = await db.findObjects(query, { published: -1 });
+  // Message を outbox から除外する
+  const objects = (await db.findObjects(
+    { attributedTo: username },
+    { published: -1 },
+  )).filter((o: { type?: string }) => o.type !== "Message");
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
@@ -204,6 +204,10 @@ app.post("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
   const body = await c.req.json();
   if (typeof body.type !== "string" || typeof body.content !== "string") {
+    return jsonResponse(c, { error: "Invalid body" }, 400);
+  }
+  // Message の投稿は outbox では受け付けない
+  if (body.type === "Message") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const domain = getDomain(c);

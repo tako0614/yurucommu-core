@@ -21,16 +21,19 @@ export const fetchActivityPubObjects = async (
     }
     const data = await response.json();
     if (data && Array.isArray(data.orderedItems)) {
-      return data.orderedItems.map((item: Record<string, unknown>) => ({
-        id: item.id,
-        type: item.type,
-        attributedTo: item.attributedTo,
-        content: item.content,
-        to: item.to,
-        cc: item.cc,
-        published: item.published,
-        extra: item.extra,
-      }));
+      return data.orderedItems
+        // Message を UI に表示しない
+        .filter((item: Record<string, unknown>) => item.type !== "Message")
+        .map((item: Record<string, unknown>) => ({
+          id: item.id,
+          type: item.type,
+          attributedTo: item.attributedTo,
+          content: item.content,
+          to: item.to,
+          cc: item.cc,
+          published: item.published,
+          extra: item.extra,
+        }));
     }
     return [];
   } catch (error) {

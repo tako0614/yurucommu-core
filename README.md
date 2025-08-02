@@ -88,7 +88,7 @@ deno task build
 
 - `/.well-known/webfinger` – WebFinger でアクターを検索
 - `/users/:username` – `Person` アクター情報を JSON-LD で返します
-- `/users/:username/outbox` – `Note` の投稿と取得
+- `/users/:username/outbox` – `Message` を除いたオブジェクトの投稿と取得
 - `/users/:username/inbox` – ActivityPub 受信エンドポイント。`Create` Activity
   の場合はオブジェクトを各コレクションに保存し、他の Activity
   は保存せず処理のみ行います。処理は Activity タイプごとにハンドラー化し、
@@ -103,7 +103,8 @@ deno task build
   フォロー一覧用のコレクションは `/ap/users/:username/followers` や
   `/ap/users/:username/following` から取得できます。
 
-`outbox` へ `POST` すると以下の形式でノートを作成できます。
+`outbox` へ `POST` すると以下の形式でオブジェクトを作成できます。 `Message`
+は投稿できません。
 
 ```json
 {

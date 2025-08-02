@@ -393,10 +393,22 @@ export class MongoDBLocal implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    const notes = await Note.find({ ...filter }).sort(sort ?? {}).lean();
-    const videos = await Video.find({ ...filter }).sort(sort ?? {}).lean();
-    const messages = await Message.find({ ...filter }).sort(sort ?? {}).lean();
-    return [...notes, ...videos, ...messages];
+    const { type, ...rest } = filter;
+    const result: unknown[] = [];
+    // type が指定されている場合は対象のモデルのみ検索する
+    if (!type || type === "Note") {
+      const notes = await Note.find({ ...rest }).sort(sort ?? {}).lean();
+      result.push(...notes.map((n) => ({ ...n, type: "Note" })));
+    }
+    if (!type || type === "Video") {
+      const videos = await Video.find({ ...rest }).sort(sort ?? {}).lean();
+      result.push(...videos.map((v) => ({ ...v, type: "Video" })));
+    }
+    if (!type || type === "Message") {
+      const messages = await Message.find({ ...rest }).sort(sort ?? {}).lean();
+      result.push(...messages.map((m) => ({ ...m, type: "Message" })));
+    }
+    return result;
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
