@@ -87,8 +87,14 @@ function parseHost(value: string | undefined): string {
 function getRealHost(c: Context): string {
   const forwarded = c.req.header("x-forwarded-host");
   const hostHeader = c.req.header("host");
-  console.log(c.req.raw)
-  const host = forwarded?.split(",")[0].trim() || hostHeader;
+  let host = forwarded?.split(",")[0].trim() || hostHeader;
+  if (!host) {
+    try {
+      host = new URL(c.req.url).host;
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!host) {
     console.warn("Host header missing:", { forwarded, hostHeader });
     return "localhost";
@@ -229,23 +235,32 @@ root.use(logger());
 const hostname = hostEnv["SERVER_HOST"];
 // サーバーのポート番号 (未指定時は 80)
 const port = Number(hostEnv["SERVER_PORT"] ?? "80");
+
 const certFile = hostEnv["SERVER_CERT_FILE"];
 const keyFile = hostEnv["SERVER_KEY_FILE"];
+
 if (certFile && keyFile) {
   try {
     const moduleDir = dirname(fromFileUrl(import.meta.url));
     const projectRoot = join(moduleDir, "..", "..");
     const cert = await Deno.readTextFile(
-      join(projectRoot, certFile.startsWith("../") ? certFile.substring(3) : certFile),
+      join(
+        projectRoot,
+        certFile.startsWith("../") ? certFile.substring(3) : certFile,
+      ),
     );
     const key = await Deno.readTextFile(
-      join(projectRoot, keyFile.startsWith("../") ? keyFile.substring(3) : keyFile),
+      join(
+        projectRoot,
+        keyFile.startsWith("../") ? keyFile.substring(3) : keyFile,
+      ),
     );
-    Deno.serve({ port, cert, key }, root.fetch);
+    // hostname を追加
+    Deno.serve({ hostname, port, cert, key }, root.fetch);
   } catch (e) {
     console.error("SSL証明書を読み込めませんでした:", e);
-    Deno.serve({ port }, root.fetch);
+    Deno.serve({ hostname, port }, root.fetch);
   }
 } else {
-  Deno.serve({ port }, root.fetch);
+  Deno.serve({ hostname, port }, root.fetch);
 }
