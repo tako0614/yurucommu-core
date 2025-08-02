@@ -1,4 +1,5 @@
 import { TextLineStream } from "jsr:@std/streams/text-line-stream";
+import { parse } from "jsr:@std/flags";
 
 function run(
   cmd: string[],
@@ -36,7 +37,11 @@ function run(
 }
 
 async function main() {
-  const server = run(["run", "-A", "--watch", "main.ts"], "./", { DEV: "1" });
+  // コマンドライン引数から .env のパスを取得
+  const { envPath } = parse(Deno.args, { string: ["envPath"] });
+  const serverArgs = ["run", "-A", "--watch", "main.ts"];
+  if (envPath) serverArgs.push("--envPath", envPath);
+  const server = run(serverArgs, "./", { DEV: "1" });
   const client = run(["task", "dev"], "./client");
   await Promise.all([server.status, client.status]);
 }

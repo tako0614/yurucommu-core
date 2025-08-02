@@ -14,6 +14,7 @@ import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { logger } from "hono/logger";
 import { takosEnv } from "./takos_env.ts";
 import { dirname, fromFileUrl, join } from "@std/path";
+import { parse } from "jsr:@std/flags";
 
 const FCM_KEYS = [
   "FIREBASE_CLIENT_EMAIL",
@@ -38,9 +39,10 @@ async function loadTextFile(
     return "";
   }
 }
-const hostEnv = await loadConfig({
-  envPath: join(dirname(fromFileUrl(import.meta.url)), ".env"),
-});
+// コマンドライン引数から .env のパスを取得
+const { envPath } = parse(Deno.args, { string: ["envPath"] });
+const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), ".env");
+const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
 
 hostEnv["DB_MODE"] = "host";
 await connectDatabase(hostEnv);

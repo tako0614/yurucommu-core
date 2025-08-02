@@ -1,7 +1,7 @@
 {
   "tasks": {
-    "serve": "deno run -A --watch main.ts",
-    "dev": "deno run -A dev.ts",
+    "serve": "deno run -A --watch main.ts --",
+    "dev": "deno run -A dev.ts --",
     "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
     "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
   },
@@ -21,7 +21,8 @@
     "zod": "npm:zod@^3.25.56",
     "mongodb": "npm:mongodb@^6.17.0",
     "nodemailer": "npm:nodemailer@^6.9.11",
-    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts"
+    "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
+    "@std/flags": "jsr:@std/flags@1"
   },
   "nodeModulesDir": "auto"
 }

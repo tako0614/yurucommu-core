@@ -65,8 +65,10 @@ deno run -A setup.ts
 
 ```bash
 cd app/api
-deno task dev
+deno task dev --envPath path/to/.env
 ```
+
+`--envPath` オプションで環境変数ファイルのパスを指定できます。
 
 ### フロントエンドのビルド
 

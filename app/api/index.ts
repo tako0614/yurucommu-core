@@ -3,8 +3,11 @@ import { connectDatabase } from "../shared/db.ts";
 import { ensureTenant } from "./services/tenant.ts";
 import { createDB } from "./DB/mod.ts";
 import { loadConfig } from "../shared/config.ts";
+import { parse } from "jsr:@std/flags";
 
-const env = await loadConfig();
+// コマンドライン引数から .env のパスを取得
+const { envPath } = parse(Deno.args, { string: ["envPath"] });
+const env = await loadConfig({ envPath });
 await connectDatabase(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {
   const domain = env["ACTIVITYPUB_DOMAIN"];

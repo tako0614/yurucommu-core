@@ -1,9 +1,11 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import { loadConfig } from "../shared/config.ts";
+import { parse } from "jsr:@std/flags";
 
-const hostEnv = await loadConfig({
-  envPath: join(dirname(fromFileUrl(import.meta.url)), ".env"),
-});
+// コマンドライン引数から .env のパスを取得
+const { envPath } = parse(Deno.args, { string: ["envPath"] });
+const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), ".env");
+const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
 
 export const takosEnv: Record<string, string> = {
   DB_MODE: "host",
