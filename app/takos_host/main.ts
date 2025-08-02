@@ -86,7 +86,13 @@ function parseHost(value: string | undefined): string {
  */
 function getRealHost(c: Context): string {
   const forwarded = c.req.header("x-forwarded-host");
-  const host = forwarded?.split(",")[0].trim() || c.req.header("host");
+  const hostHeader = c.req.header("host");
+  console.log(c.req.raw)
+  const host = forwarded?.split(",")[0].trim() || hostHeader;
+  if (!host) {
+    console.warn("Host header missing:", { forwarded, hostHeader });
+    return "localhost";
+  }
   return parseHost(host);
 }
 
@@ -205,6 +211,7 @@ root.all("/*", async (c) => {
   if (rootDomain && host === rootDomain && rootActivityPubApp) {
     return rootActivityPubApp.fetch(c.req.raw);
   }
+  console.log("rootDomain", rootDomain, "host", host);
   const app = await getAppForHost(host);
   if (!app) {
     if (!isDev && notFoundHtml) {
@@ -224,20 +231,21 @@ const hostname = hostEnv["SERVER_HOST"];
 const port = Number(hostEnv["SERVER_PORT"] ?? "80");
 const certFile = hostEnv["SERVER_CERT_FILE"];
 const keyFile = hostEnv["SERVER_KEY_FILE"];
-let serveOptions: Deno.ServeTlsOptions | Deno.ServeOptions = {
-  port,
-  hostname,
-};
 if (certFile && keyFile) {
   try {
-    serveOptions = {
-      port,
-      hostname,
-      cert: await Deno.readTextFile(certFile),
-      key: await Deno.readTextFile(keyFile),
-    };
+    const moduleDir = dirname(fromFileUrl(import.meta.url));
+    const projectRoot = join(moduleDir, "..", "..");
+    const cert = await Deno.readTextFile(
+      join(projectRoot, certFile.startsWith("../") ? certFile.substring(3) : certFile),
+    );
+    const key = await Deno.readTextFile(
+      join(projectRoot, keyFile.startsWith("../") ? keyFile.substring(3) : keyFile),
+    );
+    Deno.serve({ port, cert, key }, root.fetch);
   } catch (e) {
     console.error("SSL証明書を読み込めませんでした:", e);
+    Deno.serve({ port }, root.fetch);
   }
+} else {
+  Deno.serve({ port }, root.fetch);
 }
-Deno.serve(serveOptions, root.fetch);
