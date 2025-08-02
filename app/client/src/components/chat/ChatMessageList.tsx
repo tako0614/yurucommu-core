@@ -79,7 +79,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
         if (listRef.scrollTop < 100) props.onReachTop();
       }}
     >
-      <ul class="p-2 md:p-4">
+      <ul>
         <For each={props.messages}>
           {(message, i) => {
             const prev = props.messages[i() - 1];
