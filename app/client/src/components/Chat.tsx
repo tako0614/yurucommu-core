@@ -1063,16 +1063,18 @@ export function Chat(props: ChatProps) {
           id="chatmain"
         >
           {/* ルームリスト */}
-          <ChatRoomList
-            rooms={chatRooms()}
-            selectedRoom={selectedRoom()}
-            onSelect={selectRoom}
-            onRemove={removeRoom}
-            onStartLongPress={startLongPress}
-            onCancelLongPress={cancelLongPress}
-            showAds={showAds()}
-          />
-          <div class="flex-grow w-full">
+          <div class={isMobile() ? "w-[100vw] flex-shrink-0" : ""}>
+            <ChatRoomList
+              rooms={chatRooms()}
+              selectedRoom={selectedRoom()}
+              onSelect={selectRoom}
+              onRemove={removeRoom}
+              onStartLongPress={startLongPress}
+              onCancelLongPress={cancelLongPress}
+              showAds={showAds()}
+            />
+          </div>
+          <div class={isMobile() ? "w-[100vw] flex-shrink-0" : "flex-grow w-full"}>
             <Show
               when={selectedRoom()}
               fallback={
@@ -1098,14 +1100,14 @@ export function Chat(props: ChatProps) {
                     </h3>
                     <p class="text-gray-400 text-sm">
                       {isMobile()
-                        ? "左上のメニューからチャンネルを選択してください"
+                        ? "チャンネルを選択してください"
                         : "左のサイドバーからチャンネルを選択して会話を開始しましょう"}
                     </p>
                   </div>
                 </div>
               }
             >
-              <div class="relative flex flex-col bg-[#1e1e1e] min-h-dvh h-full">
+              <div class="relative flex flex-col bg-[#1e1e1e] h-full w-full">
                 <ChatTitleBar
                   isMobile={isMobile()}
                   selectedRoom={selectedRoomInfo()}
