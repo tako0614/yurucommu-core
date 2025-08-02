@@ -100,26 +100,32 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
   try {
     const obj = JSON.parse(text);
     if (obj && typeof obj === "object" && typeof obj.content === "string") {
+      const rawAtt = (obj as { attachment?: unknown }).attachment;
       const attachments =
-        Array.isArray((obj as { attachment?: unknown }).attachment)
-          ? (obj as { attachment?: unknown }).attachment
+        Array.isArray(rawAtt)
+          ? rawAtt
             .map((a: unknown) => {
               if (
                 a && typeof a === "object" &&
                 typeof (a as { url?: unknown }).url === "string"
               ) {
+                const mediaType =
+                  typeof (a as { mediaType?: unknown }).mediaType === "string"
+                    ? (a as { mediaType: string }).mediaType
+                    : "application/octet-stream";
+                const key =
+                  typeof (a as { key?: unknown }).key === "string"
+                    ? (a as { key: string }).key
+                    : undefined;
+                const iv =
+                  typeof (a as { iv?: unknown }).iv === "string"
+                    ? (a as { iv: string }).iv
+                    : undefined;
                 return {
                   url: (a as { url: string }).url,
-                  mediaType:
-                    typeof (a as { mediaType?: unknown }).mediaType === "string"
-                      ? (a as { mediaType: string }).mediaType
-                      : "application/octet-stream",
-                  key: typeof (a as { key?: unknown }).key === "string"
-                    ? (a as { key: string }).key
-                    : undefined,
-                  iv: typeof (a as { iv?: unknown }).iv === "string"
-                    ? (a as { iv: string }).iv
-                    : undefined,
+                  mediaType,
+                  key,
+                  iv,
                 } as ActivityPubAttachment;
               }
               return null;
@@ -753,183 +759,212 @@ export function Chat(props: ChatProps) {
     // ルーム情報はアカウント取得後の createEffect で読み込む
     loadGroupStates();
     ensureKeyPair();
+
+    // WebSocket からのメッセージを安全に型ガードして処理する
+    interface IncomingAttachment {
+      url: string;
+      mediaType: string;
+      key?: string;
+      iv?: string;
+    }
+    interface IncomingPayload {
+      id: string;
+      from: string;
+      to: string[];
+      content: string;
+      mediaType: string;
+      encoding: string;
+      createdAt: string;
+      attachments?: IncomingAttachment[];
+    }
+    type IncomingMsgType = "encryptedMessage" | "publicMessage";
+    interface IncomingMessage {
+      type: IncomingMsgType;
+      payload: IncomingPayload;
+    }
+    const isStringArray = (v: unknown): v is string[] =>
+      Array.isArray(v) && v.every((x) => typeof x === "string");
+
+    const isAttachment = (v: unknown): v is IncomingAttachment =>
+      typeof v === "object" &&
+      v !== null &&
+      typeof (v as { url?: unknown }).url === "string" &&
+      typeof (v as { mediaType?: unknown }).mediaType === "string" &&
+      (typeof (v as { key?: unknown }).key === "string" ||
+        typeof (v as { key?: unknown }).key === "undefined") &&
+      (typeof (v as { iv?: unknown }).iv === "string" ||
+        typeof (v as { iv?: unknown }).iv === "undefined");
+
+    const isPayload = (v: unknown): v is IncomingPayload => {
+      if (typeof v !== "object" || v === null) return false;
+      const o = v as Record<string, unknown>;
+      const base =
+        typeof o.id === "string" &&
+        typeof o.from === "string" &&
+        isStringArray(o.to) &&
+        typeof o.content === "string" &&
+        typeof o.mediaType === "string" &&
+        typeof o.encoding === "string" &&
+        typeof o.createdAt === "string";
+      if (!base) return false;
+      if (typeof o.attachments === "undefined") return true;
+      return Array.isArray(o.attachments) && o.attachments.every(isAttachment);
+    };
+
+    const isIncomingMessage = (v: unknown): v is IncomingMessage => {
+      if (typeof v !== "object" || v === null) return false;
+      const o = v as Record<string, unknown>;
+      const t = o.type;
+      if (t !== "encryptedMessage" && t !== "publicMessage") return false;
+      return isPayload(o.payload);
+    };
+
     const handler = async (msg: unknown) => {
-      if (
-        typeof msg === "object" &&
-        msg !== null &&
-        ((msg as { type?: string }).type === "encryptedMessage" ||
-          (msg as { type?: string }).type === "publicMessage")
-      ) {
-        const data = (msg as {
-          payload: {
-            id: string;
-            from: string;
-            to: string[];
-            content: string;
-            mediaType: string;
-            encoding: string;
-            createdAt: string;
-            attachments?: {
-              url: string;
-              mediaType: string;
-              key?: string;
-              iv?: string;
-            }[];
-          };
-        }).payload;
-        const user = account();
-        if (!user) return;
-        const self = `${user.userName}@${getDomain()}`;
-        const partnerId = data.from === self
-          ? data.to.find((v) => v !== self) ?? data.to[0]
-          : data.from;
-        let room = chatRooms().find((r) => r.id === partnerId);
-        if (!room) {
-          if (confirm(`${partnerId} からDMが届きました。許可しますか？`)) {
-            const info = await fetchUserInfo(normalizeActor(partnerId));
-            if (info) {
-              room = {
-                id: partnerId,
-                name: info.displayName || info.userName,
-                userName: info.userName,
-                domain: info.domain,
-                avatar: info.authorAvatar ||
-                  info.userName.charAt(0).toUpperCase(),
-                unreadCount: 0,
-                type: "dm",
-                members: [partnerId],
-                lastMessage: "...",
-                lastMessageTime: undefined,
-              };
-              setChatRooms((prev) => [...prev, room!]);
-              await addDm(user.id, partnerId);
-            } else {
-              return;
-            }
+      if (!isIncomingMessage(msg)) {
+        // 想定外のメッセージは無視
+        return;
+      }
+      const data = msg.payload;
+      const user = account();
+      if (!user) return;
+
+      // フィルタ: 自分宛て/自分発でないメッセージは無視
+      const self = `${user.userName}@${getDomain()}`;
+      if (!(data.to.includes(self) || data.from === self)) {
+        return;
+      }
+
+      const partnerId = data.from === self
+        ? (data.to.find((v) => v !== self) ?? data.to[0])
+        : data.from;
+
+      let room = chatRooms().find((r) => r.id === partnerId);
+      if (!room) {
+        if (confirm(`${partnerId} からDMが届きました。許可しますか？`)) {
+          const info = await fetchUserInfo(normalizeActor(partnerId));
+          if (info) {
+            room = {
+              id: partnerId,
+              name: info.displayName || info.userName,
+              userName: info.userName,
+              domain: info.domain,
+              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+              unreadCount: 0,
+              type: "dm",
+              members: [partnerId],
+              lastMessage: "...",
+              lastMessageTime: undefined,
+            };
+            setChatRooms((prev) => [...prev, room!]);
+            await addDm(user.id, partnerId);
           } else {
             return;
           }
-        }
-        const isMe = data.from === self;
-        const displayName = isMe
-          ? user.displayName || user.userName
-          : room.name;
-        const decoded = decodeMLSMessage(data.content);
-        if (!decoded) return;
-        let text = decoded.body;
-        let attachments:
-          | { data?: string; url?: string; mediaType: string }[]
-          | undefined;
-        if ((msg as { type?: string }).type === "encryptedMessage") {
-          const group = groups()[room.id];
-          if (group) {
-            const plain = await decryptGroupMessage(group, decoded.body);
-            if (plain) {
-              const note = parseActivityPubNote(plain);
-              text = note.content;
-              const listAtt = Array.isArray(data.attachments)
-                ? data.attachments
-                : note.attachments;
-              if (Array.isArray(listAtt)) {
-                attachments = [];
-                for (const at of listAtt) {
-                  if (typeof at.url === "string") {
-                    try {
-                      const res = await fetch(at.url);
-                      let buf = await res.arrayBuffer();
-                      if (
-                        typeof at.key === "string" &&
-                        typeof at.iv === "string"
-                      ) {
-                        buf = await decryptFile(buf, at.key, at.iv);
-                      }
-                      const mt = typeof at.mediaType === "string"
-                        ? at.mediaType
-                        : "application/octet-stream";
-                      if (
-                        mt.startsWith("video/") ||
-                        mt.startsWith("audio/") ||
-                        buf.byteLength > 1024 * 1024
-                      ) {
-                        attachments.push({
-                          url: bufToUrl(buf, mt),
-                          mediaType: mt,
-                        });
-                      } else {
-                        attachments.push({
-                          data: bufToB64(buf),
-                          mediaType: mt,
-                        });
-                      }
-                    } catch {
-                      const mt = typeof at.mediaType === "string"
-                        ? at.mediaType
-                        : "application/octet-stream";
-                      attachments.push({ url: at.url, mediaType: mt });
-                    }
-                  }
-                }
-              }
-            }
-          }
         } else {
-          const note = parseActivityPubNote(decoded.body);
-          text = note.content;
-          const listAtt = Array.isArray(data.attachments)
-            ? data.attachments
-            : note.attachments;
-          if (Array.isArray(listAtt)) {
-            attachments = [];
-            for (const at of listAtt) {
-              if (typeof at.url === "string") {
-                const mt = typeof at.mediaType === "string"
-                  ? at.mediaType
-                  : "application/octet-stream";
-                try {
-                  const res = await fetch(at.url);
-                  let buf = await res.arrayBuffer();
-                  if (
-                    typeof at.key === "string" &&
-                    typeof at.iv === "string"
-                  ) {
-                    buf = await decryptFile(buf, at.key, at.iv);
+          return;
+        }
+      }
+
+      const isMe = data.from === self;
+      const displayName = isMe ? (user.displayName || user.userName) : room.name;
+      const decoded = decodeMLSMessage(data.content);
+      if (!decoded) return;
+
+      let text = decoded.body;
+      let attachments:
+        | { data?: string; url?: string; mediaType: string }[]
+        | undefined;
+
+      if (msg.type === "encryptedMessage") {
+        const group = groups()[room.id];
+        if (group) {
+          const plain = await decryptGroupMessage(group, decoded.body);
+          if (plain) {
+            const note = parseActivityPubNote(plain);
+            text = note.content;
+            const listAtt = Array.isArray(data.attachments)
+              ? data.attachments
+              : note.attachments;
+            if (Array.isArray(listAtt)) {
+              attachments = [];
+              for (const at of listAtt) {
+                if (typeof at.url === "string") {
+                  try {
+                    const res = await fetch(at.url);
+                    let buf = await res.arrayBuffer();
+                    if (typeof at.key === "string" && typeof at.iv === "string") {
+                      buf = await decryptFile(buf, at.key, at.iv);
+                    }
+                    const mt = typeof at.mediaType === "string"
+                      ? at.mediaType
+                      : "application/octet-stream";
+                    if (mt.startsWith("video/") || mt.startsWith("audio/") || buf.byteLength > 1024 * 1024) {
+                      attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                    } else {
+                      attachments.push({ data: bufToB64(buf), mediaType: mt });
+                    }
+                  } catch {
+                    const mt = typeof at.mediaType === "string"
+                      ? at.mediaType
+                      : "application/octet-stream";
+                    attachments.push({ url: at.url, mediaType: mt });
                   }
-                  if (
-                    mt.startsWith("video/") ||
-                    mt.startsWith("audio/") ||
-                    buf.byteLength > 1024 * 1024
-                  ) {
-                    attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
-                  } else {
-                    attachments.push({ data: bufToB64(buf), mediaType: mt });
-                  }
-                } catch {
-                  attachments.push({ url: at.url, mediaType: mt });
                 }
               }
             }
           }
         }
-        const m: ChatMessage = {
-          id: data.id,
-          author: data.from,
-          displayName,
-          address: data.from,
-          content: parseActivityPubContent(text),
-          attachments,
-          timestamp: new Date(data.createdAt),
-          type: attachments && attachments.length > 0
-            ? attachments[0].mediaType.startsWith("image/") ? "image" : "file"
-            : "text",
-          isMe,
-          avatar: room.avatar,
-        };
-        setMessages((prev) => {
-          if (prev.some((msg) => msg.id === m.id)) return prev;
-          return [...prev, m];
-        });
-        updateRoomLast(room.id, m);
+      } else {
+        const note = parseActivityPubNote(decoded.body);
+        text = note.content;
+        const listAtt = Array.isArray(data.attachments)
+          ? data.attachments
+          : note.attachments;
+        if (Array.isArray(listAtt)) {
+          attachments = [];
+          for (const at of listAtt) {
+            if (typeof at.url === "string") {
+              const mt = typeof at.mediaType === "string"
+                ? at.mediaType
+                : "application/octet-stream";
+              try {
+                const res = await fetch(at.url);
+                let buf = await res.arrayBuffer();
+                if (typeof at.key === "string" && typeof at.iv === "string") {
+                  buf = await decryptFile(buf, at.key, at.iv);
+                }
+                if (mt.startsWith("video/") || mt.startsWith("audio/") || buf.byteLength > 1024 * 1024) {
+                  attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                } else {
+                  attachments.push({ data: bufToB64(buf), mediaType: mt });
+                }
+              } catch {
+                attachments.push({ url: at.url, mediaType: mt });
+              }
+            }
+          }
+        }
       }
+
+      const m: ChatMessage = {
+        id: data.id,
+        author: data.from,
+        displayName,
+        address: data.from,
+        content: parseActivityPubContent(text),
+        attachments,
+        timestamp: new Date(data.createdAt),
+        type: attachments && attachments.length > 0
+          ? (attachments[0].mediaType.startsWith("image/") ? "image" : "file")
+          : "text",
+        isMe,
+        avatar: room.avatar,
+      };
+      setMessages((prev) => {
+        if (prev.some((msg) => msg.id === m.id)) return prev;
+        return [...prev, m];
+      });
+      updateRoomLast(room.id, m);
     };
     addMessageHandler(handler);
     wsCleanup = () => removeMessageHandler(handler);

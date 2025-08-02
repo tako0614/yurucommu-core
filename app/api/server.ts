@@ -138,21 +138,17 @@ if (import.meta.main) {
   const port = Number(env["SERVER_PORT"] ?? "80");
   const certFile = env["SERVER_CERT_FILE"];
   const keyFile = env["SERVER_KEY_FILE"];
-  let options: Deno.ServeTlsOptions | Deno.ServeOptions = {
-    port,
+
+  // Deno.serve のオプションは top-level に port, hostname を直接渡す
+  // TLS の場合は cert/key を追加で渡す
+  // Deno.serve は options として { hostname, port, cert, key } を受け取るが、
+  // 型名はバージョンにより変動するため型注釈を外して実行時に渡す。
+  const options = {
     hostname,
+    port,
+    cert: certFile ? await Deno.readTextFile(certFile) : undefined,
+    key: keyFile ? await Deno.readTextFile(keyFile) : undefined,
   };
-  if (certFile && keyFile) {
-    try {
-      options = {
-        port,
-        hostname,
-        cert: await Deno.readTextFile(certFile),
-        key: await Deno.readTextFile(keyFile),
-      };
-    } catch (e) {
-      console.error("SSL証明書を読み込めませんでした:", e);
-    }
-  }
+
   Deno.serve(options, app.fetch);
 }
