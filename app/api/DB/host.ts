@@ -9,6 +9,7 @@ import HostPublicMessage from "../models/takos_host/public_message.ts";
 import HostNote from "../models/takos_host/note.ts";
 import HostVideo from "../models/takos_host/video.ts";
 import HostMessage from "../models/takos_host/message.ts";
+import HostAttachment from "../models/takos_host/attachment.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import HostRelay from "../models/takos_host/relay.ts";
 import HostRemoteActor from "../models/takos_host/remote_actor.ts";
@@ -86,6 +87,8 @@ export class MongoDBHost implements DB {
     if (doc) return doc;
     doc = await HostMessage.findOne({ _id: id }).lean();
     if (doc) return doc;
+    doc = await HostAttachment.findOne({ _id: id }).lean();
+    if (doc) return doc;
     return null;
   }
 
@@ -110,6 +113,11 @@ export class MongoDBHost implements DB {
     }
     if (data.type === "Message") {
       const doc = new HostMessage({ ...data, tenant_id: this.tenantId });
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Attachment") {
+      const doc = new HostAttachment({ ...data, tenant_id: this.tenantId });
       await doc.save();
       return doc.toObject();
     }

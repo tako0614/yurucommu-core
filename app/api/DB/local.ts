@@ -1,6 +1,7 @@
 import Note from "../models/takos/note.ts";
 import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
+import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
@@ -36,6 +37,8 @@ export class MongoDBLocal implements DB {
     doc = await Video.findOne({ _id: id }).lean();
     if (doc) return doc;
     doc = await Message.findOne({ _id: id }).lean();
+    if (doc) return doc;
+    doc = await Attachment.findOne({ _id: id }).lean();
     if (doc) return doc;
     return null;
   }
@@ -98,6 +101,16 @@ export class MongoDBLocal implements DB {
       });
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = { env: this.env };
+      await doc.save();
+      return doc.toObject();
+    }
+    if (data.type === "Attachment") {
+      const doc = new Attachment({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        extra: data.extra ?? {},
+      });
       await doc.save();
       return doc.toObject();
     }
