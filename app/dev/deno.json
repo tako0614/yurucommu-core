@@ -1,5 +1,5 @@
 {
-    "tasks": {
-        "host1": "deno task --cwd ../takos_host/ dev --envPath C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv"
-    }
+  "tasks": {
+    "host1": "deno task --cwd ../takos_host/ dev --env C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv"
+  }
 }

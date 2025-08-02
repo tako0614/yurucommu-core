@@ -1,9 +1,9 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import { loadConfig } from "../shared/config.ts";
-import { parse } from "jsr:@std/flags";
+import { getEnvPath } from "../shared/args.ts";
 
 // コマンドライン引数から .env のパスを取得
-const { envPath } = parse(Deno.args, { string: ["envPath"] });
+const envPath = getEnvPath();
 const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), ".env");
 const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
 

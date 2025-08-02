@@ -69,10 +69,10 @@ takos を運用できるようにすることが目的です。
 で以下を実行すると開発サーバーが起動します。
 
 ```bash
-$ deno task dev --envPath path/to/.env
+$ deno task dev --env path/to/.env
 ```
 
-`--envPath` を指定すると使用する環境変数ファイルを変更できます。
+`--env` を指定すると使用する環境変数ファイルを変更できます。
 
 ビルドしたファイルは `client/dist`
 に配置され、サーバーから自動的に配信されます。
