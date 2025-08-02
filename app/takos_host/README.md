@@ -109,8 +109,11 @@ OAuth ボタンを表示します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
 
 2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
-   特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`
-   を設定してください。
+   特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`、
+   ポート番号を変更したい場合は `SERVER_PORT` を設定してください。 HTTPS
+   で待ち受けるには `SERVER_CERT_FILE` と `SERVER_KEY_FILE`
+   を指定します。`dev.ts` で起動する開発モードでは自己署名証明書などの SSL
+   エラーを無視します。
 
 ## CLI 管理ツール
 
