@@ -4,9 +4,34 @@
   <circle cx="60" cy="35" r="5" fill="white" />
   <circle cx="40" cy="35" r="2" fill="black" />
   <circle cx="60" cy="35" r="2" fill="black" />
-  <path d="M 30 70 Q 20 80 30 90" stroke="#FF69B4" stroke-width="5" fill="none" />
-  <path d="M 40 70 Q 30 80 40 90" stroke="#FF69B4" stroke-width="5" fill="none" />
-  <path d="M 50 70 Q 50 80 50 90" stroke="#FF69B4" stroke-width="5" fill="none" />
-  <path d="M 60 70 Q 70 80 60 90" stroke="#FF69B4" stroke-width="5" fill="none" />
-  <path d="M 70 70 Q 80 80 70 90" stroke="#FF69B4" stroke-width="5" fill="none" />
+  <path
+    d="M 30 70 Q 20 80 30 90"
+    stroke="#FF69B4"
+    stroke-width="5"
+    fill="none"
+  />
+  <path
+    d="M 40 70 Q 30 80 40 90"
+    stroke="#FF69B4"
+    stroke-width="5"
+    fill="none"
+  />
+  <path
+    d="M 50 70 Q 50 80 50 90"
+    stroke="#FF69B4"
+    stroke-width="5"
+    fill="none"
+  />
+  <path
+    d="M 60 70 Q 70 80 60 90"
+    stroke="#FF69B4"
+    stroke-width="5"
+    fill="none"
+  />
+  <path
+    d="M 70 70 Q 80 80 70 90"
+    stroke="#FF69B4"
+    stroke-width="5"
+    fill="none"
+  />
 </svg>

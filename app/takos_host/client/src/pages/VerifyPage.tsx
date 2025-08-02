@@ -1,6 +1,10 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { resend as apiResend, verify as apiVerify, useNavigate } from "../api.ts";
+import {
+  resend as apiResend,
+  useNavigate,
+  verify as apiVerify,
+} from "../api.ts";
 import { loggedInState, userNameState } from "../state.ts";
 
 const VerifyPage: Component = () => {

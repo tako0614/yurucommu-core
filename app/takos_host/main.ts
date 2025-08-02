@@ -91,7 +91,7 @@ function getRealHost(c: Context): string {
   if (!host) {
     try {
       host = new URL(c.req.url).host;
-    } catch (e) {
+    } catch (_e) {
       // ignore
     }
   }

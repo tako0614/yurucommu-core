@@ -179,10 +179,19 @@ app.get("/users/:username/outbox", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   // Message を outbox から除外する
-  const objects = (await db.findObjects(
+  const objectsUnknown = await db.findObjects(
     { attributedTo: username },
     { published: -1 },
-  )).filter((o: { type?: string }) => o.type !== "Message");
+  ) as unknown[];
+
+  // 型ガードでナローイング
+  type ActivityObject = { type?: string; [k: string]: unknown };
+  const isActivityObject = (v: unknown): v is ActivityObject =>
+    typeof v === "object" && v !== null;
+
+  const objects = objectsUnknown
+    .filter(isActivityObject)
+    .filter((o) => o.type !== "Message");
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,
@@ -276,9 +285,15 @@ app.post("/users/:username/inbox", async (c) => {
   const result = await parseActivityRequest(c);
   if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const { activity } = result;
-  const handler = activityHandlers[activity.type];
-  if (handler) {
-    await handler(activity, username, c);
+
+  // activity.type の型安全な参照
+  const typeVal = (activity as { type?: unknown })?.type;
+  if (typeof typeVal === "string" && typeVal in activityHandlers) {
+    // deno-lint-ignore no-explicit-any
+    const handler = (activityHandlers as Record<string, any>)[typeVal];
+    if (typeof handler === "function") {
+      await handler(activity as unknown, username, c);
+    }
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });

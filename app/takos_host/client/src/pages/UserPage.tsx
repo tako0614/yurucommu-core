@@ -127,7 +127,10 @@ const UserPage: Component = () => {
 
         {/* main card */}
         <main class="w-full max-w-md mx-auto flex flex-col gap-8 px-6 py-8">
-          <Show when={loggedIn()} fallback={<a href="/auth">ログインしてください</a>}>
+          <Show
+            when={loggedIn()}
+            fallback={<a href="/auth">ログインしてください</a>}
+          >
             <Motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -144,7 +147,9 @@ const UserPage: Component = () => {
                     onSubmit={addInstance}
                     class="bg-[#232323] p-8 rounded-2xl shadow-xl w-full max-w-md space-y-6 border border-white/10"
                   >
-                    <h3 class="text-lg font-bold text-center">インスタンス追加</h3>
+                    <h3 class="text-lg font-bold text-center">
+                      インスタンス追加
+                    </h3>
                     <div class="flex items-center gap-2 justify-center">
                       <input
                         placeholder="サブドメイン名"
@@ -183,88 +188,93 @@ const UserPage: Component = () => {
               {/* instance list (TauriLogin風カードUI) */}
               <div class="w-full flex flex-col gap-4 mb-2 items-center">
                 <Show when={instances().length} fallback={<EmptyState />}>
-                  <For each={instances()}>{(inst) => (
-                    <Motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                      class="relative w-full max-w-md overflow-hidden py-5 px-6 bg-[#232323]/80 backdrop-blur border border-white/10 rounded-xl text-lg font-medium text-white hover:bg-green-600/80 transition-all shadow-lg flex flex-col items-center"
-                    >
-                      <div class="w-full flex justify-between items-center">
-                        <a
-                          href={`${globalThis.location.protocol}//${inst.host}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="font-semibold hover:underline"
-                        >
-                          {inst.host}
-                        </a>
-                        <div class="flex gap-2">
-                          <button
-                            type="button"
-                            class="text-sm text-green-400 hover:underline px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-                            onClick={() => openDetail(inst.host)}
-                            disabled={isLoading()}
+                  <For each={instances()}>
+                    {(inst) => (
+                      <Motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        class="relative w-full max-w-md overflow-hidden py-5 px-6 bg-[#232323]/80 backdrop-blur border border-white/10 rounded-xl text-lg font-medium text-white hover:bg-green-600/80 transition-all shadow-lg flex flex-col items-center"
+                      >
+                        <div class="w-full flex justify-between items-center">
+                          <a
+                            href={`${globalThis.location.protocol}//${inst.host}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="font-semibold hover:underline"
                           >
-                            詳細
-                          </button>
-                          <button
-                            type="button"
-                            class="text-sm text-red-400 hover:underline px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-                            onClick={() => delInstance(inst.host)}
-                            disabled={isLoading()}
-                          >
-                            削除
-                          </button>
+                            {inst.host}
+                          </a>
+                          <div class="flex gap-2">
+                            <button
+                              type="button"
+                              class="text-sm text-green-400 hover:underline px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+                              onClick={() => openDetail(inst.host)}
+                              disabled={isLoading()}
+                            >
+                              詳細
+                            </button>
+                            <button
+                              type="button"
+                              class="text-sm text-red-400 hover:underline px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                              onClick={() => delInstance(inst.host)}
+                              disabled={isLoading()}
+                            >
+                              削除
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                      <Show when={selected() === inst.host}>
-                        <Motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2 }}
-                          class="mt-4 space-y-6 w-full"
-                        >
-                          <div>
-                            <label class="block text-sm font-medium mb-2">パスワード設定 / 変更</label>
-                            <div class="flex gap-2">
-                              <input
-                                type="password"
-                                class="flex-grow px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                value={newPassword()}
-                                onInput={(e) => setNewPassword(e.currentTarget.value)}
-                                disabled={isLoading()}
-                              />
+                        <Show when={selected() === inst.host}>
+                          <Motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.2 }}
+                            class="mt-4 space-y-6 w-full"
+                          >
+                            <div>
+                              <label class="block text-sm font-medium mb-2">
+                                パスワード設定 / 変更
+                              </label>
+                              <div class="flex gap-2">
+                                <input
+                                  type="password"
+                                  class="flex-grow px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  value={newPassword()}
+                                  onInput={(e) =>
+                                    setNewPassword(e.currentTarget.value)}
+                                  disabled={isLoading()}
+                                />
+                                <button
+                                  type="button"
+                                  class="bg-gradient-to-r from-green-500 to-teal-500 text-white px-3 py-1 rounded-md hover:from-green-400 hover:to-teal-400 font-semibold"
+                                  onClick={changePassword}
+                                  disabled={isLoading()}
+                                >
+                                  更新
+                                  <Show when={isLoading()}>
+                                    <span class="ml-2 size-4 border-2 border-t-transparent border-white/80 rounded-full animate-spin inline-block align-middle" />
+                                  </Show>
+                                </button>
+                              </div>
+                            </div>
+                            <div class="flex gap-4">
                               <button
                                 type="button"
-                                class="bg-gradient-to-r from-green-500 to-teal-500 text-white px-3 py-1 rounded-md hover:from-green-400 hover:to-teal-400 font-semibold"
-                                onClick={changePassword}
+                                class="bg-gray-600 text-white px-3 py-1 rounded-md hover:bg-gray-500 font-semibold"
+                                onClick={restart}
                                 disabled={isLoading()}
                               >
-                                更新
+                                再起動
                                 <Show when={isLoading()}>
                                   <span class="ml-2 size-4 border-2 border-t-transparent border-white/80 rounded-full animate-spin inline-block align-middle" />
                                 </Show>
                               </button>
                             </div>
-                          </div>
-                          <div class="flex gap-4">
-                            <button
-                              type="button"
-                              class="bg-gray-600 text-white px-3 py-1 rounded-md hover:bg-gray-500 font-semibold"
-                              onClick={restart}
-                              disabled={isLoading()}
-                            >
-                              再起動
-                              <Show when={isLoading()}>
-                                <span class="ml-2 size-4 border-2 border-t-transparent border-white/80 rounded-full animate-spin inline-block align-middle" />
-                              </Show>
-                            </button>
-                          </div>
-                        </Motion.div>
-                      </Show>
-                    </Motion.div>
-                  )}</For>
+                          </Motion.div>
+                        </Show>
+                      </Motion.div>
+                    )}
+                  </For>
                 </Show>
               </div>
             </Motion.div>
@@ -276,7 +286,10 @@ const UserPage: Component = () => {
           <button
             type="button"
             class="group relative inline-flex items-center justify-center gap-2 w-72 py-4 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-400 hover:to-teal-400 active:scale-95 text-white font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
-            onClick={() => { setHost(""); setShowAdd(true); }}
+            onClick={() => {
+              setHost("");
+              setShowAdd(true);
+            }}
             disabled={isLoading()}
           >
             <span class="i-lucide-plus-circle text-xl group-hover:rotate-90 transition-transform" />

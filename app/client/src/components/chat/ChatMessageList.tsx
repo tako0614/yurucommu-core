@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createSignal, onMount } from "solid-js";
+import { createSignal, For, Match, onMount, Show, Switch } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { ChatMessage } from "./types.ts";
 
@@ -28,7 +28,7 @@ function LazyImage(props: LazyImageProps) {
             observer.disconnect();
           }
         },
-        { threshold: 0.1 }
+        { threshold: 0.1 },
       );
       observer.observe(imgRef);
     }
@@ -47,15 +47,16 @@ function LazyImage(props: LazyImageProps) {
         onError={() => setError(true)}
       />
       <Show when={!loaded() && !error()}>
-        <div 
+        <div
           class="absolute inset-0 bg-gray-700 rounded flex items-center justify-center"
           style={props.style}
         >
-          <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+          <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-white">
+          </div>
         </div>
       </Show>
       <Show when={error()}>
-        <div 
+        <div
           class="absolute inset-0 bg-gray-700 rounded flex items-center justify-center text-gray-400 text-sm"
           style={props.style}
         >
@@ -133,7 +134,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
                           })}
                         </span>
                       </Show>
-                      <div class={`flex flex-col space-y-1 ${message.isMe ? 'items-end' : 'items-start'}`}>
+                      <div
+                        class={`flex flex-col space-y-1 ${
+                          message.isMe ? "items-end" : "items-start"
+                        }`}
+                      >
                         {/* メッセージコンテンツ */}
                         <Show when={message.content && message.content.trim()}>
                           <div
@@ -145,8 +150,12 @@ export function ChatMessageList(props: ChatMessageListProps) {
                               !message.isMe && isPrimary
                                 ? "ml-[10px] rounded-tl-[2px]"
                                 : ""
-                            } ${!message.isMe && !isPrimary ? "ml-[46px]" : ""} ${
-                              message.isMe && isPrimary ? "rounded-tr-[2px]" : ""
+                            } ${
+                              !message.isMe && !isPrimary ? "ml-[46px]" : ""
+                            } ${
+                              message.isMe && isPrimary
+                                ? "rounded-tr-[2px]"
+                                : ""
                             }`}
                           >
                             <p class="break-words whitespace-pre-wrap">
@@ -154,19 +163,21 @@ export function ChatMessageList(props: ChatMessageListProps) {
                             </p>
                           </div>
                         </Show>
-                        
+
                         {/* アタッチメント */}
                         <Show
                           when={message.attachments &&
                             message.attachments.length > 0}
                         >
-                          <div class={`flex flex-col space-y-1 ${
-                            message.isMe ? 'items-end' : 'items-start'
-                          } ${
-                            !message.isMe && isPrimary
-                              ? "ml-[10px]"
-                              : ""
-                          } ${!message.isMe && !isPrimary ? "ml-[46px]" : ""}`}>
+                          <div
+                            class={`flex flex-col space-y-1 ${
+                              message.isMe ? "items-end" : "items-start"
+                            } ${
+                              !message.isMe && isPrimary ? "ml-[10px]" : ""
+                            } ${
+                              !message.isMe && !isPrimary ? "ml-[46px]" : ""
+                            }`}
+                          >
                             <For each={message.attachments}>
                               {(att) => (
                                 <div class="w-fit">
@@ -175,13 +186,23 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                       <div class="bg-white rounded-lg p-3 shadow-sm border max-w-[280px]">
                                         <div class="flex items-center space-x-3">
                                           <div class="flex-shrink-0">
-                                            <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            <svg
+                                              class="w-8 h-8 text-gray-500"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
                                             </svg>
                                           </div>
                                           <div class="flex-grow min-w-0">
                                             <p class="text-sm font-medium text-gray-900 truncate">
-                                              {att.mediaType || 'ファイル'}
+                                              {att.mediaType || "ファイル"}
                                             </p>
                                             <p class="text-xs text-gray-500">
                                               タップしてダウンロード
@@ -194,8 +215,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             download=""
                                             class="flex-shrink-0 p-1 text-blue-500 hover:text-blue-600 transition-colors"
                                           >
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            <svg
+                                              class="w-5 h-5"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
                                             </svg>
                                           </a>
                                         </div>
@@ -226,8 +257,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             download=""
                                             class="p-2 bg-black bg-opacity-50 rounded-full text-white hover:bg-opacity-70 transition-all"
                                           >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            <svg
+                                              class="w-4 h-4"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
                                             </svg>
                                           </a>
                                         </div>
@@ -256,8 +297,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             download=""
                                             class="p-2 bg-black bg-opacity-50 rounded-full text-white hover:bg-opacity-70 transition-all"
                                           >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            <svg
+                                              class="w-4 h-4"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
                                             </svg>
                                           </a>
                                         </div>
@@ -269,11 +320,23 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                       <div class="bg-white rounded-lg p-3 shadow-sm border max-w-[280px]">
                                         <div class="flex items-center space-x-3 mb-2">
                                           <div class="flex-shrink-0">
-                                            <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                            <svg
+                                              class="w-6 h-6 text-gray-500"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                              />
                                             </svg>
                                           </div>
-                                          <p class="text-sm font-medium text-gray-900 flex-grow">音声ファイル</p>
+                                          <p class="text-sm font-medium text-gray-900 flex-grow">
+                                            音声ファイル
+                                          </p>
                                           <a
                                             href={att.data
                                               ? `data:${att.mediaType};base64,${att.data}`
@@ -281,8 +344,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             download=""
                                             class="flex-shrink-0 p-1 text-blue-500 hover:text-blue-600 transition-colors"
                                           >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            <svg
+                                              class="w-4 h-4"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
                                             </svg>
                                           </a>
                                         </div>

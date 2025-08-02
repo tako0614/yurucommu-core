@@ -28,7 +28,9 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
   const [account] = useAtom(activeAccount);
-  const [mobileTab, setMobileTab] = createSignal<"following" | "latest" | "trends">("following");
+  const [mobileTab, setMobileTab] = createSignal<
+    "following" | "latest" | "trends"
+  >("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -338,8 +340,8 @@ export function Microblog() {
                   <button
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
-                      mobileTab() === "following" 
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                      mobileTab() === "following"
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
                         : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
                     }`}
                     onClick={() => setMobileTab("following")}
@@ -349,8 +351,8 @@ export function Microblog() {
                   <button
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
-                      mobileTab() === "latest" 
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                      mobileTab() === "latest"
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
                         : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
                     }`}
                     onClick={() => setMobileTab("latest")}
@@ -360,8 +362,8 @@ export function Microblog() {
                   <button
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
-                      mobileTab() === "trends" 
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5" 
+                      mobileTab() === "trends"
+                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
                         : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
                     }`}
                     onClick={() => setMobileTab("trends")}
@@ -395,8 +397,18 @@ export function Microblog() {
                   <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
                     <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        <svg
+                          class="w-5 h-5 text-blue-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                          />
                         </svg>
                         最新投稿
                       </h3>
@@ -423,13 +435,23 @@ export function Microblog() {
                     {/* デスクトップ用ヘッダー */}
                     <div class="hidden lg:block sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        <svg
+                          class="w-5 h-5 text-green-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                          />
                         </svg>
                         フォロー中
                       </h3>
                     </div>
-                    
+
                     {/* コンテンツエリア */}
                     <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16">
                       {/* モバイル: タブに応じた表示 */}
@@ -446,11 +468,23 @@ export function Microblog() {
                             handleDelete={handleDelete}
                             formatDate={formatDate}
                           />
-                          <Show when={(followingTimelinePosts() || []).length === 0}>
+                          <Show
+                            when={(followingTimelinePosts() || []).length === 0}
+                          >
                             <div class="p-8 text-center">
                               <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                                <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                <svg
+                                  class="w-8 h-8 text-gray-500"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                                  />
                                 </svg>
                               </div>
                               <p class="text-gray-400 text-lg font-medium mb-2">
@@ -462,7 +496,7 @@ export function Microblog() {
                             </div>
                           </Show>
                         </Show>
-                        
+
                         <Show when={mobileTab() === "latest"}>
                           <PostList
                             posts={posts() || []}
@@ -476,14 +510,14 @@ export function Microblog() {
                             formatDate={formatDate}
                           />
                         </Show>
-                        
+
                         <Show when={mobileTab() === "trends"}>
                           <div class="p-4">
                             <Trends />
                           </div>
                         </Show>
                       </div>
-                      
+
                       {/* デスクトップ: フォロー中投稿のみ */}
                       <div class="hidden lg:block">
                         <PostList
@@ -497,11 +531,23 @@ export function Microblog() {
                           handleDelete={handleDelete}
                           formatDate={formatDate}
                         />
-                        <Show when={(followingTimelinePosts() || []).length === 0}>
+                        <Show
+                          when={(followingTimelinePosts() || []).length === 0}
+                        >
                           <div class="p-8 text-center">
                             <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                              <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                              <svg
+                                class="w-8 h-8 text-gray-500"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                                />
                               </svg>
                             </div>
                             <p class="text-gray-400 text-lg font-medium mb-2">
@@ -522,8 +568,18 @@ export function Microblog() {
                   <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
                     <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                        <svg
+                          class="w-5 h-5 text-purple-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                          />
                         </svg>
                         トレンド
                       </h3>
@@ -540,8 +596,18 @@ export function Microblog() {
                   <Show when={loadingMore()}>
                     <div class="text-center py-8">
                       <div class="inline-flex items-center gap-2 text-gray-400">
-                        <svg class="animate-spin w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        <svg
+                          class="animate-spin w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
                         </svg>
                         読み込み中...
                       </div>
