@@ -329,20 +329,20 @@ export function Microblog() {
 
   return (
     <>
-      <div class="min-h-screen text-white relative">
+      <div class="min-h-screen text-[#E6E7EA] relative">
         <Show
           when={targetPostId() && selectedPost()}
           fallback={
             <>
               {/* モバイル用タブナビゲーション */}
-              <div class="lg:hidden sticky top-0 z-30 bg-gray-900/95 backdrop-blur-md border-b border-gray-700/50">
+              <div class="lg:hidden sticky top-0 z-30 bg-[#0F141A]/90 backdrop-blur-md border-b border-[#2B3340]/60">
                 <div class="flex">
                   <button
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
                       mobileTab() === "following"
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
-                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
+                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
                     }`}
                     onClick={() => setMobileTab("following")}
                   >
@@ -352,8 +352,8 @@ export function Microblog() {
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
                       mobileTab() === "latest"
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
-                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
+                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
                     }`}
                     onClick={() => setMobileTab("latest")}
                   >
@@ -363,8 +363,8 @@ export function Microblog() {
                     type="button"
                     class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
                       mobileTab() === "trends"
-                        ? "text-blue-400 border-b-2 border-blue-400 bg-blue-500/5"
-                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/50"
+                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
+                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
                     }`}
                     onClick={() => setMobileTab("trends")}
                   >
@@ -382,7 +382,7 @@ export function Microblog() {
                     setLimit(v);
                     resetPosts();
                   }}
-                  class="bg-gray-800/90 backdrop-blur-sm border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-700/90 transition-colors shadow-lg"
+                  class="bg-[#1B222C]/80 backdrop-blur-sm border border-[#2B3340]/60 rounded-lg px-3 py-2 text-sm text-[#D5D7DB] hover:bg-[#222A35]/80 transition-colors shadow-md"
                 >
                   <option value="20">20件</option>
                   <option value="50">50件</option>
@@ -394,11 +394,11 @@ export function Microblog() {
               <div class="lg:grid lg:grid-cols-[1fr_1.2fr_0.8fr] lg:gap-6 lg:px-6 lg:py-4 max-lg:pb-20">
                 {/* 左カラム（デスクトップ: 最新投稿） */}
                 <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
-                    <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
-                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
+                    <div class="sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
-                          class="w-5 h-5 text-blue-400"
+                          class="w-5 h-5 text-[#B9C0CA]"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -413,7 +413,7 @@ export function Microblog() {
                         最新投稿
                       </h3>
                     </div>
-                    <div class="p-4 overflow-x-hidden">
+                    <div class="p-4 overflow-x-hidden text-[#CDD1D6]">
                       <PostList
                         posts={posts() || []}
                         tab="latest"
@@ -431,12 +431,12 @@ export function Microblog() {
 
                 {/* 中央カラム（デスクトップ: フォロー中投稿） / モバイル: 選択されたタブの内容 */}
                 <div class="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-hidden max-lg:min-h-screen">
-                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full lg:flex lg:flex-col">
+                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full lg:flex lg:flex-col">
                     {/* デスクトップ用ヘッダー */}
-                    <div class="hidden lg:block sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
-                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                    <div class="hidden lg:block sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
-                          class="w-5 h-5 text-green-400"
+                          class="w-5 h-5 text-[#B9C0CA]"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -453,7 +453,7 @@ export function Microblog() {
                     </div>
 
                     {/* コンテンツエリア */}
-                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16">
+                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 text-[#CDD1D6]">
                       {/* モバイル: タブに応じた表示 */}
                       <div class="lg:hidden">
                         <Show when={mobileTab() === "following"}>
@@ -472,9 +472,9 @@ export function Microblog() {
                             when={(followingTimelinePosts() || []).length === 0}
                           >
                             <div class="p-8 text-center">
-                              <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                              <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
                                 <svg
-                                  class="w-8 h-8 text-gray-500"
+                                  class="w-8 h-8 text-[#7C8899]"
                                   fill="none"
                                   stroke="currentColor"
                                   viewBox="0 0 24 24"
@@ -519,7 +519,7 @@ export function Microblog() {
                       </div>
 
                       {/* デスクトップ: フォロー中投稿のみ */}
-                      <div class="hidden lg:block">
+                      <div class="hidden lg:block text-[#CDD1D6]">
                         <PostList
                           posts={followingTimelinePosts() || []}
                           tab="following"
@@ -535,9 +535,9 @@ export function Microblog() {
                           when={(followingTimelinePosts() || []).length === 0}
                         >
                           <div class="p-8 text-center">
-                            <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                            <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
                               <svg
-                                class="w-8 h-8 text-gray-500"
+                                class="w-8 h-8 text-[#7C8899]"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -565,11 +565,11 @@ export function Microblog() {
 
                 {/* 右カラム（デスクトップ: トレンド） */}
                 <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  <div class="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/30 h-full">
-                    <div class="sticky top-0 bg-gray-800/80 backdrop-blur-sm px-4 py-3 border-b border-gray-700/30 rounded-t-xl">
-                      <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
+                    <div class="sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                      <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
-                          class="w-5 h-5 text-purple-400"
+                          class="w-5 h-5 text-[#B9C0CA]"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -584,7 +584,7 @@ export function Microblog() {
                         トレンド
                       </h3>
                     </div>
-                    <div class="p-4 overflow-x-hidden">
+                    <div class="p-4 overflow-x-hidden text-[#CDD1D6]">
                       <Trends />
                     </div>
                   </div>
@@ -647,7 +647,7 @@ export function Microblog() {
         <Show when={account()}>
           <button
             type="button"
-            class="fixed bottom-6 right-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-105 z-50"
+            class="fixed bottom-6 right-6 bg-[#2B3340] hover:bg-[#343D4B] text-[#E6E7EA] p-4 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 z-50"
             onClick={() => {
               _setReplyingTo(null);
               setQuoteTarget(null);
