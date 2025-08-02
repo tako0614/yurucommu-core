@@ -92,7 +92,7 @@ function strToBuf(str: string): Uint8Array {
 }
 
 /**
- * MLS風にメッセージを暗号化
+ * MLSでにメッセージを暗号化
  */
 export const encryptGroupMessage = async (
   group: MLSGroupState,
