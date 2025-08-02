@@ -10,9 +10,8 @@
 $ deno task dev
 ```
 
-開発サーバーは API リクエストを `localhost:VITE_API_PORT`
-にプロキシします。デフォルトでは `VITE_DEV_PORT` が 1420、`VITE_API_PORT` が 80
-に設定されており、`.env` で変更できます。Mastodon など ActivityPub
+開発サーバーは API リクエストを `localhost:8000` にプロキシします。Mastodon など
+ActivityPub
 クライアントがバックエンドへアクセスできるよう、`/.well-known`、`/users`、`/inbox`
 へのパスもプロキシ設定済みです。
 
