@@ -35,8 +35,6 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 登録したリレーとは `Follow` を送っておくことで投稿が inbox に届きます。
 `getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
 へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
-`RELAY_POLL_INTERVAL` で指定した 間隔ごとに、登録済みリレーの `/api/posts`
-を取得し、新規投稿を Note や Video などのコレクションへ自動保存します。
 
 ### 初期設定
 
