@@ -5,7 +5,7 @@ import authRequired from "../utils/auth.ts";
 
 interface NoteDoc {
   content?: string;
-  published?: Date | string;
+  created_at?: Date | string;
 }
 
 const app = new Hono();
@@ -15,7 +15,10 @@ app.get("/trends", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const notes = await db.findNotes({ published: { $gte: since } }) as NoteDoc[];
+  // published が過去日時の投稿も集計対象とするため、作成日時で検索する
+  const notes = await db.findNotes({ created_at: { $gte: since } }, {
+    created_at: -1,
+  }) as NoteDoc[];
   const counts: Record<string, number> = {};
   for (const n of notes) {
     if (typeof n.content !== "string") continue;
