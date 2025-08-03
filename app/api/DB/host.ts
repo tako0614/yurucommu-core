@@ -176,7 +176,9 @@ export class MongoDBHost implements DB {
   }
 
   async listAccounts(): Promise<AccountDoc[]> {
-    return await HostAccount.find({}).lean<AccountDoc[]>();
+    return await HostAccount.find({
+      tenant_id: this.tenantId,
+    }).lean<AccountDoc[]>();
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
@@ -189,76 +191,103 @@ export class MongoDBHost implements DB {
   }
 
   async findAccountById(id: string): Promise<AccountDoc | null> {
-    return await HostAccount.findOne({ _id: id }).lean<AccountDoc | null>();
+    return await HostAccount.findOne({
+      _id: id,
+      tenant_id: this.tenantId,
+    }).lean<AccountDoc | null>();
   }
 
   async findAccountByUserName(
     username: string,
   ): Promise<AccountDoc | null> {
-    return await HostAccount.findOne({ userName: username }).lean<
-      AccountDoc | null
-    >();
+    return await HostAccount.findOne({
+      userName: username,
+      tenant_id: this.tenantId,
+    }).lean<AccountDoc | null>();
   }
 
   async updateAccountById(
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    return await HostAccount.findOneAndUpdate({ _id: id }, update, {
-      new: true,
-    })
-      .lean<AccountDoc | null>();
+    return await HostAccount.findOneAndUpdate(
+      { _id: id, tenant_id: this.tenantId },
+      update,
+      { new: true },
+    ).lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
-    const res = await HostAccount.findOneAndDelete({ _id: id });
+    const res = await HostAccount.findOneAndDelete({
+      _id: id,
+      tenant_id: this.tenantId,
+    });
     return !!res;
   }
 
   async addFollower(id: string, follower: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $addToSet: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async removeFollower(id: string, follower: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $pull: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async addFollowing(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $addToSet: { following: target },
     }, { new: true });
     return acc?.following ?? [];
   }
 
   async removeFollowing(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $pull: { following: target },
     }, { new: true });
     return acc?.following ?? [];
   }
 
   async listDms(id: string) {
-    const acc = await HostAccount.findOne({ _id: id }).lean<
-      { dms?: string[] } | null
-    >();
+    const acc = await HostAccount.findOne({
+      _id: id,
+      tenant_id: this.tenantId,
+    }).lean<{ dms?: string[] } | null>();
     return acc?.dms ?? [];
   }
 
   async addDm(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $addToSet: { dms: target },
     }, { new: true });
     return acc?.dms ?? [];
   }
 
   async removeDm(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({ _id: id }, {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
       $pull: { dms: target },
     }, { new: true });
     return acc?.dms ?? [];
@@ -525,13 +554,19 @@ export class MongoDBHost implements DB {
   }
 
   async addFollowerByName(username: string, follower: string) {
-    await HostAccount.updateOne({ userName: username }, {
+    await HostAccount.updateOne({
+      userName: username,
+      tenant_id: this.tenantId,
+    }, {
       $addToSet: { followers: follower },
     });
   }
 
   async removeFollowerByName(username: string, follower: string) {
-    await HostAccount.updateOne({ userName: username }, {
+    await HostAccount.updateOne({
+      userName: username,
+      tenant_id: this.tenantId,
+    }, {
       $pull: { followers: follower },
     });
   }
@@ -541,29 +576,32 @@ export class MongoDBHost implements DB {
     limit = 20,
   ): Promise<AccountDoc[]> {
     return await HostAccount.find({
+      tenant_id: this.tenantId,
       $or: [{ userName: query }, { displayName: query }],
-    })
-      .limit(limit)
-      .lean<AccountDoc[]>();
+    }).limit(limit).lean<AccountDoc[]>();
   }
 
   async updateAccountByUserName(
     username: string,
     update: Record<string, unknown>,
   ) {
-    await HostAccount.updateOne({ userName: username }, update);
+    await HostAccount.updateOne({
+      userName: username,
+      tenant_id: this.tenantId,
+    }, update);
   }
 
   async findAccountsByUserNames(
     usernames: string[],
   ): Promise<AccountDoc[]> {
-    return await HostAccount.find({ userName: { $in: usernames } }).lean<
-      AccountDoc[]
-    >();
+    return await HostAccount.find({
+      tenant_id: this.tenantId,
+      userName: { $in: usernames },
+    }).lean<AccountDoc[]>();
   }
 
   async countAccounts() {
-    return await HostAccount.countDocuments({});
+    return await HostAccount.countDocuments({ tenant_id: this.tenantId });
   }
 
   async createEncryptedMessage(data: {
