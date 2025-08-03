@@ -31,6 +31,10 @@ for (const obj of objects) {
     attributedTo: `https://${domain}/users/system`,
     content: obj.content,
     type: obj.type,
+    aud: {
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+    },
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
   };
   await db.saveObject(note);
   console.log(`追加しました: ${id}`);
