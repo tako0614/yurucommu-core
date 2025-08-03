@@ -2,6 +2,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -101,39 +102,36 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
     const obj = JSON.parse(text);
     if (obj && typeof obj === "object" && typeof obj.content === "string") {
       const rawAtt = (obj as { attachment?: unknown }).attachment;
-      const attachments =
-        Array.isArray(rawAtt)
-          ? rawAtt
-            .map((a: unknown) => {
-              if (
-                a && typeof a === "object" &&
-                typeof (a as { url?: unknown }).url === "string"
-              ) {
-                const mediaType =
-                  typeof (a as { mediaType?: unknown }).mediaType === "string"
-                    ? (a as { mediaType: string }).mediaType
-                    : "application/octet-stream";
-                const key =
-                  typeof (a as { key?: unknown }).key === "string"
-                    ? (a as { key: string }).key
-                    : undefined;
-                const iv =
-                  typeof (a as { iv?: unknown }).iv === "string"
-                    ? (a as { iv: string }).iv
-                    : undefined;
-                return {
-                  url: (a as { url: string }).url,
-                  mediaType,
-                  key,
-                  iv,
-                } as ActivityPubAttachment;
-              }
-              return null;
-            })
-            .filter((
-              a: ActivityPubAttachment | null,
-            ): a is ActivityPubAttachment => !!a)
-          : undefined;
+      const attachments = Array.isArray(rawAtt)
+        ? rawAtt
+          .map((a: unknown) => {
+            if (
+              a && typeof a === "object" &&
+              typeof (a as { url?: unknown }).url === "string"
+            ) {
+              const mediaType =
+                typeof (a as { mediaType?: unknown }).mediaType === "string"
+                  ? (a as { mediaType: string }).mediaType
+                  : "application/octet-stream";
+              const key = typeof (a as { key?: unknown }).key === "string"
+                ? (a as { key: string }).key
+                : undefined;
+              const iv = typeof (a as { iv?: unknown }).iv === "string"
+                ? (a as { iv: string }).iv
+                : undefined;
+              return {
+                url: (a as { url: string }).url,
+                mediaType,
+                key,
+                iv,
+              } as ActivityPubAttachment;
+            }
+            return null;
+          })
+          .filter((
+            a: ActivityPubAttachment | null,
+          ): a is ActivityPubAttachment => !!a)
+        : undefined;
       return { content: obj.content, attachments };
     }
   } catch {
@@ -581,6 +579,8 @@ export function Chat(props: ChatProps) {
     if (!text && !mediaFile() || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
+    // クライアント側で仮のメッセージIDを生成しておく
+    const localId = crypto.randomUUID();
     if (useEncryption()) {
       let group = groups()[roomId];
       if (!group) {
@@ -608,7 +608,7 @@ export function Chat(props: ChatProps) {
       const note: Record<string, unknown> = {
         "@context": "https://www.w3.org/ns/activitystreams",
         type: "Note",
-        id: `urn:uuid:${crypto.randomUUID()}`,
+        id: `urn:uuid:${localId}`,
         content: text,
       };
       if (mediaFile()) {
@@ -660,7 +660,7 @@ export function Chat(props: ChatProps) {
       const note: Record<string, unknown> = {
         "@context": "https://www.w3.org/ns/activitystreams",
         type: "Note",
-        id: `urn:uuid:${crypto.randomUUID()}`,
+        id: `urn:uuid:${localId}`,
         content: text,
       };
       if (mediaFile()) {
@@ -710,11 +710,13 @@ export function Chat(props: ChatProps) {
     }
     const file = mediaFile();
     const prev = mediaPreview();
+    // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
     setMediaPreview(null);
-    updateRoomLast(roomId, {
-      id: "temp",
+    // 送信済みメッセージを即時表示
+    const localMsg: ChatMessage = {
+      id: localId,
       author: `${user.userName}@${getDomain()}`,
       displayName: user.displayName || user.userName,
       address: `${user.userName}@${getDomain()}`,
@@ -726,8 +728,9 @@ export function Chat(props: ChatProps) {
       type: file ? file.type.startsWith("image/") ? "image" : "file" : "text",
       isMe: true,
       avatar: room.avatar,
-    });
-    loadMessages(room, true);
+    };
+    setMessages((prevMsgs) => [...prevMsgs, localMsg]);
+    updateRoomLast(roomId, localMsg);
   };
 
   // 画面サイズ検出
@@ -798,8 +801,7 @@ export function Chat(props: ChatProps) {
     const isPayload = (v: unknown): v is IncomingPayload => {
       if (typeof v !== "object" || v === null) return false;
       const o = v as Record<string, unknown>;
-      const base =
-        typeof o.id === "string" &&
+      const base = typeof o.id === "string" &&
         typeof o.from === "string" &&
         isStringArray(o.to) &&
         typeof o.content === "string" &&
@@ -848,7 +850,8 @@ export function Chat(props: ChatProps) {
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
-              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+              avatar: info.authorAvatar ||
+                info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "dm",
               members: [partnerId],
@@ -866,7 +869,9 @@ export function Chat(props: ChatProps) {
       }
 
       const isMe = data.from === self;
-      const displayName = isMe ? (user.displayName || user.userName) : room.name;
+      const displayName = isMe
+        ? (user.displayName || user.userName)
+        : room.name;
       const decoded = decodeMLSMessage(data.content);
       if (!decoded) return;
 
@@ -892,14 +897,22 @@ export function Chat(props: ChatProps) {
                   try {
                     const res = await fetch(at.url);
                     let buf = await res.arrayBuffer();
-                    if (typeof at.key === "string" && typeof at.iv === "string") {
+                    if (
+                      typeof at.key === "string" && typeof at.iv === "string"
+                    ) {
                       buf = await decryptFile(buf, at.key, at.iv);
                     }
                     const mt = typeof at.mediaType === "string"
                       ? at.mediaType
                       : "application/octet-stream";
-                    if (mt.startsWith("video/") || mt.startsWith("audio/") || buf.byteLength > 1024 * 1024) {
-                      attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                    if (
+                      mt.startsWith("video/") || mt.startsWith("audio/") ||
+                      buf.byteLength > 1024 * 1024
+                    ) {
+                      attachments.push({
+                        url: bufToUrl(buf, mt),
+                        mediaType: mt,
+                      });
                     } else {
                       attachments.push({ data: bufToB64(buf), mediaType: mt });
                     }
@@ -933,7 +946,10 @@ export function Chat(props: ChatProps) {
                 if (typeof at.key === "string" && typeof at.iv === "string") {
                   buf = await decryptFile(buf, at.key, at.iv);
                 }
-                if (mt.startsWith("video/") || mt.startsWith("audio/") || buf.byteLength > 1024 * 1024) {
+                if (
+                  mt.startsWith("video/") || mt.startsWith("audio/") ||
+                  buf.byteLength > 1024 * 1024
+                ) {
                   attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
                 } else {
                   attachments.push({ data: bufToB64(buf), mediaType: mt });
@@ -978,38 +994,38 @@ export function Chat(props: ChatProps) {
     loadRooms();
   });
 
-  createEffect(() => {
-    const roomId = selectedRoom();
-    const room = chatRooms().find((r) => r.id === roomId);
-    const selfRoomId = getSelfRoomId(account());
-
-    if (room) {
-      loadMessages(room, true);
-    } else if (roomId && roomId !== selfRoomId) {
-      fetchUserInfo(normalizeActor(roomId)).then((info) => {
-        if (!info) return;
-        const newRoom: ChatRoom = {
-          id: roomId,
-          name: info.displayName || info.userName,
-          userName: info.userName,
-          domain: info.domain,
-          avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
-          unreadCount: 0,
-          type: "dm",
-          members: [roomId],
-          lastMessage: "...",
-          lastMessageTime: undefined,
-        };
-        setChatRooms((prev) => {
-          if (prev.some((r) => r.id === newRoom.id)) return prev;
-          return [...prev, newRoom];
-        });
-        loadMessages(newRoom, true);
-      });
-    } else {
-      setMessages([]);
-    }
-  });
+  createEffect(
+    on(
+      () => selectedRoom(),
+      async (roomId) => {
+        const selfRoomId = getSelfRoomId(account());
+        const room = chatRooms().find((r) => r.id === roomId);
+        if (room) {
+          await loadMessages(room, true);
+        } else if (roomId && roomId !== selfRoomId) {
+          const info = await fetchUserInfo(normalizeActor(roomId));
+          if (!info) return;
+          const newRoom: ChatRoom = {
+            id: roomId,
+            name: info.displayName || info.userName,
+            userName: info.userName,
+            domain: info.domain,
+            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+            unreadCount: 0,
+            type: "dm",
+            members: [roomId],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          };
+          setChatRooms((prev) => [...prev, newRoom]);
+          await loadMessages(newRoom, true);
+        } else {
+          setMessages([]);
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
   createEffect(() => {
@@ -1074,7 +1090,9 @@ export function Chat(props: ChatProps) {
               showAds={showAds()}
             />
           </div>
-          <div class={isMobile() ? "w-[100vw] flex-shrink-0" : "flex-grow w-full"}>
+          <div
+            class={isMobile() ? "w-[100vw] flex-shrink-0" : "flex-grow w-full"}
+          >
             <Show
               when={selectedRoom()}
               fallback={
