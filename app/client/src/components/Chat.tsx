@@ -93,6 +93,7 @@ interface ActivityPubAttachment {
 }
 
 interface ParsedActivityPubNote {
+  id?: string;
   content: string;
   attachments?: ActivityPubAttachment[];
 }
@@ -132,7 +133,10 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
             a: ActivityPubAttachment | null,
           ): a is ActivityPubAttachment => !!a)
         : undefined;
-      return { content: obj.content, attachments };
+      const id = typeof (obj as { id?: unknown }).id === "string"
+        ? (obj as { id: string }).id
+        : undefined;
+      return { id, content: obj.content, attachments };
     }
   } catch {
     /* ignore */
@@ -708,29 +712,11 @@ export function Chat(props: ChatProps) {
         await addDm(user.id, room.members[0]);
       }
     }
-    const file = mediaFile();
-    const prev = mediaPreview();
     // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
     setMediaPreview(null);
-    // 送信済みメッセージを即時表示
-    const localMsg: ChatMessage = {
-      id: localId,
-      author: `${user.userName}@${getDomain()}`,
-      displayName: user.displayName || user.userName,
-      address: `${user.userName}@${getDomain()}`,
-      content: text,
-      attachments: file
-        ? [{ data: prev ?? "", mediaType: file.type }]
-        : undefined,
-      timestamp: new Date(),
-      type: file ? file.type.startsWith("image/") ? "image" : "file" : "text",
-      isMe: true,
-      avatar: room.avatar,
-    };
-    setMessages((prevMsgs) => [...prevMsgs, localMsg]);
-    updateRoomLast(roomId, localMsg);
+    // WebSocketからメッセージ受信を待つため、即座の表示は行わない
   };
 
   // 画面サイズ検出
@@ -879,6 +865,7 @@ export function Chat(props: ChatProps) {
       let attachments:
         | { data?: string; url?: string; mediaType: string }[]
         | undefined;
+      let localId: string | undefined;
 
       if (msg.type === "encryptedMessage") {
         const group = groups()[room.id];
@@ -887,6 +874,9 @@ export function Chat(props: ChatProps) {
           if (plain) {
             const note = parseActivityPubNote(plain);
             text = note.content;
+            localId = note.id?.startsWith("urn:uuid:")
+              ? note.id.slice(9)
+              : note.id;
             const listAtt = Array.isArray(data.attachments)
               ? data.attachments
               : note.attachments;
@@ -930,6 +920,7 @@ export function Chat(props: ChatProps) {
       } else {
         const note = parseActivityPubNote(decoded.body);
         text = note.content;
+        localId = note.id?.startsWith("urn:uuid:") ? note.id.slice(9) : note.id;
         const listAtt = Array.isArray(data.attachments)
           ? data.attachments
           : note.attachments;
@@ -977,6 +968,14 @@ export function Chat(props: ChatProps) {
         avatar: room.avatar,
       };
       setMessages((prev) => {
+        if (localId) {
+          const idx = prev.findIndex((msg) => msg.id === localId);
+          if (idx !== -1) {
+            const newMsgs = [...prev];
+            newMsgs[idx] = m;
+            return newMsgs;
+          }
+        }
         if (prev.some((msg) => msg.id === m.id)) return prev;
         return [...prev, m];
       });
@@ -999,26 +998,39 @@ export function Chat(props: ChatProps) {
       () => selectedRoom(),
       async (roomId) => {
         const selfRoomId = getSelfRoomId(account());
-        const room = chatRooms().find((r) => r.id === roomId);
+        if (!roomId) {
+          setMessages([]);
+          return;
+        }
+        
+        let room = chatRooms().find((r) => r.id === roomId);
+        
+        // ルームが存在しない場合は作成を試行
+        if (!room && roomId !== selfRoomId) {
+          const info = await fetchUserInfo(normalizeActor(roomId));
+          if (info) {
+            room = {
+              id: roomId,
+              name: info.displayName || info.userName,
+              userName: info.userName,
+              domain: info.domain,
+              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+              unreadCount: 0,
+              type: "dm",
+              members: [roomId],
+              lastMessage: "...",
+              lastMessageTime: undefined,
+            };
+            setChatRooms((prev) => [...prev, room!]);
+          }
+        }
+        
+        // ルームが見つかった場合はメッセージを読み込み
         if (room) {
           await loadMessages(room, true);
-        } else if (roomId && roomId !== selfRoomId) {
-          const info = await fetchUserInfo(normalizeActor(roomId));
-          if (!info) return;
-          const newRoom: ChatRoom = {
-            id: roomId,
-            name: info.displayName || info.userName,
-            userName: info.userName,
-            domain: info.domain,
-            avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
-            unreadCount: 0,
-            type: "dm",
-            members: [roomId],
-            lastMessage: "...",
-            lastMessageTime: undefined,
-          };
-          setChatRooms((prev) => [...prev, newRoom]);
-          await loadMessages(newRoom, true);
+        } else if (roomId === selfRoomId) {
+          // セルフルーム（TAKO Keep）の場合は空のメッセージリストを設定
+          setMessages([]);
         } else {
           setMessages([]);
         }
