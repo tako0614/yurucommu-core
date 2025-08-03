@@ -131,7 +131,7 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 ください。
 
 - `GET /api/posts` – 公開タイムラインを取得（登録済みリレーからの投稿も含む）
-- `GET /api/posts?timeline=followers&actor=URI` –
+- `GET /api/posts?timeline=following&actor=URI` –
   フォロー中アクターの投稿のみ取得
 - `POST /api/posts` – 投稿を作成 (`{ "author": "user", "content": "hello" }`)
 - `PUT /api/posts/:id` – 投稿を更新 (`{ "content": "edited" }`)

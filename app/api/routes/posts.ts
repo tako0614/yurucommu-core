@@ -54,7 +54,7 @@ app.get("/posts", async (c) => {
   const before = c.req.query("before");
   const db = createDB(env);
   let list: ActivityPubObjectType[];
-  if (timeline === "followers" && actor && tenantId) {
+  if (timeline === "following" && actor && tenantId) {
     list = await db.listTimeline(actor, {
       limit,
       before: before ? new Date(before) : undefined,

@@ -97,7 +97,7 @@ export const fetchFollowingPosts = async (
   try {
     const domain = getDomain();
     const params = new URLSearchParams({
-      timeline: "followers",
+      timeline: "following",
       actor: `https://${domain}/users/${encodeURIComponent(username)}`,
     });
     const response = await apiFetch(`/api/posts?${params.toString()}`);
