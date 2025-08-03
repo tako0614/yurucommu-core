@@ -46,6 +46,30 @@ export function Microblog() {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
 
+  const LIKED_POSTS_KEY = "liked_posts";
+  let likedPostIds = new Set<string>();
+
+  const loadLikedPosts = () => {
+    try {
+      const stored = localStorage.getItem(LIKED_POSTS_KEY);
+      likedPostIds = stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      likedPostIds = new Set();
+    }
+  };
+
+  const saveLikedPosts = () => {
+    localStorage.setItem(
+      LIKED_POSTS_KEY,
+      JSON.stringify(Array.from(likedPostIds)),
+    );
+  };
+
+  const applyLiked = (p: MicroblogPost): MicroblogPost => ({
+    ...p,
+    isLiked: likedPostIds.has(p.id) || p.isLiked,
+  });
+
   // State for the detail view
   const [selectedPost, setSelectedPost] = createSignal<MicroblogPost | null>(
     null,
@@ -62,15 +86,15 @@ export function Microblog() {
       return;
     }
     const replies = await fetchPostReplies(id);
-    setSelectedPost(p);
-    setSelectedPostReplies(replies);
+    setSelectedPost(applyLiked(p));
+    setSelectedPostReplies(replies.map(applyLiked));
   };
 
   let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
     const data = await fetchPosts({ limit: limit() });
-    setPosts(data);
+    setPosts(data.map(applyLiked));
     setCursor(data.length > 0 ? data[data.length - 1].createdAt : null);
   };
 
@@ -82,7 +106,7 @@ export function Microblog() {
       before: cursor() ?? undefined,
     });
     if (data.length > 0) {
-      setPosts((prev) => [...prev, ...data]);
+      setPosts((prev) => [...prev, ...data.map(applyLiked)]);
       setCursor(data[data.length - 1].createdAt);
     }
     setLoadingMore(false);
@@ -119,6 +143,7 @@ export function Microblog() {
   };
 
   onMount(() => {
+    loadLikedPosts();
     if (targetPostId()) {
       loadPostById(targetPostId()!);
     } else {
@@ -189,7 +214,11 @@ export function Microblog() {
     { refetch: _refetchFollowing, mutate: mutateFollowing },
   ] = createResource(() => {
     const user = account();
-    return user ? fetchFollowingPosts(user.userName) : Promise.resolve([]);
+    return user
+      ? fetchFollowingPosts(user.userName).then((posts) =>
+        posts.map(applyLiked)
+      )
+      : Promise.resolve([]);
   });
 
   const _handleSubmit = async (e: Event) => {
@@ -251,11 +280,14 @@ export function Microblog() {
   const handleLike = async (id: string) => {
     const user = account();
     if (!user) return;
+    if (likedPostIds.has(id)) return;
     const likes = await likePost(id, user.userName);
     if (likes === null) return;
+    likedPostIds.add(id);
+    saveLikedPosts();
 
     const update = (p: MicroblogPost) =>
-      p.id === id ? { ...p, likes, isLiked: !p.isLiked } : p;
+      p.id === id ? { ...p, likes, isLiked: true } : p;
 
     if (selectedPost()?.id === id) {
       setSelectedPost(update(selectedPost()!));
