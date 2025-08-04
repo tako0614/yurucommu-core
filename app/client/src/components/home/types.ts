@@ -18,3 +18,4 @@ export type Notification = {
 };
 
 export const isDataUrl = (str: string) => str.startsWith("data:image/");
+export { isUrl } from "../../utils/url.ts";

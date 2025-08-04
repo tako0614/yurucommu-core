@@ -142,7 +142,15 @@ app.get("/users/:username/avatar", async (c) => {
   if (!account) return c.body("Not Found", 404);
 
   let icon = account.avatarInitial || username.charAt(0).toUpperCase();
-
+  // 保存されている値がURLの場合はリダイレクトする
+  if (icon.startsWith("http://") || icon.startsWith("https://")) {
+    return c.redirect(icon);
+  }
+  if (icon.startsWith("/")) {
+    const domain = getDomain(c);
+    return c.redirect(`https://${domain}${icon}`);
+  }
+  // データURLの場合はデコードして返す
   if (icon.startsWith("data:image/")) {
     const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
     if (match) {
@@ -152,6 +160,7 @@ app.get("/users/:username/avatar", async (c) => {
     }
   }
 
+  // それ以外は文字列からイニシャルを生成したSVGを返す
   icon = icon.slice(0, 2).toUpperCase();
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">${icon}</text></svg>`;

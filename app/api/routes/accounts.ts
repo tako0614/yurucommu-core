@@ -5,6 +5,9 @@ import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
 import type { AccountDoc } from "../../shared/types.ts";
+import { b64ToBuf } from "../../shared/buffer.ts";
+import { isUrl } from "../../shared/url.ts";
+import { saveFile } from "../services/file.ts";
 
 function formatAccount(doc: AccountDoc) {
   return {
@@ -17,6 +20,35 @@ function formatAccount(doc: AccountDoc) {
     following: doc.following,
     dms: doc.dms,
   };
+}
+
+// 画像データURLやURL文字列を処理して保存し、URLまたはイニシャルを返す
+async function resolveAvatar(
+  value: unknown,
+  env: Record<string, string>,
+  name: string,
+): Promise<string> {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    // data URL の場合はファイルとして保存する
+    if (trimmed.startsWith("data:image/")) {
+      const match = trimmed.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      if (match) {
+        const [, type, data] = match;
+        const bytes = b64ToBuf(data);
+        const ext = type.split("/")[1]?.split("+")[0];
+        const saved = await saveFile(bytes, env, {
+          mediaType: type,
+          ext: ext ? `.${ext}` : ".png",
+        });
+        return saved.url;
+      }
+    }
+    // 既にURLで渡された場合はそのまま利用
+    if (isUrl(trimmed) || trimmed.startsWith("/")) return trimmed;
+  }
+  // 画像が指定されない場合は表示名からイニシャルを生成
+  return name.charAt(0).toUpperCase().substring(0, 2);
 }
 
 const app = new Hono();
@@ -59,8 +91,11 @@ app.post("/accounts", async (c) => {
   const account = await db.createAccount({
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
-    avatarInitial: icon ??
-      username.trim().charAt(0).toUpperCase().substring(0, 2),
+    avatarInitial: await resolveAvatar(
+      icon,
+      env,
+      (displayName ?? username).trim(),
+    ),
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
@@ -87,11 +122,24 @@ app.put("/accounts/:id", async (c) => {
   const db = createDB(env);
   const id = c.req.param("id");
   const updates = await c.req.json();
+  const orig = await db.findAccountById(id);
+  if (!orig) return jsonResponse(c, { error: "Account not found" }, 404);
+
   const data: Record<string, unknown> = {};
   // userName is immutable after creation - removed from update logic
   if (updates.displayName) data.displayName = updates.displayName;
   if (updates.avatarInitial !== undefined) {
-    data.avatarInitial = updates.avatarInitial;
+    const base = updates.displayName ?? orig.displayName ?? orig.userName;
+    data.avatarInitial = await resolveAvatar(updates.avatarInitial, env, base);
+  } else if (updates.displayName) {
+    const cur = orig.avatarInitial;
+    if (
+      !cur ||
+      (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))
+    ) {
+      data.avatarInitial = updates.displayName.charAt(0).toUpperCase()
+        .substring(0, 2);
+    }
   }
   if (updates.privateKey) data.privateKey = updates.privateKey;
   if (updates.publicKey) data.publicKey = updates.publicKey;

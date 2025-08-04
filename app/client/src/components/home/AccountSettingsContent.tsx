@@ -6,7 +6,7 @@ import {
   For,
   Show,
 } from "solid-js";
-import { Account, isDataUrl } from "./types.ts";
+import { Account, isDataUrl, isUrl } from "./types.ts";
 import {
   fetchActivityPubObjects,
   fetchFollowers,
@@ -170,7 +170,7 @@ const AccountSettingsContent: Component<{
   > = (p) => {
     const displayIcon = () => {
       const icon = p.iconValue?.trim();
-      if (icon && isDataUrl(icon)) {
+      if (icon && (isDataUrl(icon) || isUrl(icon))) {
         return (
           <img
             src={icon}

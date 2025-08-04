@@ -3,7 +3,7 @@ import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
-import { Account, isDataUrl } from "./home/types.ts";
+import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
 import {
   accounts as accountsAtom,
@@ -167,9 +167,9 @@ export function Home(props: HomeProps) {
 
       // アイコンの処理
       if (updates.avatarInitial !== undefined) { // editingIcon() が元の値から変更された場合
-        if (isDataUrl(updates.avatarInitial)) {
+        if (isDataUrl(updates.avatarInitial) || isUrl(updates.avatarInitial)) {
           payload.avatarInitial = updates.avatarInitial;
-        } else { // データURLでない場合、または画像がクリアされた場合を想定し、表示名からイニシャルを生成
+        } else { // データURLやURLでない場合は表示名からイニシャルを生成
           const baseDisplayName = updates.displayName ||
             currentAccount.displayName;
           payload.avatarInitial =
@@ -177,14 +177,16 @@ export function Home(props: HomeProps) {
               .substring(0, 2);
         }
       } else if (updates.displayName) {
-        // アイコンはファイルアップロード等で明示的に変更されなかったが、表示名が変更された場合
-        // かつ、現在のアイコンがデータURLでない（つまりイニシャルである）場合のみ、イニシャルを更新
-        if (!isDataUrl(currentAccount.avatarInitial)) {
+        // アイコンが明示的に変更されず表示名のみ変わった場合、
+        // 現在のアイコンがイニシャルのときだけ更新する
+        if (
+          !isDataUrl(currentAccount.avatarInitial) &&
+          !isUrl(currentAccount.avatarInitial)
+        ) {
           payload.avatarInitial =
             (updates.displayName.charAt(0).toUpperCase() || "?")
               .substring(0, 2);
         }
-        // 現在のアイコンが画像の場合は、表示名変更だけではアイコンは変更しない
       }
       // payload.avatarInitial が未定義の場合、サーバー側はアイコンを変更しない
 
