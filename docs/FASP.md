@@ -94,8 +94,8 @@
 
    takosは FASP登録要求を保存し、自身の公開鍵と
    `faspId`、`registrationCompletionUri` を返す。
-3. 管理者は takos 管理UIで\*\*指紋（FASP公開鍵のSHA-256
-   Base64）\*\*を確認し、受理/拒否を決定。
+3. 管理者は takos 管理UIで**指紋（FASP公開鍵のSHA-256
+   Base64）**を確認し、受理/拒否を決定。
 4. 受理後、能力（capability）選択へ。
 
 ### 4.2 Capability 選択
@@ -147,7 +147,7 @@
 
 - 送信は **URIのみ**（本体は送らない）。FASP側が取得する。
 - takos は
-  \*\*公開・検索許可（discoverable）\*\*のみ共有。**非公開・未許可**は共有禁止。
+  **公開・検索許可（discoverable）**のみ共有。**非公開・未許可**は共有禁止。
 - FASP側は `to:` を確認し公開対象のみ処理。
 - 検索許可の判定は **FEP-5feb** に従う。
 
@@ -353,5 +353,6 @@ FASP の Service Actor 配信へ移行するため、従来のリレー機能を
 
 - FASP General（Intro/Protocol/Registration/Provider Info）
 - FASP Discovery: **data\_sharing** / **trends** / **account\_search**
-- ActivityStreams Actor Types（`Service` 含む） ([W3C][1]) [1]:
-  https://www.w3.org/TR/activitystreams-vocabulary/#actor-types
+- ActivityStreams Actor Types（`Service` 含む） ([W3C][1])
+
+[1]: https://www.w3.org/TR/activitystreams-vocabulary/#actor-types
