@@ -10,6 +10,8 @@ import { useAtom } from "solid-jotai";
 import { createVideo, fetchVideos, likeVideo } from "./videos/api.ts";
 import { Video } from "./videos/types.ts";
 import { activeAccount } from "../states/account.ts";
+import { selectedAppState } from "../states/app.ts";
+import { profileUserState } from "../states/router.ts";
 
 export function Videos() {
   const [currentView, setCurrentView] = createSignal<"timeline" | "shorts">(
@@ -19,6 +21,8 @@ export function Videos() {
   const [showUploadModal, setShowUploadModal] = createSignal(false);
   const [openedVideo, setOpenedVideo] = createSignal<Video | null>(null);
   const [account] = useAtom(activeAccount);
+  const [, setApp] = useAtom(selectedAppState);
+  const [, setProfileUser] = useAtom(profileUserState);
   const [uploadForm, setUploadForm] = createSignal({
     title: "",
     description: "",
@@ -150,9 +154,9 @@ export function Videos() {
   };
 
   const navigateToProfile = (acct: string) => {
-    // This is a placeholder for navigation.
-    // In a real app, you would use a router like solid-router.
-    alert(`Navigate to profile for user: ${acct}`);
+    // プロフィール画面へ遷移する
+    setApp("profile");
+    setProfileUser(acct);
   };
 
   // ショート動画のスクロール処理

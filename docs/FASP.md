@@ -7,6 +7,7 @@
   - takos に Fediscovery（FASP）を接続し、検索・発見（Discovery）機能を強化。
   - takos host に **Service Actor**
     を実装し、従来のリレーサーバー代替として「フォロー可能な配信ハブ」を提供。
+  - takos host の従来のリレー機能を廃止し、Service Actor 配信へ移行。
 
 - **スコープ**
 
@@ -213,13 +214,13 @@
   - `inbox`：受信（Follow、Undo、Block等）を処理。
   - `outbox`：配信（Accept、Announce/Forward等）を発行。
 
-### 6.2 フォロー/配信（リレー相当）
+### 6.2 Service Actor のフォローと配信
 
 - **Follow受付**
 
   - 受領：`Follow{ actor: <follower>, object: <takos-actor> }`
   - 応答：`Accept(Follow)` を outbox から配信。
-- **配信方針（“リレー代替”）**
+- **配信方針**
 
   - takos が把握する **公開・discoverable** な新規/更新コンテンツの **URI**
     を、フォロワーへ **Announce**（または必要に応じて元オブジェクトの配信）
@@ -327,7 +328,6 @@ service_actor:
   受理・`announcements`送信の最小フロー。
 - `trends`/`account_search` のクライアント呼び出しとUI表示。
 
-
 ---
 
 ## 11. リレー機能の廃止
@@ -347,13 +347,11 @@ FASP の Service Actor 配信へ移行するため、従来のリレー機能を
 - 必要な情報があればバックアップして FASP の Service Actor
   側へ移行した後、コレクションを削除する。不要であればそのまま破棄してよい。
 
-
 ---
 
 ## 参考
 
 - FASP General（Intro/Protocol/Registration/Provider Info）
 - FASP Discovery: **data\_sharing** / **trends** / **account\_search**
-- ActivityStreams Actor Types（`Service` 含む） ([W3C][1])
-[1]: https://www.w3.org/TR/activitystreams-vocabulary/#actor-types
-
+- ActivityStreams Actor Types（`Service` 含む） ([W3C][1]) [1]:
+  https://www.w3.org/TR/activitystreams-vocabulary/#actor-types
