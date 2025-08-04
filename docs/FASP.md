@@ -327,6 +327,7 @@ service_actor:
   受理・`announcements`送信の最小フロー。
 - `trends`/`account_search` のクライアント呼び出しとUI表示。
 
+
 ---
 
 ## 11. リレー機能の廃止
@@ -346,6 +347,7 @@ FASP の Service Actor 配信へ移行するため、従来のリレー機能を
 - 必要な情報があればバックアップして FASP の Service Actor
   側へ移行した後、コレクションを削除する。不要であればそのまま破棄してよい。
 
+
 ---
 
 ## 参考
@@ -353,3 +355,5 @@ FASP の Service Actor 配信へ移行するため、従来のリレー機能を
 - FASP General（Intro/Protocol/Registration/Provider Info）
 - FASP Discovery: **data\_sharing** / **trends** / **account\_search**
 - ActivityStreams Actor Types（`Service` 含む） ([W3C][1])
+[1]: https://www.w3.org/TR/activitystreams-vocabulary/#actor-types
+
