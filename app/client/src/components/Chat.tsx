@@ -1090,33 +1090,38 @@ export function Chat(props: ChatProps) {
         : data.from;
 
       const normalizedPartner = normalizeActor(partnerId);
-      let room = chatRooms().find((r) => r.id === normalizedPartner);
+      let room = chatRooms().find((r) =>
+        r.type === "group" && `${r.id}@${r.domain}` === normalizedPartner
+      );
       if (!room) {
-        if (
-          confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
-        ) {
-          const info = await fetchUserInfo(normalizeActor(normalizedPartner));
-          if (info) {
-            room = {
-              id: normalizedPartner,
-              name: info.displayName || info.userName,
-              userName: info.userName,
-              domain: info.domain,
-              avatar: info.authorAvatar ||
-                info.userName.charAt(0).toUpperCase(),
-              unreadCount: 0,
-              type: "dm",
-              members: [normalizedPartner],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            };
-            upsertRoom(room!);
-            await addDm(user.id, normalizedPartner);
+        room = chatRooms().find((r) => r.id === normalizedPartner);
+        if (!room) {
+          if (
+            confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
+          ) {
+            const info = await fetchUserInfo(normalizeActor(normalizedPartner));
+            if (info) {
+              room = {
+                id: normalizedPartner,
+                name: info.displayName || info.userName,
+                userName: info.userName,
+                domain: info.domain,
+                avatar: info.authorAvatar ||
+                  info.userName.charAt(0).toUpperCase(),
+                unreadCount: 0,
+                type: "dm",
+                members: [normalizedPartner],
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              };
+              upsertRoom(room!);
+              await addDm(user.id, normalizedPartner);
+            } else {
+              return;
+            }
           } else {
             return;
           }
-        } else {
-          return;
         }
       }
 
