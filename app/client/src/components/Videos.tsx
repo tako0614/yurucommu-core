@@ -12,6 +12,7 @@ import { Video } from "./videos/types.ts";
 import { activeAccount } from "../states/account.ts";
 import { selectedAppState } from "../states/app.ts";
 import { profileUserState } from "../states/router.ts";
+import { UserAvatar } from "./microblog/UserAvatar.tsx";
 
 export function Videos() {
   const [currentView, setCurrentView] = createSignal<"timeline" | "shorts">(
@@ -524,11 +525,11 @@ export function Videos() {
                           class="flex-shrink-0 cursor-pointer"
                           onClick={() => navigateToProfile(video.authorAcct)}
                         >
-                          <div class="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                            <span class="text-white text-sm">
-                              {video.authorAvatar}
-                            </span>
-                          </div>
+                          <UserAvatar
+                            avatarUrl={video.authorAvatar}
+                            username={video.author}
+                            size="w-10 h-10"
+                          />
                         </div>
                         <div class="flex-1 min-w-0">
                           <h3
@@ -598,11 +599,11 @@ export function Videos() {
                             onClick={() =>
                               navigateToProfile(currentShort.authorAcct)}
                           >
-                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                              <span class="text-white text-sm">
-                                {currentShort.authorAvatar}
-                              </span>
-                            </div>
+                            <UserAvatar
+                              avatarUrl={currentShort.authorAvatar}
+                              username={currentShort.author}
+                              size="w-10 h-10"
+                            />
                             <div class="flex-1">
                               <p class="text-white font-semibold">
                                 {currentShort.author}
@@ -705,11 +706,11 @@ export function Videos() {
                       onClick={() =>
                         navigateToProfile(openedVideo()!.authorAcct)}
                     >
-                      <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                        <span class="text-white font-semibold">
-                          {openedVideo()!.authorAvatar}
-                        </span>
-                      </div>
+                      <UserAvatar
+                        avatarUrl={openedVideo()!.authorAvatar}
+                        username={openedVideo()!.author}
+                        size="w-12 h-12"
+                      />
                       <div>
                         <p class="font-medium text-gray-300">
                           {openedVideo()!.author}
