@@ -475,8 +475,8 @@ export function Microblog() {
               <div class="lg:grid lg:grid-cols-[1fr_1.2fr_0.8fr] lg:gap-6 lg:px-6 lg:py-4 max-lg:pb-20">
                 {/* 左カラム（デスクトップ: 最新投稿） */}
                 <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
-                    <div class="sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                  <div class="backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
+                    <div class="sticky top-0  backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
                           class="w-5 h-5 text-[#B9C0CA]"
@@ -512,9 +512,9 @@ export function Microblog() {
 
                 {/* 中央カラム（デスクトップ: フォロー中投稿） / モバイル: 選択されたタブの内容 */}
                 <div class="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-hidden max-lg:min-h-screen">
-                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full lg:flex lg:flex-col">
+                  <div class="backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full lg:flex lg:flex-col">
                     {/* デスクトップ用ヘッダー */}
-                    <div class="hidden lg:block sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                    <div class="hidden lg:block sticky top-0  backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
                           class="w-5 h-5 text-[#B9C0CA]"
@@ -675,8 +675,8 @@ export function Microblog() {
 
                 {/* 右カラム（デスクトップ: トレンド） */}
                 <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  <div class="bg-[#151A21]/60 backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
-                    <div class="sticky top-0 bg-[#151A21]/80 backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
+                  <div class="backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
+                    <div class="sticky top-0  backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
                       <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
                         <svg
                           class="w-5 h-5 text-[#B9C0CA]"
