@@ -222,6 +222,20 @@ export function Chat(props: ChatProps) {
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
+
+  // ルーム重複防止ユーティリティ
+  function upsertRooms(next: ChatRoom[]) {
+    setChatRooms((prev) => {
+      const map = new Map<string, ChatRoom>();
+      // 既存を入れてから next で上書き（最新情報を反映）
+      for (const r of prev) map.set(r.id, r);
+      for (const r of next) map.set(r.id, r);
+      return Array.from(map.values());
+    });
+  }
+  function upsertRoom(room: ChatRoom) {
+    upsertRooms([room]);
+  }
   const updateRoomLast = (roomId: string, msg?: ChatMessage) => {
     setChatRooms((rooms) => {
       let updated = false;
@@ -826,13 +840,14 @@ export function Chat(props: ChatProps) {
         ? (data.to.find((v) => v !== self) ?? data.to[0])
         : data.from;
 
-      let room = chatRooms().find((r) => r.id === partnerId);
+      const normalizedPartner = normalizeActor(partnerId);
+      let room = chatRooms().find((r) => r.id === normalizedPartner);
       if (!room) {
-        if (confirm(`${partnerId} からDMが届きました。許可しますか？`)) {
-          const info = await fetchUserInfo(normalizeActor(partnerId));
+        if (confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)) {
+          const info = await fetchUserInfo(normalizeActor(normalizedPartner));
           if (info) {
             room = {
-              id: partnerId,
+              id: normalizedPartner,
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
@@ -840,12 +855,12 @@ export function Chat(props: ChatProps) {
                 info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "dm",
-              members: [partnerId],
+              members: [normalizedPartner],
               lastMessage: "...",
               lastMessageTime: undefined,
             };
-            setChatRooms((prev) => [...prev, room!]);
-            await addDm(user.id, partnerId);
+            upsertRoom(room!);
+            await addDm(user.id, normalizedPartner);
           } else {
             return;
           }
@@ -1003,14 +1018,15 @@ export function Chat(props: ChatProps) {
           return;
         }
 
-        let room = chatRooms().find((r) => r.id === roomId);
+        const normalizedRoomId = normalizeActor(roomId);
+        let room = chatRooms().find((r) => r.id === normalizedRoomId);
 
         // ルームが存在しない場合は作成を試行
-        if (!room && roomId !== selfRoomId) {
-          const info = await fetchUserInfo(normalizeActor(roomId));
+        if (!room && normalizedRoomId !== selfRoomId) {
+          const info = await fetchUserInfo(normalizeActor(normalizedRoomId));
           if (info) {
             room = {
-              id: roomId,
+              id: normalizedRoomId,
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
@@ -1018,11 +1034,11 @@ export function Chat(props: ChatProps) {
                 info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "dm",
-              members: [roomId],
+              members: [normalizedRoomId],
               lastMessage: "...",
               lastMessageTime: undefined,
             };
-            setChatRooms((prev) => [...prev, room!]);
+            upsertRoom(room!);
           }
         }
 
