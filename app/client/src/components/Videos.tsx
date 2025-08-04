@@ -151,6 +151,12 @@ export function Videos() {
     }
   };
 
+  const navigateToProfile = (authorId: string) => {
+    // This is a placeholder for navigation.
+    // In a real app, you would use a router like solid-router.
+    alert(`Navigate to profile for user ID: ${authorId}`);
+  };
+
   // ショート動画のスクロール処理
   const handleShortsScroll = (direction: "up" | "down") => {
     const currentIndex = selectedShortIndex();
@@ -478,10 +484,13 @@ export function Videos() {
                 <For each={longVideos()}>
                   {(video) => (
                     <div
-                      class="group cursor-pointer"
-                      onClick={() => playVideo(video)}
+                      class="group"
                     >
-                      <div style="background-color: #2a2a2a;" class="relative aspect-video rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200">
+                      <div
+                        class="relative aspect-video rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200 cursor-pointer"
+                        onClick={() => playVideo(video)}
+                        style="background-color: #2a2a2a;"
+                      >
                         <img
                           class="w-full h-full object-cover"
                           src={video.thumbnail}
@@ -497,14 +506,27 @@ export function Videos() {
                         </div>
                       </div>
                       <div class="flex space-x-3">
-                        <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                          <span class="text-white text-sm">{video.authorAvatar}</span>
+                        <div
+                          class="flex-shrink-0 cursor-pointer"
+                          onClick={() => navigateToProfile(video.authorId)}
+                        >
+                          <div class="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
+                            <span class="text-white text-sm">{video.authorAvatar}</span>
+                          </div>
                         </div>
                         <div class="flex-1 min-w-0">
-                          <h3 class="font-medium text-gray-300 mb-1 line-clamp-2 group-hover:text-blue-400">
+                          <h3
+                            class="font-medium text-gray-300 mb-1 line-clamp-2 group-hover:text-blue-400 cursor-pointer"
+                            onClick={() => playVideo(video)}
+                          >
                             {video.title}
                           </h3>
-                          <p class="text-sm text-gray-400 mb-1">{video.author}</p>
+                          <p
+                            class="text-sm text-gray-400 mb-1 cursor-pointer hover:underline"
+                            onClick={() => navigateToProfile(video.authorId)}
+                          >
+                            {video.author}
+                          </p>
                           <div class="text-sm text-gray-500 flex items-center space-x-2">
                             <span>{formatNumber(video.views)} 回視聴</span>
                             <span>•</span>
@@ -556,12 +578,17 @@ export function Videos() {
 
                       {/* 動画情報オーバーレイ */}
                       <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6">
-                        <div class="flex items-center space-x-3 mb-3">
-                          <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                            <span class="text-white text-sm">{currentShort.authorAvatar}</span>
-                          </div>
-                          <div class="flex-1">
-                            <p class="text-white font-semibold">{currentShort.author}</p>
+                        <div class="flex items-center justify-between mb-3">
+                          <div
+                            class="flex items-center space-x-3 cursor-pointer"
+                            onClick={() => navigateToProfile(currentShort.authorId)}
+                          >
+                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                              <span class="text-white text-sm">{currentShort.authorAvatar}</span>
+                            </div>
+                            <div class="flex-1">
+                              <p class="text-white font-semibold">{currentShort.author}</p>
+                            </div>
                           </div>
                           <button
                             type="button"
@@ -654,7 +681,10 @@ export function Videos() {
                     {openedVideo()!.title}
                   </h1>
                   <div class="flex items-center justify-between mb-4">
-                    <div class="flex items-center space-x-4">
+                    <div
+                      class="flex items-center space-x-4 cursor-pointer"
+                      onClick={() => navigateToProfile(openedVideo()!.authorId)}
+                    >
                       <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                         <span class="text-white font-semibold">{openedVideo()!.authorAvatar}</span>
                       </div>
