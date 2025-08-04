@@ -6,8 +6,10 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { createVideo, fetchVideos, likeVideo, addView } from "./videos/api.ts";
+import { useAtom } from "solid-jotai";
+import { createVideo, fetchVideos, likeVideo } from "./videos/api.ts";
 import { Video } from "./videos/types.ts";
+import { activeAccount } from "../states/account.ts";
 
 export function Videos() {
   const [currentView, setCurrentView] = createSignal<"timeline" | "shorts">(
@@ -16,6 +18,7 @@ export function Videos() {
   const [selectedShortIndex, setSelectedShortIndex] = createSignal(0);
   const [showUploadModal, setShowUploadModal] = createSignal(false);
   const [openedVideo, setOpenedVideo] = createSignal<Video | null>(null);
+  const [account] = useAtom(activeAccount);
   const [uploadForm, setUploadForm] = createSignal({
     title: "",
     description: "",
@@ -57,22 +60,11 @@ export function Videos() {
     }
   };
 
-  const handleView = async (video: Video) => {
-    const newViews = await addView(video.id);
-    if (newViews !== null) {
-      setVideos((prev) =>
-        prev?.map((v) => v.id === video.id ? { ...v, views: newViews } : v)
-      );
-    }
-  };
-
   const playVideo = (video: Video) => {
-    handleView(video);
     setOpenedVideo(video);
   };
 
-  const playShort = (video: Video, index: number) => {
-    handleView(video);
+  const playShort = (_video: Video, index: number) => {
     setSelectedShortIndex(index);
     setCurrentView("shorts");
   };
@@ -115,8 +107,14 @@ export function Videos() {
     const form = uploadForm();
     if (!form.title.trim() || !form.file) return;
 
+    const user = account();
+    if (!user) {
+      alert("アカウントが選択されていません");
+      return;
+    }
+
     const newVideo = await createVideo({
-      author: "あなた",
+      author: user.userName,
       title: form.title,
       description: form.description,
       hashtags: form.hashtags.split(" ").filter((tag) => tag.startsWith("#")),
@@ -196,9 +194,14 @@ export function Videos() {
       {/* 投稿モーダル */}
       <Show when={showUploadModal()}>
         <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div style="background-color: #1e1e1e;" class="rounded-lg p-6 w-full max-w-md mx-4 shadow-xl border border-gray-600">
+          <div
+            style="background-color: #1e1e1e;"
+            class="rounded-lg p-6 w-full max-w-md mx-4 shadow-xl border border-gray-600"
+          >
             <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold text-white">動画をアップロード</h3>
+              <h3 class="text-lg font-semibold text-white">
+                動画をアップロード
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowUploadModal(false)}
@@ -218,7 +221,8 @@ export function Videos() {
                   type="file"
                   accept="video/*"
                   onChange={handleFileUpload}
-                  style="background-color: #2a2a2a;" class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300"
+                  style="background-color: #2a2a2a;"
+                  class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300"
                 />
               </div>
 
@@ -231,7 +235,8 @@ export function Videos() {
                   type="file"
                   accept="image/*"
                   onChange={handleThumbnailUpload}
-                  style="background-color: #2a2a2a;" class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300"
+                  style="background-color: #2a2a2a;"
+                  class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300"
                 />
               </div>
 
@@ -280,7 +285,8 @@ export function Videos() {
                       title: e.target.value,
                     }))}
                   placeholder="動画のタイトルを入力してください"
-                  style="background-color: #2a2a2a;" class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300 placeholder-gray-500"
+                  style="background-color: #2a2a2a;"
+                  class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300 placeholder-gray-500"
                 />
               </div>
 
@@ -298,7 +304,8 @@ export function Videos() {
                     }))}
                   placeholder="動画の説明を入力してください"
                   rows="3"
-                  style="background-color: #2a2a2a;" class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300 placeholder-gray-500 resize-none"
+                  style="background-color: #2a2a2a;"
+                  class="w-full px-3 py-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-300 placeholder-gray-500 resize-none"
                 />
               </div>
 
@@ -307,7 +314,8 @@ export function Videos() {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  style="background-color: #2a2a2a;" class="flex-1 px-4 py-2 border border-gray-600 text-gray-400 rounded-md hover:bg-gray-600 transition-colors"
+                  style="background-color: #2a2a2a;"
+                  class="flex-1 px-4 py-2 border border-gray-600 text-gray-400 rounded-md hover:bg-gray-600 transition-colors"
                 >
                   キャンセル
                 </button>
@@ -427,7 +435,9 @@ export function Videos() {
             <Show when={shortVideos().length > 0}>
               <div class="mb-8">
                 <div class="flex items-center justify-between mb-4">
-                  <h2 class="text-lg font-medium text-gray-300">📱 ショート動画</h2>
+                  <h2 class="text-lg font-medium text-gray-300">
+                    📱 ショート動画
+                  </h2>
                   <button
                     type="button"
                     onClick={() => setCurrentView("shorts")}
@@ -443,7 +453,10 @@ export function Videos() {
                         class="cursor-pointer group"
                         onClick={() => playShort(video, index())}
                       >
-                        <div style="background-color: #2a2a2a;" class="relative aspect-[9/16] rounded-lg overflow-hidden mb-2 group-hover:scale-105 transition-transform duration-200">
+                        <div
+                          style="background-color: #2a2a2a;"
+                          class="relative aspect-[9/16] rounded-lg overflow-hidden mb-2 group-hover:scale-105 transition-transform duration-200"
+                        >
                           <img
                             class="w-full h-full object-cover"
                             src={video.thumbnail}
@@ -461,9 +474,6 @@ export function Videos() {
                         <h3 class="text-sm font-medium text-gray-300 line-clamp-2 mb-1 group-hover:text-blue-400">
                           {video.title}
                         </h3>
-                        <p class="text-xs text-gray-500">
-                          {formatNumber(video.views)} 回視聴
-                        </p>
                       </div>
                     )}
                   </For>
@@ -473,7 +483,9 @@ export function Videos() {
 
             {/* 通常動画セクション */}
             <div>
-              <h2 class="text-lg font-medium text-gray-300 mb-4">📹 通常動画</h2>
+              <h2 class="text-lg font-medium text-gray-300 mb-4">
+                📹 通常動画
+              </h2>
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 <For each={longVideos()}>
                   {(video) => (
@@ -481,7 +493,10 @@ export function Videos() {
                       class="group cursor-pointer"
                       onClick={() => playVideo(video)}
                     >
-                      <div style="background-color: #2a2a2a;" class="relative aspect-video rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200">
+                      <div
+                        style="background-color: #2a2a2a;"
+                        class="relative aspect-video rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200"
+                      >
                         <img
                           class="w-full h-full object-cover"
                           src={video.thumbnail}
@@ -498,16 +513,18 @@ export function Videos() {
                       </div>
                       <div class="flex space-x-3">
                         <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                          <span class="text-white text-sm">{video.authorAvatar}</span>
+                          <span class="text-white text-sm">
+                            {video.authorAvatar}
+                          </span>
                         </div>
                         <div class="flex-1 min-w-0">
                           <h3 class="font-medium text-gray-300 mb-1 line-clamp-2 group-hover:text-blue-400">
                             {video.title}
                           </h3>
-                          <p class="text-sm text-gray-400 mb-1">{video.author}</p>
-                          <div class="text-sm text-gray-500 flex items-center space-x-2">
-                            <span>{formatNumber(video.views)} 回視聴</span>
-                            <span>•</span>
+                          <p class="text-sm text-gray-400 mb-1">
+                            {video.author}
+                          </p>
+                          <div class="text-sm text-gray-500 flex items-center">
                             <span>{formatTime(video.timestamp)}</span>
                           </div>
                         </div>
@@ -558,10 +575,14 @@ export function Videos() {
                       <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6">
                         <div class="flex items-center space-x-3 mb-3">
                           <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                            <span class="text-white text-sm">{currentShort.authorAvatar}</span>
+                            <span class="text-white text-sm">
+                              {currentShort.authorAvatar}
+                            </span>
                           </div>
                           <div class="flex-1">
-                            <p class="text-white font-semibold">{currentShort.author}</p>
+                            <p class="text-white font-semibold">
+                              {currentShort.author}
+                            </p>
                           </div>
                           <button
                             type="button"
@@ -575,8 +596,7 @@ export function Videos() {
                         <h3 class="text-white font-medium mb-2 line-clamp-2">
                           {currentShort.title}
                         </h3>
-                        <div class="flex items-center space-x-4 text-white/70 text-sm">
-                          <span>{formatNumber(currentShort.views)} 回視聴</span>
+                        <div class="flex items-center text-white/70 text-sm">
                           <span>{formatTime(currentShort.timestamp)}</span>
                         </div>
                       </div>
@@ -599,7 +619,8 @@ export function Videos() {
                         <button
                           type="button"
                           onClick={() => handleShortsScroll("down")}
-                          disabled={selectedShortIndex() === shortVideos().length - 1}
+                          disabled={selectedShortIndex() ===
+                            shortVideos().length - 1}
                           class="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           ↓
@@ -656,25 +677,33 @@ export function Videos() {
                   <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center space-x-4">
                       <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                        <span class="text-white font-semibold">{openedVideo()!.authorAvatar}</span>
+                        <span class="text-white font-semibold">
+                          {openedVideo()!.authorAvatar}
+                        </span>
                       </div>
                       <div>
-                        <p class="font-medium text-gray-300">{openedVideo()!.author}</p>
+                        <p class="font-medium text-gray-300">
+                          {openedVideo()!.author}
+                        </p>
                         <p class="text-sm text-gray-400">
-                          {formatNumber(openedVideo()!.views)} 回視聴 • {formatTime(openedVideo()!.timestamp)}
+                          {formatTime(openedVideo()!.timestamp)}
                         </p>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleLike(openedVideo()!)}
-                      style="background-color: #2a2a2a;" class="flex items-center space-x-2 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-lg transition-colors"
+                      style="background-color: #2a2a2a;"
+                      class="flex items-center space-x-2 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-lg transition-colors"
                     >
                       <span>👍</span>
                       <span>{formatNumber(openedVideo()!.likes)}</span>
                     </button>
                   </div>
-                  <div style="background-color: #1e1e1e;" class="rounded-lg p-4">
+                  <div
+                    style="background-color: #1e1e1e;"
+                    class="rounded-lg p-4"
+                  >
                     <p class="text-gray-400 whitespace-pre-wrap">
                       {openedVideo()!.description || "説明はありません"}
                     </p>
@@ -685,13 +714,20 @@ export function Videos() {
               {/* サイドバー - 関連動画 */}
               <div class="w-full lg:w-96 space-y-4">
                 <h3 class="text-lg font-medium text-gray-300">関連動画</h3>
-                <For each={longVideos().filter(v => v.id !== openedVideo()!.id).slice(0, 10)}>
+                <For
+                  each={longVideos().filter((v) => v.id !== openedVideo()!.id)
+                    .slice(0, 10)}
+                >
                   {(video) => (
                     <div
-                      style="background-color: #1e1e1e;" class="flex space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-700 transition-colors"
+                      style="background-color: #1e1e1e;"
+                      class="flex space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-700 transition-colors"
                       onClick={() => playVideo(video)}
                     >
-                      <div style="background-color: #2a2a2a;" class="relative w-32 aspect-video rounded overflow-hidden flex-shrink-0">
+                      <div
+                        style="background-color: #2a2a2a;"
+                        class="relative w-32 aspect-video rounded overflow-hidden flex-shrink-0"
+                      >
                         <img
                           class="w-full h-full object-cover"
                           src={video.thumbnail}
@@ -706,9 +742,6 @@ export function Videos() {
                           {video.title}
                         </h4>
                         <p class="text-xs text-gray-400 mb-1">{video.author}</p>
-                        <p class="text-xs text-gray-500">
-                          {formatNumber(video.views)} 回視聴
-                        </p>
                       </div>
                     </div>
                   )}

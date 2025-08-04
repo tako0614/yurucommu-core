@@ -12,7 +12,7 @@ interface SearchResult {
   avatar?: string;
   actor?: string;
   origin?: string;
-  metadata?: { createdAt?: Date; views?: number };
+  metadata?: { createdAt?: Date };
 }
 
 const app = new Hono();
@@ -101,7 +101,6 @@ app.get("/search", async (c) => {
         title: (v.extra?.title as string) ?? "",
         subtitle: v.attributedTo,
         avatar: v.extra?.thumbnail as string | undefined,
-        metadata: { views: Number(v.extra?.views) || 0 },
         origin: domain,
       });
     }

@@ -95,15 +95,3 @@ export const likeVideo = async (id: string): Promise<number | null> => {
     return null;
   }
 };
-
-export const addView = async (id: string): Promise<number | null> => {
-  try {
-    const res = await apiFetch(`/api/videos/${id}/view`, { method: "POST" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return typeof data.views === "number" ? data.views : null;
-  } catch (err) {
-    console.error("Error incrementing view:", err);
-    return null;
-  }
-};
