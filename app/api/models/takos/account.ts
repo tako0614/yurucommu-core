@@ -9,6 +9,16 @@ const accountSchema = new mongoose.Schema({
   followers: { type: [String], default: [] },
   following: { type: [String], default: [] },
   dms: { type: [String], default: [] },
+  groups: {
+    type: [
+      {
+        id: String,
+        name: String,
+        members: [String],
+      },
+    ],
+    default: [],
+  },
 });
 
 accountSchema.index({ userName: 1 }, { unique: true });

@@ -32,6 +32,17 @@ export interface DB {
   listDms(id: string): Promise<string[]>;
   addDm(id: string, target: string): Promise<string[]>;
   removeDm(id: string, target: string): Promise<string[]>;
+  listGroups(
+    id: string,
+  ): Promise<{ id: string; name: string; members: string[] }[]>;
+  addGroup(
+    id: string,
+    group: { id: string; name: string; members: string[] },
+  ): Promise<{ id: string; name: string; members: string[] }[]>;
+  removeGroup(
+    id: string,
+    groupId: string,
+  ): Promise<{ id: string; name: string; members: string[] }[]>;
   saveNote(
     domain: string,
     author: string,

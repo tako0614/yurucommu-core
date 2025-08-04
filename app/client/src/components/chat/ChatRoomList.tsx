@@ -11,6 +11,7 @@ interface ChatRoomListProps {
   onStartLongPress: (id: string) => void;
   onCancelLongPress: () => void;
   showAds: boolean;
+  onCreateGroup: () => void;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
@@ -25,6 +26,13 @@ export function ChatRoomList(props: ChatRoomListProps) {
           placeholder="チャンネルを検索..."
           class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
         />
+        <button
+          type="button"
+          class="mt-2 w-full p-2 rounded-lg bg-[#3c3c3c] text-white"
+          onClick={props.onCreateGroup}
+        >
+          グループ作成
+        </button>
         <Show when={props.showAds}>
           <div class="my-2">
             <GoogleAd />

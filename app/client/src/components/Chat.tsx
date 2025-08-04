@@ -13,10 +13,12 @@ import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addDm,
+  addGroup,
   addKeyPackage,
   fetchDmList,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
+  fetchGroupList,
   fetchKeyPackages,
   removeDm,
   saveEncryptedKeyPair,
@@ -799,6 +801,21 @@ export function Chat(props: ChatProps) {
         lastMessageTime: undefined,
       },
     ];
+    const groupList = await fetchGroupList(user.id);
+    groupList.forEach((g) => {
+      rooms.push({
+        id: g.id,
+        name: g.name,
+        userName: user.userName,
+        domain: getDomain(),
+        avatar: g.name.charAt(0).toUpperCase(),
+        unreadCount: 0,
+        type: "group",
+        members: g.members,
+        lastMessage: "...",
+        lastMessageTime: undefined,
+      });
+    });
 
     const handles = (await fetchDmList(user.id)).map((id) =>
       normalizeActor(id)
@@ -834,6 +851,35 @@ export function Chat(props: ChatProps) {
     );
     setChatRooms(unique);
     // メッセージの取得は選択時に実行する
+  };
+
+  const createGroup = async () => {
+    const user = account();
+    if (!user) return;
+    const name = prompt("グループ名を入力してください");
+    if (!name) return;
+    const membersInput = prompt(
+      "メンバーのハンドルをカンマ区切りで入力してください",
+    );
+    if (!membersInput) return;
+    const members = membersInput.split(",").map((s) => normalizeActor(s.trim()))
+      .filter(Boolean);
+    if (members.length === 0) return;
+    const id = crypto.randomUUID();
+    const room: ChatRoom = {
+      id,
+      name,
+      userName: user.userName,
+      domain: getDomain(),
+      avatar: name.charAt(0).toUpperCase(),
+      unreadCount: 0,
+      type: "group",
+      members,
+      lastMessage: "...",
+      lastMessageTime: undefined,
+    };
+    setChatRooms((prev) => [...prev, room]);
+    await addGroup(user.id, { id, name, members });
   };
 
   const sendMessage = async () => {
@@ -1384,6 +1430,7 @@ export function Chat(props: ChatProps) {
               onStartLongPress={startLongPress}
               onCancelLongPress={cancelLongPress}
               showAds={showAds()}
+              onCreateGroup={createGroup}
             />
           </div>
           <div
