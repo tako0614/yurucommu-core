@@ -1095,6 +1095,18 @@ export function Chat(props: ChatProps) {
         r.type === "group" && r.id === partnerName
       );
       if (!room) {
+        for (const t of data.to) {
+          const [toName] = splitActor(normalizeActor(t));
+          const g = chatRooms().find((r) =>
+            r.type === "group" && r.id === toName
+          );
+          if (g) {
+            room = g;
+            break;
+          }
+        }
+      }
+      if (!room) {
         room = chatRooms().find((r) => r.id === normalizedPartner);
         if (!room) {
           if (
