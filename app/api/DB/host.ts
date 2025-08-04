@@ -293,6 +293,39 @@ export class MongoDBHost implements DB {
     return acc?.dms ?? [];
   }
 
+  async listGroups(id: string) {
+    const acc = await HostAccount.findOne({
+      _id: id,
+      tenant_id: this.tenantId,
+    }).lean<
+      { groups?: { id: string; name: string; members: string[] }[] } | null
+    >();
+    return acc?.groups ?? [];
+  }
+
+  async addGroup(
+    id: string,
+    group: { id: string; name: string; members: string[] },
+  ) {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
+      $push: { groups: group },
+    }, { new: true });
+    return acc?.groups ?? [];
+  }
+
+  async removeGroup(id: string, groupId: string) {
+    const acc = await HostAccount.findOneAndUpdate({
+      _id: id,
+      tenant_id: this.tenantId,
+    }, {
+      $pull: { groups: { id: groupId } },
+    }, { new: true });
+    return acc?.groups ?? [];
+  }
+
   async saveNote(
     domain: string,
     author: string,

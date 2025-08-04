@@ -302,6 +302,43 @@ export const resetKeyData = async (user: string): Promise<boolean> => {
   }
 };
 
+export interface ChatGroup {
+  id: string;
+  name: string;
+  members: string[];
+}
+
+export const fetchGroupList = async (
+  id: string,
+): Promise<ChatGroup[]> => {
+  try {
+    const res = await apiFetch(`/api/accounts/${id}/groups`);
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    return Array.isArray(data.groups) ? data.groups : [];
+  } catch (err) {
+    console.error("Error fetching group list:", err);
+    return [];
+  }
+};
+
+export const addGroup = async (
+  id: string,
+  group: ChatGroup,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(`/api/accounts/${id}/groups`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(group),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("Error adding group:", err);
+    return false;
+  }
+};
+
 export const fetchDmList = async (id: string): Promise<string[]> => {
   try {
     const res = await apiFetch(`/api/accounts/${id}/dms`);

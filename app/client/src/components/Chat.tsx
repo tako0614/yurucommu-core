@@ -13,10 +13,12 @@ import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addDm,
+  addGroup,
   addKeyPackage,
   fetchDmList,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
+  fetchGroupList,
   fetchKeyPackages,
   removeDm,
   saveEncryptedKeyPair,
@@ -53,6 +55,7 @@ import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
+import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
@@ -436,6 +439,7 @@ export function Chat(props: ChatProps) {
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
+  const [showGroupDialog, setShowGroupDialog] = createSignal(false);
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: ChatRoom[]) {
@@ -799,6 +803,21 @@ export function Chat(props: ChatProps) {
         lastMessageTime: undefined,
       },
     ];
+    const groupList = await fetchGroupList(user.id);
+    groupList.forEach((g) => {
+      rooms.push({
+        id: g.id,
+        name: g.name,
+        userName: user.userName,
+        domain: getDomain(),
+        avatar: g.name.charAt(0).toUpperCase(),
+        unreadCount: 0,
+        type: "group",
+        members: g.members,
+        lastMessage: "...",
+        lastMessageTime: undefined,
+      });
+    });
 
     const handles = (await fetchDmList(user.id)).map((id) =>
       normalizeActor(id)
@@ -834,6 +853,34 @@ export function Chat(props: ChatProps) {
     );
     setChatRooms(unique);
     // メッセージの取得は選択時に実行する
+  };
+
+  const openGroupDialog = () => {
+    setShowGroupDialog(true);
+  };
+
+  const createGroup = async (name: string, membersInput: string) => {
+    const user = account();
+    if (!user) return;
+    const members = membersInput.split(",").map((s) => normalizeActor(s.trim()))
+      .filter(Boolean) as ActorID[];
+    if (!name || members.length === 0) return;
+    const id = crypto.randomUUID();
+    const room: ChatRoom = {
+      id,
+      name,
+      userName: user.userName,
+      domain: getDomain(),
+      avatar: name.charAt(0).toUpperCase(),
+      unreadCount: 0,
+      type: "group",
+      members,
+      lastMessage: "...",
+      lastMessageTime: undefined,
+    };
+    setChatRooms((prev) => [...prev, room]);
+    await addGroup(user.id, { id, name, members });
+    setShowGroupDialog(false);
   };
 
   const sendMessage = async () => {
@@ -1043,33 +1090,58 @@ export function Chat(props: ChatProps) {
         : data.from;
 
       const normalizedPartner = normalizeActor(partnerId);
-      let room = chatRooms().find((r) => r.id === normalizedPartner);
+      const [partnerName] = splitActor(normalizedPartner);
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      let room = chatRooms().find((r) =>
+        r.type === "group" && r.id === partnerName
+      );
       if (!room) {
-        if (
-          confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
-        ) {
-          const info = await fetchUserInfo(normalizeActor(normalizedPartner));
-          if (info) {
-            room = {
-              id: normalizedPartner,
-              name: info.displayName || info.userName,
-              userName: info.userName,
-              domain: info.domain,
-              avatar: info.authorAvatar ||
-                info.userName.charAt(0).toUpperCase(),
-              unreadCount: 0,
-              type: "dm",
-              members: [normalizedPartner],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            };
-            upsertRoom(room!);
-            await addDm(user.id, normalizedPartner);
+        for (const t of data.to) {
+          const normalized = normalizeActor(t);
+          const [toName] = splitActor(normalized);
+          const g = chatRooms().find((r) =>
+            r.type === "group" && r.id === toName
+          );
+          if (g) {
+            room = g;
+            break;
+          }
+        }
+      }
+      if (!room && uuidRe.test(partnerName)) {
+        // グループIDと推測されるがまだ一覧に存在しない場合はDMを作成しない
+        return;
+      }
+      if (!room) {
+        room = chatRooms().find((r) => r.id === normalizedPartner);
+        if (!room) {
+          if (
+            confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
+          ) {
+            const info = await fetchUserInfo(normalizeActor(normalizedPartner));
+            if (info) {
+              room = {
+                id: normalizedPartner,
+                name: info.displayName || info.userName,
+                userName: info.userName,
+                domain: info.domain,
+                avatar: info.authorAvatar ||
+                  info.userName.charAt(0).toUpperCase(),
+                unreadCount: 0,
+                type: "dm",
+                members: [normalizedPartner],
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              };
+              upsertRoom(room!);
+              await addDm(user.id, normalizedPartner);
+            } else {
+              return;
+            }
           } else {
             return;
           }
-        } else {
-          return;
         }
       }
 
@@ -1384,6 +1456,7 @@ export function Chat(props: ChatProps) {
               onStartLongPress={startLongPress}
               onCancelLongPress={cancelLongPress}
               showAds={showAds()}
+              onCreateGroup={openGroupDialog}
             />
           </div>
           <div
@@ -1455,6 +1528,11 @@ export function Chat(props: ChatProps) {
           </div>
         </div>
       </div>
+      <GroupCreateDialog
+        isOpen={showGroupDialog()}
+        onClose={() => setShowGroupDialog(false)}
+        onCreate={createGroup}
+      />
     </>
   );
 }

@@ -246,6 +246,30 @@ export class MongoDBLocal implements DB {
     return acc?.dms ?? [];
   }
 
+  async listGroups(id: string) {
+    const acc = await Account.findOne({ _id: id }).lean<
+      { groups?: { id: string; name: string; members: string[] }[] } | null
+    >();
+    return acc?.groups ?? [];
+  }
+
+  async addGroup(
+    id: string,
+    group: { id: string; name: string; members: string[] },
+  ) {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
+      $push: { groups: group },
+    }, { new: true });
+    return acc?.groups ?? [];
+  }
+
+  async removeGroup(id: string, groupId: string) {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
+      $pull: { groups: { id: groupId } },
+    }, { new: true });
+    return acc?.groups ?? [];
+  }
+
   async saveNote(
     domain: string,
     author: string,
