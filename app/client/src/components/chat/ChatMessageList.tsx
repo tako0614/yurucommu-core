@@ -1,10 +1,11 @@
-import { createSignal, For, Match, onMount, Show, Switch } from "solid-js";
+import { createEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { ChatMessage } from "./types.ts";
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
   onReachTop: () => void;
+  shouldScrollToBottom?: boolean;
 }
 
 interface LazyImageProps {
@@ -69,12 +70,76 @@ function LazyImage(props: LazyImageProps) {
 
 export function ChatMessageList(props: ChatMessageListProps) {
   let listRef: HTMLDivElement | undefined;
+  let isInitialLoad = true;
+  let lastScrollHeight = 0;
+
+  const scrollToBottom = (smooth = false) => {
+    if (listRef) {
+      const targetScrollTop = listRef.scrollHeight - listRef.clientHeight;
+      listRef.scrollTo({
+        top: targetScrollTop,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+  };
+
+  // メッセージの変更を監視してスクロールを制御
+  createEffect(() => {
+    const messages = props.messages;
+    
+    if (messages.length === 0) {
+      isInitialLoad = true;
+      return;
+    }
+
+    // DOM更新を待ってからスクロール処理を実行
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!listRef) return;
+
+        const currentScrollHeight = listRef.scrollHeight;
+        const isAtBottom = listRef.scrollTop + listRef.clientHeight >= lastScrollHeight - 10;
+
+        // 初回読み込み時は必ず最下部にスクロール
+        if (isInitialLoad) {
+          scrollToBottom(false);
+          isInitialLoad = false;
+        }
+        // 既に最下部付近にいる場合は新しいメッセージで最下部に移動
+        else if (isAtBottom || currentScrollHeight > lastScrollHeight) {
+          scrollToBottom(true);
+        }
+
+        lastScrollHeight = currentScrollHeight;
+      });
+    });
+  });
+
+  // 初回マウント時の処理
+  onMount(() => {
+    // マウント後にメッセージがある場合は最下部にスクロール
+    if (props.messages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom(false);
+        isInitialLoad = false;
+      }, 100);
+    }
+  });
 
   return (
     <div
       class="flex-grow overflow-y-auto pt-[48px]"
-      style={{ "scroll-padding-block-start": "200px" }}
-      ref={(el) => (listRef = el)}
+      style={{ 
+        "scroll-padding-block-start": "200px",
+        "scroll-behavior": "auto"
+      }}
+      ref={(el) => {
+        listRef = el;
+        // refが設定された直後にスクロール位置を調整
+        if (el && props.messages.length > 0) {
+          setTimeout(() => scrollToBottom(false), 50);
+        }
+      }}
       onScroll={() => {
         if (!listRef) return;
         if (listRef.scrollTop < 100) props.onReachTop();
