@@ -2,6 +2,7 @@ export interface Video {
   id: string;
   title: string;
   author: string;
+  authorAcct: string;
   authorAvatar: string;
   thumbnail: string;
   duration: string;

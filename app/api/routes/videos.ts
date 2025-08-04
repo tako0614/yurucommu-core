@@ -210,10 +210,12 @@ app.get("/videos", async (c) => {
   const result = list.map((doc, idx) => {
     const info = infos[idx];
     const extra = doc.extra;
+    const acct = `${info.userName}@${info.domain}`;
     return {
       id: String(doc._id),
       title: (extra.title as string) ?? "",
       author: info.displayName,
+      authorAcct: acct,
       authorAvatar: info.authorAvatar,
       thumbnail: (extra.thumbnail as string) ?? "",
       duration: (extra.duration as string) ?? "",
@@ -268,11 +270,13 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
 
   const env = getEnv(c);
   const info = await getUserInfo(video.attributedTo as string, domain, env);
+  const acct = `${info.userName}@${info.domain}`;
 
   return c.json({
     id: String(video._id),
     title,
     author: info.displayName,
+    authorAcct: acct,
     authorAvatar: info.authorAvatar,
     thumbnail: video.extra.thumbnail,
     duration: video.extra.duration,
