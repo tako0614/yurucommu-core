@@ -5,7 +5,6 @@ export interface Video {
   authorAvatar: string;
   thumbnail: string;
   duration: string;
-  views: number;
   likes: number;
   timestamp: string;
   isShort: boolean;

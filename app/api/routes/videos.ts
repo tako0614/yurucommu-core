@@ -111,7 +111,6 @@ async function saveVideoBytes(c: Context, bytes: Uint8Array, meta: UploadMeta) {
       isShort: meta.isShort,
       duration: meta.duration || "",
       likes: 0,
-      views: 0,
       thumbnail: thumbnailUrl,
       videoUrl,
     },
@@ -218,7 +217,6 @@ app.get("/videos", async (c) => {
       authorAvatar: info.authorAvatar,
       thumbnail: (extra.thumbnail as string) ?? "",
       duration: (extra.duration as string) ?? "",
-      views: typeof extra.views === "number" ? extra.views : 0,
       likes: typeof extra.likes === "number" ? extra.likes : 0,
       timestamp: doc.published,
       isShort: !!extra.isShort,
@@ -278,7 +276,6 @@ app.post("/videos", rateLimit({ windowMs: 60_000, limit: 5 }), async (c) => {
     authorAvatar: info.authorAvatar,
     thumbnail: video.extra.thumbnail,
     duration: video.extra.duration,
-    views: 0,
     likes: 0,
     timestamp: video.published,
     isShort: !!video.extra.isShort,
@@ -299,19 +296,6 @@ app.post("/videos/:id/like", async (c) => {
   extra.likes = likes;
   await db.updateVideo(id, { extra });
   return c.json({ likes });
-});
-
-app.post("/videos/:id/view", async (c) => {
-  const id = c.req.param("id");
-  const env = getEnv(c);
-  const db = createDB(env);
-  const doc = await db.updateVideo(id, { $inc: { "extra.views": 1 } }) as
-    | VideoDoc
-    | null;
-  if (!doc) return c.json({ error: "Not found" }, 404);
-  const extra = doc.extra ?? {} as Record<string, unknown>;
-  const views = typeof extra.views === "number" ? extra.views : 0;
-  return c.json({ views });
 });
 
 app.get("/video-files/:name", async (c) => {
