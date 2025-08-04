@@ -1002,9 +1002,9 @@ export function Chat(props: ChatProps) {
           setMessages([]);
           return;
         }
-        
+
         let room = chatRooms().find((r) => r.id === roomId);
-        
+
         // ルームが存在しない場合は作成を試行
         if (!room && roomId !== selfRoomId) {
           const info = await fetchUserInfo(normalizeActor(roomId));
@@ -1014,7 +1014,8 @@ export function Chat(props: ChatProps) {
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
-              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+              avatar: info.authorAvatar ||
+                info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "dm",
               members: [roomId],
@@ -1024,7 +1025,7 @@ export function Chat(props: ChatProps) {
             setChatRooms((prev) => [...prev, room!]);
           }
         }
-        
+
         // ルームが見つかった場合はメッセージを読み込み
         if (room) {
           await loadMessages(room, true);
@@ -1035,7 +1036,6 @@ export function Chat(props: ChatProps) {
           setMessages([]);
         }
       },
-      { defer: true },
     ),
   );
 
