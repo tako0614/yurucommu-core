@@ -24,6 +24,7 @@ const AccountSettingsContent: Component<{
   addNewAccount: (
     username: string,
     displayName?: string,
+    icon?: string,
   ) => Promise<{ success: boolean; error?: string }>;
   updateAccount: (id: string, updates: Partial<Account>) => void;
   deleteAccount: (id: string) => void;
@@ -197,12 +198,27 @@ const AccountSettingsContent: Component<{
     }
   };
 
+  const handleNewAccountIconChange = (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (files && files[0]) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setNewAccountForm({
+          ...newAccountForm(),
+          icon: event.target?.result as string,
+        });
+      };
+      reader.readAsDataURL(files[0]);
+    }
+  };
+
   // 編集モード用の状態
   const [isEditing, setIsEditing] = createSignal(false);
   const [showNewAccountModal, setShowNewAccountModal] = createSignal(false);
   const [newAccountForm, setNewAccountForm] = createSignal({
     username: "",
     displayName: "",
+    icon: "",
     error: "",
   });
 
@@ -213,10 +229,19 @@ const AccountSettingsContent: Component<{
       return;
     }
 
-    const result = await props.addNewAccount(form.username, form.displayName);
+    const result = await props.addNewAccount(
+      form.username,
+      form.displayName,
+      form.icon,
+    );
     if (result.success) {
       setShowNewAccountModal(false);
-      setNewAccountForm({ username: "", displayName: "", error: "" });
+      setNewAccountForm({
+        username: "",
+        displayName: "",
+        icon: "",
+        error: "",
+      });
     } else {
       setNewAccountForm({
         ...form,
@@ -755,6 +780,55 @@ const AccountSettingsContent: Component<{
                 />
               </div>
 
+              <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                  アイコン
+                </label>
+                <div class="flex items-center space-x-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      document.getElementById("new-account-file")?.click()}
+                    class="relative group focus:outline-none"
+                  >
+                    <IconPreview
+                      iconValue={newAccountForm().icon}
+                      displayNameValue={newAccountForm().displayName ||
+                        newAccountForm().username}
+                      class="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xl font-bold"
+                    />
+                    <div class="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                      <svg
+                        class="w-6 h-6 text-white"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                      </svg>
+                    </div>
+                  </button>
+                  <input
+                    id="new-account-file"
+                    type="file"
+                    accept="image/*"
+                    class="hidden"
+                    onInput={handleNewAccountIconChange}
+                  />
+                </div>
+              </div>
+
               <Show when={newAccountForm().error}>
                 <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                   <p class="text-sm text-red-400">{newAccountForm().error}</p>
@@ -770,6 +844,7 @@ const AccountSettingsContent: Component<{
                   setNewAccountForm({
                     username: "",
                     displayName: "",
+                    icon: "",
                     error: "",
                   });
                 }}

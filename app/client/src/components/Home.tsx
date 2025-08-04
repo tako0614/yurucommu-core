@@ -112,7 +112,11 @@ export function Home(props: HomeProps) {
   };
 
   // 新規アカウント追加機能
-  const addNewAccount = async (username: string, displayName?: string) => {
+  const addNewAccount = async (
+    username: string,
+    displayName?: string,
+    icon?: string,
+  ) => {
     try {
       const response = await apiFetch("/api/accounts", {
         method: "POST",
@@ -120,6 +124,7 @@ export function Home(props: HomeProps) {
         body: JSON.stringify({
           username: username.trim(),
           displayName: displayName?.trim() || username.trim(),
+          ...(icon ? { icon } : {}),
         }),
       });
 
