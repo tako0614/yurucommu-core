@@ -37,7 +37,6 @@ export interface VideoResult {
   title: string;
   author: string;
   thumbnail?: string;
-  views: number;
 }
 
 export interface SearchResult {
@@ -52,7 +51,6 @@ export interface SearchResult {
     followers?: number;
     likes?: number;
     createdAt?: string;
-    views?: number;
   };
 }
 
@@ -572,11 +570,6 @@ export default function UnifiedToolsContent() {
                         <div class="flex-1">
                           <p class="text-gray-200">{v.title}</p>
                           <p class="text-xs text-gray-400">{v.subtitle}</p>
-                          <Show when={v.metadata?.views}>
-                            <p class="text-xs text-gray-500">
-                              {formatNumber(v.metadata!.views!)} 回視聴
-                            </p>
-                          </Show>
                         </div>
                       </div>
                     )}
