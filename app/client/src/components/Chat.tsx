@@ -55,6 +55,7 @@ import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
+import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
@@ -438,6 +439,7 @@ export function Chat(props: ChatProps) {
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
+  const [showGroupDialog, setShowGroupDialog] = createSignal(false);
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: ChatRoom[]) {
@@ -853,18 +855,16 @@ export function Chat(props: ChatProps) {
     // メッセージの取得は選択時に実行する
   };
 
-  const createGroup = async () => {
+  const openGroupDialog = () => {
+    setShowGroupDialog(true);
+  };
+
+  const createGroup = async (name: string, membersInput: string) => {
     const user = account();
     if (!user) return;
-    const name = prompt("グループ名を入力してください");
-    if (!name) return;
-    const membersInput = prompt(
-      "メンバーのハンドルをカンマ区切りで入力してください",
-    );
-    if (!membersInput) return;
     const members = membersInput.split(",").map((s) => normalizeActor(s.trim()))
-      .filter(Boolean);
-    if (members.length === 0) return;
+      .filter(Boolean) as ActorID[];
+    if (!name || members.length === 0) return;
     const id = crypto.randomUUID();
     const room: ChatRoom = {
       id,
@@ -880,6 +880,7 @@ export function Chat(props: ChatProps) {
     };
     setChatRooms((prev) => [...prev, room]);
     await addGroup(user.id, { id, name, members });
+    setShowGroupDialog(false);
   };
 
   const sendMessage = async () => {
@@ -1430,7 +1431,7 @@ export function Chat(props: ChatProps) {
               onStartLongPress={startLongPress}
               onCancelLongPress={cancelLongPress}
               showAds={showAds()}
-              onCreateGroup={createGroup}
+              onCreateGroup={openGroupDialog}
             />
           </div>
           <div
@@ -1502,6 +1503,11 @@ export function Chat(props: ChatProps) {
           </div>
         </div>
       </div>
+      <GroupCreateDialog
+        isOpen={showGroupDialog()}
+        onClose={() => setShowGroupDialog(false)}
+        onCreate={createGroup}
+      />
     </>
   );
 }
