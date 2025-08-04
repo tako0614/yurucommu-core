@@ -51,7 +51,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
       userName: "system",
       displayName: "system",
       publicKey,
-    });
+    }, { includeIcon: false });
     return jsonResponse(c, actor, 200, "application/activity+json");
   });
 

@@ -516,8 +516,10 @@ export function jsonResponse(
 export function createActor(
   domain: string,
   account: { userName: string; displayName: string; publicKey: string },
+  options?: { includeIcon?: boolean },
 ) {
-  return {
+  const includeIcon = options?.includeIcon ?? true;
+  const actor = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       "https://w3id.org/security/v1",
@@ -545,6 +547,8 @@ export function createActor(
     // 任意の拡張プロパティ
     keyPackages: undefined as unknown,
   };
+  if (!includeIcon) delete actor.icon;
+  return actor;
 }
 
 export function buildActivityFromStored(

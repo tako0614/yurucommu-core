@@ -88,7 +88,7 @@ app.get("/users/system", async (c) => {
     userName: "system",
     displayName: "system",
     publicKey,
-  });
+  }, { includeIcon: false });
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
 
@@ -102,7 +102,7 @@ app.get("/users/:username", async (c) => {
       userName: "system",
       displayName: "system",
       publicKey,
-    });
+    }, { includeIcon: false });
     return jsonResponse(c, actor, 200, "application/activity+json");
   }
   const env = getEnv(c);
@@ -131,8 +131,9 @@ app.get("/users/:username", async (c) => {
 app.get("/users/:username/avatar", async (c) => {
   const username = c.req.param("username");
   if (username === "system") {
+    const icon = username.slice(0, 2).toUpperCase();
     const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">S</text></svg>`;
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">${icon}</text></svg>`;
     return c.body(svg, 200, { "content-type": "image/svg+xml" });
   }
   const env = getEnv(c);
@@ -140,8 +141,7 @@ app.get("/users/:username/avatar", async (c) => {
   const account = await db.findAccountByUserName(username);
   if (!account) return c.body("Not Found", 404);
 
-  let icon = account.avatarInitial ||
-    username.charAt(0).toUpperCase().substring(0, 2);
+  let icon = account.avatarInitial || username.charAt(0).toUpperCase();
 
   if (icon.startsWith("data:image/")) {
     const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
