@@ -329,39 +329,96 @@ export function Videos() {
       <Show when={currentView() === "timeline" && !openedVideo()}>
         <div class="min-h-screen">
           {/* ヘッダー */}
-          <div style="background-color: #1e1e1e;" class="border-b border-gray-600 px-6 py-4">
-            <div class="max-w-7xl mx-auto flex items-center justify-between">
-              <div class="flex space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView("timeline")}
-                  class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    currentView() === "timeline"
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-400 hover:text-gray-300 hover:bg-gray-700"
-                  }`}
-                >
-                  📹 通常動画
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentView("shorts")}
-                  class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    currentView() === "shorts"
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-400 hover:text-gray-300 hover:bg-gray-700"
-                  }`}
-                >
-                  📱 ショート
-                </button>
+          <div class="bg-[#1e1e1e] border-b border-gray-600">
+            {/* Main Bar */}
+            <div class="max-w-7xl mx-auto px-4 sm:px-6">
+              <div class="flex items-center justify-between h-16">
+                {/* Logo */}
+                <div class="flex-shrink-0">
+                  <h1 class="text-2xl font-bold text-white">
+                    動画投稿
+                  </h1>
+                </div>
+
+                {/* Desktop: Upload */}
+                <div class="hidden md:flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(true)}
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+                  >
+                    <svg
+                      class="h-5 w-5"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 4.5v15m7.5-7.5h-15"
+                      />
+                    </svg>
+                    <span>アップロード</span>
+                  </button>
+                </div>
+
+                {/* Mobile: Upload Icon */}
+                <div class="md:hidden flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(true)}
+                    class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full font-medium transition-colors"
+                  >
+                    <svg
+                      class="h-6 w-6"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 4.5v15m7.5-7.5h-15"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowUploadModal(true)}
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-              >
-                + 動画をアップロード
-              </button>
+            </div>
+
+            {/* View switcher / Tabs */}
+            <div class="max-w-7xl mx-auto px-4 sm:px-6">
+              <div class="border-b border-gray-700">
+                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView("timeline")}
+                    class={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                      currentView() === "timeline"
+                        ? "border-blue-400 text-blue-400"
+                        : "border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500"
+                    }`}
+                  >
+                    ホーム
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView("shorts")}
+                    class={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                      currentView() === "shorts"
+                        ? "border-blue-400 text-blue-400"
+                        : "border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500"
+                    }`}
+                  >
+                    ショート
+                  </button>
+                </nav>
+              </div>
             </div>
           </div>
 

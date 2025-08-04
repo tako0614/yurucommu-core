@@ -30,7 +30,7 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 export function Microblog() {
   const [account] = useAtom(activeAccount);
   const [mobileTab, setMobileTab] = createSignal<
-    "following" | "latest" | "trends"
+    "latest" | "following" | "trends"
   >("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
@@ -377,40 +377,96 @@ export function Microblog() {
           fallback={
             <>
               {/* モバイル用タブナビゲーション */}
-              <div class="lg:hidden sticky top-0 z-30 bg-[#0F141A]/90 backdrop-blur-md border-b border-[#2B3340]/60">
-                <div class="flex">
+              <div class="lg:hidden sticky top-0 z-30 bg-[#0F141A]/95 backdrop-blur-lg border-b border-[#2B3340]/80 shadow-lg">
+                <div class="flex relative">
                   <button
                     type="button"
-                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
-                      mobileTab() === "following"
-                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
-                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
-                    }`}
-                    onClick={() => setMobileTab("following")}
-                  >
-                    フォロー中
-                  </button>
-                  <button
-                    type="button"
-                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
+                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
                       mobileTab() === "latest"
-                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
-                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
+                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#2563EB]/20 to-[#3B82F6]/20"
+                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
                     }`}
                     onClick={() => setMobileTab("latest")}
                   >
-                    最新
+                    <div class="flex items-center justify-center gap-2 relative z-10">
+                      <svg
+                        class="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
+                      最新
+                    </div>
+                    {mobileTab() === "latest" && (
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.6)]"></div>
+                    )}
                   </button>
+                  
                   <button
                     type="button"
-                    class={`flex-1 py-4 px-2 text-sm font-medium transition-all duration-200 ${
+                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
+                      mobileTab() === "following"
+                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#059669]/20 to-[#10B981]/20"
+                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
+                    }`}
+                    onClick={() => setMobileTab("following")}
+                  >
+                    <div class="flex items-center justify-center gap-2 relative z-10">
+                      <svg
+                        class="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                        />
+                      </svg>
+                      フォロー中
+                    </div>
+                    {mobileTab() === "following" && (
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#059669] to-[#10B981] shadow-[0_0_8px_rgba(5,150,105,0.6)]"></div>
+                    )}
+                  </button>
+                  
+                  <button
+                    type="button"
+                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
                       mobileTab() === "trends"
-                        ? "text-[#D5D7DB] border-b-2 border-[#9AA3AF] bg-[#1B222C]/50"
-                        : "text-[#9AA3AF] hover:text-[#CDD1D6] hover:bg-[#1B222C]/40"
+                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#DC2626]/20 to-[#EF4444]/20"
+                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
                     }`}
                     onClick={() => setMobileTab("trends")}
                   >
-                    トレンド
+                    <div class="flex items-center justify-center gap-2 relative z-10">
+                      <svg
+                        class="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                        />
+                      </svg>
+                      トレンド
+                    </div>
+                    {mobileTab() === "trends" && (
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#DC2626] to-[#EF4444] shadow-[0_0_8px_rgba(220,38,38,0.6)]"></div>
+                    )}
                   </button>
                 </div>
               </div>
@@ -478,66 +534,95 @@ export function Microblog() {
                     </div>
 
                     {/* コンテンツエリア */}
-                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 text-[#CDD1D6]">
+                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 max-lg:min-h-[calc(100vh-4rem)] text-[#CDD1D6]">
                       {/* モバイル: タブに応じた表示 */}
-                      <div class="lg:hidden">
-                        <Show when={mobileTab() === "following"}>
-                          <PostList
-                            posts={followingTimelinePosts() || []}
-                            tab="following"
-                            handleReply={handleReply}
-                            handleRetweet={handleRetweet}
-                            handleQuote={handleQuote}
-                            handleLike={handleLike}
-                            handleEdit={handleEdit}
-                            handleDelete={handleDelete}
-                            formatDate={formatDate}
-                          />
-                          <Show
-                            when={(followingTimelinePosts() || []).length === 0}
-                          >
-                            <div class="p-8 text-center">
-                              <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
-                                <svg
-                                  class="w-8 h-8 text-[#7C8899]"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                                  />
-                                </svg>
+                      <div class="lg:hidden min-h-full">
+                        <Show when={mobileTab() === "latest"}>
+                          <div class="min-h-full">
+                            <PostList
+                              posts={posts() || []}
+                              tab="latest"
+                              handleReply={handleReply}
+                              handleRetweet={handleRetweet}
+                              handleQuote={handleQuote}
+                              handleLike={handleLike}
+                              handleEdit={handleEdit}
+                              handleDelete={handleDelete}
+                              formatDate={formatDate}
+                            />
+                            <Show when={(posts() || []).length === 0}>
+                              <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
+                                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
+                                  <svg
+                                    class="w-8 h-8 text-[#7C8899]"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                                    />
+                                  </svg>
+                                </div>
+                                <p class="text-gray-400 text-lg font-medium mb-2">
+                                  最新の投稿はありません
+                                </p>
+                                <p class="text-gray-500 text-sm">
+                                  新しい投稿を作成してタイムラインを盛り上げましょう
+                                </p>
                               </div>
-                              <p class="text-gray-400 text-lg font-medium mb-2">
-                                フォロー中の投稿はありません
-                              </p>
-                              <p class="text-gray-500 text-sm">
-                                気になるユーザーをフォローしてタイムラインを充実させましょう
-                              </p>
-                            </div>
-                          </Show>
+                            </Show>
+                          </div>
                         </Show>
 
-                        <Show when={mobileTab() === "latest"}>
-                          <PostList
-                            posts={posts() || []}
-                            tab="latest"
-                            handleReply={handleReply}
-                            handleRetweet={handleRetweet}
-                            handleQuote={handleQuote}
-                            handleLike={handleLike}
-                            handleEdit={handleEdit}
-                            handleDelete={handleDelete}
-                            formatDate={formatDate}
-                          />
+                        <Show when={mobileTab() === "following"}>
+                          <div class="min-h-full">
+                            <PostList
+                              posts={followingTimelinePosts() || []}
+                              tab="following"
+                              handleReply={handleReply}
+                              handleRetweet={handleRetweet}
+                              handleQuote={handleQuote}
+                              handleLike={handleLike}
+                              handleEdit={handleEdit}
+                              handleDelete={handleDelete}
+                              formatDate={formatDate}
+                            />
+                            <Show
+                              when={(followingTimelinePosts() || []).length === 0}
+                            >
+                              <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
+                                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
+                                  <svg
+                                    class="w-8 h-8 text-[#7C8899]"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                                    />
+                                  </svg>
+                                </div>
+                                <p class="text-gray-400 text-lg font-medium mb-2">
+                                  フォロー中の投稿はありません
+                                </p>
+                                <p class="text-gray-500 text-sm">
+                                  気になるユーザーをフォローしてタイムラインを充実させましょう
+                                </p>
+                              </div>
+                            </Show>
+                          </div>
                         </Show>
 
                         <Show when={mobileTab() === "trends"}>
-                          <div class="p-4">
+                          <div class="p-4 min-h-full">
                             <Trends />
                           </div>
                         </Show>
@@ -672,7 +757,7 @@ export function Microblog() {
         <Show when={account()}>
           <button
             type="button"
-            class="fixed bottom-6 right-6 bg-[#2B3340] hover:bg-[#343D4B] text-[#E6E7EA] p-4 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 z-50"
+            class="fixed bottom-24 right-6 lg:bottom-6 bg-[#2B3340] hover:bg-[#343D4B] text-[#E6E7EA] p-4 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 z-40"
             onClick={() => {
               _setReplyingTo(null);
               setQuoteTarget(null);
