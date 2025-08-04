@@ -149,10 +149,10 @@ export function Videos() {
     }
   };
 
-  const navigateToProfile = (author: string) => {
+  const navigateToProfile = (acct: string) => {
     // This is a placeholder for navigation.
     // In a real app, you would use a router like solid-router.
-    alert(`Navigate to profile for user: ${author}`);
+    alert(`Navigate to profile for user: ${acct}`);
   };
 
   // ショート動画のスクロール処理
@@ -495,9 +495,7 @@ export function Videos() {
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 <For each={longVideos()}>
                   {(video) => (
-                    <div
-                      class="group"
-                    >
+                    <div class="group">
                       <div
                         class="relative aspect-video rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-200 cursor-pointer"
                         onClick={() => playVideo(video)}
@@ -520,10 +518,12 @@ export function Videos() {
                       <div class="flex space-x-3">
                         <div
                           class="flex-shrink-0 cursor-pointer"
-                          onClick={() => navigateToProfile(video.author)}
+                          onClick={() => navigateToProfile(video.authorAcct)}
                         >
                           <div class="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                            <span class="text-white text-sm">{video.authorAvatar}</span>
+                            <span class="text-white text-sm">
+                              {video.authorAvatar}
+                            </span>
                           </div>
                         </div>
                         <div class="flex-1 min-w-0">
@@ -535,7 +535,7 @@ export function Videos() {
                           </h3>
                           <p
                             class="text-sm text-gray-400 mb-1 cursor-pointer hover:underline"
-                            onClick={() => navigateToProfile(video.author)}
+                            onClick={() => navigateToProfile(video.authorAcct)}
                           >
                             {video.author}
                           </p>
@@ -591,13 +591,18 @@ export function Videos() {
                         <div class="flex items-center justify-between mb-3">
                           <div
                             class="flex items-center space-x-3 cursor-pointer"
-                            onClick={() => navigateToProfile(currentShort.author)}
+                            onClick={() =>
+                              navigateToProfile(currentShort.authorAcct)}
                           >
                             <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                              <span class="text-white text-sm">{currentShort.authorAvatar}</span>
+                              <span class="text-white text-sm">
+                                {currentShort.authorAvatar}
+                              </span>
                             </div>
                             <div class="flex-1">
-                              <p class="text-white font-semibold">{currentShort.author}</p>
+                              <p class="text-white font-semibold">
+                                {currentShort.author}
+                              </p>
                             </div>
                           </div>
                           <button
@@ -693,7 +698,8 @@ export function Videos() {
                   <div class="flex items-center justify-between mb-4">
                     <div
                       class="flex items-center space-x-4 cursor-pointer"
-                      onClick={() => navigateToProfile(openedVideo()!.author)}
+                      onClick={() =>
+                        navigateToProfile(openedVideo()!.authorAcct)}
                     >
                       <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                         <span class="text-white font-semibold">

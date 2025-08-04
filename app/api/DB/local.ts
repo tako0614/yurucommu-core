@@ -311,7 +311,7 @@ export class MongoDBLocal implements DB {
     const actor = `https://${domain}/users/${author}`;
     const doc = new Video({
       _id: id,
-      attributedTo: author,
+      attributedTo: actor,
       actor_id: actor,
       content,
       extra,
