@@ -1,4 +1,12 @@
-import { createEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  Match,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { ChatMessage } from "./types.ts";
 
@@ -86,7 +94,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
   // メッセージの変更を監視してスクロールを制御
   createEffect(() => {
     const messages = props.messages;
-    
+
     if (messages.length === 0) {
       isInitialLoad = true;
       return;
@@ -98,14 +106,14 @@ export function ChatMessageList(props: ChatMessageListProps) {
         if (!listRef) return;
 
         const currentScrollHeight = listRef.scrollHeight;
-        const isAtBottom = listRef.scrollTop + listRef.clientHeight >= lastScrollHeight - 10;
+        const isAtBottom =
+          listRef.scrollTop + listRef.clientHeight >= lastScrollHeight - 10;
 
         // 初回読み込み時は必ず最下部にスクロール
         if (isInitialLoad) {
           scrollToBottom(false);
           isInitialLoad = false;
-        }
-        // 既に最下部付近にいる場合は新しいメッセージで最下部に移動
+        } // 既に最下部付近にいる場合は新しいメッセージで最下部に移動
         else if (isAtBottom || currentScrollHeight > lastScrollHeight) {
           scrollToBottom(true);
         }
@@ -129,9 +137,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
   return (
     <div
       class="flex-grow overflow-y-auto pt-[48px]"
-      style={{ 
+      style={{
         "scroll-padding-block-start": "200px",
-        "scroll-behavior": "auto"
+        "scroll-behavior": "auto",
       }}
       ref={(el) => {
         listRef = el;
@@ -303,7 +311,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                     >
                                       <div class="relative group bg-white rounded-lg overflow-hidden shadow-sm border">
                                         <LazyImage
-                                          src={att.data
+                                          src={att.preview?.data
+                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
+                                            : att.preview?.url
+                                            ? att.preview.url
+                                            : att.data
                                             ? `data:${att.mediaType};base64,${att.data}`
                                             : att.url!}
                                           alt="添付画像"
@@ -349,6 +361,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             : att.url!}
                                           controls
                                           preload="metadata"
+                                          poster={att.preview?.data
+                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
+                                            : att.preview?.url}
                                           style={{
                                             "max-width": "280px",
                                             "max-height": "300px",

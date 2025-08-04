@@ -10,6 +10,7 @@ export interface ChatMessage {
     data?: string;
     url?: string;
     mediaType: string;
+    preview?: { url?: string; data?: string; mediaType?: string };
   }[];
   timestamp: Date;
   type: "text" | "image" | "file";
