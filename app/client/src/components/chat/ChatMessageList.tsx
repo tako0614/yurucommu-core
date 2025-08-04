@@ -1,4 +1,12 @@
-import { createEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  Match,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { ChatMessage } from "./types.ts";
 
@@ -244,7 +252,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
   // メッセージの変更を監視してスクロールを制御
   createEffect(() => {
     const messages = props.messages;
-    
+
     if (messages.length === 0) {
       isInitialLoad = true;
       return;
@@ -256,14 +264,14 @@ export function ChatMessageList(props: ChatMessageListProps) {
         if (!listRef) return;
 
         const currentScrollHeight = listRef.scrollHeight;
-        const isAtBottom = listRef.scrollTop + listRef.clientHeight >= lastScrollHeight - 10;
+        const isAtBottom =
+          listRef.scrollTop + listRef.clientHeight >= lastScrollHeight - 10;
 
         // 初回読み込み時は必ず最下部にスクロール
         if (isInitialLoad) {
           scrollToBottom(false);
           isInitialLoad = false;
-        }
-        // 既に最下部付近にいる場合は新しいメッセージで最下部に移動
+        } // 既に最下部付近にいる場合は新しいメッセージで最下部に移動
         else if (isAtBottom || currentScrollHeight > lastScrollHeight) {
           scrollToBottom(true);
         }
@@ -286,35 +294,39 @@ export function ChatMessageList(props: ChatMessageListProps) {
   });
 
   return (
-    <>
-      <div
-        class="flex-grow overflow-y-auto pt-[48px]"
-        style={{ 
-          "scroll-padding-block-start": "200px",
-          "scroll-behavior": "auto"
-        }}
-        ref={(el) => {
-          listRef = el;
-          // refが設定された直後にスクロール位置を調整
-          if (el && props.messages.length > 0) {
-            setTimeout(() => scrollToBottom(false), 50);
-          }
-        }}
-        onScroll={() => {
-          if (!listRef) return;
-          
-          // ユーザーがスクロールしていることを記録
-          isUserScrolling = true;
-          lastScrollTop = listRef.scrollTop;
-          
-          // スクロールが停止した後、フラグをリセット
-          setTimeout(() => {
-            isUserScrolling = false;
-          }, 150);
-          
-          if (listRef.scrollTop < 100) props.onReachTop();
-        }}
-      >
+<>
+  <div
+    class="flex-grow overflow-y-auto pt-[48px]"
+    style={{
+      "scroll-padding-block-start": "200px",
+      "scroll-behavior": "auto",
+    }}
+    ref={(el) => {
+      listRef = el;
+      // refが設定された直後にスクロール位置を調整
+      if (el && props.messages.length > 0) {
+        setTimeout(() => scrollToBottom(false), 50);
+      }
+    }}
+    onScroll={() => {
+      if (!listRef) return;
+
+      // ユーザーがスクロールしていることを記録
+      isUserScrolling = true;
+      lastScrollTop = listRef.scrollTop;
+
+      // スクロールが停止した後、フラグをリセット
+      setTimeout(() => {
+        isUserScrolling = false;
+      }, 150);
+
+      if (listRef.scrollTop < 100) props.onReachTop();
+    }}
+  >
+    {/* 子要素 */}
+  </div>
+</>
+
       <ul>
         <For each={props.messages}>
           {(message, i) => {
@@ -480,7 +492,11 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                         )}
                                       >
                                         <LazyImage
-                                          src={att.data
+                                          src={att.preview?.data
+                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
+                                            : att.preview?.url
+                                            ? att.preview.url
+                                            : att.data
                                             ? `data:${att.mediaType};base64,${att.data}`
                                             : att.url!}
                                           alt="添付画像"
@@ -531,6 +547,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             ? `data:${att.mediaType};base64,${att.data}`
                                             : att.url!}
                                           preload="metadata"
+                                          poster={att.preview?.data
+                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
+                                            : att.preview?.url}
                                           muted
                                           class="relative z-10"
                                           style={{

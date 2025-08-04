@@ -85,11 +85,21 @@ function parseActivityPubContent(text: string): string {
   return text;
 }
 
+interface ActivityPubPreview {
+  url: string;
+  mediaType: string;
+  width?: number;
+  height?: number;
+  key?: string;
+  iv?: string;
+}
+
 interface ActivityPubAttachment {
   url: string;
   mediaType: string;
   key?: string;
   iv?: string;
+  preview?: ActivityPubPreview;
 }
 
 interface ParsedActivityPubNote {
@@ -120,11 +130,41 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
               const iv = typeof (a as { iv?: unknown }).iv === "string"
                 ? (a as { iv: string }).iv
                 : undefined;
+              const rawPrev = (a as { preview?: unknown }).preview;
+              let preview: ActivityPubPreview | undefined;
+              if (
+                rawPrev && typeof rawPrev === "object" &&
+                typeof (rawPrev as { url?: unknown }).url === "string"
+              ) {
+                preview = {
+                  url: (rawPrev as { url: string }).url,
+                  mediaType:
+                    typeof (rawPrev as { mediaType?: unknown }).mediaType ===
+                        "string"
+                      ? (rawPrev as { mediaType: string }).mediaType
+                      : "image/jpeg",
+                  width: typeof (rawPrev as { width?: unknown }).width ===
+                      "number"
+                    ? (rawPrev as { width: number }).width
+                    : undefined,
+                  height: typeof (rawPrev as { height?: unknown }).height ===
+                      "number"
+                    ? (rawPrev as { height: number }).height
+                    : undefined,
+                  key: typeof (rawPrev as { key?: unknown }).key === "string"
+                    ? (rawPrev as { key: string }).key
+                    : undefined,
+                  iv: typeof (rawPrev as { iv?: unknown }).iv === "string"
+                    ? (rawPrev as { iv: string }).iv
+                    : undefined,
+                };
+              }
               return {
                 url: (a as { url: string }).url,
                 mediaType,
                 key,
                 iv,
+                preview,
               } as ActivityPubAttachment;
             }
             return null;
@@ -182,6 +222,180 @@ async function decryptFile(
     data,
   );
   return dec;
+}
+// 画像からプレビュー用の縮小画像を生成
+async function generateImagePreview(
+  file: File,
+): Promise<{ file: File; width: number; height: number } | null> {
+  return await new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 320;
+      const scale = Math.min(1, max / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          if (blob) {
+            resolve({
+              file: new File([blob], `preview-${file.name}.jpg`, {
+                type: "image/jpeg",
+              }),
+              width: w,
+              height: h,
+            });
+          } else {
+            resolve(null);
+          }
+        },
+        "image/jpeg",
+        0.8,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+// 動画からプレビュー用の静止画を生成
+async function generateVideoPreview(
+  file: File,
+): Promise<{ file: File; width: number; height: number } | null> {
+  return await new Promise((resolve) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    video.preload = "metadata";
+    video.muted = true;
+    video.src = url;
+    video.onloadeddata = () => {
+      const max = 320;
+      const scale = Math.min(1, max / video.videoWidth);
+      const w = Math.round(video.videoWidth * scale);
+      const h = Math.round(video.videoHeight * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(video, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          if (blob) {
+            resolve({
+              file: new File([blob], `preview-${file.name}.jpg`, {
+                type: "image/jpeg",
+              }),
+              width: w,
+              height: h,
+            });
+          } else {
+            resolve(null);
+          }
+        },
+        "image/jpeg",
+        0.8,
+      );
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+  });
+}
+// 添付ファイルをアップロードし、必要ならプレビューも付与
+async function buildAttachment(file: File) {
+  const enc = await encryptFile(file);
+  const url = await uploadFile({
+    content: enc.data,
+    mediaType: enc.mediaType,
+    key: enc.key,
+    iv: enc.iv,
+    name: file.name,
+  });
+  if (!url) return undefined;
+  let preview: ActivityPubPreview | undefined;
+  if (file.type.startsWith("image/")) {
+    const p = await generateImagePreview(file);
+    if (p) {
+      const pEnc = await encryptFile(p.file);
+      const pUrl = await uploadFile({
+        content: pEnc.data,
+        mediaType: pEnc.mediaType,
+        key: pEnc.key,
+        iv: pEnc.iv,
+        name: p.file.name,
+      });
+      if (pUrl) {
+        preview = {
+          url: pUrl,
+          mediaType: pEnc.mediaType,
+          key: pEnc.key,
+          iv: pEnc.iv,
+          width: p.width,
+          height: p.height,
+        };
+      }
+    }
+  } else if (file.type.startsWith("video/")) {
+    const p = await generateVideoPreview(file);
+    if (p) {
+      const pEnc = await encryptFile(p.file);
+      const pUrl = await uploadFile({
+        content: pEnc.data,
+        mediaType: pEnc.mediaType,
+        key: pEnc.key,
+        iv: pEnc.iv,
+        name: p.file.name,
+      });
+      if (pUrl) {
+        preview = {
+          url: pUrl,
+          mediaType: pEnc.mediaType,
+          key: pEnc.key,
+          iv: pEnc.iv,
+          width: p.width,
+          height: p.height,
+        };
+      }
+    }
+  }
+  const attType = file.type.startsWith("image/")
+    ? "Image"
+    : file.type.startsWith("video/")
+    ? "Video"
+    : file.type.startsWith("audio/")
+    ? "Audio"
+    : "Document";
+  const att: Record<string, unknown> = {
+    type: attType,
+    url,
+    mediaType: enc.mediaType,
+    key: enc.key,
+    iv: enc.iv,
+  };
+  if (preview) {
+    att.preview = { type: "Image", ...preview };
+  }
+  return att;
 }
 
 function getSelfRoomId(user: Account | null): string | null {
@@ -452,7 +666,12 @@ export function Chat(props: ChatProps) {
         ? m.attachments
         : note.attachments;
       let attachments:
-        | { data?: string; url?: string; mediaType: string }[]
+        | {
+          data?: string;
+          url?: string;
+          mediaType: string;
+          preview?: { url?: string; data?: string; mediaType?: string };
+        }[]
         | undefined;
       if (Array.isArray(listAtt)) {
         attachments = [];
@@ -461,6 +680,25 @@ export function Chat(props: ChatProps) {
             const mt = typeof at.mediaType === "string"
               ? at.mediaType
               : "application/octet-stream";
+            let preview;
+            if (at.preview && typeof at.preview.url === "string") {
+              const pmt = typeof at.preview.mediaType === "string"
+                ? at.preview.mediaType
+                : "image/jpeg";
+              try {
+                const pres = await fetch(at.preview.url);
+                let pbuf = await pres.arrayBuffer();
+                if (
+                  typeof at.preview.key === "string" &&
+                  typeof at.preview.iv === "string"
+                ) {
+                  pbuf = await decryptFile(pbuf, at.preview.key, at.preview.iv);
+                }
+                preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
+              } catch {
+                preview = { url: at.preview.url, mediaType: pmt };
+              }
+            }
             try {
               const res = await fetch(at.url);
               let buf = await res.arrayBuffer();
@@ -472,12 +710,20 @@ export function Chat(props: ChatProps) {
                 mt.startsWith("audio/") ||
                 buf.byteLength > 1024 * 1024
               ) {
-                attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                attachments.push({
+                  url: bufToUrl(buf, mt),
+                  mediaType: mt,
+                  preview,
+                });
               } else {
-                attachments.push({ data: bufToB64(buf), mediaType: mt });
+                attachments.push({
+                  data: bufToB64(buf),
+                  mediaType: mt,
+                  preview,
+                });
               }
             } catch {
-              attachments.push({ url: at.url, mediaType: mt });
+              attachments.push({ url: at.url, mediaType: mt, preview });
             }
           }
         }
@@ -631,30 +877,8 @@ export function Chat(props: ChatProps) {
       };
       if (mediaFile()) {
         const file = mediaFile()!;
-        const enc = await encryptFile(file);
-        const url = await uploadFile({
-          content: enc.data,
-          mediaType: enc.mediaType,
-          key: enc.key,
-          iv: enc.iv,
-          name: file.name,
-        });
-        if (url) {
-          const attType = file.type.startsWith("image/")
-            ? "Image"
-            : file.type.startsWith("video/")
-            ? "Video"
-            : file.type.startsWith("audio/")
-            ? "Audio"
-            : "Document";
-          note.attachment = [{
-            type: attType,
-            url,
-            mediaType: enc.mediaType,
-            key: enc.key,
-            iv: enc.iv,
-          }];
-        }
+        const att = await buildAttachment(file);
+        if (att) note.attachment = [att];
       }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const msg = encodeMLSMessage("PrivateMessage", cipher);
@@ -683,30 +907,8 @@ export function Chat(props: ChatProps) {
       };
       if (mediaFile()) {
         const file = mediaFile()!;
-        const enc = await encryptFile(file);
-        const url = await uploadFile({
-          content: enc.data,
-          mediaType: enc.mediaType,
-          key: enc.key,
-          iv: enc.iv,
-          name: file.name,
-        });
-        if (url) {
-          const attType = file.type.startsWith("image/")
-            ? "Image"
-            : file.type.startsWith("video/")
-            ? "Video"
-            : file.type.startsWith("audio/")
-            ? "Audio"
-            : "Document";
-          note.attachment = [{
-            type: attType,
-            url,
-            mediaType: enc.mediaType,
-            key: enc.key,
-            iv: enc.iv,
-          }];
-        }
+        const att = await buildAttachment(file);
+        if (att) note.attachment = [att];
       }
       const msg = encodeMLSMessage("PublicMessage", JSON.stringify(note));
       const success = await sendPublicMessage(
@@ -843,7 +1045,9 @@ export function Chat(props: ChatProps) {
       const normalizedPartner = normalizeActor(partnerId);
       let room = chatRooms().find((r) => r.id === normalizedPartner);
       if (!room) {
-        if (confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)) {
+        if (
+          confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
+        ) {
           const info = await fetchUserInfo(normalizeActor(normalizedPartner));
           if (info) {
             room = {
@@ -878,7 +1082,12 @@ export function Chat(props: ChatProps) {
 
       let text = decoded.body;
       let attachments:
-        | { data?: string; url?: string; mediaType: string }[]
+        | {
+          data?: string;
+          url?: string;
+          mediaType: string;
+          preview?: { url?: string; data?: string; mediaType?: string };
+        }[]
         | undefined;
       let localId: string | undefined;
 
@@ -899,6 +1108,29 @@ export function Chat(props: ChatProps) {
               attachments = [];
               for (const at of listAtt) {
                 if (typeof at.url === "string") {
+                  let preview;
+                  if (at.preview && typeof at.preview.url === "string") {
+                    const pmt = typeof at.preview.mediaType === "string"
+                      ? at.preview.mediaType
+                      : "image/jpeg";
+                    try {
+                      const pres = await fetch(at.preview.url);
+                      let pbuf = await pres.arrayBuffer();
+                      if (
+                        typeof at.preview.key === "string" &&
+                        typeof at.preview.iv === "string"
+                      ) {
+                        pbuf = await decryptFile(
+                          pbuf,
+                          at.preview.key,
+                          at.preview.iv,
+                        );
+                      }
+                      preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
+                    } catch {
+                      preview = { url: at.preview.url, mediaType: pmt };
+                    }
+                  }
                   try {
                     const res = await fetch(at.url);
                     let buf = await res.arrayBuffer();
@@ -917,15 +1149,20 @@ export function Chat(props: ChatProps) {
                       attachments.push({
                         url: bufToUrl(buf, mt),
                         mediaType: mt,
+                        preview,
                       });
                     } else {
-                      attachments.push({ data: bufToB64(buf), mediaType: mt });
+                      attachments.push({
+                        data: bufToB64(buf),
+                        mediaType: mt,
+                        preview,
+                      });
                     }
                   } catch {
                     const mt = typeof at.mediaType === "string"
                       ? at.mediaType
                       : "application/octet-stream";
-                    attachments.push({ url: at.url, mediaType: mt });
+                    attachments.push({ url: at.url, mediaType: mt, preview });
                   }
                 }
               }
@@ -946,6 +1183,29 @@ export function Chat(props: ChatProps) {
               const mt = typeof at.mediaType === "string"
                 ? at.mediaType
                 : "application/octet-stream";
+              let preview;
+              if (at.preview && typeof at.preview.url === "string") {
+                const pmt = typeof at.preview.mediaType === "string"
+                  ? at.preview.mediaType
+                  : "image/jpeg";
+                try {
+                  const pres = await fetch(at.preview.url);
+                  let pbuf = await pres.arrayBuffer();
+                  if (
+                    typeof at.preview.key === "string" &&
+                    typeof at.preview.iv === "string"
+                  ) {
+                    pbuf = await decryptFile(
+                      pbuf,
+                      at.preview.key,
+                      at.preview.iv,
+                    );
+                  }
+                  preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
+                } catch {
+                  preview = { url: at.preview.url, mediaType: pmt };
+                }
+              }
               try {
                 const res = await fetch(at.url);
                 let buf = await res.arrayBuffer();
@@ -956,12 +1216,20 @@ export function Chat(props: ChatProps) {
                   mt.startsWith("video/") || mt.startsWith("audio/") ||
                   buf.byteLength > 1024 * 1024
                 ) {
-                  attachments.push({ url: bufToUrl(buf, mt), mediaType: mt });
+                  attachments.push({
+                    url: bufToUrl(buf, mt),
+                    mediaType: mt,
+                    preview,
+                  });
                 } else {
-                  attachments.push({ data: bufToB64(buf), mediaType: mt });
+                  attachments.push({
+                    data: bufToB64(buf),
+                    mediaType: mt,
+                    preview,
+                  });
                 }
               } catch {
-                attachments.push({ url: at.url, mediaType: mt });
+                attachments.push({ url: at.url, mediaType: mt, preview });
               }
             }
           }
