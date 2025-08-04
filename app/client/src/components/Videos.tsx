@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { createVideo, fetchVideos, likeVideo } from "./videos/api.ts";
-import { Video } from "./videos/types.ts";
+import type { Video } from "./videos/types.ts";
 import { activeAccount } from "../states/account.ts";
 import { selectedAppState } from "../states/app.ts";
 import { profileUserState } from "../states/router.ts";
@@ -523,7 +523,7 @@ export function Videos() {
                       <div class="flex space-x-3">
                         <div
                           class="flex-shrink-0 cursor-pointer"
-                          onClick={() => navigateToProfile(video.authorAcct)}
+                          onClick={() => navigateToProfile(`${video.author}@${globalThis.location.host}`)}
                         >
                           <UserAvatar
                             avatarUrl={video.authorAvatar}
@@ -540,7 +540,7 @@ export function Videos() {
                           </h3>
                           <p
                             class="text-sm text-gray-400 mb-1 cursor-pointer hover:underline"
-                            onClick={() => navigateToProfile(video.authorAcct)}
+                            onClick={() => navigateToProfile(`${video.author}@${globalThis.location.host}`)}
                           >
                             {video.author}
                           </p>
@@ -597,7 +597,7 @@ export function Videos() {
                           <div
                             class="flex items-center space-x-3 cursor-pointer"
                             onClick={() =>
-                              navigateToProfile(currentShort.authorAcct)}
+                              navigateToProfile(`${currentShort.author}@${globalThis.location.host}`)}
                           >
                             <UserAvatar
                               avatarUrl={currentShort.authorAvatar}
@@ -704,7 +704,7 @@ export function Videos() {
                     <div
                       class="flex items-center space-x-4 cursor-pointer"
                       onClick={() =>
-                        navigateToProfile(openedVideo()!.authorAcct)}
+                        navigateToProfile(`${openedVideo()!.author}@${globalThis.location.host}`)}
                     >
                       <UserAvatar
                         avatarUrl={openedVideo()!.authorAvatar}

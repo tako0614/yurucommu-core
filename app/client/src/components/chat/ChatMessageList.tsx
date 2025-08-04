@@ -324,9 +324,6 @@ export function ChatMessageList(props: ChatMessageListProps) {
     }}
   >
     {/* 子要素 */}
-  </div>
-</>
-
       <ul>
         <For each={props.messages}>
           {(message, i) => {
@@ -426,7 +423,14 @@ export function ChatMessageList(props: ChatMessageListProps) {
                             }`}
                           >
                             <For each={message.attachments}>
-                              {(att) => (
+                              {(rawAtt) => {
+                                const att = rawAtt as {
+                                  data?: string;
+                                  url?: string;
+                                  mediaType: string;
+                                  preview?: { url?: string; data?: string; mediaType?: string };
+                                };
+                                return (
                                 <div class="w-fit">
                                   <Switch
                                     fallback={
@@ -492,13 +496,13 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                         )}
                                       >
                                         <LazyImage
-                                          src={att.preview?.data
-                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
-                                            : att.preview?.url
-                                            ? att.preview.url
-                                            : att.data
-                                            ? `data:${att.mediaType};base64,${att.data}`
-                                            : att.url!}
+                                          src={
+                                            att.preview?.url
+                                              ? att.preview.url
+                                              : att.data
+                                              ? `data:${att.mediaType};base64,${att.data}`
+                                              : att.url!
+                                          }
                                           alt="添付画像"
                                           class="cursor-pointer"
                                           style={{
@@ -547,9 +551,9 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                             ? `data:${att.mediaType};base64,${att.data}`
                                             : att.url!}
                                           preload="metadata"
-                                          poster={att.preview?.data
-                                            ? `data:${att.preview.mediaType};base64,${att.preview.data}`
-                                            : att.preview?.url}
+                                          poster={
+                                            att.preview?.url ? att.preview.url : undefined
+                                          }
                                           muted
                                           class="relative z-10"
                                           style={{
@@ -633,7 +637,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                     </Match>
                                   </Switch>
                                 </div>
-                              )}
+                                );
+                              }}
                             </For>
                           </div>
                         </Show>
@@ -654,7 +659,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
           }}
         </For>
       </ul>
-      </div>
+  </div>
       
       {/* メディアモーダル */}
       <MediaModal
