@@ -7,7 +7,8 @@
   - takos に Fediscovery（FASP）を接続し、検索・発見（Discovery）機能を強化。
   - takos host に **Service Actor**
     を実装し、従来のリレーサーバー代替として「フォロー可能な配信ハブ」を提供。
-  - takos host の従来のリレー機能を廃止し、Service Actor 配信へ移行。
+  - takos host が従来提供していたリレーサーバー機能を廃止し、Service Actor
+    配信へ移行（外部リレーへの参加機能は維持）。
 
 - **スコープ**
 
@@ -330,22 +331,28 @@ service_actor:
 
 ---
 
-## 11. リレー機能の廃止
+## 11. takos host のリレーサーバー機能廃止
 
-FASP の Service Actor 配信へ移行するため、従来のリレー機能を廃止する。
+FASP の Service Actor 配信へ移行するため、takos host
+がリレーサーバーとして動作する機能を廃止する。外部リレーに参加する機能は今後も提供する。
 
-### API / CLI の無効化
+### API / CLI の更新
 
-- `app/api/routes/relays.ts` を削除し、リレー管理用APIを提供しない。
-- `scripts/host_cli.ts` から `relay-*`
-  コマンドを削除し、リレー関連の操作を無効化する。
+- `scripts/host_cli.ts` から `relay-*` コマンドを削除し、takos host
+  でのリレーサーバー運用を停止する。
+- takos host 専用のリレー関連 API
+  やデータモデル（例：`app/api/models/takos_host/relay.ts`）を削除する。
 
 ### DB コレクションの取り扱い
 
-- 旧実装で使用していた `relays` および `hostrelays`
-  コレクションは参照されなくなる。
-- 必要な情報があればバックアップして FASP の Service Actor
+- `hostrelays` など takos host 専用のコレクションは参照されなくなる。
+- 必要な情報があればバックアップして Service Actor
   側へ移行した後、コレクションを削除する。不要であればそのまま破棄してよい。
+
+### ドキュメントの更新
+
+- takos host がリレーサーバーとして振る舞う旨を記載しているドキュメントや README
+  を更新し、誤解を避ける。
 
 ---
 
