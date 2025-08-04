@@ -1090,8 +1090,9 @@ export function Chat(props: ChatProps) {
         : data.from;
 
       const normalizedPartner = normalizeActor(partnerId);
+      const [partnerName] = splitActor(normalizedPartner);
       let room = chatRooms().find((r) =>
-        r.type === "group" && `${r.id}@${r.domain}` === normalizedPartner
+        r.type === "group" && r.id === partnerName
       );
       if (!room) {
         room = chatRooms().find((r) => r.id === normalizedPartner);
