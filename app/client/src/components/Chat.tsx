@@ -1091,12 +1091,15 @@ export function Chat(props: ChatProps) {
 
       const normalizedPartner = normalizeActor(partnerId);
       const [partnerName] = splitActor(normalizedPartner);
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       let room = chatRooms().find((r) =>
         r.type === "group" && r.id === partnerName
       );
       if (!room) {
         for (const t of data.to) {
-          const [toName] = splitActor(normalizeActor(t));
+          const normalized = normalizeActor(t);
+          const [toName] = splitActor(normalized);
           const g = chatRooms().find((r) =>
             r.type === "group" && r.id === toName
           );
@@ -1105,6 +1108,10 @@ export function Chat(props: ChatProps) {
             break;
           }
         }
+      }
+      if (!room && uuidRe.test(partnerName)) {
+        // グループIDと推測されるがまだ一覧に存在しない場合はDMを作成しない
+        return;
       }
       if (!room) {
         room = chatRooms().find((r) => r.id === normalizedPartner);
