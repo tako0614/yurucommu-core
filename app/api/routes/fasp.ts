@@ -80,7 +80,7 @@ app.post("/fasp/registration", async (c) => {
     faspId,
     publicKey: takosPublicKey,
     registrationCompletionUri,
-  });
+  }, 201);
 });
 
 // data_sharing v0.1: event_subscriptions の受信（作成）
