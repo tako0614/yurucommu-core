@@ -35,6 +35,9 @@ interface KeyPackageDoc {
   content: string;
   mediaType: string;
   encoding: string;
+  groupInfo?: string;
+  expiresAt?: unknown;
+  used?: boolean;
   createdAt: unknown;
 }
 
@@ -117,6 +120,8 @@ app.get("/users/:user/keyPackages", async (c) => {
       content: doc.content,
       mediaType: doc.mediaType,
       encoding: doc.encoding,
+      groupInfo: doc.groupInfo,
+      expiresAt: doc.expiresAt,
       createdAt: doc.createdAt,
     }));
     return c.json({ type: "Collection", items });
@@ -156,6 +161,8 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
   const db = createDB(getEnv(c));
   const doc = await db.findKeyPackage(user, keyId) as KeyPackageDoc | null;
   if (!doc) return c.body("Not Found", 404);
+  await db.markKeyPackageUsed(user, keyId);
+  await db.cleanupKeyPackages(user);
   const object = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
@@ -168,13 +175,16 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     mediaType: doc.mediaType,
     encoding: doc.encoding,
     content: doc.content,
+    groupInfo: doc.groupInfo,
+    expiresAt: doc.expiresAt,
   };
   return c.json(object);
 });
 
 app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const user = c.req.param("user");
-  const { content, mediaType, encoding } = await c.req.json();
+  const { content, mediaType, encoding, groupInfo, expiresAt } = await c.req
+    .json();
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
@@ -184,7 +194,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     content,
     mediaType,
     encoding,
+    groupInfo,
+    expiresAt ? new Date(expiresAt) : undefined,
   ) as KeyPackageDoc;
+  await db.cleanupKeyPackages(user);
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   const keyObj = {
@@ -199,6 +212,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     mediaType: pkg.mediaType,
     encoding: pkg.encoding,
     content: pkg.content,
+    groupInfo: pkg.groupInfo,
+    expiresAt: pkg.expiresAt,
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
@@ -211,6 +226,7 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   const domain = getDomain(c);
   const db = createDB(getEnv(c));
   await db.deleteKeyPackage(user, keyId);
+  await db.cleanupKeyPackages(user);
   const actorId = `https://${domain}/users/${user}`;
   const removeActivity = createRemoveActivity(
     domain,

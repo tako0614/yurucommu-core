@@ -6,6 +6,9 @@ export interface KeyPackage {
   content: string;
   mediaType: string;
   encoding: string;
+  groupInfo?: string;
+  expiresAt?: string;
+  used?: boolean;
   createdAt: string;
 }
 
@@ -57,7 +60,13 @@ export const fetchKeyPackages = async (
 
 export const addKeyPackage = async (
   user: string,
-  pkg: { content: string; mediaType?: string; encoding?: string },
+  pkg: {
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+    groupInfo?: string;
+    expiresAt?: string;
+  },
 ): Promise<string | null> => {
   try {
     const res = await apiFetch(
@@ -73,6 +82,24 @@ export const addKeyPackage = async (
     return typeof data.keyId === "string" ? data.keyId : null;
   } catch (err) {
     console.error("Error adding key package:", err);
+    return null;
+  }
+};
+
+export const fetchKeyPackage = async (
+  user: string,
+  keyId: string,
+): Promise<KeyPackage | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keyPackages/${
+        encodeURIComponent(keyId)
+      }`,
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Error fetching key package:", err);
     return null;
   }
 };

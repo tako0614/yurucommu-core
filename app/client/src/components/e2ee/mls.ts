@@ -240,3 +240,36 @@ export const importGroupState = async (
   );
   return { tree: data.tree, epoch: data.epoch, secret: key };
 };
+
+export interface WelcomeMessage {
+  groupInfo: string;
+  signature: string;
+  signerKey: string;
+}
+
+export const verifyWelcome = async (
+  msg: WelcomeMessage,
+): Promise<{ valid: boolean; members?: ActorID[] }> => {
+  try {
+    const infoStr = new TextDecoder().decode(b64ToBuf(msg.groupInfo));
+    const info = JSON.parse(infoStr) as { members?: ActorID[] };
+    if (!Array.isArray(info.members)) return { valid: false };
+    const key = await crypto.subtle.importKey(
+      "raw",
+      b64ToBuf(msg.signerKey),
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["verify"],
+    );
+    const ok = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      b64ToBuf(msg.signature),
+      strToBuf(infoStr),
+    );
+    if (!ok) return { valid: false };
+    return { valid: true, members: info.members };
+  } catch {
+    return { valid: false };
+  }
+};

@@ -146,7 +146,11 @@ export interface DB {
     content: string,
     mediaType?: string,
     encoding?: string,
+    groupInfo?: string,
+    expiresAt?: Date,
   ): Promise<unknown>;
+  markKeyPackageUsed(userName: string, id: string): Promise<void>;
+  cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
   createPublicMessage(data: {
