@@ -659,7 +659,24 @@ export function Chat(props: ChatProps) {
     );
     for (const m of list) {
       const decoded = decodeMLSMessage(m.content);
-      if (!decoded) continue;
+      if (!decoded) {
+        const isMe = m.from === `${user.userName}@${getDomain()}`;
+        const displayName = isMe
+          ? user.displayName || user.userName
+          : room.name;
+        encryptedMsgs.push({
+          id: m.id,
+          author: m.from,
+          displayName,
+          address: m.from,
+          content: m.content,
+          timestamp: new Date(m.createdAt),
+          type: "text",
+          isMe,
+          avatar: room.avatar,
+        });
+        continue;
+      }
       const note = decoded.type === "PrivateMessage"
         ? parseActivityPubNote(
           (await decryptGroupMessage(group, decoded.body)) ?? decoded.body,
@@ -929,14 +946,16 @@ export function Chat(props: ChatProps) {
       }
       const cipher = await encryptGroupMessage(group, JSON.stringify(note));
       const msg = encodeMLSMessage("PrivateMessage", cipher);
+      const encrypted = {
+        "@context": "https://purl.archive.org/socialweb/mls#",
+        type: "EncryptedMessage",
+        content: msg,
+        mediaType: "application/mls+json",
+        encoding: "base64",
+      };
       const success = await sendEncryptedMessage(
         `${user.userName}@${getDomain()}`,
-        {
-          to: room.members,
-          content: msg,
-          mediaType: "message/mls",
-          encoding: "base64",
-        },
+        { to: room.members, ...encrypted },
       );
       if (!success) {
         alert("メッセージの送信に失敗しました");

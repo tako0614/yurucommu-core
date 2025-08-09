@@ -25,6 +25,16 @@ export interface EncryptedMessage {
   }[];
 }
 
+export interface EncryptedMessagePayload {
+  "@context"?: string | string[];
+  type?: string;
+  to: string[];
+  content: string;
+  mediaType?: string;
+  encoding?: string;
+  attachments?: unknown[];
+}
+
 export const fetchKeyPackages = async (
   user: string,
   domain?: string,
@@ -87,13 +97,7 @@ export const deleteKeyPackage = async (
 
 export const sendEncryptedMessage = async (
   user: string,
-  data: {
-    to: string[];
-    content: string;
-    mediaType?: string;
-    encoding?: string;
-    attachments?: unknown[];
-  },
+  data: EncryptedMessagePayload,
 ): Promise<boolean> => {
   try {
     const res = await apiFetch(
