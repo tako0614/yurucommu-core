@@ -43,6 +43,18 @@ export interface DB {
     id: string,
     groupId: string,
   ): Promise<{ id: string; name: string; members: string[] }[]>;
+  findGroup(
+    groupId: string,
+  ): Promise<
+    {
+      owner: string;
+      group: { id: string; name: string; members: string[] };
+    } | null
+  >;
+  updateGroup(
+    owner: string,
+    group: { id: string; name: string; members: string[] },
+  ): Promise<void>;
   saveNote(
     domain: string,
     author: string,
