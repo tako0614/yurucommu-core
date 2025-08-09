@@ -11,7 +11,6 @@ import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
 import PublicMessage from "../models/takos/public_message.ts";
 import SystemKey from "../models/takos/system_key.ts";
-import Relay from "../models/takos/relay.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
@@ -22,7 +21,7 @@ import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
-import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
+import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
@@ -471,24 +470,6 @@ export class MongoDBLocal implements DB {
     return { deletedCount: 0 };
   }
 
-  async listRelays() {
-    const docs = await Relay.find({}).lean<{ host: string }[]>();
-    return docs.map((d) => d.host);
-  }
-
-  async addRelay(relay: string, inboxUrl?: string) {
-    const url = inboxUrl ?? `https://${relay}/inbox`;
-    await Relay.updateOne(
-      { host: relay },
-      { $set: { inboxUrl: url }, $setOnInsert: { since: new Date() } },
-      { upsert: true },
-    );
-  }
-
-  async removeRelay(relay: string) {
-    await Relay.deleteOne({ host: relay });
-  }
-
   async addFollowerByName(username: string, follower: string) {
     await Account.updateOne({ userName: username }, {
       $addToSet: { followers: follower },
@@ -697,43 +678,6 @@ export class MongoDBLocal implements DB {
       tenant_id: tenantId,
     });
     return !!res;
-  }
-
-  async findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]> {
-    const docs = await Relay.find({ host: { $in: hosts } }).lean<
-      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string }[]
-    >();
-    return docs.map((d) => ({
-      _id: String(d._id),
-      host: d.host,
-      inboxUrl: d.inboxUrl,
-    }));
-  }
-
-  async findRelayByHost(host: string): Promise<RelayDoc | null> {
-    const doc = await Relay.findOne({ host }).lean<
-      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
-    >();
-    return doc
-      ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
-      : null;
-  }
-
-  async createRelay(
-    data: { host: string; inboxUrl: string },
-  ): Promise<RelayDoc> {
-    const doc = new Relay({ host: data.host, inboxUrl: data.inboxUrl });
-    await doc.save();
-    return { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl };
-  }
-
-  async deleteRelayById(id: string): Promise<RelayDoc | null> {
-    const doc = await Relay.findByIdAndDelete(id).lean<
-      { _id: mongoose.Types.ObjectId; host: string; inboxUrl: string } | null
-    >();
-    return doc
-      ? { _id: String(doc._id), host: doc.host, inboxUrl: doc.inboxUrl }
-      : null;
   }
 
   async findRemoteActorByUrl(url: string) {

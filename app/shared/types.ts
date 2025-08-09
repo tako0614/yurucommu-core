@@ -10,12 +10,6 @@ export interface AccountDoc {
   dms?: string[];
 }
 
-export interface RelayDoc {
-  _id: string;
-  host: string;
-  inboxUrl: string;
-}
-
 export interface SessionDoc {
   _id?: string;
   sessionId: string;

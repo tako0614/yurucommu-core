@@ -21,7 +21,7 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
-import type { AccountDoc, RelayDoc, SessionDoc } from "../../shared/types.ts";
+import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
@@ -560,18 +560,6 @@ export class MongoDBHost implements DB {
     return { deletedCount: 0 };
   }
 
-  listRelays() {
-    return [];
-  }
-
-  addRelay(_relay: string, _inboxUrl?: string) {
-    /* no-op */
-  }
-
-  removeRelay(_relay: string) {
-    /* no-op */
-  }
-
   async addFollowerByName(username: string, follower: string) {
     await HostAccount.updateOne({
       userName: username,
@@ -795,28 +783,6 @@ export class MongoDBHost implements DB {
       tenant_id: this.tenantId,
     });
     return !!res;
-  }
-
-  findRelaysByHosts(_hosts: string[]): Promise<RelayDoc[]> {
-    return Promise.resolve([]);
-  }
-
-  findRelayByHost(_host: string): Promise<RelayDoc | null> {
-    return Promise.resolve(null);
-  }
-
-  createRelay(
-    data: { host: string; inboxUrl: string },
-  ): Promise<RelayDoc> {
-    return Promise.resolve({
-      _id: "",
-      host: data.host,
-      inboxUrl: data.inboxUrl,
-    });
-  }
-
-  deleteRelayById(_id: string): Promise<RelayDoc | null> {
-    return Promise.resolve(null);
   }
 
   async findRemoteActorByUrl(url: string) {

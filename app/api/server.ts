@@ -17,7 +17,6 @@ import groups from "./routes/groups.ts";
 import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
 import e2ee from "./routes/e2ee.ts";
-import relays from "./routes/relays.ts";
 import fasp from "./routes/fasp.ts";
 import videos, {
   initVideoModule,
@@ -72,7 +71,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     groups,
     files,
     search,
-    relays,
     users,
     e2ee,
   ];
