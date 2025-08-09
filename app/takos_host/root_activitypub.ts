@@ -17,6 +17,7 @@ import {
   parseActivityRequest,
   storeCreateActivity,
 } from "../api/utils/inbox.ts";
+import { announceToFollowers } from "./service_actor.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();
   app.use("/*", async (c, next) => {
@@ -81,6 +82,10 @@ export function createRootActivityPubApp(env: Record<string, string>) {
           payload: { timeline: "following", post: formatted },
         });
       }
+      const objectUrl = `https://${domain}/objects/${
+        (stored as { _id?: unknown })._id
+      }`;
+      announceToFollowers(env, objectUrl);
     }
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
