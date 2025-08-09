@@ -2,7 +2,8 @@ import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
 
-const DB_VERSION = 4;
+// グループ状態の構造が変わったためバージョンを更新
+const DB_VERSION = 5;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
 const CACHE_STORE = "cache";

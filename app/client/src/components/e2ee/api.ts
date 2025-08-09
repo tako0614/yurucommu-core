@@ -404,3 +404,86 @@ export const removeDm = async (
     return false;
   }
 };
+
+// MLS関連のサーバ通信
+export interface MLSProposalPayload {
+  type: "add" | "remove";
+  member: string;
+  keyPackage?: string;
+}
+
+export interface MLSCommitPayload {
+  epoch: number;
+  proposals: MLSProposalPayload[];
+}
+
+export interface MLSWelcomePayload {
+  epoch: number;
+  tree: Record<string, string>;
+  secret: string;
+}
+
+export const sendProposal = async (
+  user: string,
+  groupId: string,
+  proposal: MLSProposalPayload,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/groups/${
+        encodeURIComponent(groupId)
+      }/proposals`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proposal),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error sending proposal:", err);
+    return false;
+  }
+};
+
+export const sendCommit = async (
+  user: string,
+  groupId: string,
+  commit: MLSCommitPayload,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/groups/${
+        encodeURIComponent(groupId)
+      }/commit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(commit),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error sending commit:", err);
+    return false;
+  }
+};
+
+export const fetchWelcome = async (
+  user: string,
+  groupId: string,
+): Promise<MLSWelcomePayload | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/groups/${
+        encodeURIComponent(groupId)
+      }/welcome`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data as MLSWelcomePayload;
+  } catch (err) {
+    console.error("Error fetching welcome:", err);
+    return null;
+  }
+};
