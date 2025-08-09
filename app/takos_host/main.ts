@@ -11,6 +11,7 @@ import oauthApp from "./oauth.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
+import { createServiceActorApp } from "./service_actor.ts";
 import { logger } from "hono/logger";
 import { takosEnv } from "./takos_env.ts";
 import { dirname, fromFileUrl, join } from "@std/path";
@@ -53,6 +54,9 @@ const rootDomain =
     .toLowerCase();
 const rootActivityPubApp = rootDomain
   ? createRootActivityPubApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
+  : null;
+const serviceActorApp = rootDomain
+  ? createServiceActorApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
   : null;
 const freeLimit = Number(hostEnv["FREE_PLAN_LIMIT"] ?? "1");
 const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "")
@@ -170,14 +174,18 @@ if (termsText) {
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
   root.use("/user/*", proxy("/user"));
-  if (rootDomain && rootActivityPubApp) {
+  if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
     const proxyRoot = proxy("");
     root.use(async (c, next) => {
       const host = getRealHost(c);
       if (host === rootDomain) {
-        const res = await rootActivityPubApp.fetch(c.req.raw);
-        if (res.status !== 404) {
-          return res;
+        if (serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)) {
+          const resSvc = await serviceActorApp.fetch(c.req.raw);
+          if (resSvc.status !== 404) return resSvc;
+        }
+        if (rootActivityPubApp) {
+          const res = await rootActivityPubApp.fetch(c.req.raw);
+          if (res.status !== 404) return res;
         }
         return await proxyRoot(c, next);
       }
@@ -185,6 +193,24 @@ if (isDev) {
     });
   }
 } else {
+  // Service Actor / ActivityPub ルートを先に確認（ルートドメイン宛のみ）
+  if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
+    root.use(async (c, next) => {
+      const host = getRealHost(c);
+      if (host === rootDomain) {
+        if (serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)) {
+          const resSvc = await serviceActorApp.fetch(c.req.raw);
+          if (resSvc.status !== 404) return resSvc;
+        }
+        if (rootActivityPubApp) {
+          const res = await rootActivityPubApp.fetch(c.req.raw);
+          if (res.status !== 404) return res;
+        }
+      }
+      await next();
+    });
+  }
+
   root.use(
     "/auth/*",
     serveStatic({

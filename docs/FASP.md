@@ -97,6 +97,9 @@
 
    takosは FASP登録要求を保存し、自身の公開鍵と
    `faspId`、`registrationCompletionUri` を返す。
+   `registrationCompletionUri` は takos 側の管理 API
+   `https://{takos-instance}/api/fasp/providers`
+   を指し、管理者はここから承認・capability 設定を実施する。
 3. 管理者は takos 管理UIで**指紋（FASP公開鍵のSHA-256
    Base64）**を確認し、受理/拒否を決定。
 4. 受理後、能力（capability）選択へ。
@@ -257,14 +260,24 @@ fasp:
 
 ### 7.2 takos API（FASP登録・管理用）
 
-- `POST /fasp/registration`（FASP登録要求受理）
-- `GET /admin/fasps`（管理UI）
-- `POST /fasp/data_sharing/v0/event_subscriptions`
-- `DELETE /fasp/data_sharing/v0/event_subscriptions/{id}`
-- `POST /fasp/data_sharing/v0/backfill_requests`
-- `POST /fasp/data_sharing/v0/backfill_requests/{id}/continuation`
+- FASP → takos（受信、署名必須）
+  - `POST /fasp/registration`（FASP登録要求受理）
+  - `POST /fasp/data_sharing/v0/event_subscriptions`
+  - `DELETE /fasp/data_sharing/v0/event_subscriptions/{id}`
+  - `POST /fasp/data_sharing/v0/backfill_requests`
+  - `POST /fasp/data_sharing/v0/backfill_requests/{id}/continuation`
+  - 認証・保全: HTTP Message Signatures（RFC 9421）と
+    `Content-Digest`（RFC 9530）または旧 `Digest`（互換）による検証を必須。
 
-（認証：RFC9421、`Content-Digest` 必須）
+- 管理（takos の通常 API 配下、要ログイン）
+  - `GET /api/fasp/providers`（一覧）
+  - `GET /api/fasp/providers/{serverId}`（詳細）
+  - `POST /api/fasp/providers/{serverId}/approve`（承認）
+  - `POST /api/fasp/providers/{serverId}/reject`（却下）
+  - `PUT /api/fasp/providers/{serverId}/capabilities`
+    - body 例: `{ "capabilities": { "data_sharing": { "version": "0.1", "enabled": true } } }`
+  - `GET /api/fasp/providers/{serverId}/provider_info`（FASP の provider_info を取得）
+  - （オプション）`POST /api/fasp/announcements`（手動アナウンス送信の簡易デバッグ）
 
 ### 7.3 takos → FASP（クライアント API）
 
@@ -273,6 +286,9 @@ fasp:
 - `POST /data_sharing/v0/announcements`
 - `GET /trends/v0/content|hashtags|links`
 - `GET /account_search/v0/search`
+
+実装メモ：`POST /data_sharing/v0/announcements` は takos から FASP へ
+公開オブジェクトの URI のみを共有する。`Content-Digest` を付与。
 
 ### 7.4 takos host（Service Actor のみ）設定例
 
@@ -293,6 +309,8 @@ service_actor:
 - `GET /actor`（Service Actor 公開）
 - `POST /inbox`（Follow/Undo/Block 受信）
 - `GET /outbox`（Accept/Announce 配信）
+
+メモ：Follow 受領時、`Accept(Follow)` を Service Actor の鍵で署名して返信する。
 
 ### 7.6 Nodeinfo 例（takos）
 

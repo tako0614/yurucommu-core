@@ -28,6 +28,7 @@ import {
 import { addNotification } from "../services/notification.ts";
 import { rateLimit } from "../utils/rate_limit.ts";
 import { broadcast, sendToUser } from "./ws.ts";
+import { sendAnnouncements } from "../services/fasp.ts";
 
 interface PostDoc {
   _id?: string;
@@ -161,6 +162,17 @@ app.post(
       noteObject,
     );
     deliverToFollowers(env, author, createActivity, domain);
+
+    // FASP へ URI のみのアナウンスを送信（公開投稿のみ）
+    const objectId = String((post as Record<string, unknown>)._id ?? "");
+    if (objectId) {
+      const objectUrl = `https://${domain}/objects/${objectId}`;
+      await sendAnnouncements(env, {
+        category: "content",
+        eventType: "new",
+        objectUris: [objectUrl],
+      }).catch(() => {});
+    }
 
     if (typeof parentId === "string") {
       const parent = await db.getObject(parentId) as ActivityObject | null;

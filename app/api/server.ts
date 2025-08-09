@@ -18,6 +18,7 @@ import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
 import e2ee from "./routes/e2ee.ts";
 import relays from "./routes/relays.ts";
+import fasp from "./routes/fasp.ts";
 import videos, {
   initVideoModule,
   initVideoWebSocket,
@@ -81,7 +82,7 @@ export async function createTakosApp(env?: Record<string, string>) {
 
   // ActivityPub ルートは / のみにマウントする
 
-  const rootRoutes = [nodeinfo, activitypub, rootInbox];
+  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp];
   // e2ee ルートは /api のみで提供し、ActivityPub ルートと競合しないようにする
   for (const r of rootRoutes) {
     app.route("/", r);

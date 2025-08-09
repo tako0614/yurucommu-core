@@ -252,13 +252,21 @@ export async function verifyDigest(
   req: Request,
   body: string,
 ): Promise<boolean> {
-  const digestHeader = req.headers.get("digest");
-  if (!digestHeader) return true;
   const encoder = new TextEncoder();
-  const expectedDigest = bufToB64(
-    await crypto.subtle.digest("SHA-256", encoder.encode(body)),
-  );
-  return digestHeader === `SHA-256=${expectedDigest}`;
+  const hash = await crypto.subtle.digest("SHA-256", encoder.encode(body));
+  const expectedB64 = bufToB64(hash);
+
+  const legacy = req.headers.get("digest");
+  if (legacy) {
+    if (legacy === `SHA-256=${expectedB64}`) return true;
+  }
+
+  const sf = req.headers.get("content-digest");
+  if (sf) {
+    const m = sf.match(/sha-256=:(.+):/i);
+    if (m && m[1] === expectedB64) return true;
+  }
+  return false;
 }
 
 /** 署名対象文字列を生成 */
@@ -511,6 +519,19 @@ export function jsonResponse(
   return c.body(JSON.stringify(data), status, {
     "content-type": contentType,
   });
+}
+
+/**
+ * 任意の Actor ID と秘密鍵で HTTP 署名を付与し POST する。
+ * Service Actor など /users/ に属さない Actor 用。
+ */
+export async function signAndPostAsActor(
+  inboxUrl: string,
+  body: string,
+  actorId: string,
+  privateKey: string,
+): Promise<Response> {
+  return await signAndPost(inboxUrl, body, { id: actorId, privateKey });
 }
 
 export function createActor(
