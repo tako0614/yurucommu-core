@@ -118,9 +118,8 @@ OAuth ボタンを表示します。
 ## CLI 管理ツール
 
 `scripts/host_cli.ts` を使用して takos host を CLI から操作できます。 MongoDB
-へ直接接続してインスタンスを作成・削除するほか、リレーサーバー
-の登録や削除も行えます。`--user` を省略すると管理ユーザー `system`
-として実行されます。
+へ直接接続してインスタンスを作成・削除できます。`--user`
+を省略すると管理ユーザー `system`として実行されます。
 
 ### 使用例
 
@@ -128,10 +127,4 @@ OAuth ボタンを表示します。
 deno task host list --user alice
 
 deno task host create --host myapp --password pw --user alice
-
-deno task host relay-list
-
-deno task host relay-add --inbox-url https://relay.example/inbox
-
-deno task host relay-delete --relay-id RELAY_ID
 ```

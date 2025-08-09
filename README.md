@@ -184,8 +184,7 @@ WebSocket では Base64 文字列を、HTTP POST では multipart/form-data の
   を送信して追加
 - `DELETE /api/relays/:id` – リレーを削除
 
-各インスタンスのリストは `relays` コレクションに基づきます。 takos host
-のデフォルトリレーは自動登録されますが、一覧には表示されません。
+各インスタンスのリストは `relays` コレクションに基づきます。
 
 ## アカウント管理 API
 

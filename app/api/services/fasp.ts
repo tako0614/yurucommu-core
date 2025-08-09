@@ -54,3 +54,16 @@ export async function sendAnnouncements(
   );
 }
 
+export async function getFaspBaseUrl(
+  env: Record<string, string>,
+  capability: string,
+): Promise<string | null> {
+  const db = createDB(env);
+  const mongo = await db.getDatabase();
+  const rec = await mongo.collection("fasps").findOne({
+    status: "approved",
+    [`capabilities.${capability}.enabled`]: true,
+  });
+  if (!rec?.baseUrl) return null;
+  return String(rec.baseUrl).replace(/\/$/, "");
+}
