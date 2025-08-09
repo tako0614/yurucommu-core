@@ -83,6 +83,39 @@ app.post("/fasp/registration", async (c) => {
   }, 201);
 });
 
+// data_sharing v0.1 のバリデーションスキーマ
+const eventSubscriptionSchema = z.object({
+  category: z.enum(["content", "account"]),
+  subscriptionType: z.enum(["lifecycle", "trends"]),
+  maxBatchSize: z.number().int().positive().optional(),
+  threshold: z
+    .object({
+      timeframe: z.number().int().positive().optional(),
+      shares: z.number().int().positive().optional(),
+      likes: z.number().int().positive().optional(),
+      replies: z.number().int().positive().optional(),
+    })
+    .optional(),
+})
+  .refine(
+    (d) => d.category === "content" || d.subscriptionType !== "trends",
+    {
+      message:
+        "subscriptionType に trends を指定する場合、category は content である必要があります",
+    },
+  )
+  .refine(
+    (d) => d.subscriptionType === "trends" || d.threshold === undefined,
+    {
+      message: "subscriptionType が trends の場合のみ threshold を指定できます",
+    },
+  );
+
+const backfillRequestSchema = z.object({
+  category: z.enum(["content", "account"]),
+  maxCount: z.number().int().positive(),
+});
+
 // data_sharing v0.1: event_subscriptions の受信（作成）
 app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
   const env = getEnv(c);
@@ -91,12 +124,16 @@ app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
   if (!signed.ok) {
     return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
   }
-  const payload = signed.body as Record<string, unknown>;
+  const parsed = eventSubscriptionSchema.safeParse(signed.body);
+  if (!parsed.success) {
+    return c.json({ error: "入力が不正です" }, 422);
+  }
+  const payload = parsed.data;
   const mongo = await db.getDatabase();
   const col = mongo.collection("fasp_event_subscriptions");
   const id = crypto.randomUUID();
   await col.insertOne({ _id: id, payload, createdAt: new Date() });
-  return c.json({ id }, 201);
+  return c.json({ subscription: { id } }, 201);
 });
 
 // data_sharing v0.1: event_subscriptions の削除
@@ -118,7 +155,11 @@ app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
   if (!signed.ok) {
     return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
   }
-  const payload = signed.body as Record<string, unknown>;
+  const parsed = backfillRequestSchema.safeParse(signed.body);
+  if (!parsed.success) {
+    return c.json({ error: "入力が不正です" }, 422);
+  }
+  const payload = parsed.data;
   const mongo = await db.getDatabase();
   const col = mongo.collection("fasp_backfills");
   const id = crypto.randomUUID();
@@ -128,7 +169,7 @@ app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
     status: "pending",
     createdAt: new Date(),
   });
-  return c.json({ id }, 201);
+  return c.json({ backfillRequest: { id } }, 201);
 });
 
 // data_sharing v0.1: backfill 継続通知
