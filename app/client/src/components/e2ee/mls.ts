@@ -8,9 +8,15 @@ export interface MLSKeyPair {
   privateKey: CryptoKey;
 }
 
+export interface MLSKeyPackage {
+  id: string;
+  key: string; // 公開鍵を含むKeyPackage
+}
+
 export interface StoredMLSKeyPair {
   publicKey: string;
   privateKey: JsonWebKey;
+  keyPackage?: MLSKeyPackage;
 }
 
 /**
@@ -27,11 +33,24 @@ export const generateMLSKeyPair = async (): Promise<MLSKeyPair> => {
   return { publicKey: pub, privateKey: keyPair.privateKey };
 };
 
+export const generateKeyPackage = async (): Promise<{
+  keyPackage: MLSKeyPackage;
+  keyPair: MLSKeyPair;
+}> => {
+  const pair = await generateMLSKeyPair();
+  const keyPackage: MLSKeyPackage = {
+    id: crypto.randomUUID(),
+    key: pair.publicKey,
+  };
+  return { keyPackage, keyPair: pair };
+};
+
 export const exportKeyPair = async (
   pair: MLSKeyPair,
+  keyPackage?: MLSKeyPackage,
 ): Promise<StoredMLSKeyPair> => {
   const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
-  return { publicKey: pair.publicKey, privateKey: jwk };
+  return { publicKey: pair.publicKey, privateKey: jwk, keyPackage };
 };
 
 export const importKeyPair = async (
@@ -71,20 +90,81 @@ export const deriveMLSSecret = async (
  * AES-GCM鍵を作成しグループ状態を保持
  */
 export interface MLSGroupState {
-  members: ActorID[];
+  tree: Record<ActorID, string>;
   epoch: number;
   secret: CryptoKey;
 }
 
 export const createMLSGroup = async (
-  members: ActorID[],
+  tree: Record<ActorID, string>,
+  epoch = 0,
 ): Promise<MLSGroupState> => {
   const secret = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
     ["encrypt", "decrypt"],
   );
-  return { members, epoch: Date.now(), secret };
+  return { tree, epoch, secret };
+};
+
+export interface MLSProposal {
+  type: "add" | "remove";
+  member: ActorID;
+  keyPackage?: MLSKeyPackage;
+}
+
+export interface MLSCommit {
+  epoch: number;
+  proposals: MLSProposal[];
+}
+
+export interface MLSWelcome {
+  epoch: number;
+  tree: Record<ActorID, string>;
+  secret: string;
+}
+
+export const createCommit = (
+  state: MLSGroupState,
+  proposals: MLSProposal[],
+): MLSCommit => ({
+  epoch: state.epoch + 1,
+  proposals,
+});
+
+export const createWelcome = async (
+  state: MLSGroupState,
+): Promise<MLSWelcome> => {
+  const raw = await crypto.subtle.exportKey("raw", state.secret);
+  return {
+    epoch: state.epoch,
+    tree: state.tree,
+    secret: bufToB64(raw),
+  };
+};
+
+export const applyWelcome = async (
+  welcome: MLSWelcome,
+): Promise<MLSGroupState> => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    b64ToBuf(welcome.secret),
+    { name: "AES-GCM" },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  return { tree: welcome.tree, epoch: welcome.epoch, secret: key };
+};
+
+export const applyCommit = async (
+  _state: MLSGroupState,
+  commit: MLSCommit,
+  welcome: MLSWelcome,
+): Promise<MLSGroupState> => {
+  if (commit.epoch !== welcome.epoch) {
+    return _state;
+  }
+  return await applyWelcome(welcome);
 };
 
 function strToBuf(str: string): Uint8Array {
@@ -129,7 +209,7 @@ export const decryptGroupMessage = async (
 };
 
 export interface StoredMLSGroupState {
-  members: ActorID[];
+  tree: Record<ActorID, string>;
   epoch: number;
   secret: string;
 }
@@ -142,7 +222,7 @@ export const exportGroupState = async (
 ): Promise<StoredMLSGroupState> => {
   const raw = await crypto.subtle.exportKey("raw", group.secret);
   const b64 = bufToB64(raw);
-  return { members: group.members, epoch: group.epoch, secret: b64 };
+  return { tree: group.tree, epoch: group.epoch, secret: b64 };
 };
 
 /**
@@ -158,5 +238,5 @@ export const importGroupState = async (
     true,
     ["encrypt", "decrypt"],
   );
-  return { members: data.members, epoch: data.epoch, secret: key };
+  return { tree: data.tree, epoch: data.epoch, secret: key };
 };
