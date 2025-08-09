@@ -5,6 +5,26 @@ import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
 
+const SIG_CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
+// ホストごとの署名方式キャッシュ
+const sigCache = new Map<
+  string,
+  { style: "rfc9421" | "cavage"; expires: number }
+>();
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const sec = Number(value);
+  if (!Number.isNaN(sec)) return sec * 1000;
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) return date - Date.now();
+  return null;
+}
+
 async function applySignature(
   method: string,
   url: string,
@@ -12,6 +32,7 @@ async function applySignature(
   key: { id: string; privateKey: string },
   headersToSign: string[],
   headers: Headers,
+  style: "rfc9421" | "cavage" | "both" = "both",
 ): Promise<void> {
   const parsed = new URL(url);
   const host = parsed.hostname;
@@ -58,17 +79,27 @@ async function applySignature(
   );
   const signatureB64 = bufToB64(signature);
   const keyId = `${key.id}#main-key`;
-  headers.set(
-    "Signature",
-    `keyId="${keyId}",algorithm="rsa-sha256",headers="${
-      headersToSign.join(" ")
-    }",signature="${signatureB64}"`,
-  );
-  headers.append("Signature", `sig1=:${signatureB64}:`);
-  headers.set(
-    "Signature-Input",
-    `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
-  );
+  if (style === "cavage" || style === "both") {
+    headers.set(
+      "Signature",
+      `keyId="${keyId}",algorithm="rsa-sha256",headers="${
+        headersToSign.join(" ")
+      }",signature="${signatureB64}"`,
+    );
+  }
+  if (style === "rfc9421" || style === "both") {
+    if (style === "both") {
+      headers.append("Signature", `sig1=:${signatureB64}:`);
+    } else {
+      headers.set("Signature", `sig1=:${signatureB64}:`);
+    }
+    headers.set(
+      "Signature-Input",
+      `sig1="${
+        headersToSign.join(" ")
+      }";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
+    );
+  }
 }
 
 async function signAndPost(
@@ -725,31 +756,63 @@ export async function fetchJson<T = unknown>(
       privateKey: sys.privateKey,
     };
   }
-  const headers = new Headers(init.headers);
-  if (!headers.has("Accept")) {
-    headers.set(
-      "Accept",
-      'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-    );
+  const host = new URL(url).host;
+  const cache = sigCache.get(host);
+  let style: "rfc9421" | "cavage";
+  if (cache && cache.expires > Date.now()) {
+    style = cache.style;
+  } else {
+    style = "rfc9421";
+    if (cache) sigCache.delete(host);
   }
-  if (signer) {
+  let triedRfc = style === "rfc9421";
+  let triedCavage = style === "cavage";
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const headers = new Headers(init.headers);
+    if (!headers.has("Accept")) {
+      headers.set(
+        "Accept",
+        'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+      );
+    }
     await applySignature(
       "GET",
       url,
       "",
-      signer,
+      signer!,
       ["(request-target)", "host", "date"],
       headers,
+      style,
     );
+    res = await fetch(url, { ...init, headers });
+    if (res.status === 429) {
+      const wait = parseRetryAfter(res.headers.get("Retry-After")) ?? 1000;
+      await delay(wait);
+      continue;
+    }
+    if ((res.status === 401 || res.status === 403)) {
+      if (style === "rfc9421" && !triedCavage) {
+        style = "cavage";
+        triedCavage = true;
+        continue;
+      }
+      if (style === "cavage" && !triedRfc) {
+        style = "rfc9421";
+        triedRfc = true;
+        continue;
+      }
+    }
+    break;
   }
-  const signedInit = { ...init, headers };
-  const res = await fetch(url, signedInit);
+  if (!res) res = await fetch(url, init);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
       `fetchJson: ${url} ${res.status} ${res.statusText} ${text}`,
     );
   }
+  sigCache.set(host, { style, expires: Date.now() + SIG_CACHE_TTL });
   return await res.json();
 }
 
