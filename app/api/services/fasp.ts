@@ -67,3 +67,20 @@ export async function getFaspBaseUrl(
   if (!rec?.baseUrl) return null;
   return String(rec.baseUrl).replace(/\/$/, "");
 }
+
+// FASP へ capability の有効化/無効化を通知する
+export async function notifyCapabilityActivation(
+  baseUrl: string,
+  identifier: string,
+  version: string,
+  enabled: boolean,
+): Promise<void> {
+  const url = `${
+    baseUrl.replace(/\/$/, "")
+  }/capabilities/${identifier}/${version}/activation`;
+  try {
+    await fetch(url, { method: enabled ? "POST" : "DELETE" });
+  } catch {
+    // エラーは無視
+  }
+}
