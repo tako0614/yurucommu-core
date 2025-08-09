@@ -269,6 +269,28 @@ export class MongoDBLocal implements DB {
     return acc?.groups ?? [];
   }
 
+  async findGroup(groupId: string) {
+    const acc = await Account.findOne({ "groups.id": groupId }).lean<
+      | {
+        _id: unknown;
+        groups: { id: string; name: string; members: string[] }[];
+      }
+      | null
+    >();
+    const group = acc?.groups.find((g) => g.id === groupId);
+    if (!group || !acc?._id) return null;
+    return { owner: String(acc._id), group };
+  }
+
+  async updateGroup(
+    owner: string,
+    group: { id: string; name: string; members: string[] },
+  ) {
+    await Account.updateOne({ _id: owner, "groups.id": group.id }, {
+      $set: { "groups.$": group },
+    });
+  }
+
   async saveNote(
     domain: string,
     author: string,
