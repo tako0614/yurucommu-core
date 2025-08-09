@@ -8,7 +8,7 @@ import type { AccountDoc } from "../../shared/types.ts";
 import { b64ToBuf } from "../../shared/buffer.ts";
 import { isUrl } from "../../shared/url.ts";
 import { saveFile } from "../services/file.ts";
-import { sendAnnouncements } from "../services/fasp.ts";
+import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
 
 function formatAccount(doc: AccountDoc) {
   return {
@@ -104,11 +104,11 @@ app.post("/accounts", async (c) => {
     following: [],
     dms: [],
   });
-  await sendAnnouncements(env, {
+  await announceIfPublicAndDiscoverable(env, {
     category: "account",
     eventType: "new",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }).catch(() => {});
+  }, account);
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -157,11 +157,11 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  await sendAnnouncements(env, {
+  await announceIfPublicAndDiscoverable(env, {
     category: "account",
     eventType: "update",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }).catch(() => {});
+  }, account);
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -174,11 +174,11 @@ app.delete("/accounts/:id", async (c) => {
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const deleted = await db.deleteAccountById(id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
-  await sendAnnouncements(env, {
+  await announceIfPublicAndDiscoverable(env, {
     category: "account",
     eventType: "delete",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }).catch(() => {});
+  }, account);
   return jsonResponse(c, { success: true });
 });
 

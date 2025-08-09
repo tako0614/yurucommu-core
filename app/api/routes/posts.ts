@@ -28,7 +28,7 @@ import {
 import { addNotification } from "../services/notification.ts";
 import { rateLimit } from "../utils/rate_limit.ts";
 import { broadcast, sendToUser } from "./ws.ts";
-import { sendAnnouncements } from "../services/fasp.ts";
+import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
 
 interface PostDoc {
   _id?: string;
@@ -167,11 +167,11 @@ app.post(
     const objectId = String((post as Record<string, unknown>)._id ?? "");
     if (objectId) {
       const objectUrl = `https://${domain}/objects/${objectId}`;
-      await sendAnnouncements(env, {
+      await announceIfPublicAndDiscoverable(env, {
         category: "content",
         eventType: "new",
         objectUris: [objectUrl],
-      }).catch(() => {});
+      }, post);
     }
 
     if (typeof parentId === "string") {
@@ -316,11 +316,11 @@ app.put(
 
     // 更新された投稿を FASP へ通知
     const objectUrl = `https://${domain}/objects/${id}`;
-    await sendAnnouncements(env, {
+    await announceIfPublicAndDiscoverable(env, {
       category: "content",
       eventType: "update",
       objectUris: [objectUrl],
-    }).catch(() => {});
+    }, post);
 
     return c.json(
       formatUserInfoForPost(
@@ -404,11 +404,11 @@ app.post(
       }
 
       // いいね数の更新を FASP へ通知
-      await sendAnnouncements(env, {
+      await announceIfPublicAndDiscoverable(env, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
-      }).catch(() => {});
+      }, post);
     }
 
     return c.json({
@@ -489,11 +489,11 @@ app.post(
       }
 
       // リツイート数の更新を FASP へ通知
-      await sendAnnouncements(env, {
+      await announceIfPublicAndDiscoverable(env, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
-      }).catch(() => {});
+      }, post);
     }
 
     return c.json({
@@ -507,15 +507,17 @@ app.delete("/posts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
+  const post = await db.getObject(id) as ActivityObject | null;
+  if (!post) return c.json({ error: "Not found" }, 404);
   const deleted = await db.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
 
   // 削除された投稿を FASP へ通知
-  await sendAnnouncements(env, {
+  await announceIfPublicAndDiscoverable(env, {
     category: "content",
     eventType: "delete",
     objectUris: [`https://${domain}/objects/${id}`],
-  }).catch(() => {});
+  }, post);
 
   return c.json({ success: true });
 });
