@@ -5,6 +5,25 @@ import { pemToArrayBuffer } from "../../shared/crypto.ts";
 import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
 import { ensurePem, fetchPublicKeyPem } from "../utils/activitypub.ts";
 
+export const faspMetrics = {
+  rateLimitHits: 0,
+  signatureFailures: 0,
+  timeouts: 0,
+};
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const sec = Number(value);
+  if (!Number.isNaN(sec)) return sec * 1000;
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) return date - Date.now();
+  return null;
+}
+
 export interface FaspAnnouncement {
   source?: Record<string, unknown>;
   category: "content" | "account";
@@ -30,58 +49,95 @@ async function faspFetch(
     : typeof options.body === "string"
     ? options.body
     : JSON.stringify(options.body);
-  const headers = new Headers(options.headers);
-  headers.set("Accept", headers.get("Accept") ?? "application/json");
+  const baseHeaders = new Headers(options.headers);
+  baseHeaders.set("Accept", baseHeaders.get("Accept") ?? "application/json");
   if (bodyText) {
-    headers.set(
+    baseHeaders.set(
       "Content-Type",
-      headers.get("Content-Type") ?? "application/json",
+      baseHeaders.get("Content-Type") ?? "application/json",
     );
   }
   const digest = await computeContentDigest(bodyText);
-  headers.set("Content-Digest", digest);
+  baseHeaders.set("Content-Digest", digest);
 
   const domain = env["ACTIVITYPUB_DOMAIN"];
   const db = createDB(env);
   const { privateKey } = await getSystemKey(db, domain);
   const keyId = `https://${domain}/actor#main-key`;
-  const created = Math.floor(Date.now() / 1000);
-  const sigParams =
-    `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
-  const signingString = [
-    `"@method": ${method.toLowerCase()}`,
-    `"@target-uri": ${url}`,
-    `"content-digest": ${digest}`,
-    `"@signature-params": ${sigParams}`,
-  ].join("\n");
-  const normalized = ensurePem(privateKey, "PRIVATE KEY");
-  const keyData = pemToArrayBuffer(normalized);
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyData,
-    { name: "Ed25519" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "Ed25519",
-    cryptoKey,
-    new TextEncoder().encode(signingString),
-  );
-  const sigB64 = bufToB64(signature);
-  headers.set("Signature-Input", `sig1=${sigParams}`);
-  headers.set("Signature", `sig1=:${sigB64}:`);
 
-  const fetchOpts: RequestInit = { method, headers };
-  if (options.body !== undefined) fetchOpts.body = bodyText;
-  const res = await fetch(url, fetchOpts);
-  const resBody = await res.text();
-  await verifyFaspResponse(res, resBody);
-  return new Response(resBody, {
-    status: res.status,
-    statusText: res.statusText,
-    headers: res.headers,
-  });
+  const baseOpts: RequestInit = { method };
+  if (options.body !== undefined) baseOpts.body = bodyText;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const headers = new Headers(baseHeaders);
+    const created = Math.floor(Date.now() / 1000);
+    const sigParams =
+      `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
+    const signingString = [
+      `"@method": ${method.toLowerCase()}`,
+      `"@target-uri": ${url}`,
+      `"content-digest": ${digest}`,
+      `"@signature-params": ${sigParams}`,
+    ].join("\n");
+    const normalized = ensurePem(privateKey, "PRIVATE KEY");
+    const keyData = pemToArrayBuffer(normalized);
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      keyData,
+      { name: "Ed25519" },
+      false,
+      ["sign"],
+    );
+    const signature = await crypto.subtle.sign(
+      "Ed25519",
+      cryptoKey,
+      new TextEncoder().encode(signingString),
+    );
+    const sigB64 = bufToB64(signature);
+    headers.set("Signature-Input", `sig1=${sigParams}`);
+    headers.set("Signature", `sig1=:${sigB64}:`);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...baseOpts,
+        headers,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e instanceof DOMException && e.name === "AbortError") {
+        faspMetrics.timeouts++;
+        const wait = Math.pow(2, attempt) * 1000;
+        await delay(wait);
+        continue;
+      }
+      throw e;
+    }
+    clearTimeout(timer);
+    if (res.status === 429) {
+      faspMetrics.rateLimitHits++;
+      const wait = parseRetryAfter(res.headers.get("Retry-After")) ??
+        Math.pow(2, attempt) * 1000;
+      await delay(wait);
+      continue;
+    }
+    const resBody = await res.text();
+    try {
+      await verifyFaspResponse(res, resBody);
+    } catch (e) {
+      faspMetrics.signatureFailures++;
+      throw e;
+    }
+    return new Response(resBody, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+  throw new Error("faspFetch: 最大リトライ回数を超えました");
 }
 
 async function verifyFaspResponse(res: Response, body: string): Promise<void> {
