@@ -24,12 +24,7 @@ export function pemToArrayBuffer(pem: string): ArrayBuffer {
 
 export async function generateKeyPair() {
   const pair = await crypto.subtle.generateKey(
-    {
-      name: "RSA-PSS",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
+    { name: "Ed25519" },
     true,
     ["sign", "verify"],
   );
