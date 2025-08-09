@@ -3,21 +3,13 @@ import { loadConfig } from "../app/shared/config.ts";
 import { connectDatabase } from "../app/shared/db.ts";
 import { createDB } from "../app/api/DB/mod.ts";
 import { ensureTenant } from "../app/api/services/tenant.ts";
-import { getSystemKey } from "../app/api/services/system_actor.ts";
 import type { DB } from "../app/shared/db.ts";
-import {
-  createFollowActivity,
-  createUndoFollowActivity,
-  sendActivityPubObject,
-} from "../app/api/utils/activitypub.ts";
 import { hash } from "../app/takos_host/auth.ts";
 interface Args {
   command: string;
   host?: string;
   user?: string;
   password?: string;
-  inboxUrl?: string;
-  relayId?: string;
 }
 
 let env: Record<string, string> = {};
@@ -31,9 +23,6 @@ Commands:
   create --user <USER> --host <HOST> [--password <PASS>]  インスタンス作成
   delete --user <USER> --host <HOST>      インスタンス削除
   set-pass --user <USER> --host <HOST> [--password <PASS>]  パスワード設定/解除
-  relay-list                              リレー一覧を表示
-  relay-add --inbox-url <URL>             リレーを追加
-  relay-delete --relay-id <ID>            リレーを削除
 `);
 }
 
@@ -43,8 +32,6 @@ function parseArgsFn(): Args | null {
       "host",
       "user",
       "password",
-      "inbox-url",
-      "relay-id",
     ],
     boolean: ["help"],
   });
@@ -57,8 +44,6 @@ function parseArgsFn(): Args | null {
     host: parsed.host ? String(parsed.host) : undefined,
     user: parsed.user ? String(parsed.user) : undefined,
     password: parsed.password ? String(parsed.password) : undefined,
-    inboxUrl: parsed["inbox-url"] ? String(parsed["inbox-url"]) : undefined,
-    relayId: parsed["relay-id"] ? String(parsed["relay-id"]) : undefined,
   };
 }
 
@@ -152,21 +137,6 @@ async function createInstance(
     createdAt: new Date(),
   });
   await ensureTenant(db, fullHost, fullHost);
-  if (rootDomain) {
-    const existsRelay = await db.findRelayByHost(rootDomain);
-    if (!existsRelay) {
-      await db.createRelay({
-        host: rootDomain,
-        inboxUrl: `https://${rootDomain}/inbox`,
-      });
-    }
-    const relayDb = createDB({
-      ...cfg,
-      ACTIVITYPUB_DOMAIN: fullHost,
-      DB_MODE: "host",
-    });
-    await relayDb.addRelay(rootDomain, `https://${rootDomain}/inbox`);
-  }
   console.log(`作成しました: ${fullHost}`);
 }
 
@@ -200,86 +170,7 @@ async function setPassword(userName: string, host: string, pass?: string) {
   console.log("更新しました");
 }
 
-async function listRelays() {
-  const col = (await db.getDatabase()).collection("hostrelays");
-  const list = await col.find().toArray() as Array<{
-    _id: unknown;
-    host: string;
-    inboxUrl: string;
-  }>;
-  for (const r of list) console.log(`${r._id} ${r.host} ${r.inboxUrl}`);
-}
-
-async function addRelay(env: Record<string, string>, inboxUrl: string) {
-  const relayHost = new URL(inboxUrl).hostname;
-  const exists = await db.findRelayByHost(relayHost);
-  if (exists) throw new Error("既に存在します");
-  const relay = await db.createRelay({ host: relayHost, inboxUrl });
-  const rootDomain = env["ROOT_DOMAIN"];
-  if (rootDomain) {
-    try {
-      const db = createDB({
-        ...env,
-        ACTIVITYPUB_DOMAIN: rootDomain,
-        DB_MODE: "host",
-      });
-      await db.addRelay(relayHost, inboxUrl);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await getSystemKey(db, rootDomain);
-      const actor = `https://${rootDomain}/users/system`;
-      const follow = createFollowActivity(
-        rootDomain,
-        actor,
-        "https://www.w3.org/ns/activitystreams#Public",
-      );
-      await sendActivityPubObject(inboxUrl, follow, "system", rootDomain, env);
-    } catch (err) {
-      console.error("Failed to follow relay:", err);
-    }
-  }
-  console.log(`追加しました: ${relay._id}`);
-}
-
-async function deleteRelay(env: Record<string, string>, id: string) {
-  const relay = await db.deleteRelayById(id);
-  if (!relay) throw new Error("リレーが見つかりません");
-  const rootDomain = env["ROOT_DOMAIN"];
-  if (rootDomain) {
-    try {
-      const relayHost = relay.host ?? new URL(relay.inboxUrl).hostname;
-      const db = createDB({
-        ...env,
-        ACTIVITYPUB_DOMAIN: rootDomain,
-        DB_MODE: "host",
-      });
-      await db.removeRelay(relayHost);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await getSystemKey(db, rootDomain);
-      const actor = `https://${rootDomain}/users/system`;
-      const undo = createUndoFollowActivity(
-        rootDomain,
-        actor,
-        "https://www.w3.org/ns/activitystreams#Public",
-      );
-      await sendActivityPubObject(
-        relay.inboxUrl,
-        undo,
-        "system",
-        rootDomain,
-        env,
-      );
-    } catch (err) {
-      console.error("Failed to undo follow:", err);
-    }
-  }
-  console.log("削除しました");
-}
+// relay 操作は廃止
 
 async function main() {
   const args = parseArgsFn();
@@ -305,17 +196,6 @@ async function main() {
       case "set-pass":
         if (!args.host) throw new Error("--host が必要です");
         await setPassword(user, args.host, args.password);
-        break;
-      case "relay-list":
-        await listRelays();
-        break;
-      case "relay-add":
-        if (!args.inboxUrl) throw new Error("--inbox-url が必要です");
-        await addRelay(env, args.inboxUrl);
-        break;
-      case "relay-delete":
-        if (!args.relayId) throw new Error("--relay-id が必要です");
-        await deleteRelay(env, args.relayId);
         break;
       default:
         console.error("不明なコマンドです");

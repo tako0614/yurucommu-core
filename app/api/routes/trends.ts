@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
+import { getFaspBaseUrl } from "../services/fasp.ts";
 
 interface NoteDoc {
   content?: string;
@@ -13,6 +14,26 @@ app.use("/trends/*", authRequired);
 
 app.get("/trends", async (c) => {
   const env = getEnv(c);
+  const faspBase = await getFaspBaseUrl(env, "trends");
+  if (faspBase) {
+    try {
+      const url =
+        `${faspBase}/trends/v0/hashtags?withinLastHours=24&maxCount=10`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (res.ok) {
+        const data = await res.json() as {
+          hashtags: Array<{ name: string; rank: number }>;
+        };
+        const trends = data.hashtags.map((h) => ({
+          tag: `#${h.name}`,
+          count: h.rank,
+        }));
+        return c.json(trends);
+      }
+    } catch {
+      /* ignore and fallback */
+    }
+  }
   const db = createDB(env);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   // published が過去日時の投稿も集計対象とするため、作成日時で検索する

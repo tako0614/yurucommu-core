@@ -3,6 +3,7 @@ import { createDB } from "../DB/mod.ts";
 import { getDomain, resolveActor } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
+import { getFaspBaseUrl } from "../services/fasp.ts";
 
 interface SearchResult {
   type: "user" | "post" | "video";
@@ -40,7 +41,8 @@ app.get("/search", async (c) => {
   const results: SearchResult[] = [];
 
   if (type === "all" || type === "users") {
-    const db = createDB(getEnv(c));
+    const env = getEnv(c);
+    const db = createDB(env);
     const users = await db.searchAccounts(regex, 20);
     const domain = getDomain(c);
     for (const u of users) {
@@ -53,6 +55,58 @@ app.get("/search", async (c) => {
         actor: `https://${domain}/users/${u.userName}`,
         origin: domain,
       });
+    }
+
+    const faspBase = await getFaspBaseUrl(env, "account_search");
+    if (faspBase) {
+      try {
+        const url = `${faspBase}/account_search/v0/search?term=${
+          encodeURIComponent(q)
+        }&limit=20`;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" },
+        });
+        if (res.ok) {
+          const list = await res.json() as string[];
+          await Promise.all(
+            list.map(async (uri) => {
+              if (results.some((r) => r.actor === uri)) return;
+              try {
+                const aRes = await fetch(uri, {
+                  headers: {
+                    Accept:
+                      'application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+                  },
+                });
+                if (!aRes.ok) return;
+                const actor = await aRes.json();
+                const host = (() => {
+                  try {
+                    return new URL(uri).hostname;
+                  } catch {
+                    return "";
+                  }
+                })();
+                results.push({
+                  type: "user",
+                  id: actor.id ?? uri,
+                  title: actor.name ?? actor.preferredUsername ?? uri,
+                  subtitle: actor.preferredUsername
+                    ? `@${actor.preferredUsername}@${host}`
+                    : uri,
+                  avatar: actor.icon?.url,
+                  actor: actor.id ?? uri,
+                  origin: host,
+                });
+              } catch {
+                /* ignore */
+              }
+            }),
+          );
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
