@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { jsonResponse } from "../utils/activitypub.ts";
+import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
@@ -8,6 +8,7 @@ import type { AccountDoc } from "../../shared/types.ts";
 import { b64ToBuf } from "../../shared/buffer.ts";
 import { isUrl } from "../../shared/url.ts";
 import { saveFile } from "../services/file.ts";
+import { sendAnnouncements } from "../services/fasp.ts";
 
 function formatAccount(doc: AccountDoc) {
   return {
@@ -63,6 +64,7 @@ app.get("/accounts", async (c) => {
 });
 
 app.post("/accounts", async (c) => {
+  const domain = getDomain(c);
   const env = getEnv(c);
   const { username, displayName, icon, privateKey, publicKey } = await c.req
     .json();
@@ -102,6 +104,11 @@ app.post("/accounts", async (c) => {
     following: [],
     dms: [],
   });
+  await sendAnnouncements(env, {
+    category: "account",
+    eventType: "new",
+    objectUris: [`https://${domain}/users/${account.userName}`],
+  }).catch(() => {});
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -118,6 +125,7 @@ app.get("/accounts/:id", async (c) => {
 });
 
 app.put("/accounts/:id", async (c) => {
+  const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
@@ -149,15 +157,28 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  await sendAnnouncements(env, {
+    category: "account",
+    eventType: "update",
+    objectUris: [`https://${domain}/users/${account.userName}`],
+  }).catch(() => {});
   return jsonResponse(c, formatAccount(account));
 });
 
 app.delete("/accounts/:id", async (c) => {
+  const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
+  const account = await db.findAccountById(id);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const deleted = await db.deleteAccountById(id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
+  await sendAnnouncements(env, {
+    category: "account",
+    eventType: "delete",
+    objectUris: [`https://${domain}/users/${account.userName}`],
+  }).catch(() => {});
   return jsonResponse(c, { success: true });
 });
 

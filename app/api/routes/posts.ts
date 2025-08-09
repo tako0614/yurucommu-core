@@ -314,6 +314,14 @@ app.put(
       env,
     );
 
+    // 更新された投稿を FASP へ通知
+    const objectUrl = `https://${domain}/objects/${id}`;
+    await sendAnnouncements(env, {
+      category: "content",
+      eventType: "update",
+      objectUris: [objectUrl],
+    }).catch(() => {});
+
     return c.json(
       formatUserInfoForPost(
         userInfo,
@@ -394,6 +402,13 @@ app.post(
           env,
         );
       }
+
+      // いいね数の更新を FASP へ通知
+      await sendAnnouncements(env, {
+        category: "content",
+        eventType: "update",
+        objectUris: [`https://${domain}/objects/${id}`],
+      }).catch(() => {});
     }
 
     return c.json({
@@ -472,6 +487,13 @@ app.post(
           env,
         );
       }
+
+      // リツイート数の更新を FASP へ通知
+      await sendAnnouncements(env, {
+        category: "content",
+        eventType: "update",
+        objectUris: [`https://${domain}/objects/${id}`],
+      }).catch(() => {});
     }
 
     return c.json({
@@ -481,11 +503,20 @@ app.post(
 );
 
 app.delete("/posts/:id", async (c) => {
+  const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
   const deleted = await db.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
+
+  // 削除された投稿を FASP へ通知
+  await sendAnnouncements(env, {
+    category: "content",
+    eventType: "delete",
+    objectUris: [`https://${domain}/objects/${id}`],
+  }).catch(() => {});
+
   return c.json({ success: true });
 });
 
