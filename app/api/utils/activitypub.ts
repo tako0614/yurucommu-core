@@ -238,22 +238,47 @@ function parseSignatureHeader(header: string): Record<string, string> {
   return params;
 }
 
-/** リクエストから署名情報を抽出 */
-export function parseSignature(req: Request): Record<string, string> | null {
-  const signatureHeader = req.headers.get("signature");
-  if (signatureHeader && !req.headers.get("signature-input")) {
-    return parseSignatureHeader(signatureHeader);
+interface ParsedSignature {
+  headers: string[];
+  signature: string;
+  keyId: string;
+  style: "rfc9421" | "cavage";
+  params?: string;
+}
+
+/** リクエスト/レスポンスから署名情報を抽出 */
+export function parseSignature(
+  msg: Request | Response,
+): ParsedSignature | null {
+  const signatureHeader = msg.headers.get("signature");
+  if (signatureHeader && !msg.headers.get("signature-input")) {
+    const parsed = parseSignatureHeader(signatureHeader);
+    if (!parsed.headers || !parsed.signature || !parsed.keyId) return null;
+    return {
+      headers: parsed.headers.split(" "),
+      signature: parsed.signature,
+      keyId: parsed.keyId,
+      style: "cavage",
+    };
   }
-  const sigInput = req.headers.get("signature-input");
-  const sig = req.headers.get("signature");
+  const sigInput = msg.headers.get("signature-input");
+  const sig = msg.headers.get("signature");
   if (!sigInput || !sig) return null;
-  const match = sigInput.match(/([^=]+)="([^"]+)".*keyid="([^"]+)"/);
-  if (!match) return null;
-  const label = match[1];
+  const m = sigInput.match(/([^=]+)=\(([^)]+)\)(.*)/);
+  if (!m) return null;
+  const label = m[1];
+  const fields = m[2].split(/\s+/).map((s) => s.replace(/"/g, ""));
+  const rest = m[3];
+  const keyIdMatch = rest.match(/keyid="([^"]+)"/);
+  if (!keyIdMatch) return null;
+  const sigMatch = sig.match(new RegExp(`${label}=:(.+):`));
+  if (!sigMatch) return null;
   return {
-    headers: match[2],
-    signature: sig.match(new RegExp(label + "=:(.+):"))?.[1] ?? "",
-    keyId: match[3],
+    headers: fields,
+    signature: sigMatch[1],
+    keyId: keyIdMatch[1],
+    style: "rfc9421",
+    params: `(${m[2]})${rest}`,
   };
 }
 
@@ -273,19 +298,19 @@ export async function fetchPublicKeyPem(url: string): Promise<string | null> {
 
 /** Digest ヘッダを検証 */
 export async function verifyDigest(
-  req: Request,
+  msg: Request | Response,
   body: string,
 ): Promise<boolean> {
   const encoder = new TextEncoder();
   const hash = await crypto.subtle.digest("SHA-256", encoder.encode(body));
   const expectedB64 = bufToB64(hash);
 
-  const legacy = req.headers.get("digest");
+  const legacy = msg.headers.get("digest");
   if (legacy) {
     if (legacy === `SHA-256=${expectedB64}`) return true;
   }
 
-  const sf = req.headers.get("content-digest");
+  const sf = msg.headers.get("content-digest");
   if (sf) {
     const m = sf.match(/sha-256=:(.+):/i);
     if (m && m[1] === expectedB64) return true;
@@ -295,45 +320,82 @@ export async function verifyDigest(
 
 /** 署名対象文字列を生成 */
 export function buildSigningString(
-  req: Request,
+  msg: Request | Response,
   body: string,
   headers: string[],
+  style: "rfc9421" | "cavage",
+  params?: string,
 ): string | null {
-  const url = new URL(req.url);
   const lines: string[] = [];
+  if (style === "cavage") {
+    const url = new URL((msg as Request).url);
+    for (const h of headers) {
+      let value: string | null = null;
+      if (h === "(request-target)") {
+        value = `${
+          (msg as Request).method.toLowerCase()
+        } ${url.pathname}${url.search}`;
+      } else if (h === "host") {
+        value = msg.headers.get("x-forwarded-host") ?? msg.headers.get("host");
+      } else if (h === "content-length") {
+        const encoder = new TextEncoder();
+        value = encoder.encode(body).length.toString();
+      } else {
+        value = msg.headers.get(h);
+      }
+      if (value === null) return null;
+      lines.push(`${h}: ${value}`);
+    }
+    return lines.join("\n");
+  }
   for (const h of headers) {
-    let value: string | null = null;
-    if (h === "(request-target)") {
-      value = `${req.method.toLowerCase()} ${url.pathname}${url.search}`;
-    } else if (h === "host") {
-      value = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    if (h === "@method") {
+      if (!(msg instanceof Request)) return null;
+      lines.push(`"@method": ${msg.method.toLowerCase()}`);
+    } else if (h === "@target-uri") {
+      if (!(msg instanceof Request)) return null;
+      lines.push(`"@target-uri": ${msg.url}`);
+    } else if (h === "@status") {
+      if (!(msg instanceof Response)) return null;
+      lines.push(`"@status": ${msg.status}`);
+    } else if (h === "content-digest") {
+      const v = msg.headers.get("content-digest");
+      if (v === null) return null;
+      lines.push(`"content-digest": ${v}`);
     } else if (h === "content-length") {
       const encoder = new TextEncoder();
-      value = encoder.encode(body).length.toString();
+      lines.push(`"content-length": ${encoder.encode(body).length}`);
     } else {
-      value = req.headers.get(h);
+      const v = msg.headers.get(h);
+      if (v === null) return null;
+      lines.push(`${h}: ${v}`);
     }
-    if (value === null) return null;
-    lines.push(`${h}: ${value}`);
   }
+  if (!params) return null;
+  lines.push(`"@signature-params": ${params}`);
   return lines.join("\n");
 }
 
 export async function verifyHttpSignature(
-  req: Request,
+  msg: Request | Response,
   body: string,
 ): Promise<boolean> {
   try {
-    const params = parseSignature(req);
+    const params = parseSignature(msg);
     if (!params) return false;
 
     const publicKeyPem = await fetchPublicKeyPem(params.keyId);
     if (!publicKeyPem) return false;
 
-    if (!await verifyDigest(req, body)) return false;
+    if (!await verifyDigest(msg, body)) return false;
 
-    const headersList = params.headers.split(" ");
-    const signingString = buildSigningString(req, body, headersList);
+    const signingString = buildSigningString(
+      msg,
+      body,
+      params.headers,
+      params.style,
+      params.params,
+    );
     if (!signingString) return false;
 
     // 公開鍵の正規化（すでにPEM形式の場合はそのまま使用）
