@@ -170,6 +170,26 @@ export async function sendAnnouncements(
   );
 }
 
+const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
+
+// 公開かつ discoverable なオブジェクトのみ FASP へ通知する
+export async function announceIfPublicAndDiscoverable(
+  env: Record<string, string>,
+  ann: FaspAnnouncement,
+  obj: Record<string, unknown> | null,
+): Promise<void> {
+  if (!obj) return;
+  const extra = obj.extra;
+  const discoverable = (obj as { discoverable?: unknown }).discoverable ??
+    (typeof extra === "object" && extra !== null
+      ? (extra as { discoverable?: unknown }).discoverable
+      : undefined);
+  if (discoverable === false) return;
+  const to = (obj as { aud?: { to?: unknown } }).aud?.to;
+  if (Array.isArray(to) && !to.includes(PUBLIC_AUDIENCE)) return;
+  await sendAnnouncements(env, ann).catch(() => {});
+}
+
 export async function getFaspBaseUrl(
   env: Record<string, string>,
   capability: string,
