@@ -60,17 +60,24 @@ app.get("/search", async (c) => {
     const faspBase = await getFaspBaseUrl(env, "account_search");
     if (faspBase) {
       try {
-        const url = `${faspBase}/account_search/v0/search?term=${
+        const perPage = 20;
+        const maxTotal = 100;
+        const seen = new Set(
+          results.map((r) => r.actor).filter((a): a is string => Boolean(a)),
+        );
+        let nextUrl = `${faspBase}/account_search/v0/search?term=${
           encodeURIComponent(q)
-        }&limit=20`;
-        const res = await fetch(url, {
-          headers: { Accept: "application/json" },
-        });
-        if (res.ok) {
+        }&limit=${perPage}`;
+        while (nextUrl && seen.size < maxTotal) {
+          const res = await fetch(nextUrl, {
+            headers: { Accept: "application/json" },
+          });
+          if (!res.ok) break;
           const list = await res.json() as string[];
           await Promise.all(
             list.map(async (uri) => {
-              if (results.some((r) => r.actor === uri)) return;
+              if (seen.has(uri)) return;
+              seen.add(uri);
               try {
                 const aRes = await fetch(uri, {
                   headers: {
@@ -103,6 +110,23 @@ app.get("/search", async (c) => {
               }
             }),
           );
+          if (seen.size >= maxTotal) break;
+          const link = res.headers.get("Link");
+          let next: string | undefined;
+          if (link) {
+            for (const part of link.split(",")) {
+              const m = part.match(/<([^>]+)>;\s*rel="next"/);
+              if (m) {
+                try {
+                  next = new URL(m[1], nextUrl).toString();
+                } catch {
+                  next = m[1];
+                }
+                break;
+              }
+            }
+          }
+          nextUrl = next;
         }
       } catch {
         /* ignore */
