@@ -5,7 +5,7 @@ import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getSystemKey } from "../services/system_actor.ts";
-import { notifyCapabilityActivation } from "../services/fasp.ts";
+import { faspFetch, notifyCapabilityActivation } from "../services/fasp.ts";
 import { verifyDigest, verifyHttpSignature } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 
@@ -289,7 +289,13 @@ app.put(
       // FASP に有効化/無効化を通知
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
-          notifyCapabilityActivation(baseUrl, id, info.version, info.enabled)
+          notifyCapabilityActivation(
+            env,
+            baseUrl,
+            id,
+            info.version,
+            info.enabled,
+          )
         ),
       );
     }
@@ -308,9 +314,7 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
-    const res = await fetch(`${baseUrl}/provider_info`, {
-      headers: { Accept: "application/json" },
-    });
+    const res = await faspFetch(env, `${baseUrl}/provider_info`);
     const text = await res.text();
     return c.body(text, res.status, Object.fromEntries(res.headers));
   } catch (e) {
