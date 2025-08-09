@@ -3,12 +3,63 @@ import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/DB/mod.ts";
 import {
   createAcceptActivity,
+  createAnnounceActivity,
   fetchActorInbox,
   jsonResponse,
-  verifyHttpSignature,
-  verifyDigest,
   signAndPostAsActor,
+  verifyDigest,
+  verifyHttpSignature,
 } from "../api/utils/activitypub.ts";
+
+interface QueueItem {
+  inbox: string;
+  body: string;
+  env: Record<string, string>;
+}
+
+const followers = new Set<string>();
+const queue: QueueItem[] = [];
+let delivering = false;
+
+async function deliverQueue() {
+  if (delivering) return;
+  delivering = true;
+  while (queue.length > 0) {
+    const { inbox, body, env } = queue.shift()!;
+    const domain = env["ACTIVITYPUB_DOMAIN"];
+    const actorId = `https://${domain}/actor`;
+    try {
+      const db = createDB(env);
+      const { privateKey } = await getSystemKey(db, domain);
+      await signAndPostAsActor(inbox, body, actorId, privateKey);
+    } catch {
+      // ignore
+    }
+    const interval = Number(env["SERVICE_DELIVER_MIN_INTERVAL_MS"] || "200");
+    if (interval > 0) {
+      await new Promise((r) => setTimeout(r, interval));
+    }
+  }
+  delivering = false;
+}
+
+function enqueue(env: Record<string, string>, inbox: string, body: string) {
+  queue.push({ env, inbox, body });
+  deliverQueue();
+}
+
+export function announceToFollowers(
+  env: Record<string, string>,
+  objectUrl: string,
+) {
+  const domain = env["ACTIVITYPUB_DOMAIN"];
+  const actorId = `https://${domain}/actor`;
+  const announce = createAnnounceActivity(domain, actorId, objectUrl);
+  const body = JSON.stringify(announce);
+  for (const inbox of followers) {
+    enqueue(env, inbox, body);
+  }
+}
 
 /**
  * takos host 用 Service Actor を提供する最小実装
@@ -69,20 +120,20 @@ export function createServiceActorApp(env: Record<string, string>) {
     if (!okDigest || !okSig) {
       return jsonResponse(c, { error: "Invalid signature" }, 401);
     }
-    let activity: any;
+    let activity: Record<string, unknown>;
     try {
       activity = JSON.parse(bodyText);
     } catch {
       return jsonResponse(c, { error: "Bad JSON" }, 400);
     }
-    // Follow を受け付け、Accept を返信
+    // Follow を受け付け、フォロワーの inbox を保存し Accept を返信
     if (activity?.type === "Follow" && activity?.object === actorId) {
       const actor: string = activity.actor;
       try {
         const inbox = await fetchActorInbox(actor, env);
         if (inbox) {
+          followers.add(inbox);
           const accept = createAcceptActivity(domain, actorId, activity);
-          // Accept を Service Actor (actorId) の鍵で署名して送信
           const db = createDB(env);
           const { privateKey } = await getSystemKey(db, domain);
           await signAndPostAsActor(
@@ -95,7 +146,32 @@ export function createServiceActorApp(env: Record<string, string>) {
       } catch (_e) {
         // ignore
       }
-      return jsonResponse(c, { status: "accepted" }, 202, "application/activity+json");
+      return jsonResponse(
+        c,
+        { status: "accepted" },
+        202,
+        "application/activity+json",
+      );
+    }
+    // Undo(Follow) でフォロワーの inbox を削除
+    if (
+      activity?.type === "Undo" &&
+      activity?.object?.type === "Follow" &&
+      activity?.object?.object === actorId
+    ) {
+      const actor: string = activity.object.actor;
+      try {
+        const inbox = await fetchActorInbox(actor, env);
+        if (inbox) followers.delete(inbox);
+      } catch {
+        /* ignore */
+      }
+      return jsonResponse(
+        c,
+        { status: "accepted" },
+        202,
+        "application/activity+json",
+      );
     }
     return jsonResponse(c, { status: "ok" }, 202, "application/activity+json");
   });
