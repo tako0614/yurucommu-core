@@ -500,23 +500,6 @@ paths:
       responses:
         "200":
           description: ユーザー情報の配列
-  /api/relays:
-    get:
-      summary: リレー一覧
-      responses:
-        "200":
-          description: リレーの配列
-    post:
-      summary: リレー追加
-      responses:
-        "201":
-          description: 追加されたリレー
-  /api/relays/{id}:
-    delete:
-      summary: リレー削除
-      responses:
-        "200":
-          description: 成功
   /api/ogp:
     get:
       summary: OGP情報取得

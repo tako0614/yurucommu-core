@@ -178,12 +178,7 @@ export async function deliverActivityPubObject(
   domain: string,
   env: Record<string, string> = {},
 ): Promise<void> {
-  const db = createDB(env);
-  const relayHosts = await db.listRelays();
-  const relayTargets = relayHosts.map((h: string) => `https://${h}/inbox`);
-  const allTargets = [...targets, ...relayTargets];
-
-  const deliveryPromises = allTargets.map(async (addr) => {
+  const deliveryPromises = targets.map(async (addr) => {
     let iri = addr;
     // acct:username@domain または username@domain 形式を解決
     if (!iri.startsWith("http")) {

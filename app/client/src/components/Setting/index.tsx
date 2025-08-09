@@ -4,7 +4,6 @@ import {
   microblogPostLimitState,
 } from "../../states/settings.ts";
 import { encryptionKeyState, loginState } from "../../states/session.ts";
-import RelaySettings from "./RelaySettings.tsx";
 import { apiFetch } from "../../utils/config.ts";
 import { accounts as accountsAtom } from "../../states/account.ts";
 import { deleteMLSDatabase } from "../e2ee/storage.ts";
@@ -62,7 +61,6 @@ export function Setting(props: SettingProps) {
           <option value="100">100件</option>
         </select>
       </div>
-      <RelaySettings />
       <div class="flex justify-end space-x-2">
         <button
           type="button"

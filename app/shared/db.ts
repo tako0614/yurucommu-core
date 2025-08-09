@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
-import type { AccountDoc, RelayDoc, SessionDoc } from "./types.ts";
+import type { AccountDoc, SessionDoc } from "./types.ts";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -104,9 +104,6 @@ export interface DB {
   deleteManyObjects(
     filter: Record<string, unknown>,
   ): Promise<{ deletedCount?: number }>;
-  listRelays(): Promise<string[]>;
-  addRelay(relay: string, inboxUrl?: string): Promise<void>;
-  removeRelay(relay: string): Promise<void>;
   addFollowerByName(username: string, follower: string): Promise<void>;
   removeFollowerByName(username: string, follower: string): Promise<void>;
   searchAccounts(query: RegExp, limit?: number): Promise<AccountDoc[]>;
@@ -175,10 +172,6 @@ export interface DB {
   unregisterFcmToken(token: string): Promise<void>;
   listFcmTokens(): Promise<{ token: string }[]>;
   ensureTenant(id: string, domain: string): Promise<void>;
-  findRelaysByHosts(hosts: string[]): Promise<RelayDoc[]>;
-  findRelayByHost(host: string): Promise<RelayDoc | null>;
-  createRelay(data: { host: string; inboxUrl: string }): Promise<RelayDoc>;
-  deleteRelayById(id: string): Promise<RelayDoc | null>;
   /** インスタンス一覧取得 */
   listInstances(owner: string): Promise<{ host: string }[]>;
   /** インスタンス数取得 */
