@@ -5,6 +5,7 @@ import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getSystemKey } from "../services/system_actor.ts";
+import { notifyCapabilityActivation } from "../services/fasp.ts";
 import { verifyDigest, verifyHttpSignature } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 
@@ -14,6 +15,7 @@ const app = new Hono();
 // 管理系は通常の /api 配下に集約（要ログイン）
 app.use("/api/fasp/*", authRequired);
 
+// deno-lint-ignore no-explicit-any
 async function requireSignedJson(c: any): Promise<{ ok: boolean; body?: any }> {
   const bodyText = await c.req.text();
   const hasDigest = !!(
@@ -39,7 +41,9 @@ app.post("/fasp/registration", async (c) => {
   const domain = getDomain(c);
   const db = createDB(env);
   const signed = await requireSignedJson(c);
-  if (!signed.ok) return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  if (!signed.ok) {
+    return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  }
   const body = signed.body as {
     name?: string;
     baseUrl?: string;
@@ -84,7 +88,9 @@ app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const signed = await requireSignedJson(c);
-  if (!signed.ok) return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  if (!signed.ok) {
+    return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  }
   const payload = signed.body as Record<string, unknown>;
   const mongo = await db.getDatabase();
   const col = mongo.collection("fasp_event_subscriptions");
@@ -109,27 +115,41 @@ app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const signed = await requireSignedJson(c);
-  if (!signed.ok) return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  if (!signed.ok) {
+    return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  }
   const payload = signed.body as Record<string, unknown>;
   const mongo = await db.getDatabase();
   const col = mongo.collection("fasp_backfills");
   const id = crypto.randomUUID();
-  await col.insertOne({ _id: id, payload, status: "pending", createdAt: new Date() });
+  await col.insertOne({
+    _id: id,
+    payload,
+    status: "pending",
+    createdAt: new Date(),
+  });
   return c.json({ id }, 201);
 });
 
 // data_sharing v0.1: backfill 継続通知
-app.post("/fasp/data_sharing/v0/backfill_requests/:id/continuation", async (c) => {
-  const env = getEnv(c);
-  const db = createDB(env);
-  const id = c.req.param("id");
-  const signed = await requireSignedJson(c);
-  if (!signed.ok) return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
-  const mongo = await db.getDatabase();
-  const col = mongo.collection("fasp_backfills");
-  await col.updateOne({ _id: id }, { $set: { continuedAt: new Date() } });
-  return c.body(null, 204);
-});
+app.post(
+  "/fasp/data_sharing/v0/backfill_requests/:id/continuation",
+  async (c) => {
+    const env = getEnv(c);
+    const db = createDB(env);
+    const id = c.req.param("id");
+    const signed = await requireSignedJson(c);
+    if (!signed.ok) {
+      return c.json({
+        error: "署名/ダイジェスト検証に失敗しました",
+      }, 401);
+    }
+    const mongo = await db.getDatabase();
+    const col = mongo.collection("fasp_backfills");
+    await col.updateOne({ _id: id }, { $set: { continuedAt: new Date() } });
+    return c.body(null, 204);
+  },
+);
 
 export default app;
 
@@ -156,7 +176,9 @@ app.post("/api/fasp/announcements", async (c) => {
       Accept: "application/json",
       "Content-Digest": `sha-256=:${b64}:`,
     });
-    const url = `${faspBaseUrl.replace(/\/$/, "")}/data_sharing/v0/announcements`;
+    const url = `${
+      faspBaseUrl.replace(/\/$/, "")
+    }/data_sharing/v0/announcements`;
     const res = await fetch(url, { method: "POST", headers, body });
     const text = await res.text();
     return c.body(text, res.status, Object.fromEntries(res.headers));
@@ -242,7 +264,11 @@ app.put(
   "/api/fasp/providers/:serverId/capabilities",
   zValidator(
     "json",
-    z.object({ capabilities: z.record(z.object({ version: z.string(), enabled: z.boolean() })) }),
+    z.object({
+      capabilities: z.record(
+        z.object({ version: z.string(), enabled: z.boolean() }),
+      ),
+    }),
   ),
   async (c) => {
     const env = getEnv(c);
@@ -258,6 +284,15 @@ app.put(
       { returnDocument: "after" },
     );
     if (!res) return c.json({ error: "not found" }, 404);
+    const baseUrl = (res.baseUrl ?? "").replace(/\/$/, "");
+    if (baseUrl) {
+      // FASP に有効化/無効化を通知
+      await Promise.all(
+        Object.entries(capabilities).map(([id, info]) =>
+          notifyCapabilityActivation(baseUrl, id, info.version, info.enabled)
+        ),
+      );
+    }
     return c.json({ ok: true });
   },
 );
@@ -270,10 +305,12 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const mongo = await db.getDatabase();
   const rec = await mongo.collection("fasps").findOne({ serverId });
   if (!rec) return c.json({ error: "not found" }, 404);
-  const baseUrl = (rec.baseUrl ?? '').replace(/\/$/, "");
+  const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
-    const res = await fetch(`${baseUrl}/provider_info`, { headers: { Accept: "application/json" } });
+    const res = await fetch(`${baseUrl}/provider_info`, {
+      headers: { Accept: "application/json" },
+    });
     const text = await res.text();
     return c.body(text, res.status, Object.fromEntries(res.headers));
   } catch (e) {
