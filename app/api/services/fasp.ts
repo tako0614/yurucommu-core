@@ -2,8 +2,8 @@
 import { createDB } from "../DB/mod.ts";
 import { getSystemKey } from "./system_actor.ts";
 import { pemToArrayBuffer } from "../../shared/crypto.ts";
-import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
-import { ensurePem, fetchPublicKeyPem } from "../utils/activitypub.ts";
+import { bufToB64 } from "../../shared/buffer.ts";
+import { ensurePem, verifyHttpSignature } from "../utils/activitypub.ts";
 
 export const faspMetrics = {
   rateLimitHits: 0,
@@ -125,11 +125,10 @@ async function faspFetch(
       continue;
     }
     const resBody = await res.text();
-    try {
-      await verifyFaspResponse(res, resBody);
-    } catch (e) {
+    const ok = await verifyHttpSignature(res, resBody);
+    if (!ok) {
       faspMetrics.signatureFailures++;
-      throw e;
+      throw new Error("署名検証に失敗しました");
     }
     return new Response(resBody, {
       status: res.status,
@@ -138,64 +137,6 @@ async function faspFetch(
     });
   }
   throw new Error("faspFetch: 最大リトライ回数を超えました");
-}
-
-async function verifyFaspResponse(res: Response, body: string): Promise<void> {
-  const digest = res.headers.get("Content-Digest");
-  if (!digest) throw new Error("Content-Digest ヘッダーがありません");
-  const expected = await computeContentDigest(body);
-  if (digest !== expected) throw new Error("Content-Digest 検証に失敗しました");
-  const sigInput = res.headers.get("Signature-Input");
-  const sig = res.headers.get("Signature");
-  if (!sigInput || !sig) {
-    throw new Error("署名ヘッダーが不足しています");
-  }
-  const m = sigInput.match(
-    /([^=]+)=\(([^)]+)\);created=(\d+);keyid="([^"]+)";alg="([^"]+)"/,
-  );
-  if (!m) throw new Error("Signature-Input の解析に失敗しました");
-  const label = m[1];
-  const fields = m[2].split(/\s+/).map((s) => s.replace(/"/g, ""));
-  const created = Number(m[3]);
-  const keyId = m[4];
-  const alg = m[5];
-  if (alg !== "ed25519") throw new Error("未対応の署名アルゴリズムです");
-  const sigMatch = sig.match(new RegExp(`${label}=:(.+):`));
-  if (!sigMatch) throw new Error("Signature の解析に失敗しました");
-  const signature = sigMatch[1];
-  const lines = fields.map((f) => {
-    if (f === "@status") return `"@status": ${res.status}`;
-    if (f === "content-digest") return `"content-digest": ${digest}`;
-    const hv = res.headers.get(f);
-    if (hv === null) throw new Error(`署名対象ヘッダーが見つかりません: ${f}`);
-    return `${f}: ${hv}`;
-  });
-  const params = `(${
-    fields.map((f) => `"${f}"`).join(" ")
-  });created=${created};keyid="${keyId}";alg="${alg}"`;
-  lines.push(`"@signature-params": ${params}`);
-  const signing = lines.join("\n");
-  const publicKeyPem = await fetchPublicKeyPem(keyId);
-  if (!publicKeyPem) throw new Error("公開鍵取得に失敗しました");
-  const keyData = pemToArrayBuffer(
-    publicKeyPem.includes("BEGIN PUBLIC KEY")
-      ? publicKeyPem
-      : ensurePem(publicKeyPem, "PUBLIC KEY"),
-  );
-  const cryptoKey = await crypto.subtle.importKey(
-    "spki",
-    keyData,
-    { name: "Ed25519" },
-    false,
-    ["verify"],
-  );
-  const ok = await crypto.subtle.verify(
-    "Ed25519",
-    cryptoKey,
-    b64ToBuf(signature),
-    new TextEncoder().encode(signing),
-  );
-  if (!ok) throw new Error("署名検証に失敗しました");
 }
 
 export async function sendAnnouncements(
