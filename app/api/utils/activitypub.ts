@@ -68,12 +68,12 @@ async function applySignature(
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    { name: "Ed25519" },
     false,
     ["sign"],
   );
   const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
+    "Ed25519",
     cryptoKey,
     encoder.encode(signingString),
   );
@@ -82,7 +82,7 @@ async function applySignature(
   if (style === "cavage" || style === "both") {
     headers.set(
       "Signature",
-      `keyId="${keyId}",algorithm="rsa-sha256",headers="${
+      `keyId="${keyId}",algorithm="ed25519",headers="${
         headersToSign.join(" ")
       }",signature="${signatureB64}"`,
     );
@@ -95,9 +95,7 @@ async function applySignature(
     }
     headers.set(
       "Signature-Input",
-      `sig1="${
-        headersToSign.join(" ")
-      }";keyid="${keyId}";alg="rsa-v1_5-sha256"`,
+      `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="ed25519"`,
     );
   }
 }
@@ -349,7 +347,7 @@ export async function verifyHttpSignature(
     const key = await crypto.subtle.importKey(
       "spki",
       keyData,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      { name: "Ed25519" },
       false,
       ["verify"],
     );
@@ -358,7 +356,7 @@ export async function verifyHttpSignature(
     const signingStringBytes = encoder.encode(signingString);
 
     const verified = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5",
+      "Ed25519",
       key,
       signatureBytes,
       signingStringBytes,

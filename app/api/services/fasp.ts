@@ -47,7 +47,7 @@ async function faspFetch(
   const keyId = `https://${domain}/actor#main-key`;
   const created = Math.floor(Date.now() / 1000);
   const sigParams =
-    `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="rsa-v1_5-sha256"`;
+    `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
   const signingString = [
     `"@method": ${method.toLowerCase()}`,
     `"@target-uri": ${url}`,
@@ -59,12 +59,12 @@ async function faspFetch(
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    { name: "Ed25519" },
     false,
     ["sign"],
   );
   const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
+    "Ed25519",
     cryptoKey,
     new TextEncoder().encode(signingString),
   );
@@ -103,6 +103,7 @@ async function verifyFaspResponse(res: Response, body: string): Promise<void> {
   const created = Number(m[3]);
   const keyId = m[4];
   const alg = m[5];
+  if (alg !== "ed25519") throw new Error("未対応の署名アルゴリズムです");
   const sigMatch = sig.match(new RegExp(`${label}=:(.+):`));
   if (!sigMatch) throw new Error("Signature の解析に失敗しました");
   const signature = sigMatch[1];
@@ -128,12 +129,12 @@ async function verifyFaspResponse(res: Response, body: string): Promise<void> {
   const cryptoKey = await crypto.subtle.importKey(
     "spki",
     keyData,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    { name: "Ed25519" },
     false,
     ["verify"],
   );
   const ok = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
+    "Ed25519",
     cryptoKey,
     b64ToBuf(signature),
     new TextEncoder().encode(signing),
