@@ -3,7 +3,7 @@ import { createDB } from "../DB/mod.ts";
 import { getDomain, resolveActor } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
-import { getFaspBaseUrl } from "../services/fasp.ts";
+import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
 
 interface SearchResult {
   type: "user" | "post" | "video";
@@ -69,9 +69,7 @@ app.get("/search", async (c) => {
           encodeURIComponent(q)
         }&limit=${perPage}`;
         while (nextUrl && seen.size < maxTotal) {
-          const res = await fetch(nextUrl, {
-            headers: { Accept: "application/json" },
-          });
+          const res = await faspFetch(env, nextUrl);
           if (!res.ok) break;
           const list = await res.json() as string[];
           await Promise.all(

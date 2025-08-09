@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
-import { getFaspBaseUrl } from "../services/fasp.ts";
+import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
 
 interface NoteDoc {
   content?: string;
@@ -25,7 +25,7 @@ app.get("/trends", async (c) => {
       params.set("withinLastHours", String(withinLastHours));
       params.set("maxCount", String(maxCount));
       const url = `${faspBase}/trends/v0/${type}?${params.toString()}`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const res = await faspFetch(env, url);
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>;
         let trends;
