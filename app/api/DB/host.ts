@@ -662,8 +662,12 @@ export class MongoDBHost implements DB {
 
   async listKeyPackages(userName: string) {
     const tenantId = this.tenantId;
-    console.log("listKeyPackages", userName, tenantId);
-    return await HostKeyPackage.find({ userName, tenant_id: tenantId }).lean();
+    await this.cleanupKeyPackages(userName);
+    return await HostKeyPackage.find({
+      userName,
+      tenant_id: tenantId,
+      used: false,
+    }).lean();
   }
 
   async findKeyPackage(userName: string, id: string) {
@@ -681,12 +685,16 @@ export class MongoDBHost implements DB {
     content: string,
     mediaType = "message/mls",
     encoding = "base64",
+    groupInfo?: string,
+    expiresAt?: Date,
   ) {
     const doc = new HostKeyPackage({
       userName,
       content,
       mediaType,
       encoding,
+      groupInfo,
+      expiresAt,
       tenant_id: this.tenantId,
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
@@ -695,6 +703,27 @@ export class MongoDBHost implements DB {
       };
     await doc.save();
     return doc.toObject();
+  }
+
+  async markKeyPackageUsed(userName: string, id: string) {
+    await HostKeyPackage.updateOne({
+      _id: id,
+      userName,
+      tenant_id: this.tenantId,
+    }, {
+      used: true,
+    });
+  }
+
+  async cleanupKeyPackages(userName: string) {
+    await HostKeyPackage.deleteMany({
+      userName,
+      tenant_id: this.tenantId,
+      $or: [
+        { used: true },
+        { expiresAt: { $lt: new Date() } },
+      ],
+    });
   }
 
   async deleteKeyPackage(userName: string, id: string) {

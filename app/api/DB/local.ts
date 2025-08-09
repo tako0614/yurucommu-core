@@ -563,7 +563,12 @@ export class MongoDBLocal implements DB {
 
   async listKeyPackages(userName: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    return await KeyPackage.find({ userName, tenant_id: tenantId }).lean();
+    await this.cleanupKeyPackages(userName);
+    return await KeyPackage.find({
+      userName,
+      tenant_id: tenantId,
+      used: false,
+    }).lean();
   }
 
   async findKeyPackage(userName: string, id: string) {
@@ -577,12 +582,16 @@ export class MongoDBLocal implements DB {
     content: string,
     mediaType = "message/mls",
     encoding = "base64",
+    groupInfo?: string,
+    expiresAt?: Date,
   ) {
     const doc = new KeyPackage({
       userName,
       content,
       mediaType,
       encoding,
+      groupInfo,
+      expiresAt,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
@@ -591,6 +600,25 @@ export class MongoDBLocal implements DB {
       };
     await doc.save();
     return doc.toObject();
+  }
+
+  async markKeyPackageUsed(userName: string, id: string) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.updateOne({ _id: id, userName, tenant_id: tenantId }, {
+      used: true,
+    });
+  }
+
+  async cleanupKeyPackages(userName: string) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.deleteMany({
+      userName,
+      tenant_id: tenantId,
+      $or: [
+        { used: true },
+        { expiresAt: { $lt: new Date() } },
+      ],
+    });
   }
 
   async deleteKeyPackage(userName: string, id: string) {

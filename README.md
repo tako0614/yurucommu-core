@@ -191,7 +191,8 @@ WebSocket では Base64 文字列を、HTTP POST では multipart/form-data の
 アカウント管理機能は `/api/accounts/*` で提供されます。
 
 - `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
-- `POST /api/users/:user/keyPackages` – KeyPackage 登録
+- `POST /api/users/:user/keyPackages` – KeyPackage 登録（GroupInfo
+  や有効期限を付与可能）
 - `GET /api/users/:user/keyPackages/:keyId` – KeyPackage 取得
 - `DELETE /api/users/:user/keyPackages/:keyId` – KeyPackage 削除
 - `GET /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア取得
