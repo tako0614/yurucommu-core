@@ -13,6 +13,14 @@ const accountSchema = new mongoose.Schema({
       {
         id: String,
         name: String,
+        icon: { type: String, default: "" },
+        userSet: {
+          type: {
+            name: { type: Boolean, default: false },
+            icon: { type: Boolean, default: false },
+          },
+          default: { name: false, icon: false },
+        },
         members: [String],
       },
     ],

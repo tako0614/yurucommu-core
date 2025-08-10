@@ -30,4 +30,6 @@ export interface Room {
   avatar?: string;
   type: "group" | "memo";
   members: ActorID[];
+  hasName?: boolean;
+  hasIcon?: boolean;
 }

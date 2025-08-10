@@ -10,7 +10,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import { fetchUserInfo } from "./microblog/api.ts";
+import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
   addRoom,
@@ -19,11 +19,11 @@ import {
   fetchEncryptedMessages,
   fetchKeepMessages,
   fetchKeyPackages,
-  fetchRoomList,
   fetchWelcome,
   removeRoom as deleteRoom,
   removeRoomMember,
   saveEncryptedKeyPair,
+  searchRooms,
   sendCommit,
   sendEncryptedMessage,
   sendKeepMessage,
@@ -451,8 +451,9 @@ export function Chat(props: ChatProps) {
   );
   const [showGroupDialog, setShowGroupDialog] = createSignal(false);
   const [groupDialogMode, setGroupDialogMode] = createSignal<
-    "create" | "invite"
+    "create" | "invite" | "dm"
   >("create");
+  const [segment, setSegment] = createSignal<"all" | "people" | "groups">("all");
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -914,27 +915,67 @@ export function Chat(props: ChatProps) {
         lastMessageTime: undefined,
       },
     ];
-    const roomList = await fetchRoomList(user.id);
-    roomList.forEach((g) => {
+    const list = await searchRooms(user.id);
+    for (const r of list) {
       rooms.push({
-        id: g.id,
-        name: g.name,
+        id: r.id,
+        name: r.name ?? "",
         userName: user.userName,
         domain: getDomain(),
-        avatar: g.name.charAt(0).toUpperCase(),
+        avatar: r.icon ?? (r.name ? r.name.charAt(0).toUpperCase() : "👥"),
         unreadCount: 0,
         type: "group",
-        members: g.members,
+        members: r.members,
+        hasName: r.hasName,
+        hasIcon: r.hasIcon,
         lastMessage: "...",
         lastMessageTime: undefined,
       });
-    });
+    }
+
+    await applyDisplayFallback(rooms);
 
     const unique = rooms.filter(
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
     setChatRooms(unique);
     // メッセージの取得は選択時に実行する
+  };
+
+  const applyDisplayFallback = async (rooms: Room[]) => {
+    const user = account();
+    if (!user) return;
+    const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
+    const twoNoName = rooms.filter((r) => r.type !== "memo" && ((r.members?.length ?? 0) + 1 === 2) && !(r.hasName || r.hasIcon));
+    const ids = twoNoName
+      .map((r) => r.members.find((m) => m !== selfHandle))
+      .filter((v): v is string => !!v);
+    if (ids.length > 0) {
+      const infos = await fetchUserInfoBatch(ids, user.id);
+      for (let i = 0; i < twoNoName.length; i++) {
+        const info = infos[i];
+        const r = twoNoName[i];
+        if (info) {
+          r.name = info.displayName || info.userName;
+          r.avatar = info.authorAvatar || r.avatar;
+        }
+      }
+    }
+    // 3人以上の自動生成（簡易）
+    const multi = rooms.filter((r) => r.type !== "memo" && ((r.members?.length ?? 0) + 1) >= 3 && !(r.hasName));
+    const needIds = Array.from(new Set(multi.flatMap((r) => r.members)));
+    if (needIds.length > 0) {
+      const infos = await fetchUserInfoBatch(needIds, user.id);
+      const map = new Map<string, typeof infos[number]>();
+      for (let i = 0; i < needIds.length; i++) map.set(needIds[i], infos[i]);
+      for (const r of multi) {
+        const names = r.members.map((m) => map.get(m)?.displayName || map.get(m)?.userName).filter(Boolean) as string[];
+        const top = names.slice(0, 2);
+        const rest = Math.max(0, names.length + 1 - top.length - 1); // +1 = 自分
+        r.name = top.length > 0 ? `${top.join("、")}${rest > 0 ? ` ほか${rest}名` : ""}` : r.name;
+        r.avatar = r.avatar || "👥";
+      }
+    }
   };
 
   const openGroupDialog = () => {
@@ -947,25 +988,35 @@ export function Chat(props: ChatProps) {
     setShowGroupDialog(true);
   };
 
+  const openDmDialog = () => {
+    setGroupDialogMode("dm");
+    setShowGroupDialog(true);
+  };
+
   const createGroup = async (name: string, membersInput: string) => {
     const user = account();
     if (!user) return;
     const members = membersInput.split(",").map((s) => normalizeActor(s.trim()))
       .filter(Boolean) as ActorID[];
-    if (!name || members.length === 0) return;
+    // 名前未設定（空文字）は 1:1 作成時に許容
+    if (members.length === 0) return;
     const id = crypto.randomUUID();
     const room: Room = {
       id,
       name,
       userName: user.userName,
       domain: getDomain(),
-      avatar: name.charAt(0).toUpperCase(),
+      avatar: name ? name.charAt(0).toUpperCase() : "👥",
       unreadCount: 0,
       type: "group",
       members,
+      hasName: !!name && name.trim() !== "",
+      hasIcon: false,
       lastMessage: "...",
       lastMessageTime: undefined,
     };
+    // 1:1（name 未設定）なら相手プロフィールで見た目をフォールバック
+    await applyDisplayFallback([room]);
     setChatRooms((prev) => [...prev, room]);
     await addRoom(user.id, { id, name, members });
     const allMembers: ActorID[] = [
@@ -1615,6 +1666,9 @@ export function Chat(props: ChatProps) {
               onCancelLongPress={cancelLongPress}
               showAds={showAds()}
               onCreateGroup={openGroupDialog}
+              onCreateDm={openDmDialog}
+              segment={segment()}
+              onSegmentChange={setSegment}
             />
           </div>
           <div

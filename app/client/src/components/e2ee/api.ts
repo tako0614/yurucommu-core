@@ -364,6 +364,47 @@ export interface Room {
   members: string[];
 }
 
+export interface RoomsSearchItem {
+  id: string;
+  name: string;
+  icon?: string;
+  members: string[];
+  hasName: boolean;
+  hasIcon: boolean;
+  membersCount: number;
+}
+
+export const searchRooms = async (
+  owner: string,
+  params?: {
+    participants?: string[];
+    match?: "all" | "any" | "none";
+    hasName?: boolean;
+    hasIcon?: boolean;
+    members?: string; // e.g., "eq:2", "ge:3"
+  },
+): Promise<RoomsSearchItem[]> => {
+  try {
+    const search = new URLSearchParams();
+    search.set("owner", owner);
+    if (params?.participants?.length)
+      search.set("participants", params.participants.join(","));
+    if (params?.match) search.set("match", params.match);
+    if (typeof params?.hasName === "boolean")
+      search.set("hasName", String(params.hasName));
+    if (typeof params?.hasIcon === "boolean")
+      search.set("hasIcon", String(params.hasIcon));
+    if (params?.members) search.set("members", params.members);
+    const res = await apiFetch(`/api/rooms?${search.toString()}`);
+    if (!res.ok) throw new Error("failed to search rooms");
+    const data = await res.json();
+    return Array.isArray(data.rooms) ? data.rooms : [];
+  } catch (err) {
+    console.error("Error searching rooms:", err);
+    return [];
+  }
+};
+
 export const fetchRoomList = async (
   id: string,
 ): Promise<Room[]> => {
