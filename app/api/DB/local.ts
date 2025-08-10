@@ -224,27 +224,6 @@ export class MongoDBLocal implements DB {
     return acc?.following ?? [];
   }
 
-  async listDms(id: string) {
-    const acc = await Account.findOne({ _id: id }).lean<
-      { dms?: string[] } | null
-    >();
-    return acc?.dms ?? [];
-  }
-
-  async addDm(id: string, target: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
-      $addToSet: { dms: target },
-    }, { new: true });
-    return acc?.dms ?? [];
-  }
-
-  async removeDm(id: string, target: string) {
-    const acc = await Account.findOneAndUpdate({ _id: id }, {
-      $pull: { dms: target },
-    }, { new: true });
-    return acc?.dms ?? [];
-  }
-
   async listGroups(id: string) {
     const acc = await Account.findOne({ _id: id }).lean<
       { groups?: { id: string; name: string; members: string[] }[] } | null

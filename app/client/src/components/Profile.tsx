@@ -8,7 +8,7 @@ import {
 } from "./microblog/api.ts";
 import { PostList } from "./microblog/Post.tsx";
 import { UserAvatar } from "./microblog/UserAvatar.tsx";
-import { addDm } from "./e2ee/api.ts";
+import { addRoom } from "./e2ee/api.ts";
 import {
   accounts as accountsAtom,
   activeAccount,
@@ -253,11 +253,7 @@ export default function Profile() {
     const user = account();
     if (!name || !user) return;
     const handle = normalizeActor(name);
-    const ok = await addDm(user.id, handle);
-    if (!ok) {
-      alert("DMの追加に失敗しました");
-      return;
-    }
+    await addRoom(user.id, { id: handle, name: handle, members: [handle] });
     setRoom(handle);
     setApp("chat");
   };

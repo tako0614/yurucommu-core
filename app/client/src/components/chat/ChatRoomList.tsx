@@ -1,10 +1,10 @@
 import { For, Show } from "solid-js";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
-import type { ChatRoom } from "./types.ts";
+import type { Room } from "./types.ts";
 
 interface ChatRoomListProps {
-  rooms: ChatRoom[];
+  rooms: Room[];
   selectedRoom: string | null;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;

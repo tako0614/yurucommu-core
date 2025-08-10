@@ -304,36 +304,77 @@ app.post(
     if (!sender || !senderDomain) {
       return c.json({ error: "invalid user format" }, 400);
     }
-    const { to, content, mediaType, encoding, attachments } = await c.req
-      .json();
+    const body = await c.req.json();
+    const { to, cc, content, mediaType, encoding, attachments } = body;
     if (!Array.isArray(to) || typeof content !== "string") {
       return c.json({ error: "invalid body" }, 400);
     }
+    const ccList = Array.isArray(cc) ? cc : [];
+    let allMembers = Array.from(new Set([...to, ...ccList]));
+    let [primary, ...ccMembers] = allMembers;
+    const context = Array.isArray(body["@context"])
+      ? body["@context"] as string[]
+      : [
+        "https://www.w3.org/ns/activitystreams",
+        "https://purl.archive.org/socialweb/mls",
+      ];
+    const typeArr = Array.isArray(body.type)
+      ? body.type as string[]
+      : typeof body.type === "string"
+      ? [body.type]
+      : [];
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
 
-    let msgType = "PrivateMessage";
     const decoded = decodeMLSMessage(content);
-    if (decoded && decoded.type === "PublicMessage") {
+    let msgType = typeArr.includes("PublicMessage")
+      ? "PublicMessage"
+      : "PrivateMessage";
+    if (!typeArr.length && decoded && decoded.type === "PublicMessage") {
       msgType = "PublicMessage";
+    }
+    let bodyObj: Record<string, unknown> | null = null;
+    if (msgType === "PublicMessage" && decoded) {
+      try {
+        bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
+      } catch {
+        bodyObj = null;
+      }
+    }
+    if (
+      bodyObj &&
+      bodyObj.type === "remove" &&
+      typeof bodyObj.member === "string"
+    ) {
+      allMembers = allMembers.filter((m) => m !== bodyObj.member);
+      [primary, ...ccMembers] = allMembers;
+    } else if (
+      bodyObj &&
+      bodyObj.type === "welcome" &&
+      typeof bodyObj.member === "string"
+    ) {
+      allMembers = [bodyObj.member];
+      [primary, ...ccMembers] = allMembers;
     }
     const isPublic = msgType === "PublicMessage";
 
+    const mType = typeof mediaType === "string" ? mediaType : "message/mls";
+    const encType = typeof encoding === "string" ? encoding : "base64";
     const msg = isPublic
       ? await db.createPublicMessage({
         from: acct,
-        to,
+        to: allMembers,
         content,
-        mediaType,
-        encoding,
+        mediaType: mType,
+        encoding: encType,
       }) as EncryptedMessageDoc
       : await db.createEncryptedMessage({
         from: acct,
-        to,
+        to: allMembers,
         content,
-        mediaType,
-        encoding,
+        mediaType: mType,
+        encoding: encType,
       }) as EncryptedMessageDoc;
 
     const extra: Record<string, unknown> = {
@@ -350,7 +391,7 @@ app.post(
       sender,
       content,
       extra,
-      { to, cc: [] },
+      { to: primary ? [primary] : [], cc: ccMembers },
     );
 
     const saved = object as Record<string, unknown>;
@@ -370,29 +411,25 @@ app.post(
       sender,
       false,
     );
-    (activityObj as ActivityPubActivity)["@context"] = [
-      "https://www.w3.org/ns/activitystreams",
-      "https://purl.archive.org/socialweb/mls",
-    ];
+    (activityObj as ActivityPubActivity)["@context"] = context;
 
     const activity = createCreateActivity(domain, actorId, activityObj);
-    (activity as ActivityPubActivity)["@context"] = [
-      "https://www.w3.org/ns/activitystreams",
-      "https://purl.archive.org/socialweb/mls",
-    ];
+    (activity as ActivityPubActivity)["@context"] = context;
     // 個別配信
-    (activity as ActivityPubActivity).to = to;
-    (activity as ActivityPubActivity).cc = [];
-    deliverActivityPubObject(to, activity, sender, domain, getEnv(c)).catch(
-      (err) => {
-        console.error("deliver failed", err);
-      },
-    );
+    (activity as ActivityPubActivity).to = primary ? [primary] : [];
+    (activity as ActivityPubActivity).cc = ccMembers;
+    const recipients = allMembers;
+    deliverActivityPubObject(recipients, activity, sender, domain, getEnv(c))
+      .catch(
+        (err) => {
+          console.error("deliver failed", err);
+        },
+      );
 
     const newMsg = {
       id: String(msg._id),
       from: acct,
-      to,
+      to: allMembers,
       content,
       mediaType: msg.mediaType,
       encoding: msg.encoding,
@@ -421,7 +458,7 @@ app.post(
     };
     const wsType = isPublic ? "publicMessage" : "encryptedMessage";
     sendToUser(acct, { type: wsType, payload: newMsg });
-    for (const t of to) {
+    for (const t of recipients) {
       sendToUser(t, { type: wsType, payload: newMsg });
     }
 

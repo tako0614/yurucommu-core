@@ -1,4 +1,5 @@
 import { apiFetch } from "../../utils/config.ts";
+import { encodeMLSMessage } from "../../../../shared/mls_message.ts";
 
 export interface KeyPackage {
   id: string;
@@ -28,13 +29,15 @@ export interface EncryptedMessage {
   }[];
 }
 
-export interface EncryptedMessagePayload {
-  "@context"?: string | string[];
-  type?: string;
+export interface PrivateMessagePayload {
+  "@context": string[];
+  type: ["Object", "PrivateMessage"];
+  id?: string;
   to: string[];
+  cc?: string[];
   content: string;
-  mediaType?: string;
-  encoding?: string;
+  mediaType: string;
+  encoding: string;
   attachments?: unknown[];
 }
 
@@ -124,15 +127,37 @@ export const deleteKeyPackage = async (
 
 export const sendEncryptedMessage = async (
   user: string,
-  data: EncryptedMessagePayload,
+  to: string[],
+  cc: string[],
+  data: {
+    id?: string;
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+    attachments?: unknown[];
+  },
 ): Promise<boolean> => {
   try {
+    const payload: PrivateMessagePayload = {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://purl.archive.org/socialweb/mls#",
+      ],
+      type: ["Object", "PrivateMessage"],
+      id: data.id,
+      to,
+      cc,
+      content: data.content,
+      mediaType: data.mediaType ?? "message/mls",
+      encoding: data.encoding ?? "base64",
+    };
+    if (data.attachments) payload.attachments = data.attachments;
     const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/messages`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       },
     );
     return res.ok;
@@ -185,10 +210,11 @@ export interface PublicMessage {
   }[];
 }
 
-export const sendPublicMessage = async (
+const sendPublicMessage = async (
   user: string,
+  to: string[],
+  cc: string[],
   data: {
-    to: string[];
     content: string;
     mediaType?: string;
     encoding?: string;
@@ -196,12 +222,25 @@ export const sendPublicMessage = async (
   },
 ): Promise<boolean> => {
   try {
+    const payload: Record<string, unknown> = {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://purl.archive.org/socialweb/mls",
+      ],
+      type: ["Object", "PublicMessage"],
+      to,
+      cc,
+      content: data.content,
+      mediaType: data.mediaType ?? "message/mls",
+      encoding: data.encoding ?? "base64",
+    };
+    if (data.attachments) payload.attachments = data.attachments;
     const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/messages`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       },
     );
     return res.ok;
@@ -333,107 +372,90 @@ export const resetKeyData = async (user: string): Promise<boolean> => {
   }
 };
 
-export interface ChatGroup {
+export interface Room {
   id: string;
   name: string;
   members: string[];
 }
 
-export const fetchGroupList = async (
+export const fetchRoomList = async (
   id: string,
-): Promise<ChatGroup[]> => {
+): Promise<Room[]> => {
   try {
     const res = await apiFetch(`/api/accounts/${id}/groups`);
     if (!res.ok) throw new Error("failed");
     const data = await res.json();
     return Array.isArray(data.groups) ? data.groups : [];
   } catch (err) {
-    console.error("Error fetching group list:", err);
+    console.error("Error fetching room list:", err);
     return [];
   }
 };
 
-export const addGroup = async (
+export const addRoom = async (
   id: string,
-  group: ChatGroup,
+  room: Room,
 ): Promise<boolean> => {
   try {
     const res = await apiFetch(`/api/accounts/${id}/groups`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(group),
+      body: JSON.stringify(room),
     });
     return res.ok;
   } catch (err) {
-    console.error("Error adding group:", err);
+    console.error("Error adding room:", err);
     return false;
   }
 };
 
-export const fetchDmList = async (id: string): Promise<string[]> => {
-  try {
-    const res = await apiFetch(`/api/accounts/${id}/dms`);
-    if (!res.ok) throw new Error("failed");
-    const data = await res.json();
-    return Array.isArray(data.dms) ? data.dms : [];
-  } catch (err) {
-    console.error("Error fetching dm list:", err);
-    return [];
-  }
-};
-
-function normalizeActor(actor: string): string {
-  if (actor.startsWith("http")) {
-    try {
-      const url = new URL(actor);
-      const name = url.pathname.split("/").pop()!;
-      return `${name}@${url.hostname}`;
-    } catch {
-      return actor;
-    }
-  }
-  return actor;
-}
-
-export const addDm = async (id: string, target: string): Promise<boolean> => {
-  const handle = normalizeActor(target);
-  if (!/^[^@]+@[^@]+$/.test(handle)) {
-    console.error("invalid target", target);
-    return false;
-  }
-  try {
-    const res = await apiFetch(`/api/accounts/${id}/dms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target: handle }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("Error adding dm:", err);
-    return false;
-  }
-};
-
-export const removeDm = async (
+export const removeRoom = async (
   id: string,
-  target: string,
+  roomId: string,
 ): Promise<boolean> => {
-  const handle = normalizeActor(target);
-  if (!/^[^@]+@[^@]+$/.test(handle)) {
-    console.error("invalid target", target);
-    return false;
-  }
   try {
-    const res = await apiFetch(`/api/accounts/${id}/dms`, {
+    const res = await apiFetch(`/api/accounts/${id}/groups`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target: handle }),
+      body: JSON.stringify({ id: roomId }),
     });
     return res.ok;
   } catch (err) {
-    console.error("Error removing dm:", err);
+    console.error("Error removing room:", err);
     return false;
   }
+};
+
+export const updateRoomMember = async (
+  roomId: string,
+  action: "Add" | "Remove",
+  member: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(`/api/ap/groups/${roomId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: action, object: member }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("Error updating member:", err);
+    return false;
+  }
+};
+
+export const addRoomMember = async (
+  roomId: string,
+  member: string,
+): Promise<boolean> => {
+  return await updateRoomMember(roomId, "Add", member);
+};
+
+export const removeRoomMember = async (
+  roomId: string,
+  member: string,
+): Promise<boolean> => {
+  return await updateRoomMember(roomId, "Remove", member);
 };
 
 // MLS関連のサーバ通信
@@ -443,61 +465,69 @@ export interface MLSProposalPayload {
   keyPackage?: string;
 }
 
-export interface MLSCommitPayload {
-  epoch: number;
-  proposals: MLSProposalPayload[];
-}
-
 export interface MLSWelcomePayload {
+  type: "welcome";
+  member: string;
   epoch: number;
   tree: Record<string, string>;
   secret: string;
 }
 
+export interface MLSCommitPayload {
+  type: "commit";
+  epoch: number;
+  proposals: MLSProposalPayload[];
+  welcomes?: MLSWelcomePayload[];
+}
+
 export const sendProposal = async (
   user: string,
-  groupId: string,
+  to: string[],
+  cc: string[],
   proposal: MLSProposalPayload,
 ): Promise<boolean> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/groups/${
-        encodeURIComponent(groupId)
-      }/proposals`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(proposal),
-      },
-    );
-    return res.ok;
-  } catch (err) {
-    console.error("Error sending proposal:", err);
-    return false;
-  }
+  const content = encodeMLSMessage(
+    "PublicMessage",
+    JSON.stringify(proposal),
+  );
+  return await sendPublicMessage(user, to, cc, {
+    content,
+    mediaType: "message/mls",
+    encoding: "base64",
+  });
 };
 
 export const sendCommit = async (
   user: string,
-  groupId: string,
+  to: string[],
+  cc: string[],
   commit: MLSCommitPayload,
 ): Promise<boolean> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/groups/${
-        encodeURIComponent(groupId)
-      }/commit`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(commit),
-      },
-    );
-    return res.ok;
-  } catch (err) {
-    console.error("Error sending commit:", err);
-    return false;
+  const content = encodeMLSMessage(
+    "PublicMessage",
+    JSON.stringify(commit),
+  );
+  const ok = await sendPublicMessage(user, to, cc, {
+    content,
+    mediaType: "message/mls",
+    encoding: "base64",
+  });
+  if (!ok) return false;
+  if (commit.welcomes) {
+    for (const w of commit.welcomes) {
+      const wContent = encodeMLSMessage(
+        "PublicMessage",
+        JSON.stringify(w),
+      );
+      const success = await sendPublicMessage(user, [w.member], [], {
+        content: wContent,
+        mediaType: "message/mls",
+        encoding: "base64",
+      });
+      if (!success) return false;
+    }
   }
+  return true;
 };
 
 export const fetchWelcome = async (
@@ -511,8 +541,7 @@ export const fetchWelcome = async (
       }/welcome`,
     );
     if (!res.ok) return null;
-    const data = await res.json();
-    return data as MLSWelcomePayload;
+    return await res.json();
   } catch (err) {
     console.error("Error fetching welcome:", err);
     return null;

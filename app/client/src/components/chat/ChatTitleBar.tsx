@@ -1,9 +1,9 @@
 import { Show } from "solid-js";
-import type { ChatRoom } from "./types.ts";
+import type { Room } from "./types.ts";
 
 interface ChatTitleBarProps {
   isMobile: boolean;
-  selectedRoom: ChatRoom | null;
+  selectedRoom: Room | null;
   onBack: () => void;
 }
 
