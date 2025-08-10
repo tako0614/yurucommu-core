@@ -79,6 +79,10 @@
   `type: ["Object","PrivateMessage"]`、`mediaType: "message/mls"`、`encoding: "base64"`、`content`
   に **MLS PrivateMessage の base64**
   を入れる（サーバは中身を理解不要）。([SWICG][1])
+- グループ操作用の MLS `Proposal` や `Commit` などは
+  `type: ["Object","PublicMessage"]` を用い、内容は MLS PublicMessage の base64
+  とする。名前の "Public" は公開投稿の意味では
+  なく、暗号化されないハンドシェイクメッセージを示す。
 
 #### 例（AP エンベロープ・概略）
 
@@ -129,6 +133,9 @@
    を作成。([SWICG][1])
 3. 生成された `Welcome`/`GroupInfo` を **各参加者に AP `Create`
    で配送**。以後、通常の PrivateMessage でやり取り。([SWICG][1])
+
+MLS のグループ操作（`Proposal` や `Commit`）は `PublicMessage`
+として送信し、宛先はメンバーに限定する。
 
 ## 招待（メンバー追加）
 

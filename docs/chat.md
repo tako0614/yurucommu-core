@@ -10,5 +10,7 @@ Takos で検討しているチャット機能の概要をまとめる。
 - ルームは明示的なメンバー制で、`to`/`cc` に全メンバーを列挙する。
 - メッセージ本文は MLS で暗号化し、ActivityPub `Create` の `PrivateMessage`
   として配送する。
+- MLS の `Proposal` や `Commit` などのハンドシェイクは `PublicMessage`
+  オブジェクトで配送するが、公開投稿を意味しない。
 - 招待・追加・退出などの操作は MLS の `Add`/`Remove`/`Welcome` を用いて行う。
 - サーバは配送のみを担い、メタデータ漏えいへの対策を検討する。

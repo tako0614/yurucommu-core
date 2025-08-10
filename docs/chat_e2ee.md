@@ -14,6 +14,10 @@
   `https://www.w3.org/ns/activitystreams` と
   `https://purl.archive.org/socialweb/mls` を併記する。
 - `content` に MLS PrivateMessage の Base64 を入れる。
+- グループ状態を変える MLS の `Proposal` や `Commit` などは
+  `type: ["Object","PublicMessage"]` として同様に配送する。ここでの `Public`
+  は「公開」ではなく、暗号化されないハンドシェイクメッセージを
+  指す。宛先は通常どおり全メンバーを列挙する。
 
 ## 鍵とデバイス管理
 
