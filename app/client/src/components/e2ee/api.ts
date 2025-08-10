@@ -444,6 +444,55 @@ export const removeRoomMember = async (
   return await updateRoomMember(roomId, "Remove", member);
 };
 
+export interface KeepMessage {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+export const fetchKeepMessages = async (
+  user: string,
+  params?: { limit?: number; before?: string; after?: string },
+): Promise<KeepMessage[]> => {
+  try {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.before) search.set("before", params.before);
+    if (params?.after) search.set("after", params.after);
+    const query = search.toString();
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keep${query ? `?${query}` : ""}`,
+    );
+    if (!res.ok) throw new Error("failed to fetch keep messages");
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Error fetching keep messages:", err);
+    return [];
+  }
+};
+
+export const sendKeepMessage = async (
+  user: string,
+  content: string,
+): Promise<KeepMessage | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keep`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Error sending keep message:", err);
+    return null;
+  }
+};
+
 // MLS関連のサーバ通信
 export interface MLSProposalPayload {
   type: "add" | "remove";

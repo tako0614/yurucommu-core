@@ -17,6 +17,7 @@ import {
   addRoomMember,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
+  fetchKeepMessages,
   fetchKeyPackages,
   fetchRoomList,
   fetchWelcome,
@@ -25,6 +26,7 @@ import {
   saveEncryptedKeyPair,
   sendCommit,
   sendEncryptedMessage,
+  sendKeepMessage,
   sendProposal,
   uploadFile,
 } from "./e2ee/api.ts";
@@ -708,6 +710,24 @@ export function Chat(props: ChatProps) {
   ): Promise<ChatMessage[]> => {
     const user = account();
     if (!user) return [];
+    if (room.type === "memo") {
+      const list = await fetchKeepMessages(
+        `${user.userName}@${getDomain()}`,
+        params,
+      );
+      const msgs = list.map((m) => ({
+        id: m.id,
+        author: `${user.userName}@${getDomain()}`,
+        displayName: user.displayName || user.userName,
+        address: `${user.userName}@${getDomain()}`,
+        content: m.content,
+        timestamp: new Date(m.createdAt),
+        type: "text",
+        isMe: true,
+        avatar: room.avatar,
+      }));
+      return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    }
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const partner = partnerDomain
       ? `${partnerUser}@${partnerDomain}`
@@ -1048,6 +1068,32 @@ export function Chat(props: ChatProps) {
     if (!text && !mediaFile() || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
+    if (room.type === "memo") {
+      const res = await sendKeepMessage(
+        `${user.userName}@${getDomain()}`,
+        text,
+      );
+      if (!res) {
+        alert("メモの保存に失敗しました");
+        return;
+      }
+      const msg: ChatMessage = {
+        id: res.id,
+        author: `${user.userName}@${getDomain()}`,
+        displayName: user.displayName || user.userName,
+        address: `${user.userName}@${getDomain()}`,
+        content: res.content,
+        timestamp: new Date(res.createdAt),
+        type: "text",
+        isMe: true,
+        avatar: room.avatar,
+      };
+      setMessages((prev) => [...prev, msg]);
+      setNewMessage("");
+      setMediaFile(null);
+      setMediaPreview(null);
+      return;
+    }
     const { to: toList, cc: ccList } = expandMembers(room.members);
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();

@@ -202,6 +202,8 @@ WebSocket では Base64 文字列を、HTTP POST では multipart/form-data の
 - `POST /api/users/:user/resetKeys` – 鍵情報リセット
 - `GET /api/users/:user/messages` – メッセージ一覧取得
 - `POST /api/users/:user/messages` – メッセージ送信
+- `GET /api/users/:user/keep` – TAKO Keep に保存したメモ一覧を取得
+- `POST /api/users/:user/keep` – TAKO Keep へメモを保存
 - `POST /api/files` – ファイルアップロード（HTTP のみ）
 - `GET /api/files/:id` – ファイル取得
 - `GET /api/files/messages/:messageId/:index` – メッセージ添付ファイル取得
