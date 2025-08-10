@@ -18,7 +18,7 @@ export interface ChatMessage {
   isMe?: boolean;
 }
 
-export interface ChatRoom {
+export interface Room {
   id: string;
   name: string;
   userName: string;
@@ -28,6 +28,6 @@ export interface ChatRoom {
   unreadCount: number;
   isOnline?: boolean;
   avatar?: string;
-  type: "dm" | "group" | "memo";
+  type: "group" | "memo";
   members: ActorID[];
 }

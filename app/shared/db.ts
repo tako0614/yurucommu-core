@@ -29,9 +29,6 @@ export interface DB {
   removeFollower(id: string, follower: string): Promise<string[]>;
   addFollowing(id: string, target: string): Promise<string[]>;
   removeFollowing(id: string, target: string): Promise<string[]>;
-  listDms(id: string): Promise<string[]>;
-  addDm(id: string, target: string): Promise<string[]>;
-  removeDm(id: string, target: string): Promise<string[]>;
   listGroups(
     id: string,
   ): Promise<{ id: string; name: string; members: string[] }[]>;

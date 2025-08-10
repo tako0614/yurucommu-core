@@ -10,20 +10,22 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
+import { fetchUserInfo } from "./microblog/api.ts";
 import {
-  addDm,
-  addGroup,
   addKeyPackage,
-  fetchDmList,
+  addRoom,
+  addRoomMember,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
-  fetchGroupList,
   fetchKeyPackages,
-  removeDm,
+  fetchRoomList,
+  fetchWelcome,
+  removeRoom as deleteRoom,
+  removeRoomMember,
   saveEncryptedKeyPair,
+  sendCommit,
   sendEncryptedMessage,
-  sendPublicMessage,
+  sendProposal,
   uploadFile,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
@@ -56,7 +58,7 @@ import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
-import type { ActorID, ChatMessage, ChatRoom } from "./chat/types.ts";
+import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
   decodeMLSMessage,
@@ -185,6 +187,12 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
     /* ignore */
   }
   return { content: text };
+}
+
+function expandMembers(members: ActorID[]): { to: ActorID[]; cc: ActorID[] } {
+  const unique = Array.from(new Set(members));
+  const [primary, ...rest] = unique;
+  return { to: primary ? [primary] : [], cc: rest };
 }
 
 async function encryptFile(file: File) {
@@ -418,7 +426,7 @@ export function Chat(props: ChatProps) {
   const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
-  const [chatRooms, setChatRooms] = createSignal<ChatRoom[]>([]);
+  const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
@@ -440,18 +448,21 @@ export function Chat(props: ChatProps) {
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
   const [showGroupDialog, setShowGroupDialog] = createSignal(false);
+  const [groupDialogMode, setGroupDialogMode] = createSignal<
+    "create" | "invite"
+  >("create");
 
   // ルーム重複防止ユーティリティ
-  function upsertRooms(next: ChatRoom[]) {
+  function upsertRooms(next: Room[]) {
     setChatRooms((prev) => {
-      const map = new Map<string, ChatRoom>();
+      const map = new Map<string, Room>();
       // 既存を入れてから next で上書き（最新情報を反映）
       for (const r of prev) map.set(r.id, r);
       for (const r of next) map.set(r.id, r);
       return Array.from(map.values());
     });
   }
-  function upsertRoom(room: ChatRoom) {
+  function upsertRoom(room: Room) {
     upsertRooms([room]);
   }
   const updateRoomLast = (roomId: string, msg?: ChatMessage) => {
@@ -483,15 +494,78 @@ export function Chat(props: ChatProps) {
     const user = account();
     if (!user) return;
     const room = chatRooms().find((r) => r.id === roomId);
-    if (!room || room.type !== "dm") return;
-    if (!confirm(`${room.name} をDMリストから削除しますか？`)) return;
-    if (await removeDm(user.id, roomId)) {
+    if (!room) return;
+    if (!confirm(`${room.name} のルームを削除しますか？`)) return;
+    if (await deleteRoom(user.id, roomId)) {
       setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
       if (selectedRoom() === roomId) {
         setSelectedRoom(null);
         setMessages([]);
       }
     }
+  };
+
+  const leaveRoom = async (roomId: string) => {
+    const user = account();
+    if (!user) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room) return;
+    if (!confirm(`${room.name} から退出しますか？`)) return;
+    const me = `${user.userName}@${getDomain()}` as ActorID;
+    await removeRoomMember(roomId, me);
+    const remaining = room.members.filter((m) => m !== me);
+    const { to: toList, cc: ccList } = expandMembers(remaining);
+    const proposal = { type: "remove" as const, member: me };
+    await sendProposal(me, toList, ccList, proposal);
+    await sendCommit(me, toList, ccList, {
+      type: "commit",
+      epoch: 0,
+      proposals: [proposal],
+    });
+    if (await deleteRoom(user.id, roomId)) {
+      setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
+      if (selectedRoom() === roomId) {
+        setSelectedRoom(null);
+        setMessages([]);
+      }
+    }
+  };
+
+  const kickMember = async (roomId: string, member: string) => {
+    const user = account();
+    if (!user) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room) return;
+    const target = normalizeActor(member as ActorID);
+    if (!room.members.includes(target)) return;
+    if (!confirm(`${target} を追放しますか？`)) return;
+    await removeRoomMember(roomId, target);
+    const remaining = room.members.filter((m) => m !== target);
+    const { to: toList, cc: ccList } = expandMembers(remaining);
+    const proposal = { type: "remove" as const, member: target };
+    await sendProposal(
+      `${user.userName}@${getDomain()}`,
+      toList,
+      ccList,
+      proposal,
+    );
+    await sendCommit(`${user.userName}@${getDomain()}`, toList, ccList, {
+      type: "commit",
+      epoch: 0,
+      proposals: [proposal],
+    });
+    setChatRooms((prev) =>
+      prev.map((r) => r.id === roomId ? { ...r, members: remaining } : r)
+    );
+  };
+
+  const promptKick = () => {
+    const roomId = selectedRoom();
+    if (!roomId) return;
+    const target = globalThis.prompt(
+      "追放するメンバーのハンドルを入力してください",
+    );
+    if (target) kickMember(roomId, target);
   };
 
   const startLongPress = (id: string) => {
@@ -629,7 +703,7 @@ export function Chat(props: ChatProps) {
   };
 
   const fetchMessagesForRoom = async (
-    room: ChatRoom,
+    room: Room,
     params?: { limit?: number; before?: string; after?: string },
   ): Promise<ChatMessage[]> => {
     const user = account();
@@ -773,7 +847,7 @@ export function Chat(props: ChatProps) {
     return msgs;
   };
 
-  const loadMessages = async (room: ChatRoom, isSelectedRoom: boolean) => {
+  const loadMessages = async (room: Room, isSelectedRoom: boolean) => {
     const msgs = await fetchMessagesForRoom(room, { limit: messageLimit });
     if (msgs.length > 0) {
       setCursor(msgs[0].timestamp.toISOString());
@@ -788,7 +862,7 @@ export function Chat(props: ChatProps) {
     updateRoomLast(room.id, lastMessage);
   };
 
-  const loadOlderMessages = async (room: ChatRoom) => {
+  const loadOlderMessages = async (room: Room) => {
     if (!hasMore() || loadingOlder()) return;
     setLoadingOlder(true);
     const msgs = await fetchMessagesForRoom(room, {
@@ -806,7 +880,7 @@ export function Chat(props: ChatProps) {
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
-    const rooms: ChatRoom[] = [
+    const rooms: Room[] = [
       {
         id: `${user.userName}@${getDomain()}`,
         name: "TAKO Keep",
@@ -820,8 +894,8 @@ export function Chat(props: ChatProps) {
         lastMessageTime: undefined,
       },
     ];
-    const groupList = await fetchGroupList(user.id);
-    groupList.forEach((g) => {
+    const roomList = await fetchRoomList(user.id);
+    roomList.forEach((g) => {
       rooms.push({
         id: g.id,
         name: g.name,
@@ -836,35 +910,6 @@ export function Chat(props: ChatProps) {
       });
     });
 
-    const handles = (await fetchDmList(user.id)).map((id) =>
-      normalizeActor(id)
-    );
-    if (handles.length > 0) {
-      try {
-        const infos = await fetchUserInfoBatch(handles, user.id);
-        if (infos.length > 0) {
-          infos.forEach((info, idx) => {
-            const handle = handles[idx];
-            rooms.push({
-              id: handle,
-              name: info.displayName || info.userName,
-              userName: info.userName,
-              domain: info.domain,
-              avatar: info.authorAvatar ||
-                info.userName.charAt(0).toUpperCase(),
-              unreadCount: 0,
-              type: "dm",
-              members: [handle],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            });
-          });
-        }
-      } catch (err) {
-        console.error("Failed to load rooms", err);
-      }
-    }
-
     const unique = rooms.filter(
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
@@ -873,6 +918,12 @@ export function Chat(props: ChatProps) {
   };
 
   const openGroupDialog = () => {
+    setGroupDialogMode("create");
+    setShowGroupDialog(true);
+  };
+
+  const openInviteDialog = () => {
+    setGroupDialogMode("invite");
     setShowGroupDialog(true);
   };
 
@@ -883,7 +934,7 @@ export function Chat(props: ChatProps) {
       .filter(Boolean) as ActorID[];
     if (!name || members.length === 0) return;
     const id = crypto.randomUUID();
-    const room: ChatRoom = {
+    const room: Room = {
       id,
       name,
       userName: user.userName,
@@ -896,7 +947,97 @@ export function Chat(props: ChatProps) {
       lastMessageTime: undefined,
     };
     setChatRooms((prev) => [...prev, room]);
-    await addGroup(user.id, { id, name, members });
+    await addRoom(user.id, { id, name, members });
+    const allMembers: ActorID[] = [
+      `${user.userName}@${getDomain()}` as ActorID,
+      ...members,
+    ];
+    const { to: toList, cc: ccList } = expandMembers(allMembers);
+    const proposals = members.map((m) => ({ type: "add", member: m }));
+    for (const p of proposals) {
+      await sendProposal(
+        `${user.userName}@${getDomain()}`,
+        toList,
+        ccList,
+        p,
+      );
+    }
+    const commit = {
+      type: "commit" as const,
+      epoch: 0,
+      proposals,
+      welcomes: members.map((m) => ({
+        type: "welcome" as const,
+        member: m,
+        epoch: 0,
+        tree: {},
+        secret: "",
+      })),
+    };
+    await sendCommit(
+      `${user.userName}@${getDomain()}`,
+      toList,
+      ccList,
+      commit,
+    );
+    await fetchWelcome(`${user.userName}@${getDomain()}`, id);
+    setShowGroupDialog(false);
+  };
+
+  const inviteMembers = async (membersInput: string) => {
+    const user = account();
+    const roomId = selectedRoom();
+    if (!user || !roomId) return;
+    const room = chatRooms().find((r) => r.id === roomId);
+    if (!room) return;
+    const newMembers = membersInput.split(",").map((s) =>
+      normalizeActor(s.trim())
+    )
+      .filter((m) => m && !room.members.includes(m)) as ActorID[];
+    if (newMembers.length === 0) return;
+    for (const m of newMembers) {
+      await addRoomMember(roomId, m);
+    }
+    const allMembers: ActorID[] = [
+      `${user.userName}@${getDomain()}` as ActorID,
+      ...room.members,
+    ];
+    const { to: toList, cc: ccList } = expandMembers(allMembers);
+    const proposals = newMembers.map((m) => ({
+      type: "add" as const,
+      member: m,
+    }));
+    for (const p of proposals) {
+      await sendProposal(
+        `${user.userName}@${getDomain()}`,
+        toList,
+        ccList,
+        p,
+      );
+    }
+    const commit = {
+      type: "commit" as const,
+      epoch: 0,
+      proposals,
+      welcomes: newMembers.map((m) => ({
+        type: "welcome" as const,
+        member: m,
+        epoch: 0,
+        tree: {},
+        secret: "",
+      })),
+    };
+    await sendCommit(
+      `${user.userName}@${getDomain()}`,
+      toList,
+      ccList,
+      commit,
+    );
+    setChatRooms((prev) =>
+      prev.map((r) =>
+        r.id === roomId ? { ...r, members: [...r.members, ...newMembers] } : r
+      )
+    );
     setShowGroupDialog(false);
   };
 
@@ -907,92 +1048,41 @@ export function Chat(props: ChatProps) {
     if (!text && !mediaFile() || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
+    const { to: toList, cc: ccList } = expandMembers(room.members);
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();
-    if (useEncryption()) {
-      let group = groups()[roomId];
-      if (!group) {
-        const kp = await ensureKeyPair();
-        if (!kp) {
-          alert("鍵情報が取得できないため送信できません");
-          return;
-        }
-        const [partnerUser, partnerDomain] = splitActor(room.members[0]);
-        const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
-        if (!partnerPub) {
-          setPartnerHasKey(false);
-          return;
-        }
-        setPartnerHasKey(true);
-        const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-        group = { members: room.members, epoch: Date.now(), secret };
-        setGroups({ ...groups(), [roomId]: group });
-        saveGroupStates();
-      }
-      if (!group) {
-        setPartnerHasKey(false);
-        return;
-      }
-      const note: Record<string, unknown> = {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        type: "Note",
+    const group = groups()[roomId];
+    if (!group) {
+      alert("グループが初期化されていないため送信できません");
+      return;
+    }
+    const note: Record<string, unknown> = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Note",
+      id: `urn:uuid:${localId}`,
+      content: text,
+    };
+    if (mediaFile()) {
+      const file = mediaFile()!;
+      const att = await buildAttachment(file);
+      if (att) note.attachment = [att];
+    }
+    const cipher = await encryptGroupMessage(group, JSON.stringify(note));
+    const msg = encodeMLSMessage("PrivateMessage", cipher);
+    const success = await sendEncryptedMessage(
+      `${user.userName}@${getDomain()}`,
+      toList,
+      ccList,
+      {
         id: `urn:uuid:${localId}`,
-        content: text,
-      };
-      if (mediaFile()) {
-        const file = mediaFile()!;
-        const att = await buildAttachment(file);
-        if (att) note.attachment = [att];
-      }
-      const cipher = await encryptGroupMessage(group, JSON.stringify(note));
-      const msg = encodeMLSMessage("PrivateMessage", cipher);
-      const encrypted = {
-        "@context": "https://purl.archive.org/socialweb/mls#",
-        type: "EncryptedMessage",
         content: msg,
-        mediaType: "application/mls+json",
+        mediaType: "message/mls",
         encoding: "base64",
-      };
-      const success = await sendEncryptedMessage(
-        `${user.userName}@${getDomain()}`,
-        { to: room.members, ...encrypted },
-      );
-      if (!success) {
-        alert("メッセージの送信に失敗しました");
-        return;
-      }
-      if (room.type === "dm") {
-        await addDm(user.id, room.members[0]);
-      }
-    } else {
-      const note: Record<string, unknown> = {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        type: "Note",
-        id: `urn:uuid:${localId}`,
-        content: text,
-      };
-      if (mediaFile()) {
-        const file = mediaFile()!;
-        const att = await buildAttachment(file);
-        if (att) note.attachment = [att];
-      }
-      const msg = encodeMLSMessage("PublicMessage", JSON.stringify(note));
-      const success = await sendPublicMessage(
-        `${user.userName}@${getDomain()}`,
-        {
-          to: room.members,
-          content: msg,
-          mediaType: "message/mls",
-          encoding: "base64",
-        },
-      );
-      if (!success) {
-        alert("メッセージの送信に失敗しました");
-        return;
-      }
-      if (room.type === "dm") {
-        await addDm(user.id, room.members[0]);
-      }
+      },
+    );
+    if (!success) {
+      alert("メッセージの送信に失敗しました");
+      return;
     }
     // 入力欄をクリア
     setNewMessage("");
@@ -1112,16 +1202,12 @@ export function Chat(props: ChatProps) {
       const [partnerName] = splitActor(normalizedPartner);
       const uuidRe =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      let room = chatRooms().find((r) =>
-        r.type === "group" && r.id === partnerName
-      );
+      let room = chatRooms().find((r) => r.id === partnerName);
       if (!room) {
         for (const t of data.to) {
           const normalized = normalizeActor(t);
           const [toName] = splitActor(normalized);
-          const g = chatRooms().find((r) =>
-            r.type === "group" && r.id === toName
-          );
+          const g = chatRooms().find((r) => r.id === toName);
           if (g) {
             room = g;
             break;
@@ -1136,7 +1222,9 @@ export function Chat(props: ChatProps) {
         room = chatRooms().find((r) => r.id === normalizedPartner);
         if (!room) {
           if (
-            confirm(`${normalizedPartner} からDMが届きました。許可しますか？`)
+            confirm(
+              `${normalizedPartner} からメッセージが届きました。許可しますか？`,
+            )
           ) {
             const info = await fetchUserInfo(normalizeActor(normalizedPartner));
             if (info) {
@@ -1148,13 +1236,12 @@ export function Chat(props: ChatProps) {
                 avatar: info.authorAvatar ||
                   info.userName.charAt(0).toUpperCase(),
                 unreadCount: 0,
-                type: "dm",
+                type: "group",
                 members: [normalizedPartner],
                 lastMessage: "...",
                 lastMessageTime: undefined,
               };
               upsertRoom(room!);
-              await addDm(user.id, normalizedPartner);
             } else {
               return;
             }
@@ -1383,7 +1470,8 @@ export function Chat(props: ChatProps) {
         // ルームが存在しない場合は作成を試行
         if (!room && normalizedRoomId !== selfRoomId) {
           const info = await fetchUserInfo(normalizeActor(normalizedRoomId));
-          if (info) {
+          const user = account();
+          if (info && user) {
             room = {
               id: normalizedRoomId,
               name: info.displayName || info.userName,
@@ -1392,12 +1480,17 @@ export function Chat(props: ChatProps) {
               avatar: info.authorAvatar ||
                 info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
-              type: "dm",
+              type: "group",
               members: [normalizedRoomId],
               lastMessage: "...",
               lastMessageTime: undefined,
             };
-            upsertRoom(room!);
+            upsertRoom(room);
+            await addRoom(user.id, {
+              id: normalizedRoomId,
+              name: room.name,
+              members: [normalizedRoomId],
+            });
           }
         }
 
@@ -1519,6 +1612,32 @@ export function Chat(props: ChatProps) {
                   selectedRoom={selectedRoomInfo()}
                   onBack={backToRoomList}
                 />
+                <div class="flex gap-2 p-2">
+                  <button
+                    type="button"
+                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
+                    onClick={openInviteDialog}
+                  >
+                    メンバー招待
+                  </button>
+                  <button
+                    type="button"
+                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
+                    onClick={() => {
+                      const id = selectedRoom();
+                      if (id) leaveRoom(id);
+                    }}
+                  >
+                    退出
+                  </button>
+                  <button
+                    type="button"
+                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
+                    onClick={promptKick}
+                  >
+                    追放
+                  </button>
+                </div>
                 <ChatMessageList
                   messages={messages()}
                   onReachTop={() => {
@@ -1549,8 +1668,10 @@ export function Chat(props: ChatProps) {
       </div>
       <GroupCreateDialog
         isOpen={showGroupDialog()}
+        mode={groupDialogMode()}
         onClose={() => setShowGroupDialog(false)}
         onCreate={createGroup}
+        onInvite={inviteMembers}
       />
     </>
   );

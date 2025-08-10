@@ -8,7 +8,7 @@ import {
   jsonResponse,
 } from "../utils/activitypub.ts";
 
-// グループ管理 API (ActivityPub 対応)
+// ルーム管理 API (ActivityPub 対応)
 const app = new Hono();
 
 // ActivityPub グループ一覧取得
@@ -28,13 +28,14 @@ app.get("/ap/groups/:id", async (c) => {
   const db = createDB(getEnv(c));
   const result = await db.findGroup(id);
   if (!result) return jsonResponse(c, { error: "Group not found" }, 404);
+  const { group: room } = result;
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/ap/groups/${id}`,
     type: "Group",
-    name: result.group.name,
-    members: result.group.members,
+    name: room.name,
+    members: room.members,
   };
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
@@ -50,7 +51,7 @@ app.post("/ap/groups", authRequired, async (c) => {
   ) {
     return jsonResponse(c, { error: "invalid group" }, 400);
   }
-  const group = {
+  const room = {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
     name: body.name,
     members: body.members.filter((m: unknown) => typeof m === "string"),
@@ -58,14 +59,14 @@ app.post("/ap/groups", authRequired, async (c) => {
   const db = createDB(getEnv(c));
   const account = await db.findAccountById(body.owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  await db.addGroup(body.owner, group);
+  await db.addGroup(body.owner, room);
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/ap/groups/${group.id}`,
+    id: `https://${domain}/ap/groups/${room.id}`,
     type: "Group",
-    name: group.name,
-    members: group.members,
+    name: room.name,
+    members: room.members,
   };
   return jsonResponse(c, actor, 201, "application/activity+json");
 });
@@ -77,15 +78,15 @@ app.post("/ap/groups/:id/members", authRequired, async (c) => {
   const db = createDB(getEnv(c));
   const result = await db.findGroup(id);
   if (!result) return jsonResponse(c, { error: "Group not found" }, 404);
-  const { owner, group } = result;
+  const { owner, group: room } = result;
   const account = await db.findAccountById(owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const domain = getDomain(c);
 
   if (body.type === "Add" && typeof body.object === "string") {
-    if (!group.members.includes(body.object)) {
-      group.members.push(body.object);
-      await db.updateGroup(owner, group);
+    if (!room.members.includes(body.object)) {
+      room.members.push(body.object);
+      await db.updateGroup(owner, room);
     }
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -95,18 +96,18 @@ app.post("/ap/groups/:id/members", authRequired, async (c) => {
       target: `https://${domain}/ap/groups/${id}`,
     };
     deliverActivityPubObject(
-      group.members,
+      room.members,
       activity,
       account.userName,
       domain,
       getEnv(c),
     ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: group.members });
+    return jsonResponse(c, { members: room.members });
   }
 
   if (body.type === "Remove" && typeof body.object === "string") {
-    group.members = group.members.filter((m) => m !== body.object);
-    await db.updateGroup(owner, group);
+    room.members = room.members.filter((m) => m !== body.object);
+    await db.updateGroup(owner, room);
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Remove",
@@ -115,24 +116,24 @@ app.post("/ap/groups/:id/members", authRequired, async (c) => {
       target: `https://${domain}/ap/groups/${id}`,
     };
     deliverActivityPubObject(
-      group.members,
+      room.members,
       activity,
       account.userName,
       domain,
       getEnv(c),
     ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: group.members });
+    return jsonResponse(c, { members: room.members });
   }
 
   if (body.type === "Proposal") {
     deliverActivityPubObject(
-      group.members,
+      room.members,
       body,
       account.userName,
       domain,
       getEnv(c),
     ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: group.members });
+    return jsonResponse(c, { members: room.members });
   }
 
   return jsonResponse(c, { error: "invalid activity" }, 400);
@@ -156,7 +157,7 @@ app.post("/accounts/:id/groups", async (c) => {
   ) {
     return jsonResponse(c, { error: "invalid group" }, 400);
   }
-  const group = {
+  const room = {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
     name: body.name,
     members: body.members.filter((m: unknown) => typeof m === "string"),
@@ -164,7 +165,7 @@ app.post("/accounts/:id/groups", async (c) => {
   const db = createDB(getEnv(c));
   const account = await db.findAccountById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const groups = await db.addGroup(id, group);
+  const groups = await db.addGroup(id, room);
   return jsonResponse(c, { groups });
 });
 

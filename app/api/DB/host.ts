@@ -259,34 +259,6 @@ export class MongoDBHost implements DB {
     return acc?.following ?? [];
   }
 
-  async listDms(id: string) {
-    const acc = await HostAccount.findOne({
-      _id: id,
-      tenant_id: this.tenantId,
-    }).lean<{ dms?: string[] } | null>();
-    return acc?.dms ?? [];
-  }
-
-  async addDm(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
-      $addToSet: { dms: target },
-    }, { new: true });
-    return acc?.dms ?? [];
-  }
-
-  async removeDm(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
-      $pull: { dms: target },
-    }, { new: true });
-    return acc?.dms ?? [];
-  }
-
   async listGroups(id: string) {
     const acc = await HostAccount.findOne({
       _id: id,

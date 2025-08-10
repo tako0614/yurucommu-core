@@ -8,7 +8,6 @@ const accountSchema = new mongoose.Schema({
   publicKey: { type: String, default: "" },
   followers: { type: [String], default: [] },
   following: { type: [String], default: [] },
-  dms: { type: [String], default: [] },
   groups: {
     type: [
       {
