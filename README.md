@@ -22,7 +22,8 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
 特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`
 を、ポート番号を変更したい場合は `SERVER_PORT` を設定してください。HTTPS
-を利用する場合は `SERVER_CERT_FILE` と `SERVER_KEY_FILE` を指定します。
+を利用する場合は `SERVER_CERT` と `SERVER_KEY`
+に証明書と秘密鍵の内容を直接指定します。
 開発環境で自己署名証明書を使用する際は、起動時に
 `--unsafely-ignore-certificate-errors` を付けると SSL エラーを無視できます。
 

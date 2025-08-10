@@ -179,7 +179,10 @@ if (isDev) {
     root.use(async (c, next) => {
       const host = getRealHost(c);
       if (host === rootDomain) {
-        if (serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)) {
+        if (
+          serviceActorApp &&
+          /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
+        ) {
           const resSvc = await serviceActorApp.fetch(c.req.raw);
           if (resSvc.status !== 404) return resSvc;
         }
@@ -198,7 +201,10 @@ if (isDev) {
     root.use(async (c, next) => {
       const host = getRealHost(c);
       if (host === rootDomain) {
-        if (serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)) {
+        if (
+          serviceActorApp &&
+          /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
+        ) {
           const resSvc = await serviceActorApp.fetch(c.req.raw);
           if (resSvc.status !== 404) return resSvc;
         }
@@ -261,30 +267,14 @@ root.use(logger());
 const hostname = hostEnv["SERVER_HOST"];
 // サーバーのポート番号 (未指定時は 80)
 const port = Number(hostEnv["SERVER_PORT"] ?? "80");
+const cert = hostEnv["SERVER_CERT"]?.replace(/\\n/g, "\n");
+const key = hostEnv["SERVER_KEY"]?.replace(/\\n/g, "\n");
 
-const certFile = hostEnv["SERVER_CERT_FILE"];
-const keyFile = hostEnv["SERVER_KEY_FILE"];
-
-if (certFile && keyFile) {
+if (cert && key) {
   try {
-    const moduleDir = dirname(fromFileUrl(import.meta.url));
-    const projectRoot = join(moduleDir, "..", "..");
-    const cert = await Deno.readTextFile(
-      join(
-        projectRoot,
-        certFile.startsWith("../") ? certFile.substring(3) : certFile,
-      ),
-    );
-    const key = await Deno.readTextFile(
-      join(
-        projectRoot,
-        keyFile.startsWith("../") ? keyFile.substring(3) : keyFile,
-      ),
-    );
-    // hostname を追加
     Deno.serve({ hostname, port, cert, key }, root.fetch);
   } catch (e) {
-    console.error("SSL証明書を読み込めませんでした:", e);
+    console.error("SSL証明書の設定に失敗しました:", e);
     Deno.serve({ hostname, port }, root.fetch);
   }
 } else {
