@@ -135,19 +135,16 @@ if (import.meta.main) {
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
   const port = Number(env["SERVER_PORT"] ?? "80");
-  const certFile = env["SERVER_CERT_FILE"];
-  const keyFile = env["SERVER_KEY_FILE"];
+  const cert = env["SERVER_CERT"]?.replace(/\\n/g, "\n");
+  const key = env["SERVER_KEY"]?.replace(/\\n/g, "\n");
 
   // Deno.serve のオプションは top-level に port, hostname を直接渡す
   // TLS の場合は cert/key を追加で渡す
   // Deno.serve は options として { hostname, port, cert, key } を受け取るが、
   // 型名はバージョンにより変動するため型注釈を外して実行時に渡す。
-  const options = {
-    hostname,
-    port,
-    cert: certFile ? await Deno.readTextFile(certFile) : undefined,
-    key: keyFile ? await Deno.readTextFile(keyFile) : undefined,
-  };
+  const options = cert && key
+    ? { hostname, port, cert, key }
+    : { hostname, port };
 
   Deno.serve(options, app.fetch);
 }
