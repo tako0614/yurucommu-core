@@ -65,24 +65,46 @@ async function applySignature(
 
   const normalizedPrivateKey = ensurePem(key.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyData,
-    { name: "Ed25519" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "Ed25519",
-    cryptoKey,
-    encoder.encode(signingString),
-  );
+  const alg = detectKeyAlgorithm(normalizedPrivateKey);
+  let signature: ArrayBuffer;
+  let sigAlg = "ed25519";
+  if (alg === "rsa") {
+    // ActivityPubで広く利用されているRSA署名は
+    // RSASSA-PKCS1-v1_5（通称 RSA-SHA256）である
+    // RSA-PSSなど他の方式には現状対応していない
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      keyData,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      encoder.encode(signingString),
+    );
+    sigAlg = "rsa-sha256";
+  } else {
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      keyData,
+      { name: "Ed25519" },
+      false,
+      ["sign"],
+    );
+    signature = await crypto.subtle.sign(
+      "Ed25519",
+      cryptoKey,
+      encoder.encode(signingString),
+    );
+  }
   const signatureB64 = bufToB64(signature);
   const keyId = `${key.id}#main-key`;
   if (style === "cavage" || style === "both") {
     headers.set(
       "Signature",
-      `keyId="${keyId}",algorithm="ed25519",headers="${
+      `keyId="${keyId}",algorithm="${sigAlg}",headers="${
         headersToSign.join(" ")
       }",signature="${signatureB64}"`,
     );
@@ -95,7 +117,7 @@ async function applySignature(
     }
     headers.set(
       "Signature-Input",
-      `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="ed25519"`,
+      `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="${sigAlg}"`,
     );
   }
 }
@@ -223,6 +245,41 @@ export function ensurePem(
   if (key.includes("BEGIN")) return key;
   const lines = key.match(/.{1,64}/g)?.join("\n") ?? key;
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
+}
+
+function includesSequence(buf: Uint8Array, seq: number[]): boolean {
+  outer:
+  for (let i = 0; i <= buf.length - seq.length; i++) {
+    for (let j = 0; j < seq.length; j++) {
+      if (buf[i + j] !== seq[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function detectKeyAlgorithm(pem: string): "rsa" | "ed25519" {
+  // PEMのヘッダやOIDからRSAかEd25519かを簡易判別する
+  // RSA-PSSなど鍵に依存しない署名方式はここでは区別できない
+  if (/BEGIN RSA/.test(pem)) return "rsa";
+  const buf = new Uint8Array(pemToArrayBuffer(pem));
+  const rsaOid = [
+    0x06,
+    0x09,
+    0x2a,
+    0x86,
+    0x48,
+    0x86,
+    0xf7,
+    0x0d,
+    0x01,
+    0x01,
+    0x01,
+  ];
+  if (includesSequence(buf, rsaOid)) return "rsa";
+  const edOid = [0x06, 0x03, 0x2b, 0x65, 0x70];
+  if (includesSequence(buf, edOid)) return "ed25519";
+  return "ed25519";
 }
 
 /** `Signature` ヘッダを key=value 形式に変換 */
@@ -405,25 +462,40 @@ export async function verifyHttpSignature(
 
     const encoder = new TextEncoder();
     const keyData = pemToArrayBuffer(normalizedPublicKey);
-
-    const key = await crypto.subtle.importKey(
-      "spki",
-      keyData,
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-
+    const alg = detectKeyAlgorithm(normalizedPublicKey);
     const signatureBytes = b64ToBuf(params.signature);
     const signingStringBytes = encoder.encode(signingString);
-
-    const verified = await crypto.subtle.verify(
-      "Ed25519",
-      key,
-      signatureBytes,
-      signingStringBytes,
-    );
-    return verified;
+    if (alg === "rsa") {
+      // RSA鍵はRSASSA-PKCS1-v1_5による署名を想定して検証する
+      // RSA-PSS署名には現状対応していない
+      const key = await crypto.subtle.importKey(
+        "spki",
+        keyData,
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+      return await crypto.subtle.verify(
+        "RSASSA-PKCS1-v1_5",
+        key,
+        signatureBytes,
+        signingStringBytes,
+      );
+    } else {
+      const key = await crypto.subtle.importKey(
+        "spki",
+        keyData,
+        { name: "Ed25519" },
+        false,
+        ["verify"],
+      );
+      return await crypto.subtle.verify(
+        "Ed25519",
+        key,
+        signatureBytes,
+        signingStringBytes,
+      );
+    }
   } catch (error) {
     console.error("Error in verifyHttpSignature:", error);
     return false;
