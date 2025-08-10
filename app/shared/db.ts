@@ -150,14 +150,12 @@ export interface DB {
   cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
-  createPublicMessage(data: {
-    from: string;
-    to: string[];
-    content: string;
-    mediaType?: string;
-    encoding?: string;
+  createHandshakeMessage(data: {
+    sender: string;
+    recipients: string[];
+    message: string;
   }): Promise<unknown>;
-  findPublicMessages(
+  findHandshakeMessages(
     condition: Record<string, unknown>,
     opts?: { before?: string; after?: string; limit?: number },
   ): Promise<unknown[]>;

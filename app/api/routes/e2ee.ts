@@ -310,76 +310,31 @@ app.post(
       return c.json({ error: "invalid body" }, 400);
     }
     const ccList = Array.isArray(cc) ? cc : [];
-    let allMembers = Array.from(new Set([...to, ...ccList]));
-    let [primary, ...ccMembers] = allMembers;
+    const allMembers = Array.from(new Set([...to, ...ccList]));
+    const [primary, ...ccMembers] = allMembers;
     const context = Array.isArray(body["@context"])
       ? body["@context"] as string[]
       : [
         "https://www.w3.org/ns/activitystreams",
         "https://purl.archive.org/socialweb/mls",
       ];
-    const typeArr = Array.isArray(body.type)
-      ? body.type as string[]
-      : typeof body.type === "string"
-      ? [body.type]
-      : [];
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
 
-    const decoded = decodeMLSMessage(content);
-    let msgType = typeArr.includes("PublicMessage")
-      ? "PublicMessage"
-      : "PrivateMessage";
-    if (!typeArr.length && decoded && decoded.type === "PublicMessage") {
-      msgType = "PublicMessage";
-    }
-    let bodyObj: Record<string, unknown> | null = null;
-    if (msgType === "PublicMessage" && decoded) {
-      try {
-        bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
-      } catch {
-        bodyObj = null;
-      }
-    }
-    if (
-      bodyObj &&
-      bodyObj.type === "remove" &&
-      typeof bodyObj.member === "string"
-    ) {
-      allMembers = allMembers.filter((m) => m !== bodyObj.member);
-      [primary, ...ccMembers] = allMembers;
-    } else if (
-      bodyObj &&
-      bodyObj.type === "welcome" &&
-      typeof bodyObj.member === "string"
-    ) {
-      allMembers = [bodyObj.member];
-      [primary, ...ccMembers] = allMembers;
-    }
-    const isPublic = msgType === "PublicMessage";
-
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
-    const msg = isPublic
-      ? await db.createPublicMessage({
-        from: acct,
-        to: allMembers,
-        content,
-        mediaType: mType,
-        encoding: encType,
-      }) as EncryptedMessageDoc
-      : await db.createEncryptedMessage({
-        from: acct,
-        to: allMembers,
-        content,
-        mediaType: mType,
-        encoding: encType,
-      }) as EncryptedMessageDoc;
+    const msg = await db.createEncryptedMessage({
+      from: acct,
+      to: allMembers,
+      content,
+      mediaType: mType,
+      encoding: encType,
+    });
 
     const extra: Record<string, unknown> = {
-      mediaType: msg.mediaType,
-      encoding: msg.encoding,
+      mediaType: mType,
+      encoding: encType,
     };
     if (Array.isArray(attachments)) {
       extra.attachments = attachments;
@@ -399,7 +354,7 @@ app.post(
     const activityObj = buildActivityFromStored(
       {
         ...saved,
-        type: msgType,
+        type: "PrivateMessage",
       } as {
         _id: unknown;
         type: string;
@@ -456,10 +411,135 @@ app.post(
         })
         : undefined,
     };
-    const wsType = isPublic ? "publicMessage" : "encryptedMessage";
-    sendToUser(acct, { type: wsType, payload: newMsg });
+    sendToUser(acct, { type: "encryptedMessage", payload: newMsg });
     for (const t of recipients) {
-      sendToUser(t, { type: wsType, payload: newMsg });
+      sendToUser(t, { type: "encryptedMessage", payload: newMsg });
+    }
+
+    return c.json({ result: "sent", id: String(msg._id) });
+  },
+);
+
+app.post(
+  "/users/:user/handshakes",
+  authRequired,
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const acct = c.req.param("user");
+    const [sender, senderDomain] = acct.split("@");
+    if (!sender || !senderDomain) {
+      return c.json({ error: "invalid user format" }, 400);
+    }
+    const body = await c.req.json();
+    const { to, cc, content, mediaType, encoding, attachments } = body;
+    if (!Array.isArray(to) || typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const ccList = Array.isArray(cc) ? cc : [];
+    let allMembers = Array.from(new Set([...to, ...ccList]));
+    let [primary, ...ccMembers] = allMembers;
+    const context = Array.isArray(body["@context"])
+      ? body["@context"] as string[]
+      : [
+        "https://www.w3.org/ns/activitystreams",
+        "https://purl.archive.org/socialweb/mls",
+      ];
+    const domain = getDomain(c);
+    const env = getEnv(c);
+    const db = createDB(env);
+
+    const decoded = decodeMLSMessage(content);
+    let bodyObj: Record<string, unknown> | null = null;
+    if (decoded) {
+      try {
+        bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
+      } catch {
+        bodyObj = null;
+      }
+    }
+    if (
+      bodyObj &&
+      bodyObj.type === "remove" &&
+      typeof bodyObj.member === "string"
+    ) {
+      allMembers = allMembers.filter((m) => m !== bodyObj.member);
+      [primary, ...ccMembers] = allMembers;
+    } else if (
+      bodyObj &&
+      bodyObj.type === "welcome" &&
+      typeof bodyObj.member === "string"
+    ) {
+      allMembers = [bodyObj.member];
+      [primary, ...ccMembers] = allMembers;
+    }
+
+    const mType = typeof mediaType === "string" ? mediaType : "message/mls";
+    const encType = typeof encoding === "string" ? encoding : "base64";
+    const msg = await db.createHandshakeMessage({
+      sender: acct,
+      recipients: allMembers,
+      message: content,
+    });
+
+    const extra: Record<string, unknown> = {
+      mediaType: mType,
+      encoding: encType,
+    };
+    if (Array.isArray(attachments)) {
+      extra.attachments = attachments;
+    }
+
+    const actorId = `https://${domain}/users/${sender}`;
+    const object = await db.saveMessage(
+      domain,
+      sender,
+      content,
+      extra,
+      { to: primary ? [primary] : [], cc: ccMembers },
+    );
+
+    const saved = object as Record<string, unknown>;
+
+    const activityObj = buildActivityFromStored(
+      {
+        ...saved,
+        type: "PublicMessage",
+      } as {
+        _id: unknown;
+        type: string;
+        content: string;
+        published: unknown;
+        extra: Record<string, unknown>;
+      },
+      domain,
+      sender,
+      false,
+    );
+    (activityObj as ActivityPubActivity)["@context"] = context;
+
+    const activity = createCreateActivity(domain, actorId, activityObj);
+    (activity as ActivityPubActivity)["@context"] = context;
+    // 個別配信
+    (activity as ActivityPubActivity).to = primary ? [primary] : [];
+    (activity as ActivityPubActivity).cc = ccMembers;
+    const recipients = allMembers;
+    deliverActivityPubObject(recipients, activity, sender, domain, getEnv(c))
+      .catch(
+        (err) => {
+          console.error("deliver failed", err);
+        },
+      );
+
+    const newMsg = {
+      id: String(msg._id),
+      sender: acct,
+      recipients: allMembers,
+      message: content,
+      createdAt: msg.createdAt,
+    };
+    sendToUser(acct, { type: "publicMessage", payload: newMsg });
+    for (const t of recipients) {
+      sendToUser(t, { type: "publicMessage", payload: newMsg });
     }
 
     return c.json({ result: "sent", id: String(msg._id) });
@@ -490,21 +570,19 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   if (!partnerActor && partnerUser && partnerDomain) {
     partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
   }
-  const domain = getDomain(c);
-
   const condition = partnerAcct
     ? {
       $or: [
-        { from: partnerAcct, to: { $in: [actorId, acct] } },
+        { sender: partnerAcct, recipients: { $in: [actorId, acct] } },
         {
-          from: acct,
-          to: {
+          sender: acct,
+          recipients: {
             $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
           },
         },
       ],
     }
-    : { to: { $in: [actorId, acct] } };
+    : { recipients: { $in: [actorId, acct] } };
 
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
@@ -513,17 +591,11 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const db = createDB(getEnv(c));
-  const privateList = await db.findEncryptedMessages(condition, {
+  const list = await db.findEncryptedMessages(condition, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
   }) as EncryptedMessageDoc[];
-  const publicList = await db.findPublicMessages(condition, {
-    before: before ?? undefined,
-    after: after ?? undefined,
-    limit,
-  }) as EncryptedMessageDoc[];
-  const list = [...privateList, ...publicList];
   list.sort((a, b) => {
     const dateA =
       typeof a.createdAt === "string" || typeof a.createdAt === "number" ||
@@ -570,6 +642,86 @@ app.get("/users/:user/messages", authRequired, async (c) => {
           },
         )
         : undefined,
+  }));
+  return c.json(messages);
+});
+
+app.get("/users/:user/handshakes", authRequired, async (c) => {
+  const acct = c.req.param("user");
+  const [user, userDomain] = acct.split("@");
+  if (!user || !userDomain) {
+    return c.json({ error: "invalid user format" }, 400);
+  }
+
+  const actor = await resolveActorCached(
+    acct,
+    getEnv(c),
+  );
+  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
+  const partnerAcct = c.req.query("with");
+  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
+  const partnerActorObj = partnerAcct
+    ? await resolveActorCached(
+      partnerAcct,
+      getEnv(c),
+    )
+    : null;
+  let partnerActor = partnerActorObj?.id;
+  if (!partnerActor && partnerUser && partnerDomain) {
+    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
+  }
+  const condition = partnerAcct
+    ? {
+      $or: [
+        { sender: partnerAcct, recipients: { $in: [actorId, acct] } },
+        {
+          sender: acct,
+          recipients: {
+            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
+          },
+        },
+      ],
+    }
+    : { recipients: { $in: [actorId, acct] } };
+
+  const limit = Math.min(
+    parseInt(c.req.query("limit") ?? "50", 10) || 50,
+    100,
+  );
+  const before = c.req.query("before");
+  const after = c.req.query("after");
+  const db = createDB(getEnv(c));
+  const list = await db.findHandshakeMessages(condition, {
+    before: before ?? undefined,
+    after: after ?? undefined,
+    limit,
+  }) as {
+    _id: unknown;
+    sender: string;
+    recipients: string[];
+    message: string;
+    createdAt: Date;
+  }[];
+  list.sort((a, b) => {
+    const dateA =
+      typeof a.createdAt === "string" || typeof a.createdAt === "number" ||
+        a.createdAt instanceof Date
+        ? new Date(a.createdAt)
+        : new Date(0);
+    const dateB =
+      typeof b.createdAt === "string" || typeof b.createdAt === "number" ||
+        b.createdAt instanceof Date
+        ? new Date(b.createdAt)
+        : new Date(0);
+    return dateA.getTime() - dateB.getTime();
+  });
+  list.reverse();
+  const messages = list.slice(0, limit).map((doc) => ({
+    id: String(doc._id),
+    sender: doc.sender,
+    recipients: doc.recipients,
+    message: doc.message,
+    createdAt: doc.createdAt,
   }));
   return c.json(messages);
 });
