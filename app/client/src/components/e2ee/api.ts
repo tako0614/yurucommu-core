@@ -194,32 +194,19 @@ export const fetchEncryptedMessages = async (
   }
 };
 
-export interface PublicMessage {
+export interface HandshakeMessage {
   id: string;
-  from: string;
-  to: string[];
-  content: string;
-  mediaType: string;
-  encoding: string;
+  sender: string;
+  recipients: string[];
+  message: string;
   createdAt: string;
-  attachments?: {
-    url: string;
-    mediaType: string;
-    key?: string;
-    iv?: string;
-  }[];
 }
 
-const sendPublicMessage = async (
+const sendHandshake = async (
   user: string,
   to: string[],
   cc: string[],
-  data: {
-    content: string;
-    mediaType?: string;
-    encoding?: string;
-    attachments?: unknown[];
-  },
+  content: string,
 ): Promise<boolean> => {
   try {
     const payload: Record<string, unknown> = {
@@ -230,13 +217,12 @@ const sendPublicMessage = async (
       type: ["Object", "PublicMessage"],
       to,
       cc,
-      content: data.content,
-      mediaType: data.mediaType ?? "message/mls",
-      encoding: data.encoding ?? "base64",
+      content,
+      mediaType: "message/mls",
+      encoding: "base64",
     };
-    if (data.attachments) payload.attachments = data.attachments;
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/messages`,
+      `/api/users/${encodeURIComponent(user)}/handshakes`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -245,16 +231,16 @@ const sendPublicMessage = async (
     );
     return res.ok;
   } catch (err) {
-    console.error("Error sending public message:", err);
+    console.error("Error sending handshake:", err);
     return false;
   }
 };
 
-export const fetchPublicMessages = async (
+export const fetchHandshakes = async (
   user: string,
   partner?: string,
   params?: { limit?: number; before?: string; after?: string },
-): Promise<PublicMessage[]> => {
+): Promise<HandshakeMessage[]> => {
   try {
     const search = new URLSearchParams();
     if (partner) search.set("with", partner);
@@ -262,17 +248,17 @@ export const fetchPublicMessages = async (
     if (params?.before) search.set("before", params.before);
     if (params?.after) search.set("after", params.after);
     const query = search.toString();
-    const url = `/api/users/${encodeURIComponent(user)}/messages${
+    const url = `/api/users/${encodeURIComponent(user)}/handshakes${
       query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);
     if (!res.ok) {
-      throw new Error("Failed to fetch public messages");
+      throw new Error("Failed to fetch handshakes");
     }
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch (err) {
-    console.error("Error fetching public messages:", err);
+    console.error("Error fetching handshakes:", err);
     return [];
   }
 };
@@ -490,11 +476,7 @@ export const sendProposal = async (
     "PublicMessage",
     JSON.stringify(proposal),
   );
-  return await sendPublicMessage(user, to, cc, {
-    content,
-    mediaType: "message/mls",
-    encoding: "base64",
-  });
+  return await sendHandshake(user, to, cc, content);
 };
 
 export const sendCommit = async (
@@ -507,11 +489,7 @@ export const sendCommit = async (
     "PublicMessage",
     JSON.stringify(commit),
   );
-  const ok = await sendPublicMessage(user, to, cc, {
-    content,
-    mediaType: "message/mls",
-    encoding: "base64",
-  });
+  const ok = await sendHandshake(user, to, cc, content);
   if (!ok) return false;
   if (commit.welcomes) {
     for (const w of commit.welcomes) {
@@ -519,11 +497,7 @@ export const sendCommit = async (
         "PublicMessage",
         JSON.stringify(w),
       );
-      const success = await sendPublicMessage(user, [w.member], [], {
-        content: wContent,
-        mediaType: "message/mls",
-        encoding: "base64",
-      });
+      const success = await sendHandshake(user, [w.member], [], wContent);
       if (!success) return false;
     }
   }

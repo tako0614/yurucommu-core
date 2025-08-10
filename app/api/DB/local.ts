@@ -9,7 +9,7 @@ import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
 import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
-import PublicMessage from "../models/takos/public_message.ts";
+import HandshakeMessage from "../models/takos/handshake_message.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
@@ -632,19 +632,15 @@ export class MongoDBLocal implements DB {
     await KeyPackage.deleteMany({ userName, tenant_id: tenantId });
   }
 
-  async createPublicMessage(data: {
-    from: string;
-    to: string[];
-    content: string;
-    mediaType?: string;
-    encoding?: string;
+  async createHandshakeMessage(data: {
+    sender: string;
+    recipients: string[];
+    message: string;
   }) {
-    const doc = new PublicMessage({
-      from: data.from,
-      to: data.to,
-      content: data.content,
-      mediaType: data.mediaType ?? "message/mls",
-      encoding: data.encoding ?? "base64",
+    const doc = new HandshakeMessage({
+      sender: data.sender,
+      recipients: data.recipients,
+      message: data.message,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
@@ -655,12 +651,12 @@ export class MongoDBLocal implements DB {
     return doc.toObject();
   }
 
-  async findPublicMessages(
+  async findHandshakeMessages(
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = PublicMessage.find({ ...condition, tenant_id: tenantId });
+    const query = HandshakeMessage.find({ ...condition, tenant_id: tenantId });
     if (opts.before) {
       query.where("createdAt").lt(new Date(opts.before) as unknown as number);
     }

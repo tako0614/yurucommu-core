@@ -17,7 +17,17 @@
 - グループ状態を変える MLS の `Proposal` や `Commit` などは
   `type: ["Object","PublicMessage"]` として同様に配送する。ここでの `Public`
   は「公開」ではなく、暗号化されないハンドシェイクメッセージを
-  指す。宛先は通常どおり全メンバーを列挙する。
+  指す。宛先は通常どおり全メンバーを列挙する。これらは `HandshakeMessage`
+  コレクションに保存され、API `/users/:user/handshakes` で送受信する。
+  通常のメッセージ一覧 `/users/:user/messages` には含まれない。
+
+## ハンドシェイクメッセージの保存と取得
+
+ハンドシェイクメッセージは暗号化されない `PublicMessage`
+として送信され、サーバー上では `HandshakeMessage` コレクションに保存される。\
+クライアントは `/users/:user/handshakes`
+エンドポイントでこれらを送受信し、通常の `/users/:user/messages`
+では暗号化された `PrivateMessage` のみを扱う。
 
 ## 鍵とデバイス管理
 

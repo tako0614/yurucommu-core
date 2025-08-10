@@ -5,7 +5,7 @@ import HostEncryptedKeyPair from "../models/takos_host/encrypted_keypair.ts";
 import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
 import HostKeyPackage from "../models/takos_host/key_package.ts";
 import HostNotification from "../models/takos_host/notification.ts";
-import HostPublicMessage from "../models/takos_host/public_message.ts";
+import HostHandshakeMessage from "../models/takos_host/handshake_message.ts";
 import HostNote from "../models/takos_host/note.ts";
 import HostVideo from "../models/takos_host/video.ts";
 import HostMessage from "../models/takos_host/message.ts";
@@ -739,19 +739,15 @@ export class MongoDBHost implements DB {
     await HostKeyPackage.deleteMany({ userName, tenant_id: this.tenantId });
   }
 
-  async createPublicMessage(data: {
-    from: string;
-    to: string[];
-    content: string;
-    mediaType?: string;
-    encoding?: string;
+  async createHandshakeMessage(data: {
+    sender: string;
+    recipients: string[];
+    message: string;
   }) {
-    const doc = new HostPublicMessage({
-      from: data.from,
-      to: data.to,
-      content: data.content,
-      mediaType: data.mediaType ?? "message/mls",
-      encoding: data.encoding ?? "base64",
+    const doc = new HostHandshakeMessage({
+      sender: data.sender,
+      recipients: data.recipients,
+      message: data.message,
       tenant_id: this.tenantId,
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
@@ -762,11 +758,11 @@ export class MongoDBHost implements DB {
     return doc.toObject();
   }
 
-  async findPublicMessages(
+  async findHandshakeMessages(
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
-    const query = HostPublicMessage.find({
+    const query = HostHandshakeMessage.find({
       ...condition,
       tenant_id: this.tenantId,
     });
