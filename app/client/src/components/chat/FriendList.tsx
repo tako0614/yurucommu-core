@@ -15,10 +15,16 @@ interface FriendListProps {
   rooms: Room[];
   onSelectFriend: (friendId: string) => void;
   selectedFriend?: string | null;
+  query?: string; // 親から検索語を受け取る場合に使用
+  onQueryChange?: (v: string) => void; // 親に検索語変更を通知する場合に使用
+  showSearch?: boolean; // 内部の検索バーを表示するか
 }
 
 export function FriendList(props: FriendListProps) {
-  const [query, setQuery] = createSignal("");
+  const [localQuery, setLocalQuery] = createSignal("");
+  const q = () => (props.query !== undefined ? props.query : localQuery());
+  const setQuery = (v: string) =>
+    props.onQueryChange ? props.onQueryChange(v) : setLocalQuery(v);
 
   // ルームから友達リストを生成
   const friends = createMemo(() => {
@@ -51,25 +57,27 @@ export function FriendList(props: FriendListProps) {
   });
 
   const filteredFriends = createMemo(() => {
-    const q = query().toLowerCase().trim();
-    if (!q) return friends();
-    return friends().filter((f) => 
-      f.name.toLowerCase().includes(q) || f.id.toLowerCase().includes(q)
+    const qq = q().toLowerCase().trim();
+    if (!qq) return friends();
+    return friends().filter((f) =>
+      f.name.toLowerCase().includes(qq) || f.id.toLowerCase().includes(qq)
     );
   });
 
   return (
     <div class="h-full flex flex-col">
-      {/* 検索バー */}
-      <div class="p-3 border-b border-[#333]">
-        <input
-          type="text"
-          placeholder="友だちを検索..."
-          class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-        />
-      </div>
+      {/* 検索バー（必要に応じて非表示可） */}
+      <Show when={props.showSearch !== false}>
+        <div class="p-3 border-b border-[#333]">
+          <input
+            type="text"
+            placeholder="友だちを検索..."
+            class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
+            value={q()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+        </div>
+      </Show>
 
       {/* 友達リスト */}
       <div class="flex-1 overflow-y-auto p-3">

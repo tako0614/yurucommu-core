@@ -12,7 +12,7 @@ import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
-import { EmptyState } from "../ui/EmptyState.tsx";
+import { Button, Input, EmptyState } from "../ui";
 
 interface ChatRoomListProps {
   rooms: Room[];
@@ -98,6 +98,48 @@ export function ChatRoomList(props: ChatRoomListProps) {
     }
   };
 
+  // スライド式セグメントタブ（共通表示、配置のみ条件で入れ替え）
+  const SegTabs = () => {
+    const segs = ["all", "people", "groups"] as const;
+    const idx = () => segs.indexOf(props.segment);
+    return (
+      <div
+        class="relative mb-2 select-none"
+        role="tablist"
+        aria-label="トーク一覧のセグメント"
+        onKeyDown={(e) => onKeyDownTabs(e as unknown as KeyboardEvent)}
+      >
+        <div class="relative grid grid-cols-3 bg-[#2b2b2b] rounded-lg p-1">
+          <div
+            class="absolute top-1 bottom-1 left-1 w-[calc(33.333%-4px)] rounded-md bg-[#4a4a4a] transition-transform duration-200 ease-out"
+            style={{ transform: `translateX(calc(${idx()} * 100%))` }}
+            aria-hidden="true"
+          />
+          {segs.map((seg) => (
+            <button
+              type="button"
+              role="tab"
+              id={`tab-${seg}`}
+              aria-selected={props.segment === seg}
+              aria-controls={`panel-${seg}`}
+              class={`relative z-[1] h-8 text-sm rounded-md flex items-center justify-center text-center transition-colors ${
+                props.segment === seg ? "text-white" : "text-gray-300"
+              }`}
+              onClick={() => changeSeg(seg)}
+            >
+              {seg === "all" ? "すべて" : seg === "people" ? "友だち" : "グループ"}
+              <Show when={(segUnread()[seg] ?? 0) > 0}>
+                <span class="ml-1 inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
+                  {segUnread()[seg]}
+                </span>
+              </Show>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div class="min-h-screen p-3 pb-[76px] bg-[#1e1e1e] z-[3] w-screen lg:w-[360px] lg:flex-none lg:shrink-0 lg:border-r lg:border-[#333333]">
       <div class="flex items-center justify-between">
@@ -105,66 +147,26 @@ export function ChatRoomList(props: ChatRoomListProps) {
           チャット
         </div>
         <div class="flex gap-2">
-          <button
-            type="button"
-            class="px-2 py-1 rounded bg-blue-600 text-white text-sm"
-            onClick={props.onCreateDm}
-          >
+          <Button size="sm" onClick={props.onCreateDm}>
             ＋ 新しいトーク
-          </button>
+          </Button>
         </div>
       </div>
-      <div
-        class="flex gap-1 mb-2"
-        role="tablist"
-        aria-label="トーク一覧のセグメント"
-        onKeyDown={(e) => onKeyDownTabs(e as unknown as KeyboardEvent)}
-      >
-        {(["all", "people", "groups"] as const).map((seg) => (
-          <button
-            type="button"
-            role="tab"
-            id={`tab-${seg}`}
-            aria-selected={props.segment === seg}
-            aria-controls={`panel-${seg}`}
-            class={`flex-1 px-2 py-1 rounded ${
-              props.segment === seg
-                ? "bg-[#4a4a4a] text-white"
-                : "bg-[#2b2b2b] text-gray-300"
-            }`}
-            onClick={() => changeSeg(seg)}
-          >
-            {seg === "all"
-              ? "すべて"
-              : seg === "people"
-              ? "友だち"
-              : "グループ"}
-            <Show when={(segUnread()[seg] ?? 0) > 0}>
-              <span class="ml-1 inline-block text-xs px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
-                {segUnread()[seg]}
-              </span>
-            </Show>
-          </button>
-        ))}
+      <div class="block">
+        <Input
+          label="トークを検索"
+          placeholder="トークを検索..."
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+        <Show when={props.showAds}>
+          <div class="my-2">
+            <GoogleAd />
+          </div>
+        </Show>
       </div>
-      <Show when={props.segment !== "people" || (props.segment === "people" && selectedFriend())}>
-        <div class="block">
-          <Show when={!(props.segment === "people" && selectedFriend())}>
-            <input
-              type="text"
-              placeholder="トークを検索..."
-              class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
-              value={query()}
-              onInput={(e) => setQuery(e.currentTarget.value)}
-            />
-          </Show>
-          <Show when={props.showAds}>
-            <div class="my-2">
-              <GoogleAd />
-            </div>
-          </Show>
-        </div>
-      </Show>
+      {/* 検索の直下に常にセグメントを表示（順序が入れ替わらない） */}
+      <SegTabs />
 
       {/* メインリスト or 友だち関連表示 */}
       <Show when={props.segment === "people" && selectedFriend()}>
@@ -183,6 +185,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
           <FriendList
             rooms={props.rooms}
             selectedFriend={selectedFriend()}
+            query={query()}
+            showSearch={false}
             onSelectFriend={(id) => {
               setSelectedFriend(id);
             }}

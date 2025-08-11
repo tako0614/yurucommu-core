@@ -8,6 +8,7 @@ import {
   setActiveServer,
   setApiBase,
 } from "../utils/config.ts";
+import { Button, EmptyState } from "./ui";
 
 interface TauriLoginProps {
   onLoginSuccess: () => void;
@@ -119,8 +120,8 @@ export function TauriLogin(props: TauriLoginProps) {
 
       {/* server list --------------------------------------------------------- */}
       <div class="w-full max-w-md flex flex-col gap-4 mb-16">
-        <Show when={servers().length} fallback={<EmptyState />}>
-          {/** empty state uses its own component */}
+        <Show when={servers().length} fallback={<EmptyState title="まだサーバーが追加されていません" />}>
+          {/** 空状態は共通コンポーネントに統一 */}
           <For each={servers()}>
             {(s) => (
               <ServerButton
@@ -135,22 +136,26 @@ export function TauriLogin(props: TauriLoginProps) {
 
       {/* add server button --------------------------------------------------- */}
       <div class="fixed bottom-20 inset-x-0 flex flex-col items-center gap-4">
-        <button
+        <Button
           type="button"
-          class="group relative inline-flex items-center justify-center gap-2 w-72 py-4 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-400 hover:to-teal-400 active:scale-95 text-white font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
+          variant="ghost"
+          size="lg"
+          class="group w-72 py-4 rounded-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-400 hover:to-teal-400 active:scale-95 text-white font-semibold focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
           onClick={() => setShowAdd(true)}
         >
           <span class="i-lucide-plus-circle text-xl group-hover:rotate-90 transition-transform" />
           サーバー追加
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="group relative inline-flex items-center justify-center gap-2 w-72 py-4 bg-gray-700 hover:bg-gray-600 active:scale-95 text-white font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
+          variant="ghost"
+          size="lg"
+          class="group w-72 py-4 rounded-full bg-gray-700 hover:bg-gray-600 active:scale-95 text-white font-semibold focus-visible:ring-2 focus-visible:ring-green-300 transition-all"
           onClick={() => setShowSignup(true)}
         >
           <span class="i-lucide-user-plus text-xl group-hover:rotate-90 transition-transform" />
           takos.jpで作成
-        </button>
+        </Button>
       </div>
 
       {/* modal -------------------------------------------------------------- */}
@@ -190,16 +195,4 @@ function ServerButton(
   );
 }
 
-function EmptyState() {
-  return (
-    <Motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.1 }}
-      class="flex flex-col items-center gap-4 py-12 text-sm text-gray-400"
-    >
-      <span class="i-lucide-server size-8 text-gray-500" />
-      まだサーバーが追加されていません
-    </Motion.div>
-  );
-}
+// 以前はローカルに EmptyState を実装していたが、共通 UI に統一

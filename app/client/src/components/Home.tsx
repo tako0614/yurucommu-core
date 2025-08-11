@@ -1,10 +1,11 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
+import { Button, Modal } from "./ui";
 import {
   accounts as accountsAtom,
   activeAccountId,
@@ -16,67 +17,9 @@ export interface HomeProps {
 }
 
 export function Home(props: HomeProps) {
-  const [activeSection, setActiveSection] = createSignal("account");
-
-  // スワイプ機能用の状態
-  const [touchStartX, setTouchStartX] = createSignal(0);
-  const [touchStartY, setTouchStartY] = createSignal(0);
-  const [isSwipeEnabled, _setIsSwipeEnabled] = createSignal(true);
-  let mainContentRef: HTMLElement | undefined;
-
-  // セクションの順序を定義
-  const sections = ["account", "notifications", "settings"];
-
-  // スワイプ検知の最小距離とY軸の許容範囲
-  const MIN_SWIPE_DISTANCE = 50;
-  const MAX_Y_VARIANCE = 100;
-
-  // スワイプによるセクション切り替え
-  const handleSwipe = (direction: "left" | "right") => {
-    if (!isSwipeEnabled()) return;
-
-    const currentIndex = sections.indexOf(activeSection());
-    let newIndex = currentIndex;
-
-    if (direction === "left" && currentIndex < sections.length - 1) {
-      newIndex = currentIndex + 1;
-    } else if (direction === "right" && currentIndex > 0) {
-      newIndex = currentIndex - 1;
-    }
-
-    if (newIndex !== currentIndex) {
-      setActiveSection(sections[newIndex]);
-    }
-  };
-
-  // タッチイベントハンドラー
-  const handleTouchStart = (e: TouchEvent) => {
-    if (!isSwipeEnabled()) return;
-    setTouchStartX(e.touches[0].clientX);
-    setTouchStartY(e.touches[0].clientY);
-  };
-
-  const handleTouchEnd = (e: TouchEvent) => {
-    if (!isSwipeEnabled()) return;
-
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
-
-    const deltaX = touchEndX - touchStartX();
-    const deltaY = touchEndY - touchStartY();
-
-    // Y軸の移動が大きすぎる場合はスワイプとみなさない（スクロール操作の可能性）
-    if (Math.abs(deltaY) > MAX_Y_VARIANCE) return;
-
-    // 最小スワイプ距離をチェック
-    if (Math.abs(deltaX) > MIN_SWIPE_DISTANCE) {
-      if (deltaX > 0) {
-        handleSwipe("right"); // 右にスワイプ（前のセクション）
-      } else {
-        handleSwipe("left"); // 左にスワイプ（次のセクション）
-      }
-    }
-  };
+  // 設定・通知のモーダル制御
+  const [showSettings, setShowSettings] = createSignal(false);
+  const [showNotifications, setShowNotifications] = createSignal(false);
 
   const [accounts, setAccounts] = useAtom(accountsAtom);
 
@@ -234,131 +177,86 @@ export function Home(props: HomeProps) {
 
   onMount(() => {
     loadAccounts();
-    // タッチイベントリスナーを追加
-    const addTouchListeners = () => {
-      if (mainContentRef) {
-        mainContentRef.addEventListener("touchstart", handleTouchStart, {
-          passive: true,
-        });
-        mainContentRef.addEventListener("touchend", handleTouchEnd, {
-          passive: true,
-        });
-      }
-    };
-
-    // DOMが準備できたら追加
-    setTimeout(addTouchListeners, 100);
-
-    // クリーンアップ関数
-    return () => {
-      if (mainContentRef) {
-        mainContentRef.removeEventListener("touchstart", handleTouchStart);
-        mainContentRef.removeEventListener("touchend", handleTouchEnd);
-      }
-    };
   });
 
-  const renderContent = () => {
-    switch (activeSection()) {
-      case "account":
-        return (
-          <AccountSettingsContent
-            accounts={accounts()}
-            selectedAccountId={actId() || ""}
-            setSelectedAccountId={setActId}
-            addNewAccount={addNewAccount}
-            updateAccount={updateAccount}
-            deleteAccount={deleteAccount}
-          />
-        );
-      case "notifications":
-        return <NotificationsContent />;
-      case "settings":
-        return (
-          <div class="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-            <div class="text-center space-y-2">
-              <h2 class="text-3xl font-bold text-gray-100">システム設定</h2>
-              <p class="text-gray-400 max-w-2xl mx-auto">
-                アプリケーションの動作をカスタマイズできます
-              </p>
-            </div>
-            <div class="max-w-4xl mx-auto">
-              <Setting
-                onShowEncryptionKeyForm={props.onShowEncryptionKeyForm}
-              />
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+  // ショートカットキー: S=設定, N=通知（入力中は無効化）
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      const isTyping = ["input", "textarea"].includes(tag) || (document.activeElement as HTMLElement)?.isContentEditable;
+      if (isTyping) return;
+      if (e.key.toLowerCase() === "s") setShowSettings(true);
+      if (e.key.toLowerCase() === "n") setShowNotifications(true);
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  const renderContent = () => (
+    <AccountSettingsContent
+      accounts={accounts()}
+      selectedAccountId={actId() || ""}
+      setSelectedAccountId={setActId}
+      addNewAccount={addNewAccount}
+      updateAccount={updateAccount}
+      deleteAccount={deleteAccount}
+    />
+  );
 
   return (
     <div class="bg-[#121212] text-gray-100 flex flex-col">
-      {/* トップナビゲーション */}
-      <header class="sticky top-0 z-20 bg-[#181818]/80 backdrop-blur-sm border-b border-gray-800/50">
-        <div class="p-2 flex justify-center">
-          <div class="flex space-x-1 bg-gray-800/50 p-1 rounded-full">
-            <button
-              type="button"
-              onClick={() => setActiveSection("account")}
-              class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === "account"
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "text-gray-400 hover:bg-gray-700/50"
-              }`}
-            >
-              アカウント管理
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection("notifications")}
-              class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === "notifications"
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "text-gray-400 hover:bg-gray-700/50"
-              }`}
-            >
-              通知
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection("settings")}
-              class={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${
-                activeSection() === "settings"
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "text-gray-400 hover:bg-gray-700/50"
-              }`}
-            >
-              設定
-            </button>
-          </div>
-        </div>
-
-        {/* スワイプインジケーター */}
-        <div class="flex justify-center pb-2">
-          <div class="flex space-x-2">
-            {sections.map((section) => (
-              <div
-                class={`w-2 h-2 rounded-full transition-all duration-200 ${
-                  activeSection() === section ? "bg-teal-400" : "bg-gray-600"
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-      </header>
+      {/* 右上のフローティングアイコン（ヘッダーは使わない） */}
+      <div class="fixed top-3 right-3 z-20 flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="rounded-full p-2 bg-[#1f1f1f]/70 hover:bg-[#2a2a2a] border border-[#2f2f2f] shadow"
+          aria-label="通知"
+          title="通知 (N)"
+          onClick={() => setShowNotifications(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5">
+            <path fill="currentColor" d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5l-2 2v1h16v-1l-2-2Z" />
+          </svg>
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="rounded-full p-2 bg-[#1f1f1f]/70 hover:bg-[#2a2a2a] border border-[#2f2f2f] shadow"
+          aria-label="設定"
+          title="設定 (S)"
+          onClick={() => setShowSettings(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5">
+            <path fill="currentColor" d="M19.14,12.94a7.49,7.49,0,0,0,.05-1,7.49,7.49,0,0,0-.05-1l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.12,7.12,0,0,0-1.73-1L14.5,2.5a.5.5,0,0,0-.5-.5H10a.5.5,0,0,0-.5.5l-.38,2.47a7.12,7.12,0,0,0-1.73,1l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L4.86,10a7.49,7.49,0,0,0-.05,1,7.49,7.49,0,0,0,.05,1L2.75,13.65a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.12,7.12,0,0,0,1.73,1L9.5,21.5a.5.5,0,0,0,.5.5h4a.5.5,0,0,0,.5-.5l.38-2.47a7.12,7.12,0,0,0,1.73-1l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
+          </svg>
+        </Button>
+      </div>
 
       {/* メインコンテンツ */}
-      <main
-        ref={mainContentRef}
-        class="flex-1 p-0 sm:p-0 md:p-0 touch-pan-y select-none"
-      >
+      <main class="flex-1">
         <div class="relative overflow-hidden">
           {renderContent()}
         </div>
       </main>
+
+      {/* 設定モーダル */}
+      <Show when={showSettings()}>
+        <Modal open={showSettings()} onClose={() => setShowSettings(false)} title="設定">
+          <div class="max-w-4xl">
+            <Setting onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
+          </div>
+        </Modal>
+      </Show>
+
+      {/* 通知モーダル */}
+      <Show when={showNotifications()}>
+        <Modal open={showNotifications()} onClose={() => setShowNotifications(false)} title="通知">
+          <div class="max-w-3xl">
+            <NotificationsContent />
+          </div>
+        </Modal>
+      </Show>
     </div>
   );
 }
