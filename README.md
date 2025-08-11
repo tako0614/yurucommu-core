@@ -56,6 +56,9 @@ deno run -A setup.ts
 フィールドが追加され、複数インスタンスで同じ MongoDB を共有しても
 互いのデータが混在しません。
 
+`tenant_id` は `tenantScope` プラグインにより自動的に付与され、セッションなど
+他のドキュメントも同様にテナントごとに分離されます。
+
 `ACTIVITYPUB_DOMAIN` がテナント ID を兼ねており、ドメインごとにフォロー情報を
 `follow_edge` コレクションで管理します。
 

@@ -252,10 +252,12 @@ export interface DB {
     icon: unknown;
     summary: string;
   }): Promise<void>;
+  /**
+   * セッションを作成します。
+   */
   createSession(
     sessionId: string,
     expiresAt: Date,
-    tenantId: string,
   ): Promise<SessionDoc>;
   findSessionById(sessionId: string): Promise<SessionDoc | null>;
   deleteSessionById(sessionId: string): Promise<void>;

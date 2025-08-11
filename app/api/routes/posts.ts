@@ -45,7 +45,6 @@ app.use("/posts/*", authRequired);
 app.get("/posts", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const actor = c.req.query("actor");
   const timeline = c.req.query("timeline") ?? "latest";
   const limit = Math.min(
@@ -55,7 +54,7 @@ app.get("/posts", async (c) => {
   const before = c.req.query("before");
   const db = createDB(env);
   let list: ActivityPubObjectType[];
-  if (timeline === "following" && actor && tenantId) {
+  if (timeline === "following" && actor) {
     list = await db.listTimeline(actor, {
       limit,
       before: before ? new Date(before) : undefined,
