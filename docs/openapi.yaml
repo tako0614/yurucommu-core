@@ -381,46 +381,6 @@ paths:
       responses:
         "200":
           description: リツイート数
-  /api/videos:
-    get:
-      summary: 動画一覧取得
-      responses:
-        "200":
-          description: 動画の配列
-    post:
-      summary: 動画投稿
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-                thumbnail:
-                  type: string
-                  format: binary
-                author:
-                  type: string
-                title:
-                  type: string
-      responses:
-        "201":
-          description: 作成された動画
-  /api/videos/{id}/like:
-    post:
-      summary: 動画へのいいね
-      responses:
-        "200":
-          description: いいね数
-  /api/videos/{id}/view:
-    post:
-      summary: 動画再生数カウント
-      responses:
-        "200":
-          description: 再生数
   /api/search:
     get:
       summary: 検索
@@ -434,7 +394,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [all, users, posts, videos]
+            enum: [all, users, posts]
         - name: server
           in: query
           schema:

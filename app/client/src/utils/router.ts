@@ -58,7 +58,7 @@ export function useHashRouter() {
       case "home":
       case "microblog":
       case "tools":
-      case "videos":
+      case "notifications":
         setIfChanged(app, setApp, seg as AppPage);
         setIfChanged(room, setRoom, null);
         setIfChanged(postId, setPostId, null);

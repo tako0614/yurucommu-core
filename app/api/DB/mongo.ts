@@ -1,5 +1,4 @@
 import Note from "../models/takos/note.ts";
-import Video from "../models/takos/video.ts";
 import Message from "../models/takos/message.ts";
 import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
@@ -41,9 +40,6 @@ export class MongoDB implements DB {
     let query = this.withTenant(Note.findOne({ _id: id }));
     let doc = await query.lean();
     if (doc) return doc;
-    query = this.withTenant(Video.findOne({ _id: id }));
-    doc = await query.lean();
-    if (doc) return doc;
     query = this.withTenant(Message.findOne({ _id: id }));
     doc = await query.lean();
     if (doc) return doc;
@@ -71,23 +67,6 @@ export class MongoDB implements DB {
     }
     if (data.type === "Note") {
       const doc = new Note({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        content: String(data.content ?? ""),
-        extra: data.extra ?? {},
-        published: data.published ?? new Date(),
-        aud: data.aud ?? { to: [], cc: [] },
-      });
-      if (this.env["DB_MODE"] === "host") {
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
-      await doc.save();
-      return doc.toObject();
-    }
-    if (data.type === "Video") {
-      const doc = new Video({
         _id: data._id,
         attributedTo: String(data.attributedTo),
         actor_id: String(data.actor_id),
@@ -375,58 +354,6 @@ export class MongoDB implements DB {
     return await query.sort({ created_at: -1 }).limit(limit).lean();
   }
 
-  async saveVideo(
-    domain: string,
-    author: string,
-    content: string,
-    extra: Record<string, unknown>,
-    aud?: { to: string[]; cc: string[] },
-  ) {
-    const id = createObjectId(domain);
-    const actor = `https://${domain}/users/${author}`;
-    const doc = new Video({
-      _id: id,
-      attributedTo: actor,
-      actor_id: actor,
-      content,
-      extra,
-      published: new Date(),
-      aud: aud ?? {
-        to: ["https://www.w3.org/ns/activitystreams#Public"],
-        cc: [],
-      },
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
-    await doc.save();
-    return doc.toObject();
-  }
-
-  async updateVideo(id: string, update: Record<string, unknown>) {
-    const query = Video.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    return await query.lean();
-  }
-
-  async deleteVideo(id: string) {
-    const query = Video.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    const res = await query;
-    return !!res;
-  }
-
-  async findVideos(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-  ) {
-    const query = this.withTenant(Video.find({ ...filter }));
-    return await query.sort(sort ?? {}).lean();
-  }
-
   async saveMessage(
     domain: string,
     author: string,
@@ -489,12 +416,6 @@ export class MongoDB implements DB {
         .lean();
       result.push(...notes.map((n) => ({ ...n, type: "Note" })));
     }
-    if (!type || type === "Video") {
-      const videos = await this.withTenant(Video.find({ ...rest }))
-        .sort(sort ?? {})
-        .lean();
-      result.push(...videos.map((v) => ({ ...v, type: "Video" })));
-    }
     if (!type || type === "Message") {
       const messages = await this.withTenant(Message.find({ ...rest }))
         .sort(sort ?? {})
@@ -509,10 +430,6 @@ export class MongoDB implements DB {
     this.withTenant(query);
     let doc = await query.lean();
     if (doc) return doc;
-    query = Video.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    doc = await query.lean();
-    if (doc) return doc;
     query = Message.findOneAndUpdate({ _id: id }, update, { new: true });
     this.withTenant(query);
     doc = await query.lean();
@@ -525,10 +442,6 @@ export class MongoDB implements DB {
     this.withTenant(query);
     let res = await query;
     if (res) return true;
-    query = Video.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    res = await query;
-    if (res) return true;
     query = Message.findOneAndDelete({ _id: id });
     this.withTenant(query);
     res = await query;
@@ -539,11 +452,6 @@ export class MongoDB implements DB {
   async deleteManyObjects(filter: Record<string, unknown>) {
     if (filter.type === "Note") {
       const query = Note.deleteMany({ ...filter });
-      this.withTenant(query);
-      return await query;
-    }
-    if (filter.type === "Video") {
-      const query = Video.deleteMany({ ...filter });
       this.withTenant(query);
       return await query;
     }

@@ -32,15 +32,8 @@ export interface User {
   lastSeen?: string;
 }
 
-export interface VideoResult {
-  id: string;
-  title: string;
-  author: string;
-  thumbnail?: string;
-}
-
 export interface SearchResult {
-  type: "user" | "post" | "video";
+  type: "user" | "post";
   id: string;
   title: string;
   subtitle: string;
@@ -58,13 +51,11 @@ export default function UnifiedToolsContent() {
   const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
   const [accounts, setAccountsState] = useAtom(accountsAtom);
-  const [activeTab, setActiveTab] = createSignal<
-    "users" | "posts" | "videos"
-  >("users");
+  const [activeTab, setActiveTab] = createSignal<"users" | "posts">("users");
   const [searchQuery, setSearchQuery] = createSignal("");
-  const [searchType, setSearchType] = createSignal<
-    "users" | "posts" | "videos"
-  >("users");
+  const [searchType, setSearchType] = createSignal<"users" | "posts">(
+    "users",
+  );
   const [users, setUsers] = createSignal<User[]>([]);
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
@@ -117,8 +108,6 @@ export default function UnifiedToolsContent() {
         return "ユーザー検索... (外部ユーザーは userName@example.com 形式)";
       case "posts":
         return "投稿内容、ハッシュタグで検索...";
-      case "videos":
-        return "動画タイトル、説明で検索...";
       default:
         return "検索... (外部ユーザーは userName@example.com 形式で入力)";
     }
@@ -462,20 +451,6 @@ export default function UnifiedToolsContent() {
           >
             投稿
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("videos");
-              setSearchType("videos");
-            }}
-            class={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
-              activeTab() === "videos"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-gray-400 hover:bg-gray-700/50"
-            }`}
-          >
-            動画
-          </button>
         </div>
       </div>
 
@@ -523,62 +498,6 @@ export default function UnifiedToolsContent() {
             <p class="mt-2 text-red-400 text-sm text-right">{qrError()}</p>
           </Show>
         </div>
-
-        {/* 動画タブ */}
-        <Show when={activeTab() === "videos"}>
-          <div class="space-y-6">
-            <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-gray-200">動画検索</h3>
-              <Show
-                when={searchResults().filter((r: SearchResult) =>
-                  r.type === "video"
-                ).length > 0}
-                fallback={
-                  <div class="text-center py-8 text-gray-400">
-                    <svg
-                      class="w-12 h-12 mx-auto mb-4 opacity-50"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      />
-                    </svg>
-                    <p>検索結果が見つかりませんでした</p>
-                  </div>
-                }
-              >
-                <div class="space-y-2">
-                  <For
-                    each={searchResults().filter((r: SearchResult) =>
-                      r.type === "video"
-                    )}
-                  >
-                    {(v) => (
-                      <div class="bg-gray-800/50 rounded-lg p-4 flex space-x-3 hover:bg-gray-800 transition-all duration-200">
-                        <Show when={v.avatar}>
-                          <img
-                            src={v.avatar!}
-                            alt="thumb"
-                            class="w-24 h-16 object-cover rounded"
-                          />
-                        </Show>
-                        <div class="flex-1">
-                          <p class="text-gray-200">{v.title}</p>
-                          <p class="text-xs text-gray-400">{v.subtitle}</p>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
-          </div>
-        </Show>
 
         {/* ユーザータブ */}
         <Show when={activeTab() === "users"}>
