@@ -97,6 +97,21 @@ export function ChatRoomList(props: ChatRoomListProps) {
     }
   };
 
+  // 友だちが選択されている場合は専用のトークリストに置き換える
+  if (props.segment === "people" && selectedFriend()) {
+    return (
+      <FriendRoomList
+        rooms={props.rooms}
+        friendId={selectedFriend()!}
+        friendName={getFriendName(selectedFriend()!)}
+        selectedRoom={props.selectedRoom}
+        onSelectRoom={props.onSelect}
+        onBack={() => setSelectedFriend(null)}
+        onCreateRoom={() => props.onCreateFriendDm?.(selectedFriend()!)}
+      />
+    );
+  }
+
   return (
     <div class="min-h-screen p-3 pb-[76px] bg-[#1e1e1e] z-[3] w-screen lg:w-[360px] lg:flex-none lg:shrink-0 lg:border-r lg:border-[#333333]">
       <div class="flex items-center justify-between">
@@ -146,20 +161,22 @@ export function ChatRoomList(props: ChatRoomListProps) {
           </button>
         ))}
       </div>
-      <div class="block">
-        <input
-          type="text"
-          placeholder="トークを検索..."
-          class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-        />
-        <Show when={props.showAds}>
-          <div class="my-2">
-            <GoogleAd />
-          </div>
-        </Show>
-      </div>
+      <Show when={props.segment !== "people"}>
+        <div class="block">
+          <input
+            type="text"
+            placeholder="トークを検索..."
+            class="w-full outline-none border-none font-normal p-2 px-3 rounded-lg bg-[#3c3c3c] text-white placeholder-[#aaaaaa]"
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+          <Show when={props.showAds}>
+            <div class="my-2">
+              <GoogleAd />
+            </div>
+          </Show>
+        </div>
+      </Show>
 
       {/* 友達タブの場合は専用UI、それ以外は従来のリスト表示 */}
       <Show
@@ -242,26 +259,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
           </div>
         }
       >
-        <Show
-          when={selectedFriend()}
-          fallback={
-            <FriendList
-              rooms={props.rooms}
-              selectedFriend={selectedFriend()}
-              onSelectFriend={setSelectedFriend}
-            />
-          }
-        >
-          <FriendRoomList
-            rooms={props.rooms}
-            friendId={selectedFriend()!}
-            friendName={getFriendName(selectedFriend()!)}
-            selectedRoom={props.selectedRoom}
-            onSelectRoom={props.onSelect}
-            onBack={() => setSelectedFriend(null)}
-            onCreateRoom={() => props.onCreateFriendDm?.(selectedFriend()!)}
-          />
-        </Show>
+        <FriendList
+          rooms={props.rooms}
+          selectedFriend={selectedFriend()}
+          onSelectFriend={setSelectedFriend}
+        />
       </Show>
     </div>
   );
