@@ -18,7 +18,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import { decodeMLSMessage } from "../../shared/mls_message.ts";
+// ハンドシェイク処理は廃止済みのため、MLS ハンドシェイクデコードは未使用
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -166,6 +166,13 @@ app.post("/ap/rooms", authRequired, async (c) => {
     for (const v of a) if (!b.has(v)) return false;
     return true;
   });
+  // 新しいトーク開始時に自動保存しない。
+  // 既存ルームが見つからず、名前もアイコンも指定なしなら作成しない。
+  const hasName = typeof body.name === "string" && body.name.trim() !== "";
+  const hasIcon = typeof body.icon === "string" && body.icon.trim() !== "";
+  if (!existing && !hasName && !hasIcon) {
+    return jsonResponse(c, { error: "room metadata required" }, 400);
+  }
   const room = existing ?? {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
     name: body.name,
@@ -328,18 +335,9 @@ app.get("/rooms", authRequired, async (c) => {
     applyParticipants(participants, m.createdAt ?? new Date());
   }
 
-  // 2) ハンドシェイク（不足分の補完）
-  const hsList = await db.findHandshakeMessages({
-    $or: [{ sender: ownerHandle }, { recipients: ownerHandle }],
-  }, { limit: 200 }) as {
-    sender: string;
-    recipients: string[];
-    createdAt: Date;
-  }[];
-  for (const h of hsList ?? []) {
-    const participants = new Set<string>([h.sender, ...h.recipients]);
-    applyParticipants(participants, h.createdAt ?? new Date());
-  }
+  // 2) ハンドシェイク（不足分の補完）は廃止
+  // 以前はハンドシェイクメッセージから参加者候補を補完していましたが、
+  // 新しい仕様では使用しません。
 
   // 3) グループメタデータ（名前・アイコン）
   const metaList = await db.listGroups(owner);
@@ -724,7 +722,8 @@ app.post(
   authRequired,
   rateLimit({ windowMs: 60_000, limit: 20 }),
   async (c) => {
-    const roomId = c.req.param("room");
+    // ハンドシェイクは廃止
+    return c.json({ error: "handshake deprecated" }, 410);
     const body = await c.req.json();
     const { from, content, mediaType, encoding, attachments } = body;
     if (typeof from !== "string" || typeof content !== "string") {
@@ -913,47 +912,8 @@ app.get("/rooms/:room/messages", authRequired, async (c) => {
 });
 
 app.get("/rooms/:room/handshakes", authRequired, async (c) => {
-  const roomId = c.req.param("room");
-  const limit = Math.min(
-    parseInt(c.req.query("limit") ?? "50", 10) || 50,
-    100,
-  );
-  const before = c.req.query("before");
-  const after = c.req.query("after");
-  const db = createDB(getEnv(c));
-  const list = await db.findHandshakeMessages({ roomId }, {
-    before: before ?? undefined,
-    after: after ?? undefined,
-    limit,
-  }) as {
-    _id: unknown;
-    sender: string;
-    recipients: string[];
-    message: string;
-    createdAt: Date;
-  }[];
-  list.sort((a, b) => {
-    const dateA =
-      typeof a.createdAt === "string" || typeof a.createdAt === "number" ||
-        a.createdAt instanceof Date
-        ? new Date(a.createdAt)
-        : new Date(0);
-    const dateB =
-      typeof b.createdAt === "string" || typeof b.createdAt === "number" ||
-        b.createdAt instanceof Date
-        ? new Date(b.createdAt)
-        : new Date(0);
-    return dateA.getTime() - dateB.getTime();
-  });
-  list.reverse();
-  const messages = list.slice(0, limit).map((doc) => ({
-    id: String(doc._id),
-    sender: doc.sender,
-    recipients: doc.recipients,
-    message: doc.message,
-    createdAt: doc.createdAt,
-  }));
-  return c.json(messages);
+  // ハンドシェイクは廃止: 空配列を返す
+  return c.json([]);
 });
 
 export default app;

@@ -144,16 +144,6 @@ export interface DB {
   cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
-  createHandshakeMessage(data: {
-    roomId: string;
-    sender: string;
-    recipients: string[];
-    message: string;
-  }): Promise<unknown>;
-  findHandshakeMessages(
-    condition: Record<string, unknown>,
-    opts?: { before?: string; after?: string; limit?: number },
-  ): Promise<unknown[]>;
   listNotifications(): Promise<unknown[]>;
   createNotification(
     title: string,

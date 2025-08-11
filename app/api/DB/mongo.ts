@@ -8,7 +8,6 @@ import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
 import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
 import Notification from "../models/takos/notification.ts";
-import HandshakeMessage from "../models/takos/handshake_message.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
