@@ -13,15 +13,11 @@ import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
-  addRoom,
-  addRoomMember,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeepMessages,
   fetchKeyPackages,
   fetchWelcome,
-  removeRoom as deleteRoom,
-  removeRoomMember,
   saveEncryptedKeyPair,
   searchRooms,
   sendCommit,
@@ -29,6 +25,7 @@ import {
   sendKeepMessage,
   sendProposal,
   uploadFile,
+  sendHandshake,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -491,96 +488,7 @@ export function Chat(props: ChatProps) {
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
-  let longPressTimer: number | undefined;
-
-  const removeRoom = async (roomId: string) => {
-    const user = account();
-    if (!user) return;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return;
-    if (!confirm(`${room.name} のルームを削除しますか？`)) return;
-    if (await deleteRoom(user.id, roomId)) {
-      setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
-      if (selectedRoom() === roomId) {
-        setSelectedRoom(null);
-        setMessages([]);
-      }
-    }
-  };
-
-  const leaveRoom = async (roomId: string) => {
-    const user = account();
-    if (!user) return;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return;
-    if (!confirm(`${room.name} から退出しますか？`)) return;
-    const me = `${user.userName}@${getDomain()}` as ActorID;
-    await removeRoomMember(roomId, me);
-    const remaining = room.members.filter((m) => m !== me);
-    const { to: toList, cc: ccList } = expandMembers(remaining);
-    const proposal = { type: "remove" as const, member: me };
-    await sendProposal(me, toList, ccList, proposal);
-    await sendCommit(me, toList, ccList, {
-      type: "commit",
-      epoch: 0,
-      proposals: [proposal],
-    });
-    if (await deleteRoom(user.id, roomId)) {
-      setChatRooms((prev) => prev.filter((r) => r.id !== roomId));
-      if (selectedRoom() === roomId) {
-        setSelectedRoom(null);
-        setMessages([]);
-      }
-    }
-  };
-
-  const kickMember = async (roomId: string, member: string) => {
-    const user = account();
-    if (!user) return;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return;
-    const target = normalizeActor(member as ActorID);
-    if (!room.members.includes(target)) return;
-    if (!confirm(`${target} を追放しますか？`)) return;
-    await removeRoomMember(roomId, target);
-    const remaining = room.members.filter((m) => m !== target);
-    const { to: toList, cc: ccList } = expandMembers(remaining);
-    const proposal = { type: "remove" as const, member: target };
-    await sendProposal(
-      `${user.userName}@${getDomain()}`,
-      toList,
-      ccList,
-      proposal,
-    );
-    await sendCommit(`${user.userName}@${getDomain()}`, toList, ccList, {
-      type: "commit",
-      epoch: 0,
-      proposals: [proposal],
-    });
-    setChatRooms((prev) =>
-      prev.map((r) => r.id === roomId ? { ...r, members: remaining } : r)
-    );
-  };
-
-  const promptKick = () => {
-    const roomId = selectedRoom();
-    if (!roomId) return;
-    const target = globalThis.prompt(
-      "追放するメンバーのハンドルを入力してください",
-    );
-    if (target) kickMember(roomId, target);
-  };
-
-  const startLongPress = (id: string) => {
-    longPressTimer = globalThis.setTimeout(() => removeRoom(id), 600);
-  };
-
-  const cancelLongPress = () => {
-    if (longPressTimer) {
-      globalThis.clearTimeout(longPressTimer);
-      longPressTimer = undefined;
-    }
-  };
+  
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -978,137 +886,44 @@ export function Chat(props: ChatProps) {
     }
   };
 
-  const openGroupDialog = () => {
-    setGroupDialogMode("create");
-    setShowGroupDialog(true);
-  };
-
-  const openInviteDialog = () => {
-    setGroupDialogMode("invite");
-    setShowGroupDialog(true);
-  };
-
   const openDmDialog = () => {
     setGroupDialogMode("dm");
     setShowGroupDialog(true);
   };
 
-  const createGroup = async (name: string, membersInput: string) => {
+  const startDm = async (_name: string, membersInput: string) => {
     const user = account();
     if (!user) return;
-    const members = membersInput.split(",").map((s) => normalizeActor(s.trim()))
-      .filter(Boolean) as ActorID[];
-    // 名前未設定（空文字）は 1:1 作成時に許容
-    if (members.length === 0) return;
-    const id = crypto.randomUUID();
+    const partner = normalizeActor(membersInput.split(",")[0]?.trim() as ActorID);
+    if (!partner) return;
+    // 既存の1:1未設定ルームがある場合はそれを開く（重複防止）
+    const exists = chatRooms().some((r) => r.id === partner);
+    if (exists) {
+      setSelectedRoom(partner);
+      setShowGroupDialog(false);
+      return;
+    }
     const room: Room = {
-      id,
-      name,
+      id: partner,
+      name: "",
       userName: user.userName,
       domain: getDomain(),
-      avatar: name ? name.charAt(0).toUpperCase() : "👥",
+      avatar: "",
       unreadCount: 0,
       type: "group",
-      members,
-      hasName: !!name && name.trim() !== "",
+      members: [partner],
+      hasName: false,
       hasIcon: false,
       lastMessage: "...",
       lastMessageTime: undefined,
     };
-    // 1:1（name 未設定）なら相手プロフィールで見た目をフォールバック
     await applyDisplayFallback([room]);
-    setChatRooms((prev) => [...prev, room]);
-    await addRoom(user.id, { id, name, members });
-    const allMembers: ActorID[] = [
-      `${user.userName}@${getDomain()}` as ActorID,
-      ...members,
-    ];
-    const { to: toList, cc: ccList } = expandMembers(allMembers);
-    const proposals = members.map((m) => ({ type: "add", member: m }));
-    for (const p of proposals) {
-      await sendProposal(
-        `${user.userName}@${getDomain()}`,
-        toList,
-        ccList,
-        p,
-      );
-    }
-    const commit = {
-      type: "commit" as const,
-      epoch: 0,
-      proposals,
-      welcomes: members.map((m) => ({
-        type: "welcome" as const,
-        member: m,
-        epoch: 0,
-        tree: {},
-        secret: "",
-      })),
-    };
-    await sendCommit(
-      `${user.userName}@${getDomain()}`,
-      toList,
-      ccList,
-      commit,
-    );
-    await fetchWelcome(`${user.userName}@${getDomain()}`, id);
-    setShowGroupDialog(false);
-  };
-
-  const inviteMembers = async (membersInput: string) => {
-    const user = account();
-    const roomId = selectedRoom();
-    if (!user || !roomId) return;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return;
-    const newMembers = membersInput.split(",").map((s) =>
-      normalizeActor(s.trim())
-    )
-      .filter((m) => m && !room.members.includes(m)) as ActorID[];
-    if (newMembers.length === 0) return;
-    for (const m of newMembers) {
-      await addRoomMember(roomId, m);
-    }
-    const allMembers: ActorID[] = [
-      `${user.userName}@${getDomain()}` as ActorID,
-      ...room.members,
-    ];
-    const { to: toList, cc: ccList } = expandMembers(allMembers);
-    const proposals = newMembers.map((m) => ({
-      type: "add" as const,
-      member: m,
-    }));
-    for (const p of proposals) {
-      await sendProposal(
-        `${user.userName}@${getDomain()}`,
-        toList,
-        ccList,
-        p,
-      );
-    }
-    const commit = {
-      type: "commit" as const,
-      epoch: 0,
-      proposals,
-      welcomes: newMembers.map((m) => ({
-        type: "welcome" as const,
-        member: m,
-        epoch: 0,
-        tree: {},
-        secret: "",
-      })),
-    };
-    await sendCommit(
-      `${user.userName}@${getDomain()}`,
-      toList,
-      ccList,
-      commit,
-    );
-    setChatRooms((prev) =>
-      prev.map((r) =>
-        r.id === roomId ? { ...r, members: [...r.members, ...newMembers] } : r
-      )
-    );
+    upsertRoom(room);
+    const me = `${user.userName}@${getDomain()}`;
+    const { to: toList, cc: ccList } = expandMembers([me as ActorID, partner as ActorID]);
+    // 軽量なハンドシェイクでサーバ派生ビューに登場させる
+    await sendHandshake(me, toList, ccList, "hi");
+    setSelectedRoom(partner);
     setShowGroupDialog(false);
   };
 
@@ -1574,8 +1389,7 @@ export function Chat(props: ChatProps) {
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
-              avatar: info.authorAvatar ||
-                info.userName.charAt(0).toUpperCase(),
+              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "group",
               members: [normalizedRoomId],
@@ -1583,11 +1397,6 @@ export function Chat(props: ChatProps) {
               lastMessageTime: undefined,
             };
             upsertRoom(room);
-            await addRoom(user.id, {
-              id: normalizedRoomId,
-              name: room.name,
-              members: [normalizedRoomId],
-            });
           }
         }
 
@@ -1661,11 +1470,7 @@ export function Chat(props: ChatProps) {
               rooms={chatRooms()}
               selectedRoom={selectedRoom()}
               onSelect={selectRoom}
-              onRemove={removeRoom}
-              onStartLongPress={startLongPress}
-              onCancelLongPress={cancelLongPress}
               showAds={showAds()}
-              onCreateGroup={openGroupDialog}
               onCreateDm={openDmDialog}
               segment={segment()}
               onSegmentChange={setSegment}
@@ -1712,32 +1517,7 @@ export function Chat(props: ChatProps) {
                   selectedRoom={selectedRoomInfo()}
                   onBack={backToRoomList}
                 />
-                <div class="flex gap-2 p-2">
-                  <button
-                    type="button"
-                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
-                    onClick={openInviteDialog}
-                  >
-                    メンバー招待
-                  </button>
-                  <button
-                    type="button"
-                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
-                    onClick={() => {
-                      const id = selectedRoom();
-                      if (id) leaveRoom(id);
-                    }}
-                  >
-                    退出
-                  </button>
-                  <button
-                    type="button"
-                    class="px-2 py-1 rounded bg-[#3c3c3c] text-white"
-                    onClick={promptKick}
-                  >
-                    追放
-                  </button>
-                </div>
+                {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
                   messages={messages()}
                   onReachTop={() => {
@@ -1770,8 +1550,7 @@ export function Chat(props: ChatProps) {
         isOpen={showGroupDialog()}
         mode={groupDialogMode()}
         onClose={() => setShowGroupDialog(false)}
-        onCreate={createGroup}
-        onInvite={inviteMembers}
+        onCreate={startDm}
       />
     </>
   );

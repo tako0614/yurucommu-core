@@ -4,6 +4,7 @@ const handshakeMessageSchema = new mongoose.Schema({
   sender: { type: String, required: true },
   recipients: { type: [String], required: true },
   message: { type: String, required: true },
+  tenant_id: { type: String, index: true },
   createdAt: { type: Date, default: Date.now },
 });
 

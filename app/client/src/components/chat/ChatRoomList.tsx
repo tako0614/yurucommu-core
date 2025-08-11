@@ -7,11 +7,7 @@ interface ChatRoomListProps {
   rooms: Room[];
   selectedRoom: string | null;
   onSelect: (id: string) => void;
-  onRemove: (id: string) => void;
-  onStartLongPress: (id: string) => void;
-  onCancelLongPress: () => void;
   showAds: boolean;
-  onCreateGroup: () => void;
   onCreateDm: () => void;
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
@@ -87,13 +83,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
           >
             ＋ 新しいトーク
           </button>
-          <button
-            type="button"
-            class="px-2 py-1 rounded bg-[#3c3c3c] text-white text-sm"
-            onClick={props.onCreateGroup}
-          >
-            ＋ グループ作成
-          </button>
         </div>
       </div>
       <div
@@ -162,14 +151,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
                     : "hover:bg-[#3c3c3c]"
                 }`}
                 onClick={() => props.onSelect(room.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  props.onRemove(room.id);
-                }}
-                onTouchStart={() => props.onStartLongPress(room.id)}
-                onTouchEnd={props.onCancelLongPress}
-                onTouchMove={props.onCancelLongPress}
-                onTouchCancel={props.onCancelLongPress}
               >
                 <div class="flex items-center w-full">
                   <span class="relative block h-full aspect-square flex items-center justify-center w-[40px] h-[40px]">

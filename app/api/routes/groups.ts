@@ -7,8 +7,8 @@ import {
   getDomain,
   jsonResponse,
 } from "../utils/activitypub.ts";
-import EncryptedMessage from "../models/takos/encrypted_message.ts";
-import HandshakeMessage from "../models/takos/handshake_message.ts";
+// 直接モデルを参照せず、DB 抽象を通して取得することで
+// local / host いずれのモードでも同じコードで動くようにする
 
 // ルーム管理 API (ActivityPub 対応)
 const app = new Hono();
@@ -290,24 +290,20 @@ app.get("/rooms", authRequired, async (c) => {
     });
   };
 
-  // 1) encrypted messages
-  const encList = await EncryptedMessage.find({
+  // 1) 暗号化メッセージ由来
+  const encList = await db.findEncryptedMessages({
     $or: [{ from: ownerHandle }, { to: ownerHandle }],
-  }).sort({ createdAt: -1 }).limit(500).lean<{
-    from: string; to: string[]; createdAt: Date;
-  }[]>();
-  for (const m of encList) {
+  }, { limit: 500 }) as { from: string; to: string[]; createdAt: Date }[];
+  for (const m of encList ?? []) {
     const participants = new Set<string>([m.from, ...m.to]);
     applyParticipants(participants, m.createdAt ?? new Date());
   }
 
-  // 2) handshake messages（足りない場合の補完）
-  const hsList = await HandshakeMessage.find({
+  // 2) ハンドシェイク（不足分の補完）
+  const hsList = await db.findHandshakeMessages({
     $or: [{ sender: ownerHandle }, { recipients: ownerHandle }],
-  }).sort({ createdAt: -1 }).limit(200).lean<{
-    sender: string; recipients: string[]; createdAt: Date;
-  }[]>();
-  for (const h of hsList) {
+  }, { limit: 200 }) as { sender: string; recipients: string[]; createdAt: Date }[];
+  for (const h of hsList ?? []) {
     const participants = new Set<string>([h.sender, ...h.recipients]);
     applyParticipants(participants, h.createdAt ?? new Date());
   }

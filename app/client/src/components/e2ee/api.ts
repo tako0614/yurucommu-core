@@ -202,7 +202,7 @@ export interface HandshakeMessage {
   createdAt: string;
 }
 
-const sendHandshake = async (
+export const sendHandshake = async (
   user: string,
   to: string[],
   cc: string[],
@@ -372,6 +372,7 @@ export interface RoomsSearchItem {
   hasName: boolean;
   hasIcon: boolean;
   membersCount: number;
+  lastMessageAt?: string;
 }
 
 export const searchRooms = async (
@@ -405,9 +406,17 @@ export const searchRooms = async (
   }
 };
 
+export interface GroupMeta {
+  id: string;
+  name: string;
+  icon?: string;
+  userSet?: { name?: boolean; icon?: boolean };
+  members: string[];
+}
+
 export const fetchRoomList = async (
   id: string,
-): Promise<Room[]> => {
+): Promise<GroupMeta[]> => {
   try {
     const res = await apiFetch(`/api/accounts/${id}/groups`);
     if (!res.ok) throw new Error("failed");
