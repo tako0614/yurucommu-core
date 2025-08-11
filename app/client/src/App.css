@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/*
+  デザイン・トークン（CSS変数）
+  - 色、間隔、角丸、影などを一元管理
+*/
+:root {
+  --color-bg: #121212;
+  --color-surface: #1b1b1b;
+  --color-elevated: #212121;
+  --color-text: #f3f4f6;
+  --color-muted: #9ca3af;
+  --color-border: #2a2a2a;
+  --color-primary: #22d3ee; /* teal-400 */
+  --color-primary-strong: #06b6d4; /* cyan-500 */
+  --focus-ring: 0 0 0 3px rgba(34, 211, 238, 0.45);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -8,15 +32,17 @@ body {
     Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 body.dark {
-  background-color: #1a1a1a;
-  color: #f3f4f6;
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 input::placeholder {
-  color: #9ca3af;
+  color: var(--color-muted);
   opacity: 0.8;
 }
 
@@ -33,15 +59,14 @@ button {
   letter-spacing: 0.025em;
 }
 
-/* フォーカス時のリングエフェクト */
-.focus\:ring-2:focus {
-  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+/* アクセシブルなフォーカス表示（キーボード操作時のみ） */
+*:focus {
+  outline: none;
 }
-
-/* ホバー時の微妙な光沢効果 */
-.hover\:bg-purple-600:hover {
-  background-color: #9333ea;
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+*:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--color-primary-strong);
 }
 
 @keyframes account-switch {
@@ -62,8 +87,8 @@ button {
 html, body {
   position: relative;
   background-size: cover;
-  background-color: #1e1e1e; /* ホワイトモード廃止: 背景色変更 */
-  color: #ffffff; /* ホワイトモード廃止: 基本文字色変更 */
+  background-color: var(--color-bg);
+  color: var(--color-text);
   height: 100dvh !important;
   min-height: 100dvh !important;
 }
@@ -77,31 +102,43 @@ html, body {
 }
 
 ::-webkit-scrollbar {
-  background: #1e1e1e; /* 背景に合わせて調整 */
+  background: var(--color-bg);
   width: 0px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #555; /* スクロールバーサムの色調整 */
+  background-color: #555;
 }
 
-input {
+input, textarea, select {
   display: block;
-  background-color: #252526; /* ホワイトモード廃止: 入力欄背景色変更 */
-  color: #ffffff; /* ホワイトモード廃止: 入力欄文字色変更 */
-  border: 1px solid #333333; /* ホワイトモード廃止: 入力欄ボーダー色変更 */
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
-/* フォーカス時に枠が太くなる/青いアウトラインが出るのを抑制 */
-input:focus,
-textarea:focus,
-button:focus {
-  outline: none;
-  box-shadow: none;
+/* スキップリンク（アクセシビリティ） */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  background: var(--color-elevated);
+  color: var(--color-text);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+.skip-link:focus-visible {
+  left: 12px;
+  top: 12px;
+  z-index: 10001;
 }
 
-/* 可能ならフォーカス可視性は色だけで表現（太くしない） */
-input:focus,
-textarea:focus {
-  border-color: #4a90e2; /* 任意: わずかに色だけ変える。不要ならこの2行を削除可 */
+/* ベースのカード表現 */
+.surface {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }

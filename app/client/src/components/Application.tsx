@@ -64,7 +64,7 @@ export function Application(props: ApplicationProps) {
   return (
     <>
       <Header />
-      <main class={wrapperClass()}>
+      <main id="main" class={wrapperClass()}>
         <Show when={selectedApp() === "home"}>
           <Home onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
         </Show>

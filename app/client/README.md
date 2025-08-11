@@ -23,6 +23,10 @@ ActivityPub
 $ deno task build
 ```
 
+## UI/UX ガイド
+
+UI の共通デザイン・コンポーネント・アクセシビリティ方針は `docs/ui_ux.md` を参照してください。
+
 ### takos host からのインスタンス作成
 
 Tauri 版ログイン画面では、`takos.jp` 上でアカウントを作成してそのまま
