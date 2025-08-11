@@ -9,6 +9,15 @@ export interface ListOpts {
   before?: Date;
 }
 
+/** グループ情報 */
+export interface GroupInfo {
+  id: string;
+  name: string;
+  icon?: string;
+  userSet?: { name?: boolean; icon?: boolean };
+  members: string[];
+}
+
 /** DB 抽象インターフェース */
 export interface DB {
   getObject(id: string): Promise<unknown | null>;
@@ -31,26 +40,26 @@ export interface DB {
   removeFollowing(id: string, target: string): Promise<string[]>;
   listGroups(
     id: string,
-  ): Promise<{ id: string; name: string; members: string[] }[]>;
+  ): Promise<GroupInfo[]>;
   addGroup(
     id: string,
-    group: { id: string; name: string; members: string[] },
-  ): Promise<{ id: string; name: string; members: string[] }[]>;
+    group: GroupInfo,
+  ): Promise<GroupInfo[]>;
   removeGroup(
     id: string,
     groupId: string,
-  ): Promise<{ id: string; name: string; members: string[] }[]>;
+  ): Promise<GroupInfo[]>;
   findGroup(
     groupId: string,
   ): Promise<
     {
       owner: string;
-      group: { id: string; name: string; members: string[] };
+      group: GroupInfo;
     } | null
   >;
   updateGroup(
     owner: string,
-    group: { id: string; name: string; members: string[] },
+    group: GroupInfo,
   ): Promise<void>;
   saveNote(
     domain: string,

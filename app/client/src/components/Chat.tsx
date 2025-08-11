@@ -17,15 +17,15 @@ import {
   fetchEncryptedMessages,
   fetchKeepMessages,
   fetchKeyPackages,
-  fetchWelcome,
+  fetchWelcome as _fetchWelcome,
   saveEncryptedKeyPair,
   searchRooms,
-  sendCommit,
+  sendCommit as _sendCommit,
   sendEncryptedMessage,
-  sendKeepMessage,
-  sendProposal,
-  uploadFile,
   sendHandshake,
+  sendKeepMessage,
+  sendProposal as _sendProposal,
+  uploadFile,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -450,7 +450,9 @@ export function Chat(props: ChatProps) {
   const [groupDialogMode, setGroupDialogMode] = createSignal<
     "create" | "invite" | "dm"
   >("create");
-  const [segment, setSegment] = createSignal<"all" | "people" | "groups">("all");
+  const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
+    "all",
+  );
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -488,7 +490,6 @@ export function Chat(props: ChatProps) {
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
-  
 
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
@@ -837,7 +838,9 @@ export function Chat(props: ChatProps) {
         hasName: r.hasName,
         hasIcon: r.hasIcon,
         lastMessage: "...",
-        lastMessageTime: undefined,
+        lastMessageTime: r.lastMessageAt
+          ? new Date(r.lastMessageAt)
+          : undefined,
       });
     }
 
@@ -854,7 +857,10 @@ export function Chat(props: ChatProps) {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    const twoNoName = rooms.filter((r) => r.type !== "memo" && ((r.members?.length ?? 0) + 1 === 2) && !(r.hasName || r.hasIcon));
+    const twoNoName = rooms.filter((r) =>
+      r.type !== "memo" && ((r.members?.length ?? 0) + 1 === 2) &&
+      !(r.hasName || r.hasIcon)
+    );
     const ids = twoNoName
       .map((r) => r.members.find((m) => m !== selfHandle))
       .filter((v): v is string => !!v);
@@ -870,17 +876,23 @@ export function Chat(props: ChatProps) {
       }
     }
     // 3人以上の自動生成（簡易）
-    const multi = rooms.filter((r) => r.type !== "memo" && ((r.members?.length ?? 0) + 1) >= 3 && !(r.hasName));
+    const multi = rooms.filter((r) =>
+      r.type !== "memo" && ((r.members?.length ?? 0) + 1) >= 3 && !(r.hasName)
+    );
     const needIds = Array.from(new Set(multi.flatMap((r) => r.members)));
     if (needIds.length > 0) {
       const infos = await fetchUserInfoBatch(needIds, user.id);
       const map = new Map<string, typeof infos[number]>();
       for (let i = 0; i < needIds.length; i++) map.set(needIds[i], infos[i]);
       for (const r of multi) {
-        const names = r.members.map((m) => map.get(m)?.displayName || map.get(m)?.userName).filter(Boolean) as string[];
+        const names = r.members.map((m) =>
+          map.get(m)?.displayName || map.get(m)?.userName
+        ).filter(Boolean) as string[];
         const top = names.slice(0, 2);
         const rest = Math.max(0, names.length + 1 - top.length - 1); // +1 = 自分
-        r.name = top.length > 0 ? `${top.join("、")}${rest > 0 ? ` ほか${rest}名` : ""}` : r.name;
+        r.name = top.length > 0
+          ? `${top.join("、")}${rest > 0 ? ` ほか${rest}名` : ""}`
+          : r.name;
         r.avatar = r.avatar || "👥";
       }
     }
@@ -894,7 +906,9 @@ export function Chat(props: ChatProps) {
   const startDm = async (_name: string, membersInput: string) => {
     const user = account();
     if (!user) return;
-    const partner = normalizeActor(membersInput.split(",")[0]?.trim() as ActorID);
+    const partner = normalizeActor(
+      membersInput.split(",")[0]?.trim() as ActorID,
+    );
     if (!partner) return;
     // 既存の1:1未設定ルームがある場合はそれを開く（重複防止）
     const exists = chatRooms().some((r) => r.id === partner);
@@ -920,7 +934,10 @@ export function Chat(props: ChatProps) {
     await applyDisplayFallback([room]);
     upsertRoom(room);
     const me = `${user.userName}@${getDomain()}`;
-    const { to: toList, cc: ccList } = expandMembers([me as ActorID, partner as ActorID]);
+    const { to: toList, cc: ccList } = expandMembers([
+      me as ActorID,
+      partner as ActorID,
+    ]);
     // 軽量なハンドシェイクでサーバ派生ビューに登場させる
     await sendHandshake(me, toList, ccList, "hi");
     setSelectedRoom(partner);
@@ -1389,7 +1406,8 @@ export function Chat(props: ChatProps) {
               name: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
-              avatar: info.authorAvatar || info.userName.charAt(0).toUpperCase(),
+              avatar: info.authorAvatar ||
+                info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
               type: "group",
               members: [normalizedRoomId],
