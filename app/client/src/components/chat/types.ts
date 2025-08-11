@@ -33,3 +33,18 @@ export interface Room {
   hasName?: boolean;
   hasIcon?: boolean;
 }
+
+// トークルームの種類を判定するユーティリティ関数
+export function isFriendRoom(room: Room): boolean {
+  return room.type !== "memo" && 
+         (room.members?.length ?? 0) + 1 === 2 && 
+         !(room.hasName || room.hasIcon);
+}
+
+export function isGroupRoom(room: Room): boolean {
+  return room.type !== "memo" && !isFriendRoom(room);
+}
+
+export function isMemoRoom(room: Room): boolean {
+  return room.type === "memo";
+}

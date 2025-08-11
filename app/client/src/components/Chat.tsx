@@ -18,6 +18,7 @@ import {
   fetchKeepMessages,
   fetchKeyPackages,
   fetchWelcome as _fetchWelcome,
+  RoomsSearchItem,
   saveEncryptedKeyPair,
   searchRooms,
   sendCommit as _sendCommit,
@@ -453,6 +454,7 @@ export function Chat(props: ChatProps) {
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
+  const [friendGroupTarget, setFriendGroupTarget] = createSignal<string | null>(null);
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -632,7 +634,7 @@ export function Chat(props: ChatProps) {
         address: `${user.userName}@${getDomain()}`,
         content: m.content,
         timestamp: new Date(m.createdAt),
-        type: "text",
+        type: "text" as const,
         isMe: true,
         avatar: room.avatar,
       }));
@@ -650,7 +652,11 @@ export function Chat(props: ChatProps) {
         const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
         if (partnerPub) {
           const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-          group = { members: room.members, epoch: Date.now(), secret };
+          const tree: Record<ActorID, string> = {};
+          for (const member of room.members) {
+            tree[member] = ""; // 実際の公開鍵は別途取得が必要
+          }
+          group = { tree, epoch: Date.now(), secret };
           setGroups({ ...groups(), [room.id]: group });
           saveGroupStates();
         }
@@ -695,40 +701,42 @@ export function Chat(props: ChatProps) {
           data?: string;
           url?: string;
           mediaType: string;
-          preview?: { url?: string; data?: string; mediaType?: string };
+          preview?: { url?: string; data?: string; mediaType?: string; key?: string; iv?: string };
         }[]
         | undefined;
       if (Array.isArray(listAtt)) {
         attachments = [];
         for (const at of listAtt) {
           if (typeof at.url === "string") {
-            const mt = typeof at.mediaType === "string"
-              ? at.mediaType
+            const attachmentItem = at as typeof at & { preview?: ActivityPubPreview };
+            const mt = typeof attachmentItem.mediaType === "string"
+              ? attachmentItem.mediaType
               : "application/octet-stream";
             let preview;
-            if (at.preview && typeof at.preview.url === "string") {
-              const pmt = typeof at.preview.mediaType === "string"
-                ? at.preview.mediaType
+            if (attachmentItem.preview && typeof attachmentItem.preview.url === "string") {
+              const previewItem = attachmentItem.preview;
+              const pmt = typeof previewItem.mediaType === "string"
+                ? previewItem.mediaType
                 : "image/jpeg";
               try {
-                const pres = await fetch(at.preview.url);
+                const pres = await fetch(previewItem.url);
                 let pbuf = await pres.arrayBuffer();
                 if (
-                  typeof at.preview.key === "string" &&
-                  typeof at.preview.iv === "string"
+                  typeof previewItem.key === "string" &&
+                  typeof previewItem.iv === "string"
                 ) {
-                  pbuf = await decryptFile(pbuf, at.preview.key, at.preview.iv);
+                  pbuf = await decryptFile(pbuf, previewItem.key, previewItem.iv);
                 }
                 preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
               } catch {
-                preview = { url: at.preview.url, mediaType: pmt };
+                preview = { url: previewItem.url, mediaType: pmt };
               }
             }
             try {
-              const res = await fetch(at.url);
+              const res = await fetch(attachmentItem.url);
               let buf = await res.arrayBuffer();
-              if (typeof at.key === "string" && typeof at.iv === "string") {
-                buf = await decryptFile(buf, at.key, at.iv);
+              if (typeof attachmentItem.key === "string" && typeof attachmentItem.iv === "string") {
+                buf = await decryptFile(buf, attachmentItem.key, attachmentItem.iv);
               }
               if (
                 mt.startsWith("video/") ||
@@ -748,7 +756,7 @@ export function Chat(props: ChatProps) {
                 });
               }
             } catch {
-              attachments.push({ url: at.url, mediaType: mt, preview });
+              attachments.push({ url: attachmentItem.url, mediaType: mt, preview });
             }
           }
         }
@@ -838,8 +846,8 @@ export function Chat(props: ChatProps) {
         hasName: r.hasName,
         hasIcon: r.hasIcon,
         lastMessage: "...",
-        lastMessageTime: r.lastMessageAt
-          ? new Date(r.lastMessageAt)
+        lastMessageTime: (r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt
+          ? new Date((r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt!)
           : undefined,
       });
     }
@@ -942,6 +950,45 @@ export function Chat(props: ChatProps) {
     await sendHandshake(me, toList, ccList, "hi");
     setSelectedRoom(partner);
     setShowGroupDialog(false);
+  };
+
+  // 友達との新しいグループルーム作成
+  const startFriendGroup = async (groupName: string, membersInput: string) => {
+    const user = account();
+    const friendId = friendGroupTarget();
+    if (!user || !friendId) return;
+
+    // 友達を含むメンバーリストを作成
+    const inputMembers = membersInput ? membersInput.split(",").map(m => m.trim()).filter(Boolean) : [];
+    const allMembers = [friendId, ...inputMembers.filter(m => m !== friendId)];
+
+    if (allMembers.length === 1) {
+      // 友達のみの場合はDMとして作成
+      await startDm("", friendId);
+      return;
+    }
+
+    // グループルーム作成の実装（実際のAPIコールは省略）
+    const groupId = crypto.randomUUID();
+    const room: Room = {
+      id: groupId,
+      name: groupName || `${allMembers.slice(0, 2).map(m => m.split('@')[0]).join("、")}${allMembers.length > 2 ? ` ほか${allMembers.length - 2}名` : ""}`,
+      userName: user.userName,
+      domain: getDomain(),
+      avatar: "👥",
+      unreadCount: 0,
+      type: "group",
+      members: allMembers,
+      hasName: !!groupName,
+      hasIcon: false,
+      lastMessage: "...",
+      lastMessageTime: undefined,
+    };
+
+    upsertRoom(room);
+    setSelectedRoom(groupId);
+    setShowGroupDialog(false);
+    setFriendGroupTarget(null);
   };
 
   const sendMessage = async () => {
@@ -1056,6 +1103,7 @@ export function Chat(props: ChatProps) {
       mediaType: string;
       key?: string;
       iv?: string;
+      preview?: { url?: string; data?: string; mediaType?: string };
     }
     interface IncomingPayload {
       id: string;
@@ -1217,25 +1265,26 @@ export function Chat(props: ChatProps) {
                 if (typeof at.url === "string") {
                   let preview;
                   if (at.preview && typeof at.preview.url === "string") {
-                    const pmt = typeof at.preview.mediaType === "string"
-                      ? at.preview.mediaType
+                    const previewItem = at.preview as ActivityPubPreview;
+                    const pmt = typeof previewItem.mediaType === "string"
+                      ? previewItem.mediaType
                       : "image/jpeg";
                     try {
-                      const pres = await fetch(at.preview.url);
+                      const pres = await fetch(previewItem.url);
                       let pbuf = await pres.arrayBuffer();
                       if (
-                        typeof at.preview.key === "string" &&
-                        typeof at.preview.iv === "string"
+                        typeof previewItem.key === "string" &&
+                        typeof previewItem.iv === "string"
                       ) {
                         pbuf = await decryptFile(
                           pbuf,
-                          at.preview.key,
-                          at.preview.iv,
+                          previewItem.key,
+                          previewItem.iv,
                         );
                       }
                       preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
                     } catch {
-                      preview = { url: at.preview.url, mediaType: pmt };
+                      preview = { url: previewItem.url, mediaType: pmt };
                     }
                   }
                   try {
@@ -1292,25 +1341,26 @@ export function Chat(props: ChatProps) {
                 : "application/octet-stream";
               let preview;
               if (at.preview && typeof at.preview.url === "string") {
-                const pmt = typeof at.preview.mediaType === "string"
-                  ? at.preview.mediaType
+                const previewItem = at.preview as ActivityPubPreview;
+                const pmt = typeof previewItem.mediaType === "string"
+                  ? previewItem.mediaType
                   : "image/jpeg";
                 try {
-                  const pres = await fetch(at.preview.url);
+                  const pres = await fetch(previewItem.url);
                   let pbuf = await pres.arrayBuffer();
                   if (
-                    typeof at.preview.key === "string" &&
-                    typeof at.preview.iv === "string"
+                    typeof previewItem.key === "string" &&
+                    typeof previewItem.iv === "string"
                   ) {
                     pbuf = await decryptFile(
                       pbuf,
-                      at.preview.key,
-                      at.preview.iv,
+                      previewItem.key,
+                      previewItem.iv,
                     );
                   }
                   preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
                 } catch {
-                  preview = { url: at.preview.url, mediaType: pmt };
+                  preview = { url: previewItem.url, mediaType: pmt };
                 }
               }
               try {
@@ -1492,6 +1542,11 @@ export function Chat(props: ChatProps) {
               onCreateDm={openDmDialog}
               segment={segment()}
               onSegmentChange={setSegment}
+              onCreateFriendGroup={(friendId: string) => {
+                setFriendGroupTarget(friendId);
+                setGroupDialogMode("create");
+                setShowGroupDialog(true);
+              }}
             />
           </div>
           <div
@@ -1567,8 +1622,17 @@ export function Chat(props: ChatProps) {
       <GroupCreateDialog
         isOpen={showGroupDialog()}
         mode={groupDialogMode()}
-        onClose={() => setShowGroupDialog(false)}
-        onCreate={startDm}
+        onClose={() => {
+          setShowGroupDialog(false);
+          setFriendGroupTarget(null);
+        }}
+        onCreate={(name: string, members: string) => {
+          if (friendGroupTarget()) {
+            return startFriendGroup(name, members);
+          } else {
+            return startDm(name, members);
+          }
+        }}
       />
     </>
   );

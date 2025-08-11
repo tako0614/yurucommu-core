@@ -2,6 +2,9 @@ import { For, Show, createEffect, createMemo, createSignal, onMount } from "soli
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
+import { isFriendRoom, isGroupRoom } from "./types.ts";
+import { FriendList } from "./FriendList.tsx";
+import { FriendRoomList } from "./FriendRoomList.tsx";
 
 interface ChatRoomListProps {
   rooms: Room[];
@@ -11,10 +14,12 @@ interface ChatRoomListProps {
   onCreateDm: () => void;
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
+  onCreateFriendGroup?: (friendId: string) => void;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
   const [query, setQuery] = createSignal("");
+  const [selectedFriend, setSelectedFriend] = createSignal<string | null>(null);
 
   // ローカルストレージに最後のセグメントを保存/復元
   onMount(() => {
@@ -35,9 +40,9 @@ export function ChatRoomList(props: ChatRoomListProps) {
       base = base.filter((r) => r.type !== "memo");
     }
     if (props.segment === "people") {
-      base = base.filter((r) => (r.members?.length ?? 0) + 1 === 2 && !(r.hasName || r.hasIcon));
+      base = base.filter((r) => isFriendRoom(r));
     } else if (props.segment === "groups") {
-      base = base.filter((r) => !((r.members?.length ?? 0) + 1 === 2 && !(r.hasName || r.hasIcon)));
+      base = base.filter((r) => isGroupRoom(r));
     }
     if (!q) return base;
     return base.filter((r) =>
@@ -47,13 +52,24 @@ export function ChatRoomList(props: ChatRoomListProps) {
 
   const segUnread = createMemo(() => {
     const all = props.rooms.reduce((a, r) => a + (r.unreadCount || 0), 0);
-    const people = props.rooms.filter((r) => (r.members?.length ?? 0) + 1 === 2 && !(r.hasName || r.hasIcon))
+    const people = props.rooms.filter((r) => isFriendRoom(r))
       .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const groups = all - people;
     return { all, people, groups };
   });
 
+  const getFriendName = (friendId: string) => {
+    const room = props.rooms.find((r) => 
+      isFriendRoom(r) && r.members.includes(friendId)
+    );
+    return room?.name || friendId.split('@')[0] || friendId;
+  };
+
   const changeSeg = (seg: "all" | "people" | "groups") => {
+    if (seg === "people") {
+      // 友だちタブの場合は友達リストにリセット
+      setSelectedFriend(null);
+    }
     if (seg !== props.segment) props.onSegmentChange(seg);
   };
 
@@ -126,81 +142,107 @@ export function ChatRoomList(props: ChatRoomListProps) {
           </div>
         </Show>
       </div>
-      <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
-        <ul
-          id={`panel-${props.segment}`}
-          role="tabpanel"
-          aria-labelledby={`tab-${props.segment}`}
-          class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
-        >
-          <Show when={filteredRooms().length === 0}>
-            <li class="text-gray-400 text-sm px-2 py-4">
-              {props.segment === "people"
-                ? "1:1のトークはまだありません。『新しいトーク』から開始しましょう。"
-                : props.segment === "groups"
-                ? "グループはまだありません。『グループ作成』から始めましょう。"
-                : "トークはありません。"}
-            </li>
-          </Show>
-          <For each={filteredRooms()}>
-            {(room) => (
-              <li
-                class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
-                  props.selectedRoom === room.id
-                    ? "bg-[#4a4a4a]"
-                    : "hover:bg-[#3c3c3c]"
-                }`}
-                onClick={() => props.onSelect(room.id)}
-              >
-                <div class="flex items-center w-full">
-                  <span class="relative block h-full aspect-square flex items-center justify-center w-[40px] h-[40px]">
-                    {isUrl(room.avatar) ||
-                        (typeof room.avatar === "string" &&
-                          room.avatar.startsWith("data:image/"))
-                      ? (
-                        <img
-                          src={room.avatar}
-                          alt="avatar"
-                          class="w-[40px] h-[40px] object-cover rounded-full"
-                        />
-                      )
-                      : (
-                        <span
-                          class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
-                            room.type === "memo" ? "bg-green-600" : "bg-[#444]"
-                          }`}
-                        >
-                          {room.avatar}
+      
+      {/* 友達タブの場合は専用UI、それ以外は従来のリスト表示 */}
+      <Show 
+        when={props.segment === "people"}
+        fallback={
+          <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
+            <ul
+              id={`panel-${props.segment}`}
+              role="tabpanel"
+              aria-labelledby={`tab-${props.segment}`}
+              class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
+            >
+              <Show when={filteredRooms().length === 0}>
+                <li class="text-gray-400 text-sm px-2 py-4">
+                  {props.segment === "groups"
+                    ? "グループはまだありません。『グループ作成』から始めましょう。"
+                    : "トークはありません。"}
+                </li>
+              </Show>
+              <For each={filteredRooms()}>
+                {(room) => (
+                  <li
+                    class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
+                      props.selectedRoom === room.id
+                        ? "bg-[#4a4a4a]"
+                        : "hover:bg-[#3c3c3c]"
+                    }`}
+                    onClick={() => props.onSelect(room.id)}
+                  >
+                    <div class="flex items-center w-full">
+                      <span class="relative w-[40px] h-[40px] flex items-center justify-center">
+                        {isUrl(room.avatar) ||
+                            (typeof room.avatar === "string" &&
+                              room.avatar.startsWith("data:image/"))
+                          ? (
+                            <img
+                              src={room.avatar}
+                              alt="avatar"
+                              class="w-[40px] h-[40px] object-cover rounded-full"
+                            />
+                          )
+                          : (
+                            <span
+                              class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
+                                room.type === "memo" ? "bg-green-600" : "bg-[#444]"
+                              }`}
+                            >
+                              {room.avatar}
+                            </span>
+                          )}
+                      </span>
+                      <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
+                        <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
+                          <span class="font-bold flex-1">
+                            {room.name}
+                          </span>
+                          <span
+                            class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
+                            style="text-align:right;"
+                          >
+                            {room.lastMessageTime
+                              ? room.lastMessageTime.toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                              : ""}
+                          </span>
                         </span>
-                      )}
-                  </span>
-                  <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
-                    <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                      <span class="font-bold flex-1">
-                        {room.name}
+                        <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
+                          <p class="truncate">{room.lastMessage}</p>
+                        </span>
                       </span>
-                      <span
-                        class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
-                        style="text-align:right;"
-                      >
-                        {room.lastMessageTime
-                          ? room.lastMessageTime.toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                          : ""}
-                      </span>
-                    </span>
-                    <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
-                      <p class="truncate">{room.lastMessage}</p>
-                    </span>
-                  </span>
-                </div>
-              </li>
-            )}
-          </For>
-        </ul>
-      </div>
+                    </div>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </div>
+        }
+      >
+        <Show
+          when={selectedFriend()}
+          fallback={
+            <FriendList
+              rooms={props.rooms}
+              selectedFriend={selectedFriend()}
+              onSelectFriend={setSelectedFriend}
+            />
+          }
+        >
+          <FriendRoomList
+            rooms={props.rooms}
+            friendId={selectedFriend()!}
+            friendName={getFriendName(selectedFriend()!)}
+            selectedRoom={props.selectedRoom}
+            onSelectRoom={props.onSelect}
+            onBack={() => setSelectedFriend(null)}
+            onCreateRoom={() => props.onCreateFriendGroup?.(selectedFriend()!)}
+          />
+        </Show>
+      </Show>
     </div>
   );
 }
