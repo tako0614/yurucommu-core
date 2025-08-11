@@ -968,15 +968,23 @@ export function Chat(props: ChatProps) {
       lastMessage: "...",
       lastMessageTime: undefined,
     };
-    await applyDisplayFallback([room]);
+    try {
+      await applyDisplayFallback([room]);
+    } catch (e) {
+      console.error("相手の表示情報取得に失敗しました", e);
+    }
     upsertRoom(room);
     const me = `${user.userName}@${getDomain()}`;
     const { to: toList, cc: ccList } = expandMembers([
       me as ActorID,
       partner as ActorID,
     ]);
-    // 軽量なハンドシェイクでサーバ派生ビューに登場させる
-    await sendHandshake(me, toList, ccList, "hi");
+    try {
+      // 軽量なハンドシェイクでサーバ派生ビューに登場させる
+      await sendHandshake(me, toList, ccList, "hi");
+    } catch (e) {
+      console.error("ハンドシェイク送信に失敗しました", e);
+    }
     setSelectedRoom(partner);
     setShowGroupDialog(false);
   };
