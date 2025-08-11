@@ -51,7 +51,7 @@ deno run -A setup.ts
 
 ### 投稿オブジェクトの保存
 
-投稿データは `notes`、`videos`、`messages`、`stories` の各コレクションに
+投稿データは `notes`、`messages`、`stories` の各コレクションに
 分割して保存されます。各ドキュメントには投稿元ドメインを示す `tenant_id`
 フィールドが追加され、複数インスタンスで同じ MongoDB を共有しても
 互いのデータが混在しません。
@@ -143,8 +143,8 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 ## 検索 API
 
-- `GET /api/search?q=QUERY&type=users|posts|videos|all` –
-  キーワードからユーザーや投稿、動画を検索します。 `type`
+- `GET /api/search?q=QUERY&type=users|posts|all` –
+  キーワードからユーザーや投稿を検索します。 `type`
   を省略するとすべてが対象です。
 
 ## トレンド API
@@ -157,25 +157,6 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 投稿内にURLを含めると、最初に出現したリンクを基にOGP情報を取得し、タイムラインでカード形式のプレビューを表示します。
 この処理はクライアント側で自動挿入される `<div data-og="URL"></div>` と
 `/api/ogp` エンドポイントによって実現されています。
-
-## 動画 API
-
-ActivityPub の `Video` オブジェクトを利用して動画を投稿できます。
-
-- `WebSocket /api/ws` – 動画アップロードや今後の双方向機能で利用する統一
-  WebSocket
-- `GET /api/videos` – 動画一覧を取得
-- `POST /api/videos` – 動画を作成するとフォロワーへ `Create` Activity を配信
-- `POST /api/videos/:id/like` – いいね数を増加
-- `POST /api/videos/:id/view` – 再生数を増加
-
-動画のアップロードは WebSocket と HTTP POST の両方に対応しています。 HTTP
-版はフォーム送信など単純な利用向けで、WebSocket 版は進捗表示など
-インタラクティブな制御を行いたい場合に利用します。サーバー側の保存処理
-は共通化されており、どちらの方法を選んでも同じ結果が得られます。
-アップロード時は任意で `thumbnail` フィールドにサムネイル画像を指定できます。
-WebSocket では Base64 文字列を、HTTP POST では multipart/form-data の
-`thumbnail` パートに画像ファイルを送信してください。
 
 ## アカウント管理 API
 

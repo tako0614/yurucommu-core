@@ -169,7 +169,7 @@ export default function ChatHeader() {
             )}
           </HeaderButton>
 
-          <HeaderButton page="videos" isMobile={isMobile}>
+          <HeaderButton page="notifications" isMobile={isMobile}>
             {(active) => (
               <svg
                 role="img"
@@ -177,7 +177,7 @@ export default function ChatHeader() {
                 width="100%"
                 height="100%"
                 viewBox="0 0 24 24"
-                aria-labelledby="videosIconTitle"
+                aria-labelledby="notificationsIconTitle"
                 class={`w-full h-full stroke-white ${
                   active ? "fill-[#ff6060]" : ""
                 }`}
@@ -186,9 +186,9 @@ export default function ChatHeader() {
                 stroke-linejoin="round"
                 fill="none"
               >
-                <title id="videosIconTitle">Videos</title>
-                <polygon points="23 7 16 12 23 17 23 7" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                <title id="notificationsIconTitle">Notifications</title>
+                <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 01-3.46 0" />
               </svg>
             )}
           </HeaderButton>

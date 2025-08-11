@@ -17,10 +17,6 @@ import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
 import e2ee from "./routes/e2ee.ts";
 import fasp from "./routes/fasp.ts";
-import videos, {
-  initVideoModule,
-  initVideoWebSocket,
-} from "./routes/videos.ts";
 import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
@@ -48,8 +44,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     await rl(c, next);
   });
   await initFileModule(e);
-  await initVideoModule(e);
-  initVideoWebSocket();
 
   const apiRoutes = [
     wsRouter,
@@ -65,7 +59,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     setupUI,
     placeholder,
     trends,
-    videos,
     keep,
     files,
     search,

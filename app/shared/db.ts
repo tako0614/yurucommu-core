@@ -78,22 +78,6 @@ export interface DB {
     sort?: Record<string, SortOrder>,
   ): Promise<unknown[]>;
   getPublicNotes(limit: number, before?: Date): Promise<unknown[]>;
-  saveVideo(
-    domain: string,
-    author: string,
-    content: string,
-    extra: Record<string, unknown>,
-    aud?: { to: string[]; cc: string[] },
-  ): Promise<unknown>;
-  updateVideo(
-    id: string,
-    update: Record<string, unknown>,
-  ): Promise<unknown | null>;
-  deleteVideo(id: string): Promise<boolean>;
-  findVideos(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-  ): Promise<unknown[]>;
   saveMessage(
     domain: string,
     author: string,

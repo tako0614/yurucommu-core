@@ -7,7 +7,7 @@ import { Home } from "./Home.tsx";
 import Profile from "./Profile.tsx";
 import { Microblog } from "./Microblog.tsx";
 import { Chat } from "./Chat.tsx";
-import { Videos } from "./Videos.tsx";
+import { Notifications } from "./Notifications.tsx";
 import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
@@ -47,12 +47,12 @@ export function Application(props: ApplicationProps) {
   const wrapperClass = () => {
     const isChat = selectedApp() === "chat";
     const isChatWithRoom = isChat && isMobile() && selectedRoom() !== null;
-    
+
     if (isChatWithRoom) {
       // チャット画面で部屋が選択されている場合は全画面表示
       return "flex flex-col flex-1 box-border overflow-hidden h-dvh p-0";
     }
-    
+
     return [
       "flex flex-col flex-1 box-border overflow-y-auto min-h-dvh h-dvh",
       isMobile() ? "p-0 pb-16 overflow-x-clip" : "pl-[78px]",
@@ -84,8 +84,8 @@ export function Application(props: ApplicationProps) {
             </div>
           </div>
         </Show>
-        <Show when={selectedApp() === "videos"}>
-          <Videos />
+        <Show when={selectedApp() === "notifications"}>
+          <Notifications />
         </Show>
       </main>
     </>
