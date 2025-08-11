@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import tenantScope from "../plugins/tenant_scope.ts";
 
 const handshakeMessageSchema = new mongoose.Schema({
   roomId: { type: String, index: true },
@@ -8,6 +9,8 @@ const handshakeMessageSchema = new mongoose.Schema({
   tenant_id: { type: String, index: true },
   createdAt: { type: Date, default: Date.now },
 });
+
+handshakeMessageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const HandshakeMessage = mongoose.models.HandshakeMessage ??
   mongoose.model("HandshakeMessage", handshakeMessageSchema);

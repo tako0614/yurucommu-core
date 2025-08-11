@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import tenantScope from "../plugins/tenant_scope.ts";
 
 const sessionSchema = new mongoose.Schema({
   sessionId: {
@@ -16,6 +17,8 @@ const sessionSchema = new mongoose.Schema({
     index: { expires: 0 },
   },
 });
+
+sessionSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const Session = mongoose.models.Session ??
   mongoose.model("Session", sessionSchema);

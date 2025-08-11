@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import tenantScope from "../plugins/tenant_scope.ts";
 
 const videoSchema = new mongoose.Schema({
   _id: { type: String },
@@ -15,6 +16,8 @@ const videoSchema = new mongoose.Schema({
     cc: { type: [String], default: [] },
   },
 });
+
+videoSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const Video = mongoose.models.Video ??
   mongoose.model("Video", videoSchema, "videos");

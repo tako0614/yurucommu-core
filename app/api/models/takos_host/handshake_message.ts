@@ -1,16 +1,12 @@
 import mongoose from "mongoose";
-
-const handshakeMessageSchema = new mongoose.Schema({
-  roomId: { type: String, index: true },
-  sender: { type: String, required: true },
-  recipients: { type: [String], required: true },
-  message: { type: String, required: true },
-  tenant_id: { type: String, index: true },
-  createdAt: { type: Date, default: Date.now },
-});
+import { handshakeMessageSchema } from "../takos/handshake_message.ts";
 
 const HostHandshakeMessage = mongoose.models.HostHandshakeMessage ??
-  mongoose.model("HostHandshakeMessage", handshakeMessageSchema);
+  mongoose.model(
+    "HostHandshakeMessage",
+    handshakeMessageSchema,
+    "handshakemessages",
+  );
 
 export default HostHandshakeMessage;
 export { handshakeMessageSchema };

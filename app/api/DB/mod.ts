@@ -1,11 +1,9 @@
 import type { DB } from "../../shared/db.ts";
-import { MongoDBLocal } from "./local.ts";
-import { MongoDBHost } from "./host.ts";
+import { MongoDB } from "./mongo.ts";
 
-export { MongoDBHost, MongoDBLocal };
+export { MongoDB };
 
-/** 環境変数に応じて適切な DB 実装を返す */
+/** MongoDB 実装を生成する */
 export function createDB(env: Record<string, string>): DB {
-  const mode = env["DB_MODE"] === "host" ? "host" : "local";
-  return mode === "host" ? new MongoDBHost(env) : new MongoDBLocal(env);
+  return new MongoDB(env);
 }
