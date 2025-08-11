@@ -1,24 +1,24 @@
-import HostFollowEdge from "../models/takos_host/follow_edge.ts";
+import Note from "../models/takos/note.ts";
+import Video from "../models/takos/video.ts";
+import Message from "../models/takos/message.ts";
+import Attachment from "../models/takos/attachment.ts";
+import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
-import HostAccount from "../models/takos_host/account.ts";
-import HostEncryptedKeyPair from "../models/takos_host/encrypted_keypair.ts";
-import HostEncryptedMessage from "../models/takos_host/encrypted_message.ts";
-import HostKeyPackage from "../models/takos_host/key_package.ts";
-import HostNotification from "../models/takos_host/notification.ts";
-import HostHandshakeMessage from "../models/takos_host/handshake_message.ts";
-import HostNote from "../models/takos_host/note.ts";
-import HostVideo from "../models/takos_host/video.ts";
-import HostMessage from "../models/takos_host/message.ts";
-import HostAttachment from "../models/takos_host/attachment.ts";
+import Account from "../models/takos/account.ts";
+import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
+import EncryptedMessage from "../models/takos/encrypted_message.ts";
+import KeyPackage from "../models/takos/key_package.ts";
+import Notification from "../models/takos/notification.ts";
+import HandshakeMessage from "../models/takos/handshake_message.ts";
 import SystemKey from "../models/takos/system_key.ts";
-import HostRemoteActor from "../models/takos_host/remote_actor.ts";
-import HostSession from "../models/takos_host/session.ts";
-import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import RemoteActor from "../models/takos/remote_actor.ts";
+import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
-import Tenant from "../models/takos/tenant.ts";
+import HostFcmToken from "../models/takos_host/fcm_token.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
+import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
 import type { DB, GroupInfo, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
@@ -26,64 +26,18 @@ import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 
-/** takos host 用 MongoDB 実装 */
-export class MongoDBHost implements DB {
+/** MongoDB 実装 */
+export class MongoDB implements DB {
   constructor(private env: Record<string, string>) {}
 
-  private get tenantId() {
-    return this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-  }
-
-  private get rootDomain() {
-    return this.env["ROOT_DOMAIN"] ?? "";
-  }
-
-  private useLocalObjects() {
-    return false;
-  }
-
-  private async searchObjects(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-    limit?: number,
-  ) {
-    const type = filter.type as string | undefined;
-    const baseFilter = { ...filter };
-    delete (baseFilter as Record<string, unknown>).type;
-    const conds: Record<string, unknown>[] = [
-      { ...baseFilter, tenant_id: this.tenantId },
-    ];
-    if (await this.useLocalObjects()) {
-      conds.push({ ...baseFilter, tenant_id: this.rootDomain });
-    }
-    const exec = async (
-      M:
-        | typeof HostNote
-        | typeof HostVideo
-        | typeof HostMessage,
-    ) => {
-      const query = conds.length > 1
-        ? M.find({ $or: conds })
-        : M.find(conds[0]);
-      return await query.limit(limit ?? 20).sort(sort).lean();
-    };
-    if (type === "Note") return await exec(HostNote);
-    if (type === "Video") return await exec(HostVideo);
-    if (type === "Message") return await exec(HostMessage);
-    const notes = await exec(HostNote);
-    const videos = await exec(HostVideo);
-    const messages = await exec(HostMessage);
-    return [...notes, ...videos, ...messages];
-  }
-
   async getObject(id: string) {
-    let doc = await HostNote.findOne({ _id: id }).lean();
+    let doc = await Note.findOne({ _id: id }).lean();
     if (doc) return doc;
-    doc = await HostVideo.findOne({ _id: id }).lean();
+    doc = await Video.findOne({ _id: id }).lean();
     if (doc) return doc;
-    doc = await HostMessage.findOne({ _id: id }).lean();
+    doc = await Message.findOne({ _id: id }).lean();
     if (doc) return doc;
-    doc = await HostAttachment.findOne({ _id: id }).lean();
+    doc = await Attachment.findOne({ _id: id }).lean();
     if (doc) return doc;
     return null;
   }
@@ -94,26 +48,68 @@ export class MongoDBHost implements DB {
       try {
         data.actor_id = new URL(data.attributedTo).href;
       } catch {
-        data.actor_id = data.attributedTo;
+        if (this.env["ACTIVITYPUB_DOMAIN"]) {
+          data.actor_id = `https://${
+            this.env["ACTIVITYPUB_DOMAIN"]
+          }/users/${data.attributedTo}`;
+        }
       }
     }
+    if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
+      data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
+    }
     if (data.type === "Note") {
-      const doc = new HostNote({ ...data, tenant_id: this.tenantId });
+      const doc = new Note({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
       await doc.save();
       return doc.toObject();
     }
     if (data.type === "Video") {
-      const doc = new HostVideo({ ...data, tenant_id: this.tenantId });
+      const doc = new Video({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
       await doc.save();
       return doc.toObject();
     }
     if (data.type === "Message") {
-      const doc = new HostMessage({ ...data, tenant_id: this.tenantId });
+      const doc = new Message({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      });
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
       await doc.save();
       return doc.toObject();
     }
     if (data.type === "Attachment") {
-      const doc = new HostAttachment({ ...data, tenant_id: this.tenantId });
+      const doc = new Attachment({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        extra: data.extra ?? {},
+      });
       await doc.save();
       return doc.toObject();
     }
@@ -121,149 +117,115 @@ export class MongoDBHost implements DB {
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
-    let account: { following?: string[] } | null = null;
+    let name = actor;
     try {
       const url = new URL(actor);
       if (
-        url.hostname === this.tenantId && url.pathname.startsWith("/users/")
+        url.hostname === this.env["ACTIVITYPUB_DOMAIN"] &&
+        url.pathname.startsWith("/users/")
       ) {
-        const name = url.pathname.split("/")[2];
-        account = await HostAccount.findOne({
-          userName: name,
-          tenant_id: this.tenantId,
-        }).lean<{ following?: string[] } | null>();
+        name = url.pathname.split("/")[2];
       }
     } catch {
-      account = await HostAccount.findOne({
-        userName: actor,
-        tenant_id: this.tenantId,
-      }).lean<{ following?: string[] } | null>();
+      // actor is not URL
     }
+    const account = await Account.findOne({ userName: name })
+      .lean<{ following?: string[] } | null>();
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
     // タイムラインには Note のみを表示する
-    const filter: Record<string, unknown> = {
-      actor_id: { $in: ids },
-      type: "Note",
-    };
+    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
     if (opts.before) filter.created_at = { $lt: opts.before };
-    return await this.searchObjects(
-      filter,
-      { created_at: -1 },
-      opts.limit ?? 40,
-    );
+    return await Note.find(filter)
+      .sort({ created_at: -1 })
+      .limit(opts.limit ?? 40)
+      .lean();
   }
 
   async follow(_: string, target: string) {
-    await HostFollowEdge.updateOne(
-      { tenant_id: this.tenantId, actor_id: target },
+    await FollowEdge.updateOne(
+      { actor_id: target },
       { $setOnInsert: { since: new Date() } },
       { upsert: true },
     );
   }
 
   async unfollow(_: string, target: string) {
-    await HostFollowEdge.deleteOne({
-      tenant_id: this.tenantId,
-      actor_id: target,
-    });
+    await FollowEdge.deleteOne({ actor_id: target });
   }
 
   async listAccounts(): Promise<AccountDoc[]> {
-    return await HostAccount.find({
-      tenant_id: this.tenantId,
-    }).lean<AccountDoc[]>();
+    return await Account.find({}).lean<AccountDoc[]>();
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
-    const doc = new HostAccount({
+    const doc = new Account({
       ...data,
-      tenant_id: this.tenantId,
+      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
+    (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
+      {
+        env: this.env,
+      };
     await doc.save();
     return doc.toObject() as AccountDoc;
   }
 
   async findAccountById(id: string): Promise<AccountDoc | null> {
-    return await HostAccount.findOne({
-      _id: id,
-      tenant_id: this.tenantId,
-    }).lean<AccountDoc | null>();
+    return await Account.findOne({ _id: id }).lean<AccountDoc | null>();
   }
 
   async findAccountByUserName(
     username: string,
   ): Promise<AccountDoc | null> {
-    return await HostAccount.findOne({
-      userName: username,
-      tenant_id: this.tenantId,
-    }).lean<AccountDoc | null>();
+    return await Account.findOne({ userName: username }).lean<
+      AccountDoc | null
+    >();
   }
 
   async updateAccountById(
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    return await HostAccount.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean<AccountDoc | null>();
+    return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
-    const res = await HostAccount.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    const res = await Account.findOneAndDelete({ _id: id });
     return !!res;
   }
 
   async addFollower(id: string, follower: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $addToSet: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async removeFollower(id: string, follower: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $pull: { followers: follower },
     }, { new: true });
     return acc?.followers ?? [];
   }
 
   async addFollowing(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $addToSet: { following: target },
     }, { new: true });
     return acc?.following ?? [];
   }
 
   async removeFollowing(id: string, target: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $pull: { following: target },
     }, { new: true });
     return acc?.following ?? [];
   }
 
   async listGroups(id: string) {
-    const acc = await HostAccount.findOne({
-      _id: id,
-      tenant_id: this.tenantId,
-    }).lean<
+    const acc = await Account.findOne({ _id: id }).lean<
       { groups?: GroupInfo[] } | null
     >();
     return acc?.groups ?? [];
@@ -273,30 +235,21 @@ export class MongoDBHost implements DB {
     id: string,
     group: GroupInfo,
   ) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $push: { groups: group },
     }, { new: true });
     return acc?.groups ?? [];
   }
 
   async removeGroup(id: string, groupId: string) {
-    const acc = await HostAccount.findOneAndUpdate({
-      _id: id,
-      tenant_id: this.tenantId,
-    }, {
+    const acc = await Account.findOneAndUpdate({ _id: id }, {
       $pull: { groups: { id: groupId } },
     }, { new: true });
     return acc?.groups ?? [];
   }
 
   async findGroup(groupId: string) {
-    const acc = await HostAccount.findOne({
-      "groups.id": groupId,
-      tenant_id: this.tenantId,
-    }).lean<
+    const acc = await Account.findOne({ "groups.id": groupId }).lean<
       | {
         _id: unknown;
         groups: GroupInfo[];
@@ -312,11 +265,7 @@ export class MongoDBHost implements DB {
     owner: string,
     group: GroupInfo,
   ) {
-    await HostAccount.updateOne({
-      _id: owner,
-      tenant_id: this.tenantId,
-      "groups.id": group.id,
-    }, {
+    await Account.updateOne({ _id: owner, "groups.id": group.id }, {
       $set: { "groups.$": group },
     });
   }
@@ -330,36 +279,33 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostNote({
+    const doc = new Note({
       _id: id,
       attributedTo: author,
       actor_id: actor,
       content,
       extra,
-      tenant_id: this.tenantId,
       published: new Date(),
       aud: aud ?? {
         to: ["https://www.w3.org/ns/activitystreams#Public"],
         cc: [],
       },
     });
+    (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
+      {
+        env: this.env,
+      };
     await doc.save();
     return doc.toObject();
   }
 
   async updateNote(id: string, update: Record<string, unknown>) {
-    return await HostNote.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    return await Note.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
   }
 
   async deleteNote(id: string) {
-    const res = await HostNote.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    const res = await Note.findOneAndDelete({ _id: id });
     return !!res;
   }
 
@@ -367,19 +313,15 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects({ ...filter, type: "Note" }, sort);
+    return await Note.find({ ...filter }).sort(sort ?? {}).lean();
   }
 
   async getPublicNotes(limit: number, before?: Date) {
-    const filter: Record<string, unknown> = {
+    const query = Note.find({
       "aud.to": "https://www.w3.org/ns/activitystreams#Public",
-    };
-    if (before) filter.created_at = { $lt: before };
-    return await this.searchObjects(
-      { ...filter, type: "Note" },
-      { created_at: -1 },
-      limit,
-    );
+    });
+    if (before) query.where("created_at").lt(before.getTime());
+    return await query.sort({ created_at: -1 }).limit(limit).lean();
   }
 
   async saveVideo(
@@ -391,36 +333,33 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostVideo({
+    const doc = new Video({
       _id: id,
       attributedTo: actor,
       actor_id: actor,
       content,
       extra,
-      tenant_id: this.tenantId,
       published: new Date(),
       aud: aud ?? {
         to: ["https://www.w3.org/ns/activitystreams#Public"],
         cc: [],
       },
     });
+    (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
+      {
+        env: this.env,
+      };
     await doc.save();
     return doc.toObject();
   }
 
   async updateVideo(id: string, update: Record<string, unknown>) {
-    return await HostVideo.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    return await Video.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
   }
 
   async deleteVideo(id: string) {
-    const res = await HostVideo.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    const res = await Video.findOneAndDelete({ _id: id });
     return !!res;
   }
 
@@ -428,7 +367,7 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects({ ...filter, type: "Video" }, sort);
+    return await Video.find({ ...filter }).sort(sort ?? {}).lean();
   }
 
   async saveMessage(
@@ -440,33 +379,30 @@ export class MongoDBHost implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = `https://${domain}/users/${author}`;
-    const doc = new HostMessage({
+    const doc = new Message({
       _id: id,
       attributedTo: author,
       actor_id: actor,
       content,
       extra,
-      tenant_id: this.tenantId,
       published: new Date(),
       aud,
     });
+    (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
+      {
+        env: this.env,
+      };
     await doc.save();
     return doc.toObject();
   }
 
   async updateMessage(id: string, update: Record<string, unknown>) {
-    return await HostMessage.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    return await Message.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
   }
 
   async deleteMessage(id: string) {
-    const res = await HostMessage.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    const res = await Message.findOneAndDelete({ _id: id });
     return !!res;
   }
 
@@ -474,7 +410,7 @@ export class MongoDBHost implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    return await this.searchObjects({ ...filter, type: "Message" }, sort);
+    return await Message.find({ ...filter }).sort(sort ?? {}).lean();
   }
 
   async findObjects(
@@ -485,96 +421,64 @@ export class MongoDBHost implements DB {
     const result: unknown[] = [];
     // type が指定されている場合は対象のモデルのみ検索する
     if (!type || type === "Note") {
-      const notes = await this.searchObjects({ ...rest, type: "Note" }, sort);
+      const notes = await Note.find({ ...rest }).sort(sort ?? {}).lean();
       result.push(...notes.map((n) => ({ ...n, type: "Note" })));
     }
     if (!type || type === "Video") {
-      const videos = await this.searchObjects({ ...rest, type: "Video" }, sort);
+      const videos = await Video.find({ ...rest }).sort(sort ?? {}).lean();
       result.push(...videos.map((v) => ({ ...v, type: "Video" })));
     }
     if (!type || type === "Message") {
-      const messages = await this.searchObjects(
-        { ...rest, type: "Message" },
-        sort,
-      );
+      const messages = await Message.find({ ...rest }).sort(sort ?? {}).lean();
       result.push(...messages.map((m) => ({ ...m, type: "Message" })));
     }
     return result;
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
-    let doc = await HostNote.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    let doc = await Note.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
     if (doc) return doc;
-    doc = await HostVideo.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
+    doc = await Video.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
     if (doc) return doc;
-    doc = await HostMessage.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
-      update,
-      { new: true },
-    ).lean();
-    return doc ?? null;
+    doc = await Message.findOneAndUpdate({ _id: id }, update, { new: true })
+      .lean();
+    if (doc) return doc;
+    return null;
   }
 
   async deleteObject(id: string) {
-    let res = await HostNote.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    let res = await Note.findOneAndDelete({ _id: id });
     if (res) return true;
-    res = await HostVideo.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    res = await Video.findOneAndDelete({ _id: id });
     if (res) return true;
-    res = await HostMessage.findOneAndDelete({
-      _id: id,
-      tenant_id: this.tenantId,
-    });
+    res = await Message.findOneAndDelete({ _id: id });
     if (res) return true;
     return false;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
     if (filter.type === "Note") {
-      return await HostNote.deleteMany({ ...filter, tenant_id: this.tenantId });
+      return await Note.deleteMany({ ...filter });
     }
     if (filter.type === "Video") {
-      return await HostVideo.deleteMany({
-        ...filter,
-        tenant_id: this.tenantId,
-      });
+      return await Video.deleteMany({ ...filter });
     }
     if (filter.type === "Message") {
-      return await HostMessage.deleteMany({
-        ...filter,
-        tenant_id: this.tenantId,
-      });
+      return await Message.deleteMany({ ...filter });
     }
     return { deletedCount: 0 };
   }
 
   async addFollowerByName(username: string, follower: string) {
-    await HostAccount.updateOne({
-      userName: username,
-      tenant_id: this.tenantId,
-    }, {
+    await Account.updateOne({ userName: username }, {
       $addToSet: { followers: follower },
     });
   }
 
   async removeFollowerByName(username: string, follower: string) {
-    await HostAccount.updateOne({
-      userName: username,
-      tenant_id: this.tenantId,
-    }, {
+    await Account.updateOne({ userName: username }, {
       $pull: { followers: follower },
     });
   }
@@ -583,33 +487,30 @@ export class MongoDBHost implements DB {
     query: RegExp,
     limit = 20,
   ): Promise<AccountDoc[]> {
-    return await HostAccount.find({
-      tenant_id: this.tenantId,
+    return await Account.find({
       $or: [{ userName: query }, { displayName: query }],
-    }).limit(limit).lean<AccountDoc[]>();
+    })
+      .limit(limit)
+      .lean<AccountDoc[]>();
   }
 
   async updateAccountByUserName(
     username: string,
     update: Record<string, unknown>,
   ) {
-    await HostAccount.updateOne({
-      userName: username,
-      tenant_id: this.tenantId,
-    }, update);
+    await Account.updateOne({ userName: username }, update);
   }
 
   async findAccountsByUserNames(
     usernames: string[],
   ): Promise<AccountDoc[]> {
-    return await HostAccount.find({
-      tenant_id: this.tenantId,
-      userName: { $in: usernames },
-    }).lean<AccountDoc[]>();
+    return await Account.find({ userName: { $in: usernames } }).lean<
+      AccountDoc[]
+    >();
   }
 
   async countAccounts() {
-    return await HostAccount.countDocuments({ tenant_id: this.tenantId });
+    return await Account.countDocuments({});
   }
 
   async createEncryptedMessage(data: {
@@ -620,7 +521,7 @@ export class MongoDBHost implements DB {
     mediaType?: string;
     encoding?: string;
   }) {
-    const doc = await HostEncryptedMessage.create({
+    const doc = await EncryptedMessage.create({
       roomId: data.roomId,
       from: data.from,
       to: data.to,
@@ -635,7 +536,7 @@ export class MongoDBHost implements DB {
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
-    const query = HostEncryptedMessage.find(condition);
+    const query = EncryptedMessage.find(condition);
     if (opts.before) {
       query.where("createdAt").lt(new Date(opts.before) as unknown as number);
     }
@@ -650,23 +551,23 @@ export class MongoDBHost implements DB {
   }
 
   async findEncryptedKeyPair(userName: string) {
-    return await HostEncryptedKeyPair.findOne({ userName }).lean();
+    return await EncryptedKeyPair.findOne({ userName }).lean();
   }
 
   async upsertEncryptedKeyPair(userName: string, content: string) {
-    await HostEncryptedKeyPair.findOneAndUpdate({ userName }, { content }, {
+    await EncryptedKeyPair.findOneAndUpdate({ userName }, { content }, {
       upsert: true,
     });
   }
 
   async deleteEncryptedKeyPair(userName: string) {
-    await HostEncryptedKeyPair.deleteOne({ userName });
+    await EncryptedKeyPair.deleteOne({ userName });
   }
 
   async listKeyPackages(userName: string) {
-    const tenantId = this.tenantId;
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
     await this.cleanupKeyPackages(userName);
-    return await HostKeyPackage.find({
+    return await KeyPackage.find({
       userName,
       tenant_id: tenantId,
       used: false,
@@ -674,12 +575,8 @@ export class MongoDBHost implements DB {
   }
 
   async findKeyPackage(userName: string, id: string) {
-    const tenantId = this.tenantId;
-    return await HostKeyPackage.findOne({
-      _id: id,
-      userName,
-      tenant_id: tenantId,
-    })
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    return await KeyPackage.findOne({ _id: id, userName, tenant_id: tenantId })
       .lean();
   }
 
@@ -691,14 +588,14 @@ export class MongoDBHost implements DB {
     groupInfo?: string,
     expiresAt?: Date,
   ) {
-    const doc = new HostKeyPackage({
+    const doc = new KeyPackage({
       userName,
       content,
       mediaType,
       encoding,
       groupInfo,
       expiresAt,
-      tenant_id: this.tenantId,
+      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       {
@@ -709,19 +606,17 @@ export class MongoDBHost implements DB {
   }
 
   async markKeyPackageUsed(userName: string, id: string) {
-    await HostKeyPackage.updateOne({
-      _id: id,
-      userName,
-      tenant_id: this.tenantId,
-    }, {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.updateOne({ _id: id, userName, tenant_id: tenantId }, {
       used: true,
     });
   }
 
   async cleanupKeyPackages(userName: string) {
-    await HostKeyPackage.deleteMany({
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.deleteMany({
       userName,
-      tenant_id: this.tenantId,
+      tenant_id: tenantId,
       $or: [
         { used: true },
         { expiresAt: { $lt: new Date() } },
@@ -730,15 +625,13 @@ export class MongoDBHost implements DB {
   }
 
   async deleteKeyPackage(userName: string, id: string) {
-    await HostKeyPackage.deleteOne({
-      _id: id,
-      userName,
-      tenant_id: this.tenantId,
-    });
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.deleteOne({ _id: id, userName, tenant_id: tenantId });
   }
 
   async deleteKeyPackagesByUser(userName: string) {
-    await HostKeyPackage.deleteMany({ userName, tenant_id: this.tenantId });
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await KeyPackage.deleteMany({ userName, tenant_id: tenantId });
   }
 
   async createHandshakeMessage(data: {
@@ -747,12 +640,12 @@ export class MongoDBHost implements DB {
     recipients: string[];
     message: string;
   }) {
-    const doc = new HostHandshakeMessage({
+    const doc = new HandshakeMessage({
       roomId: data.roomId,
       sender: data.sender,
       recipients: data.recipients,
       message: data.message,
-      tenant_id: this.tenantId,
+      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       {
@@ -766,10 +659,8 @@ export class MongoDBHost implements DB {
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
   ) {
-    const query = HostHandshakeMessage.find({
-      ...condition,
-      tenant_id: this.tenantId,
-    });
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const query = HandshakeMessage.find({ ...condition, tenant_id: tenantId });
     if (opts.before) {
       query.where("createdAt").lt(new Date(opts.before) as unknown as number);
     }
@@ -784,13 +675,14 @@ export class MongoDBHost implements DB {
   }
 
   async listNotifications() {
-    return await HostNotification.find({ tenant_id: this.tenantId })
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    return await Notification.find({ tenant_id: tenantId })
       .sort({ createdAt: -1 })
       .lean();
   }
 
   async createNotification(title: string, message: string, type: string) {
-    const doc = new HostNotification({ title, message, type });
+    const doc = new Notification({ title, message, type });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       {
         env: this.env,
@@ -800,27 +692,29 @@ export class MongoDBHost implements DB {
   }
 
   async markNotificationRead(id: string) {
-    const res = await HostNotification.findOneAndUpdate(
-      { _id: id, tenant_id: this.tenantId },
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const res = await Notification.findOneAndUpdate(
+      { _id: id, tenant_id: tenantId },
       { read: true },
     );
     return !!res;
   }
 
   async deleteNotification(id: string) {
-    const res = await HostNotification.findOneAndDelete({
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const res = await Notification.findOneAndDelete({
       _id: id,
-      tenant_id: this.tenantId,
+      tenant_id: tenantId,
     });
     return !!res;
   }
 
   async findRemoteActorByUrl(url: string) {
-    return await HostRemoteActor.findOne({ actorUrl: url }).lean();
+    return await RemoteActor.findOne({ actorUrl: url }).lean();
   }
 
   async findRemoteActorsByUrls(urls: string[]) {
-    return await HostRemoteActor.find({ actorUrl: { $in: urls } }).lean();
+    return await RemoteActor.find({ actorUrl: { $in: urls } }).lean();
   }
 
   async upsertRemoteActor(data: {
@@ -830,7 +724,7 @@ export class MongoDBHost implements DB {
     icon: unknown;
     summary: string;
   }) {
-    await HostRemoteActor.findOneAndUpdate(
+    await RemoteActor.findOneAndUpdate(
       { actorUrl: data.actorUrl },
       {
         name: data.name,
@@ -1027,7 +921,7 @@ export class MongoDBHost implements DB {
     expiresAt: Date,
     tenantId: string,
   ): Promise<SessionDoc> {
-    const doc = new HostSession({
+    const doc = new Session({
       sessionId,
       expiresAt,
       tenant_id: tenantId,
@@ -1041,15 +935,15 @@ export class MongoDBHost implements DB {
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    return await HostSession.findOne({ sessionId }).lean<SessionDoc | null>();
+    return await Session.findOne({ sessionId }).lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
-    await HostSession.deleteOne({ sessionId });
+    await Session.deleteOne({ sessionId });
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await HostSession.updateOne({ sessionId }, { expiresAt: expires });
+    await Session.updateOne({ sessionId }, { expiresAt: expires });
   }
 
   async getDatabase() {

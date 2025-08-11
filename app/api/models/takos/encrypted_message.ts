@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import tenantScope from "../plugins/tenant_scope.ts";
 
 const encryptedMessageSchema = new mongoose.Schema({
   roomId: { type: String, index: true },
@@ -9,6 +10,8 @@ const encryptedMessageSchema = new mongoose.Schema({
   encoding: { type: String, default: "base64" },
   createdAt: { type: Date, default: Date.now },
 });
+
+encryptedMessageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const EncryptedMessage = mongoose.models.EncryptedMessage ??
   mongoose.model("EncryptedMessage", encryptedMessageSchema);
