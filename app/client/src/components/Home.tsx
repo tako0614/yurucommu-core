@@ -295,7 +295,7 @@ export function Home(props: HomeProps) {
   };
 
   return (
-    <div class="min-h-screen bg-[#121212] text-gray-100 flex flex-col">
+    <div class="bg-[#121212] text-gray-100 flex flex-col">
       {/* トップナビゲーション */}
       <header class="sticky top-0 z-20 bg-[#181818]/80 backdrop-blur-sm border-b border-gray-800/50">
         <div class="p-2 flex justify-center">
