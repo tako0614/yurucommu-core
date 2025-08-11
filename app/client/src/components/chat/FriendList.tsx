@@ -26,22 +26,28 @@ export function FriendList(props: FriendListProps) {
     
     // 2人だけのトークルームから友達を抽出
     const friendRooms = props.rooms.filter(isFriendRoom);
+    console.log("Friend rooms:", friendRooms); // デバッグ用
     
     for (const room of friendRooms) {
       // 相手のIDを取得（自分以外のメンバー）
-      const friendId = room.members[0]; // 2人だけなので最初のメンバーが相手
-      
-      if (!friendMap.has(friendId)) {
-        friendMap.set(friendId, {
-          id: friendId,
-          name: room.name || friendId.split('@')[0] || friendId,
-          avatar: room.avatar,
-          domain: friendId.includes('@') ? friendId.split('@')[1] : undefined,
-        });
+      // 2人だけのトークなので、membersの長さを確認
+      if (room.members && room.members.length > 0) {
+        const friendId = room.members[0]; // 最初のメンバーが相手
+        
+        if (!friendMap.has(friendId)) {
+          friendMap.set(friendId, {
+            id: friendId,
+            name: room.name || friendId.split('@')[0] || friendId,
+            avatar: room.avatar,
+            domain: friendId.includes('@') ? friendId.split('@')[1] : undefined,
+          });
+        }
       }
     }
     
-    return Array.from(friendMap.values());
+    const result = Array.from(friendMap.values());
+    console.log("Generated friends:", result); // デバッグ用
+    return result;
   });
 
   const filteredFriends = createMemo(() => {
@@ -100,7 +106,10 @@ export function FriendList(props: FriendListProps) {
                     ? "bg-[#4a4a4a]"
                     : "hover:bg-[#3c3c3c]"
                 }`}
-                onClick={() => props.onSelectFriend(friend.id)}
+                onClick={() => {
+                  console.log("Friend clicked:", friend.id); // デバッグ用
+                  props.onSelectFriend(friend.id);
+                }}
               >
                 <div class="relative w-12 h-12 flex items-center justify-center">
                   {isUrl(friend.avatar) ||

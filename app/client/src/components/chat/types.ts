@@ -37,7 +37,7 @@ export interface Room {
 // トークルームの種類を判定するユーティリティ関数
 export function isFriendRoom(room: Room): boolean {
   return room.type !== "memo" && 
-         (room.members?.length ?? 0) + 1 === 2 && 
+         (room.members?.length ?? 0) === 1 && // 相手一人のみ（自分は含まれていない）
          !(room.hasName || room.hasIcon);
 }
 
