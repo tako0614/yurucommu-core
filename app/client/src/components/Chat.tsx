@@ -946,7 +946,7 @@ export function Chat(props: ChatProps) {
   };
 
   const startDm = async (
-    _name: string,
+    name: string,
     membersInput: string,
     autoOpen = true,
   ) => {
@@ -965,14 +965,14 @@ export function Chat(props: ChatProps) {
     }
     const room: Room = {
       id: partner,
-      name: "",
+      name: name || "",
       userName: user.userName,
       domain: getDomain(),
       avatar: "",
       unreadCount: 0,
       type: "group",
       members: [partner],
-      hasName: false,
+      hasName: Boolean(name),
       hasIcon: false,
       lastMessage: "...",
       lastMessageTime: undefined,
@@ -1644,10 +1644,10 @@ export function Chat(props: ChatProps) {
           setShowFriendDmDialog(false);
           setFriendDmTarget(null);
         }}
-        onCreate={() => {
+        onCreate={(name) => {
           const target = friendDmTarget();
           if (target) {
-            startDm("", target.id, false);
+            startDm(name, target.id, false);
           }
           setShowFriendDmDialog(false);
           setFriendDmTarget(null);
