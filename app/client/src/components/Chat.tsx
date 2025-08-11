@@ -17,7 +17,6 @@ import {
   fetchEncryptedMessages,
   fetchKeepMessages,
   fetchKeyPackages,
-  fetchWelcome as _fetchWelcome,
   RoomsSearchItem,
   saveEncryptedKeyPair,
   searchRooms,
@@ -188,12 +187,6 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
     /* ignore */
   }
   return { content: text };
-}
-
-function expandMembers(members: ActorID[]): { to: ActorID[]; cc: ActorID[] } {
-  const unique = Array.from(new Set(members));
-  const [primary, ...rest] = unique;
-  return { to: primary ? [primary] : [], cc: rest };
 }
 
 async function encryptFile(file: File) {
@@ -645,9 +638,6 @@ export function Chat(props: ChatProps) {
       return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     }
     const [partnerUser, partnerDomain] = splitActor(room.members[0]);
-    const partner = partnerDomain
-      ? `${partnerUser}@${partnerDomain}`
-      : `${partnerUser}@${getDomain()}`;
     const encryptedMsgs: ChatMessage[] = [];
     let group = groups()[room.id];
     if (!group) {
@@ -666,11 +656,7 @@ export function Chat(props: ChatProps) {
         }
       }
     }
-    const list = await fetchEncryptedMessages(
-      `${user.userName}@${getDomain()}`,
-      partner,
-      params,
-    );
+    const list = await fetchEncryptedMessages(room.id, params);
     for (const m of list) {
       const decoded = decodeMLSMessage(m.content);
       if (!decoded) {
@@ -984,13 +970,9 @@ export function Chat(props: ChatProps) {
     }
     upsertRoom(room);
     const me = `${user.userName}@${getDomain()}`;
-    const { to: toList, cc: ccList } = expandMembers([
-      me as ActorID,
-      partner as ActorID,
-    ]);
     try {
       // 軽量なハンドシェイクでサーバ派生ビューに登場させる
-      await sendHandshake(me, toList, ccList, "hi");
+      await sendHandshake(room.id, me, "hi");
     } catch (e) {
       console.error("ハンドシェイク送信に失敗しました", e);
     }
@@ -1031,7 +1013,6 @@ export function Chat(props: ChatProps) {
       setMediaPreview(null);
       return;
     }
-    const { to: toList, cc: ccList } = expandMembers(room.members);
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();
     const group = groups()[roomId];
@@ -1053,11 +1034,9 @@ export function Chat(props: ChatProps) {
     const cipher = await encryptGroupMessage(group, JSON.stringify(note));
     const msg = encodeMLSMessage("PrivateMessage", cipher);
     const success = await sendEncryptedMessage(
+      roomId,
       `${user.userName}@${getDomain()}`,
-      toList,
-      ccList,
       {
-        id: `urn:uuid:${localId}`,
         content: msg,
         mediaType: "message/mls",
         encoding: "base64",

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 const encryptedMessageSchema = new mongoose.Schema({
+  roomId: { type: String, index: true },
   from: { type: String, required: true },
   to: { type: [String], required: true },
   content: { type: String, required: true },
