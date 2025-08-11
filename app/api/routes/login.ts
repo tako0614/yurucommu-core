@@ -42,7 +42,7 @@ app.post(
       const user = data.user;
       if (!user || !user.id) return c.json({ error: "Invalid user" }, 401);
 
-      await issueSession(c, user.id);
+      await issueSession(c);
       return c.json({ success: true, message: "Login successful" });
     }
 
@@ -57,7 +57,7 @@ app.post(
         return c.json({ error: "Invalid password" }, 401);
       }
 
-      await issueSession(c, env["ACTIVITYPUB_DOMAIN"] ?? "");
+      await issueSession(c);
 
       return c.json({ success: true, message: "Login successful" });
     } catch (error) {

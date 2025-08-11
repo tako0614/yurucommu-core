@@ -916,15 +916,16 @@ export class MongoDB implements DB {
     }
   }
 
+  /**
+   * セッションを保存します。tenant_id はプラグインで自動付与されます。
+   */
   async createSession(
     sessionId: string,
     expiresAt: Date,
-    tenantId: string,
   ): Promise<SessionDoc> {
     const doc = new Session({
       sessionId,
       expiresAt,
-      tenant_id: tenantId,
     });
     (doc as unknown as { $locals?: { env?: Record<string, string> } }).$locals =
       {
