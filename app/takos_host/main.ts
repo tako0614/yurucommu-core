@@ -249,7 +249,6 @@ root.all("/*", async (c) => {
   if (rootDomain && host === rootDomain && rootActivityPubApp) {
     return rootActivityPubApp.fetch(c.req.raw);
   }
-  console.log("rootDomain", rootDomain, "host", host);
   const app = await getAppForHost(host);
   if (!app) {
     if (!isDev && notFoundHtml) {
