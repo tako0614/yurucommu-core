@@ -956,23 +956,20 @@ export function Chat(props: ChatProps) {
       membersInput.split(",")[0]?.trim() as ActorID,
     );
     if (!partner) return;
-    // 既存の1:1未設定ルームがある場合はそれを開く（重複防止）
-    const exists = chatRooms().some((r) => r.id === partner);
-    if (exists) {
-      if (autoOpen) setSelectedRoom(partner);
-      setShowGroupDialog(false);
-      return;
-    }
+    // すべてのトークは同等。毎回新規作成してサーバ保存する
+    const finalName = (name ?? "").trim();
+
+    const newId = crypto.randomUUID();
     const room: Room = {
-      id: partner,
-      name: name || "",
+      id: newId,
+      name: finalName || "",
       userName: user.userName,
       domain: getDomain(),
       avatar: "",
       unreadCount: 0,
       type: "group",
       members: [partner],
-      hasName: Boolean(name),
+      hasName: Boolean(finalName),
       hasIcon: false,
       lastMessage: "...",
       lastMessageTime: undefined,
@@ -994,7 +991,7 @@ export function Chat(props: ChatProps) {
     } catch (e) {
       console.error("ハンドシェイク送信に失敗しました", e);
     }
-    if (autoOpen) setSelectedRoom(partner);
+    if (autoOpen) setSelectedRoom(room.id);
     setShowGroupDialog(false);
   };
 
@@ -1197,6 +1194,10 @@ export function Chat(props: ChatProps) {
             break;
           }
         }
+      }
+      // 名前付き1:1ルームなど、IDがパートナーと一致しない場合のフォールバック
+      if (!room) {
+        room = chatRooms().find((r) => (r.members?.length ?? 0) === 1 && r.members.includes(normalizedPartner));
       }
       if (!room && uuidRe.test(partnerName)) {
         // グループIDと推測されるがまだ一覧に存在しない場合はDMを作成しない

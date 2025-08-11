@@ -60,17 +60,7 @@ app.post("/ap/groups", authRequired, async (c) => {
   const account = await db.findAccountById(body.owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
-  // 1:1 未設定名（DM）重複防止: 同一メンバー構成・nameが空の既存ルームを再利用
-  const existing = (account.groups ?? []).find((g) => {
-    const hasName = !!(g.name && String(g.name).trim() !== "");
-    if (hasName) return false;
-    const a = new Set(g.members ?? []);
-    const b = new Set(requestedMembers);
-    if (a.size !== b.size) return false;
-    for (const v of a) if (!b.has(v)) return false;
-    return true;
-  });
-  const room = existing ?? {
+  const room = {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
     name: body.name,
     icon: typeof body.icon === "string" ? body.icon : "",
@@ -80,9 +70,7 @@ app.post("/ap/groups", authRequired, async (c) => {
     },
     members: requestedMembers,
   };
-  if (!existing) {
-    await db.addGroup(body.owner, room);
-  }
+  await db.addGroup(body.owner, room);
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -186,28 +174,16 @@ app.post("/accounts/:id/groups", async (c) => {
   const requestedMembers = body.members.filter((m: unknown) =>
     typeof m === "string"
   );
-  // 1:1 未設定名（DM）重複防止
-  const exists = (account.groups ?? []).find((g) => {
-    const hasName = !!(g.name && String(g.name).trim() !== "");
-    if (hasName) return false;
-    const a = new Set(g.members ?? []);
-    const b = new Set(requestedMembers);
-    if (a.size !== b.size) return false;
-    for (const v of a) if (!b.has(v)) return false;
-    return true;
-  });
-  if (!exists) {
-    await db.addGroup(id, {
-      id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
-      name: body.name,
-      icon: typeof body.icon === "string" ? body.icon : "",
-      userSet: {
-        name: !!(body.name && String(body.name).trim() !== ""),
-        icon: !!(body.icon && String(body.icon).trim() !== ""),
-      },
-      members: requestedMembers,
-    } as unknown as { id: string; name: string; members: string[] });
-  }
+  await db.addGroup(id, {
+    id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
+    name: body.name,
+    icon: typeof body.icon === "string" ? body.icon : "",
+    userSet: {
+      name: !!(body.name && String(body.name).trim() !== ""),
+      icon: !!(body.icon && String(body.icon).trim() !== ""),
+    },
+    members: requestedMembers,
+  } as unknown as { id: string; name: string; members: string[] });
   const groups = await db.listGroups(id);
   return jsonResponse(c, { groups });
 });
@@ -315,26 +291,25 @@ app.get("/rooms", authRequired, async (c) => {
   for (const g of metaList ?? []) {
     const others = g.members.filter((m) => m !== ownerHandle);
     const membersCount = others.length + 1;
-    const key = membersCount === 2 ? others[0] : canonGroupKey(others);
-    const existing = map.get(key);
-    if (existing) {
-      existing.name = g.userSet?.name ? g.name : "";
-      existing.icon = g.userSet?.icon ? g.icon ?? "" : "";
-      existing.hasName = !!g.userSet?.name;
-      existing.hasIcon = !!g.userSet?.icon;
-      existing.members = others;
-    } else {
-      map.set(key, {
-        id: key,
-        name: g.userSet?.name ? g.name : "",
-        icon: g.userSet?.icon ? g.icon ?? "" : "",
-        members: others,
-        hasName: !!g.userSet?.name,
-        hasIcon: !!g.userSet?.icon,
-        membersCount,
-        lastMessageAt: undefined,
-      });
-    }
+    const partnerKey = membersCount === 2 ? others[0] : canonGroupKey(others);
+    const key = String(g.id);
+
+    const existingByPartner = map.get(partnerKey);
+    const lastMessageAt = existingByPartner?.lastMessageAt;
+    // 保存済みルームは常に group.id をキーに独立表示し、
+    // 相手ハンドル由来の一時キーは重複回避のため除去
+    map.delete(partnerKey);
+
+    map.set(key, {
+      id: key,
+      name: g.userSet?.name ? g.name : existingByPartner?.name ?? "",
+      icon: g.userSet?.icon ? g.icon ?? "" : existingByPartner?.icon ?? "",
+      members: others,
+      hasName: !!g.userSet?.name,
+      hasIcon: !!g.userSet?.icon,
+      membersCount,
+      lastMessageAt,
+    });
   }
 
   let list = Array.from(map.values());
