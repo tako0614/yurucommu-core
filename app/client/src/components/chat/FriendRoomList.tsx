@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
 
@@ -17,16 +17,15 @@ export function FriendRoomList(props: FriendRoomListProps) {
 
   // 選択された友達とのトークルームを取得
   const friendRooms = createMemo(() => {
-    return props.rooms.filter((room) => 
-      room.members.includes(props.friendId)
-    );
+    return props.rooms.filter((room) => room.members.includes(props.friendId));
   });
 
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();
     if (!q) return friendRooms();
     return friendRooms().filter((r) =>
-      r.name.toLowerCase().includes(q) || (r.lastMessage ?? "").toLowerCase().includes(q)
+      r.name.toLowerCase().includes(q) ||
+      (r.lastMessage ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -61,7 +60,7 @@ export function FriendRoomList(props: FriendRoomListProps) {
           class="px-2 py-1 rounded bg-blue-600 text-white text-sm hover:bg-blue-700"
           onClick={props.onCreateRoom}
         >
-          ＋ 新規
+          ＋ 新しいトーク
         </button>
       </div>
 
@@ -95,7 +94,9 @@ export function FriendRoomList(props: FriendRoomListProps) {
                 />
               </svg>
             </div>
-            <h3 class="text-lg font-medium text-white mb-2">トークがありません</h3>
+            <h3 class="text-lg font-medium text-white mb-2">
+              トークがありません
+            </h3>
             <p class="text-gray-400 text-sm mb-4">
               {props.friendName}との新しいトークを始めましょう
             </p>
@@ -122,8 +123,8 @@ export function FriendRoomList(props: FriendRoomListProps) {
               >
                 <div class="relative w-10 h-10 flex items-center justify-center">
                   {isUrl(room.avatar) ||
-                    (typeof room.avatar === "string" &&
-                      room.avatar.startsWith("data:image/"))
+                      (typeof room.avatar === "string" &&
+                        room.avatar.startsWith("data:image/"))
                     ? (
                       <img
                         src={room.avatar}
@@ -132,14 +133,13 @@ export function FriendRoomList(props: FriendRoomListProps) {
                       />
                     )
                     : (
-                      <div
-                        class="w-10 h-10 flex items-center justify-center rounded-full text-white bg-[#444]"
-                      >
-                        {room.avatar || room.name.charAt(0).toUpperCase() || "👥"}
+                      <div class="w-10 h-10 flex items-center justify-center rounded-full text-white bg-[#444]">
+                        {room.avatar || room.name.charAt(0).toUpperCase() ||
+                          "👥"}
                       </div>
                     )}
                 </div>
-                
+
                 <div class="ml-3 flex-1 min-w-0">
                   <div class="flex justify-between items-center w-full">
                     <p class="text-white text-sm font-medium truncate flex-1">
