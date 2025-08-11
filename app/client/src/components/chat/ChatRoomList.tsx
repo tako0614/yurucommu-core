@@ -12,6 +12,7 @@ import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
+import { EmptyState } from "../ui/EmptyState.tsx";
 
 interface ChatRoomListProps {
   rooms: Room[];
@@ -197,10 +198,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
             class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
           >
             <Show when={filteredRooms().length === 0}>
-              <li class="text-gray-400 text-sm px-2 py-4">
-                {props.segment === "groups"
-                  ? "グループはまだありません。『グループ作成』から始めましょう。"
-                  : "トークはありません。"}
+              <li class="px-2 py-2">
+                <EmptyState
+                  title={props.segment === "groups" ? "グループはまだありません" : "トークはありません"}
+                  description={props.segment === "groups" ? "『グループ作成』から始めましょう。" : "新しいトークを作成して会話を始めましょう。"}
+                />
               </li>
             </Show>
             <For each={filteredRooms()}>

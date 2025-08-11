@@ -20,9 +20,15 @@ const HeaderButton = (
       class={`relative rounded-md transition-colors duration-200 hover:bg-[#3c3c3c] ${
         props.isMobile() ? "h-12 aspect-square" : "w-full"
       }`}
-      onClick={() => setSelectedApp(props.page)}
     >
-      <a class="block w-full p-3">{props.children(isActive())}</a>
+      <button
+        type="button"
+        class="block w-full p-3"
+        aria-current={isActive() ? "page" : undefined}
+        onClick={() => setSelectedApp(props.page)}
+      >
+        {props.children(isActive())}
+      </button>
     </li>
   );
 };

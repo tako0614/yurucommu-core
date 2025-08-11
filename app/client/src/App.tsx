@@ -9,6 +9,7 @@ import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { useHashRouter } from "./utils/router.ts";
 import "./App.css";
+import { Modal } from "./components/ui/Modal.tsx";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
@@ -87,30 +88,21 @@ function App() {
       fallback={<LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />}
     >
       <Application onShowEncryptionKeyForm={showEncryptionKeyForm} />
-      <Show when={encryptionKeyFormVisible()}>
-        <div style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0,0,0,0.7);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          ">
-          <EncryptionKeyForm
-            onComplete={(skipped) => {
-              hideEncryptionKeyForm();
-              if (skipped) {
-                setSkippedEncryptionKey(true);
-                sessionStorage.setItem("skippedEncryptionKey", "true");
-              }
-            }}
-          />
-        </div>
-      </Show>
+      <Modal
+        open={encryptionKeyFormVisible()}
+        onClose={hideEncryptionKeyForm}
+        title="暗号化キーの入力"
+      >
+        <EncryptionKeyForm
+          onComplete={(skipped) => {
+            hideEncryptionKeyForm();
+            if (skipped) {
+              setSkippedEncryptionKey(true);
+              sessionStorage.setItem("skippedEncryptionKey", "true");
+            }
+          }}
+        />
+      </Modal>
     </Show>
   );
 }
