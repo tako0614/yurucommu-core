@@ -1,4 +1,11 @@
-import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onMount,
+  Show,
+} from "solid-js";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
@@ -14,7 +21,7 @@ interface ChatRoomListProps {
   onCreateDm: () => void;
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
-  onCreateFriendGroup?: (friendId: string) => void;
+  onCreateFriendDm?: (friendId: string) => void;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
@@ -46,7 +53,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
     }
     if (!q) return base;
     return base.filter((r) =>
-      r.name.toLowerCase().includes(q) || (r.lastMessage ?? "").toLowerCase().includes(q)
+      r.name.toLowerCase().includes(q) ||
+      (r.lastMessage ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -59,10 +67,10 @@ export function ChatRoomList(props: ChatRoomListProps) {
   });
 
   const getFriendName = (friendId: string) => {
-    const room = props.rooms.find((r) => 
+    const room = props.rooms.find((r) =>
       isFriendRoom(r) && r.members.includes(friendId)
     );
-    return room?.name || friendId.split('@')[0] || friendId;
+    return room?.name || friendId.split("@")[0] || friendId;
   };
 
   const changeSeg = (seg: "all" | "people" | "groups") => {
@@ -76,7 +84,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
   const onKeyDownTabs = (e: KeyboardEvent) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      const order: ("all" | "people" | "groups")[] = ["all", "people", "groups"];
+      const order: ("all" | "people" | "groups")[] = [
+        "all",
+        "people",
+        "groups",
+      ];
       const idx = order.indexOf(props.segment);
       const next = e.key === "ArrowLeft"
         ? order[(idx + order.length - 1) % order.length]
@@ -115,11 +127,17 @@ export function ChatRoomList(props: ChatRoomListProps) {
             aria-selected={props.segment === seg}
             aria-controls={`panel-${seg}`}
             class={`flex-1 px-2 py-1 rounded ${
-              props.segment === seg ? "bg-[#4a4a4a] text-white" : "bg-[#2b2b2b] text-gray-300"
+              props.segment === seg
+                ? "bg-[#4a4a4a] text-white"
+                : "bg-[#2b2b2b] text-gray-300"
             }`}
             onClick={() => changeSeg(seg)}
           >
-            {seg === "all" ? "すべて" : seg === "people" ? "友だち" : "グループ"}
+            {seg === "all"
+              ? "すべて"
+              : seg === "people"
+              ? "友だち"
+              : "グループ"}
             <Show when={(segUnread()[seg] ?? 0) > 0}>
               <span class="ml-1 inline-block text-xs px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
                 {segUnread()[seg]}
@@ -142,9 +160,9 @@ export function ChatRoomList(props: ChatRoomListProps) {
           </div>
         </Show>
       </div>
-      
+
       {/* 友達タブの場合は専用UI、それ以外は従来のリスト表示 */}
-      <Show 
+      <Show
         when={props.segment === "people"}
         fallback={
           <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
@@ -186,7 +204,9 @@ export function ChatRoomList(props: ChatRoomListProps) {
                           : (
                             <span
                               class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
-                                room.type === "memo" ? "bg-green-600" : "bg-[#444]"
+                                room.type === "memo"
+                                  ? "bg-green-600"
+                                  : "bg-[#444]"
                               }`}
                             >
                               {room.avatar}
@@ -239,7 +259,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
             selectedRoom={props.selectedRoom}
             onSelectRoom={props.onSelect}
             onBack={() => setSelectedFriend(null)}
-            onCreateRoom={() => props.onCreateFriendGroup?.(selectedFriend()!)}
+            onCreateRoom={() => props.onCreateFriendDm?.(selectedFriend()!)}
           />
         </Show>
       </Show>

@@ -450,11 +450,10 @@ export function Chat(props: ChatProps) {
   const [showGroupDialog, setShowGroupDialog] = createSignal(false);
   const [groupDialogMode, setGroupDialogMode] = createSignal<
     "create" | "invite" | "dm"
-  >("create");
+  >("dm");
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
-  const [friendGroupTarget, setFriendGroupTarget] = createSignal<string | null>(null);
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -701,19 +700,30 @@ export function Chat(props: ChatProps) {
           data?: string;
           url?: string;
           mediaType: string;
-          preview?: { url?: string; data?: string; mediaType?: string; key?: string; iv?: string };
+          preview?: {
+            url?: string;
+            data?: string;
+            mediaType?: string;
+            key?: string;
+            iv?: string;
+          };
         }[]
         | undefined;
       if (Array.isArray(listAtt)) {
         attachments = [];
         for (const at of listAtt) {
           if (typeof at.url === "string") {
-            const attachmentItem = at as typeof at & { preview?: ActivityPubPreview };
+            const attachmentItem = at as typeof at & {
+              preview?: ActivityPubPreview;
+            };
             const mt = typeof attachmentItem.mediaType === "string"
               ? attachmentItem.mediaType
               : "application/octet-stream";
             let preview;
-            if (attachmentItem.preview && typeof attachmentItem.preview.url === "string") {
+            if (
+              attachmentItem.preview &&
+              typeof attachmentItem.preview.url === "string"
+            ) {
               const previewItem = attachmentItem.preview;
               const pmt = typeof previewItem.mediaType === "string"
                 ? previewItem.mediaType
@@ -725,7 +735,11 @@ export function Chat(props: ChatProps) {
                   typeof previewItem.key === "string" &&
                   typeof previewItem.iv === "string"
                 ) {
-                  pbuf = await decryptFile(pbuf, previewItem.key, previewItem.iv);
+                  pbuf = await decryptFile(
+                    pbuf,
+                    previewItem.key,
+                    previewItem.iv,
+                  );
                 }
                 preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
               } catch {
@@ -735,8 +749,15 @@ export function Chat(props: ChatProps) {
             try {
               const res = await fetch(attachmentItem.url);
               let buf = await res.arrayBuffer();
-              if (typeof attachmentItem.key === "string" && typeof attachmentItem.iv === "string") {
-                buf = await decryptFile(buf, attachmentItem.key, attachmentItem.iv);
+              if (
+                typeof attachmentItem.key === "string" &&
+                typeof attachmentItem.iv === "string"
+              ) {
+                buf = await decryptFile(
+                  buf,
+                  attachmentItem.key,
+                  attachmentItem.iv,
+                );
               }
               if (
                 mt.startsWith("video/") ||
@@ -756,7 +777,11 @@ export function Chat(props: ChatProps) {
                 });
               }
             } catch {
-              attachments.push({ url: attachmentItem.url, mediaType: mt, preview });
+              attachments.push({
+                url: attachmentItem.url,
+                mediaType: mt,
+                preview,
+              });
             }
           }
         }
@@ -846,9 +871,13 @@ export function Chat(props: ChatProps) {
         hasName: r.hasName,
         hasIcon: r.hasIcon,
         lastMessage: "...",
-        lastMessageTime: (r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt
-          ? new Date((r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt!)
-          : undefined,
+        lastMessageTime:
+          (r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt
+            ? new Date(
+              (r as RoomsSearchItem & { lastMessageAt?: string })
+                .lastMessageAt!,
+            )
+            : undefined,
       });
     }
 
@@ -950,45 +979,6 @@ export function Chat(props: ChatProps) {
     await sendHandshake(me, toList, ccList, "hi");
     setSelectedRoom(partner);
     setShowGroupDialog(false);
-  };
-
-  // 友達との新しいグループルーム作成
-  const startFriendGroup = async (groupName: string, membersInput: string) => {
-    const user = account();
-    const friendId = friendGroupTarget();
-    if (!user || !friendId) return;
-
-    // 友達を含むメンバーリストを作成
-    const inputMembers = membersInput ? membersInput.split(",").map(m => m.trim()).filter(Boolean) : [];
-    const allMembers = [friendId, ...inputMembers.filter(m => m !== friendId)];
-
-    if (allMembers.length === 1) {
-      // 友達のみの場合はDMとして作成
-      await startDm("", friendId);
-      return;
-    }
-
-    // グループルーム作成の実装（実際のAPIコールは省略）
-    const groupId = crypto.randomUUID();
-    const room: Room = {
-      id: groupId,
-      name: groupName || `${allMembers.slice(0, 2).map(m => m.split('@')[0]).join("、")}${allMembers.length > 2 ? ` ほか${allMembers.length - 2}名` : ""}`,
-      userName: user.userName,
-      domain: getDomain(),
-      avatar: "👥",
-      unreadCount: 0,
-      type: "group",
-      members: allMembers,
-      hasName: !!groupName,
-      hasIcon: false,
-      lastMessage: "...",
-      lastMessageTime: undefined,
-    };
-
-    upsertRoom(room);
-    setSelectedRoom(groupId);
-    setShowGroupDialog(false);
-    setFriendGroupTarget(null);
   };
 
   const sendMessage = async () => {
@@ -1542,10 +1532,8 @@ export function Chat(props: ChatProps) {
               onCreateDm={openDmDialog}
               segment={segment()}
               onSegmentChange={setSegment}
-              onCreateFriendGroup={(friendId: string) => {
-                setFriendGroupTarget(friendId);
-                setGroupDialogMode("create");
-                setShowGroupDialog(true);
+              onCreateFriendDm={(friendId: string) => {
+                startDm("", friendId);
               }}
             />
           </div>
@@ -1624,15 +1612,8 @@ export function Chat(props: ChatProps) {
         mode={groupDialogMode()}
         onClose={() => {
           setShowGroupDialog(false);
-          setFriendGroupTarget(null);
         }}
-        onCreate={(name: string, members: string) => {
-          if (friendGroupTarget()) {
-            return startFriendGroup(name, members);
-          } else {
-            return startDm(name, members);
-          }
-        }}
+        onCreate={startDm}
       />
     </>
   );
