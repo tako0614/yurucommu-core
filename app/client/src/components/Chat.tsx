@@ -58,6 +58,7 @@ import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
+import { FriendDmDialog } from "./chat/FriendDmDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
@@ -451,6 +452,10 @@ export function Chat(props: ChatProps) {
   const [groupDialogMode, setGroupDialogMode] = createSignal<
     "create" | "invite" | "dm"
   >("dm");
+  const [showFriendDmDialog, setShowFriendDmDialog] = createSignal(false);
+  const [friendDmTarget, setFriendDmTarget] = createSignal<
+    { id: string; name: string } | null
+  >(null);
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
@@ -940,7 +945,11 @@ export function Chat(props: ChatProps) {
     setShowGroupDialog(true);
   };
 
-  const startDm = async (_name: string, membersInput: string) => {
+  const startDm = async (
+    _name: string,
+    membersInput: string,
+    autoOpen = true,
+  ) => {
     const user = account();
     if (!user) return;
     const partner = normalizeActor(
@@ -950,7 +959,7 @@ export function Chat(props: ChatProps) {
     // 既存の1:1未設定ルームがある場合はそれを開く（重複防止）
     const exists = chatRooms().some((r) => r.id === partner);
     if (exists) {
-      setSelectedRoom(partner);
+      if (autoOpen) setSelectedRoom(partner);
       setShowGroupDialog(false);
       return;
     }
@@ -985,7 +994,7 @@ export function Chat(props: ChatProps) {
     } catch (e) {
       console.error("ハンドシェイク送信に失敗しました", e);
     }
-    setSelectedRoom(partner);
+    if (autoOpen) setSelectedRoom(partner);
     setShowGroupDialog(false);
   };
 
@@ -1541,7 +1550,12 @@ export function Chat(props: ChatProps) {
               segment={segment()}
               onSegmentChange={setSegment}
               onCreateFriendDm={(friendId: string) => {
-                startDm("", friendId);
+                const room = chatRooms().find((r) =>
+                  r.members.includes(friendId)
+                );
+                const name = room?.name || friendId.split("@")[0] || friendId;
+                setFriendDmTarget({ id: friendId, name });
+                setShowFriendDmDialog(true);
               }}
             />
           </div>
@@ -1622,6 +1636,22 @@ export function Chat(props: ChatProps) {
           setShowGroupDialog(false);
         }}
         onCreate={startDm}
+      />
+      <FriendDmDialog
+        isOpen={showFriendDmDialog()}
+        friendName={friendDmTarget()?.name || ""}
+        onClose={() => {
+          setShowFriendDmDialog(false);
+          setFriendDmTarget(null);
+        }}
+        onCreate={() => {
+          const target = friendDmTarget();
+          if (target) {
+            startDm("", target.id, false);
+          }
+          setShowFriendDmDialog(false);
+          setFriendDmTarget(null);
+        }}
       />
     </>
   );
