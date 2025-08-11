@@ -13,6 +13,7 @@ import {
   deliverActivityPubObject,
   fetchJson,
   getDomain,
+  jsonResponse,
   resolveActor,
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
@@ -47,6 +48,7 @@ interface EncryptedKeyPairDoc {
 
 interface EncryptedMessageDoc {
   _id?: unknown;
+  roomId?: string;
   from: string;
   to: string[];
   content: string;
@@ -104,6 +106,301 @@ async function resolveActorCached(
 }
 
 const app = new Hono();
+
+// ルーム管理 API (ActivityPub 対応)
+
+// ActivityPub ルーム一覧取得
+app.get("/ap/rooms", async (c) => {
+  const owner = c.req.query("owner");
+  if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
+  const db = createDB(getEnv(c));
+  const account = await db.findAccountById(owner);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  const rooms = await db.listGroups(owner);
+  return jsonResponse(c, { rooms });
+});
+
+// ルームアクター取得
+app.get("/ap/rooms/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = createDB(getEnv(c));
+  const result = await db.findGroup(id);
+  if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
+  const { group: room } = result;
+  const domain = getDomain(c);
+  const actor = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/ap/rooms/${id}`,
+    type: "Group",
+    name: room.name,
+    members: room.members,
+  };
+  return jsonResponse(c, actor, 200, "application/activity+json");
+});
+
+// ルーム作成
+app.post("/ap/rooms", authRequired, async (c) => {
+  const body = await c.req.json();
+  if (
+    typeof body !== "object" ||
+    typeof body.owner !== "string" ||
+    typeof body.name !== "string" ||
+    !Array.isArray(body.members)
+  ) {
+    return jsonResponse(c, { error: "invalid room" }, 400);
+  }
+  const requestedMembers = body.members.filter((m: unknown) =>
+    typeof m === "string"
+  );
+  const db = createDB(getEnv(c));
+  const account = await db.findAccountById(body.owner);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+
+  // 1:1 未設定名（DM）重複防止: 同一メンバー構成・nameが空の既存ルームを再利用
+  const existing = (account.groups ?? []).find((g) => {
+    const hasName = !!(g.name && String(g.name).trim() !== "");
+    if (hasName) return false;
+    const a = new Set(g.members ?? []);
+    const b = new Set(requestedMembers);
+    if (a.size !== b.size) return false;
+    for (const v of a) if (!b.has(v)) return false;
+    return true;
+  });
+  const room = existing ?? {
+    id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
+    name: body.name,
+    icon: typeof body.icon === "string" ? body.icon : "",
+    userSet: {
+      name: !!(body.name && String(body.name).trim() !== ""),
+      icon: !!(body.icon && String(body.icon).trim() !== ""),
+    },
+    members: requestedMembers,
+  };
+  if (!existing) {
+    await db.addGroup(body.owner, room);
+  }
+  const domain = getDomain(c);
+  const actor = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `https://${domain}/ap/rooms/${room.id}`,
+    type: "Group",
+    name: room.name,
+    members: room.members,
+  };
+  return jsonResponse(c, actor, 201, "application/activity+json");
+});
+
+// メンバー変更 (Add/Remove または MLS Proposal)
+app.post("/ap/rooms/:id/members", authRequired, async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const db = createDB(getEnv(c));
+  const result = await db.findGroup(id);
+  if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
+  const { owner, group: room } = result;
+  const account = await db.findAccountById(owner);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  const domain = getDomain(c);
+
+  if (body.type === "Add" && typeof body.object === "string") {
+    if (!room.members.includes(body.object)) {
+      room.members.push(body.object);
+      await db.updateGroup(owner, room);
+    }
+    const activity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Add",
+      actor: `https://${domain}/ap/rooms/${id}`,
+      object: body.object,
+      target: `https://${domain}/ap/rooms/${id}`,
+    };
+    deliverActivityPubObject(
+      room.members,
+      activity,
+      account.userName,
+      domain,
+      getEnv(c),
+    ).catch((err) => console.error("Delivery failed:", err));
+    return jsonResponse(c, { members: room.members });
+  }
+
+  if (body.type === "Remove" && typeof body.object === "string") {
+    room.members = room.members.filter((m) => m !== body.object);
+    await db.updateGroup(owner, room);
+    const activity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Remove",
+      actor: `https://${domain}/ap/rooms/${id}`,
+      object: body.object,
+      target: `https://${domain}/ap/rooms/${id}`,
+    };
+    deliverActivityPubObject(
+      room.members,
+      activity,
+      account.userName,
+      domain,
+      getEnv(c),
+    ).catch((err) => console.error("Delivery failed:", err));
+    return jsonResponse(c, { members: room.members });
+  }
+
+  if (body.type === "Proposal") {
+    deliverActivityPubObject(
+      room.members,
+      body,
+      account.userName,
+      domain,
+      getEnv(c),
+    ).catch((err) => console.error("Delivery failed:", err));
+    return jsonResponse(c, { members: room.members });
+  }
+
+  return jsonResponse(c, { error: "invalid activity" }, 400);
+});
+
+// --- ルーム検索API（単一モデル／ファセット） ---
+// GET /api/rooms?owner=:id&participants=u1,u2&match=all|any|none&hasName=true|false&hasIcon=true|false&members=eq:2|ge:3
+app.get("/rooms", authRequired, async (c) => {
+  const owner = c.req.query("owner");
+  if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
+  const db = createDB(getEnv(c));
+  const account = await db.findAccountById(owner);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  const domain = getDomain(c);
+  const ownerHandle = `${account.userName}@${domain}`;
+
+  const qs = new URLSearchParams(c.req.url.split("?")[1] ?? "");
+  const parts = (qs.get("participants") ?? "").split(",").map((s) => s.trim())
+    .filter(Boolean);
+  const match = (qs.get("match") ?? "all") as "all" | "any" | "none";
+  const hasNameParam = qs.get("hasName");
+  const hasIconParam = qs.get("hasIcon");
+  const membersParam = qs.get("members"); // eq:2 | ge:3
+
+  type Derived = {
+    id: string;
+    name: string;
+    icon?: string;
+    members: string[]; // others only
+    hasName: boolean;
+    hasIcon: boolean;
+    membersCount: number;
+    lastMessageAt?: Date;
+  };
+
+  const map = new Map<string, Derived>();
+
+  const canonGroupKey = (members: string[]) =>
+    `grp:${[...members].sort().join(",")}`;
+
+  const applyParticipants = (participants: Set<string>, timestamp: Date) => {
+    if (!participants.has(ownerHandle)) return;
+    const others = [...participants].filter((m) => m !== ownerHandle);
+    const membersCount = others.length + 1;
+    const key = membersCount === 2
+      ? others[0] // 1:1 は相手ハンドルをそのままIDとして扱う
+      : canonGroupKey(others);
+    const existing = map.get(key);
+    if (existing) {
+      if (!existing.lastMessageAt || existing.lastMessageAt < timestamp) {
+        existing.lastMessageAt = timestamp;
+      }
+      return;
+    }
+    map.set(key, {
+      id: key,
+      name: "",
+      icon: "",
+      members: others,
+      hasName: false,
+      hasIcon: false,
+      membersCount,
+      lastMessageAt: timestamp,
+    });
+  };
+
+  // 1) 暗号化メッセージ由来
+  const encList = await db.findEncryptedMessages({
+    $or: [{ from: ownerHandle }, { to: ownerHandle }],
+  }, { limit: 500 }) as { from: string; to: string[]; createdAt: Date }[];
+  for (const m of encList ?? []) {
+    const participants = new Set<string>([m.from, ...m.to]);
+    applyParticipants(participants, m.createdAt ?? new Date());
+  }
+
+  // 2) ハンドシェイク（不足分の補完）
+  const hsList = await db.findHandshakeMessages({
+    $or: [{ sender: ownerHandle }, { recipients: ownerHandle }],
+  }, { limit: 200 }) as {
+    sender: string;
+    recipients: string[];
+    createdAt: Date;
+  }[];
+  for (const h of hsList ?? []) {
+    const participants = new Set<string>([h.sender, ...h.recipients]);
+    applyParticipants(participants, h.createdAt ?? new Date());
+  }
+
+  // 3) グループメタデータ（名前・アイコン）
+  const metaList = await db.listGroups(owner);
+  for (const g of metaList ?? []) {
+    const others = g.members.filter((m) => m !== ownerHandle);
+    const membersCount = others.length + 1;
+    const key = membersCount === 2 ? others[0] : canonGroupKey(others);
+    const existing = map.get(key);
+    if (existing) {
+      existing.name = g.userSet?.name ? g.name : "";
+      existing.icon = g.userSet?.icon ? g.icon ?? "" : "";
+      existing.hasName = !!g.userSet?.name;
+      existing.hasIcon = !!g.userSet?.icon;
+      existing.members = others;
+    } else {
+      map.set(key, {
+        id: key,
+        name: g.userSet?.name ? g.name : "",
+        icon: g.userSet?.icon ? g.icon ?? "" : "",
+        members: others,
+        hasName: !!g.userSet?.name,
+        hasIcon: !!g.userSet?.icon,
+        membersCount,
+        lastMessageAt: undefined,
+      });
+    }
+  }
+
+  let list = Array.from(map.values());
+
+  if (parts.length > 0) {
+    list = list.filter((r) => {
+      const set = new Set(r.members);
+      const matches = parts.map((p) => set.has(p));
+      if (match === "all") return matches.every(Boolean);
+      if (match === "any") return matches.some(Boolean);
+      return matches.every((m) => !m);
+    });
+  }
+
+  if (hasNameParam === "true") list = list.filter((r) => r.hasName);
+  if (hasNameParam === "false") list = list.filter((r) => !r.hasName);
+  if (hasIconParam === "true") list = list.filter((r) => r.hasIcon);
+  if (hasIconParam === "false") list = list.filter((r) => !r.hasIcon);
+
+  if (membersParam) {
+    const [op, valStr] = membersParam.split(":");
+    const val = Number(valStr);
+    if (!Number.isNaN(val)) {
+      if (op === "eq") list = list.filter((r) => r.membersCount === val);
+      if (op === "ge") list = list.filter((r) => r.membersCount >= val);
+    }
+  }
+
+  // 並び順: 最終メッセージ時刻の降順
+  list.sort((a, b) =>
+    (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0)
+  );
+
+  return jsonResponse(c, { rooms: list });
+});
 
 app.get("/users/:user/keyPackages", async (c) => {
   const identifier = c.req.param("user");
@@ -295,23 +592,20 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
 });
 
 app.post(
-  "/users/:user/messages",
+  "/rooms/:room/messages",
   authRequired,
   rateLimit({ windowMs: 60_000, limit: 20 }),
   async (c) => {
-    const acct = c.req.param("user");
-    const [sender, senderDomain] = acct.split("@");
+    const roomId = c.req.param("room");
+    const body = await c.req.json();
+    const { from, content, mediaType, encoding, attachments } = body;
+    if (typeof from !== "string" || typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const [sender, senderDomain] = from.split("@");
     if (!sender || !senderDomain) {
       return c.json({ error: "invalid user format" }, 400);
     }
-    const body = await c.req.json();
-    const { to, cc, content, mediaType, encoding, attachments } = body;
-    if (!Array.isArray(to) || typeof content !== "string") {
-      return c.json({ error: "invalid body" }, 400);
-    }
-    const ccList = Array.isArray(cc) ? cc : [];
-    const allMembers = Array.from(new Set([...to, ...ccList]));
-    const [primary, ...ccMembers] = allMembers;
     const context = Array.isArray(body["@context"])
       ? body["@context"] as string[]
       : [
@@ -321,12 +615,20 @@ app.post(
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
+    const found = await db.findGroup(roomId);
+    if (!found) return c.json({ error: "room not found" }, 404);
+    const { group } = found;
+    if (!group.members.includes(from)) {
+      return c.json({ error: "not a member" }, 403);
+    }
+    const recipients = group.members.filter((m) => m !== from);
 
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
     const msg = await db.createEncryptedMessage({
-      from: acct,
-      to: allMembers,
+      roomId,
+      from,
+      to: recipients,
       content,
       mediaType: mType,
       encoding: encType,
@@ -340,15 +642,13 @@ app.post(
       extra.attachments = attachments;
     }
 
-    const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,
       sender,
       content,
       extra,
-      { to: primary ? [primary] : [], cc: ccMembers },
+      { to: recipients, cc: [] },
     );
-
     const saved = object as Record<string, unknown>;
 
     const activityObj = buildActivityFromStored(
@@ -368,23 +668,22 @@ app.post(
     );
     (activityObj as ActivityPubActivity)["@context"] = context;
 
+    const actorId = `https://${domain}/users/${sender}`;
     const activity = createCreateActivity(domain, actorId, activityObj);
     (activity as ActivityPubActivity)["@context"] = context;
-    // 個別配信
-    (activity as ActivityPubActivity).to = primary ? [primary] : [];
-    (activity as ActivityPubActivity).cc = ccMembers;
-    const recipients = allMembers;
-    deliverActivityPubObject(recipients, activity, sender, domain, getEnv(c))
-      .catch(
-        (err) => {
-          console.error("deliver failed", err);
-        },
-      );
+    (activity as ActivityPubActivity).to = recipients;
+    (activity as ActivityPubActivity).cc = [];
+    deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+      (err) => {
+        console.error("deliver failed", err);
+      },
+    );
 
     const newMsg = {
       id: String(msg._id),
-      from: acct,
-      to: allMembers,
+      roomId,
+      from,
+      to: recipients,
       content,
       mediaType: msg.mediaType,
       encoding: msg.encoding,
@@ -411,7 +710,7 @@ app.post(
         })
         : undefined,
     };
-    sendToUser(acct, { type: "encryptedMessage", payload: newMsg });
+    sendToUser(from, { type: "encryptedMessage", payload: newMsg });
     for (const t of recipients) {
       sendToUser(t, { type: "encryptedMessage", payload: newMsg });
     }
@@ -421,23 +720,20 @@ app.post(
 );
 
 app.post(
-  "/users/:user/handshakes",
+  "/rooms/:room/handshakes",
   authRequired,
   rateLimit({ windowMs: 60_000, limit: 20 }),
   async (c) => {
-    const acct = c.req.param("user");
-    const [sender, senderDomain] = acct.split("@");
+    const roomId = c.req.param("room");
+    const body = await c.req.json();
+    const { from, content, mediaType, encoding, attachments } = body;
+    if (typeof from !== "string" || typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const [sender, senderDomain] = from.split("@");
     if (!sender || !senderDomain) {
       return c.json({ error: "invalid user format" }, 400);
     }
-    const body = await c.req.json();
-    const { to, cc, content, mediaType, encoding, attachments } = body;
-    if (!Array.isArray(to) || typeof content !== "string") {
-      return c.json({ error: "invalid body" }, 400);
-    }
-    const ccList = Array.isArray(cc) ? cc : [];
-    let allMembers = Array.from(new Set([...to, ...ccList]));
-    let [primary, ...ccMembers] = allMembers;
     const context = Array.isArray(body["@context"])
       ? body["@context"] as string[]
       : [
@@ -447,6 +743,13 @@ app.post(
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
+    const found = await db.findGroup(roomId);
+    if (!found) return c.json({ error: "room not found" }, 404);
+    const { group } = found;
+    if (!group.members.includes(from)) {
+      return c.json({ error: "not a member" }, 403);
+    }
+    let allMembers = [...group.members];
 
     const decoded = decodeMLSMessage(content);
     let bodyObj: Record<string, unknown> | null = null;
@@ -463,20 +766,20 @@ app.post(
       typeof bodyObj.member === "string"
     ) {
       allMembers = allMembers.filter((m) => m !== bodyObj.member);
-      [primary, ...ccMembers] = allMembers;
     } else if (
       bodyObj &&
       bodyObj.type === "welcome" &&
       typeof bodyObj.member === "string"
     ) {
       allMembers = [bodyObj.member];
-      [primary, ...ccMembers] = allMembers;
     }
+    const recipients = allMembers.filter((m) => m !== from);
 
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
     const msg = await db.createHandshakeMessage({
-      sender: acct,
+      roomId,
+      sender: from,
       recipients: allMembers,
       message: content,
     });
@@ -489,15 +792,13 @@ app.post(
       extra.attachments = attachments;
     }
 
-    const actorId = `https://${domain}/users/${sender}`;
     const object = await db.saveMessage(
       domain,
       sender,
       content,
       extra,
-      { to: primary ? [primary] : [], cc: ccMembers },
+      { to: recipients, cc: [] },
     );
-
     const saved = object as Record<string, unknown>;
 
     const activityObj = buildActivityFromStored(
@@ -517,27 +818,26 @@ app.post(
     );
     (activityObj as ActivityPubActivity)["@context"] = context;
 
+    const actorId = `https://${domain}/users/${sender}`;
     const activity = createCreateActivity(domain, actorId, activityObj);
     (activity as ActivityPubActivity)["@context"] = context;
-    // 個別配信
-    (activity as ActivityPubActivity).to = primary ? [primary] : [];
-    (activity as ActivityPubActivity).cc = ccMembers;
-    const recipients = allMembers;
-    deliverActivityPubObject(recipients, activity, sender, domain, getEnv(c))
-      .catch(
-        (err) => {
-          console.error("deliver failed", err);
-        },
-      );
+    (activity as ActivityPubActivity).to = recipients;
+    (activity as ActivityPubActivity).cc = [];
+    deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+      (err) => {
+        console.error("deliver failed", err);
+      },
+    );
 
     const newMsg = {
       id: String(msg._id),
-      sender: acct,
+      roomId,
+      sender: from,
       recipients: allMembers,
       message: content,
       createdAt: msg.createdAt,
     };
-    sendToUser(acct, { type: "publicMessage", payload: newMsg });
+    sendToUser(from, { type: "publicMessage", payload: newMsg });
     for (const t of recipients) {
       sendToUser(t, { type: "publicMessage", payload: newMsg });
     }
@@ -546,44 +846,8 @@ app.post(
   },
 );
 
-app.get("/users/:user/messages", authRequired, async (c) => {
-  const acct = c.req.param("user");
-  const [user, userDomain] = acct.split("@");
-  if (!user || !userDomain) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-
-  const actor = await resolveActorCached(
-    acct,
-    getEnv(c),
-  );
-  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
-  const partnerAcct = c.req.query("with");
-  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
-  const partnerActorObj = partnerAcct
-    ? await resolveActorCached(
-      partnerAcct,
-      getEnv(c),
-    )
-    : null;
-  let partnerActor = partnerActorObj?.id;
-  if (!partnerActor && partnerUser && partnerDomain) {
-    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
-  }
-  const condition = partnerAcct
-    ? {
-      $or: [
-        { sender: partnerAcct, recipients: { $in: [actorId, acct] } },
-        {
-          sender: acct,
-          recipients: {
-            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
-          },
-        },
-      ],
-    }
-    : { recipients: { $in: [actorId, acct] } };
-
+app.get("/rooms/:room/messages", authRequired, async (c) => {
+  const roomId = c.req.param("room");
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
@@ -591,7 +855,7 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const db = createDB(getEnv(c));
-  const list = await db.findEncryptedMessages(condition, {
+  const list = await db.findEncryptedMessages({ roomId }, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
@@ -610,8 +874,10 @@ app.get("/users/:user/messages", authRequired, async (c) => {
     return dateA.getTime() - dateB.getTime();
   });
   list.reverse();
+  const domain = getDomain(c);
   const messages = list.slice(0, limit).map((doc) => ({
     id: String(doc._id),
+    roomId: doc.roomId,
     from: doc.from,
     to: doc.to,
     content: doc.content,
@@ -646,44 +912,8 @@ app.get("/users/:user/messages", authRequired, async (c) => {
   return c.json(messages);
 });
 
-app.get("/users/:user/handshakes", authRequired, async (c) => {
-  const acct = c.req.param("user");
-  const [user, userDomain] = acct.split("@");
-  if (!user || !userDomain) {
-    return c.json({ error: "invalid user format" }, 400);
-  }
-
-  const actor = await resolveActorCached(
-    acct,
-    getEnv(c),
-  );
-  const actorId = actor?.id ?? `https://${userDomain}/users/${user}`;
-  const partnerAcct = c.req.query("with");
-  const [partnerUser, partnerDomain] = partnerAcct?.split("@") ?? [];
-  const partnerActorObj = partnerAcct
-    ? await resolveActorCached(
-      partnerAcct,
-      getEnv(c),
-    )
-    : null;
-  let partnerActor = partnerActorObj?.id;
-  if (!partnerActor && partnerUser && partnerDomain) {
-    partnerActor = `https://${partnerDomain}/users/${partnerUser}`;
-  }
-  const condition = partnerAcct
-    ? {
-      $or: [
-        { sender: partnerAcct, recipients: { $in: [actorId, acct] } },
-        {
-          sender: acct,
-          recipients: {
-            $in: partnerActor ? [partnerActor, partnerAcct] : [partnerAcct],
-          },
-        },
-      ],
-    }
-    : { recipients: { $in: [actorId, acct] } };
-
+app.get("/rooms/:room/handshakes", authRequired, async (c) => {
+  const roomId = c.req.param("room");
   const limit = Math.min(
     parseInt(c.req.query("limit") ?? "50", 10) || 50,
     100,
@@ -691,7 +921,7 @@ app.get("/users/:user/handshakes", authRequired, async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const db = createDB(getEnv(c));
-  const list = await db.findHandshakeMessages(condition, {
+  const list = await db.findHandshakeMessages({ roomId }, {
     before: before ?? undefined,
     after: after ?? undefined,
     limit,
