@@ -20,7 +20,7 @@ import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import mongoose from "mongoose";
-import type { DB, ListOpts } from "../../shared/db.ts";
+import type { DB, GroupInfo, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
@@ -264,14 +264,14 @@ export class MongoDBHost implements DB {
       _id: id,
       tenant_id: this.tenantId,
     }).lean<
-      { groups?: { id: string; name: string; members: string[] }[] } | null
+      { groups?: GroupInfo[] } | null
     >();
     return acc?.groups ?? [];
   }
 
   async addGroup(
     id: string,
-    group: { id: string; name: string; members: string[] },
+    group: GroupInfo,
   ) {
     const acc = await HostAccount.findOneAndUpdate({
       _id: id,
@@ -299,7 +299,7 @@ export class MongoDBHost implements DB {
     }).lean<
       | {
         _id: unknown;
-        groups: { id: string; name: string; members: string[] }[];
+        groups: GroupInfo[];
       }
       | null
     >();
@@ -310,7 +310,7 @@ export class MongoDBHost implements DB {
 
   async updateGroup(
     owner: string,
-    group: { id: string; name: string; members: string[] },
+    group: GroupInfo,
   ) {
     await HostAccount.updateOne({
       _id: owner,

@@ -239,7 +239,8 @@ app.get("/rooms", authRequired, async (c) => {
   const ownerHandle = `${account.userName}@${domain}`;
 
   const qs = new URLSearchParams(c.req.url.split("?")[1] ?? "");
-  const parts = (qs.get("participants") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = (qs.get("participants") ?? "").split(",").map((s) => s.trim())
+    .filter(Boolean);
   const match = (qs.get("match") ?? "all") as "all" | "any" | "none";
   const hasNameParam = qs.get("hasName");
   const hasIconParam = qs.get("hasIcon");
@@ -258,11 +259,8 @@ app.get("/rooms", authRequired, async (c) => {
 
   const map = new Map<string, Derived>();
 
-  const canonDmKey = (a: string, b: string) => {
-    const [x, y] = [a, b].sort();
-    return `dm:${x}#${y}`;
-  };
-  const canonGroupKey = (members: string[]) => `grp:${[...members].sort().join(',')}`;
+  const canonGroupKey = (members: string[]) =>
+    `grp:${[...members].sort().join(",")}`;
 
   const applyParticipants = (participants: Set<string>, timestamp: Date) => {
     if (!participants.has(ownerHandle)) return;
@@ -302,10 +300,41 @@ app.get("/rooms", authRequired, async (c) => {
   // 2) ハンドシェイク（不足分の補完）
   const hsList = await db.findHandshakeMessages({
     $or: [{ sender: ownerHandle }, { recipients: ownerHandle }],
-  }, { limit: 200 }) as { sender: string; recipients: string[]; createdAt: Date }[];
+  }, { limit: 200 }) as {
+    sender: string;
+    recipients: string[];
+    createdAt: Date;
+  }[];
   for (const h of hsList ?? []) {
     const participants = new Set<string>([h.sender, ...h.recipients]);
     applyParticipants(participants, h.createdAt ?? new Date());
+  }
+
+  // 3) グループメタデータ（名前・アイコン）
+  const metaList = await db.listGroups(owner);
+  for (const g of metaList ?? []) {
+    const others = g.members.filter((m) => m !== ownerHandle);
+    const membersCount = others.length + 1;
+    const key = membersCount === 2 ? others[0] : canonGroupKey(others);
+    const existing = map.get(key);
+    if (existing) {
+      existing.name = g.userSet?.name ? g.name : "";
+      existing.icon = g.userSet?.icon ? g.icon ?? "" : "";
+      existing.hasName = !!g.userSet?.name;
+      existing.hasIcon = !!g.userSet?.icon;
+      existing.members = others;
+    } else {
+      map.set(key, {
+        id: key,
+        name: g.userSet?.name ? g.name : "",
+        icon: g.userSet?.icon ? g.icon ?? "" : "",
+        members: others,
+        hasName: !!g.userSet?.name,
+        hasIcon: !!g.userSet?.icon,
+        membersCount,
+        lastMessageAt: undefined,
+      });
+    }
   }
 
   let list = Array.from(map.values());
@@ -335,7 +364,9 @@ app.get("/rooms", authRequired, async (c) => {
   }
 
   // 並び順: 最終メッセージ時刻の降順
-  list.sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0));
+  list.sort((a, b) =>
+    (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0)
+  );
 
   return jsonResponse(c, { rooms: list });
 });

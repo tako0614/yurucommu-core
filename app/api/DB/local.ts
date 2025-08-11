@@ -20,7 +20,7 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
-import type { DB, ListOpts } from "../../shared/db.ts";
+import type { DB, GroupInfo, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
@@ -226,14 +226,14 @@ export class MongoDBLocal implements DB {
 
   async listGroups(id: string) {
     const acc = await Account.findOne({ _id: id }).lean<
-      { groups?: { id: string; name: string; members: string[] }[] } | null
+      { groups?: GroupInfo[] } | null
     >();
     return acc?.groups ?? [];
   }
 
   async addGroup(
     id: string,
-    group: { id: string; name: string; members: string[] },
+    group: GroupInfo,
   ) {
     const acc = await Account.findOneAndUpdate({ _id: id }, {
       $push: { groups: group },
@@ -252,7 +252,7 @@ export class MongoDBLocal implements DB {
     const acc = await Account.findOne({ "groups.id": groupId }).lean<
       | {
         _id: unknown;
-        groups: { id: string; name: string; members: string[] }[];
+        groups: GroupInfo[];
       }
       | null
     >();
@@ -263,7 +263,7 @@ export class MongoDBLocal implements DB {
 
   async updateGroup(
     owner: string,
-    group: { id: string; name: string; members: string[] },
+    group: GroupInfo,
   ) {
     await Account.updateOne({ _id: owner, "groups.id": group.id }, {
       $set: { "groups.$": group },
