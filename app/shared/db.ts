@@ -132,6 +132,7 @@ export interface DB {
   findAccountsByUserNames(usernames: string[]): Promise<AccountDoc[]>;
   countAccounts(): Promise<number>;
   createEncryptedMessage(data: {
+    roomId: string;
     from: string;
     to: string[];
     content: string;
@@ -160,6 +161,7 @@ export interface DB {
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
   createHandshakeMessage(data: {
+    roomId: string;
     sender: string;
     recipients: string[];
     message: string;

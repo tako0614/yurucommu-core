@@ -12,7 +12,6 @@ import posts from "./routes/posts.ts";
 import search from "./routes/search.ts";
 import users from "./routes/users.ts";
 import follow from "./routes/follow.ts";
-import groups from "./routes/groups.ts";
 import keep from "./routes/keep.ts";
 import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
@@ -67,7 +66,6 @@ export async function createTakosApp(env?: Record<string, string>) {
     placeholder,
     trends,
     videos,
-    groups,
     keep,
     files,
     search,

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 const handshakeMessageSchema = new mongoose.Schema({
+  roomId: { type: String, index: true },
   sender: { type: String, required: true },
   recipients: { type: [String], required: true },
   message: { type: String, required: true },

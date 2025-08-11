@@ -15,6 +15,7 @@ export interface KeyPackage {
 
 export interface EncryptedMessage {
   id: string;
+  roomId: string;
   from: string;
   to: string[];
   content: string;
@@ -27,18 +28,6 @@ export interface EncryptedMessage {
     key?: string;
     iv?: string;
   }[];
-}
-
-export interface PrivateMessagePayload {
-  "@context": string[];
-  type: ["Object", "PrivateMessage"];
-  id?: string;
-  to: string[];
-  cc?: string[];
-  content: string;
-  mediaType: string;
-  encoding: string;
-  attachments?: unknown[];
 }
 
 export const fetchKeyPackages = async (
@@ -126,11 +115,9 @@ export const deleteKeyPackage = async (
 };
 
 export const sendEncryptedMessage = async (
-  user: string,
-  to: string[],
-  cc: string[],
+  roomId: string,
+  from: string,
   data: {
-    id?: string;
     content: string;
     mediaType?: string;
     encoding?: string;
@@ -138,22 +125,15 @@ export const sendEncryptedMessage = async (
   },
 ): Promise<boolean> => {
   try {
-    const payload: PrivateMessagePayload = {
-      "@context": [
-        "https://www.w3.org/ns/activitystreams",
-        "https://purl.archive.org/socialweb/mls#",
-      ],
-      type: ["Object", "PrivateMessage"],
-      id: data.id,
-      to,
-      cc,
+    const payload: Record<string, unknown> = {
+      from,
       content: data.content,
       mediaType: data.mediaType ?? "message/mls",
       encoding: data.encoding ?? "base64",
     };
     if (data.attachments) payload.attachments = data.attachments;
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/messages`,
+      `/api/rooms/${encodeURIComponent(roomId)}/messages`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -168,18 +148,16 @@ export const sendEncryptedMessage = async (
 };
 
 export const fetchEncryptedMessages = async (
-  user: string,
-  partner?: string,
+  roomId: string,
   params?: { limit?: number; before?: string; after?: string },
 ): Promise<EncryptedMessage[]> => {
   try {
     const search = new URLSearchParams();
-    if (partner) search.set("with", partner);
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.before) search.set("before", params.before);
     if (params?.after) search.set("after", params.after);
     const query = search.toString();
-    const url = `/api/users/${encodeURIComponent(user)}/messages${
+    const url = `/api/rooms/${encodeURIComponent(roomId)}/messages${
       query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);
@@ -196,6 +174,7 @@ export const fetchEncryptedMessages = async (
 
 export interface HandshakeMessage {
   id: string;
+  roomId: string;
   sender: string;
   recipients: string[];
   message: string;
@@ -203,26 +182,19 @@ export interface HandshakeMessage {
 }
 
 export const sendHandshake = async (
-  user: string,
-  to: string[],
-  cc: string[],
+  roomId: string,
+  from: string,
   content: string,
 ): Promise<boolean> => {
   try {
     const payload: Record<string, unknown> = {
-      "@context": [
-        "https://www.w3.org/ns/activitystreams",
-        "https://purl.archive.org/socialweb/mls",
-      ],
-      type: ["Object", "PublicMessage"],
-      to,
-      cc,
+      from,
       content,
       mediaType: "message/mls",
       encoding: "base64",
     };
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/handshakes`,
+      `/api/rooms/${encodeURIComponent(roomId)}/handshakes`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -237,18 +209,16 @@ export const sendHandshake = async (
 };
 
 export const fetchHandshakes = async (
-  user: string,
-  partner?: string,
+  roomId: string,
   params?: { limit?: number; before?: string; after?: string },
 ): Promise<HandshakeMessage[]> => {
   try {
     const search = new URLSearchParams();
-    if (partner) search.set("with", partner);
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.before) search.set("before", params.before);
     if (params?.after) search.set("after", params.after);
     const query = search.toString();
-    const url = `/api/users/${encodeURIComponent(user)}/handshakes${
+    const url = `/api/rooms/${encodeURIComponent(roomId)}/handshakes${
       query ? `?${query}` : ""
     }`;
     const res = await apiFetch(url);
@@ -388,13 +358,16 @@ export const searchRooms = async (
   try {
     const search = new URLSearchParams();
     search.set("owner", owner);
-    if (params?.participants?.length)
+    if (params?.participants?.length) {
       search.set("participants", params.participants.join(","));
+    }
     if (params?.match) search.set("match", params.match);
-    if (typeof params?.hasName === "boolean")
+    if (typeof params?.hasName === "boolean") {
       search.set("hasName", String(params.hasName));
-    if (typeof params?.hasIcon === "boolean")
+    }
+    if (typeof params?.hasIcon === "boolean") {
       search.set("hasIcon", String(params.hasIcon));
+    }
     if (params?.members) search.set("members", params.members);
     const res = await apiFetch(`/api/rooms?${search.toString()}`);
     if (!res.ok) throw new Error("failed to search rooms");
@@ -418,10 +391,10 @@ export const fetchRoomList = async (
   id: string,
 ): Promise<GroupMeta[]> => {
   try {
-    const res = await apiFetch(`/api/accounts/${id}/groups`);
+    const res = await apiFetch(`/api/ap/rooms?owner=${id}`);
     if (!res.ok) throw new Error("failed");
     const data = await res.json();
-    return Array.isArray(data.groups) ? data.groups : [];
+    return Array.isArray(data.rooms) ? data.rooms : [];
   } catch (err) {
     console.error("Error fetching room list:", err);
     return [];
@@ -433,31 +406,14 @@ export const addRoom = async (
   room: Room,
 ): Promise<boolean> => {
   try {
-    const res = await apiFetch(`/api/accounts/${id}/groups`, {
+    const res = await apiFetch(`/api/ap/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(room),
+      body: JSON.stringify({ owner: id, ...room }),
     });
     return res.ok;
   } catch (err) {
     console.error("Error adding room:", err);
-    return false;
-  }
-};
-
-export const removeRoom = async (
-  id: string,
-  roomId: string,
-): Promise<boolean> => {
-  try {
-    const res = await apiFetch(`/api/accounts/${id}/groups`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: roomId }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("Error removing room:", err);
     return false;
   }
 };
@@ -468,7 +424,7 @@ export const updateRoomMember = async (
   member: string,
 ): Promise<boolean> => {
   try {
-    const res = await apiFetch(`/api/ap/groups/${roomId}/members`, {
+    const res = await apiFetch(`/api/ap/rooms/${roomId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: action, object: member }),
@@ -566,29 +522,27 @@ export interface MLSCommitPayload {
 }
 
 export const sendProposal = async (
-  user: string,
-  to: string[],
-  cc: string[],
+  roomId: string,
+  from: string,
   proposal: MLSProposalPayload,
 ): Promise<boolean> => {
   const content = encodeMLSMessage(
     "PublicMessage",
     JSON.stringify(proposal),
   );
-  return await sendHandshake(user, to, cc, content);
+  return await sendHandshake(roomId, from, content);
 };
 
 export const sendCommit = async (
-  user: string,
-  to: string[],
-  cc: string[],
+  roomId: string,
+  from: string,
   commit: MLSCommitPayload,
 ): Promise<boolean> => {
   const content = encodeMLSMessage(
     "PublicMessage",
     JSON.stringify(commit),
   );
-  const ok = await sendHandshake(user, to, cc, content);
+  const ok = await sendHandshake(roomId, from, content);
   if (!ok) return false;
   if (commit.welcomes) {
     for (const w of commit.welcomes) {
@@ -596,27 +550,9 @@ export const sendCommit = async (
         "PublicMessage",
         JSON.stringify(w),
       );
-      const success = await sendHandshake(user, [w.member], [], wContent);
+      const success = await sendHandshake(roomId, from, wContent);
       if (!success) return false;
     }
   }
   return true;
-};
-
-export const fetchWelcome = async (
-  user: string,
-  groupId: string,
-): Promise<MLSWelcomePayload | null> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/groups/${
-        encodeURIComponent(groupId)
-      }/welcome`,
-    );
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (err) {
-    console.error("Error fetching welcome:", err);
-    return null;
-  }
 };

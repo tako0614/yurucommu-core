@@ -514,6 +514,7 @@ export class MongoDBLocal implements DB {
   }
 
   async createEncryptedMessage(data: {
+    roomId: string;
     from: string;
     to: string[];
     content: string;
@@ -521,6 +522,7 @@ export class MongoDBLocal implements DB {
     encoding?: string;
   }) {
     const doc = await EncryptedMessage.create({
+      roomId: data.roomId,
       from: data.from,
       to: data.to,
       content: data.content,
@@ -633,11 +635,13 @@ export class MongoDBLocal implements DB {
   }
 
   async createHandshakeMessage(data: {
+    roomId: string;
     sender: string;
     recipients: string[];
     message: string;
   }) {
     const doc = new HandshakeMessage({
+      roomId: data.roomId,
       sender: data.sender,
       recipients: data.recipients,
       message: data.message,
