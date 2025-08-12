@@ -495,17 +495,20 @@ app.get("/rooms", authRequired, async (c) => {
   for (const g of metaList ?? []) {
     const others = g.members.filter((m) => m !== ownerHandle);
     const membersCount = others.length + 1;
-    const key = membersCount === 2 ? others[0] : canonGroupKey(others);
-    const existing = map.get(key);
+    const pKey = membersCount === 2 ? others[0] : canonGroupKey(others);
+    const existing = map.get(pKey);
     if (existing) {
       existing.name = g.userSet?.name ? g.name : "";
       existing.icon = g.userSet?.icon ? g.icon ?? "" : "";
       existing.hasName = !!g.userSet?.name;
       existing.hasIcon = !!g.userSet?.icon;
       existing.members = others;
+      existing.id = g.id;
+      map.delete(pKey);
+      map.set(g.id, existing);
     } else {
-      map.set(key, {
-        id: key,
+      map.set(g.id, {
+        id: g.id,
         name: g.userSet?.name ? g.name : "",
         icon: g.userSet?.icon ? g.icon ?? "" : "",
         members: others,
