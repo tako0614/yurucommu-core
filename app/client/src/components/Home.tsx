@@ -5,7 +5,7 @@ import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
-import { Button, Modal } from "./ui";
+import { Button, Modal } from "./ui/index.ts";
 import {
   accounts as accountsAtom,
   activeAccountId,
