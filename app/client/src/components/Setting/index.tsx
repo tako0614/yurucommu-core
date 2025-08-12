@@ -7,6 +7,7 @@ import { encryptionKeyState, loginState } from "../../states/session.ts";
 import { apiFetch } from "../../utils/config.ts";
 import { accounts as accountsAtom } from "../../states/account.ts";
 import { deleteMLSDatabase } from "../e2ee/storage.ts";
+import { FaspProviders } from "./FaspProviders.tsx";
 
 export interface SettingProps {
   onShowEncryptionKeyForm?: () => void;
@@ -60,6 +61,10 @@ export function Setting(props: SettingProps) {
           <option value="50">50件</option>
           <option value="100">100件</option>
         </select>
+      </div>
+      <div>
+        <h3 class="font-bold mb-1">FASP 設定</h3>
+        <FaspProviders />
       </div>
       <div class="flex justify-end space-x-2">
         <button
