@@ -24,6 +24,7 @@ import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
+import HandshakeMessage from "../models/takos/handshake_message.ts";
 
 /** MongoDB 実装 */
 export class MongoDB implements DB {
