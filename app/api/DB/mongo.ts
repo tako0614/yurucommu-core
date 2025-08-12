@@ -4,6 +4,7 @@ import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
+import Chatroom from "../models/takos/chatroom.ts";
 import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
 import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
@@ -18,7 +19,7 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
-import type { DB, GroupInfo, ListOpts } from "../../shared/db.ts";
+import type { ChatroomInfo, DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
@@ -239,55 +240,55 @@ export class MongoDB implements DB {
     return acc?.following ?? [];
   }
 
-  async listGroups(id: string) {
-    const query = this.withTenant(Account.findOne({ _id: id }));
-    const acc = await query.lean<
-      { groups?: GroupInfo[] } | null
+  async listChatrooms(id: string) {
+    const query = this.withTenant(Chatroom.find({ owner: id }));
+    const rooms = await query.lean<
+      (ChatroomInfo & { owner: string })[]
     >();
-    return acc?.groups ?? [];
+    return rooms.map(({ owner: _o, ...room }) => room);
   }
 
-  async addGroup(
+  async addChatroom(
     id: string,
-    group: GroupInfo,
+    room: ChatroomInfo,
   ) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $push: { groups: group },
-    }, { new: true });
-    this.withTenant(query);
-    const acc = await query;
-    return acc?.groups ?? [];
+    const doc = new Chatroom({ owner: id, ...room });
+    if (this.env["DB_MODE"] === "host") {
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+    }
+    await doc.save();
+    return await this.listChatrooms(id);
   }
 
-  async removeGroup(id: string, groupId: string) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $pull: { groups: { id: groupId } },
-    }, { new: true });
+  async removeChatroom(id: string, roomId: string) {
+    const query = Chatroom.deleteOne({ owner: id, id: roomId });
     this.withTenant(query);
-    const acc = await query;
-    return acc?.groups ?? [];
+    await query;
+    return await this.listChatrooms(id);
   }
 
-  async findGroup(groupId: string) {
-    const query = this.withTenant(Account.findOne({ "groups.id": groupId }));
-    const acc = await query.lean<
-      | {
-        _id: unknown;
-        groups: GroupInfo[];
-      }
-      | null
+  async findChatroom(roomId: string) {
+    const query = this.withTenant(Chatroom.findOne({ id: roomId }));
+    const doc = await query.lean<
+      (ChatroomInfo & { owner: string }) | null
     >();
-    const group = acc?.groups.find((g) => g.id === groupId);
-    if (!group || !acc?._id) return null;
-    return { owner: String(acc._id), group };
+    if (!doc) return null;
+    const { owner, ...room } = doc;
+    return { owner, room };
   }
 
-  async updateGroup(
+  async updateChatroom(
     owner: string,
-    group: GroupInfo,
+    room: ChatroomInfo,
   ) {
-    const query = Account.updateOne({ _id: owner, "groups.id": group.id }, {
-      $set: { "groups.$": group },
+    const query = Chatroom.updateOne({ owner, id: room.id }, {
+      $set: {
+        name: room.name,
+        icon: room.icon ?? "",
+        userSet: room.userSet ?? { name: false, icon: false },
+        members: room.members,
+      },
     });
     this.withTenant(query);
     await query;

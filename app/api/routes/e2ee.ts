@@ -18,7 +18,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-// ハンドシェイク処理は廃止済みのため、MLS ハンドシェイクデコードは未使用
+import { decodeMLSMessage } from "../../shared/mls_message.ts"; // MLSハンドシェイクのデコード
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -54,6 +54,15 @@ interface EncryptedMessageDoc {
   content: string;
   mediaType: string;
   encoding: string;
+  createdAt: unknown;
+}
+
+interface HandshakeMessageDoc {
+  _id?: unknown;
+  roomId?: string;
+  sender: string;
+  recipients: string[];
+  message: string;
   createdAt: unknown;
 }
 
@@ -107,16 +116,149 @@ async function resolveActorCached(
 
 const app = new Hono();
 
+async function handleHandshake(
+  env: Record<string, string>,
+  domain: string,
+  roomId: string,
+  body: Record<string, unknown>,
+): Promise<
+  | { ok: true; id: string }
+  | { ok: false; status: number; error: string }
+> {
+  const { from, content, mediaType, encoding, attachments } = body;
+  if (typeof from !== "string" || typeof content !== "string") {
+    return { ok: false, status: 400, error: "invalid body" };
+  }
+  const [sender] = from.split("@");
+  if (!sender) {
+    return { ok: false, status: 400, error: "invalid user format" };
+  }
+  const context = Array.isArray(body["@context"])
+    ? body["@context"] as string[]
+    : [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ];
+  const db = createDB(env);
+  const found = await db.findChatroom(roomId);
+  if (!found) return { ok: false, status: 404, error: "room not found" };
+  const { owner, room: group } = found;
+  if (!group.members.includes(from)) {
+    return { ok: false, status: 403, error: "not a member" };
+  }
+  let allMembers = [...group.members];
+
+  const decoded = decodeMLSMessage(content);
+  let bodyObj: Record<string, unknown> | null = null;
+  if (decoded) {
+    try {
+      bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
+    } catch {
+      bodyObj = null;
+    }
+  }
+  if (
+    bodyObj &&
+    bodyObj.type === "remove" &&
+    typeof bodyObj.member === "string"
+  ) {
+    group.members = group.members.filter((m) => m !== bodyObj.member);
+    allMembers = [...group.members];
+    await db.updateChatroom(owner, group); // メンバー削除を反映
+  } else if (
+    bodyObj &&
+    bodyObj.type === "welcome" &&
+    typeof bodyObj.member === "string"
+  ) {
+    if (!group.members.includes(bodyObj.member)) {
+      group.members.push(bodyObj.member);
+      await db.updateChatroom(owner, group); // 新メンバーを反映
+    }
+    allMembers = [bodyObj.member];
+  }
+  const recipients = allMembers.filter((m) => m !== from);
+
+  const mType = typeof mediaType === "string" ? mediaType : "message/mls";
+  const encType = typeof encoding === "string" ? encoding : "base64";
+  const msg = await db.createHandshakeMessage({
+    roomId,
+    sender: from,
+    recipients: allMembers,
+    message: content,
+  });
+
+  const extra: Record<string, unknown> = {
+    mediaType: mType,
+    encoding: encType,
+  };
+  if (Array.isArray(attachments)) {
+    extra.attachments = attachments;
+  }
+
+  const object = await db.saveMessage(
+    domain,
+    sender,
+    content,
+    extra,
+    { to: recipients, cc: [] },
+  );
+  const saved = object as Record<string, unknown>;
+
+  const activityObj = buildActivityFromStored(
+    {
+      ...saved,
+      type: "PublicMessage",
+    } as {
+      _id: unknown;
+      type: string;
+      content: string;
+      published: unknown;
+      extra: Record<string, unknown>;
+    },
+    domain,
+    sender,
+    false,
+  );
+  (activityObj as ActivityPubActivity)["@context"] = context;
+
+  const actorId = `https://${domain}/users/${sender}`;
+  const activity = createCreateActivity(domain, actorId, activityObj);
+  (activity as ActivityPubActivity)["@context"] = context;
+  (activity as ActivityPubActivity).to = recipients;
+  (activity as ActivityPubActivity).cc = [];
+  deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
+
+  const newMsg = {
+    id: String(msg._id),
+    roomId,
+    sender: from,
+    recipients: allMembers,
+    message: content,
+    createdAt: msg.createdAt,
+  };
+  sendToUser(from, { type: "publicMessage", payload: newMsg });
+  for (const t of recipients) {
+    sendToUser(t, { type: "publicMessage", payload: newMsg });
+  }
+
+  return { ok: true, id: String(msg._id) };
+}
+
 // ルーム管理 API (ActivityPub 対応)
 
 // ActivityPub ルーム一覧取得
 app.get("/ap/rooms", async (c) => {
   const owner = c.req.query("owner");
   if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
-  const db = createDB(getEnv(c));
+  const env = getEnv(c);
+  const db = createDB(env);
   const account = await db.findAccountById(owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const rooms = await db.listGroups(owner);
+  const rooms = await db.listChatrooms(owner);
   return jsonResponse(c, { rooms });
 });
 
@@ -124,9 +266,9 @@ app.get("/ap/rooms", async (c) => {
 app.get("/ap/rooms/:id", async (c) => {
   const id = c.req.param("id");
   const db = createDB(getEnv(c));
-  const result = await db.findGroup(id);
+  const result = await db.findChatroom(id);
   if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
-  const { group: room } = result;
+  const { room } = result;
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -152,12 +294,14 @@ app.post("/ap/rooms", authRequired, async (c) => {
   const requestedMembers = body.members.filter((m: unknown) =>
     typeof m === "string"
   );
-  const db = createDB(getEnv(c));
+  const env = getEnv(c);
+  const db = createDB(env);
   const account = await db.findAccountById(body.owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
 
   // 1:1 未設定名（DM）重複防止: 同一メンバー構成・nameが空の既存ルームを再利用
-  const existing = (account.groups ?? []).find((g) => {
+  const existingList = await db.listChatrooms(body.owner);
+  const existing = existingList.find((g) => {
     const hasName = !!(g.name && String(g.name).trim() !== "");
     if (hasName) return false;
     const a = new Set(g.members ?? []);
@@ -184,7 +328,7 @@ app.post("/ap/rooms", authRequired, async (c) => {
     members: requestedMembers,
   };
   if (!existing) {
-    await db.addGroup(body.owner, room);
+    await db.addChatroom(body.owner, room);
   }
   const domain = getDomain(c);
   const actor = {
@@ -194,6 +338,12 @@ app.post("/ap/rooms", authRequired, async (c) => {
     name: room.name,
     members: room.members,
   };
+  if (body.handshake && typeof body.handshake === "object") {
+    const hs = await handleHandshake(env, domain, room.id, body.handshake);
+    if (!hs.ok) {
+      return jsonResponse(c, { error: hs.error }, hs.status);
+    }
+  }
   return jsonResponse(c, actor, 201, "application/activity+json");
 });
 
@@ -202,9 +352,9 @@ app.post("/ap/rooms/:id/members", authRequired, async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
   const db = createDB(getEnv(c));
-  const result = await db.findGroup(id);
+  const result = await db.findChatroom(id);
   if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
-  const { owner, group: room } = result;
+  const { owner, room } = result;
   const account = await db.findAccountById(owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const domain = getDomain(c);
@@ -212,7 +362,7 @@ app.post("/ap/rooms/:id/members", authRequired, async (c) => {
   if (body.type === "Add" && typeof body.object === "string") {
     if (!room.members.includes(body.object)) {
       room.members.push(body.object);
-      await db.updateGroup(owner, room);
+      await db.updateChatroom(owner, room);
     }
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -233,7 +383,7 @@ app.post("/ap/rooms/:id/members", authRequired, async (c) => {
 
   if (body.type === "Remove" && typeof body.object === "string") {
     room.members = room.members.filter((m) => m !== body.object);
-    await db.updateGroup(owner, room);
+    await db.updateChatroom(owner, room);
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Remove",
@@ -340,7 +490,7 @@ app.get("/rooms", authRequired, async (c) => {
   // 新しい仕様では使用しません。
 
   // 3) グループメタデータ（名前・アイコン）
-  const metaList = await db.listGroups(owner);
+  const metaList = await db.listChatrooms(owner);
   for (const g of metaList ?? []) {
     const others = g.members.filter((m) => m !== ownerHandle);
     const membersCount = others.length + 1;
@@ -613,9 +763,9 @@ app.post(
     const domain = getDomain(c);
     const env = getEnv(c);
     const db = createDB(env);
-    const found = await db.findGroup(roomId);
+    const found = await db.findChatroom(roomId);
     if (!found) return c.json({ error: "room not found" }, 404);
-    const { group } = found;
+    const { room: group } = found;
     if (!group.members.includes(from)) {
       return c.json({ error: "not a member" }, 403);
     }
@@ -722,126 +872,15 @@ app.post(
   authRequired,
   rateLimit({ windowMs: 60_000, limit: 20 }),
   async (c) => {
-    // ハンドシェイクは廃止
-    return c.json({ error: "handshake deprecated" }, 410);
+    const roomId = c.req.param("room");
     const body = await c.req.json();
-    const { from, content, mediaType, encoding, attachments } = body;
-    if (typeof from !== "string" || typeof content !== "string") {
-      return c.json({ error: "invalid body" }, 400);
-    }
-    const [sender, senderDomain] = from.split("@");
-    if (!sender || !senderDomain) {
-      return c.json({ error: "invalid user format" }, 400);
-    }
-    const context = Array.isArray(body["@context"])
-      ? body["@context"] as string[]
-      : [
-        "https://www.w3.org/ns/activitystreams",
-        "https://purl.archive.org/socialweb/mls",
-      ];
     const domain = getDomain(c);
     const env = getEnv(c);
-    const db = createDB(env);
-    const found = await db.findGroup(roomId);
-    if (!found) return c.json({ error: "room not found" }, 404);
-    const { group } = found;
-    if (!group.members.includes(from)) {
-      return c.json({ error: "not a member" }, 403);
+    const result = await handleHandshake(env, domain, roomId, body);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status);
     }
-    let allMembers = [...group.members];
-
-    const decoded = decodeMLSMessage(content);
-    let bodyObj: Record<string, unknown> | null = null;
-    if (decoded) {
-      try {
-        bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
-      } catch {
-        bodyObj = null;
-      }
-    }
-    if (
-      bodyObj &&
-      bodyObj.type === "remove" &&
-      typeof bodyObj.member === "string"
-    ) {
-      allMembers = allMembers.filter((m) => m !== bodyObj.member);
-    } else if (
-      bodyObj &&
-      bodyObj.type === "welcome" &&
-      typeof bodyObj.member === "string"
-    ) {
-      allMembers = [bodyObj.member];
-    }
-    const recipients = allMembers.filter((m) => m !== from);
-
-    const mType = typeof mediaType === "string" ? mediaType : "message/mls";
-    const encType = typeof encoding === "string" ? encoding : "base64";
-    const msg = await db.createHandshakeMessage({
-      roomId,
-      sender: from,
-      recipients: allMembers,
-      message: content,
-    });
-
-    const extra: Record<string, unknown> = {
-      mediaType: mType,
-      encoding: encType,
-    };
-    if (Array.isArray(attachments)) {
-      extra.attachments = attachments;
-    }
-
-    const object = await db.saveMessage(
-      domain,
-      sender,
-      content,
-      extra,
-      { to: recipients, cc: [] },
-    );
-    const saved = object as Record<string, unknown>;
-
-    const activityObj = buildActivityFromStored(
-      {
-        ...saved,
-        type: "PublicMessage",
-      } as {
-        _id: unknown;
-        type: string;
-        content: string;
-        published: unknown;
-        extra: Record<string, unknown>;
-      },
-      domain,
-      sender,
-      false,
-    );
-    (activityObj as ActivityPubActivity)["@context"] = context;
-
-    const actorId = `https://${domain}/users/${sender}`;
-    const activity = createCreateActivity(domain, actorId, activityObj);
-    (activity as ActivityPubActivity)["@context"] = context;
-    (activity as ActivityPubActivity).to = recipients;
-    (activity as ActivityPubActivity).cc = [];
-    deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
-      (err) => {
-        console.error("deliver failed", err);
-      },
-    );
-
-    const newMsg = {
-      id: String(msg._id),
-      roomId,
-      sender: from,
-      recipients: allMembers,
-      message: content,
-      createdAt: msg.createdAt,
-    };
-    sendToUser(from, { type: "publicMessage", payload: newMsg });
-    for (const t of recipients) {
-      sendToUser(t, { type: "publicMessage", payload: newMsg });
-    }
-
-    return c.json({ result: "sent", id: String(msg._id) });
+    return c.json({ result: "sent", id: result.id });
   },
 );
 
@@ -912,8 +951,28 @@ app.get("/rooms/:room/messages", authRequired, async (c) => {
 });
 
 app.get("/rooms/:room/handshakes", authRequired, async (c) => {
-  // ハンドシェイクは廃止: 空配列を返す
-  return c.json([]);
+  const roomId = c.req.param("room");
+  const limit = Math.min(
+    parseInt(c.req.query("limit") ?? "50", 10) || 50,
+    100,
+  );
+  const before = c.req.query("before");
+  const after = c.req.query("after");
+  const db = createDB(getEnv(c));
+  const list = await db.findHandshakeMessages({ roomId }, {
+    before: before ?? undefined,
+    after: after ?? undefined,
+    limit,
+  }) as HandshakeMessageDoc[];
+  const messages = list.map((doc) => ({
+    id: String(doc._id),
+    roomId: doc.roomId,
+    sender: doc.sender,
+    recipients: doc.recipients,
+    message: doc.message,
+    createdAt: doc.createdAt,
+  }));
+  return c.json(messages);
 });
 
 export default app;
