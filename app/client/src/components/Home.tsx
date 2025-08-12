@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
@@ -183,13 +183,14 @@ export function Home(props: HomeProps) {
   onMount(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (document.activeElement?.tagName || "").toLowerCase();
-      const isTyping = ["input", "textarea"].includes(tag) || (document.activeElement as HTMLElement)?.isContentEditable;
+      const isTyping = ["input", "textarea"].includes(tag) ||
+        (document.activeElement as HTMLElement)?.isContentEditable;
       if (isTyping) return;
       if (e.key.toLowerCase() === "s") setShowSettings(true);
       if (e.key.toLowerCase() === "n") setShowNotifications(true);
     };
-    window.addEventListener("keydown", handler);
-    onCleanup(() => window.removeEventListener("keydown", handler));
+    globalThis.addEventListener("keydown", handler);
+    onCleanup(() => globalThis.removeEventListener("keydown", handler));
   });
 
   const renderContent = () => (
@@ -215,8 +216,15 @@ export function Home(props: HomeProps) {
           title="通知 (N)"
           onClick={() => setShowNotifications(true)}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5">
-            <path fill="currentColor" d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5l-2 2v1h16v-1l-2-2Z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            class="w-5 h-5"
+          >
+            <path
+              fill="currentColor"
+              d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5l-2 2v1h16v-1l-2-2Z"
+            />
           </svg>
         </Button>
         <Button
@@ -227,8 +235,15 @@ export function Home(props: HomeProps) {
           title="設定 (S)"
           onClick={() => setShowSettings(true)}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5">
-            <path fill="currentColor" d="M19.14,12.94a7.49,7.49,0,0,0,.05-1,7.49,7.49,0,0,0-.05-1l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.12,7.12,0,0,0-1.73-1L14.5,2.5a.5.5,0,0,0-.5-.5H10a.5.5,0,0,0-.5.5l-.38,2.47a7.12,7.12,0,0,0-1.73,1l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L4.86,10a7.49,7.49,0,0,0-.05,1,7.49,7.49,0,0,0,.05,1L2.75,13.65a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.12,7.12,0,0,0,1.73,1L9.5,21.5a.5.5,0,0,0,.5.5h4a.5.5,0,0,0,.5-.5l.38-2.47a7.12,7.12,0,0,0,1.73-1l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            class="w-5 h-5"
+          >
+            <path
+              fill="currentColor"
+              d="M19.14,12.94a7.49,7.49,0,0,0,.05-1,7.49,7.49,0,0,0-.05-1l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.12,7.12,0,0,0-1.73-1L14.5,2.5a.5.5,0,0,0-.5-.5H10a.5.5,0,0,0-.5.5l-.38,2.47a7.12,7.12,0,0,0-1.73,1l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L4.86,10a7.49,7.49,0,0,0-.05,1,7.49,7.49,0,0,0,.05,1L2.75,13.65a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.12,7.12,0,0,0,1.73,1L9.5,21.5a.5.5,0,0,0,.5.5h4a.5.5,0,0,0,.5-.5l.38-2.47a7.12,7.12,0,0,0,1.73-1l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"
+            />
           </svg>
         </Button>
       </div>
@@ -242,7 +257,11 @@ export function Home(props: HomeProps) {
 
       {/* 設定モーダル */}
       <Show when={showSettings()}>
-        <Modal open={showSettings()} onClose={() => setShowSettings(false)} title="設定">
+        <Modal
+          open={showSettings()}
+          onClose={() => setShowSettings(false)}
+          title="設定"
+        >
           <div class="max-w-4xl">
             <Setting onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
           </div>
@@ -251,7 +270,11 @@ export function Home(props: HomeProps) {
 
       {/* 通知モーダル */}
       <Show when={showNotifications()}>
-        <Modal open={showNotifications()} onClose={() => setShowNotifications(false)} title="通知">
+        <Modal
+          open={showNotifications()}
+          onClose={() => setShowNotifications(false)}
+          title="通知"
+        >
           <div class="max-w-3xl">
             <NotificationsContent />
           </div>

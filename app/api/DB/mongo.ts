@@ -14,6 +14,8 @@ import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
 import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import HandshakeMessage from "../models/takos/handshake_message.ts";
+import HostHandshakeMessage from "../models/takos_host/handshake_message.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
@@ -669,8 +671,11 @@ export class MongoDB implements DB {
     sender: string;
     recipients: string[];
     message: string;
-  }) {
-    const doc = new HandshakeMessage({
+  }): Promise<unknown> {
+    const Model = this.env["DB_MODE"] === "host"
+      ? HostHandshakeMessage
+      : HandshakeMessage;
+    const doc = new Model({
       roomId: data.roomId,
       sender: data.sender,
       recipients: data.recipients,
@@ -684,16 +689,19 @@ export class MongoDB implements DB {
         };
     }
     await doc.save();
-    return doc.toObject();
+    return doc.toObject() as unknown;
   }
 
   async findHandshakeMessages(
     condition: Record<string, unknown>,
     opts: { before?: string; after?: string; limit?: number } = {},
-  ) {
+  ): Promise<unknown[]> {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const Model = this.env["DB_MODE"] === "host"
+      ? HostHandshakeMessage
+      : HandshakeMessage;
     const query = this.withTenant(
-      HandshakeMessage.find({ ...condition, tenant_id: tenantId }),
+      Model.find({ ...condition, tenant_id: tenantId }),
     );
     if (opts.before) {
       query.where("createdAt").lt(new Date(opts.before) as unknown as number);
@@ -705,7 +713,7 @@ export class MongoDB implements DB {
       .sort({ createdAt: -1 })
       .limit(opts.limit ?? 50)
       .lean();
-    return list;
+    return list as unknown[];
   }
 
   async listNotifications() {
