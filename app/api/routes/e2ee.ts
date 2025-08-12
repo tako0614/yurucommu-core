@@ -55,6 +55,7 @@ interface EncryptedMessageDoc {
   mediaType: string;
   encoding: string;
   createdAt: unknown;
+  extra?: { attachments?: unknown[] };
 }
 
 interface HandshakeMessageDoc {
@@ -185,7 +186,7 @@ async function handleHandshake(
     sender: from,
     recipients: allMembers,
     message: content,
-  });
+  }) as HandshakeMessageDoc;
 
   const extra: Record<string, unknown> = {
     mediaType: mType,
@@ -780,7 +781,7 @@ app.post(
       content,
       mediaType: mType,
       encoding: encType,
-    });
+    }) as EncryptedMessageDoc;
 
     const extra: Record<string, unknown> = {
       mediaType: mType,
@@ -878,7 +879,7 @@ app.post(
     const env = getEnv(c);
     const result = await handleHandshake(env, domain, roomId, body);
     if (!result.ok) {
-      return c.json({ error: result.error }, result.status);
+      return jsonResponse(c, { error: result.error }, result.status);
     }
     return c.json({ result: "sent", id: result.id });
   },

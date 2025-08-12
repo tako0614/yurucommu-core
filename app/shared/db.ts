@@ -127,6 +127,16 @@ export interface DB {
     condition: Record<string, unknown>,
     opts?: { before?: string; after?: string; limit?: number },
   ): Promise<unknown[]>;
+  createHandshakeMessage(data: {
+    roomId: string;
+    sender: string;
+    recipients: string[];
+    message: string;
+  }): Promise<unknown>;
+  findHandshakeMessages(
+    condition: Record<string, unknown>,
+    opts?: { before?: string; after?: string; limit?: number },
+  ): Promise<unknown[]>;
   findEncryptedKeyPair(userName: string): Promise<unknown | null>;
   upsertEncryptedKeyPair(userName: string, content: string): Promise<void>;
   deleteEncryptedKeyPair(userName: string): Promise<void>;
