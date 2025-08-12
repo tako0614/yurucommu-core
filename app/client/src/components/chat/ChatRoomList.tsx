@@ -12,17 +12,17 @@ import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
-import { Button, Input, EmptyState } from "../ui/index.ts";
+import { Button, EmptyState, Input } from "../ui/index.ts";
 
 interface ChatRoomListProps {
   rooms: Room[];
   selectedRoom: string | null;
   onSelect: (id: string) => void;
   showAds: boolean;
-  onCreateDm: () => void;
+  onCreateRoom: () => void;
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
-  onCreateFriendDm?: (friendId: string) => void;
+  onCreateFriendRoom?: (friendId: string) => void;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
@@ -127,7 +127,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
               }`}
               onClick={() => changeSeg(seg)}
             >
-              {seg === "all" ? "すべて" : seg === "people" ? "友だち" : "グループ"}
+              {seg === "all"
+                ? "すべて"
+                : seg === "people"
+                ? "友だち"
+                : "グループ"}
               <Show when={(segUnread()[seg] ?? 0) > 0}>
                 <span class="ml-1 inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-600 text-white">
                   {segUnread()[seg]}
@@ -147,7 +151,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
           チャット
         </div>
         <div class="flex gap-2">
-          <Button size="sm" onClick={props.onCreateDm}>
+          <Button size="sm" onClick={props.onCreateRoom}>
             ＋ 新しいトーク
           </Button>
         </div>
@@ -177,7 +181,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
           selectedRoom={props.selectedRoom}
           onSelectRoom={props.onSelect}
           onBack={() => setSelectedFriend(null)}
-          onCreateRoom={() => props.onCreateFriendDm?.(selectedFriend()!)}
+          onCreateRoom={() => props.onCreateFriendRoom?.(selectedFriend()!)}
         />
       </Show>
       <Show when={props.segment === "people" && !selectedFriend()}>
@@ -204,8 +208,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
             <Show when={filteredRooms().length === 0}>
               <li class="px-2 py-2">
                 <EmptyState
-                  title={props.segment === "groups" ? "グループはまだありません" : "トークはありません"}
-                  description={props.segment === "groups" ? "『グループ作成』から始めましょう。" : "新しいトークを作成して会話を始めましょう。"}
+                  title={props.segment === "groups"
+                    ? "グループはまだありません"
+                    : "トークはありません"}
+                  description={props.segment === "groups"
+                    ? "『グループ作成』から始めましょう。"
+                    : "新しいトークを作成して会話を始めましょう。"}
                 />
               </li>
             </Show>

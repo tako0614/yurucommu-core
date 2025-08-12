@@ -253,13 +253,11 @@ async function handleHandshake(
 
 // ActivityPub ルーム一覧取得
 app.get("/ap/rooms", async (c) => {
-  const owner = c.req.query("owner");
-  if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
+  const member = c.req.query("member");
+  if (!member) return jsonResponse(c, { error: "missing member" }, 400);
   const env = getEnv(c);
   const db = createDB(env);
-  const account = await db.findAccountById(owner);
-  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const rooms = await db.listChatrooms(owner);
+  const rooms = await db.listChatroomsByMember(member);
   return jsonResponse(c, { rooms });
 });
 

@@ -57,7 +57,6 @@ import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
-import { FriendDmDialog } from "./chat/FriendDmDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
@@ -443,12 +442,9 @@ export function Chat(props: ChatProps) {
   );
   const [showGroupDialog, setShowGroupDialog] = createSignal(false);
   const [groupDialogMode, setGroupDialogMode] = createSignal<
-    "create" | "invite" | "dm"
-  >("dm");
-  const [showFriendDmDialog, setShowFriendDmDialog] = createSignal(false);
-  const [friendDmTarget, setFriendDmTarget] = createSignal<
-    { id: string; name: string } | null
-  >(null);
+    "create" | "invite"
+  >("create");
+  const [initialMembers, setInitialMembers] = createSignal<string[]>([]);
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
@@ -926,22 +922,27 @@ export function Chat(props: ChatProps) {
     }
   };
 
-  const openDmDialog = () => {
-    setGroupDialogMode("dm");
+  const openRoomDialog = (friendId?: string) => {
+    setGroupDialogMode("create");
+    setInitialMembers(friendId ? [friendId] : []);
     setShowGroupDialog(true);
   };
 
-  const startDm = async (
+  const createRoom = async (
     name: string,
     membersInput: string,
     autoOpen = true,
   ) => {
     const user = account();
     if (!user) return;
-    const partner = normalizeActor(
-      membersInput.split(",")[0]?.trim() as ActorID,
-    );
-    if (!partner) return;
+    const members = membersInput
+      .split(",")
+      .map((m) => normalizeActor(m.trim() as ActorID))
+      .filter((m): m is string => !!m);
+    if (members.length === 0) return;
+    const me = `${user.userName}@${getDomain()}`;
+    if (!members.includes(me)) members.push(me);
+    const others = members.filter((m) => m !== me);
     // すべてのトークは同等。毎回新規作成してサーバ保存する
     const finalName = (name ?? "").trim();
 
@@ -954,7 +955,7 @@ export function Chat(props: ChatProps) {
       avatar: "",
       unreadCount: 0,
       type: "group",
-      members: [partner],
+      members: others,
       hasName: Boolean(finalName),
       hasIcon: false,
       lastMessage: "...",
@@ -966,11 +967,10 @@ export function Chat(props: ChatProps) {
       console.error("相手の表示情報取得に失敗しました", e);
     }
     upsertRoom(room);
-    const me = `${user.userName}@${getDomain()}`;
     try {
       await addRoom(
         user.id,
-        { id: room.id, name: room.name, members: room.members },
+        { id: room.id, name: room.name, members },
         { from: me, content: "hi" },
       );
     } catch (e) {
@@ -1185,7 +1185,7 @@ export function Chat(props: ChatProps) {
         );
       }
       if (!room && uuidRe.test(partnerName)) {
-        // グループIDと推測されるがまだ一覧に存在しない場合はDMを作成しない
+        // グループIDと推測されるがまだ一覧に存在しない場合はルームを作成しない
         return;
       }
       if (!room) {
@@ -1532,16 +1532,11 @@ export function Chat(props: ChatProps) {
               selectedRoom={selectedRoom()}
               onSelect={selectRoom}
               showAds={showAds()}
-              onCreateDm={openDmDialog}
+              onCreateRoom={() => openRoomDialog()}
               segment={segment()}
               onSegmentChange={setSegment}
-              onCreateFriendDm={(friendId: string) => {
-                const room = chatRooms().find((r) =>
-                  r.members.includes(friendId)
-                );
-                const name = room?.name || friendId.split("@")[0] || friendId;
-                setFriendDmTarget({ id: friendId, name });
-                setShowFriendDmDialog(true);
+              onCreateFriendRoom={(friendId: string) => {
+                openRoomDialog(friendId);
               }}
             />
           </div>
@@ -1621,23 +1616,8 @@ export function Chat(props: ChatProps) {
         onClose={() => {
           setShowGroupDialog(false);
         }}
-        onCreate={startDm}
-      />
-      <FriendDmDialog
-        isOpen={showFriendDmDialog()}
-        friendName={friendDmTarget()?.name || ""}
-        onClose={() => {
-          setShowFriendDmDialog(false);
-          setFriendDmTarget(null);
-        }}
-        onCreate={(name) => {
-          const target = friendDmTarget();
-          if (target) {
-            startDm(name, target.id, false);
-          }
-          setShowFriendDmDialog(false);
-          setFriendDmTarget(null);
-        }}
+        onCreate={createRoom}
+        initialMembers={initialMembers()}
       />
     </>
   );
