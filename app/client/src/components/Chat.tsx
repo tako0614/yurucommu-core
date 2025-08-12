@@ -402,8 +402,9 @@ async function buildAttachment(file: File) {
   return att;
 }
 
-function getSelfRoomId(user: Account | null): string | null {
-  return user ? `${user.userName}@${getDomain()}` : null;
+function getSelfRoomId(_user: Account | null): string | null {
+  // セルフルーム（TAKO Keep）のIDは固定で "memo"
+  return _user ? "memo" : null;
 }
 
 interface ChatProps {
@@ -832,7 +833,7 @@ export function Chat(props: ChatProps) {
     if (!user) return;
     const rooms: Room[] = [
       {
-        id: `${user.userName}@${getDomain()}`,
+        id: "memo",
         name: "TAKO Keep",
         userName: user.userName,
         domain: getDomain(),
