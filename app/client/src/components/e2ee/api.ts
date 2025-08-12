@@ -404,12 +404,27 @@ export const fetchRoomList = async (
 export const addRoom = async (
   id: string,
   room: Room,
+  handshake?: {
+    from: string;
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+  },
 ): Promise<boolean> => {
   try {
+    const body: Record<string, unknown> = { owner: id, ...room };
+    if (handshake) {
+      body.handshake = {
+        from: handshake.from,
+        content: handshake.content,
+        mediaType: handshake.mediaType ?? "message/mls",
+        encoding: handshake.encoding ?? "base64",
+      };
+    }
     const res = await apiFetch(`/api/ap/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ owner: id, ...room }),
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch (err) {

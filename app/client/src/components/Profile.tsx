@@ -253,7 +253,12 @@ export default function Profile() {
     const user = account();
     if (!name || !user) return;
     const handle = normalizeActor(name);
-    await addRoom(user.id, { id: handle, name: handle, members: [handle] });
+    const me = `${user.userName}@${getDomain()}`;
+    await addRoom(
+      user.id,
+      { id: handle, name: handle, members: [handle] },
+      { from: me, content: "hi" },
+    );
     setRoom(handle);
     setApp("chat");
   };

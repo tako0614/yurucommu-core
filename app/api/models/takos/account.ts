@@ -9,24 +9,6 @@ const accountSchema = new mongoose.Schema({
   publicKey: { type: String, default: "" },
   followers: { type: [String], default: [] },
   following: { type: [String], default: [] },
-  groups: {
-    type: [
-      {
-        id: String,
-        name: String,
-        icon: { type: String, default: "" },
-        userSet: {
-          type: {
-            name: { type: Boolean, default: false },
-            icon: { type: Boolean, default: false },
-          },
-          default: { name: false, icon: false },
-        },
-        members: [String],
-      },
-    ],
-    default: [],
-  },
 });
 
 accountSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });

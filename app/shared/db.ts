@@ -9,8 +9,8 @@ export interface ListOpts {
   before?: Date;
 }
 
-/** グループ情報 */
-export interface GroupInfo {
+/** チャットルーム情報 */
+export interface ChatroomInfo {
   id: string;
   name: string;
   icon?: string;
@@ -38,28 +38,28 @@ export interface DB {
   removeFollower(id: string, follower: string): Promise<string[]>;
   addFollowing(id: string, target: string): Promise<string[]>;
   removeFollowing(id: string, target: string): Promise<string[]>;
-  listGroups(
+  listChatrooms(
     id: string,
-  ): Promise<GroupInfo[]>;
-  addGroup(
+  ): Promise<ChatroomInfo[]>;
+  addChatroom(
     id: string,
-    group: GroupInfo,
-  ): Promise<GroupInfo[]>;
-  removeGroup(
+    room: ChatroomInfo,
+  ): Promise<ChatroomInfo[]>;
+  removeChatroom(
     id: string,
-    groupId: string,
-  ): Promise<GroupInfo[]>;
-  findGroup(
-    groupId: string,
+    roomId: string,
+  ): Promise<ChatroomInfo[]>;
+  findChatroom(
+    roomId: string,
   ): Promise<
     {
       owner: string;
-      group: GroupInfo;
+      room: ChatroomInfo;
     } | null
   >;
-  updateGroup(
+  updateChatroom(
     owner: string,
-    group: GroupInfo,
+    room: ChatroomInfo,
   ): Promise<void>;
   saveNote(
     domain: string,

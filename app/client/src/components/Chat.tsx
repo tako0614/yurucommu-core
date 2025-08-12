@@ -13,6 +13,7 @@ import { type Account, activeAccount } from "../states/account.ts";
 import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
+  addRoom,
   fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeepMessages,
@@ -22,7 +23,6 @@ import {
   searchRooms,
   sendCommit as _sendCommit,
   sendEncryptedMessage,
-  sendHandshake,
   sendKeepMessage,
   sendProposal as _sendProposal,
   uploadFile,
@@ -968,10 +968,13 @@ export function Chat(props: ChatProps) {
     upsertRoom(room);
     const me = `${user.userName}@${getDomain()}`;
     try {
-      // 軽量なハンドシェイクでサーバ派生ビューに登場させる
-      await sendHandshake(room.id, me, "hi");
+      await addRoom(
+        user.id,
+        { id: room.id, name: room.name, members: room.members },
+        { from: me, content: "hi" },
+      );
     } catch (e) {
-      console.error("ハンドシェイク送信に失敗しました", e);
+      console.error("ルーム作成に失敗しました", e);
     }
     if (autoOpen) setSelectedRoom(room.id);
     setShowGroupDialog(false);
@@ -1176,7 +1179,10 @@ export function Chat(props: ChatProps) {
       }
       // 名前付き1:1ルームなど、IDがパートナーと一致しない場合のフォールバック
       if (!room) {
-        room = chatRooms().find((r) => (r.members?.length ?? 0) === 1 && r.members.includes(normalizedPartner));
+        room = chatRooms().find((r) =>
+          (r.members?.length ?? 0) === 1 &&
+          r.members.includes(normalizedPartner)
+        );
       }
       if (!room && uuidRe.test(partnerName)) {
         // グループIDと推測されるがまだ一覧に存在しない場合はDMを作成しない
