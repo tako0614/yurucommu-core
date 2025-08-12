@@ -1,6 +1,7 @@
 import { JSX, splitProps } from "solid-js";
 
-export interface CardProps extends JSX.HTMLAttributes<HTMLDivElement> {
+// Use section-compatible attributes instead of div to avoid ref/type mismatch
+export interface CardProps extends JSX.HTMLAttributes<HTMLElement> {
   title?: string;
   actions?: JSX.Element;
 }
