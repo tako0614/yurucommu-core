@@ -250,6 +250,14 @@ export class MongoDB implements DB {
     return rooms.map(({ owner: _o, ...room }) => room);
   }
 
+  async listChatroomsByMember(member: string) {
+    const query = this.withTenant(Chatroom.find({ members: member }));
+    const rooms = await query.lean<
+      (ChatroomInfo & { owner: string })[]
+    >();
+    return rooms.map(({ owner: _o, ...room }) => room);
+  }
+
   async addChatroom(
     id: string,
     room: ChatroomInfo,

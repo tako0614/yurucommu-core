@@ -3,21 +3,7 @@ import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { profileUserState, selectedPostIdState } from "../states/router.ts";
-import { getDomain } from "./config.ts";
-
-function actorToHandle(actor: string): string {
-  if (actor.startsWith("http")) {
-    try {
-      const url = new URL(actor);
-      const name = url.pathname.split("/").pop() ?? "";
-      return `${name}@${url.hostname}`;
-    } catch {
-      return actor;
-    }
-  }
-  if (actor.includes("@")) return actor;
-  return `${actor}@${getDomain()}`;
-}
+// URL と状態を同期するハッシュベースのルーター
 
 export function useHashRouter() {
   const [app, setApp] = useAtom(selectedAppState);
@@ -39,7 +25,7 @@ export function useHashRouter() {
     switch (seg) {
       case "chat":
         setIfChanged(app, setApp, "chat");
-        setIfChanged(room, setRoom, param ? actorToHandle(param) : null);
+        setIfChanged(room, setRoom, param ?? null);
         setIfChanged(postId, setPostId, null);
         setIfChanged(profile, setProfile, null);
         break;
@@ -94,9 +80,7 @@ export function useHashRouter() {
     if (fromHash) return;
     let newHash = "";
     if (app() === "chat") {
-      newHash = room()
-        ? `#/chat/${encodeURIComponent(actorToHandle(room()))}`
-        : "#/chat";
+      newHash = room() ? `#/chat/${encodeURIComponent(room()!)}` : "#/chat";
     } else if (app() === "microblog") {
       newHash = postId()
         ? `#/post/${encodeURIComponent(postId()!)}`

@@ -248,7 +248,7 @@ export default function Profile() {
     return actor;
   };
 
-  const openDM = async () => {
+  const openChat = async () => {
     const name = username();
     const user = account();
     if (!name || !user) return;
@@ -256,7 +256,7 @@ export default function Profile() {
     const me = `${user.userName}@${getDomain()}`;
     await addRoom(
       user.id,
-      { id: handle, name: handle, members: [handle] },
+      { id: handle, name: handle, members: [handle, me] },
       { from: me, content: "hi" },
     );
     setRoom(handle);
@@ -381,10 +381,10 @@ export default function Profile() {
                         <div class="flex space-x-2">
                           <button
                             type="button"
-                            onClick={openDM}
+                            onClick={openChat}
                             class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-all duration-200"
                           >
-                            DM
+                            チャット
                           </button>
                           <Show when={isFollowing()}>
                             <button

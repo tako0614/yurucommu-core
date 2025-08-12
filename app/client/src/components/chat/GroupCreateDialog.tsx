@@ -1,15 +1,23 @@
-import { createSignal, Show, For, createMemo, createEffect, onMount } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onMount,
+  Show,
+} from "solid-js";
 import { fetchFollowing } from "../microblog/api.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
+import { getDomain } from "../../utils/config.ts";
 
 interface GroupCreateDialogProps {
   isOpen: boolean;
-  mode: "create" | "invite" | "dm";
+  mode: "create" | "invite";
   onClose: () => void;
   onCreate?: (name: string, members: string) => void;
   onInvite?: (members: string) => void;
-  targetFriend?: string | null; // 友達向けグループ作成時の対象友達
+  initialMembers?: string[]; // 事前に選択済みのメンバー
 }
 
 export function GroupCreateDialog(props: GroupCreateDialogProps) {
@@ -19,7 +27,9 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const [selectedMembers, setSelectedMembers] = createSignal<string[]>([]);
   const [memberInput, setMemberInput] = createSignal("");
   const [showFollowing, setShowFollowing] = createSignal(false);
-  const [followingUsers, setFollowingUsers] = createSignal<Array<{id: string, name: string, avatar?: string}>>([]);
+  const [followingUsers, setFollowingUsers] = createSignal<
+    Array<{ id: string; name: string; avatar?: string }>
+  >([]);
 
   // フォロー中のユーザーを取得
   onMount(async () => {
@@ -27,11 +37,21 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     if (user) {
       try {
         const following = await fetchFollowing(user.userName);
-        const followingList = Array.isArray(following) ? following.map((f: { id?: string; userName?: string; displayName?: string; avatar?: string; authorAvatar?: string }) => ({
-          id: f.id || f.userName || String(f),
-          name: f.displayName || f.userName || String(f),
-          avatar: f.avatar || f.authorAvatar
-        })) : [];
+        const followingList = Array.isArray(following)
+          ? following.map((f: {
+            userName?: string;
+            displayName?: string;
+            domain?: string;
+            avatar?: string;
+            authorAvatar?: string;
+          }) => ({
+            id: f.userName && f.domain
+              ? `${f.userName}@${f.domain}`
+              : f.userName || String(f),
+            name: f.displayName || f.userName || String(f),
+            avatar: f.avatar || f.authorAvatar,
+          }))
+          : [];
         setFollowingUsers(followingList);
       } catch (error) {
         console.error("Failed to fetch following users:", error);
@@ -42,8 +62,8 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   // 表示用のフォロー中ユーザーリスト（検索フィルタ適用）
   const filteredFollowing = createMemo(() => {
     const term = searchTerm().toLowerCase();
-    return followingUsers().filter(user => 
-      user.name.toLowerCase().includes(term) || 
+    return followingUsers().filter((user) =>
+      user.name.toLowerCase().includes(term) ||
       user.id.toLowerCase().includes(term)
     );
   });
@@ -65,18 +85,19 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   };
 
   const removeMember = (userId: string) => {
-    setSelectedMembers(selectedMembers().filter(id => id !== userId));
+    setSelectedMembers(selectedMembers().filter((id) => id !== userId));
   };
 
   const handleSubmit = () => {
     const groupName = name().trim();
-    const members = selectedMembers().join(",");
-    
-    if (props.mode === "dm" && selectedMembers().length === 0) {
-      alert("メンバーを選択してください");
-      return;
+    const membersArr = [...selectedMembers()];
+    const user = account();
+    if (user) {
+      const me = `${user.userName}@${getDomain()}`;
+      if (!membersArr.includes(me)) membersArr.push(me);
     }
-    
+    const members = membersArr.join(",");
+
     if (props.mode === "create" && selectedMembers().length < 1) {
       alert("最低1人のメンバーを追加してください");
       return;
@@ -87,7 +108,9 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
       return;
     }
 
-    if (props.onCreate) {
+    if (props.mode === "invite") {
+      if (props.onInvite) props.onInvite(members);
+    } else if (props.onCreate) {
       props.onCreate(groupName, members);
     }
 
@@ -107,7 +130,9 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   };
 
   createEffect(() => {
-    if (!props.isOpen) {
+    if (props.isOpen) {
+      setSelectedMembers(props.initialMembers ?? []);
+    } else {
       resetForm();
     }
   });
@@ -116,27 +141,17 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center">
         {/* 背景オーバーレイ（ぼかし効果付き） */}
-        <div 
+        <div
           class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
           onClick={props.onClose}
         />
-        
+
         {/* ダイアログコンテンツ */}
         <div class="relative bg-[#2a2a2a] rounded-lg p-6 w-[90%] max-w-md mx-4 max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-white">
-              <Show when={props.mode === "dm"}>
-                新しいトーク
-              </Show>
-              <Show when={props.mode === "create"}>
-                <Show when={props.targetFriend} fallback="グループ作成">
-                  <span class="text-blue-400 text-sm font-medium">
-                    {props.targetFriend?.split('@')[0] || props.targetFriend} を含むグループを作成
-                  </span>
-                </Show>
-              </Show>
-              <Show when={props.mode === "invite"}>
-                メンバー招待
+              <Show when={props.mode === "create"} fallback="メンバー招待">
+                ルーム作成
               </Show>
             </h2>
             <button
@@ -149,7 +164,9 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
           </div>
 
           <div class="flex-1 overflow-y-auto">
-            <Show when={props.mode === "create" && selectedMembers().length > 1}>
+            <Show
+              when={props.mode === "create" && selectedMembers().length > 1}
+            >
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-300 mb-2">
                   グループ名
@@ -242,18 +259,37 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
                           onClick={() => addMember(user.id)}
                         >
                           <div class="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-sm">
-                            <Show when={user.avatar} fallback={user.name.charAt(0).toUpperCase()}>
-                              <img src={user.avatar} class="w-8 h-8 rounded-full object-cover" alt={user.name} />
+                            <Show
+                              when={user.avatar}
+                              fallback={user.name.charAt(0).toUpperCase()}
+                            >
+                              <img
+                                src={user.avatar}
+                                class="w-8 h-8 rounded-full object-cover"
+                                alt={user.name}
+                              />
                             </Show>
                           </div>
                           <div class="flex-1 min-w-0">
-                            <div class="text-white text-sm font-medium truncate">{user.name}</div>
-                            <div class="text-gray-400 text-xs truncate">{user.id}</div>
+                            <div class="text-white text-sm font-medium truncate">
+                              {user.name}
+                            </div>
+                            <div class="text-gray-400 text-xs truncate">
+                              {user.id}
+                            </div>
                           </div>
                           <Show when={selectedMembers().includes(user.id)}>
                             <div class="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                              <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                              <svg
+                                class="w-3 h-3 text-white"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fill-rule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clip-rule="evenodd"
+                                />
                               </svg>
                             </div>
                           </Show>
@@ -262,7 +298,10 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
                     </For>
                     <Show when={filteredFollowing().length === 0}>
                       <div class="text-center py-8 text-gray-500">
-                        <Show when={searchTerm()} fallback="フォロー中のユーザーがいません">
+                        <Show
+                          when={searchTerm()}
+                          fallback="フォロー中のユーザーがいません"
+                        >
                           検索結果がありません
                         </Show>
                       </div>
@@ -281,7 +320,7 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
                   <For each={selectedMembers()}>
                     {(member) => (
                       <div class="flex items-center gap-2 bg-blue-600 bg-opacity-20 border border-blue-500 text-blue-300 px-3 py-1 rounded-full text-sm">
-                        <span>{member.split('@')[0]}</span>
+                        <span>{member.split("@")[0]}</span>
                         <button
                           type="button"
                           onClick={() => removeMember(member)}
@@ -311,9 +350,6 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
               disabled={selectedMembers().length === 0}
               class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed font-medium"
             >
-              <Show when={props.mode === "dm"}>
-                作成
-              </Show>
               <Show when={props.mode === "create"}>
                 グループ作成
               </Show>

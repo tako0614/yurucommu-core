@@ -41,6 +41,9 @@ export interface DB {
   listChatrooms(
     id: string,
   ): Promise<ChatroomInfo[]>;
+  listChatroomsByMember(
+    member: string,
+  ): Promise<ChatroomInfo[]>;
   addChatroom(
     id: string,
     room: ChatroomInfo,

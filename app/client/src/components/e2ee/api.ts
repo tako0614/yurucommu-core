@@ -388,10 +388,12 @@ export interface GroupMeta {
 }
 
 export const fetchRoomList = async (
-  id: string,
+  member: string,
 ): Promise<GroupMeta[]> => {
   try {
-    const res = await apiFetch(`/api/ap/rooms?owner=${id}`);
+    const res = await apiFetch(
+      `/api/ap/rooms?member=${encodeURIComponent(member)}`,
+    );
     if (!res.ok) throw new Error("failed");
     const data = await res.json();
     return Array.isArray(data.rooms) ? data.rooms : [];
