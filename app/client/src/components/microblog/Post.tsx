@@ -12,6 +12,7 @@ import {
 import { fetchPostById } from "./api.ts";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../../utils/adsense.ts";
+import { navigate } from "../../utils/router.ts";
 
 interface OgpData {
   title?: string;
@@ -202,7 +203,7 @@ export function PostItem(props: PostItemProps) {
   const openPost = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest("button, a")) return;
-    globalThis.location.hash = `#/post/${encodeURIComponent(post.id)}`;
+    navigate(`/post/${encodeURIComponent(post.id)}`);
   };
 
   return (
@@ -215,8 +216,12 @@ export function PostItem(props: PostItemProps) {
       <div class="flex space-x-3">
         <div class="flex-shrink-0">
           <a
-            href={`#/user/${encodeURIComponent(acct())}`}
+            href={`/user/${encodeURIComponent(acct())}`}
             class="block"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(`/user/${encodeURIComponent(acct())}`);
+            }}
           >
             <UserAvatar
               avatarUrl={finalUserInfo().authorAvatar}
@@ -229,8 +234,12 @@ export function PostItem(props: PostItemProps) {
         <div class="flex-1 min-w-0">
           <div class="flex flex-wrap items-center gap-x-2 mb-1">
             <a
-              href={`#/user/${encodeURIComponent(acct())}`}
+              href={`/user/${encodeURIComponent(acct())}`}
               class="flex items-center space-x-1 hover:underline"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(`/user/${encodeURIComponent(acct())}`);
+              }}
             >
               <span class="font-bold text-white truncate">
                 {finalUserInfo().displayName}
@@ -241,8 +250,12 @@ export function PostItem(props: PostItemProps) {
             </a>
             <span class="text-gray-500">·</span>
             <a
-              href={`#/post/${encodeURIComponent(post.id)}`}
+              href={`/post/${encodeURIComponent(post.id)}`}
               class="text-gray-500 text-sm whitespace-nowrap hover:underline"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(`/post/${encodeURIComponent(post.id)}`);
+              }}
             >
               {formatDate(post.createdAt)}
             </a>

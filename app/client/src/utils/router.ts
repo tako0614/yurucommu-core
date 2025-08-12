@@ -3,24 +3,30 @@ import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { profileUserState, selectedPostIdState } from "../states/router.ts";
-// URL と状態を同期するハッシュベースのルーター
 
-export function useHashRouter() {
+// URL と状態を同期するパスベースのルーター
+
+export function navigate(path: string) {
+  history.pushState(null, "", path);
+  globalThis.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+export function usePathRouter() {
   const [app, setApp] = useAtom(selectedAppState);
   const [room, setRoom] = useAtom(selectedRoomState);
   const [postId, setPostId] = useAtom(selectedPostIdState);
   const [profile, setProfile] = useAtom(profileUserState);
 
-  let fromHash = false;
+  let fromPath = false;
 
   const setIfChanged = <T>(get: () => T, set: (v: T) => void, value: T) => {
     if (get() !== value) set(value);
   };
 
-  const parseHash = () => {
-    fromHash = true;
-    const hash = globalThis.location.hash.slice(1);
-    const [seg, rawParam] = hash.split("/").filter(Boolean);
+  const parsePath = () => {
+    fromPath = true;
+    const path = globalThis.location.pathname.slice(1);
+    const [seg, rawParam] = path.split("/").filter(Boolean);
     const param = rawParam ? decodeURIComponent(rawParam) : undefined;
     switch (seg) {
       case "chat":
@@ -56,54 +62,54 @@ export function useHashRouter() {
         setIfChanged(postId, setPostId, null);
         setIfChanged(profile, setProfile, null);
     }
-    fromHash = false;
+    fromPath = false;
   };
 
-  const normalizeHash = (hash: string) => {
-    const [seg, rawParam] = hash.slice(1).split("/").filter(Boolean);
+  const normalizePath = (path: string) => {
+    const [seg, rawParam] = path.slice(1).split("/").filter(Boolean);
     const param = rawParam ? decodeURIComponent(rawParam) : undefined;
     switch (seg) {
       case "chat":
-        return param ? `#/chat/${encodeURIComponent(param)}` : "#/chat";
+        return param ? `/chat/${encodeURIComponent(param)}` : "/chat";
       case "post":
-        return param ? `#/post/${encodeURIComponent(param)}` : "#/microblog";
+        return param ? `/post/${encodeURIComponent(param)}` : "/microblog";
       case "user":
-        return param ? `#/user/${encodeURIComponent(param)}` : "#/profile";
+        return param ? `/user/${encodeURIComponent(param)}` : "/profile";
       case undefined:
-        return "";
+        return "/";
       default:
-        return `#/${seg}`;
+        return `/${seg}`;
     }
   };
 
-  const updateHash = () => {
-    if (fromHash) return;
-    let newHash = "";
+  const updatePath = () => {
+    if (fromPath) return;
+    let newPath = "";
     if (app() === "chat") {
-      newHash = room() ? `#/chat/${encodeURIComponent(room()!)}` : "#/chat";
+      newPath = room() ? `/chat/${encodeURIComponent(room()!)}` : "/chat";
     } else if (app() === "microblog") {
-      newHash = postId()
-        ? `#/post/${encodeURIComponent(postId()!)}`
-        : "#/microblog";
+      newPath = postId()
+        ? `/post/${encodeURIComponent(postId()!)}`
+        : "/microblog";
     } else if (app() === "home") {
-      newHash = "#/home";
+      newPath = "/home";
     } else if (app() === "profile") {
-      newHash = profile()
-        ? `#/user/${encodeURIComponent(profile()!)}`
-        : "#/profile";
+      newPath = profile()
+        ? `/user/${encodeURIComponent(profile()!)}`
+        : "/profile";
     } else {
-      newHash = `#/${app()}`;
+      newPath = `/${app()}`;
     }
-    if (normalizeHash(globalThis.location.hash) !== newHash) {
-      globalThis.location.hash = newHash;
+    if (normalizePath(globalThis.location.pathname) !== newPath) {
+      history.pushState(null, "", newPath);
     }
   };
 
   onMount(() => {
-    parseHash();
-    globalThis.addEventListener("hashchange", parseHash);
-    return () => globalThis.removeEventListener("hashchange", parseHash);
+    parsePath();
+    globalThis.addEventListener("popstate", parsePath);
+    return () => globalThis.removeEventListener("popstate", parsePath);
   });
 
-  createEffect(updateHash);
+  createEffect(updatePath);
 }
