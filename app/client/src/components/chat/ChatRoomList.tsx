@@ -12,7 +12,7 @@ import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
-import { Button, Input, EmptyState } from "../ui";
+import { Button, Input, EmptyState } from "../ui/index.ts";
 
 interface ChatRoomListProps {
   rooms: Room[];
