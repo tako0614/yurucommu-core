@@ -4,7 +4,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "../../shared/config.ts";
 import { issueSession } from "../utils/session.ts";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { setCookie } from "hono/cookie";
 
 const app = new Hono();
 
@@ -113,65 +113,7 @@ app.get("/login/oauth/start", (c) => {
   return c.redirect(url.toString());
 });
 // Callback: exchange code -> token and issue session, then redirect to app root
-app.get("/login/oauth/callback", async (c) => {
-  const env = getEnv(c);
-  const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
-  const clientId = env["OAUTH_CLIENT_ID"];
-  const clientSecret = env["OAUTH_CLIENT_SECRET"];
-  if (!host || !clientId || !clientSecret) {
-    return c.json({ error: "OAuth not configured" }, 500);
-  }
-  const base = host.startsWith("http") ? host : `https://${host}`;
-  const origin = getExternalOrigin(c);
-  const redirectUri = `${origin}`;
-  const code = c.req.query("code");
-  const state = c.req.query("state") ?? "";
-  const stateCookie = getCookie(c, "oauthState") ?? "";
-  if (!code || !state || !stateCookie || state !== stateCookie) {
-    return c.json({ error: "invalid_state" }, 400);
-  }
-  // clear state cookie
-  deleteCookie(c, "oauthState", { path: "/" });
-  // Exchange code for token
-  const form = new URLSearchParams();
-  form.set("grant_type", "authorization_code");
-  form.set("code", code);
-  form.set("client_id", clientId);
-  form.set("client_secret", clientSecret);
-  form.set("redirect_uri", redirectUri);
-  const tokenRes = await fetch(`${base}/oauth/token`, { method: "POST", body: form });
-  if (!tokenRes.ok) {
-    return c.json({ error: "token_error" }, 400);
-  }
-  const tokenData = await tokenRes.json() as { access_token?: string };
-  if (!tokenData.access_token) {
-    return c.json({ error: "token_invalid" }, 400);
-  }
-  // Verify token (optional but safer)
-  const verifyRes = await fetch(`${base}/oauth/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: tokenData.access_token }),
-  });
-  if (!verifyRes.ok) return c.json({ error: "verify_failed" }, 401);
-  const v = await verifyRes.json();
-  if (!v.active) return c.json({ error: "inactive_token" }, 401);
-  await issueSession(c);
-  // redirect to app root
-  return c.redirect("/");
-});
+// (旧) /login/oauth/callback は利用しない（redirect_uri はオリジンのみ）。
 
 // Debug endpoint: shows computed OAuth parameters
-app.get("/login/oauth/debug", (c) => {
-  const env = getEnv(c);
-  const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
-  const clientId = env["OAUTH_CLIENT_ID"] ?? null;
-  const origin = getExternalOrigin(c);
-  const redirectUri = `${origin}`;
-  return c.json({
-    host,
-    clientId,
-    origin,
-    redirectUri,
-  });
-});
+// (デバッグ用エンドポイント) は削除しました。
