@@ -49,6 +49,15 @@ async function processFollow(c: Context, remove: boolean) {
   const followerUrl = await resolveActorId(follower, domain);
   const targetUrl = await resolveActorId(target, domain);
 
+  // 自分自身をフォローすることは許可しない
+  if (followerUrl === targetUrl) {
+    return jsonResponse(
+      c,
+      { error: "自分自身をフォローすることはできません" },
+      400,
+    );
+  }
+
   const followerInfo = new URL(followerUrl);
   const isLocalFollower = followerInfo.hostname === domain;
   let account: AccountDoc | null = null;

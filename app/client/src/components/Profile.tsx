@@ -28,8 +28,12 @@ export default function Profile() {
   const [, setApp] = useAtom(selectedAppState);
   const [, setRoom] = useAtom(selectedRoomState);
 
-  const isOwnProfile = () =>
-    account() && `${account()!.userName}@${getDomain()}` === username();
+  // 自分自身のプロフィールかどうかを判定
+  const isOwnProfile = () => {
+    if (!account()) return false;
+    const name = account()!.userName;
+    return username() === name || username() === `${name}@${getDomain()}`;
+  };
 
   const [info, { mutate: mutateInfo }] = createResource(
     () => username(),
