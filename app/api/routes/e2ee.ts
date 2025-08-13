@@ -952,7 +952,7 @@ app.post(
               roomId,
               acct,
               kp.deviceId,
-              new Date(Date.now() + 24 * 60 * 60 * 1000),
+              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30日後に期限切れ
             );
           }
         }

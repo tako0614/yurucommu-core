@@ -9,8 +9,7 @@ const pendingInviteSchema = new mongoose.Schema({
   roomId: { type: String, required: true, index: true },
   userName: { type: String, required: true, index: true },
   deviceId: { type: String, required: true },
-  expiresAt: { type: Date, required: true },
-  retries: { type: Number, default: 0 },
+  expiresAt: { type: Date, required: true }, // 招待の有効期限
   acked: { type: Boolean, default: false },
   tenant_id: { type: String, index: true },
   createdAt: { type: Date, default: Date.now },

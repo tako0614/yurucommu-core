@@ -1150,6 +1150,7 @@ export class MongoDB implements DB {
  */
 export function startPendingInviteJob(env: Record<string, string>) {
   const db = new MongoDB(env);
+  // 期限切れの招待をクリーンアップするジョブ
   async function job() {
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const list = await PendingInvite.find({
@@ -1183,32 +1184,6 @@ export function startPendingInviteJob(env: Record<string, string>) {
             env,
           ).catch((err) => console.error("Delivery failed", err));
         }
-      }
-      try {
-        const sessionId = crypto.randomUUID();
-        await db.createSession(
-          sessionId,
-          new Date(Date.now() + 60_000),
-        );
-        const port = env["SERVER_PORT"] ?? "80";
-        await fetch(
-          `http://localhost:${port}/api/rooms/${inv.roomId}/invite`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Cookie: `sessionId=${sessionId}`,
-            },
-            body: JSON.stringify({
-              from: `${owner}@${env["ACTIVITYPUB_DOMAIN"]}`,
-              invitees: [inv.userName],
-              cipherSuite: 1,
-            }),
-          },
-        );
-        await db.deleteSessionById(sessionId);
-      } catch (err) {
-        console.error("re-invite failed", err);
       }
     }
   }
