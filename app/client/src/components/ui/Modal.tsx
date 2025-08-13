@@ -1,4 +1,4 @@
-import { JSX, onCleanup, onMount, Show, splitProps } from "solid-js";
+import { JSX, onCleanup, onMount, Show } from "solid-js";
 
 export interface ModalProps {
   open: boolean;
@@ -7,6 +7,7 @@ export interface ModalProps {
   children: JSX.Element;
 }
 
+// 全画面表示のモーダルコンポーネント
 export function Modal(props: ModalProps) {
   let dialogRef: HTMLDivElement | undefined;
 
@@ -22,30 +23,31 @@ export function Modal(props: ModalProps) {
     document.removeEventListener("keydown", onKeyDown);
   });
 
-  const onBackdrop = (e: MouseEvent) => {
-    if (e.target === dialogRef) props.onClose();
-  };
-
   return (
     <Show when={props.open}>
       <div
         ref={dialogRef}
-        class="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4"
+        class="fixed inset-0 z-[10000] p-5 overflow-auto"
+        style="background: var(--color-elevated)"
         role="dialog"
         aria-modal="true"
         aria-label={props.title ?? "ダイアログ"}
-        onMouseDown={onBackdrop}
       >
-        <div class="surface w-full max-w-lg p-5" role="document">
-          {props.title && (
-            <h2 class="text-xl font-semibold mb-3">{props.title}</h2>
-          )}
-          {props.children}
-        </div>
+        <button
+          type="button"
+          class="absolute top-4 right-4 text-2xl"
+          aria-label="閉じる"
+          onClick={props.onClose}
+        >
+          ×
+        </button>
+        {props.title && (
+          <h2 class="text-xl font-semibold mb-3">{props.title}</h2>
+        )}
+        {props.children}
       </div>
     </Show>
   );
 }
 
 export default Modal;
-
