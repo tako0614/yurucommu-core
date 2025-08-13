@@ -1,16 +1,28 @@
-language: "ja-JP"
+language: ja-JP
 early_access: false
+
 reviews:
-  profile: "chill"
-  request_changes_workflow: false
+  profile: none
   high_level_summary: true
+  review_status: false
+  request_changes_workflow: false
+  collapse_walkthrough: true
   poem: false
-  review_status: true
-  collapse_walkthrough: false
-  auto_review:
-    enabled: true
-    drafts: true
-    labels:
-      - "MaguRo"
+
+auto_review:
+  enabled: true
+  drafts: true
+  labels:
+    - "MaguRo"
+
 chat:
-  auto_reply: true
+  auto_reply: false
+
+summarize: |
+  このPull Requestの変更内容を以下のMarkdown形式でまとめてください:
+
+  ## 概要
+  <!-- 全体の変更点を簡潔に -->
+
+  ## 変更点
+  <!-- 主な変更箇所を箇条書き -->

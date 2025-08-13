@@ -24,12 +24,3 @@ jobs:
         with:
           openai_light_model: gpt-5-nano
           openai_heavy_model: gpt-5-nano
-          language: ja-JP
-          summarize: |
-            このPull Requestについて、以下のMarkdown形式で内容をまとめてください:
-
-            ## 概要
-            <!-- 全体の変更点を簡潔に表現。 -->
-
-            ## 変更点
-            <!-- ファイルやディレクトリ単位などで分けてもOK -->
