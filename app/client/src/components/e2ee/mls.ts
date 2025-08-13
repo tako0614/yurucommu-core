@@ -1,11 +1,7 @@
 // MLSヘルパー関数の継続実装
 import { b64ToBuf, bufToB64 } from "../../../../shared/buffer.ts";
-import {
-  decodeMLSMessage,
-  encodeMLSMessage,
-} from "../../../../shared/mls_message.ts";
-
-type ActorID = string;
+import { decodeMLSMessage, encodeMLSMessage } from "../../../../shared/mls_message.ts";
+import { packWelcome, type ActorID } from "../../../../shared/mls_core.ts";
 
 export interface MLSKeyPair {
   publicKey: string; // base64化した公開鍵
@@ -123,21 +119,22 @@ export interface MLSProposal {
 }
 export const createCommit = (
   state: MLSGroupState,
-  _proposals: MLSProposal[],
+  proposals: MLSProposal[],
 ): Uint8Array => {
-  const buf = new Uint8Array(4);
-  new DataView(buf.buffer).setUint32(0, state.epoch + 1);
-  return buf;
+  // Client-side placeholder: encode proposals with next epoch
+  const body = {
+    type: "commit",
+    epoch: state.epoch + 1,
+    proposals,
+  } as const;
+  return new TextEncoder().encode(JSON.stringify(body));
 };
 
-export const createWelcome = async (
+export const createWelcome = (
   state: MLSGroupState,
-): Promise<Uint8Array> => {
-  const raw = await crypto.subtle.exportKey("raw", state.secret);
-  const buf = new Uint8Array(4 + raw.byteLength);
-  new DataView(buf.buffer).setUint32(0, state.epoch);
-  buf.set(new Uint8Array(raw), 4);
-  return buf;
+): Uint8Array => {
+  // Encode minimal welcome data; real MLS would include group secrets per joiner
+  return packWelcome({ members: Object.keys(state.tree), epoch: state.epoch });
 };
 
 export const applyWelcome = async (

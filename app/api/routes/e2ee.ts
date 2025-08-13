@@ -20,6 +20,7 @@ import {
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
 import { encodeMLSMessage } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
+import { createCommitAndWelcomes, type RawKeyPackageInput } from "../../shared/mls_core.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -43,7 +44,8 @@ interface KeyPackageDoc {
   version?: string;
   cipherSuite?: number;
   generator?: string;
-  createdAt: unknown;
+  deviceId?: string;
+  createdAt: string | number | Date;
 }
 
 interface EncryptedKeyPairDoc {
@@ -922,7 +924,7 @@ app.post(
       return c.json({ error: "not a member" }, 403);
     }
     const addList: KeyPackageDoc[] = [];
-    const welcomeMap: Record<string, string[]> = {};
+    const addInputs: RawKeyPackageInput[] = [];
     for (const acct of invitees) {
       const actor = await resolveActorCached(acct, env);
       if (!actor) continue;
@@ -942,17 +944,16 @@ app.post(
           : [];
         const selected = selectKeyPackages(items, suite, M);
         addList.push(...selected);
-        welcomeMap[acct] = selected.map(() => {
-          const wBin = crypto.getRandomValues(new Uint8Array(48));
-          return encodeMLSMessage("Welcome", wBin);
-        });
+        for (const kp of selected) {
+          addInputs.push({ content: kp.content, actor: acct, deviceId: kp.deviceId });
+        }
         for (const kp of selected) {
           if (kp.deviceId) {
             await db.savePendingInvite(
               roomId,
               acct,
               kp.deviceId,
-              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30日後に期限切れ
+              new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             );
           }
         }
@@ -960,30 +961,34 @@ app.post(
         console.error("fetch keyPackages failed", err);
       }
     }
-    const commitBin = crypto.getRandomValues(new Uint8Array(32));
-    const commit = encodeMLSMessage("PublicMessage", commitBin);
-    for (const [acct, ws] of Object.entries(welcomeMap)) {
-      for (const w of ws) {
-        const activity: ActivityPubActivity = {
-          "@context": [
-            "https://www.w3.org/ns/activitystreams",
-            "https://purl.archive.org/socialweb/mls",
-          ],
-          type: "Create",
-          actor: `https://${domain}/users/${sender}`,
-          to: [acct],
-          object: {
-            type: ["Object", "Welcome"],
-            mediaType: "message/mls",
-            encoding: "base64",
-            content: w,
-          },
-        };
-        await deliverActivityPubObject([acct], activity, sender, domain, env)
-          .catch(
-            (err) => console.error("Delivery failed", err),
-          );
-      }
+    // Build MLS commit + welcomes and deliver
+    const { commit: commitRaw, welcomes } = await createCommitAndWelcomes({
+      addKeyPackages: addInputs,
+      members: room.members,
+      suite: suite,
+      epoch: Date.now(),
+    });
+    const commit = encodeMLSMessage("PublicMessage", commitRaw);
+    for (const w of welcomes) {
+      if (!w.actor) continue;
+      const wrapped = encodeMLSMessage("Welcome", w.data);
+      const activity: ActivityPubActivity = {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://purl.archive.org/socialweb/mls",
+        ],
+        type: "Create",
+        actor: `https://${domain}/users/${sender}`,
+        to: [w.actor],
+        object: {
+          type: ["Object", "Welcome"],
+          mediaType: "message/mls",
+          encoding: "base64",
+          content: wrapped,
+        },
+      };
+      await deliverActivityPubObject([w.actor], activity, sender, domain, env)
+        .catch((err) => console.error("Delivery failed", err));
     }
     return c.json({ result: "ok", commit });
   },
