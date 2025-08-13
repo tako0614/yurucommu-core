@@ -42,6 +42,8 @@ import {
   MLSKeyPair,
   StoredMLSGroupState,
   StoredMLSKeyPair,
+  verifyWelcome,
+  WelcomeMessage,
 } from "./e2ee/mls.ts";
 import {
   loadMLSGroupStates,
@@ -1196,7 +1198,7 @@ export function Chat() {
       const decoded = decodeMLSMessage(data.content);
       if (!decoded) return;
 
-      // Welcome を受信したら参加確認の joinAck を送信
+      // Welcome 受信時は署名とメンバーを検証し、成功時のみ joinAck を返信
       try {
         const bodyObj = JSON.parse(
           new TextDecoder().decode(decoded.body),
@@ -1204,13 +1206,30 @@ export function Chat() {
           type?: string;
           roomId?: string;
           deviceId?: string;
+          welcome?: WelcomeMessage;
         };
         if (
           bodyObj.type === "welcome" &&
           typeof bodyObj.roomId === "string" &&
           typeof bodyObj.deviceId === "string" &&
-          bodyObj.deviceId === user.id
+          bodyObj.deviceId === user.id &&
+          bodyObj.welcome
         ) {
+          const verify = await verifyWelcome(bodyObj.welcome);
+          const members = verify.members;
+          if (!verify.valid || !members || !members.includes(self)) {
+            alert("Welcome メッセージの検証に失敗しました。");
+            return;
+          }
+          const expected = new Set(room.members);
+          const received = new Set(members);
+          if (
+            room.members.some((m) => !received.has(m)) ||
+            members.some((m) => !expected.has(m))
+          ) {
+            alert("Welcome メッセージのメンバー一覧が一致しません。");
+            return;
+          }
           const ack = encodeMLSMessage(
             "PrivateMessage",
             new TextEncoder().encode(
@@ -1222,6 +1241,9 @@ export function Chat() {
             ),
           );
           await sendEncryptedMessage(bodyObj.roomId, self, { content: ack });
+          setChatRooms((rooms) =>
+            rooms.map((r) => r.id === bodyObj.roomId ? { ...r, members } : r)
+          );
           return;
         }
       } catch {

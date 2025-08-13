@@ -14,7 +14,7 @@ export interface MLSKeyPair {
 
 export interface MLSKeyPackage {
   id: string;
-  key: string; // 公開鍵を含むKeyPackage
+  data: string; // MLSライブラリ生成のKeyPackage（Base64）
 }
 
 export interface StoredMLSKeyPair {
@@ -42,9 +42,14 @@ export const generateKeyPackage = async (): Promise<{
   keyPair: MLSKeyPair;
 }> => {
   const pair = await generateMLSKeyPair();
+  const raw = b64ToBuf(pair.publicKey);
+  const encoded = encodeMLSMessage(
+    "KeyPackage",
+    new Uint8Array(raw),
+  );
   const keyPackage: MLSKeyPackage = {
     id: crypto.randomUUID(),
-    key: pair.publicKey,
+    data: encoded,
   };
   return { keyPackage, keyPair: pair };
 };
@@ -116,58 +121,46 @@ export interface MLSProposal {
   member: ActorID;
   keyPackage?: MLSKeyPackage;
 }
-
-export interface MLSCommit {
-  epoch: number;
-  proposals: MLSProposal[];
-}
-
-export interface MLSWelcome {
-  epoch: number;
-  tree: Record<ActorID, string>;
-  secret: string;
-}
-
 export const createCommit = (
   state: MLSGroupState,
-  proposals: MLSProposal[],
-): MLSCommit => ({
-  epoch: state.epoch + 1,
-  proposals,
-});
+  _proposals: MLSProposal[],
+): Uint8Array => {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setUint32(0, state.epoch + 1);
+  return buf;
+};
 
 export const createWelcome = async (
   state: MLSGroupState,
-): Promise<MLSWelcome> => {
+): Promise<Uint8Array> => {
   const raw = await crypto.subtle.exportKey("raw", state.secret);
-  return {
-    epoch: state.epoch,
-    tree: state.tree,
-    secret: bufToB64(raw),
-  };
+  const buf = new Uint8Array(4 + raw.byteLength);
+  new DataView(buf.buffer).setUint32(0, state.epoch);
+  buf.set(new Uint8Array(raw), 4);
+  return buf;
 };
 
 export const applyWelcome = async (
-  welcome: MLSWelcome,
+  data: Uint8Array,
 ): Promise<MLSGroupState> => {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const epoch = view.getUint32(0);
+  const secretBytes = data.slice(4);
   const key = await crypto.subtle.importKey(
     "raw",
-    b64ToBuf(welcome.secret),
+    secretBytes,
     { name: "AES-GCM" },
     true,
     ["encrypt", "decrypt"],
   );
-  return { tree: welcome.tree, epoch: welcome.epoch, secret: key };
+  return { tree: {}, epoch, secret: key };
 };
 
 export const applyCommit = async (
   _state: MLSGroupState,
-  commit: MLSCommit,
-  welcome: MLSWelcome,
+  _commit: Uint8Array,
+  welcome: Uint8Array,
 ): Promise<MLSGroupState> => {
-  if (commit.epoch !== welcome.epoch) {
-    return _state;
-  }
   return await applyWelcome(welcome);
 };
 
@@ -250,37 +243,4 @@ export const importGroupState = async (
     ["encrypt", "decrypt"],
   );
   return { tree: data.tree, epoch: data.epoch, secret: key };
-};
-
-export interface WelcomeMessage {
-  groupInfo: string;
-  signature: string;
-  signerKey: string;
-}
-
-export const verifyWelcome = async (
-  msg: WelcomeMessage,
-): Promise<{ valid: boolean; members?: ActorID[] }> => {
-  try {
-    const infoStr = new TextDecoder().decode(b64ToBuf(msg.groupInfo));
-    const info = JSON.parse(infoStr) as { members?: ActorID[] };
-    if (!Array.isArray(info.members)) return { valid: false };
-    const key = await crypto.subtle.importKey(
-      "raw",
-      b64ToBuf(msg.signerKey),
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["verify"],
-    );
-    const ok = await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      key,
-      b64ToBuf(msg.signature),
-      strToBuf(infoStr),
-    );
-    if (!ok) return { valid: false };
-    return { valid: true, members: info.members };
-  } catch {
-    return { valid: false };
-  }
 };

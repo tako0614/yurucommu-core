@@ -3,16 +3,24 @@
 
 import { b64ToBuf, bufToB64 } from "./buffer.ts";
 
-export type MLSMessageType = "PublicMessage" | "PrivateMessage";
+export type MLSMessageType =
+  | "PublicMessage"
+  | "PrivateMessage"
+  | "Welcome"
+  | "KeyPackage";
 
 const typeToByte: Record<MLSMessageType, number> = {
   PublicMessage: 1,
   PrivateMessage: 2,
+  Welcome: 3,
+  KeyPackage: 4,
 };
 
 const byteToType: Record<number, MLSMessageType> = {
   1: "PublicMessage",
   2: "PrivateMessage",
+  3: "Welcome",
+  4: "KeyPackage",
 };
 
 /**

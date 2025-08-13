@@ -19,10 +19,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import {
-  decodeMLSMessage,
-  encodeMLSMessage,
-} from "../../shared/mls_message.ts"; // MLSハンドシェイクのデコード
+import { encodeMLSMessage } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -172,42 +169,11 @@ async function handleHandshake(
   const db = createDB(env);
   const found = await db.findChatroom(roomId);
   if (!found) return { ok: false, status: 404, error: "room not found" };
-  const { owner, room: group } = found;
+  const { room: group } = found;
   if (!group.members.includes(from)) {
     return { ok: false, status: 403, error: "not a member" };
   }
-  let allMembers = [...group.members];
-
-  const decoded = decodeMLSMessage(content);
-  let bodyObj: Record<string, unknown> | null = null;
-  if (decoded) {
-    try {
-      bodyObj = JSON.parse(
-        new TextDecoder().decode(decoded.body),
-      ) as Record<string, unknown>;
-    } catch {
-      bodyObj = null;
-    }
-  }
-  if (
-    bodyObj &&
-    bodyObj.type === "remove" &&
-    typeof bodyObj.member === "string"
-  ) {
-    group.members = group.members.filter((m) => m !== bodyObj.member);
-    allMembers = [...group.members];
-    await db.updateChatroom(owner, group); // メンバー削除を反映
-  } else if (
-    bodyObj &&
-    bodyObj.type === "welcome" &&
-    typeof bodyObj.member === "string"
-  ) {
-    if (!group.members.includes(bodyObj.member)) {
-      group.members.push(bodyObj.member);
-      await db.updateChatroom(owner, group); // 新メンバーを反映
-    }
-    allMembers = [bodyObj.member];
-  }
+  const allMembers = [...group.members];
   const recipients = allMembers.filter((m) => m !== from);
 
   const mType = typeof mediaType === "string" ? mediaType : "message/mls";
@@ -976,18 +942,10 @@ app.post(
           : [];
         const selected = selectKeyPackages(items, suite, M);
         addList.push(...selected);
-        welcomeMap[acct] = selected.map((kp) =>
-          encodeMLSMessage(
-            "PrivateMessage",
-            new TextEncoder().encode(
-              JSON.stringify({
-                type: "welcome",
-                roomId,
-                deviceId: kp.deviceId,
-              }),
-            ),
-          )
-        );
+        welcomeMap[acct] = selected.map(() => {
+          const wBin = crypto.getRandomValues(new Uint8Array(48));
+          return encodeMLSMessage("Welcome", wBin);
+        });
         for (const kp of selected) {
           if (kp.deviceId) {
             await db.savePendingInvite(
@@ -1002,12 +960,8 @@ app.post(
         console.error("fetch keyPackages failed", err);
       }
     }
-    const commit = encodeMLSMessage(
-      "PublicMessage",
-      new TextEncoder().encode(
-        JSON.stringify({ type: "commit", adds: addList.map((k) => k._id) }),
-      ),
-    );
+    const commitBin = crypto.getRandomValues(new Uint8Array(32));
+    const commit = encodeMLSMessage("PublicMessage", commitBin);
     for (const [acct, ws] of Object.entries(welcomeMap)) {
       for (const w of ws) {
         const activity: ActivityPubActivity = {
