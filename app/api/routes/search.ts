@@ -139,7 +139,7 @@ app.get("/search", async (c) => {
           encodeURIComponent(q)
         }&limit=${perPage}`;
         while (nextUrl && seen.size < maxTotal) {
-          const res = await faspFetch(env, nextUrl);
+          const res = await faspFetch(env, nextUrl, { signing: "registered" });
           if (!res.ok) break;
           const list = await res.json() as string[];
           await Promise.all(

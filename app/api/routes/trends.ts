@@ -25,7 +25,7 @@ app.get("/trends", async (c) => {
       params.set("withinLastHours", String(withinLastHours));
       params.set("maxCount", String(maxCount));
       const url = `${faspBase}/trends/v0/${type}?${params.toString()}`;
-      const res = await faspFetch(env, url);
+      const res = await faspFetch(env, url, { signing: "registered" });
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>;
         let trends;

@@ -119,7 +119,7 @@ export interface DB {
   findAccountsByUserNames(usernames: string[]): Promise<AccountDoc[]>;
   countAccounts(): Promise<number>;
   createEncryptedMessage(data: {
-    roomId: string;
+    roomId?: string;
     from: string;
     to: string[];
     content: string;
@@ -131,7 +131,7 @@ export interface DB {
     opts?: { before?: string; after?: string; limit?: number },
   ): Promise<unknown[]>;
   createHandshakeMessage(data: {
-    roomId: string;
+    roomId?: string;
     sender: string;
     recipients: string[];
     message: string;
@@ -152,11 +152,27 @@ export interface DB {
     encoding?: string,
     groupInfo?: string,
     expiresAt?: Date,
+    deviceId?: string,
+    version?: string,
+    cipherSuite?: number,
+    generator?: string,
+    id?: string,
   ): Promise<unknown>;
   markKeyPackageUsed(userName: string, id: string): Promise<void>;
   cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
+  savePendingInvite(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+    expiresAt: Date,
+  ): Promise<void>;
+  markInviteAcked(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+  ): Promise<void>;
   listNotifications(): Promise<unknown[]>;
   createNotification(
     title: string,

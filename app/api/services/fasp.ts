@@ -46,6 +46,7 @@ async function faspFetch(
     body?: unknown;
     headers?: HeadersInit;
     verifyResponseSignature?: boolean;
+    signing?: "auto" | "none" | "registered";
   } = {},
 ): Promise<Response> {
   const method = options.method ?? "GET";
@@ -68,7 +69,23 @@ async function faspFetch(
   const domain = env["ACTIVITYPUB_DOMAIN"];
   const db = createDB(env);
   const { privateKey } = await getSystemKey(db, domain);
-  const keyId = `https://${domain}/actor#main-key`;
+  let keyId = `https://${domain}/actor#main-key`;
+  const signingMode = options.signing ?? "auto";
+  if (signingMode === "registered") {
+    try {
+      const u = new URL(url);
+      const origin = `${u.protocol}//${u.host}`;
+      const mongo = await db.getDatabase();
+      // 新コレクション: fasp_client_providers から origin が含まれるものを探す
+      const rec = await mongo.collection("fasp_client_providers").findOne({
+        tenant_id: env["ACTIVITYPUB_DOMAIN"] ?? "",
+        baseUrl: { $regex: `^${origin}` },
+      });
+      if (rec?.faspId) keyId = String(rec.faspId);
+    } catch {
+      // fallback to actor keyId
+    }
+  }
 
   const baseOpts: RequestInit = { method };
   if (options.body !== undefined) baseOpts.body = bodyText;
@@ -76,31 +93,33 @@ async function faspFetch(
   for (let attempt = 0; attempt < 5; attempt++) {
     const headers = new Headers(baseHeaders);
     const created = Math.floor(Date.now() / 1000);
-    const sigParams =
-      `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
-    const signingString = [
-      `"@method": ${method.toLowerCase()}`,
-      `"@target-uri": ${url}`,
-      `"content-digest": ${digest}`,
-      `"@signature-params": ${sigParams}`,
-    ].join("\n");
-    const normalized = ensurePem(privateKey, "PRIVATE KEY");
-    const keyData = pemToArrayBuffer(normalized);
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      keyData,
-      { name: "Ed25519" },
-      false,
-      ["sign"],
-    );
-    const signature = await crypto.subtle.sign(
-      "Ed25519",
-      cryptoKey,
-      new TextEncoder().encode(signingString),
-    );
-    const sigB64 = bufToB64(signature);
-    headers.set("Signature-Input", `sig1=${sigParams}`);
-    headers.set("Signature", `sig1=:${sigB64}:`);
+    if (signingMode !== "none") {
+      const sigParams =
+        `("@method" "@target-uri" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
+      const signingString = [
+        `"@method": ${method.toLowerCase()}`,
+        `"@target-uri": ${url}`,
+        `"content-digest": ${digest}`,
+        `"@signature-params": ${sigParams}`,
+      ].join("\n");
+      const normalized = ensurePem(privateKey, "PRIVATE KEY");
+      const keyData = pemToArrayBuffer(normalized);
+      const cryptoKey = await crypto.subtle.importKey(
+        "pkcs8",
+        keyData,
+        { name: "Ed25519" },
+        false,
+        ["sign"],
+      );
+      const signature = await crypto.subtle.sign(
+        "Ed25519",
+        cryptoKey,
+        new TextEncoder().encode(signingString),
+      );
+      const sigB64 = bufToB64(signature);
+      headers.set("Signature-Input", `sig1=${sigParams}`);
+      headers.set("Signature", `sig1=:${sigB64}:`);
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
@@ -153,21 +172,23 @@ export async function sendAnnouncements(
   const db = createDB(env);
   const mongo = await db.getDatabase();
   // 設定に基づき送信先を決定
-  const settings = await mongo.collection("fasp_settings").findOne({
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
+    tenant_id: tenantId,
   })
     .catch(() => null) as
       | { shareEnabled?: boolean; shareServerIds?: string[] }
       | null;
   if (settings && settings.shareEnabled === false) return; // 共有無効
-  const baseFilter: Record<string, unknown> = { status: "approved" };
+  const baseFilter: Record<string, unknown> = { tenant_id: tenantId, status: "approved" };
   if (
     settings?.shareServerIds && Array.isArray(settings.shareServerIds) &&
     settings.shareServerIds.length > 0
   ) {
     baseFilter.serverId = { $in: settings.shareServerIds };
   }
-  const fasps = await mongo.collection("fasps").find(baseFilter).toArray();
+  const fasps = await mongo.collection("fasp_client_providers").find(baseFilter).toArray();
   if (!fasps || fasps.length === 0) return;
   const body = JSON.stringify({
     source: ann.source ?? { subscription: { id: "default" } },
@@ -182,7 +203,7 @@ export async function sendAnnouncements(
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
       try {
-        await faspFetch(env, url, { method: "POST", body });
+        await faspFetch(env, url, { method: "POST", body, signing: "registered" });
       } catch {
         /* ignore errors */
       }
@@ -217,14 +238,17 @@ export async function getFaspBaseUrl(
   const db = createDB(env);
   const mongo = await db.getDatabase();
   // 設定から検索対象のプロバイダが指定されていれば優先
-  const settings = await mongo.collection("fasp_settings").findOne({
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
+    tenant_id: tenantId,
   })
     .catch(() => null) as
       | { _id: string; searchServerId?: string | null }
       | null;
   if (settings?.searchServerId) {
-    const byId = await mongo.collection("fasps").findOne({
+    const byId = await mongo.collection("fasp_client_providers").findOne({
+      tenant_id: tenantId,
       serverId: settings.searchServerId,
       status: "approved",
       [`capabilities.${capability}.enabled`]: true,
@@ -232,7 +256,8 @@ export async function getFaspBaseUrl(
     if (byId?.baseUrl) return String(byId.baseUrl).replace(/\/$/, "");
   }
   // それ以外は最初の承認済み・有効なもの
-  const rec = await mongo.collection("fasps").findOne({
+  const rec = await mongo.collection("fasp_client_providers").findOne({
+    tenant_id: tenantId,
     status: "approved",
     [`capabilities.${capability}.enabled`]: true,
   });
@@ -252,7 +277,7 @@ export async function notifyCapabilityActivation(
     baseUrl.replace(/\/$/, "")
   }/capabilities/${identifier}/${version}/activation`;
   try {
-    await faspFetch(env, url, { method: enabled ? "POST" : "DELETE" });
+    await faspFetch(env, url, { method: enabled ? "POST" : "DELETE", signing: "registered" });
   } catch {
     /* ignore errors */
   }

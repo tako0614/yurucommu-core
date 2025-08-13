@@ -30,6 +30,8 @@ import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 import { getCookie, deleteCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
+import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
+import { migrateFaspCollections } from "./services/fasp_migration.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -184,6 +186,18 @@ export async function createTakosApp(env?: Record<string, string>) {
 if (import.meta.main) {
   const env = await loadConfig();
   await connectDatabase(env);
+  // 旧 -> 新コレクションへの安全な片道移行
+  try {
+    await migrateFaspCollections(env).catch(() => {});
+  } catch (_) {
+    // 起動は継続させる
+  }
+  // 既定の FASP が設定されていれば、起動時に自動登録/承認し provider_info を取得
+  try {
+    await bootstrapDefaultFasp(env).catch(() => {});
+  } catch (_) {
+    // 起動を妨げない
+  }
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
   const port = Number(env["SERVER_PORT"] ?? "80");

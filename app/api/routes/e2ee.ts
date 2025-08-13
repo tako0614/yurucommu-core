@@ -18,7 +18,10 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import { decodeMLSMessage } from "../../shared/mls_message.ts"; // MLSハンドシェイクのデコード
+import {
+  decodeMLSMessage,
+  encodeMLSMessage,
+} from "../../shared/mls_message.ts"; // MLSハンドシェイクのデコード
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -39,6 +42,9 @@ interface KeyPackageDoc {
   groupInfo?: string;
   expiresAt?: unknown;
   used?: boolean;
+  version?: string;
+  cipherSuite?: number;
+  generator?: string;
   createdAt: unknown;
 }
 
@@ -113,6 +119,28 @@ async function resolveActorCached(
   }
 
   return actor;
+}
+
+function selectKeyPackages(
+  list: KeyPackageDoc[],
+  suite: number,
+  M = 3,
+): KeyPackageDoc[] {
+  return list
+    .filter((kp) => kp.version === "1.0" && kp.cipherSuite === suite)
+    .sort((a, b) => {
+      const da = new Date(a.createdAt).getTime();
+      const db = new Date(b.createdAt).getTime();
+      return db - da;
+    })
+    .reduce((acc: KeyPackageDoc[], kp) => {
+      if (kp.generator && acc.some((v) => v.generator === kp.generator)) {
+        return acc;
+      }
+      acc.push(kp);
+      return acc;
+    }, [])
+    .slice(0, M);
 }
 
 const app = new Hono();
@@ -569,6 +597,9 @@ app.get("/users/:user/keyPackages", authRequired, async (c) => {
       encoding: doc.encoding,
       groupInfo: doc.groupInfo,
       expiresAt: doc.expiresAt,
+      version: doc.version,
+      cipherSuite: doc.cipherSuite,
+      generator: doc.generator,
       createdAt: doc.createdAt,
     }));
     return c.json({ type: "Collection", items });
@@ -624,14 +655,27 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     content: doc.content,
     groupInfo: doc.groupInfo,
     expiresAt: doc.expiresAt,
+    deviceId: doc.deviceId,
+    version: doc.version,
+    cipherSuite: doc.cipherSuite,
+    generator: doc.generator,
   };
   return c.json(object);
 });
 
 app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const user = c.req.param("user");
-  const { content, mediaType, encoding, groupInfo, expiresAt } = await c.req
-    .json();
+  const {
+    content,
+    mediaType,
+    encoding,
+    groupInfo,
+    expiresAt,
+    deviceId,
+    version,
+    cipherSuite,
+    generator,
+  } = await c.req.json();
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
@@ -643,6 +687,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     encoding,
     groupInfo,
     expiresAt ? new Date(expiresAt) : undefined,
+    typeof deviceId === "string" ? deviceId : undefined,
+    typeof version === "string" ? version : undefined,
+    typeof cipherSuite === "number" ? cipherSuite : undefined,
+    typeof generator === "string" ? generator : undefined,
   ) as KeyPackageDoc;
   await db.cleanupKeyPackages(user);
   const domain = getDomain(c);
@@ -661,6 +709,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     content: pkg.content,
     groupInfo: pkg.groupInfo,
     expiresAt: pkg.expiresAt,
+    deviceId: pkg.deviceId,
+    version: pkg.version,
+    cipherSuite: pkg.cipherSuite,
+    generator: pkg.generator,
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
@@ -866,6 +918,109 @@ app.post(
     }
 
     return c.json({ result: "sent", id: String(msg._id) });
+  },
+);
+
+app.post(
+  "/rooms/:room/invite",
+  authRequired,
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const roomId = c.req.param("room");
+    const body = await c.req.json();
+    const from = typeof body.from === "string" ? body.from : "";
+    const invitees = Array.isArray(body.invitees)
+      ? body.invitees.filter((v: unknown): v is string => typeof v === "string")
+      : [];
+    const suite = typeof body.cipherSuite === "number"
+      ? body.cipherSuite
+      : undefined;
+    const M = typeof body.M === "number" ? body.M : 3;
+    if (!from || !suite || invitees.length === 0) {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const [sender, host] = from.split("@");
+    const domain = getDomain(c);
+    if (!sender || host !== domain) {
+      return c.json({ error: "invalid sender" }, 400);
+    }
+    const env = getEnv(c);
+    const db = createDB(env);
+    const found = await db.findChatroom(roomId);
+    if (!found) return c.json({ error: "room not found" }, 404);
+    const { room } = found;
+    if (!room.members.includes(from)) {
+      return c.json({ error: "not a member" }, 403);
+    }
+    const addList: KeyPackageDoc[] = [];
+    const welcomeMap: Record<string, string[]> = {};
+    for (const acct of invitees) {
+      const actor = await resolveActorCached(acct, env);
+      if (!actor) continue;
+      const kpUrl = typeof actor.keyPackages === "string"
+        ? actor.keyPackages
+        : actor.keyPackages?.id;
+      if (!kpUrl) continue;
+      try {
+        const col = await fetchJson<{ items?: KeyPackageDoc[] }>(
+          kpUrl,
+          {},
+          undefined,
+          env,
+        );
+        const items = Array.isArray(col.items)
+          ? col.items as KeyPackageDoc[]
+          : [];
+        const selected = selectKeyPackages(items, suite, M);
+        addList.push(...selected);
+        welcomeMap[acct] = selected.map((kp) =>
+          encodeMLSMessage(
+            "PrivateMessage",
+            JSON.stringify({ type: "welcome", roomId, deviceId: kp.deviceId }),
+          )
+        );
+        for (const kp of selected) {
+          if (kp.deviceId) {
+            await db.savePendingInvite(
+              roomId,
+              acct,
+              kp.deviceId,
+              new Date(Date.now() + 24 * 60 * 60 * 1000),
+            );
+          }
+        }
+      } catch (err) {
+        console.error("fetch keyPackages failed", err);
+      }
+    }
+    const commit = encodeMLSMessage(
+      "PublicMessage",
+      JSON.stringify({ type: "commit", adds: addList.map((k) => k._id) }),
+    );
+    for (const [acct, ws] of Object.entries(welcomeMap)) {
+      for (const w of ws) {
+        const activity: ActivityPubActivity = {
+          "@context": [
+            "https://www.w3.org/ns/activitystreams",
+            "https://purl.archive.org/socialweb/mls",
+          ],
+          type: "Create",
+          actor: `https://${domain}/users/${sender}`,
+          to: [acct],
+          object: {
+            type: ["Object", "Welcome"],
+            mediaType: "message/mls",
+            encoding: "base64",
+            content: w,
+          },
+        };
+        await deliverActivityPubObject([acct], activity, sender, domain, env)
+          .catch(
+            (err) => console.error("Delivery failed", err),
+          );
+      }
+    }
+    return c.json({ result: "ok", commit });
   },
 );
 

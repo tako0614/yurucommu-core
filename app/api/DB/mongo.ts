@@ -16,6 +16,7 @@ import FcmToken from "../models/takos/fcm_token.ts";
 import HostFcmToken from "../models/takos_host/fcm_token.ts";
 import HandshakeMessage from "../models/takos/handshake_message.ts";
 import HostHandshakeMessage from "../models/takos_host/handshake_message.ts";
+import PendingInvite from "../models/takos/pending_invite.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
@@ -523,7 +524,7 @@ export class MongoDB implements DB {
   }
 
   async createEncryptedMessage(data: {
-    roomId: string;
+    roomId?: string;
     from: string;
     to: string[];
     content: string;
@@ -609,14 +610,24 @@ export class MongoDB implements DB {
     encoding = "base64",
     groupInfo?: string,
     expiresAt?: Date,
+    deviceId?: string,
+    version?: string,
+    cipherSuite?: number,
+    generator?: string,
+    id?: string,
   ) {
     const doc = new KeyPackage({
+      _id: id,
       userName,
+      deviceId,
       content,
       mediaType,
       encoding,
       groupInfo,
       expiresAt,
+      version,
+      cipherSuite,
+      generator,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     if (this.env["DB_MODE"] === "host") {
@@ -674,8 +685,44 @@ export class MongoDB implements DB {
     await query;
   }
 
+  async savePendingInvite(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+    expiresAt: Date,
+  ) {
+    const doc = new PendingInvite({
+      roomId,
+      userName,
+      deviceId,
+      expiresAt,
+      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
+    });
+    if (this.env["DB_MODE"] === "host") {
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+    }
+    await doc.save();
+  }
+
+  async markInviteAcked(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+  ) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const query = PendingInvite.updateOne({
+      roomId,
+      userName,
+      deviceId,
+      tenant_id: tenantId,
+    }, { acked: true });
+    this.withTenant(query);
+    await query;
+  }
+
   async createHandshakeMessage(data: {
-    roomId: string;
+    roomId?: string;
     sender: string;
     recipients: string[];
     message: string;
