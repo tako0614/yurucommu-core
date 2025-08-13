@@ -42,6 +42,7 @@ async function main() {
   const serverArgs = [
     "run",
     "-A",
+  "--unstable-detect-cjs",
     "--watch",
     "--unsafely-ignore-certificate-errors",
     "main.ts",
