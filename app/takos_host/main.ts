@@ -14,7 +14,6 @@ import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { createServiceActorApp } from "./service_actor.ts";
 import FaspClient from "./models/fasp_client.ts";
 import FaspServerProviderInfo from "./models/fasp_server_provider_info.ts";
-import FaspServerClient from "./models/fasp_server_client.ts";
 import { bootstrapDefaultFasp } from "../api/services/fasp_bootstrap.ts";
 import { logger } from "hono/logger";
 import { takosEnv } from "./takos_env.ts";
@@ -169,32 +168,41 @@ async function getAppForHost(host: string): Promise<Hono | null> {
   // 既定の FASP サーバーをテナントDBへ種まき（存在しない場合のみ）
   if (defaultFaspBaseUrl) {
     try {
-      function canonicalize(u: string): string {
+      const canonicalize = (u: string): string => {
         let b = u.trim();
         if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
         try {
           const url = new URL(b);
-          url.hash = ""; url.search = "";
+          url.hash = "";
+          url.search = "";
           let p = url.pathname.replace(/\/+$/, "");
           const wl = "/.well-known/fasp/provider_info";
           if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-          else if (p.endsWith("/fasp/provider_info")) p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-          else if (p.endsWith("/provider_info")) p = p.slice(0, -"/provider_info".length);
+          else if (p.endsWith("/fasp/provider_info")) {
+            p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
+          } else if (p.endsWith("/provider_info")) {
+            p = p.slice(0, -"/provider_info".length);
+          }
           if (p === "/") p = "";
           return `${url.origin}${p}`.replace(/\/$/, "");
         } catch {
           return u.replace(/\/$/, "");
         }
-      }
+      };
       const normalized = canonicalize(defaultFaspBaseUrl);
       const tenantDb = createDB(appEnv);
       const mongo = await tenantDb.getDatabase();
       const fasps = mongo.collection("fasp_client_providers");
       const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
-      const exists = await fasps.findOne({ tenant_id: tenantId, baseUrl: normalized });
+      const exists = await fasps.findOne({
+        tenant_id: tenantId,
+        baseUrl: normalized,
+      });
       // シークレットを共有して作成（なければ生成）
       const secret = (exists?.secret as string | undefined) ??
-        btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+        btoa(
+          String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))),
+        );
       if (!exists) {
         await fasps.insertOne({
           name: normalized,
@@ -245,7 +253,16 @@ const root = new Hono();
 
 root.route("/auth", authApp);
 root.route("/oauth", oauthApp);
-root.route("/user", consumerApp);
+if (rootDomain) {
+  root.use("/user/*", async (c, next) => {
+    if (getRealHost(c) === rootDomain) {
+      return consumerApp.fetch(c.req.raw);
+    }
+    await next();
+  });
+} else {
+  root.route("/user", consumerApp);
+}
 // FASP provider_info をホストドメインで提供（無効化されていなければ）
 if (!faspServerDisabled) {
   for (
@@ -261,7 +278,8 @@ if (!faspServerDisabled) {
         return c.text("not found", 404);
       }
       // DBからprovider_infoを取得。なければ初期レコードを作成
-      let info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
+      let info = await FaspServerProviderInfo.findOne({ _id: "provider" })
+        .lean();
       if (!info) {
         const name = hostEnv["SERVER_NAME"] || rootDomain || "takos";
         const initial = new FaspServerProviderInfo({
@@ -273,7 +291,10 @@ if (!faspServerDisabled) {
         info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
       }
       if (!info) {
-        return c.json({ name: hostEnv["SERVER_NAME"] || rootDomain || "takos", capabilities: [] });
+        return c.json({
+          name: hostEnv["SERVER_NAME"] || rootDomain || "takos",
+          capabilities: [],
+        });
       }
       // FASP spec 準拠: provider_info は name と capabilities のみ返す
       return c.json({ name: info.name, capabilities: info.capabilities ?? [] });
@@ -289,7 +310,10 @@ if (termsText) {
 
 if (isDev) {
   root.use("/auth/*", proxy("/auth"));
-  root.use("/user/*", proxy("/user"));
+  root.use("/user/*", async (c, next) => {
+    if (rootDomain && getRealHost(c) !== rootDomain) return await next();
+    await proxy("/user")(c, next);
+  });
   if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
     const proxyRoot = proxy("");
     root.use(async (c, next) => {
@@ -342,10 +366,16 @@ if (isDev) {
   );
   root.use(
     "/user/*",
-    serveStatic({
-      root: "./client/dist",
-      rewriteRequestPath: (path) => path.replace(/^\/user/, ""),
-    }),
+    async (c, next) => {
+      if (rootDomain && getRealHost(c) !== rootDomain) {
+        await next();
+        return;
+      }
+      await serveStatic({
+        root: "./client/dist",
+        rewriteRequestPath: (path) => path.replace(/^\/user/, ""),
+      })(c, next);
+    },
   );
 }
 
