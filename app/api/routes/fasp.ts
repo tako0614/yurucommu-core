@@ -15,6 +15,8 @@ const app = new Hono();
 // 管理系は通常の /api 配下に集約（要ログイン）
 app.use("/api/fasp/*", authRequired);
 
+// 以前の実装に戻す（provider_info の自己提供は行わない）
+
 // deno-lint-ignore no-explicit-any
 async function requireSignedJson(c: any): Promise<{ ok: boolean; body?: any }> {
   const bodyText = await c.req.text();
@@ -58,15 +60,19 @@ app.post("/fasp/registration", async (c) => {
   const mongo = await db.getDatabase();
   const fasps = mongo.collection("fasps");
   const faspId = crypto.randomUUID();
+  // 既存の仮登録（discover）を baseUrl でマージしつつ upsert
   await fasps.updateOne(
-    { serverId },
+    { $or: [{ serverId }, { baseUrl }] },
     {
       $set: {
         name,
         baseUrl,
         serverId,
         publicKey,
-        status: "pending",
+        // 署名検証済みのため承認済みに更新
+        status: "approved",
+        approvedAt: new Date(),
+        rejectedAt: null,
         updatedAt: new Date(),
       },
       $setOnInsert: { faspId },
@@ -248,6 +254,96 @@ app.get("/api/fasp/providers", async (c) => {
   return c.json(result);
 });
 
+// 管理用: ドメイン/URL から FASP を発見して仮登録
+app.post(
+  "/api/fasp/providers/discover",
+  zValidator(
+    "json",
+    z.object({ domainOrUrl: z.string().min(1) }),
+  ),
+  async (c) => {
+    const env = getEnv(c);
+    const db = createDB(env);
+    const { domainOrUrl } = c.req.valid("json") as { domainOrUrl: string };
+
+    // ベースURLの正規化
+    let baseUrl = domainOrUrl.trim();
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      baseUrl = `https://${baseUrl}`;
+    }
+    baseUrl = baseUrl.replace(/\/$/, "");
+
+    // provider_info の取得（シンプルな取得に戻す）
+    let info: unknown;
+    try {
+      const res = await faspFetch(env, `${baseUrl}/provider_info`, {
+        verifyResponseSignature: false,
+      });
+      if (!res.ok) {
+        return c.json({ error: `provider_info 取得失敗 (${res.status})` }, 502);
+      }
+      info = await res.json();
+    } catch (e) {
+      return c.json({ error: `provider_info 取得エラー: ${String(e)}` }, 502);
+    }
+
+    // 最低限のフィールドのみ緩く検証
+    const parsed = z.object({
+      name: z.string().min(1),
+      capabilities: z.array(
+        z.object({ id: z.string().min(1), version: z.string().min(1) }),
+      ).default([]),
+    }).safeParse(info);
+    if (!parsed.success) {
+      return c.json({ error: "provider_info が不正です" }, 422);
+    }
+
+    const name = parsed.data.name;
+    const capsArr = parsed.data.capabilities;
+    const capabilities = Object.fromEntries(
+      capsArr.map((c) => [c.id, { version: c.version, enabled: false }]),
+    );
+
+    const mongo = await db.getDatabase();
+    const fasps = mongo.collection("fasps");
+
+    // baseUrl で既存を検索して upsert（仮 serverId を付与）
+    const provisionalServerId = `provisional:${crypto.randomUUID()}`;
+    const faspId = crypto.randomUUID();
+    const now = new Date();
+    const res = await fasps.findOneAndUpdate(
+      { baseUrl },
+      {
+        $setOnInsert: {
+          faspId,
+          serverId: provisionalServerId,
+          status: "pending",
+          createdAt: now,
+        },
+        $set: {
+          name,
+          baseUrl,
+          capabilities,
+          updatedAt: now,
+        },
+      },
+      { upsert: true, returnDocument: "after" },
+    );
+
+    return c.json({
+      ok: true,
+      provider: {
+        name: res?.name ?? name,
+        baseUrl,
+        serverId: res?.serverId ?? provisionalServerId,
+        faspId: res?.faspId ?? faspId,
+        status: res?.status ?? "pending",
+        capabilities: res?.capabilities ?? capabilities,
+      },
+    });
+  },
+);
+
 // 管理用: プロバイダ詳細
 app.get("/api/fasp/providers/:serverId", async (c) => {
   const env = getEnv(c);
@@ -298,6 +394,19 @@ app.post("/api/fasp/providers/:serverId/reject", async (c) => {
   );
   if (!res) return c.json({ error: "not found" }, 404);
   return c.json({ ok: true });
+});
+
+// 管理用: プロバイダ削除
+app.delete("/api/fasp/providers/:serverId", async (c) => {
+  const env = getEnv(c);
+  const db = createDB(env);
+  const serverId = c.req.param("serverId");
+  const mongo = await db.getDatabase();
+  const res = await mongo.collection("fasps").deleteOne({ serverId });
+  if (!res || res.deletedCount === 0) {
+    return c.json({ error: "not found" }, 404);
+  }
+  return c.body(null, 204);
 });
 
 // 管理用: capability 設定（ON/OFFとバージョンを保存）
@@ -355,7 +464,9 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
-    const res = await faspFetch(env, `${baseUrl}/provider_info`);
+    const res = await faspFetch(env, `${baseUrl}/provider_info`, {
+      verifyResponseSignature: false,
+    });
     const text = await res.text();
     return c.body(text, res.status, Object.fromEntries(res.headers));
   } catch (e) {

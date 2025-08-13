@@ -77,6 +77,14 @@ const consumerApp = createConsumerApp(
 );
 const authApp = createAuthApp({ rootDomain, termsRequired: !!termsText });
 const isDev = Deno.env.get("DEV") === "1";
+// takos_host の FASP 提供機能の有効/無効とデフォルトの FASP サーバー
+const faspServerDisabled =
+  (hostEnv["FASP_SERVER_DISABLED"] ?? "").toLowerCase() in {
+    "1": true,
+    "true": true,
+    "yes": true,
+  };
+const defaultFaspBaseUrl = (hostEnv["FASP_DEFAULT_BASE_URL"] ?? "").trim();
 
 /**
  * ホスト名部分のみを取り出すユーティリティ
@@ -154,6 +162,31 @@ async function getAppForHost(host: string): Promise<Hono | null> {
   if (!appEnv) return null;
   const db = createDB(hostEnv);
   await ensureTenant(db, host, host);
+  // 既定の FASP サーバーをテナントDBへ種まき（存在しない場合のみ）
+  if (defaultFaspBaseUrl) {
+    try {
+      let b = defaultFaspBaseUrl;
+      if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
+      const normalized = b.replace(/\/$/, "");
+      const tenantDb = createDB(appEnv);
+      const mongo = await tenantDb.getDatabase();
+      const fasps = mongo.collection("fasps");
+      const exists = await fasps.findOne({ baseUrl: normalized });
+      if (!exists) {
+        await fasps.insertOne({
+          name: normalized,
+          baseUrl: normalized,
+          serverId: `default:${crypto.randomUUID()}`,
+          status: "approved",
+          capabilities: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+    } catch (_e) {
+      // ignore seeding errors
+    }
+  }
   app = await createTakosApp(appEnv);
   apps.set(host, app);
   return app;
@@ -164,6 +197,31 @@ const root = new Hono();
 root.route("/auth", authApp);
 root.route("/oauth", oauthApp);
 root.route("/user", consumerApp);
+// FASP provider_info をホストドメインで提供（無効化されていなければ）
+if (!faspServerDisabled) {
+  for (
+    const path of [
+      "/provider_info",
+      "/.well-known/fasp/provider_info",
+      "/fasp/provider_info",
+    ]
+  ) {
+    root.get(path, (c) => {
+      const host = getRealHost(c);
+      if (rootDomain && host !== rootDomain) {
+        return c.text("not found", 404);
+      }
+      const name = hostEnv["SERVER_NAME"] || rootDomain || "takos";
+      const body = {
+        name,
+        capabilities: [
+          { id: "data_sharing", version: "v0" },
+        ],
+      };
+      return c.json(body);
+    });
+  }
+}
 if (termsText) {
   root.get("/terms", () =>
     new Response(termsText, {

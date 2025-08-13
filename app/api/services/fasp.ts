@@ -41,7 +41,12 @@ async function computeContentDigest(body: string): Promise<string> {
 async function faspFetch(
   env: Record<string, string>,
   url: string,
-  options: { method?: string; body?: unknown; headers?: HeadersInit } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    headers?: HeadersInit;
+    verifyResponseSignature?: boolean;
+  } = {},
 ): Promise<Response> {
   const method = options.method ?? "GET";
   const bodyText = options.body === undefined
@@ -125,10 +130,12 @@ async function faspFetch(
       continue;
     }
     const resBody = await res.text();
-    const ok = await verifyHttpSignature(res, resBody);
-    if (!ok) {
-      faspMetrics.signatureFailures++;
-      throw new Error("署名検証に失敗しました");
+    if (options.verifyResponseSignature !== false) {
+      const ok = await verifyHttpSignature(res, resBody);
+      if (!ok) {
+        faspMetrics.signatureFailures++;
+        throw new Error("署名検証に失敗しました");
+      }
     }
     return new Response(resBody, {
       status: res.status,
@@ -145,7 +152,9 @@ export async function sendAnnouncements(
 ): Promise<void> {
   const db = createDB(env);
   const mongo = await db.getDatabase();
-  const fasps = await mongo.collection("fasps").find({}).toArray();
+  // 承認済みのプロバイダのみに送信
+  const fasps = await mongo.collection("fasps").find({ status: "approved" })
+    .toArray();
   if (!fasps || fasps.length === 0) return;
   const body = JSON.stringify({
     source: ann.source ?? { subscription: { id: "default" } },

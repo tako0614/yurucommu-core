@@ -278,6 +278,7 @@ fasp:
     - body 例: `{ "capabilities": { "data_sharing": { "version": "0.1", "enabled": true } } }`
   - `GET /api/fasp/providers/{serverId}/provider_info`（FASP の provider_info を取得）
   - （オプション）`POST /api/fasp/announcements`（手動アナウンス送信の簡易デバッグ）
+  - `POST /api/fasp/providers/discover`（ドメイン/URL を指定して FASP を仮登録）
 
 ### 7.3 takos → FASP（クライアント API）
 

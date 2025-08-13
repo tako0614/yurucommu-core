@@ -1,106 +1,73 @@
-# 1) 目的と前提
+いいね、その前提なら「部屋（トークルーム）＝MLSグループ」「ユーザー＝ActivityPub Actor」「端末＝MLSクライアント」で設計すると現実的に回ります。以下“最小で実用的”な仕様案👇
 
-* **目的**：ActivityPub 連合間で動く E2EE チャット。ユーザーは「アカウント＝端末集合」として見え、どの端末からでも自然に会話できる。
-* **暗号基盤**：MLS（端末＝クライアント単位でメンバー管理、Add/Remove/Commit/Welcome、external commit）。
-* **グループ**：招待で追加されるトーク（Join は Add/Commit or external commit）。
-* **端末管理**：**アクティビティGC**で「増えすぎ」や「使ってない端末」を自動整理。
+# 仕様のゴール
 
-# 2) 全体アーキテクチャ（役割）
+* トークルーム単位で開始・参加
+* 同じActorの**どの端末でも**、その端末が部屋に参加した瞬間から**送受信OK**
+* ActivityPub配送＋MLS暗号化（`message/mls`）で相互運用できること。([Swicg][1])
 
-* **クライアント（端末）**：MLS状態（leaf秘密／ratchet状態）を保持。KeyPackage を生成・公開。端末ごとに独立。
-* **Delivery Service（DS）**：配送と順序制御。E2EE平文は見ない。再送・重複抑制・ACK・キューを提供。
-* **Auth Service（AS）**：Actor＝アカウントに属する端末の検証（署名検証、端末マニフェスト検証、ポリシー適用）。
-* **Directory（Actorプロファイル）**：`keyPackages` と **端末マニフェスト**（ユーザー署名済み）を配布。
-* **（任意）透明性ログ**：`keyPackages` / マニフェストの変更履歴を公開し置換攻撃を検知。
-* **ストレージ**：暗号化メディアや添付の保管（鍵はMLSメッセージで配布）。
-* **観測/ジョブ**：GC・ローテ・自動合流などのバッチ。
+# モデル
 
-# 3) コアのデータ概念
+* **Actor（ユーザー）**：公開プロフィールに `keyPackages` コレクションを持つ（ここに端末ごとのKeyPackageを並べる／`generator`でクライアント識別可）。([Swicg][1])
+* **端末（クライアント）**：MLSのメンバー単位。**KeyPackageは基本ワンタイム**で、必要なら複数スイート分を公開。([IETF Datatracker][2])
+* **部屋（トークルーム）**：クライアント側の概念＝MLSグループIDで表現。ActivityPub配送では**参加者Actorを明示アドレス指定**し、コレクション宛てやPublic宛ては不可。([Swicg][1])
 
-* **Actor**：`id`、`inbox/outbox`、`keyPackages`（端末ごとの未使用KeyPackage束）、**DeviceManifest**（署名済み; 端末リストと属性、version/expiry）。
-* **Device（端末）**：`device_id`、署名鍵Credential、HPKE初期化鍵、**活動指標**（last\_seen/送受信統計）、**lease**（有効期限）、**状態**（Active/Hibernating/Stale）。
-* **Group**：`group_id`、ポリシー（招待可否、外部合流可否、バッチ窓）、現在エポック、メンバーの leaf 集合。
-* **Invite**：Add/Commit で招くか、**external commit 用の GroupInfo (+オプションPSK)** を配付するかのどちらか。
-* **Message**：MLSアプリケーションメッセージ（本文）＋メディア参照（DS URL）＋MLS内で配るコンテンツ鍵。
-* **Event（ActivityPub）**：Create / Add / Remove / Update などのアクティビティで、上記リソースの変化を連合配布。
+# 端末と鍵のライフサイクル
 
-# 4) 端末ライフサイクル（アクティビティGC前提）
+1. **端末ログイン/初期化**
+   端末は署名鍵を生成→KeyPackageをN個生成→Actorの `keyPackages` にCreate/Add。**認証は「そのKeyPackageがActorの`keyPackages`に入っているか」で確認**。([Swicg][1])
+2. **端末の無効化/消去**
+   使い終えたKeyPackageはRemove/Deleteし、差し替え攻撃対策として**指紋確認（fingerprint verification）を推奨**。([Swicg][1])
 
-### 登録（Provisioning）
+# ルーム作成〜招待（最初の参加）
 
-1. 端末は署名鍵/HPKE鍵を生成 → **KeyPackage** を複数作成（短命・在庫上限）。
-2. **DeviceManifest** に端末を追加し **ユーザー署名**で更新（既存いずれかの端末が署名）。
-3. `keyPackages` と更新済みマニフェストを公開。
-4. **Lease**（例：30日）と **Heartbeat**（送受信・既読・push開封等で更新）を開始。
+* 作成端末は、参加者ごとに**互換スイートのKeyPackageを少数（推奨2–3個）選択**して**同一CommitでまとめてAdd**。
+  **Welcomeは1通に複数受信者分の`EncryptedGroupSecrets`を同梱**してOK（または複数通に分割）。**同梱の集合は、そのCommitで追加した“全新規メンバー”をカバー**すること。([IETF Datatracker][2])
+* 配送は `Create { object: PrivateMessage | Welcome, mediaType: "message/mls" }` を**各Actorの`inbox`へ直接**。APは**明示アドレスのみ**、ポーリング取得。([Swicg][1])
+* **ACK運用**：招待が復号されたら、参加端末は最初のPrivateMessageで「JoinAck」をアプリレベルで返す（復号失敗・未達時はタイムアウト後に**別KeyPackageで自動再招待**）。
 
-### 参加（Join：招待されたとき）
+# “どの端末でも参加したら即送受信OK”を担保する仕組み
 
-* **招待時は「アクティブ端末のみ」追加**：対象Actorの DeviceManifest を読み、**Active** 状態の端末の KeyPackage を収集 → **Add×N → 1 Commit → Welcome×N** を配送。
-* **Hibernating/Stale は自動参加しない**：後述の“復帰”フローで必要時のみ合流。
+* **ブートストラップ＋自動追加入室**
+  あるActorの**1端末でも入れたら、その端末が同Actorの他端末を自動でAdd**（相手Actorの`keyPackages`を見に行き、互換KeyPackageを選択→Commit→Welcome）。これで**同一ユーザーの新端末は、参加後すぐ送受信可**になる。([Swicg][1])
+* **新端末検知のトリガ**
 
-### 退役・復帰
+  * 自分（同Actor）の`keyPackages`に新規KeyPackageが出たら、既存参加端末が**所属する全ルームに対してAdd**を順次実行。
+  * 端末台数が多いActorでも、**最初は2–3端末だけ招待→ACKが来たら残りを順次**にするとKeyPackage在庫枯渇や“空席メンバー”膨張を抑制できる。
+* **送信要求時のオンデマンド追加**
+  未参加の自分端末がルームで送信しようとしたら、クライアントは**裏で自分の参加端末に“自分をAddして”リクエスト**（AP上は同Actor宛の暗号化メッセージ）→Add/Welcome完了後に再送。
 
-* **退役（Stale or Lease失効）**：該当端末を **全グループから Remove → Commit**。`keyPackages` から削除。Manifest更新。
-* **復帰**：端末が再ログイン → 新KeyPackage公開 →
+# KeyPackage選択アルゴ（実装簡略版）
 
-  * **端末主導**：各グループの GroupInfo を使い **external commit** で必要なものだけ合流
-  * **サーバ主導**：バッチ窓で **Add/Commit** をまとめて適用（後述）
+1. 参加者Actorの `keyPackages` を取得
+2. グループのMLS **version/cipher\_suiteと合う**ものだけにフィルタ
+3. \*\*新しい順に上限M（推奨2–3）\*\*選択（同一`generator`が並ぶ場合は最新のみ）
+4. Commitにまとめ、**Welcomeは1通で同梱**（実装で分割も可）
+5. **ACKが無いKeyPackageは別の候補で再招待**（回数/時間上限あり）
+   — KeyPackageは**原則ワンタイム**なので、消費した分は相手側で補充される前提。([IETF Datatracker][2])
 
-# 5) アクティビティGC（“使っていない端末”を増やさない）
+# エラーハンドリング & 掃除
 
-* 端末スコア `score = w1*recent_recv + w2*recent_send + w3*last_seen_decay + w4*attestation_trust`。
-* **状態遷移**：
+* **空席メンバー（参加しない端末）**
+  一定時間ACKなし→アプリポリシーでRemove。MLSはツリーが対数コストで伸縮するので、運用で十分捌ける。([IETF Datatracker][2])
+* **鍵差し替えリスク**
+  `keyPackages`はサーバ管理の公開コレクションのため**置換攻撃に注意**。**端末指紋の比較UI**や、既知端末のみ自動追加などのスコープ制限を推奨。([Swicg][1])
+* **再入室**
+  端末再インストール等には**Resumption PSK**（再開用PSK）で状態リンクや再招待の簡略化を検討。([IETF Datatracker][2])
 
-  * **Active**（直近14日活動）→ 何もしない／自動参加ON
-  * **Hibernating**（14–90日非活動）→ **自動参加OFF**（必要時のみ合流）
-  * **Stale**（90–180日非活動 or lease失効）→ **自動退役**（全グループRemove）
-* **ジョブ**：
+# なぜこの設計が“実用的”か
 
-  * `device_lease_sweeper`（15分毎）：失効端末の一括Remove/Commit、Manifest更新、通知集約
-  * `group_autojoiner`（1時間毎）：**新端末や復帰端末**の必要グループを**バッチCommit**で追加（Activeのみ）
-  * `keypackage_rotator`（毎日）：KeyPackage補充（短命・在庫上限）
-  * `manifest_auditor`（毎日）：`keyPackages` と Manifest の整合監査
-* **上限**：アカウント上限台数（例5台）。超過時は Hibernating/Stale から自動退役→ユーザー選択。
+* **配送の現実性**：APは**受信者Actorを明示**＋**`inbox`ポーリング**前提。MLSオブジェクトの封筒は `message/mls` に載せる設計がドラフトで明示済み。([Swicg][1])
+* **初回UX**：**少数まとめAdd＋1通Welcome**で“どの端末でも”成功率を上げつつ、ACK再招待で取りこぼしを回収。**Welcomeは複数新規メンバーを1度にカバー可能**。([IETF Datatracker][2])
+* **拡張性**：KeyPackageは**スイートごと**＆**ワンタイム**運用が標準化されているので、将来の暗号スイート移行も容易。([IETF Datatracker][2])
 
-# 6) フェデレーション設計（ActivityPubとの対応づけ）
+---
 
-* **Actor** は標準プロファイルを拡張して `keyPackages` コレクションと **DeviceManifest** を公開。
-* **招待/参加**：
+必要なら、この仕様をもとに「Create/Welcome/PrivateMessage」のJSON雛形や、ACK再招待の擬似コードも書き起こします。
 
-  * 招待側サーバは対象 Actor の `keyPackages` から端末を選び、**Add/Commit** 実施 → **Welcome** は対象端末へ直接配送（連合越しでもOK）。
-  * **external commit** を許す場合は、招待リンク→GroupInfo(+PSK) を端末に安全配布。
-* **イベント表現**：
-
-  * 端末の追加/退役＝Add/Remove（Groupメンバー変更のアクティビティ）
-  * Manifest更新＝Update（署名済みメタデータの新バージョン）
-  * KeyPackage補充＝Create（短命エントリの追加）
-* **信頼境界**：連合サーバは配送者であり解読者ではない。**端末マニフェスト署名**と（任意）**透明性ログ**で key substitution を抑止。
-
-# 7) メッセージ送受信（運用の肝）
-
-* **順序性**：DSが per-group の因果順序を維持（Commit直後のアプリメッセージは次エポック）。
-* **バッチ窓**：Add/Remove/Update/外部合流など**キー更新系**は最長1時間のバッチで集約し、**Commit嵐を回避**。緊急Remove（漏洩端末）は即時Commit。
-* **メディア**：本体はDS等に置き、**コンテンツ鍵をMLSメッセージ**で配る（レイテンシとコスト最適化）。
-* **履歴**：新規参加端末は**参加後**から復号（FS/PCSを優先）。過去を見せるなら**MLS外の復元レイヤ**（暗号バックアップ/端末間移行）を別途用意。
-
-# 8) セキュリティと検証
-
-* **端末マニフェスト**：Actorが**自署名**する「端末→公開鍵」台帳。これに載らない `keyPackages` は**無視**。
-* **検証UI**：ユーザーが端末フィンガープリントや証明書を相互確認（スキャン/短期PSK/QR等）。
-* **招待リンク保護**：external commit 用 GroupInfo に**期限・スコープ限定PSK**を添付。
-* **異常検知**：多地点ログイン、短時間での大量端末追加、Manifest差し替え等をアラート → 自動退役/再認証。
-* **レート制御**：KeyPackage消費・external commit・メディアDLはIP/アカウント単位で上限。
-
-# 9) UX原則（“アカウント＝端末集合”を自然に見せる）
-
-* **参加表示はアカウント名で集約**（内部では複数leaf）。
-* 端末一覧に **状態（Active/Hibernating/Stale）** と **最終アクティビティ** を表示。
-* 端末ごとに「**このトークへ自動参加**」のトグル（Hibernatingに移す簡易操作）。
-* 退役は通知を**週次でまとめ**て出す。復帰は「ワンタップ再参加」（=新KeyPackage→external commit）。
-
-# 10) 失敗時・例外設計
-
-* **KeyPackage枯渇**：ペンディング入室キューに積み、補充後のバッチ窓で自動Add。
-* **Welcome未達**：DS再送＋端末側は external commit で再合流。
-* **連合先の不達**：MLSプロトコルは壊さず、ActivityPub配送の**再試行＋フォールバック経路**（中継サーバ）を用意。
-* **端末喪失**：当該端末を即Remove→残端末がUpdateでPCS回復、Manifest更新。
+[1]: https://swicg.github.io/activitypub-e2ee/mls "Messaging Layer Security over ActivityPub"
+[2]: https://datatracker.ietf.org/doc/html/rfc9420 "
+            
+                RFC 9420 - The Messaging Layer Security (MLS) Protocol
+            
+        "
