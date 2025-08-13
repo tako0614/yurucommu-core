@@ -14,4 +14,5 @@ export interface SessionDoc {
   sessionId: string;
   expiresAt: Date;
   createdAt?: Date;
+  lastDecryptAt?: Date;
 }

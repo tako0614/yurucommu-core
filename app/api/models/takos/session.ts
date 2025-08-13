@@ -16,6 +16,10 @@ const sessionSchema = new mongoose.Schema({
     required: true,
     index: { expires: 0 },
   },
+  lastDecryptAt: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
 sessionSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
