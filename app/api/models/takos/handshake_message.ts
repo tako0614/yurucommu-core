@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import tenantScope from "../plugins/tenant_scope.ts";
 
 const handshakeMessageSchema = new mongoose.Schema({
-  roomId: { type: String, required: true, index: true },
+  roomId: { type: String, index: true },
   sender: { type: String, required: true },
   recipients: { type: [String], required: true },
   message: { type: String, required: true },
