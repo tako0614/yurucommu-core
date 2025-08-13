@@ -1,5 +1,9 @@
 // MLSヘルパー関数の継続実装
 import { b64ToBuf, bufToB64 } from "../../../../shared/buffer.ts";
+import {
+  decodeMLSMessage,
+  encodeMLSMessage,
+} from "../../../../shared/mls_message.ts";
 
 type ActorID = string;
 
@@ -184,7 +188,11 @@ export const encryptGroupMessage = async (
     group.secret,
     strToBuf(plaintext),
   );
-  return `${bufToB64(iv.buffer)}:${bufToB64(enc)}`;
+  const payload = `${bufToB64(iv.buffer)}:${bufToB64(enc)}`;
+  return encodeMLSMessage(
+    "PrivateMessage",
+    new TextEncoder().encode(payload),
+  );
 };
 
 /**
@@ -194,7 +202,10 @@ export const decryptGroupMessage = async (
   group: MLSGroupState,
   cipher: string,
 ): Promise<string | null> => {
-  const [ivB64, dataB64] = cipher.split(":");
+  const decoded = decodeMLSMessage(cipher);
+  if (!decoded || decoded.type !== "PrivateMessage") return null;
+  const payload = new TextDecoder().decode(decoded.body);
+  const [ivB64, dataB64] = payload.split(":");
   if (!ivB64 || !dataB64) return null;
   try {
     const plain = await crypto.subtle.decrypt(

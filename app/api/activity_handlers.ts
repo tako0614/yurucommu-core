@@ -117,7 +117,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         if (decoded) {
           let bodyObj: Record<string, unknown> | null = null;
           try {
-            bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
+            bodyObj = JSON.parse(
+              new TextDecoder().decode(decoded.body),
+            ) as Record<string, unknown>;
           } catch {
             bodyObj = null;
           }

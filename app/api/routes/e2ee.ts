@@ -181,7 +181,9 @@ async function handleHandshake(
   let bodyObj: Record<string, unknown> | null = null;
   if (decoded) {
     try {
-      bodyObj = JSON.parse(decoded.body) as Record<string, unknown>;
+      bodyObj = JSON.parse(
+        new TextDecoder().decode(decoded.body),
+      ) as Record<string, unknown>;
     } catch {
       bodyObj = null;
     }
@@ -986,7 +988,13 @@ app.post(
         welcomeMap[acct] = selected.map((kp) =>
           encodeMLSMessage(
             "PrivateMessage",
-            JSON.stringify({ type: "welcome", roomId, deviceId: kp.deviceId }),
+            new TextEncoder().encode(
+              JSON.stringify({
+                type: "welcome",
+                roomId,
+                deviceId: kp.deviceId,
+              }),
+            ),
           )
         );
         for (const kp of selected) {
@@ -1005,7 +1013,9 @@ app.post(
     }
     const commit = encodeMLSMessage(
       "PublicMessage",
-      JSON.stringify({ type: "commit", adds: addList.map((k) => k._id) }),
+      new TextEncoder().encode(
+        JSON.stringify({ type: "commit", adds: addList.map((k) => k._id) }),
+      ),
     );
     for (const [acct, ws] of Object.entries(welcomeMap)) {
       for (const w of ws) {

@@ -547,7 +547,7 @@ export const sendProposal = async (
 ): Promise<boolean> => {
   const content = encodeMLSMessage(
     "PublicMessage",
-    JSON.stringify(proposal),
+    new TextEncoder().encode(JSON.stringify(proposal)),
   );
   return await sendHandshake(roomId, from, content);
 };
@@ -559,7 +559,7 @@ export const sendCommit = async (
 ): Promise<boolean> => {
   const content = encodeMLSMessage(
     "PublicMessage",
-    JSON.stringify(commit),
+    new TextEncoder().encode(JSON.stringify(commit)),
   );
   const ok = await sendHandshake(roomId, from, content);
   if (!ok) return false;
@@ -567,7 +567,7 @@ export const sendCommit = async (
     for (const w of commit.welcomes) {
       const wContent = encodeMLSMessage(
         "PublicMessage",
-        JSON.stringify(w),
+        new TextEncoder().encode(JSON.stringify(w)),
       );
       const success = await sendHandshake(roomId, from, wContent);
       if (!success) return false;
