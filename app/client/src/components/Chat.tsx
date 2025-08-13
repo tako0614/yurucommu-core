@@ -643,9 +643,10 @@ export function Chat() {
       }
       const note = decoded.type === "PrivateMessage"
         ? parseActivityPubNote(
-          (await decryptGroupMessage(group, decoded.body)) ?? decoded.body,
+          (await decryptGroupMessage(group, m.content)) ??
+            new TextDecoder().decode(decoded.body),
         )
-        : parseActivityPubNote(decoded.body);
+        : parseActivityPubNote(new TextDecoder().decode(decoded.body));
       const text = note.content;
       const listAtt = Array.isArray(m.attachments)
         ? m.attachments
@@ -999,8 +1000,7 @@ export function Chat() {
       const att = await buildAttachment(file);
       if (att) note.attachment = [att];
     }
-    const cipher = await encryptGroupMessage(group, JSON.stringify(note));
-    const msg = encodeMLSMessage("PrivateMessage", cipher);
+    const msg = await encryptGroupMessage(group, JSON.stringify(note));
     const success = await sendEncryptedMessage(
       roomId,
       `${user.userName}@${getDomain()}`,
@@ -1198,7 +1198,9 @@ export function Chat() {
 
       // Welcome を受信したら参加確認の joinAck を送信
       try {
-        const bodyObj = JSON.parse(decoded.body) as {
+        const bodyObj = JSON.parse(
+          new TextDecoder().decode(decoded.body),
+        ) as {
           type?: string;
           roomId?: string;
           deviceId?: string;
@@ -1211,11 +1213,13 @@ export function Chat() {
         ) {
           const ack = encodeMLSMessage(
             "PrivateMessage",
-            JSON.stringify({
-              type: "joinAck",
-              roomId: bodyObj.roomId,
-              deviceId: bodyObj.deviceId,
-            }),
+            new TextEncoder().encode(
+              JSON.stringify({
+                type: "joinAck",
+                roomId: bodyObj.roomId,
+                deviceId: bodyObj.deviceId,
+              }),
+            ),
           );
           await sendEncryptedMessage(bodyObj.roomId, self, { content: ack });
           return;
@@ -1238,7 +1242,7 @@ export function Chat() {
       if (msg.type === "encryptedMessage") {
         const group = groups()[room.id];
         if (group) {
-          const plain = await decryptGroupMessage(group, decoded.body);
+          const plain = await decryptGroupMessage(group, data.content);
           if (plain) {
             const note = parseActivityPubNote(plain);
             text = note.content;

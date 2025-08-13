@@ -20,9 +20,11 @@ const byteToType: Record<number, MLSMessageType> = {
  */
 export function encodeMLSMessage(
   type: MLSMessageType,
-  body: string,
+  body: Uint8Array | string,
 ): string {
-  const bodyBuf = new TextEncoder().encode(body);
+  const bodyBuf = typeof body === "string"
+    ? new TextEncoder().encode(body)
+    : body;
   const u8 = new Uint8Array(bodyBuf.length + 1);
   u8[0] = typeToByte[type];
   u8.set(bodyBuf, 1);
@@ -34,13 +36,12 @@ export function encodeMLSMessage(
  */
 export function decodeMLSMessage(
   data: string,
-): { type: MLSMessageType; body: string } | null {
+): { type: MLSMessageType; body: Uint8Array } | null {
   try {
     const u8 = new Uint8Array(b64ToBuf(data));
     const type = byteToType[u8[0]];
     if (!type) return null;
-    const body = new TextDecoder().decode(u8.slice(1));
-    return { type, body };
+    return { type, body: u8.slice(1) };
   } catch {
     return null;
   }
