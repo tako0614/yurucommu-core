@@ -23,6 +23,73 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isPrivateIP(ip: string): boolean {
+  const privateRanges = [
+    /^10\./,
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+    /^192\.168\./,
+    /^127\./,
+    /^0\./,
+    /^169\.254\./, // Link-local
+    /^fc00:/i,      // IPv6 Unique Local
+    /^fd[0-9a-f]{2}:/i,
+    /^fe80:/i,      // IPv6 Link-local
+    /^::1$/i,       // IPv6 localhost
+  ];
+  
+  return privateRanges.some(range => range.test(ip));
+}
+
+async function validateServerHostname(hostname: string): Promise<boolean> {
+  // ローカルホストや内部アドレスのブロック
+  const blockedHosts = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '169.254.169.254', // AWS metadata
+    '::1',
+    '::ffff:127.0.0.1'
+  ];
+  
+  if (blockedHosts.includes(hostname.toLowerCase())) {
+    return false;
+  }
+  
+  // IPアドレスかどうかチェック
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const ipv6Regex = /^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/i;
+  
+  if (ipv4Regex.test(hostname) || ipv6Regex.test(hostname)) {
+    if (isPrivateIP(hostname)) {
+      return false;
+    }
+  } else {
+    // ホスト名の場合、DNSリゾルブして検証
+    try {
+      const resolvedIPs = await Deno.resolveDns(hostname, "A");
+      for (const ip of resolvedIPs) {
+        if (isPrivateIP(ip)) {
+          return false;
+        }
+      }
+    } catch {
+      // IPv6も確認
+      try {
+        const resolvedIPv6 = await Deno.resolveDns(hostname, "AAAA");
+        for (const ip of resolvedIPv6) {
+          if (isPrivateIP(ip)) {
+            return false;
+          }
+        }
+      } catch {
+        // DNS解決できない場合は許可（外部ドメインの可能性）
+      }
+    }
+  }
+  
+  return true;
+}
+
 app.get("/search", async (c) => {
   let q = c.req.query("q")?.trim();
   const type = c.req.query("type") ?? "all";
@@ -158,17 +225,39 @@ app.get("/search", async (c) => {
   }
 
   if (server) {
+    // サーバーホスト名の検証
+    const isValidServer = await validateServerHostname(server);
+    if (!isValidServer) {
+      console.warn(`Blocked search request to potentially unsafe server: ${server}`);
+      return c.json(results); // 内部結果のみ返す
+    }
+    
     let remoteResults: SearchResult[] = [];
     try {
       const url = `https://${server}/api/search?q=${
         encodeURIComponent(q)
       }&type=${type}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        remoteResults = await res.json();
-        for (const r of remoteResults) {
-          results.push({ ...r, origin: server });
+      
+      // タイムアウト設定
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      
+      try {
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'takos-search/1.0'
+          }
+        });
+        
+        if (res.ok) {
+          remoteResults = await res.json();
+          for (const r of remoteResults) {
+            results.push({ ...r, origin: server });
+          }
         }
+      } finally {
+        clearTimeout(timeout);
       }
     } catch {
       /* ignore */

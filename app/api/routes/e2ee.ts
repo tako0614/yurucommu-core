@@ -252,7 +252,7 @@ async function handleHandshake(
 // ルーム管理 API (ActivityPub 対応)
 
 // ActivityPub ルーム一覧取得
-app.get("/ap/rooms", async (c) => {
+app.get("/ap/rooms", authRequired, async (c) => {
   const member = c.req.query("member");
   if (!member) return jsonResponse(c, { error: "missing member" }, 400);
   const env = getEnv(c);
@@ -552,7 +552,7 @@ app.get("/rooms", authRequired, async (c) => {
   return jsonResponse(c, { rooms: list });
 });
 
-app.get("/users/:user/keyPackages", async (c) => {
+app.get("/users/:user/keyPackages", authRequired, async (c) => {
   const identifier = c.req.param("user");
   const domain = getDomain(c);
 
@@ -690,7 +690,7 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   return c.json({ result: "removed" });
 });
 
-app.get("/users/:user/encryptedKeyPair", async (c) => {
+app.get("/users/:user/encryptedKeyPair", authRequired, async (c) => {
   const user = c.req.param("user");
   const db = createDB(getEnv(c));
   const doc = await db.findEncryptedKeyPair(user) as EncryptedKeyPairDoc | null;
