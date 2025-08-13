@@ -8,10 +8,8 @@ interface ChatSendFormProps {
   mediaPreview: string | null;
   setMediaPreview: (url: string | null) => void;
   useEncryption: boolean;
-  encryptionKey: string | null;
   toggleEncryption: () => void;
   sendMessage: () => void;
-  onShowEncryptionKeyForm?: () => void;
 }
 
 export function ChatSendForm(props: ChatSendFormProps) {
@@ -208,17 +206,12 @@ export function ChatSendForm(props: ChatSendFormProps) {
           </div>
         </div>
         <div
-          class={props.useEncryption && !props.encryptionKey
-            ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent opacity-50 cursor-not-allowed text-white"
-            : props.newMessage.trim() || props.mediaFile
+          class={props.newMessage.trim() || props.mediaFile
             ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#e63535] cursor-pointer hover:bg-[#c52d2d] text-white"
             : "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent cursor-default text-white"}
           style="min-height:28px;opacity:1;color:#ffffff;position:relative;z-index:10;display:flex;align-items:center;justify-content:center;"
-          title={props.useEncryption && !props.encryptionKey
-            ? "暗号化キー未入力のため送信できません"
-            : ""}
+          title={""}
           onClick={() => {
-            if (props.useEncryption && !props.encryptionKey) return;
             if (props.newMessage.trim() || props.mediaFile) {
               props.sendMessage();
             } else {

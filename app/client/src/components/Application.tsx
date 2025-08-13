@@ -13,11 +13,7 @@ import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
 import { getDomain } from "../utils/config.ts";
 
-interface ApplicationProps {
-  onShowEncryptionKeyForm?: () => void;
-}
-
-export function Application(props: ApplicationProps) {
+export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [account] = useAtom(activeAccount);
@@ -66,7 +62,7 @@ export function Application(props: ApplicationProps) {
       <Header />
       <main id="main" class={wrapperClass()}>
         <Show when={selectedApp() === "home"}>
-          <Home onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
+          <Home />
         </Show>
         <Show when={selectedApp() === "profile"}>
           <Profile />
@@ -75,7 +71,7 @@ export function Application(props: ApplicationProps) {
           <Microblog />
         </Show>
         <Show when={selectedApp() === "chat"}>
-          <Chat onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
+          <Chat />
         </Show>
         <Show when={selectedApp() === "tools"}>
           <div class="text-gray-100">

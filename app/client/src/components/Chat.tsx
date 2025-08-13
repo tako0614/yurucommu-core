@@ -49,8 +49,7 @@ import {
   saveMLSGroupStates,
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
-import { decryptWithPassword, encryptWithPassword } from "../utils/crypto.ts";
-import { encryptionKeyState } from "../states/session.ts";
+// 暗号化キー入力は廃止: 端末内保存のみを使用
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
@@ -407,14 +406,9 @@ function getSelfRoomId(_user: Account | null): string | null {
   return _user ? "memo" : null;
 }
 
-interface ChatProps {
-  onShowEncryptionKeyForm?: () => void;
-}
-
-export function Chat(props: ChatProps) {
+export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
-  const [encryptionKey, setEncryptionKey] = useAtom(encryptionKeyState);
   const [newMessage, setNewMessage] = createSignal("");
   const [mediaFile, setMediaFile] = createSignal<File | null>(null);
   const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
@@ -529,9 +523,8 @@ export function Chat(props: ChatProps) {
 
     let pair = keyPair();
     const user = account();
-    const pass = encryptionKey();
     console.log(pair);
-    if (!user || !pass) return null;
+    if (!user) return null;
     if (!pair) {
       setIsGeneratingKeyPair(true);
       try {
@@ -544,40 +537,10 @@ export function Chat(props: ChatProps) {
         pair = null;
       }
       if (!pair) {
-        const encData = await fetchEncryptedKeyPair(
-          user.userName,
-        );
-        if (encData) {
-          try {
-            const json = await decryptWithPassword(encData, pass);
-            if (json) {
-              const storedPair = JSON.parse(json) as StoredMLSKeyPair;
-              pair = await importKeyPair(storedPair);
-              await saveMLSKeyPair(user.id, storedPair);
-            } else {
-              alert("暗号化キーが正しくありません");
-              setEncryptionKey(null);
-              setIsGeneratingKeyPair(false);
-              return null;
-            }
-          } catch (err) {
-            console.error("鍵ペアの復号に失敗しました", err);
-          }
-        }
-      }
-      if (!pair) {
         pair = await generateMLSKeyPair();
         try {
           const exported = await exportKeyPair(pair);
           await saveMLSKeyPair(user.id, exported);
-          const encStr = await encryptWithPassword(
-            JSON.stringify(exported),
-            pass,
-          );
-          await saveEncryptedKeyPair(
-            user.userName,
-            encStr,
-          );
           await addKeyPackage(
             user.userName,
             { content: pair.publicKey },
@@ -1601,10 +1564,8 @@ export function Chat(props: ChatProps) {
                   mediaPreview={mediaPreview()}
                   setMediaPreview={setMediaPreview}
                   useEncryption={useEncryption()}
-                  encryptionKey={encryptionKey()}
                   toggleEncryption={toggleEncryption}
                   sendMessage={sendMessage}
-                  onShowEncryptionKeyForm={props.onShowEncryptionKeyForm}
                 />
               </div>
             </Show>

@@ -7,6 +7,7 @@ interface InitialSetupFormProps {
 
 export function InitialSetupForm(props: InitialSetupFormProps) {
   const [password, setPassword] = createSignal("");
+  const [password2, setPassword2] = createSignal("");
   const [username, setUsername] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [follow, setFollow] = createSignal("");
@@ -20,6 +21,15 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
       setError("パスワードとユーザー名を入力してください");
       return;
     }
+    if (password() !== password2()) {
+      setError("パスワードが一致しません");
+      return;
+    }
+    const name = username().trim();
+    if (!/^[-_a-zA-Z0-9]{3,32}$/.test(name)) {
+      setError("ユーザー名は英数字/[-,_]で3〜32文字");
+      return;
+    }
     setIsLoading(true);
     try {
       const res = await apiFetch("/api/setup", {
@@ -27,8 +37,8 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           password: password(),
-          username: username(),
-          displayName: displayName(),
+          username: name,
+          displayName: displayName() || name,
           follow: follow().split(",").map((s) => s.trim()).filter(Boolean),
         }),
       });
@@ -51,6 +61,7 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
         <div class="w-full max-w-md bg-[#212121] p-8 rounded-lg shadow-xl">
           <div class="mb-8 text-center">
             <h2 class="text-3xl font-semibold mb-2 text-white">初期設定</h2>
+            <p class="text-gray-400 text-sm">最初のアカウントとログイン用パスワードを設定します。</p>
           </div>
           <form onSubmit={handleSubmit} class="space-y-6">
             <div>
@@ -69,6 +80,7 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
                 placeholder="alice"
                 disabled={isLoading()}
               />
+              <p class="mt-1 text-xs text-gray-400">英数字と - _ が利用可能（3〜32文字）</p>
             </div>
             <div>
               <label
@@ -105,6 +117,23 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
             </div>
             <div>
               <label
+                for="setupPassword2"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
+                パスワード(確認)
+              </label>
+              <input
+                id="setupPassword2"
+                type="password"
+                value={password2()}
+                onInput={(e) => setPassword2(e.currentTarget.value)}
+                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
+                placeholder="もう一度入力"
+                disabled={isLoading()}
+              />
+            </div>
+            <div>
+              <label
                 for="setupFollow"
                 class="block text-sm font-medium text-gray-300 mb-2"
               >
@@ -118,6 +147,7 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
                 disabled={isLoading()}
               />
+              <p class="mt-1 text-xs text-gray-400">例: https://example.com/users/alice, https://remote.social/users/bob</p>
             </div>
             <Show when={error()}>
               <p class="text-red-400 text-sm font-medium bg-red-900/30 p-3 rounded-md">

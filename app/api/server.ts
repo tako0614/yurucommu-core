@@ -24,7 +24,7 @@ import fcm from "./routes/fcm.ts";
 import placeholder from "./routes/placeholder.ts";
 import trends from "./routes/trends.ts";
 import { fetchOgpData } from "./services/ogp.ts";
-import { serveStatic } from "npm:hono/deno";
+import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 import { getCookie, deleteCookie } from "hono/cookie";

@@ -12,11 +12,7 @@ import {
   fetchAccounts,
 } from "../states/account.ts";
 
-export interface HomeProps {
-  onShowEncryptionKeyForm?: () => void;
-}
-
-export function Home(props: HomeProps) {
+export function Home() {
   // 設定・通知のモーダル制御
   const [showSettings, setShowSettings] = createSignal(false);
   const [showNotifications, setShowNotifications] = createSignal(false);
@@ -263,7 +259,7 @@ export function Home(props: HomeProps) {
           title="設定"
         >
           <div class="max-w-4xl">
-            <Setting onShowEncryptionKeyForm={props.onShowEncryptionKeyForm} />
+            <Setting />
           </div>
         </Modal>
       </Show>

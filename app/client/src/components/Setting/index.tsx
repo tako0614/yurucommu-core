@@ -9,14 +9,11 @@ import { accounts as accountsAtom } from "../../states/account.ts";
 import { deleteMLSDatabase } from "../e2ee/storage.ts";
 import { FaspProviders } from "./FaspProviders.tsx";
 
-export interface SettingProps {
-  onShowEncryptionKeyForm?: () => void;
-}
-export function Setting(props: SettingProps) {
+export function Setting() {
   const [language, setLanguage] = useAtom(languageState);
   const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [, setIsLoggedIn] = useAtom(loginState);
-  const [, setEncryptionKey] = useAtom(encryptionKeyState);
+  // 暗号化キー入力は廃止
   const [accs] = useAtom(accountsAtom);
 
   const handleLogout = async () => {
@@ -29,9 +26,7 @@ export function Setting(props: SettingProps) {
         await deleteMLSDatabase(acc.id);
       }
       setIsLoggedIn(false);
-      setEncryptionKey(null);
       localStorage.removeItem("encryptionKey");
-      sessionStorage.removeItem("skippedEncryptionKey");
     }
   };
 
@@ -67,13 +62,6 @@ export function Setting(props: SettingProps) {
         <FaspProviders />
       </div>
       <div class="flex justify-end space-x-2">
-        <button
-          type="button"
-          class="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition"
-          onClick={() => props.onShowEncryptionKeyForm?.()}
-        >
-          暗号化キー再入力
-        </button>
         <button
           type="button"
           class="bg-red-700 text-white px-4 py-2 rounded hover:bg-red-800 transition"
