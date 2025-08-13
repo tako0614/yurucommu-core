@@ -519,6 +519,8 @@ export function PostForm(props: {
   replyingTo?: string | null;
   quoteId?: string | null;
   currentUser?: { userName: string; avatar?: string };
+  useFaspShare: boolean;
+  setUseFaspShare: (v: boolean) => void;
 }) {
   const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
   const emojis = [
@@ -727,6 +729,15 @@ export function PostForm(props: {
                 </div>
 
                 <div class="flex items-center space-x-3">
+                  <label class="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={props.useFaspShare}
+                      onChange={(e) =>
+                        props.setUseFaspShare(e.currentTarget.checked)}
+                    />
+                    FASPに共有
+                  </label>
                   <span
                     class={`text-sm ${
                       props.newPostContent.length > 260

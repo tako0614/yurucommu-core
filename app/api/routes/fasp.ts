@@ -473,3 +473,57 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
     return c.json({ error: String(e) }, 502);
   }
 });
+
+// 管理用: FASP 設定の取得/更新（検索に使うFASP、共有設定）
+app.get("/api/fasp/settings", async (c) => {
+  const env = getEnv(c);
+  const db = createDB(env);
+  const mongo = await db.getDatabase();
+  const doc = await mongo.collection("fasp_settings").findOne({
+    _id: "default",
+  });
+  return c.json({
+    searchServerId: doc?.searchServerId ?? null,
+    shareEnabled: doc?.shareEnabled ?? true,
+    shareServerIds: doc?.shareServerIds ?? null,
+  });
+});
+
+app.put("/api/fasp/settings", async (c) => {
+  try {
+    const env = getEnv(c);
+    const db = createDB(env);
+    const mongo = await db.getDatabase();
+    const body = await c.req.json();
+    const update: Record<string, unknown> = {};
+    if ("searchServerId" in body) {
+      update.searchServerId =
+        typeof body.searchServerId === "string" && body.searchServerId
+          ? String(body.searchServerId)
+          : null;
+    }
+    if ("shareEnabled" in body) {
+      update.shareEnabled = Boolean(body.shareEnabled);
+    }
+    if ("shareServerIds" in body) {
+      if (Array.isArray(body.shareServerIds)) {
+        update.shareServerIds = body.shareServerIds.map((s: unknown) =>
+          String(s)
+        );
+      } else {
+        update.shareServerIds = null;
+      }
+    }
+    await mongo.collection("fasp_settings").updateOne(
+      { _id: "default" },
+      {
+        $set: { ...update, updatedAt: new Date() },
+        $setOnInsert: { _id: "default", createdAt: new Date() },
+      },
+      { upsert: true },
+    );
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: String(e) }, 400);
+  }
+});

@@ -56,6 +56,17 @@ export default function UnifiedToolsContent() {
   const [searchType, setSearchType] = createSignal<"users" | "posts">(
     "users",
   );
+  function getDefaultUseFaspSearch() {
+    try {
+      const v = localStorage.getItem("useFaspSearch");
+      return v === null ? true : v !== "0";
+    } catch {
+      return true;
+    }
+  }
+  const [useFaspSearch, setUseFaspSearch] = createSignal<boolean>(
+    getDefaultUseFaspSearch(),
+  );
   const [users, setUsers] = createSignal<User[]>([]);
   const [followStatus, setFollowStatus] = createSignal<Record<string, boolean>>(
     {},
@@ -138,7 +149,9 @@ export default function UnifiedToolsContent() {
     () => {
       const q = searchQuery().trim();
       if (!q) return null;
-      return `/api/search?q=${encodeURIComponent(q)}&type=${searchType()}`;
+      return `/api/search?q=${
+        encodeURIComponent(q)
+      }&type=${searchType()}&useFasp=${useFaspSearch() ? "1" : "0"}`;
     },
     async (url) => {
       if (!url) return [] as SearchResult[];
@@ -464,6 +477,26 @@ export default function UnifiedToolsContent() {
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
               class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <div class="mt-3 flex items-center gap-2 text-sm text-gray-300">
+              <label class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={useFaspSearch()}
+                  onChange={(e) => {
+                    setUseFaspSearch(e.currentTarget.checked);
+                    try {
+                      localStorage.setItem(
+                        "useFaspSearch",
+                        e.currentTarget.checked ? "1" : "0",
+                      );
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                />
+                FASPを使って検索
+              </label>
+            </div>
             <svg
               class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
               fill="none"

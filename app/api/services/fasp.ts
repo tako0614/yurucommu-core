@@ -152,9 +152,22 @@ export async function sendAnnouncements(
 ): Promise<void> {
   const db = createDB(env);
   const mongo = await db.getDatabase();
-  // 承認済みのプロバイダのみに送信
-  const fasps = await mongo.collection("fasps").find({ status: "approved" })
-    .toArray();
+  // 設定に基づき送信先を決定
+  const settings = await mongo.collection("fasp_settings").findOne({
+    _id: "default",
+  })
+    .catch(() => null) as
+      | { shareEnabled?: boolean; shareServerIds?: string[] }
+      | null;
+  if (settings && settings.shareEnabled === false) return; // 共有無効
+  const baseFilter: Record<string, unknown> = { status: "approved" };
+  if (
+    settings?.shareServerIds && Array.isArray(settings.shareServerIds) &&
+    settings.shareServerIds.length > 0
+  ) {
+    baseFilter.serverId = { $in: settings.shareServerIds };
+  }
+  const fasps = await mongo.collection("fasps").find(baseFilter).toArray();
   if (!fasps || fasps.length === 0) return;
   const body = JSON.stringify({
     source: ann.source ?? { subscription: { id: "default" } },
@@ -203,6 +216,22 @@ export async function getFaspBaseUrl(
 ): Promise<string | null> {
   const db = createDB(env);
   const mongo = await db.getDatabase();
+  // 設定から検索対象のプロバイダが指定されていれば優先
+  const settings = await mongo.collection("fasp_settings").findOne({
+    _id: "default",
+  })
+    .catch(() => null) as
+      | { _id: string; searchServerId?: string | null }
+      | null;
+  if (settings?.searchServerId) {
+    const byId = await mongo.collection("fasps").findOne({
+      serverId: settings.searchServerId,
+      status: "approved",
+      [`capabilities.${capability}.enabled`]: true,
+    });
+    if (byId?.baseUrl) return String(byId.baseUrl).replace(/\/$/, "");
+  }
+  // それ以外は最初の承認済み・有効なもの
   const rec = await mongo.collection("fasps").findOne({
     status: "approved",
     [`capabilities.${capability}.enabled`]: true,

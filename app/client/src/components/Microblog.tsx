@@ -37,6 +37,17 @@ export function Microblog() {
     url: string;
     type: "image" | "video" | "audio";
   }[]>([]);
+  function getDefaultFaspShare() {
+    try {
+      const v = localStorage.getItem("faspShareDefault");
+      return v === null ? true : v !== "0";
+    } catch {
+      return true;
+    }
+  }
+  const [useFaspShare, setUseFaspShare] = createSignal<boolean>(
+    getDefaultFaspShare(),
+  );
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
@@ -238,6 +249,7 @@ export function Microblog() {
       newPostAttachments(),
       _replyingTo() ?? undefined,
       quoteTarget() ?? undefined,
+      useFaspShare(),
     );
     if (success) {
       setNewPostContent("");
@@ -268,6 +280,8 @@ export function Microblog() {
       user.userName,
       attachments,
       postId,
+      undefined,
+      useFaspShare(),
     );
     if (success) {
       // リプライリストを更新
@@ -405,10 +419,11 @@ export function Microblog() {
                       最新
                     </div>
                     {mobileTab() === "latest" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.6)]"></div>
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.6)]">
+                      </div>
                     )}
                   </button>
-                  
+
                   <button
                     type="button"
                     class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
@@ -435,10 +450,11 @@ export function Microblog() {
                       フォロー中
                     </div>
                     {mobileTab() === "following" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#059669] to-[#10B981] shadow-[0_0_8px_rgba(5,150,105,0.6)]"></div>
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#059669] to-[#10B981] shadow-[0_0_8px_rgba(5,150,105,0.6)]">
+                      </div>
                     )}
                   </button>
-                  
+
                   <button
                     type="button"
                     class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
@@ -465,7 +481,8 @@ export function Microblog() {
                       トレンド
                     </div>
                     {mobileTab() === "trends" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#DC2626] to-[#EF4444] shadow-[0_0_8px_rgba(220,38,38,0.6)]"></div>
+                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#DC2626] to-[#EF4444] shadow-[0_0_8px_rgba(220,38,38,0.6)]">
+                      </div>
                     )}
                   </button>
                 </div>
@@ -592,7 +609,8 @@ export function Microblog() {
                               formatDate={formatDate}
                             />
                             <Show
-                              when={(followingTimelinePosts() || []).length === 0}
+                              when={(followingTimelinePosts() || []).length ===
+                                0}
                             >
                               <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
@@ -753,6 +771,15 @@ export function Microblog() {
           replyingTo={_replyingTo()}
           quoteId={quoteTarget()}
           currentUser={account() || undefined}
+          useFaspShare={useFaspShare()}
+          setUseFaspShare={(v) => {
+            setUseFaspShare(v);
+            try {
+              localStorage.setItem("faspShareDefault", v ? "1" : "0");
+            } catch {
+              /* ignore */
+            }
+          }}
         />
         <Show when={account()}>
           <button

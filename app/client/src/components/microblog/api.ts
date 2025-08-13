@@ -170,6 +170,7 @@ export const createPost = async (
   attachments?: { url: string; type: "image" | "video" | "audio" }[],
   parentId?: string,
   quoteId?: string,
+  faspShare?: boolean,
 ): Promise<boolean> => {
   try {
     const response = await apiFetch("/api/posts", {
@@ -177,7 +178,14 @@ export const createPost = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ author, content, attachments, parentId, quoteId }),
+      body: JSON.stringify({
+        author,
+        content,
+        attachments,
+        parentId,
+        quoteId,
+        faspShare,
+      }),
     });
     return response.ok;
   } catch (error) {

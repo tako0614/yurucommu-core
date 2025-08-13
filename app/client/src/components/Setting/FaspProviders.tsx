@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 import { apiFetch } from "../../utils/config.ts";
 import { Button } from "../ui/index.ts";
 
@@ -25,6 +25,10 @@ export function FaspProviders() {
   const [providers, { refetch }] = createResource(fetchProviders);
   const [target, setTarget] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
+  const [searchServerId, setSearchServerId] = createSignal<string | "">("");
+  const [shareEnabled, setShareEnabled] = createSignal(true);
+  const [shareServerIds, setShareServerIds] = createSignal<string[]>([]);
+  const [loadingSettings, setLoadingSettings] = createSignal(false);
 
   const toggleCapability = async (
     p: FaspProvider,
@@ -80,6 +84,46 @@ export function FaspProviders() {
     }
   };
 
+  const loadSettings = async () => {
+    setLoadingSettings(true);
+    try {
+      const res = await apiFetch("/api/fasp/settings");
+      if (res.ok) {
+        const s = await res.json();
+        setSearchServerId(s.searchServerId || "");
+        setShareEnabled(s.shareEnabled !== false);
+        setShareServerIds(
+          Array.isArray(s.shareServerIds) ? s.shareServerIds : [],
+        );
+      }
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    const body: Record<string, unknown> = {
+      searchServerId: searchServerId() || null,
+      shareEnabled: shareEnabled(),
+    };
+    body.shareServerIds = shareServerIds().length > 0 ? shareServerIds() : null;
+    const res = await apiFetch("/api/fasp/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      alert(`保存に失敗しました: ${t}`);
+    } else {
+      alert("保存しました");
+    }
+  };
+
+  onMount(() => {
+    loadSettings();
+  });
+
   return (
     <div class="space-y-4">
       <div class="border border-[#3a3a3a] rounded p-3 space-y-2">
@@ -104,6 +148,70 @@ export function FaspProviders() {
       <Show when={providers()?.length === 0}>
         <p>登録されたFASPはありません</p>
       </Show>
+      <div class="border border-[#3a3a3a] rounded p-3 space-y-3">
+        <div class="font-bold">FASP 利用設定</div>
+        <div class="flex items-center gap-2">
+          <label class="w-40 text-sm text-[#bbb]">検索に使うFASP</label>
+          <select
+            class="flex-1 bg-transparent border border-[#3a3a3a] rounded px-2 py-1"
+            disabled={loadingSettings()}
+            value={searchServerId()}
+            onChange={(e) => setSearchServerId(e.currentTarget.value)}
+          >
+            <option value="">自動選択（承認済み・有効なもの）</option>
+            <For each={providers() || []}>
+              {(p) => (
+                <option value={p.serverId} disabled={p.status !== "approved"}>
+                  {p.name || p.baseUrl}{" "}
+                  {p.status !== "approved" ? "(承認待ち)" : ""}
+                </option>
+              )}
+            </For>
+          </select>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="w-40 text-sm text-[#bbb]">投稿をFASPに共有</label>
+          <input
+            type="checkbox"
+            checked={shareEnabled()}
+            onChange={(e) => setShareEnabled(e.currentTarget.checked)}
+          />
+        </div>
+        <div class="space-y-1">
+          <div class="text-sm text-[#bbb]">
+            共有対象（任意選択、未選択=全承認済み）
+          </div>
+          <div class="grid gap-1">
+            <For each={providers() || []}>
+              {(p) => (
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    disabled={!shareEnabled() || p.status !== "approved"}
+                    checked={shareServerIds().includes(p.serverId)}
+                    onChange={(e) => {
+                      const id = p.serverId;
+                      setShareServerIds((prev) => {
+                        const set = new Set(prev);
+                        if (e.currentTarget.checked) set.add(id);
+                        else set.delete(id);
+                        return Array.from(set);
+                      });
+                    }}
+                  />
+                  <span>
+                    {p.name || p.baseUrl}
+                    {p.status !== "approved" ? " (承認待ち)" : ""}
+                  </span>
+                </label>
+              )}
+            </For>
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <Button onClick={saveSettings}>保存</Button>
+        </div>
+      </div>
       <For each={providers() || []}>
         {(p) => (
           <div class="border border-[#3a3a3a] rounded p-3 space-y-2">

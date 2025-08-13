@@ -97,6 +97,7 @@ app.post(
       attachments: z.array(z.unknown()).optional(),
       parentId: z.string().optional(),
       quoteId: z.string().optional(),
+      faspShare: z.boolean().optional(),
     }),
   ),
   async (c) => {
@@ -107,12 +108,14 @@ app.post(
       attachments,
       parentId,
       quoteId,
+      faspShare,
     } = c.req.valid("json") as {
       author: string;
       content: string;
       attachments?: unknown[];
       parentId?: string;
       quoteId?: string;
+      faspShare?: boolean;
     };
 
     const extra: Record<string, unknown> = { likes: 0, retweets: 0 };
@@ -164,7 +167,7 @@ app.post(
 
     // FASP へ URI のみのアナウンスを送信（公開投稿のみ）
     const objectId = String((post as Record<string, unknown>)._id ?? "");
-    if (objectId) {
+    if (objectId && faspShare !== false) {
       const objectUrl = `https://${domain}/objects/${objectId}`;
       await announceIfPublicAndDiscoverable(env, {
         category: "content",

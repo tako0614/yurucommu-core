@@ -27,6 +27,7 @@ app.get("/search", async (c) => {
   let q = c.req.query("q")?.trim();
   const type = c.req.query("type") ?? "all";
   let server = c.req.query("server");
+  const useFasp = (c.req.query("useFasp") ?? "1") !== "0";
   if (!q) return c.json([]);
 
   if (!server && q.includes("@")) {
@@ -57,8 +58,10 @@ app.get("/search", async (c) => {
       });
     }
 
-    const faspBase = await getFaspBaseUrl(env, "account_search");
-    if (faspBase) {
+    const faspBase = useFasp
+      ? await getFaspBaseUrl(env, "account_search")
+      : null;
+    if (faspBase && useFasp) {
       try {
         const perPage = 20;
         const maxTotal = 100;
