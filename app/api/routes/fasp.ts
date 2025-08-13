@@ -66,7 +66,40 @@ app.post("/fasp/registration", async (c) => {
   }
 
   const faspId = crypto.randomUUID();
-  await registrationUpsert(env, { name, baseUrl, serverId, publicKey, faspId });
+// baseUrl の正規化（末尾のスラッシュを削除）
+const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
+
+// 共通の upsert ヘルパーがあれば優先して利用し、なければ従来処理にフォールバック
+if (typeof registrationUpsert === "function") {
+  await registrationUpsert(env, {
+    name,
+    baseUrl: normalizedBaseUrl,
+    serverId,
+    publicKey,
+    faspId,
+  });
+} else {
+  // 既存の仮登録（discover）を baseUrl / serverId でマージしつつ upsert
+  await fasps.updateOne(
+    { $or: [{ serverId }, { baseUrl: normalizedBaseUrl }] },
+    {
+      $set: {
+        name,
+        baseUrl: normalizedBaseUrl,
+        serverId,
+        publicKey,
+        // 署名検証済みのため承認済みに更新
+        status: "approved",
+        approvedAt: new Date(),
+        rejectedAt: null,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: { faspId },
+    },
+    { upsert: true },
+  );
+}
+
 
   const { publicKey: takosPublicKey } = await getSystemKey(db, domain);
   const registrationCompletionUri = `https://${domain}/api/fasp/providers`; // 管理APIを案内

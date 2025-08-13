@@ -3,7 +3,7 @@ import { connectDatabase } from "../shared/db.ts";
 import { initEnv, loadConfig } from "../shared/config.ts";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
-import setupUI from "./routes/setup_ui.ts";
+import onboarding from "./routes/onboarding.ts";
 import session from "./routes/session.ts";
 import accounts from "./routes/accounts.ts";
 import notifications from "./routes/notifications.ts";
@@ -23,6 +23,7 @@ import config from "./routes/config.ts";
 import fcm from "./routes/fcm.ts";
 import placeholder from "./routes/placeholder.ts";
 import trends from "./routes/trends.ts";
+import systemSetup from "./routes/system_setup.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -60,7 +61,8 @@ export async function createTakosApp(env?: Record<string, string>) {
     posts,
     config,
     fcm,
-    setupUI,
+    systemSetup,
+    onboarding,
     placeholder,
     trends,
     keep,

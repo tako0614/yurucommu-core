@@ -5,6 +5,7 @@ import {
   For,
   onMount,
   Show,
+  onCleanup,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
 import {
@@ -76,6 +77,13 @@ export default function UnifiedToolsContent() {
   const [showScanner, setShowScanner] = createSignal(false);
   const [scanError, setScanError] = createSignal("");
   const [qrError, setQrError] = createSignal("");
+  const [qrMsg, setQrMsg] = createSignal("");
+  const [cameraReady, setCameraReady] = createSignal(false);
+
+  let videoRef: HTMLVideoElement | null = null;
+  let canvasRef: HTMLCanvasElement | null = null;
+  let rafId: number | null = null;
+  let mediaStream: MediaStream | null = null;
 
   onMount(async () => {
     if (accounts().length === 0) {
@@ -327,6 +335,32 @@ export default function UnifiedToolsContent() {
   const closeQr = () => {
     setQrHandle(null);
     setQrData("");
+    setQrMsg("");
+  };
+
+  const copyHandle = async () => {
+    if (!qrHandle()) return;
+    try {
+      await navigator.clipboard.writeText(qrHandle()!);
+  setQrMsg("コピーしました");
+  setTimeout(() => setQrMsg(""), 1500);
+    } catch (_) {
+      setQrError("コピーに失敗しました");
+    }
+  };
+
+  const downloadQr = () => {
+    if (!qrData()) return;
+    try {
+      const a = document.createElement("a");
+      a.href = qrData();
+      a.download = `${currentAccount()?.userName ?? "user"}-takos-qr.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_) {
+      setQrError("画像の保存に失敗しました");
+    }
   };
 
   const handleScanFile = async (e: Event) => {
@@ -349,6 +383,103 @@ export default function UnifiedToolsContent() {
       setScanError("QRコードを読み取れませんでした");
     }
   };
+
+  const startScanner = async () => {
+    setScanError("");
+    setCameraReady(false);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("このブラウザーはカメラに対応していません");
+      }
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      if (!videoRef) throw new Error("ビデオ要素が初期化されていません");
+      videoRef.srcObject = mediaStream;
+      await videoRef.play();
+
+      const onLoaded = () => {
+        if (!videoRef || !canvasRef) return;
+        const w = videoRef.videoWidth || 640;
+        const h = videoRef.videoHeight || 480;
+        canvasRef.width = w;
+        canvasRef.height = h;
+        setCameraReady(true);
+
+        const ctx = canvasRef.getContext("2d");
+        if (!ctx) return;
+
+        const drawLine = (begin: { x: number; y: number }, end: { x: number; y: number }, color = "#00E5FF") => {
+          ctx.beginPath();
+          ctx.moveTo(begin.x, begin.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = color;
+          ctx.stroke();
+        };
+
+        const tick = () => {
+          if (!videoRef || !canvasRef) return;
+          const width = canvasRef.width;
+          const height = canvasRef.height;
+          // 描画
+          ctx.drawImage(videoRef, 0, 0, width, height);
+          try {
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code) {
+              // ガイド描画
+              if (code.location) {
+                drawLine(code.location.topLeftCorner, code.location.topRightCorner);
+                drawLine(code.location.topRightCorner, code.location.bottomRightCorner);
+                drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner);
+                drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner);
+              }
+              setSearchQuery(code.data);
+              setShowScanner(false);
+              return;
+            }
+          } catch (_) {
+            // ignore frame errors
+          }
+          rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+      };
+
+      if (videoRef.readyState >= 2) {
+        onLoaded();
+      } else {
+        videoRef.onloadedmetadata = onLoaded;
+      }
+    } catch (err) {
+      console.error(err);
+      setScanError("カメラを利用できません: 権限や端末設定を確認してください");
+    }
+  };
+
+  const stopScanner = () => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+      mediaStream = null;
+    }
+    setCameraReady(false);
+  };
+
+  createEffect(() => {
+    if (showScanner()) {
+      startScanner();
+    } else {
+      stopScanner();
+    }
+  });
+
+  onCleanup(() => stopScanner());
 
   function SearchPost(props: { id: string }) {
     const [post] = createResource(() => fetchPostById(props.id));
@@ -376,53 +507,144 @@ export default function UnifiedToolsContent() {
     <div class="h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       <Show when={qrHandle()}>
         <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={closeQr}
         >
           <div
-            class="bg-gray-800 rounded-lg p-6 space-y-4 w-64"
+            class="w-[360px] sm:w-[560px]"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 class="text-lg font-bold text-white text-center">QRコード</h3>
-            <img src={qrData()} alt="qr" class="mx-auto" />
-            <p class="text-center text-gray-300 break-all">{qrHandle()}</p>
-            <button
-              type="button"
-              class="mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
-              onClick={closeQr}
-            >
-              閉じる
-            </button>
+            <div class="rounded-2xl p-[2px] bg-gradient-to-br from-blue-500 via-purple-500 to-fuchsia-500 shadow-2xl">
+              <div class="rounded-2xl bg-gray-900">
+                <div class="p-6 sm:p-8">
+                  <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                      <img src="/takos.svg" alt="Takos" class="w-6 h-6 opacity-90" />
+                      <span class="text-xs uppercase tracking-widest text-gray-400">Takos Contact Card</span>
+                    </div>
+                    <span class="text-[10px] text-gray-500">Scan to follow</span>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
+                    <div>
+                      <div class="flex items-center gap-5">
+                        <div class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-blue-600 overflow-hidden flex items-center justify-center text-white font-bold text-2xl select-none">
+                          {currentAccount()?.avatarInitial ?? currentAccount()?.userName?.charAt(0) ?? "U"}
+                        </div>
+                        <div>
+                          <div class="text-2xl font-bold text-white leading-tight">
+                            {currentAccount()?.displayName ?? currentAccount()?.userName}
+                          </div>
+                          <div class="text-base text-gray-400">@{currentAccount()?.userName}</div>
+                          <div class="mt-2 flex items-center gap-2 text-xs">
+                            <span class="px-2 py-1 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                              {getDomain()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="mt-4">
+                        <div class="flex items-center gap-2 bg-gray-800/70 rounded-lg px-3 py-2 border border-white/5">
+                          <svg class="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 00-9.33-5"/><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M2 16a6 6 0 005 5"/></svg>
+                          <span class="text-gray-200 text-sm break-all">{qrHandle()}</span>
+                          <button
+                            type="button"
+                            class="ml-auto text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                            onClick={copyHandle}
+                          >
+                            コピー
+                          </button>
+                        </div>
+                        <Show when={qrMsg()}>
+                          <p class="mt-1 text-xs text-emerald-400">{qrMsg()}</p>
+                        </Show>
+                        <Show when={qrError()}>
+                          <p class="mt-1 text-xs text-red-400">{qrError()}</p>
+                        </Show>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div class="relative">
+                        <div class="rounded-xl bg-white p-3 shadow-inner">
+                          <img src={qrData()} alt="qr" class="w-full h-auto rounded" />
+                        </div>
+                        <div class="pointer-events-none absolute -inset-[2px] rounded-xl bg-gradient-to-br from-white/10 to-transparent"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mt-6 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all duration-200"
+                      onClick={downloadQr}
+                    >
+                      PNG保存
+                    </button>
+                    <button
+                      type="button"
+                      class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                      onClick={closeQr}
+                    >
+                      閉じる
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Show>
       <Show when={showScanner()}>
         <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={() => setShowScanner(false)}
         >
           <div
-            class="bg-gray-800 rounded-lg p-6 space-y-4 w-64"
+            class="bg-gray-900 rounded-2xl p-5 sm:p-6 w-[360px] sm:w-[520px] space-y-4 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 class="text-lg font-bold text-white text-center">QR読み取り</h3>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleScanFile}
-              class="text-sm text-gray-300"
-            />
+            <h3 class="text-lg font-bold text-white text-center">QRをカメラで読み取り</h3>
+
+            <div class="relative rounded-xl overflow-hidden bg-black/40 border border-white/10">
+              <video
+                class="w-full h-[280px] object-cover opacity-90"
+                autoplay
+                playsinline
+                muted
+                ref={(el) => (videoRef = el)}
+              />
+              <canvas class="hidden" ref={(el) => (canvasRef = el)} />
+
+              <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div class="w-48 h-48 border-2 border-white/70 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
+              </div>
+              <div class="absolute bottom-2 left-0 right-0 text-center text-xs text-gray-300">
+                {cameraReady() ? "QRを中央に合わせてください" : "カメラを起動しています…"}
+              </div>
+            </div>
+
             <Show when={scanError()}>
               <p class="text-red-400 text-sm text-center">{scanError()}</p>
             </Show>
-            <button
-              type="button"
-              class="mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
-              onClick={() => setShowScanner(false)}
-            >
-              閉じる
-            </button>
+            <div class="text-center text-xs text-gray-400">
+              カメラが使えない場合はファイルから読み取れます
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-sm text-gray-200 px-3 py-2 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-700">
+                画像から読み取り
+                <input type="file" accept="image/*" onChange={handleScanFile} class="hidden" />
+              </label>
+              <button
+                type="button"
+                class="ml-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-all duration-200"
+                onClick={() => setShowScanner(false)}
+              >
+                閉じる
+              </button>
+            </div>
           </div>
         </div>
       </Show>
