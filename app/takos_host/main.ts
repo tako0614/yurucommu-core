@@ -12,6 +12,10 @@ import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { createRootActivityPubApp } from "./root_activitypub.ts";
 import { createServiceActorApp } from "./service_actor.ts";
+import FaspClient from "./models/fasp_client.ts";
+import FaspServerProviderInfo from "./models/fasp_server_provider_info.ts";
+import FaspServerClient from "./models/fasp_server_client.ts";
+import { bootstrapDefaultFasp } from "../api/services/fasp_bootstrap.ts";
 import { logger } from "hono/logger";
 import { takosEnv } from "./takos_env.ts";
 import { dirname, fromFileUrl, join } from "@std/path";
@@ -165,13 +169,32 @@ async function getAppForHost(host: string): Promise<Hono | null> {
   // 既定の FASP サーバーをテナントDBへ種まき（存在しない場合のみ）
   if (defaultFaspBaseUrl) {
     try {
-      let b = defaultFaspBaseUrl;
-      if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
-      const normalized = b.replace(/\/$/, "");
+      function canonicalize(u: string): string {
+        let b = u.trim();
+        if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
+        try {
+          const url = new URL(b);
+          url.hash = ""; url.search = "";
+          let p = url.pathname.replace(/\/+$/, "");
+          const wl = "/.well-known/fasp/provider_info";
+          if (p.endsWith(wl)) p = p.slice(0, -wl.length);
+          else if (p.endsWith("/fasp/provider_info")) p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
+          else if (p.endsWith("/provider_info")) p = p.slice(0, -"/provider_info".length);
+          if (p === "/") p = "";
+          return `${url.origin}${p}`.replace(/\/$/, "");
+        } catch {
+          return u.replace(/\/$/, "");
+        }
+      }
+      const normalized = canonicalize(defaultFaspBaseUrl);
       const tenantDb = createDB(appEnv);
       const mongo = await tenantDb.getDatabase();
-      const fasps = mongo.collection("fasps");
-      const exists = await fasps.findOne({ baseUrl: normalized });
+      const fasps = mongo.collection("fasp_client_providers");
+      const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
+      const exists = await fasps.findOne({ tenant_id: tenantId, baseUrl: normalized });
+      // シークレットを共有して作成（なければ生成）
+      const secret = (exists?.secret as string | undefined) ??
+        btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
       if (!exists) {
         await fasps.insertOne({
           name: normalized,
@@ -179,9 +202,35 @@ async function getAppForHost(host: string): Promise<Hono | null> {
           serverId: `default:${crypto.randomUUID()}`,
           status: "approved",
           capabilities: {},
+          secret,
+          tenant_id: tenantId,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
+      } else if (!exists.secret) {
+        await fasps.updateOne(
+          { _id: exists._id, tenant_id: tenantId },
+          { $set: { secret, updatedAt: new Date() } },
+        );
+      }
+      // takos host 側（FASPサーバー側）にもテナントの secret を保存
+      try {
+        await FaspClient.updateOne(
+          { tenant: host },
+          { $set: { tenant: host, secret } },
+          { upsert: true },
+        );
+      } catch (_e) {
+        // ignore storing errors
+      }
+      // 既定FASPが自ホスト以外の場合でも、起動時に provider_info を取得して能力有効化
+      try {
+        await bootstrapDefaultFasp({
+          ...appEnv,
+          FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
+        }).catch(() => {});
+      } catch (_e) {
+        // ignore
       }
     } catch (_e) {
       // ignore seeding errors
@@ -206,19 +255,28 @@ if (!faspServerDisabled) {
       "/fasp/provider_info",
     ]
   ) {
-    root.get(path, (c) => {
+    root.get(path, async (c) => {
       const host = getRealHost(c);
       if (rootDomain && host !== rootDomain) {
         return c.text("not found", 404);
       }
-      const name = hostEnv["SERVER_NAME"] || rootDomain || "takos";
-      const body = {
-        name,
-        capabilities: [
-          { id: "data_sharing", version: "v0" },
-        ],
-      };
-      return c.json(body);
+      // DBからprovider_infoを取得。なければ初期レコードを作成
+      let info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
+      if (!info) {
+        const name = hostEnv["SERVER_NAME"] || rootDomain || "takos";
+        const initial = new FaspServerProviderInfo({
+          _id: "provider",
+          name,
+          capabilities: [{ id: "data_sharing", version: "v0" }],
+        });
+        await initial.save().catch(() => {});
+        info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
+      }
+      if (!info) {
+        return c.json({ name: hostEnv["SERVER_NAME"] || rootDomain || "takos", capabilities: [] });
+      }
+      // FASP spec 準拠: provider_info は name と capabilities のみ返す
+      return c.json({ name: info.name, capabilities: info.capabilities ?? [] });
     });
   }
 }

@@ -32,4 +32,7 @@ export const takosEnv: Record<string, string> = {
   ADSENSE_CLIENT: hostEnv["ADSENSE_CLIENT"],
   ADSENSE_SLOT: hostEnv["ADSENSE_SLOT"],
   ADSENSE_ACCOUNT: hostEnv["ADSENSE_ACCOUNT"],
+  // FASP 既定設定をテナント環境にも伝搬
+  FASP_DEFAULT_BASE_URL: hostEnv["FASP_DEFAULT_BASE_URL"],
+  FASP_SERVER_DISABLED: hostEnv["FASP_SERVER_DISABLED"],
 };
