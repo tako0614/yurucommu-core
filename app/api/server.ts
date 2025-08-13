@@ -28,10 +28,11 @@ import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
-import { getCookie, deleteCookie } from "hono/cookie";
+import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import { migrateFaspCollections } from "./services/fasp_migration.ts";
+import { startPendingInviteJob } from "./DB/mod.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -105,7 +106,9 @@ export async function createTakosApp(env?: Record<string, string>) {
       const xfHost = c.req.header("x-forwarded-host");
       let origin: string;
       if (xfProto && xfHost) {
-        origin = `${xfProto.split(",")[0].trim()}://${xfHost.split(",")[0].trim()}`;
+        origin = `${xfProto.split(",")[0].trim()}://${
+          xfHost.split(",")[0].trim()
+        }`;
       } else {
         const u = new URL(c.req.url);
         origin = `${u.protocol}//${u.host}`;
@@ -118,7 +121,10 @@ export async function createTakosApp(env?: Record<string, string>) {
       form.set("client_id", clientId);
       form.set("client_secret", clientSecret);
       form.set("redirect_uri", redirectUri);
-      const tokenRes = await fetch(`${base}/oauth/token`, { method: "POST", body: form });
+      const tokenRes = await fetch(`${base}/oauth/token`, {
+        method: "POST",
+        body: form,
+      });
       if (!tokenRes.ok) return await next();
       const tokenData = await tokenRes.json() as { access_token?: string };
       if (!tokenData.access_token) return await next();
@@ -198,6 +204,7 @@ if (import.meta.main) {
   } catch (_) {
     // 起動を妨げない
   }
+  startPendingInviteJob(env);
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
   const port = Number(env["SERVER_PORT"] ?? "80");

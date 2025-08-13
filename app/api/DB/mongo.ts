@@ -22,6 +22,10 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
+import {
+  createRemoveActivity,
+  deliverActivityPubObject,
+} from "../utils/activitypub.ts";
 import type { ChatroomInfo, DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
@@ -1116,4 +1120,75 @@ export class MongoDB implements DB {
     await connectDatabase(this.env);
     return mongoose.connection.db as Db;
   }
+}
+
+/**
+ * PendingInvite コレクションを定期的にチェックし、
+ * 有効期限切れの招待を除外して再招待します。
+ */
+export function startPendingInviteJob(env: Record<string, string>) {
+  const db = new MongoDB(env);
+  async function job() {
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const list = await PendingInvite.find({
+      tenant_id: tenantId,
+      acked: false,
+      expiresAt: { $lt: new Date() },
+    }).lean<
+      { _id: string; roomId: string; userName: string }[]
+    >();
+    for (const inv of list) {
+      await PendingInvite.deleteOne({ _id: inv._id });
+      const info = await db.findChatroom(inv.roomId);
+      if (!info) continue;
+      const { owner, room } = info;
+      if (room.members.includes(inv.userName)) {
+        room.members = room.members.filter((m) => m !== inv.userName);
+        await db.updateChatroom(owner, room);
+        const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
+        const activity = createRemoveActivity(
+          domain,
+          `https://${domain}/ap/rooms/${inv.roomId}`,
+          inv.userName,
+        );
+        const account = await db.findAccountById(owner);
+        if (account) {
+          await deliverActivityPubObject(
+            room.members,
+            activity,
+            account.userName,
+            domain,
+            env,
+          ).catch((err) => console.error("Delivery failed", err));
+        }
+      }
+      try {
+        const sessionId = crypto.randomUUID();
+        await db.createSession(
+          sessionId,
+          new Date(Date.now() + 60_000),
+        );
+        const port = env["SERVER_PORT"] ?? "80";
+        await fetch(
+          `http://localhost:${port}/api/rooms/${inv.roomId}/invite`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Cookie: `sessionId=${sessionId}`,
+            },
+            body: JSON.stringify({
+              from: `${owner}@${env["ACTIVITYPUB_DOMAIN"]}`,
+              invitees: [inv.userName],
+              cipherSuite: 1,
+            }),
+          },
+        );
+        await db.deleteSessionById(sessionId);
+      } catch (err) {
+        console.error("re-invite failed", err);
+      }
+    }
+  }
+  setInterval(job, 60 * 60 * 1000);
 }
