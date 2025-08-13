@@ -1,0 +1,35 @@
+name: Review
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.event.number }}-myrabbit
+  cancel-in-progress: true
+
+jobs:
+  my-review-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run AI PR Review
+        uses: coderabbitai/ai-pr-reviewer@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          openai_light_model: gpt-5-nano
+          openai_heavy_model: gpt-5-nano
+          language: ja-JP
+          summarize: |
+            このPull Requestについて、以下のMarkdown形式で内容をまとめてください:
+
+            ## 概要
+            <!-- 全体の変更点を簡潔に表現。 -->
+
+            ## 変更点
+            <!-- ファイルやディレクトリ単位などで分けてもOK -->
