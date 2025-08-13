@@ -9,7 +9,7 @@ import {
   setActiveServer,
   setApiBase,
 } from "../utils/config.ts";
-import { Card, Input, Button } from "./ui";
+import { Button, Card, Input } from "./ui";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
@@ -29,6 +29,19 @@ export function LoginForm(props: LoginFormProps) {
   );
 
   onMount(async () => {
+    try {
+      const st = await apiFetch("/api/setup/status");
+      if (st.ok) {
+        const data = await st.json();
+        if (!data.configured) {
+          setShowSetup(true);
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     try {
       const res = await apiFetch("/api/config");
       if (res.ok) {
@@ -69,10 +82,10 @@ export function LoginForm(props: LoginFormProps) {
           const loginData = await loginRes.json();
           if (loginData.success) {
             try {
-              const st = await apiFetch("/api/setup/status");
-              if (st.ok) {
-                const data = await st.json();
-                if (!data.configured) {
+              const st2 = await apiFetch("/api/setup/status");
+              if (st2.ok) {
+                const d = await st2.json();
+                if (!d.configured) {
                   setShowSetup(true);
                   return;
                 }
@@ -146,7 +159,11 @@ export function LoginForm(props: LoginFormProps) {
         }
         props.onLoginSuccess();
       } else {
-        setError(results.error || "ログインに失敗しました");
+        if (results.error === "not_configured") {
+          setShowSetup(true);
+        } else {
+          setError(results.error || "ログインに失敗しました");
+        }
       }
     } catch (err) {
       console.error("Login request failed:", err);
@@ -187,7 +204,9 @@ export function LoginForm(props: LoginFormProps) {
                 <Card class="w-full max-w-md">
                   <div class="mb-6 text-center">
                     <h2 class="text-3xl font-semibold mb-2">ようこそ</h2>
-                    <p class="text-gray-400">ActivityPubでWeb自主するためのソフトウェア</p>
+                    <p class="text-gray-400">
+                      ActivityPubでWeb自主するためのソフトウェア
+                    </p>
                   </div>
                   <p class="text-gray-400 text-sm leading-relaxed mb-6">
                     1人のユーザーが他のユーザーとコミュニケーションを取るためのActivityPubに対応したソフトウェアです。シンプルで使いやすいインターフェースを提供します。
@@ -212,7 +231,12 @@ export function LoginForm(props: LoginFormProps) {
                       {isLoading() ? "ログイン処理中..." : "ログイン"}
                     </Button>
                     <Show when={oauthHost()}>
-                      <Button type="button" variant="secondary" class="w-full" onClick={loginWithOAuth}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        class="w-full"
+                        onClick={loginWithOAuth}
+                      >
                         OAuthでログイン
                       </Button>
                     </Show>
@@ -221,7 +245,9 @@ export function LoginForm(props: LoginFormProps) {
               </main>
               <footer class="py-6 border-t border-[var(--color-border)]">
                 <div class="container mx-auto px-4 text-center">
-                  <p class="text-gray-500 text-sm">© 2023 takos. All rights reserved.</p>
+                  <p class="text-gray-500 text-sm">
+                    © 2023 takos. All rights reserved.
+                  </p>
                 </div>
               </footer>
             </div>

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
@@ -10,9 +11,18 @@ import { issueSession } from "../utils/session.ts";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
-// 初期設定はログイン後のみ実施可能にする
-app.use("/setup", authRequired);
-app.use("/setup/*", authRequired);
+
+// 設定済みの場合のみ認証を要求するミドルウェア
+const authIfConfigured: MiddlewareHandler = async (c, next) => {
+  const env = getEnv(c);
+  if (env["hashedPassword"]) {
+    return await authRequired(c, next);
+  }
+  await next();
+};
+
+app.use("/setup", authIfConfigured);
+app.use("/setup/*", authIfConfigured);
 
 app.get("/setup/status", (c) => {
   const env = getEnv(c);
