@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch } from "../../utils/config.ts";
 import { Button } from "../ui/index.ts";
 
@@ -123,6 +123,40 @@ export function FaspProviders() {
   onMount(() => {
     loadSettings();
   });
+
+  // 自動承認の反映: 承認待ちのプロバイダがある間は定期的に再取得
+  let pollTimer: number | undefined;
+  const startPolling = () => {
+    if (pollTimer) return;
+    pollTimer = setInterval(() => {
+      const list = providers();
+      const hasPending = Array.isArray(list) && list.some((p) => p.status !== "approved");
+      if (hasPending) {
+        refetch();
+      } else {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = undefined;
+        }
+      }
+    }, 5000) as unknown as number;
+  };
+  const stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+  };
+
+  createEffect(() => {
+    const list = providers();
+    if (!Array.isArray(list)) return;
+    const hasPending = list.some((p) => p.status !== "approved");
+    if (hasPending) startPolling();
+    else stopPolling();
+  });
+
+  onCleanup(() => stopPolling());
 
   return (
     <div class="space-y-4">

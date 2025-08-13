@@ -1,13 +1,11 @@
 import { createSignal, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 
-interface InitialSetupFormProps {
+interface OnboardingFormProps {
   onSuccess: () => void;
 }
 
-export function InitialSetupForm(props: InitialSetupFormProps) {
-  const [password, setPassword] = createSignal("");
-  const [password2, setPassword2] = createSignal("");
+export function OnboardingForm(props: OnboardingFormProps) {
   const [username, setUsername] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [follow, setFollow] = createSignal("");
@@ -17,12 +15,8 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setError("");
-    if (!password() || !username()) {
-      setError("パスワードとユーザー名を入力してください");
-      return;
-    }
-    if (password() !== password2()) {
-      setError("パスワードが一致しません");
+    if (!username()) {
+      setError("ユーザー名を入力してください");
       return;
     }
     const name = username().trim();
@@ -32,11 +26,10 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
     }
     setIsLoading(true);
     try {
-      const res = await apiFetch("/api/setup", {
+      const res = await apiFetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          password: password(),
           username: name,
           displayName: displayName() || name,
           follow: follow().split(",").map((s) => s.trim()).filter(Boolean),
@@ -60,8 +53,8 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
       <main class="flex-grow flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md bg-[#212121] p-8 rounded-lg shadow-xl">
           <div class="mb-8 text-center">
-            <h2 class="text-3xl font-semibold mb-2 text-white">初期設定</h2>
-            <p class="text-gray-400 text-sm">最初のアカウントとログイン用パスワードを設定します。</p>
+            <h2 class="text-3xl font-semibold mb-2 text-white">アカウント作成</h2>
+            <p class="text-gray-400 text-sm">最初のアカウントを作成し、興味のあるアカウントをフォローしましょう。</p>
           </div>
           <form onSubmit={handleSubmit} class="space-y-6">
             <div>
@@ -95,40 +88,6 @@ export function InitialSetupForm(props: InitialSetupFormProps) {
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                disabled={isLoading()}
-              />
-            </div>
-            <div>
-              <label
-                for="setupPassword"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                ログイン用パスワード
-              </label>
-              <input
-                id="setupPassword"
-                type="password"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                placeholder="パスワードを入力"
-                disabled={isLoading()}
-              />
-            </div>
-            <div>
-              <label
-                for="setupPassword2"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                パスワード(確認)
-              </label>
-              <input
-                id="setupPassword2"
-                type="password"
-                value={password2()}
-                onInput={(e) => setPassword2(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                placeholder="もう一度入力"
                 disabled={isLoading()}
               />
             </div>

@@ -4,7 +4,8 @@ import { loginState } from "./states/session.ts";
 import { languageState, microblogPostLimitState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { Application } from "./components/Application.tsx";
-import { InitialSetupForm } from "./components/InitialSetupForm.tsx";
+import { OnboardingForm } from "./components/OnboardingForm.tsx";
+import { SystemSetupForm } from "./components/SystemSetupForm.tsx";
 import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { usePathRouter } from "./utils/router.ts";
@@ -15,6 +16,7 @@ function App() {
   const [language, setLanguage] = useAtom(languageState);
   const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [showSetup, setShowSetup] = createSignal(false);
+  const [showSystemSetup, setShowSystemSetup] = createSignal(false);
 
   // 共通の初期データ取得
   useInitialLoad();
@@ -43,11 +45,26 @@ function App() {
     }
   });
 
-  // ログイン後にのみ初期設定の表示可否を判定
+  // システム初期設定の表示可否を判定（ログイン前でも実行）
+  createEffect(async () => {
+    try {
+      const st = await apiFetch("/api/system/setup/status");
+      if (st.ok) {
+        const data = await st.json();
+        setShowSystemSetup(!data.configured);
+      } else {
+        setShowSystemSetup(false);
+      }
+    } catch {
+      setShowSystemSetup(false);
+    }
+  });
+
+  // ログイン後にのみオンボーディング（アカウント作成）の表示可否を判定
   createEffect(async () => {
     if (isLoggedIn()) {
       try {
-        const st = await apiFetch("/api/setup/status");
+        const st = await apiFetch("/api/onboarding/status");
         if (st.ok) {
           const data = await st.json();
           setShowSetup(!data.configured);
@@ -78,11 +95,14 @@ function App() {
 
   return (
     <>
-      <Show when={!isLoggedIn()}>
+      <Show when={!isLoggedIn() && showSystemSetup()}>
+        <SystemSetupForm onSuccess={() => setShowSystemSetup(false)} />
+      </Show>
+      <Show when={!isLoggedIn() && !showSystemSetup()}>
         <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
       </Show>
       <Show when={isLoggedIn() && showSetup()}>
-        <InitialSetupForm onSuccess={() => setShowSetup(false)} />
+        <OnboardingForm onSuccess={() => setShowSetup(false)} />
       </Show>
       <Show when={isLoggedIn() && !showSetup()}>
         <Application />

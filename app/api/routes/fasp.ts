@@ -60,13 +60,15 @@ app.post("/fasp/registration", async (c) => {
   const mongo = await db.getDatabase();
   const fasps = mongo.collection("fasps");
   const faspId = crypto.randomUUID();
+  // baseUrl の正規化（末尾のスラッシュを削除）
+  const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
   // 既存の仮登録（discover）を baseUrl でマージしつつ upsert
   await fasps.updateOne(
-    { $or: [{ serverId }, { baseUrl }] },
+    { $or: [{ serverId }, { baseUrl: normalizedBaseUrl }] },
     {
       $set: {
         name,
-        baseUrl,
+        baseUrl: normalizedBaseUrl,
         serverId,
         publicKey,
         // 署名検証済みのため承認済みに更新
