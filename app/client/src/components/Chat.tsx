@@ -1250,7 +1250,8 @@ export function Chat() {
         /* JSON でない場合は無視 */
       }
 
-      let text = decoded.body;
+  const bodyText = new TextDecoder().decode(decoded.body);
+  let text: string = bodyText;
       let attachments:
         | {
           data?: string;
@@ -1341,7 +1342,7 @@ export function Chat() {
           }
         }
       } else {
-        const note = parseActivityPubNote(decoded.body);
+        const note = parseActivityPubNote(bodyText);
         text = note.content;
         localId = note.id?.startsWith("urn:uuid:") ? note.id.slice(9) : note.id;
         const listAtt = Array.isArray(data.attachments)

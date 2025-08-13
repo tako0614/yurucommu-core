@@ -241,3 +241,48 @@ export const importGroupState = async (
   );
   return { tree: data.tree, epoch: data.epoch, secret: key };
 };
+
+// ----------------------
+// Welcome 検証 (プレースホルダ)
+// ----------------------
+// Chat.tsx で `WelcomeMessage` 型と `verifyWelcome` が参照されているが、
+// まだ未実装だったため最小限の型定義と構造検証のみ行う関数を追加する。
+// 署名検証など本格的な MLS Welcome 署名 / 秘密共有検証は今後の実装で差し替え可能。
+
+export interface WelcomeMessage {
+  type: "welcome";
+  epoch: number;
+  members: string[]; // ActorID の配列
+  suite?: number;
+  roomId?: string;
+  deviceId?: string;
+  issuedAt?: number;
+  // 署名や鍵マテリアル等、将来的な拡張フィールドを許容
+  signatureB64?: string;
+  [extra: string]: unknown; // 将来的な拡張で落ちないように
+}
+
+export interface VerifyWelcomeResult {
+  valid: boolean;
+  members?: string[];
+  reason?: string; // デバッグ用: 無効理由
+}
+
+export function verifyWelcome(msg: WelcomeMessage): VerifyWelcomeResult {
+  // 現状は構造レベルの最低限チェックのみ。
+  if (!msg || typeof msg !== "object") {
+    return { valid: false, reason: "not an object" };
+  }
+  if (msg.type !== "welcome") {
+    return { valid: false, reason: "type mismatch" };
+  }
+  if (!Array.isArray(msg.members) || msg.members.some((m) => typeof m !== "string")) {
+    return { valid: false, reason: "members invalid" };
+  }
+  if (typeof msg.epoch !== "number" || !Number.isFinite(msg.epoch)) {
+    return { valid: false, reason: "epoch invalid" };
+  }
+  // issuedAt の緩い整合性 (未来すぎないか / 過去すぎないか) を軽くチェック可能だが
+  // clock skew を考慮して現段階ではスキップ。
+  return { valid: true, members: msg.members };
+}
