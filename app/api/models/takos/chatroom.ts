@@ -14,6 +14,11 @@ const chatroomSchema = new mongoose.Schema({
     default: { name: false, icon: false },
   },
   members: { type: [String], default: [] },
+  memberActivity: {
+    type: Map,
+    of: Date,
+    default: {},
+  },
 });
 
 chatroomSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });

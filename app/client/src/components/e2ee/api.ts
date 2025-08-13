@@ -149,6 +149,7 @@ export const sendEncryptedMessage = async (
 
 export const fetchEncryptedMessages = async (
   roomId: string,
+  member: string,
   params?: { limit?: number; before?: string; after?: string },
 ): Promise<EncryptedMessage[]> => {
   try {
@@ -156,6 +157,7 @@ export const fetchEncryptedMessages = async (
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.before) search.set("before", params.before);
     if (params?.after) search.set("after", params.after);
+    search.set("member", member);
     const query = search.toString();
     const url = `/api/rooms/${encodeURIComponent(roomId)}/messages${
       query ? `?${query}` : ""

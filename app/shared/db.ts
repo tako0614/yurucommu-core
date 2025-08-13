@@ -16,6 +16,7 @@ export interface ChatroomInfo {
   icon?: string;
   userSet?: { name?: boolean; icon?: boolean };
   members: string[];
+  memberActivity?: Record<string, string>;
 }
 
 /** DB 抽象インターフェース */
@@ -64,6 +65,15 @@ export interface DB {
     owner: string,
     room: ChatroomInfo,
   ): Promise<void>;
+  updateMemberActivity(
+    roomId: string,
+    member: string,
+    date?: Date,
+  ): Promise<void>;
+  removeInactiveMembers(
+    roomId: string,
+    thresholdDays: number,
+  ): Promise<string[]>;
   saveNote(
     domain: string,
     author: string,

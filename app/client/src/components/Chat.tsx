@@ -616,7 +616,11 @@ export function Chat() {
         }
       }
     }
-    const list = await fetchEncryptedMessages(room.id, params);
+    const list = await fetchEncryptedMessages(
+      room.id,
+      `${user.userName}@${getDomain()}`,
+      params,
+    );
     for (const m of list) {
       const decoded = decodeMLSMessage(m.content);
       if (!decoded) {

@@ -267,7 +267,11 @@ export class MongoDB implements DB {
     id: string,
     room: ChatroomInfo,
   ) {
-    const doc = new Chatroom({ owner: id, ...room });
+    const doc = new Chatroom({
+      owner: id,
+      ...room,
+      memberActivity: room.memberActivity ?? {},
+    });
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = { env: this.env };
@@ -303,10 +307,51 @@ export class MongoDB implements DB {
         icon: room.icon ?? "",
         userSet: room.userSet ?? { name: false, icon: false },
         members: room.members,
+        memberActivity: room.memberActivity ?? {},
       },
     });
     this.withTenant(query);
     await query;
+  }
+
+  async updateMemberActivity(
+    roomId: string,
+    member: string,
+    date = new Date(),
+  ) {
+    const query = Chatroom.updateOne({ id: roomId }, {
+      $set: { [`memberActivity.${member}`]: date },
+    });
+    this.withTenant(query);
+    await query;
+  }
+
+  async removeInactiveMembers(roomId: string, thresholdDays: number) {
+    const threshold = new Date(
+      Date.now() - thresholdDays * 24 * 60 * 60 * 1000,
+    );
+    const query = this.withTenant(
+      Chatroom.findOne({ id: roomId }),
+    );
+    const doc = await query.lean<
+      (ChatroomInfo & { owner: string }) | null
+    >();
+    if (!doc) return [] as string[];
+    const memberActivity = doc.memberActivity ?? {};
+    const inactive = doc.members.filter((m) => {
+      const last = memberActivity[m];
+      return !last || new Date(last) < threshold;
+    });
+    if (inactive.length === 0) return [] as string[];
+    const unset: Record<string, unknown> = {};
+    for (const m of inactive) unset[`memberActivity.${m}`] = "";
+    const upd = Chatroom.updateOne({ id: roomId }, {
+      $pull: { members: { $in: inactive } },
+      $unset: unset,
+    });
+    this.withTenant(upd);
+    await upd;
+    return inactive;
   }
 
   async saveNote(
@@ -1191,4 +1236,60 @@ export function startPendingInviteJob(env: Record<string, string>) {
     }
   }
   setInterval(job, 60 * 60 * 1000);
+}
+
+/**
+ * メンバーの最終復号日時を確認し、一定期間アクティビティのない
+ * メンバーを自動的に Remove します。
+ */
+export function startInactiveMemberJob(env: Record<string, string>) {
+  const db = new MongoDB(env);
+  const days = parseInt(env["INACTIVE_MEMBER_DAYS"] ?? "30", 10);
+  async function job() {
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const rooms = await Chatroom.find({ tenant_id: tenantId }).lean<
+      {
+        owner: string;
+        id: string;
+        members: string[];
+        memberActivity?: Record<string, Date>;
+      }[]
+    >();
+    const domain = tenantId;
+    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    for (const r of rooms) {
+      const activity = r.memberActivity ?? {};
+      const inactive = r.members.filter((m) => {
+        const last = activity[m];
+        return !last || new Date(last) < threshold;
+      });
+      if (inactive.length === 0) continue;
+      const unset: Record<string, unknown> = {};
+      for (const m of inactive) unset[`memberActivity.${m}`] = "";
+      await Chatroom.updateOne(
+        { owner: r.owner, id: r.id, tenant_id: tenantId },
+        { $pull: { members: { $in: inactive } }, $unset: unset },
+      );
+      const remaining = r.members.filter((m) => !inactive.includes(m));
+      const account = await db.findAccountById(r.owner);
+      if (account) {
+        for (const m of inactive) {
+          const activityObj = createRemoveActivity(
+            domain,
+            `https://${domain}/ap/rooms/${r.id}`,
+            m,
+          );
+          await deliverActivityPubObject(
+            remaining,
+            activityObj,
+            account.userName,
+            domain,
+            env,
+          ).catch((err) => console.error("Delivery failed", err));
+          await db.deleteKeyPackagesByUser(m);
+        }
+      }
+    }
+  }
+  setInterval(job, 24 * 60 * 60 * 1000);
 }

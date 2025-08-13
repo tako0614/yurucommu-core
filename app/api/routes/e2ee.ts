@@ -192,6 +192,9 @@ async function handleHandshake(
     typeof bodyObj.member === "string"
   ) {
     group.members = group.members.filter((m) => m !== bodyObj.member);
+    if (group.memberActivity) {
+      delete group.memberActivity[bodyObj.member];
+    }
     allMembers = [...group.members];
     await db.updateChatroom(owner, group); // メンバー削除を反映
   } else if (
@@ -201,6 +204,8 @@ async function handleHandshake(
   ) {
     if (!group.members.includes(bodyObj.member)) {
       group.members.push(bodyObj.member);
+      group.memberActivity = group.memberActivity ?? {};
+      group.memberActivity[bodyObj.member] = new Date();
       await db.updateChatroom(owner, group); // 新メンバーを反映
     }
     allMembers = [bodyObj.member];
@@ -389,6 +394,8 @@ app.post("/ap/rooms/:id/members", authRequired, async (c) => {
   if (body.type === "Add" && typeof body.object === "string") {
     if (!room.members.includes(body.object)) {
       room.members.push(body.object);
+      room.memberActivity = room.memberActivity ?? {};
+      room.memberActivity[body.object] = new Date();
       await db.updateChatroom(owner, room);
     }
     const activity = {
@@ -410,6 +417,9 @@ app.post("/ap/rooms/:id/members", authRequired, async (c) => {
 
   if (body.type === "Remove" && typeof body.object === "string") {
     room.members = room.members.filter((m) => m !== body.object);
+    if (room.memberActivity) {
+      delete room.memberActivity[body.object];
+    }
     await db.updateChatroom(owner, room);
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -1050,6 +1060,10 @@ app.get("/rooms/:room/messages", authRequired, async (c) => {
   const before = c.req.query("before");
   const after = c.req.query("after");
   const db = createDB(getEnv(c));
+  const member = c.req.query("member");
+  if (member) {
+    await db.updateMemberActivity(roomId, member);
+  }
   const list = await db.findEncryptedMessages({ roomId }, {
     before: before ?? undefined,
     after: after ?? undefined,

@@ -32,7 +32,7 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import { migrateFaspCollections } from "./services/fasp_migration.ts";
-import { startPendingInviteJob } from "./DB/mod.ts";
+import { startInactiveMemberJob, startPendingInviteJob } from "./DB/mod.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -205,6 +205,7 @@ if (import.meta.main) {
     // 起動を妨げない
   }
   startPendingInviteJob(env);
+  startInactiveMemberJob(env);
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
   const port = Number(env["SERVER_PORT"] ?? "80");
