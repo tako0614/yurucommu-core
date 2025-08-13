@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import type { MiddlewareHandler } from "hono";
 import { load, stringify } from "jsr:@std/dotenv";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { join } from "jsr:@std/path";
@@ -12,30 +11,23 @@ import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
 
-// 設定済みの場合のみ認証を要求するミドルウェア
-const authIfConfigured: MiddlewareHandler = async (c, next) => {
-  const env = getEnv(c);
-  if (env["hashedPassword"]) {
-    return await authRequired(c, next);
-  }
-  await next();
-};
-
-app.use("/setup", authIfConfigured);
-app.use("/setup/*", authIfConfigured);
-
-app.get("/setup/status", (c) => {
+app.get("/setup/status", (c: any) => {
   const env = getEnv(c);
   // hashedPassword の有無のみで初期設定済みを判定
   const configured = Boolean(env["hashedPassword"]);
   return c.json({ configured });
 });
 
-app.post("/setup", async (c) => {
+// /api/setup POSTエンドポイント
+app.post("/setup", async (c: any) => {
   const env = getEnv(c);
-  // すでに設定済みの場合は拒否
+  // 設定済みの場合はセッション認証が必要
   if (env["hashedPassword"]) {
-    return c.json({ error: "already_configured" }, 400);
+    // 認証チェック
+    return await authRequired(c, () => {
+      // 認証成功しても、すでに設定済みなのでエラーを返す
+      return c.json({ error: "already_configured" }, 400);
+    });
   }
   const { password, username, displayName, follow } = await c.req.json();
   if (!password || !username) {
