@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { createDB } from "../DB/mod.ts";
-import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 
 const app = new Hono();
-app.use("/session/*", authRequired);
 
 app.get("/session/status", async (c) => {
   const sessionId = getCookie(c, "sessionId");

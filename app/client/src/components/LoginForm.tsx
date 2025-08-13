@@ -162,15 +162,8 @@ export function LoginForm(props: LoginFormProps) {
   };
 
   const loginWithOAuth = () => {
-    if (!oauthHost()) return;
-    const base = oauthHost()?.startsWith("http")
-      ? oauthHost()
-      : `https://${oauthHost()}`;
-    const redirect = getOrigin();
-    const url = `${base}/oauth/authorize?client_id=${
-      encodeURIComponent(redirect)
-    }&redirect_uri=${encodeURIComponent(redirect)}`;
-    globalThis.location.href = url;
+    // サーバー側フローに委譲（正しいredirect_uriとstateをサーバーが管理）
+    globalThis.location.href = "/api/login/oauth/start";
   };
 
   return (

@@ -34,7 +34,13 @@ export async function apiFetch(path: string, init?: RequestInit) {
   console.log("isTauri:" + is);
   const res = is
     ? await tauriFetch(apiUrl(path), init)
-    : await fetch(apiUrl(path), init);
+    : await fetch(
+      apiUrl(path),
+      {
+        credentials: "include",
+        ...(init ?? {}),
+      },
+    );
   if (path.endsWith("/config")) {
     try {
       const data = await res.clone().json();
