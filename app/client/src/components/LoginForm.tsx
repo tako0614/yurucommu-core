@@ -1,6 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
 import { TauriLogin } from "./TauriLogin.tsx";
-import { InitialSetupForm } from "./InitialSetupForm.tsx";
 import {
   addServer,
   apiFetch,
@@ -21,7 +20,6 @@ export function LoginForm(props: LoginFormProps) {
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverUrl, setServerUrl] = createSignal("");
   const inTauri = isTauri();
-  const [showSetup, setShowSetup] = createSignal(false);
   const [oauthHost, setOauthHost] = createSignal<string | null>(null);
   const [oauthClientId, setOauthClientId] = createSignal<string | null>(null);
   const [oauthClientSecret, setOauthClientSecret] = createSignal<string | null>(
@@ -29,19 +27,6 @@ export function LoginForm(props: LoginFormProps) {
   );
 
   onMount(async () => {
-    try {
-      const st = await apiFetch("/api/setup/status");
-      if (st.ok) {
-        const data = await st.json();
-        if (!data.configured) {
-          setShowSetup(true);
-          return;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
     try {
       const res = await apiFetch("/api/config");
       if (res.ok) {
@@ -81,18 +66,6 @@ export function LoginForm(props: LoginFormProps) {
           });
           const loginData = await loginRes.json();
           if (loginData.success) {
-            try {
-              const st2 = await apiFetch("/api/setup/status");
-              if (st2.ok) {
-                const d = await st2.json();
-                if (!d.configured) {
-                  setShowSetup(true);
-                  return;
-                }
-              }
-            } catch {
-              // ignore
-            }
             props.onLoginSuccess();
           } else {
             setError(loginData.error || "OAuthログインに失敗しました2");
@@ -145,25 +118,9 @@ export function LoginForm(props: LoginFormProps) {
       });
       const results = await res.json();
       if (results.success) {
-        try {
-          const st = await apiFetch("/api/setup/status");
-          if (st.ok) {
-            const data = await st.json();
-            if (!data.configured) {
-              setShowSetup(true);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
         props.onLoginSuccess();
       } else {
-        if (results.error === "not_configured") {
-          setShowSetup(true);
-        } else {
-          setError(results.error || "ログインに失敗しました");
-        }
+        setError(results.error || "ログインに失敗しました");
       }
     } catch (err) {
       console.error("Login request failed:", err);
@@ -185,74 +142,62 @@ export function LoginForm(props: LoginFormProps) {
 
   return (
     <>
-      <Show
-        when={!showSetup()}
-        fallback={
-          <InitialSetupForm
-            onSuccess={() => {
-              setShowSetup(false);
-              props.onLoginSuccess();
-            }}
-          />
-        }
-      >
-        {isTauri()
-          ? <TauriLogin onLoginSuccess={props.onLoginSuccess} />
-          : (
-            <div class="min-h-screen flex flex-col bg-[var(--color-bg)] text-gray-100">
-              <main class="flex-grow flex items-center justify-center px-4 py-12">
-                <Card class="w-full max-w-md">
-                  <div class="mb-6 text-center">
-                    <h2 class="text-3xl font-semibold mb-2">ようこそ</h2>
-                    <p class="text-gray-400">
-                      ActivityPubでWeb自主するためのソフトウェア
-                    </p>
-                  </div>
-                  <p class="text-gray-400 text-sm leading-relaxed mb-6">
-                    1人のユーザーが他のユーザーとコミュニケーションを取るためのActivityPubに対応したソフトウェアです。シンプルで使いやすいインターフェースを提供します。
-                  </p>
-                  <form onSubmit={handleLogin} class="space-y-5">
-                    <Input
-                      id="loginPassword"
-                      type="password"
-                      value={loginPassword()}
-                      onInput={(e) => setLoginPassword(e.currentTarget.value)}
-                      label="ログイン用パスワード"
-                      placeholder="パスワードを入力"
-                      disabled={isLoading()}
-                      required
-                    />
-                    <Show when={error()}>
-                      <p class="text-rose-400 text-sm font-medium bg-rose-900/30 p-3 rounded-md">
-                        {error()}
-                      </p>
-                    </Show>
-                    <Button type="submit" class="w-full" loading={isLoading()}>
-                      {isLoading() ? "ログイン処理中..." : "ログイン"}
-                    </Button>
-                    <Show when={oauthHost()}>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        class="w-full"
-                        onClick={loginWithOAuth}
-                      >
-                        OAuthでログイン
-                      </Button>
-                    </Show>
-                  </form>
-                </Card>
-              </main>
-              <footer class="py-6 border-t border-[var(--color-border)]">
-                <div class="container mx-auto px-4 text-center">
-                  <p class="text-gray-500 text-sm">
-                    © 2023 takos. All rights reserved.
+      {isTauri()
+        ? <TauriLogin onLoginSuccess={props.onLoginSuccess} />
+        : (
+          <div class="min-h-screen flex flex-col bg-[var(--color-bg)] text-gray-100">
+            <main class="flex-grow flex items-center justify-center px-4 py-12">
+              <Card class="w-full max-w-md">
+                <div class="mb-6 text-center">
+                  <h2 class="text-3xl font-semibold mb-2">ようこそ</h2>
+                  <p class="text-gray-400">
+                    ActivityPubでWeb自主するためのソフトウェア
                   </p>
                 </div>
-              </footer>
-            </div>
-          )}
-      </Show>
+                <p class="text-gray-400 text-sm leading-relaxed mb-6">
+                  1人のユーザーが他のユーザーとコミュニケーションを取るためのActivityPubに対応したソフトウェアです。シンプルで使いやすいインターフェースを提供します。
+                </p>
+                <form onSubmit={handleLogin} class="space-y-5">
+                  <Input
+                    id="loginPassword"
+                    type="password"
+                    value={loginPassword()}
+                    onInput={(e) => setLoginPassword(e.currentTarget.value)}
+                    label="ログイン用パスワード"
+                    placeholder="パスワードを入力"
+                    disabled={isLoading()}
+                    required
+                  />
+                  <Show when={error()}>
+                    <p class="text-rose-400 text-sm font-medium bg-rose-900/30 p-3 rounded-md">
+                      {error()}
+                    </p>
+                  </Show>
+                  <Button type="submit" class="w-full" loading={isLoading()}>
+                    {isLoading() ? "ログイン処理中..." : "ログイン"}
+                  </Button>
+                  <Show when={oauthHost()}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      class="w-full"
+                      onClick={loginWithOAuth}
+                    >
+                      OAuthでログイン
+                    </Button>
+                  </Show>
+                </form>
+              </Card>
+            </main>
+            <footer class="py-6 border-t border-[var(--color-border)]">
+              <div class="container mx-auto px-4 text-center">
+                <p class="text-gray-500 text-sm">
+                  © 2023 takos. All rights reserved.
+                </p>
+              </div>
+            </footer>
+          </div>
+        )}
     </>
   );
 }
