@@ -14,12 +14,12 @@ import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
   addRoom,
-  fetchEncryptedKeyPair,
+  fetchEncryptedKeyPair as _fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeepMessages,
   fetchKeyPackages,
   RoomsSearchItem,
-  saveEncryptedKeyPair,
+  saveEncryptedKeyPair as _saveEncryptedKeyPair,
   searchRooms,
   sendCommit as _sendCommit,
   sendEncryptedMessage,
@@ -1191,6 +1191,34 @@ export function Chat() {
         : room.name;
       const decoded = decodeMLSMessage(data.content);
       if (!decoded) return;
+
+      // Welcome を受信したら参加確認の joinAck を送信
+      try {
+        const bodyObj = JSON.parse(decoded.body) as {
+          type?: string;
+          roomId?: string;
+          deviceId?: string;
+        };
+        if (
+          bodyObj.type === "welcome" &&
+          typeof bodyObj.roomId === "string" &&
+          typeof bodyObj.deviceId === "string" &&
+          bodyObj.deviceId === user.id
+        ) {
+          const ack = encodeMLSMessage(
+            "PrivateMessage",
+            JSON.stringify({
+              type: "joinAck",
+              roomId: bodyObj.roomId,
+              deviceId: bodyObj.deviceId,
+            }),
+          );
+          await sendEncryptedMessage(bodyObj.roomId, self, { content: ack });
+          return;
+        }
+      } catch {
+        /* JSON でない場合は無視 */
+      }
 
       let text = decoded.body;
       let attachments:
