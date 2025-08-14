@@ -11,25 +11,6 @@ export default defineConfig({
     VitePWA({ registerType: "autoUpdate" }),
   ],
 
-  resolve: {
-    alias: [
-      { find: /^@noble\/ciphers(.*)$/, replacement: "@noble/hashes$1" },
-    ],
-  },
-
-  optimizeDeps: {
-    // avoid pre-bundling the problematic package so Vite doesn't try to resolve deep exports
-    exclude: ["@noble/ciphers", "ts-mls"],
-  },
-
-  ssr: {
-    // mark as external for SSR/dev to skip resolution by Vite's optimizer
-    external: ["@noble/ciphers"],
-  },
-
-
-  clearScreen: false,
-
   server: {
     host: "0.0.0.0",
     port: 1420,
