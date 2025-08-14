@@ -16,6 +16,7 @@
     "jsr:@std/streams@*": "1.0.10",
     "npm:@hono/zod-validator@0.7": "0.7.1_hono@4.8.5_zod@3.25.76",
     "npm:@motionone/solid@^10.16.4": "10.16.4_solid-js@1.9.7__seroval@1.3.2",
+    "npm:@noble/curves@*": "1.9.6",
     "npm:@tailwindcss/vite@^4.1.11": "4.1.11_vite@7.0.5__picomatch@4.0.3_@types+node@22.15.15",
     "npm:@types/node@*": "22.15.15",
     "npm:hono@*": "4.8.5",
@@ -25,6 +26,7 @@
     "npm:nodemailer@^6.9.11": "6.10.1",
     "npm:solid-app-router@~0.4.2": "0.4.2_solid-js@1.9.7__seroval@1.3.2",
     "npm:tailwindcss@^4.1.11": "4.1.11",
+    "npm:ts-mls@*": "1.0.4_@noble+curves@1.9.6",
     "npm:zod@^3.25.56": "3.25.76"
   },
   "jsr": {
@@ -352,6 +354,15 @@
         "zod"
       ]
     },
+    "@hpke/common@1.8.0": {
+      "integrity": "sha512-CYNfKrdHo4sb71QxHsBt90fRnLxbdPxLIwdNQtZ2LGT7ePhnEvTvaXhPYzlJNARue6LLwjzOytu4mttZGAQxfA=="
+    },
+    "@hpke/core@1.7.3": {
+      "integrity": "sha512-shx1PFyXM8nVOmylrb0O6bGSm7gFgq5rcvhbmVjT/Kch50XXFAm1DYlio3b5jdpzvyAr5CpcsEbfoIMMtJcnJQ==",
+      "dependencies": [
+        "@hpke/common"
+      ]
+    },
     "@isaacs/fs-minipass@4.0.1": {
       "integrity": "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==",
       "dependencies": [
@@ -452,6 +463,15 @@
         "@emnapi/runtime",
         "@tybys/wasm-util@0.10.0"
       ]
+    },
+    "@noble/curves@1.9.6": {
+      "integrity": "sha512-GIKz/j99FRthB8icyJQA51E8Uk5hXmdyThjgQXRKiv9h0zeRlzSCLIzFw6K1LotZ3XuB7yzlf76qk7uBmTdFqA==",
+      "dependencies": [
+        "@noble/hashes"
+      ]
+    },
+    "@noble/hashes@1.8.0": {
+      "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="
     },
     "@opentelemetry/api@1.9.0": {
       "integrity": "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="
@@ -1761,6 +1781,16 @@
       "integrity": "sha512-hdF5ZgjTqgAntKkklYw0R03MG2x/bSzTtkxmIRw/sTNV8YXsCJ1tfLAX23lhxhHJlEf3CRCOCGGWw3vI3GaSPw==",
       "dependencies": [
         "punycode"
+      ]
+    },
+    "ts-mls@1.0.4_@noble+curves@1.9.6": {
+      "integrity": "sha512-JYwcIrCv399G0LmXl+hhcegAH3HjWv/V68/ueGQBC3VslbuqL5H0hN+/cIqQeWhD0ttqJ4xGzhjwAmQ12iipsQ==",
+      "dependencies": [
+        "@hpke/core",
+        "@noble/curves"
+      ],
+      "optionalPeers": [
+        "@noble/curves"
       ]
     },
     "tslib@2.8.1": {
