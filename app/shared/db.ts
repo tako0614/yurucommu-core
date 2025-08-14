@@ -148,9 +148,33 @@ export interface DB {
     condition: Record<string, unknown>,
     opts?: { before?: string; after?: string; limit?: number },
   ): Promise<unknown[]>;
-  findEncryptedKeyPair(userName: string): Promise<unknown | null>;
-  upsertEncryptedKeyPair(userName: string, content: string): Promise<void>;
-  deleteEncryptedKeyPair(userName: string): Promise<void>;
+  findEncryptedKeyPair(
+    userName: string,
+    deviceId: string,
+  ): Promise<unknown | null>;
+  upsertEncryptedKeyPair(
+    userName: string,
+    deviceId: string,
+    content: string,
+  ): Promise<void>;
+  deleteEncryptedKeyPair(userName: string, deviceId: string): Promise<void>;
+  deleteEncryptedKeyPairsByUser(userName: string): Promise<void>;
+  findMLSState(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+  ): Promise<string | null>;
+  upsertMLSState(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+    state: string,
+  ): Promise<void>;
+  deleteMLSState(
+    roomId: string,
+    userName: string,
+    deviceId: string,
+  ): Promise<void>;
   listKeyPackages(userName: string): Promise<unknown[]>;
   findKeyPackage(userName: string, id: string): Promise<unknown | null>;
   createKeyPackage(
