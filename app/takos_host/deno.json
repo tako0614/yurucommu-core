@@ -1,6 +1,6 @@
 {
   "tasks": {
-  "serve": "deno run -A --unstable-detect-cjs --watch --unsafely-ignore-certificate-errors main.ts --",
+    "serve": "deno run -A --unstable-detect-cjs --watch --unsafely-ignore-certificate-errors main.ts --",
     "dev": "deno run -A --unstable-detect-cjs --unsafely-ignore-certificate-errors dev.ts --",
     "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
     "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
@@ -22,6 +22,8 @@
     "mongodb": "npm:mongodb@^6.17.0",
     "nodemailer": "npm:nodemailer@^6.9.11",
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
+    "@noble/curves/p256": "npm:@noble/curves@^1.9.6/p256",
+    "ts-mls": "npm:ts-mls@^1.0.4",
     "@std/flags": "jsr:@std/flags@1"
   },
   "nodeModulesDir": "auto"
