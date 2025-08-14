@@ -1,5 +1,4 @@
-// MLSメッセージのエンコードとデコード
-// activitypub-e2ee仕様に沿ってメッセージタイプを1バイトで表現する
+// RFC 9420 に基づく MLS メッセージの TLV 形式シリアライズ
 
 import { b64ToBuf, bufToB64 } from "./buffer.ts";
 
@@ -23,33 +22,77 @@ const byteToType: Record<number, MLSMessageType> = {
   4: "KeyPackage",
 };
 
-/**
- * MLSMessageをBase64文字列に変換
- */
-export function encodeMLSMessage(
-  type: MLSMessageType,
-  body: Uint8Array | string,
-): string {
-  const bodyBuf = typeof body === "string"
-    ? new TextEncoder().encode(body)
-    : body;
-  const u8 = new Uint8Array(bodyBuf.length + 1);
-  u8[0] = typeToByte[type];
-  u8.set(bodyBuf, 1);
-  return bufToB64(u8);
+function toBytes(body: Uint8Array | string): Uint8Array {
+  return typeof body === "string" ? new TextEncoder().encode(body) : body;
 }
 
-/**
- * Base64文字列からMLSMessageを復元
- */
-export function decodeMLSMessage(
+function serialize(
+  type: MLSMessageType,
+  body: Uint8Array | string,
+): Uint8Array {
+  const bodyBuf = toBytes(body);
+  const len = bodyBuf.length;
+  const out = new Uint8Array(3 + len);
+  out[0] = typeToByte[type];
+  out[1] = (len >>> 8) & 0xff;
+  out[2] = len & 0xff;
+  out.set(bodyBuf, 3);
+  return out;
+}
+
+function deserialize(
+  data: Uint8Array,
+): { type: MLSMessageType; body: Uint8Array } | null {
+  if (data.length < 3) return null;
+  const type = byteToType[data[0]];
+  if (!type) return null;
+  const len = (data[1] << 8) | data[2];
+  if (data.length < 3 + len) return null;
+  return { type, body: data.slice(3, 3 + len) };
+}
+
+export function encodePublicMessage(body: Uint8Array | string): string {
+  return bufToB64(serialize("PublicMessage", body));
+}
+
+export function encodePrivateMessage(body: Uint8Array | string): string {
+  return bufToB64(serialize("PrivateMessage", body));
+}
+
+export function encodeWelcome(body: Uint8Array | string): string {
+  return bufToB64(serialize("Welcome", body));
+}
+
+export function encodeKeyPackage(body: Uint8Array | string): string {
+  return bufToB64(serialize("KeyPackage", body));
+}
+
+export function decodePublicMessage(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "PublicMessage" ? decoded.body : null;
+}
+
+export function decodePrivateMessage(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "PrivateMessage" ? decoded.body : null;
+}
+
+export function decodeWelcome(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "Welcome" ? decoded.body : null;
+}
+
+export function decodeKeyPackage(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "KeyPackage" ? decoded.body : null;
+}
+
+export function parseMLSMessage(
   data: string,
 ): { type: MLSMessageType; body: Uint8Array } | null {
   try {
-    const u8 = new Uint8Array(b64ToBuf(data));
-    const type = byteToType[u8[0]];
-    if (!type) return null;
-    return { type, body: u8.slice(1) };
+    const u8 = b64ToBuf(data);
+    return deserialize(u8);
   } catch {
     return null;
   }

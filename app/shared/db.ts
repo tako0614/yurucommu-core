@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import type { AccountDoc, SessionDoc } from "./types.ts";
+import type { StoredGroupState } from "./mls_core.ts";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -16,6 +17,7 @@ export interface ChatroomInfo {
   icon?: string;
   userSet?: { name?: boolean; icon?: boolean };
   members: string[];
+  mls?: StoredGroupState | null;
 }
 
 /** DB 抽象インターフェース */
