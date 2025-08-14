@@ -58,7 +58,8 @@ interface RemoteActorCache {
   actorUrl: string;
 }
 
-interface KeyPackageDoc {
+// KeyPackage 情報の簡易的な型定義
+export interface KeyPackageDoc {
   _id?: unknown;
   content: string;
   mediaType: string;
@@ -146,7 +147,8 @@ async function resolveActorCached(
   return actor;
 }
 
-function selectKeyPackages(
+// KeyPackage の選択ロジックをテストから利用できるよう公開
+export function selectKeyPackages(
   list: KeyPackageDoc[],
   suite: number,
   M = 3,
@@ -199,47 +201,52 @@ async function handleHandshake(
   const found = await db.findChatroom(roomId);
   if (!found) return { ok: false, status: 404, error: "room not found" };
   const { room: group, owner } = found;
-  if (!group.members.includes(from)) {
-    return { ok: false, status: 403, error: "not a member" };
-  }
-  const allMembers = [...group.members];
-  const recipients = allMembers.filter((m) => m !== from);
-
   const psks = typeof body.psks === "object" && body.psks
     ? body.psks as Record<string, string>
     : undefined;
 
   const decoded = decodePublicMessage(content);
-  if (decoded) {
-    const inner = decodeMlsMessage(decoded, 0)?.[0];
-    if (inner && inner.wireformat === "mls_public_message" && group.mls) {
-      const suite = group.mls.groupContext.cipherSuite;
-      if (inner.publicMessage.content?.commit) {
-        const ok = await verifyCommit(
-          group.mls as StoredGroupState,
-          inner.publicMessage,
-          suite,
-          psks,
-        );
-        if (!ok) {
-          return { ok: false, status: 400, error: "invalid commit" };
-        }
-        group.mls = await processCommit(
-          group.mls as StoredGroupState,
-          inner.publicMessage,
-          suite,
-          psks,
-        );
-        await db.updateChatroom(owner, group);
-      } else if (inner.publicMessage.content?.proposal) {
-        group.mls = await processProposal(
-          group.mls as StoredGroupState,
-          inner.publicMessage,
-          suite,
-          psks,
-        );
-        await db.updateChatroom(owner, group);
+  const inner = decoded ? decodeMlsMessage(decoded, 0)?.[0] : null;
+  const isCommit = inner && inner.wireformat === "mls_public_message" &&
+    inner.publicMessage.content?.commit;
+  if (!group.members.includes(from) && !isCommit) {
+    return { ok: false, status: 403, error: "not a member" };
+  }
+  const allMembers = group.members.includes(from)
+    ? [...group.members]
+    : [...group.members, from];
+  const recipients = allMembers.filter((m) => m !== from);
+
+  if (inner && inner.wireformat === "mls_public_message" && group.mls) {
+    const suite = group.mls.groupContext.cipherSuite;
+    if (inner.publicMessage.content?.commit) {
+      const ok = await verifyCommit(
+        group.mls as StoredGroupState,
+        inner.publicMessage,
+        suite,
+        psks,
+      );
+      if (!ok) {
+        return { ok: false, status: 400, error: "invalid commit" };
       }
+      group.mls = await processCommit(
+        group.mls as StoredGroupState,
+        inner.publicMessage,
+        suite,
+        psks,
+      );
+      if (!group.members.includes(from)) {
+        group.members.push(from);
+      }
+      await db.updateChatroom(owner, group);
+    } else if (inner.publicMessage.content?.proposal) {
+      group.mls = await processProposal(
+        group.mls as StoredGroupState,
+        inner.publicMessage,
+        suite,
+        psks,
+      );
+      await db.updateChatroom(owner, group);
     }
   } else {
     const welcome = decodeWelcome(content);

@@ -44,7 +44,7 @@ import {
   StoredMLSKeyPair,
   verifyWelcome,
   WelcomeMessage,
-} from "./e2ee/mls.ts";
+} from "./e2ee/legacy.ts";
 import {
   loadMLSGroupStates,
   loadMLSKeyPair,

@@ -1,9 +1,10 @@
-import type { StoredMLSGroupState, StoredMLSKeyPair } from "./mls.ts";
+import type { StoredGroupState } from "./mls_core.ts";
+import type { GeneratedKeyPair } from "../../../../shared/mls_wrapper.ts";
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
 
-// グループ状態の構造が変わったためバージョンを更新
-const DB_VERSION = 5;
+// 新実装に伴い保存形式を変更
+const DB_VERSION = 6;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
 const CACHE_STORE = "cache";
@@ -13,6 +14,12 @@ const stores: Record<string, Store> = {};
 async function openStore(accountId: string): Promise<Store> {
   if (stores[accountId]) return stores[accountId];
   const store = await loadStore(`takos_${accountId}.json`);
+  const version = await store.get<number>("version");
+  if (version !== DB_VERSION) {
+    await store.clear();
+    await store.set("version", DB_VERSION);
+    await store.save();
+  }
   stores[accountId] = store;
   return store;
 }
@@ -23,6 +30,14 @@ function openDB(accountId: string): Promise<IDBDatabase> {
     const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      if (req.oldVersion < DB_VERSION) {
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          db.deleteObjectStore(STORE_NAME);
+        }
+        if (db.objectStoreNames.contains(KEY_STORE)) {
+          db.deleteObjectStore(KEY_STORE);
+        }
+      }
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
       }
@@ -40,21 +55,21 @@ function openDB(accountId: string): Promise<IDBDatabase> {
 
 export const loadMLSGroupStates = async (
   accountId: string,
-): Promise<Record<string, StoredMLSGroupState>> => {
+): Promise<Record<string, StoredGroupState>> => {
   if (isTauri()) {
     const store = await openStore(accountId);
-    return await store.get<Record<string, StoredMLSGroupState>>("groups") ?? {};
+    return await store.get<Record<string, StoredGroupState>>("groups") ?? {};
   }
   const db = await openDB(accountId);
   const tx = db.transaction(STORE_NAME, "readonly");
   const store = tx.objectStore(STORE_NAME);
   return await new Promise((resolve, reject) => {
     const req = store.openCursor();
-    const result: Record<string, StoredMLSGroupState> = {};
+    const result: Record<string, StoredGroupState> = {};
     req.onsuccess = () => {
       const cursor = req.result;
       if (cursor) {
-        result[cursor.key as string] = cursor.value as StoredMLSGroupState;
+        result[cursor.key as string] = cursor.value as StoredGroupState;
         cursor.continue();
       } else {
         resolve(result);
@@ -66,7 +81,7 @@ export const loadMLSGroupStates = async (
 
 export const saveMLSGroupStates = async (
   accountId: string,
-  states: Record<string, StoredMLSGroupState>,
+  states: Record<string, StoredGroupState>,
 ): Promise<void> => {
   if (isTauri()) {
     const store = await openStore(accountId);
@@ -89,10 +104,10 @@ export const saveMLSGroupStates = async (
 
 export const loadMLSKeyPair = async (
   accountId: string,
-): Promise<StoredMLSKeyPair | null> => {
+): Promise<GeneratedKeyPair | null> => {
   if (isTauri()) {
     const store = await openStore(accountId);
-    return await store.get<StoredMLSKeyPair>("keyPair") ?? null;
+    return await store.get<GeneratedKeyPair>("keyPair") ?? null;
   }
   const db = await openDB(accountId);
   const tx = db.transaction(KEY_STORE, "readonly");
@@ -101,7 +116,7 @@ export const loadMLSKeyPair = async (
     const req = store.openCursor(null, "prev");
     req.onsuccess = () => {
       const cursor = req.result;
-      resolve(cursor ? (cursor.value as StoredMLSKeyPair) : null);
+      resolve(cursor ? (cursor.value as GeneratedKeyPair) : null);
     };
     req.onerror = () => reject(req.error);
   });
@@ -109,7 +124,7 @@ export const loadMLSKeyPair = async (
 
 export const saveMLSKeyPair = async (
   accountId: string,
-  pair: StoredMLSKeyPair,
+  pair: GeneratedKeyPair,
 ): Promise<void> => {
   if (isTauri()) {
     const store = await openStore(accountId);

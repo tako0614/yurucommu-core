@@ -3,7 +3,11 @@ import {
   decodeGroupInfo,
   encodePublicMessage,
 } from "../../../../shared/mls_message.ts";
-import { verifyGroupInfo } from "../../../../shared/mls_wrapper.ts";
+import {
+  type GeneratedKeyPair,
+  joinWithGroupInfo,
+  verifyGroupInfo,
+} from "../../../../shared/mls_wrapper.ts";
 import { createUpdateCommit, type StoredGroupState } from "./mls_core.ts";
 
 export interface KeyPackage {
@@ -305,6 +309,25 @@ export const updateRoomKey = async (
     return res;
   } catch (err) {
     console.error("Error updating room key:", err);
+    return null;
+  }
+};
+
+export const joinGroupWithInfo = async (
+  roomId: string,
+  from: string,
+  groupInfo: string,
+  keyPair: GeneratedKeyPair,
+): Promise<{ state: StoredGroupState } | null> => {
+  try {
+    const infoBytes = decodeGroupInfo(groupInfo);
+    if (!infoBytes) return null;
+    const res = await joinWithGroupInfo(infoBytes, keyPair);
+    const ok = await sendHandshake(roomId, from, res.commit);
+    if (!ok) return null;
+    return { state: res.state };
+  } catch (err) {
+    console.error("Error joining with group info:", err);
     return null;
   }
 };

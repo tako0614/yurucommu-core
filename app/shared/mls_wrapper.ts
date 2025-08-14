@@ -31,6 +31,7 @@ import {
   verifyGroupInfoSignature,
 } from "ts-mls";
 import "@noble/curves/p256";
+import { encodePublicMessage } from "./mls_message.ts";
 
 export type StoredGroupState = ClientState;
 
@@ -460,7 +461,7 @@ export async function joinWithGroupInfo(
   groupInfo: Uint8Array,
   keyPair: GeneratedKeyPair,
   suite: CiphersuiteName = DEFAULT_SUITE,
-): Promise<{ commit: Uint8Array; state: StoredGroupState }> {
+): Promise<{ commit: string; state: StoredGroupState }> {
   const cs = await getSuite(suite);
   const decoded = decodeMlsMessage(groupInfo, 0)?.[0];
   if (!decoded || decoded.wireformat !== "mls_group_info") {
@@ -473,14 +474,12 @@ export async function joinWithGroupInfo(
     false,
     cs,
   );
-  return {
-    commit: encodeMlsMessage({
-      version: "mls10",
-      wireformat: "mls_public_message",
-      publicMessage,
-    }),
-    state: newState,
-  };
+  const commitBytes = encodeMlsMessage({
+    version: "mls10",
+    wireformat: "mls_public_message",
+    publicMessage,
+  });
+  return { commit: encodePublicMessage(commitBytes), state: newState };
 }
 
 export async function processCommit(
