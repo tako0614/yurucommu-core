@@ -296,7 +296,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
   return (
 <>
   <div
-    class="flex-grow overflow-y-auto"
+    class="flex-grow overflow-y-auto mt-[48px]"
     style={{
       "scroll-padding-block-start": "200px",
       "scroll-behavior": "auto",

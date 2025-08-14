@@ -16,8 +16,8 @@ import {
   type KeyPackage as TsKeyPackage,
   type PrivateKeyPackage,
   type Proposal,
-} from "npm:ts-mls";
-import "npm:@noble/curves/p256";
+} from "ts-mls";
+import "@noble/curves/p256";
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
