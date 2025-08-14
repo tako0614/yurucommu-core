@@ -20,8 +20,6 @@
     "mongodb": "npm:mongodb@^6.17.0",
     "nodemailer": "npm:nodemailer@^6.9.11",
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
-    "@noble/curves/p256": "npm:@noble/curves@^1.9.6/p256",
-    "ts-mls": "npm:ts-mls@^1.0.4",
     "@std/flags": "jsr:@std/flags@1"
   },
   "nodeModulesDir": "auto"
