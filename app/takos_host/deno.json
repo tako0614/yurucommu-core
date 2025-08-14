@@ -8,7 +8,6 @@
   "imports": {
     "@motionone/solid": "npm:@motionone/solid@^10.16.4",
     "@std/assert": "jsr:@std/assert@1",
-    "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.11",
     "hono": "npm:hono@^4.8.4",
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
@@ -17,7 +16,6 @@
     "@std/http": "jsr:@std/http@^0.225.5",
     "mongoose": "npm:mongoose@^8.16.4",
     "solid-app-router": "npm:solid-app-router@^0.4.2",
-    "tailwindcss": "npm:tailwindcss@^4.1.11",
     "zod": "npm:zod@^3.25.56",
     "mongodb": "npm:mongodb@^6.17.0",
     "nodemailer": "npm:nodemailer@^6.9.11",
