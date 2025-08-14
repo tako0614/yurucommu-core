@@ -14,6 +14,7 @@ const chatroomSchema = new mongoose.Schema({
     default: { name: false, icon: false },
   },
   members: { type: [String], default: [] },
+  mls: { type: mongoose.Schema.Types.Mixed, default: null },
 });
 
 chatroomSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
