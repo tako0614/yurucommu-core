@@ -173,7 +173,9 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 エンドツーエンド暗号化に対応したチャット機能の API です。 `/api/users/*`
 プレフィックスには公開ユーザー情報取得用のエンドポイントも含まれますが、
-アカウント管理機能は `/api/accounts/*` で提供されます。
+アカウント管理機能は `/api/accounts/*` で提供されます。 MLS
+に関する暗号化・復号・状態管理はすべてクライアント側で行い、サーバーは
+暗号化済みデータの保存と配送だけを担います。
 
 - `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
 - `POST /api/users/:user/keyPackages` – KeyPackage 登録（GroupInfo
@@ -199,17 +201,21 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 - `FILE_MAX_SIZE`: 最大サイズ（例: `10MB`, `512KB`, `10485760`）
 - `FILE_MAX_SIZE_BYTES`: バイト数を数値で指定
 - `FILE_MAX_SIZE_MB`: MB を数値で指定
-- `FILE_ALLOWED_MIME_TYPES`: 許可する MIME タイプ（カンマ区切り）。未設定なら許可リストなし＝全 MIME 許可
-- `FILE_BLOCKED_MIME_TYPES`: 拒否する MIME タイプ（カンマ区切り、未設定なら制限なし）
-- `FILE_BLOCKED_EXTENSIONS`: 拒否する拡張子（カンマ区切り、未設定なら制限なし。例: `.exe,.bat`）
-備考: `FILE_MAX_SIZE*` を未設定の場合、サイズ制限はありません。
+- `FILE_ALLOWED_MIME_TYPES`: 許可する MIME
+  タイプ（カンマ区切り）。未設定なら許可リストなし＝全 MIME 許可
+- `FILE_BLOCKED_MIME_TYPES`: 拒否する MIME
+  タイプ（カンマ区切り、未設定なら制限なし）
+- `FILE_BLOCKED_EXTENSIONS`:
+  拒否する拡張子（カンマ区切り、未設定なら制限なし。例: `.exe,.bat`） 備考:
+  `FILE_MAX_SIZE*` を未設定の場合、サイズ制限はありません。
 
 .env の例は `app/api/.env.example` を参照してください。
 
 ## クライアントでのデータ保存
 
-チャット機能で利用するMLS関連データは、ブラウザのIndexedDBに保存します。データベースは
-アカウントIDごとに分割されており、別アカウントの情報が混在しないようになっています。
+チャット機能で利用する MLS 関連データはブラウザの IndexedDB に保存されます。
+暗号化やグループ状態の更新もクライアント内で完結し、サーバーは暗号化済みデータを
+そのまま中継します。データベースはアカウントごとに分割され、別アカウントの情報が混在しないようになっています。
 
 鍵共有の仕組みについては [docs/key-sharing.md](docs/key-sharing.md)
 を参照してください。

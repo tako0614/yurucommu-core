@@ -159,22 +159,6 @@ export interface DB {
   ): Promise<void>;
   deleteEncryptedKeyPair(userName: string, deviceId: string): Promise<void>;
   deleteEncryptedKeyPairsByUser(userName: string): Promise<void>;
-  findMLSState(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-  ): Promise<string | null>;
-  upsertMLSState(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-    state: string,
-  ): Promise<void>;
-  deleteMLSState(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-  ): Promise<void>;
   listKeyPackages(userName: string): Promise<unknown[]>;
   findKeyPackage(userName: string, id: string): Promise<unknown | null>;
   createKeyPackage(

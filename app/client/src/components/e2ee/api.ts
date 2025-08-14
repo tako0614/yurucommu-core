@@ -417,69 +417,6 @@ export const deleteEncryptedKeyPair = async (
   }
 };
 
-export const fetchMLSState = async (
-  user: string,
-  roomId: string,
-  deviceId: string,
-): Promise<string | null> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/rooms/${
-        encodeURIComponent(roomId)
-      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return typeof data.state === "string" ? data.state : null;
-  } catch (err) {
-    console.error("Error fetching MLS state:", err);
-    return null;
-  }
-};
-
-export const saveMLSState = async (
-  user: string,
-  roomId: string,
-  deviceId: string,
-  state: string,
-): Promise<boolean> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/rooms/${
-        encodeURIComponent(roomId)
-      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state }),
-      },
-    );
-    return res.ok;
-  } catch (err) {
-    console.error("Error saving MLS state:", err);
-    return false;
-  }
-};
-
-export const deleteMLSState = async (
-  user: string,
-  roomId: string,
-  deviceId: string,
-): Promise<boolean> => {
-  try {
-    const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/rooms/${
-        encodeURIComponent(roomId)
-      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
-      { method: "DELETE" },
-    );
-    return res.ok;
-  } catch (err) {
-    console.error("Error deleting MLS state:", err);
-    return false;
-  }
-};
-
 export const uploadFile = async (
   data: {
     content: ArrayBuffer;

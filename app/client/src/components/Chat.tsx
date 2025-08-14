@@ -14,37 +14,22 @@ import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import {
   addKeyPackage,
   addRoom,
-  fetchEncryptedKeyPair as _fetchEncryptedKeyPair,
   fetchEncryptedMessages,
   fetchKeepMessages,
-  fetchKeyPackages,
   RoomsSearchItem,
-  saveEncryptedKeyPair as _saveEncryptedKeyPair,
   searchRooms,
-  sendCommit as _sendCommit,
   sendEncryptedMessage,
   sendKeepMessage,
-  sendProposal as _sendProposal,
   uploadFile,
 } from "./e2ee/api.ts";
 import { getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
-  decryptGroupMessage,
-  deriveMLSSecret,
-  encryptGroupMessage,
-  exportGroupState,
-  exportKeyPair,
+  decryptMessage,
+  encryptMessageWithAck,
   generateKeyPackage,
-  importGroupState,
-  importKeyPair,
-  MLSGroupState,
-  MLSKeyPair,
-  StoredMLSGroupState,
-  StoredMLSKeyPair,
-  verifyWelcome,
-  WelcomeMessage,
-} from "./e2ee/legacy.ts";
+  type StoredGroupState,
+} from "./e2ee/mls_core.ts";
 import {
   loadMLSGroupStates,
   loadMLSKeyPair,
@@ -60,15 +45,7 @@ import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
-import {
-  decodeKeyPackage,
-  encodePrivateMessage,
-  parseMLSMessage,
-} from "../../../shared/mls_message.ts";
-import {
-  type KeyPackage as MLSKeyPackageData,
-  verifyKeyPackage,
-} from "./e2ee/mls_core.ts";
+import type { GeneratedKeyPair } from "../../../shared/mls_wrapper.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -424,12 +401,13 @@ export function Chat() {
   const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
-  const [groups, setGroups] = createSignal<Record<string, MLSGroupState>>({});
+  const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
+    {},
+  );
   const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
   // 暗号化はデフォルトではオフにしておく
   const [useEncryption, setUseEncryption] = createSignal(false);
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);
-  const partnerKeyCache = new Map<string, string | null>();
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
   onMount(async () => {
@@ -502,11 +480,7 @@ export function Chat() {
     if (!user) return;
     try {
       const stored = await loadMLSGroupStates(user.id);
-      const map: Record<string, MLSGroupState> = {};
-      for (const [id, data] of Object.entries(stored)) {
-        map[id] = await importGroupState(data);
-      }
-      setGroups(map);
+      setGroups(stored);
     } catch (err) {
       console.error("Failed to load group states", err);
     }
@@ -515,44 +489,31 @@ export function Chat() {
   const saveGroupStates = async () => {
     const user = account();
     if (!user) return;
-    const current = groups();
-    const obj: Record<string, StoredMLSGroupState> = {};
-    for (const [id, g] of Object.entries(current)) {
-      obj[id] = await exportGroupState(g);
-    }
-    await saveMLSGroupStates(user.id, obj);
+    await saveMLSGroupStates(user.id, groups());
   };
 
   const [isGeneratingKeyPair, setIsGeneratingKeyPair] = createSignal(false);
 
-  const ensureKeyPair = async () => {
-    if (isGeneratingKeyPair()) return;
+  const ensureKeyPair = async (): Promise<GeneratedKeyPair | null> => {
+    if (isGeneratingKeyPair()) return null;
 
-    let pair = keyPair();
+    let pair: GeneratedKeyPair | null = keyPair();
     const user = account();
-    console.log(pair);
     if (!user) return null;
     if (!pair) {
       setIsGeneratingKeyPair(true);
       try {
-        const stored = await loadMLSKeyPair(user.id);
-        if (stored) {
-          pair = await importKeyPair(stored as StoredMLSKeyPair);
-        }
+        pair = await loadMLSKeyPair(user.id);
       } catch (err) {
         console.error("鍵ペアの読み込みに失敗しました", err);
         pair = null;
       }
       if (!pair) {
-        const { keyPackage, keyPair } = await generateKeyPackage();
-        pair = keyPair;
+        const kp = await generateKeyPackage(user.userName);
+        pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
         try {
-          const exported = await exportKeyPair(pair, keyPackage);
-          await saveMLSKeyPair(user.id, exported);
-          await addKeyPackage(
-            user.userName,
-            { content: keyPackage.data },
-          );
+          await saveMLSKeyPair(user.id, pair);
+          await addKeyPackage(user.userName, { content: kp.encoded });
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           setIsGeneratingKeyPair(false);
@@ -563,39 +524,6 @@ export function Chat() {
       setIsGeneratingKeyPair(false);
     }
     return pair;
-  };
-
-  const getPartnerKey = async (userName: string, domain?: string) => {
-    const effectiveDomain = domain ?? getDomain();
-    const keyId = `${userName}@${effectiveDomain}`;
-    const actorId = `https://${effectiveDomain}/users/${userName}`;
-    if (partnerKeyCache.has(keyId)) {
-      const cached = partnerKeyCache.get(keyId);
-      return cached;
-    }
-    const keys = await fetchKeyPackages(
-      userName,
-      effectiveDomain,
-    );
-    let pub: string | null = null;
-    const raw = keys[0]?.content;
-    if (raw) {
-      const body = decodeKeyPackage(raw);
-      if (body) {
-        try {
-          const obj = JSON.parse(
-            new TextDecoder().decode(body),
-          ) as MLSKeyPackageData;
-          if (await verifyKeyPackage(obj, actorId)) {
-            pub = obj.initKey;
-          }
-        } catch {
-          pub = null;
-        }
-      }
-    }
-    partnerKeyCache.set(keyId, pub);
-    return pub;
   };
 
   const fetchMessagesForRoom = async (
@@ -622,24 +550,10 @@ export function Chat() {
       }));
       return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     }
-    const [partnerUser, partnerDomain] = splitActor(room.members[0]);
     const encryptedMsgs: ChatMessage[] = [];
     let group = groups()[room.id];
     if (!group) {
-      const kp = await ensureKeyPair();
-      if (kp) {
-        const partnerPub = await getPartnerKey(partnerUser, partnerDomain);
-        if (partnerPub) {
-          const secret = await deriveMLSSecret(kp.privateKey, partnerPub);
-          const tree: Record<ActorID, string> = {};
-          for (const member of room.members) {
-            tree[member] = ""; // 実際の公開鍵は別途取得が必要
-          }
-          group = { tree, epoch: Date.now(), secret };
-          setGroups({ ...groups(), [room.id]: group });
-          saveGroupStates();
-        }
-      }
+      return [];
     }
     const list = await fetchEncryptedMessages(
       room.id,
@@ -647,8 +561,9 @@ export function Chat() {
       params,
     );
     for (const m of list) {
-      const decoded = parseMLSMessage(m.content);
-      if (!decoded) {
+      const data = b64ToBuf(m.content);
+      const res = await decryptMessage(group, data);
+      if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         const displayName = isMe
           ? user.displayName || user.userName
@@ -666,12 +581,10 @@ export function Chat() {
         });
         continue;
       }
-      const note = decoded.type === "PrivateMessage"
-        ? parseActivityPubNote(
-          (await decryptGroupMessage(group, m.content)) ??
-            new TextDecoder().decode(decoded.body),
-        )
-        : parseActivityPubNote(new TextDecoder().decode(decoded.body));
+      group = res.state;
+      const note = parseActivityPubNote(
+        new TextDecoder().decode(res.plaintext),
+      );
       const text = note.content;
       const listAtt = Array.isArray(m.attachments)
         ? m.attachments
@@ -788,6 +701,8 @@ export function Chat() {
     const msgs = encryptedMsgs.sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
+    setGroups({ ...groups(), [room.id]: group });
+    saveGroupStates();
     return msgs;
   };
 
@@ -1025,20 +940,34 @@ export function Chat() {
       const att = await buildAttachment(file);
       if (att) note.attachment = [att];
     }
-    const msg = await encryptGroupMessage(group, JSON.stringify(note));
-    const success = await sendEncryptedMessage(
+    const encrypted = await encryptMessageWithAck(
+      group,
+      JSON.stringify(note),
       roomId,
-      `${user.userName}@${getDomain()}`,
-      {
-        content: msg,
-        mediaType: "message/mls",
-        encoding: "base64",
-      },
+      user.id,
     );
+    let success = true;
+    for (const msg of encrypted.messages) {
+      const ok = await sendEncryptedMessage(
+        roomId,
+        `${user.userName}@${getDomain()}`,
+        {
+          content: bufToB64(msg),
+          mediaType: "message/mls",
+          encoding: "base64",
+        },
+      );
+      if (!ok) {
+        success = false;
+        break;
+      }
+    }
     if (!success) {
       alert("メッセージの送信に失敗しました");
       return;
     }
+    setGroups({ ...groups(), [roomId]: encrypted.state });
+    saveGroupStates();
     // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
@@ -1218,79 +1147,7 @@ export function Chat() {
       const displayName = isMe
         ? (user.displayName || user.userName)
         : room.name;
-      const decoded = parseMLSMessage(data.content);
-      if (!decoded) return;
-
-      // Welcome 受信時は署名とメンバーを検証し、成功時のみ joinAck を返信
-      try {
-        const bodyObj = JSON.parse(
-          new TextDecoder().decode(decoded.body),
-        ) as {
-          type?: string;
-          roomId?: string;
-          deviceId?: string;
-          welcome?: WelcomeMessage;
-        };
-        if (
-          bodyObj.type === "welcome" &&
-          typeof bodyObj.roomId === "string" &&
-          typeof bodyObj.deviceId === "string" &&
-          bodyObj.deviceId === user.id &&
-          bodyObj.welcome
-        ) {
-          const kp = await ensureKeyPair();
-          if (!kp) {
-            alert("鍵ペアの取得に失敗しました。");
-            return;
-          }
-          const verify = await verifyWelcome(
-            self,
-            kp,
-            bodyObj.welcome,
-            bodyObj.welcome.group,
-            bodyObj.welcome.suite,
-          );
-          const members = verify.members;
-          if (
-            !verify.valid ||
-            !members ||
-            !verify.group ||
-            !members.includes(self)
-          ) {
-            alert(verify.error ?? "Welcome メッセージの検証に失敗しました。");
-            return;
-          }
-          const expected = new Set(room.members);
-          const received = new Set(members);
-          if (
-            room.members.some((m) => !received.has(m)) ||
-            members.some((m) => !expected.has(m))
-          ) {
-            alert("Welcome メッセージのメンバー一覧が一致しません。");
-            return;
-          }
-          const ack = encodePrivateMessage(
-            new TextEncoder().encode(
-              JSON.stringify({
-                type: "joinAck",
-                roomId: bodyObj.roomId,
-                deviceId: bodyObj.deviceId,
-              }),
-            ),
-          );
-          await sendEncryptedMessage(bodyObj.roomId, self, { content: ack });
-          setChatRooms((rooms) =>
-            rooms.map((r) => r.id === bodyObj.roomId ? { ...r, members } : r)
-          );
-          setGroups({ ...groups(), [bodyObj.roomId]: verify.group });
-          saveGroupStates();
-          return;
-        }
-      } catch {
-        /* JSON でない場合は無視 */
-      }
-
-      const bodyText = new TextDecoder().decode(decoded.body);
+      const bodyText = new TextDecoder().decode(b64ToBuf(data.content));
       let text: string = bodyText;
       let attachments:
         | {
@@ -1305,9 +1162,12 @@ export function Chat() {
       if (msg.type === "encryptedMessage") {
         const group = groups()[room.id];
         if (group) {
-          const plain = await decryptGroupMessage(group, data.content);
-          if (plain) {
-            const note = parseActivityPubNote(plain);
+          const buf = b64ToBuf(data.content);
+          const res = await decryptMessage(group, buf);
+          if (res) {
+            const note = parseActivityPubNote(
+              new TextDecoder().decode(res.plaintext),
+            );
             text = note.content;
             localId = note.id?.startsWith("urn:uuid:")
               ? note.id.slice(9)
@@ -1344,28 +1204,28 @@ export function Chat() {
                     }
                   }
                   try {
-                    const res = await fetch(at.url);
-                    let buf = await res.arrayBuffer();
+                    const res2 = await fetch(at.url);
+                    let buf2 = await res2.arrayBuffer();
                     if (
                       typeof at.key === "string" && typeof at.iv === "string"
                     ) {
-                      buf = await decryptFile(buf, at.key, at.iv);
+                      buf2 = await decryptFile(buf2, at.key, at.iv);
                     }
                     const mt = typeof at.mediaType === "string"
                       ? at.mediaType
                       : "application/octet-stream";
                     if (
                       mt.startsWith("video/") || mt.startsWith("audio/") ||
-                      buf.byteLength > 1024 * 1024
+                      buf2.byteLength > 1024 * 1024
                     ) {
                       attachments.push({
-                        url: bufToUrl(buf, mt),
+                        url: bufToUrl(buf2, mt),
                         mediaType: mt,
                         preview,
                       });
                     } else {
                       attachments.push({
-                        data: bufToB64(buf),
+                        data: bufToB64(buf2),
                         mediaType: mt,
                         preview,
                       });
@@ -1379,6 +1239,8 @@ export function Chat() {
                 }
               }
             }
+            setGroups({ ...groups(), [room.id]: res.state });
+            saveGroupStates();
           }
         }
       } else {

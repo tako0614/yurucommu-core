@@ -8,7 +8,6 @@ import Chatroom from "../models/takos/chatroom.ts";
 import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
 import EncryptedMessage from "../models/takos/encrypted_message.ts";
 import KeyPackage from "../models/takos/key_package.ts";
-import MLSState from "../models/takos/mls_state.ts";
 import Notification from "../models/takos/notification.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
@@ -27,15 +26,6 @@ import {
   createRemoveActivity,
   deliverActivityPubObject,
 } from "../utils/activitypub.ts";
-import {
-  encodePublicMessage,
-  encodeWelcome,
-} from "../../shared/mls_message.ts";
-import {
-  createCommitAndWelcomes,
-  removeMembers,
-  type StoredGroupState,
-} from "../../shared/mls_wrapper.ts";
 import type { ChatroomInfo, DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
@@ -611,39 +601,6 @@ export class MongoDB implements DB {
 
   async deleteEncryptedKeyPairsByUser(userName: string) {
     const query = EncryptedKeyPair.deleteMany({ userName });
-    this.withTenant(query);
-    await query;
-  }
-
-  async findMLSState(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-  ) {
-    const query = this.withTenant(
-      MLSState.findOne({ roomId, userName, deviceId }),
-    );
-    const doc = await query.lean<{ state: string } | null>();
-    return doc ? doc.state : null;
-  }
-
-  async upsertMLSState(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-    state: string,
-  ) {
-    const query = MLSState.findOneAndUpdate(
-      { roomId, userName, deviceId },
-      { state, updatedAt: new Date() },
-      { upsert: true },
-    );
-    this.withTenant(query);
-    await query;
-  }
-
-  async deleteMLSState(roomId: string, userName: string, deviceId: string) {
-    const query = MLSState.deleteOne({ roomId, userName, deviceId });
     this.withTenant(query);
     await query;
   }
@@ -1231,27 +1188,6 @@ export function startPendingInviteJob(env: Record<string, string>) {
       const { owner, room } = info;
       const idx = room.members.indexOf(inv.userName);
       if (idx >= 0) {
-        const stored = room.mls as StoredGroupState | null | undefined;
-        if (stored) {
-          try {
-            const { commit, state } = await removeMembers(
-              stored,
-              [idx],
-              stored.groupContext.cipherSuite,
-            );
-            const commitStr = encodePublicMessage(commit);
-            const recipients = room.members.filter((_, i) => i !== idx);
-            await db.createHandshakeMessage({
-              roomId: inv.roomId,
-              sender: inv.userName,
-              recipients,
-              message: commitStr,
-            });
-            room.mls = state;
-          } catch (err) {
-            console.error("Failed to create remove commit", err);
-          }
-        }
         room.members = room.members.filter((_, i) => i !== idx);
         await db.updateChatroom(owner, room);
         const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
@@ -1269,67 +1205,6 @@ export function startPendingInviteJob(env: Record<string, string>) {
             domain,
             env,
           ).catch((err) => console.error("Delivery failed", err));
-        }
-        // 未ACK端末を除外した後に最新KeyPackageで再招待する
-        try {
-          const kps = await db.listKeyPackages(inv.userName) as {
-            _id?: string;
-            content: string;
-            deviceId?: string;
-            createdAt?: Date;
-          }[];
-          if (kps.length > 0 && room.mls) {
-            kps.sort((a, b) => {
-              const t1 = a.createdAt ? a.createdAt.getTime() : 0;
-              const t2 = b.createdAt ? b.createdAt.getTime() : 0;
-              return t2 - t1;
-            });
-            const kp = kps[0];
-            const { commit: addCommit, welcomes, state } =
-              await createCommitAndWelcomes(
-                room.mls as StoredGroupState,
-                [{
-                  content: kp.content,
-                  actor: inv.userName,
-                  deviceId: kp.deviceId,
-                }],
-                (room.mls as StoredGroupState).groupContext.cipherSuite,
-              );
-            const commit2 = encodePublicMessage(addCommit);
-            const recipients2 = [...room.members];
-            await db.createHandshakeMessage({
-              roomId: inv.roomId,
-              sender: inv.userName,
-              recipients: recipients2,
-              message: commit2,
-            });
-            for (const w of welcomes) {
-              if (!w.actor) continue;
-              const wrapped = encodeWelcome(w.data);
-              await db.createHandshakeMessage({
-                roomId: inv.roomId,
-                sender: inv.userName,
-                recipients: [w.actor],
-                message: wrapped,
-              });
-              if (w.deviceId) {
-                await db.savePendingInvite(
-                  inv.roomId,
-                  w.actor,
-                  w.deviceId,
-                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                );
-              }
-            }
-            if (kp._id) {
-              await db.markKeyPackageUsed(inv.userName, kp._id);
-            }
-            room.mls = state;
-            room.members.push(inv.userName);
-            await db.updateChatroom(owner, room);
-          }
-        } catch (err) {
-          console.error("Failed to reinvite member", err);
         }
       }
     }
@@ -1397,26 +1272,8 @@ export function startInactiveSessionJob(
       for (const room of rooms) {
         const idx = room.members.indexOf(user);
         if (idx < 0) continue;
-        const stored = room.mls as StoredGroupState | null | undefined;
-        if (stored) {
-          try {
-            const { commit, state } = await removeMembers(stored, [idx]);
-            const commitStr = encodePublicMessage(commit);
-            const recipients = room.members.filter((_, i) => i !== idx);
-            await db.createHandshakeMessage({
-              roomId: room.id,
-              sender: user,
-              recipients,
-              message: commitStr,
-            });
-            room.mls = state;
-          } catch (err) {
-            console.error("Failed to create remove commit", err);
-          }
-        }
         room.members = room.members.filter((_, i) => i !== idx);
         await db.updateChatroom(room.owner, room);
-        await db.deleteMLSState(room.id, user, s.sessionId).catch(() => {});
         const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
         const activity = createRemoveActivity(
           domain,
@@ -1432,61 +1289,6 @@ export function startInactiveSessionJob(
             domain,
             env,
           ).catch((err) => console.error("Delivery failed", err));
-        }
-        try {
-          const kps = await db.listKeyPackages(user) as {
-            _id?: string;
-            content: string;
-            deviceId?: string;
-            createdAt?: Date;
-          }[];
-          if (kps.length > 0 && room.mls) {
-            kps.sort((a, b) => {
-              const t1 = a.createdAt ? a.createdAt.getTime() : 0;
-              const t2 = b.createdAt ? b.createdAt.getTime() : 0;
-              return t2 - t1;
-            });
-            const kp = kps[0];
-            const { commit: addCommit, welcomes, state } =
-              await createCommitAndWelcomes(
-                room.mls as StoredGroupState,
-                [{ content: kp.content, actor: user, deviceId: kp.deviceId }],
-              );
-            const commit2 = encodePublicMessage(addCommit);
-            const recipients2 = [...room.members];
-            await db.createHandshakeMessage({
-              roomId: room.id,
-              sender: user,
-              recipients: recipients2,
-              message: commit2,
-            });
-            for (const w of welcomes) {
-              if (!w.actor) continue;
-              const wrapped = encodeWelcome(w.data);
-              await db.createHandshakeMessage({
-                roomId: room.id,
-                sender: user,
-                recipients: [w.actor],
-                message: wrapped,
-              });
-              if (w.deviceId) {
-                await db.savePendingInvite(
-                  room.id,
-                  w.actor,
-                  w.deviceId,
-                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                );
-              }
-            }
-            if (kp._id) {
-              await db.markKeyPackageUsed(user, kp._id);
-            }
-            room.mls = state;
-            room.members.push(user);
-            await db.updateChatroom(room.owner, room);
-          }
-        } catch (err) {
-          console.error("Failed to reinvite member", err);
         }
       }
       await db.deleteEncryptedKeyPair(user, s.sessionId).catch(() => {});

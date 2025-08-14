@@ -15,6 +15,10 @@
   `inbox` を**ポーリング**。([SWICG][1])
 - 各Actorはプロフィールに **`keyPackages`
   コレクション**を持つ（KeyPackageのCreate/Add/Remove/Deleteのライフサイクルを運用）。`generator`でクライアント識別も可能。([SWICG][1])
+- MLSの状態（ラチェットツリーなど）はサーバーに保存せず、クライアントが
+  IndexedDB などのローカルストレージに保持する。
+- MLS に関する暗号化・復号・検証はすべてクライアント側で行い、サーバーは
+  暗号化済みデータの保存と配送だけを担う。
 - **KeyPackageの公開は“アクティブなセッション”に限定**し、ログアウト・長期不使用・端末無効化時には当該セッションのKeyPackageを速やかに削除する（誤招待・空席抑止のため）。([SWICG][1])
 - MLSは**グループあたり1つの暗号スイート**、KeyPackageには `version` /
   `cipher_suite` / `init_key` / `leaf_node` 等が入る。([IETF Datatracker][2])

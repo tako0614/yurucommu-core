@@ -8,18 +8,7 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
-import { decodeGroupInfo, parseMLSMessage } from "../shared/mls_message.ts";
-import {
-  decryptMessage,
-  processCommit,
-  processProposal,
-  type StoredGroupState,
-  verifyCommit,
-  verifyGroupInfo,
-  verifyPrivateMessage,
-  verifyWelcome,
-} from "../shared/mls_wrapper.ts";
-import { decodeMlsMessage } from "ts-mls";
+// MLS関連データは検証せずそのまま保持する
 
 function iriToHandle(iri: string): string {
   try {
@@ -125,165 +114,61 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         const db = createDB(env);
         const domain = getDomain(c as Context);
         const selfHandle = `${username}@${domain}`;
-        const decoded = parseMLSMessage(obj.content);
-        let bodyObj: Record<string, unknown> | null = null;
-        let roomId: string | undefined = typeof obj.roomId === "string"
-          ? obj.roomId
-          : undefined;
-        if (decoded) {
-          if (decoded.type === "Welcome") {
-            const ok = await verifyWelcome(decoded.body);
-            if (!ok) return;
-            const msg = await db.createHandshakeMessage({
-              sender: from,
-              recipients,
-              message: obj.content,
-            }) as {
-              _id: unknown;
-              roomId?: string;
-              sender: string;
-              recipients: string[];
-              message: string;
-              createdAt: unknown;
-            };
-            const newMsg = {
-              id: String(msg._id),
-              roomId: msg.roomId,
-              sender: from,
-              recipients,
-              message: obj.content,
-              createdAt: msg.createdAt,
-            };
-            sendToUser(selfHandle, { type: "publicMessage", payload: newMsg });
-            return;
-          }
-          if (decoded.type === "PublicMessage") {
-            try {
-              bodyObj = JSON.parse(
-                new TextDecoder().decode(decoded.body),
-              ) as Record<string, unknown>;
-            } catch {
-              bodyObj = null;
-            }
-            if (!roomId && bodyObj && typeof bodyObj.roomId === "string") {
-              roomId = bodyObj.roomId;
-            }
-            const inner = decodeMlsMessage(decoded.body, 0)?.[0];
-            if (inner && inner.wireformat === "mls_public_message" && roomId) {
-              const found = await db.findChatroom(roomId);
-              if (found) {
-                const { owner, room } = found;
-                const suite = room.mls.groupContext.cipherSuite;
-                if (inner.publicMessage.content?.commit) {
-                  const ok = await verifyCommit(
-                    room.mls as StoredGroupState,
-                    inner.publicMessage,
-                    suite,
-                  );
-                  if (!ok) return;
-                  room.mls = await processCommit(
-                    room.mls as StoredGroupState,
-                    inner.publicMessage,
-                    suite,
-                  );
-                  await db.updateChatroom(owner, room);
-                } else if (inner.publicMessage.content?.proposal) {
-                  room.mls = await processProposal(
-                    room.mls as StoredGroupState,
-                    inner.publicMessage,
-                    suite,
-                  );
-                  await db.updateChatroom(owner, room);
-                }
-              }
-            }
-            if (bodyObj && bodyObj.type === "remove") {
-              const msg = await db.createHandshakeMessage({
-                sender: from,
-                recipients,
-                message: obj.content,
-              }) as {
-                _id: unknown;
-                roomId?: string;
-                sender: string;
-                recipients: string[];
-                message: string;
-                createdAt: unknown;
-              };
-              const newMsg = {
-                id: String(msg._id),
-                roomId: msg.roomId,
-                sender: from,
-                recipients,
-                message: obj.content,
-                createdAt: msg.createdAt,
-              };
-              sendToUser(selfHandle, {
-                type: "publicMessage",
-                payload: newMsg,
-              });
-              return;
-            }
-          } else if (decoded.type === "PrivateMessage" && roomId) {
-            const found = await db.findChatroom(roomId);
-            if (found) {
-              const { owner, room } = found;
-              const ok = await verifyPrivateMessage(
-                room.mls as StoredGroupState,
-                decoded.body,
-                found.room.mls.groupContext.cipherSuite,
-              );
-              if (!ok) return;
-              const res = await decryptMessage(
-                room.mls as StoredGroupState,
-                decoded.body,
-              );
-              if (res) {
-                room.mls = res.state;
-                await db.updateChatroom(owner, room);
-              }
-            }
-          }
-        }
-        const msg = await db.createEncryptedMessage({
-          from,
-          to: recipients,
-          content: obj.content,
-          mediaType,
-          encoding,
-        }) as {
-          _id: unknown;
-          roomId?: string;
-          from: string;
-          to: string[];
-          content: string;
-          mediaType: string;
-          encoding: string;
-          createdAt: unknown;
-        };
-        const newMsg = {
-          id: String(msg._id),
-          roomId: msg.roomId,
-          from,
-          to: recipients,
-          content: obj.content,
-          mediaType: msg.mediaType,
-          encoding: msg.encoding,
-          createdAt: msg.createdAt,
-        };
-        if (
-          bodyObj &&
-          bodyObj.type === "joinAck" &&
-          typeof bodyObj.roomId === "string" &&
-          typeof bodyObj.deviceId === "string"
-        ) {
-          await db.markInviteAcked(
-            bodyObj.roomId,
+        const roomId = typeof obj.roomId === "string" ? obj.roomId : undefined;
+
+        if (objTypes.includes("PrivateMessage")) {
+          const msg = await db.createEncryptedMessage({
+            roomId,
             from,
-            bodyObj.deviceId,
-          );
+            to: recipients,
+            content: obj.content,
+            mediaType,
+            encoding,
+          }) as {
+            _id: unknown;
+            roomId?: string;
+            from: string;
+            to: string[];
+            content: string;
+            mediaType: string;
+            encoding: string;
+            createdAt: unknown;
+          };
+          const newMsg = {
+            id: String(msg._id),
+            roomId: msg.roomId,
+            from,
+            to: recipients,
+            content: obj.content,
+            mediaType: msg.mediaType,
+            encoding: msg.encoding,
+            createdAt: msg.createdAt,
+          };
+          sendToUser(selfHandle, { type: "encryptedMessage", payload: newMsg });
+        } else {
+          const msg = await db.createHandshakeMessage({
+            roomId,
+            sender: from,
+            recipients,
+            message: obj.content,
+          }) as {
+            _id: unknown;
+            roomId?: string;
+            sender: string;
+            recipients: string[];
+            message: string;
+            createdAt: unknown;
+          };
+          const newMsg = {
+            id: String(msg._id),
+            roomId: msg.roomId,
+            sender: from,
+            recipients,
+            message: obj.content,
+            createdAt: msg.createdAt,
+          };
+          sendToUser(selfHandle, { type: "publicMessage", payload: newMsg });
         }
-        sendToUser(selfHandle, { type: "encryptedMessage", payload: newMsg });
         return;
       }
 
@@ -377,15 +262,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       ? obj.mediaType
       : "message/mls";
     const encoding = typeof obj.encoding === "string" ? obj.encoding : "base64";
-    let groupInfo = typeof obj.groupInfo === "string"
+    const groupInfo = typeof obj.groupInfo === "string"
       ? obj.groupInfo
       : undefined;
-    if (groupInfo) {
-      const bytes = decodeGroupInfo(groupInfo);
-      if (!bytes || !(await verifyGroupInfo(bytes))) {
-        groupInfo = undefined;
-      }
-    }
     const expiresAt = typeof obj.expiresAt === "string"
       ? new Date(obj.expiresAt)
       : obj.expiresAt instanceof Date
