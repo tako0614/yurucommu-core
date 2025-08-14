@@ -31,6 +31,7 @@ import {
 } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
 import {
   createCommitAndWelcomes,
+  decryptMessage,
   encryptMessage,
   exportGroupInfo,
   processCommit,
@@ -208,10 +209,12 @@ async function handleHandshake(
   if (decoded) {
     const inner = decodeMlsMessage(decoded, 0)?.[0];
     if (inner && inner.wireformat === "mls_public_message" && group.mls) {
+      const suite = group.mls.groupContext.cipherSuite;
       if (inner.publicMessage.content?.commit) {
         const ok = await verifyCommit(
           group.mls as StoredGroupState,
           inner.publicMessage,
+          suite,
         );
         if (!ok) {
           return { ok: false, status: 400, error: "invalid commit" };
@@ -219,12 +222,14 @@ async function handleHandshake(
         group.mls = await processCommit(
           group.mls as StoredGroupState,
           inner.publicMessage,
+          suite,
         );
         await db.updateChatroom(owner, group);
       } else if (inner.publicMessage.content?.proposal) {
         group.mls = await processProposal(
           group.mls as StoredGroupState,
           inner.publicMessage,
+          suite,
         );
         await db.updateChatroom(owner, group);
       }
@@ -232,8 +237,8 @@ async function handleHandshake(
   } else {
     const welcome = decodeWelcome(content);
     if (welcome) {
-      const ok = await verifyWelcome(welcome);
-      if (!ok) {
+      const verified = await verifyWelcome(welcome);
+      if (!verified) {
         return { ok: false, status: 400, error: "invalid welcome" };
       }
     }
@@ -712,7 +717,9 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
-  const ok = await verifyKeyPackage(content);
+  const domain = getDomain(c);
+  const actorId = `https://${domain}/users/${user}`;
+  const ok = await verifyKeyPackage(content, actorId);
   if (!ok) {
     return c.json({ error: "invalid key package" }, 400);
   }
@@ -723,7 +730,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
       const stored = await db.findMLSState(roomId, user, deviceId);
       if (typeof stored === "string") {
         const parsed = JSON.parse(stored) as StoredGroupState;
-        const bytes = await exportGroupInfo(parsed);
+        const bytes = await exportGroupInfo(
+          parsed,
+          parsed.groupContext.cipherSuite,
+        );
         gi = encodeGroupInfo(bytes);
       }
     } catch (err) {
@@ -732,8 +742,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   }
   if (gi) {
     const bytes = decodeGroupInfo(gi);
-    if (!bytes || !verifyGroupInfo(bytes)) {
-      return c.json({ error: "invalid group info" }, 400);
+    if (!bytes || !(await verifyGroupInfo(bytes))) {
+      gi = undefined;
     }
   }
   const pkg = await db.createKeyPackage(
@@ -749,8 +759,6 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     typeof generator === "string" ? generator : undefined,
   ) as KeyPackageDoc;
   await db.cleanupKeyPackages(user);
-  const domain = getDomain(c);
-  const actorId = `https://${domain}/users/${user}`;
   const keyObj = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
@@ -956,6 +964,7 @@ app.post(
       const result = await encryptMessage(
         group.mls as StoredGroupState,
         plaintext,
+        group.mls.groupContext.cipherSuite,
       );
       group.mls = result.state;
       storedContent = encodePrivateMessage(result.message);
@@ -964,9 +973,23 @@ app.post(
       const raw = decodePrivateMessage(content);
       if (
         !raw ||
-        !(await verifyPrivateMessage(group.mls as StoredGroupState, raw))
+        !(
+          await verifyPrivateMessage(
+            group.mls as StoredGroupState,
+            raw,
+            group.mls.groupContext.cipherSuite,
+          )
+        )
       ) {
         return c.json({ error: "invalid message" }, 400);
+      }
+      const result = await decryptMessage(
+        group.mls as StoredGroupState,
+        raw,
+      );
+      if (result) {
+        group.mls = result.state;
+        await db.updateChatroom(owner, group);
       }
     }
     const msg = await db.createEncryptedMessage({
@@ -1175,12 +1198,14 @@ app.post(
     }
     // 保存された状態を読み込み Commit / Welcome を生成
     const stored = room.mls as StoredGroupState | null | undefined;
+    if (!stored) {
+      return c.json({ error: "no group state" }, 400);
+    }
     const { commit: commitRaw, welcomes, state } =
       await createCommitAndWelcomes(
-        suite,
-        room.members,
-        addInputs,
         stored,
+        addInputs,
+        stored.groupContext.cipherSuite,
       );
     const commit = encodePublicMessage(commitRaw);
     for (const w of welcomes) {
@@ -1254,6 +1279,7 @@ app.post(
     const { commit: commitRaw, state } = await removeMembers(
       stored,
       indices,
+      stored.groupContext.cipherSuite,
     );
     const commit = encodePublicMessage(commitRaw);
     room.members = room.members.filter((_, i) => !removeSet.has(i));

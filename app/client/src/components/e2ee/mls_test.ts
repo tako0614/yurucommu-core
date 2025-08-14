@@ -14,7 +14,7 @@ import {
 
 Deno.test("ts-mlsでCommitとWelcomeを生成できる", async () => {
   const bob = await generateKeyPackage("bob");
-  assert(await verifyKeyPackage(bob.encoded));
+  assert(await verifyKeyPackage(bob.encoded, "bob"));
   const { commit, welcomes } = await createCommitAndWelcomes(1, ["alice"], [
     { content: bob.encoded, actor: "bob" },
   ]);

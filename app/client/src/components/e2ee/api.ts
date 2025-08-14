@@ -48,7 +48,16 @@ export const fetchKeyPackages = async (
       throw new Error("Failed to fetch key packages");
     }
     const data = await res.json();
-    return Array.isArray(data.items) ? data.items : [];
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const item of items) {
+      if (typeof item.groupInfo === "string") {
+        const bytes = decodeGroupInfo(item.groupInfo);
+        if (!bytes || !(await verifyGroupInfo(bytes))) {
+          delete item.groupInfo;
+        }
+      }
+    }
+    return items;
   } catch (err) {
     console.error("Error fetching key packages:", err);
     return [];
@@ -76,11 +85,16 @@ export const addKeyPackage = async (
     );
     if (!res.ok) return { keyId: null };
     const data = await res.json();
+    let gi = typeof data.groupInfo === "string" ? data.groupInfo : undefined;
+    if (gi) {
+      const bytes = decodeGroupInfo(gi);
+      if (!bytes || !(await verifyGroupInfo(bytes))) {
+        gi = undefined;
+      }
+    }
     return {
       keyId: typeof data.keyId === "string" ? data.keyId : null,
-      groupInfo: typeof data.groupInfo === "string"
-        ? data.groupInfo
-        : undefined,
+      groupInfo: gi,
     };
   } catch (err) {
     console.error("Error adding key package:", err);
@@ -99,7 +113,14 @@ export const fetchKeyPackage = async (
       }`,
     );
     if (!res.ok) return null;
-    return await res.json();
+    const data = await res.json();
+    if (typeof data.groupInfo === "string") {
+      const bytes = decodeGroupInfo(data.groupInfo);
+      if (!bytes || !(await verifyGroupInfo(bytes))) {
+        delete data.groupInfo;
+      }
+    }
+    return data as KeyPackage;
   } catch (err) {
     console.error("Error fetching key package:", err);
     return null;
@@ -120,7 +141,7 @@ export const fetchGroupInfo = async (
     const data = await res.json();
     if (typeof data.groupInfo === "string") {
       const bytes = decodeGroupInfo(data.groupInfo);
-      if (bytes && verifyGroupInfo(bytes)) {
+      if (bytes && (await verifyGroupInfo(bytes))) {
         return data.groupInfo;
       }
     }

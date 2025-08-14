@@ -10,6 +10,7 @@ import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
 import { decodeGroupInfo, parseMLSMessage } from "../shared/mls_message.ts";
 import {
+  decryptMessage,
   processCommit,
   processProposal,
   type StoredGroupState,
@@ -131,7 +132,8 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           : undefined;
         if (decoded) {
           if (decoded.type === "Welcome") {
-            if (!(await verifyWelcome(decoded.body))) return;
+            const ok = await verifyWelcome(decoded.body);
+            if (!ok) return;
             const msg = await db.createHandshakeMessage({
               sender: from,
               recipients,
@@ -171,21 +173,25 @@ export const activityHandlers: Record<string, ActivityHandler> = {
               const found = await db.findChatroom(roomId);
               if (found) {
                 const { owner, room } = found;
+                const suite = room.mls.groupContext.cipherSuite;
                 if (inner.publicMessage.content?.commit) {
                   const ok = await verifyCommit(
                     room.mls as StoredGroupState,
                     inner.publicMessage,
+                    suite,
                   );
                   if (!ok) return;
                   room.mls = await processCommit(
                     room.mls as StoredGroupState,
                     inner.publicMessage,
+                    suite,
                   );
                   await db.updateChatroom(owner, room);
                 } else if (inner.publicMessage.content?.proposal) {
                   room.mls = await processProposal(
                     room.mls as StoredGroupState,
                     inner.publicMessage,
+                    suite,
                   );
                   await db.updateChatroom(owner, room);
                 }
@@ -221,11 +227,21 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           } else if (decoded.type === "PrivateMessage" && roomId) {
             const found = await db.findChatroom(roomId);
             if (found) {
+              const { owner, room } = found;
               const ok = await verifyPrivateMessage(
-                found.room.mls as StoredGroupState,
+                room.mls as StoredGroupState,
                 decoded.body,
+                found.room.mls.groupContext.cipherSuite,
               );
               if (!ok) return;
+              const res = await decryptMessage(
+                room.mls as StoredGroupState,
+                decoded.body,
+              );
+              if (res) {
+                room.mls = res.state;
+                await db.updateChatroom(owner, room);
+              }
             }
           }
         }
@@ -361,13 +377,13 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       ? obj.mediaType
       : "message/mls";
     const encoding = typeof obj.encoding === "string" ? obj.encoding : "base64";
-    const groupInfo = typeof obj.groupInfo === "string"
+    let groupInfo = typeof obj.groupInfo === "string"
       ? obj.groupInfo
       : undefined;
     if (groupInfo) {
       const bytes = decodeGroupInfo(groupInfo);
-      if (!bytes || !verifyGroupInfo(bytes)) {
-        return;
+      if (!bytes || !(await verifyGroupInfo(bytes))) {
+        groupInfo = undefined;
       }
     }
     const expiresAt = typeof obj.expiresAt === "string"

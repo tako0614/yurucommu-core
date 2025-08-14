@@ -17,6 +17,7 @@ import {
   generateKeyPackage as tsGenerateKeyPackage,
   getCiphersuiteFromName,
   getCiphersuiteImpl,
+  getSignaturePublicKeyFromLeafIndex,
   joinGroup,
   type KeyPackage,
   type PrivateKeyPackage,
@@ -24,6 +25,8 @@ import {
   processPublicMessage,
   type Proposal,
   type PublicMessage,
+  ratchetTreeFromExtension,
+  verifyGroupInfoSignature,
 } from "ts-mls";
 import "@noble/curves/p256";
 
@@ -90,15 +93,40 @@ export async function generateKeyPair(
 export async function verifyKeyPackage(
   pkg:
     | string
-    | { credential: { publicKey: string }; signature: string }
+    | {
+      credential: { publicKey: string; identity?: string };
+      signature: string;
+    }
       & Record<string, unknown>,
+  expectedIdentity?: string,
 ): Promise<boolean> {
   if (typeof pkg === "string") {
     const decoded = decodeMlsMessage(b64ToBytes(pkg), 0)?.[0];
-    return !!decoded && decoded.wireformat === "mls_key_package";
+    if (!decoded || decoded.wireformat !== "mls_key_package") {
+      return false;
+    }
+    if (expectedIdentity) {
+      try {
+        const id = new TextDecoder().decode(
+          decoded.keyPackage.credential.identity,
+        );
+        if (id !== expectedIdentity) return false;
+      } catch {
+        return false;
+      }
+    }
+    return true;
   }
   try {
     const { signature, ...body } = pkg;
+    const b = body as { credential?: { identity?: string } };
+    if (
+      expectedIdentity &&
+      typeof b.credential?.identity === "string" &&
+      b.credential.identity !== expectedIdentity
+    ) {
+      return false;
+    }
     const data = new TextEncoder().encode(JSON.stringify(body));
     const pub = await crypto.subtle.importKey(
       "raw",
@@ -126,27 +154,52 @@ export async function verifyCommit(
   if (!message.content.commit) return false;
   try {
     const cs = await getSuite(suite);
-    await processPublicMessage(state, message, emptyPskIndex, cs, acceptAll);
+    const cloned = structuredClone(state);
+    await processPublicMessage(cloned, message, emptyPskIndex, cs, acceptAll);
     return true;
   } catch {
     return false;
   }
 }
 
-export function verifyWelcome(data: Uint8Array): boolean {
+export async function verifyWelcome(
+  data: Uint8Array,
+  suite: CiphersuiteName = DEFAULT_SUITE,
+): Promise<boolean> {
   try {
     const decoded = decodeMlsMessage(data, 0)?.[0];
-    return !!decoded && decoded.wireformat === "mls_welcome";
+    if (!decoded || decoded.wireformat !== "mls_welcome") {
+      return false;
+    }
+    const cs = await getSuite(suite);
+    // joinGroup が失敗しないことを確認するためダミーの鍵ペアで参加を試みる
+    const kp = await generateKeyPair("verify", suite);
+    await joinGroup(decoded.welcome, kp.public, kp.private, emptyPskIndex, cs);
+    return true;
   } catch {
     return false;
   }
 }
 
-export function verifyGroupInfo(data: Uint8Array): boolean {
+export async function verifyGroupInfo(
+  data: Uint8Array,
+  suite: CiphersuiteName = DEFAULT_SUITE,
+): Promise<boolean> {
   try {
     const decoded = decodeMlsMessage(data, 0)?.[0];
-    return !!decoded && decoded.wireformat === "mls_group_info" &&
-      decoded.groupInfo.signature?.length > 0;
+    if (!decoded || decoded.wireformat !== "mls_group_info") return false;
+    const cs = await getSuite(suite);
+    const tree = ratchetTreeFromExtension(decoded.groupInfo);
+    if (!tree) return false;
+    const pub = getSignaturePublicKeyFromLeafIndex(
+      tree,
+      decoded.groupInfo.signer,
+    );
+    return await verifyGroupInfoSignature(
+      decoded.groupInfo,
+      pub,
+      cs.signature,
+    );
   } catch {
     return false;
   }
@@ -163,8 +216,9 @@ export async function verifyPrivateMessage(
     if (!decoded || decoded.wireformat !== "mls_private_message") {
       return false;
     }
+    const cloned = structuredClone(state);
     await processPrivateMessage(
-      state,
+      cloned,
       decoded.privateMessage,
       emptyPskIndex,
       cs,

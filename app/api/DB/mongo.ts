@@ -1234,7 +1234,11 @@ export function startPendingInviteJob(env: Record<string, string>) {
         const stored = room.mls as StoredGroupState | null | undefined;
         if (stored) {
           try {
-            const { commit, state } = await removeMembers(stored, [idx]);
+            const { commit, state } = await removeMembers(
+              stored,
+              [idx],
+              stored.groupContext.cipherSuite,
+            );
             const commitStr = encodePublicMessage(commit);
             const recipients = room.members.filter((_, i) => i !== idx);
             await db.createHandshakeMessage({
@@ -1289,6 +1293,7 @@ export function startPendingInviteJob(env: Record<string, string>) {
                   actor: inv.userName,
                   deviceId: kp.deviceId,
                 }],
+                (room.mls as StoredGroupState).groupContext.cipherSuite,
               );
             const commit2 = encodePublicMessage(addCommit);
             const recipients2 = [...room.members];
@@ -1349,4 +1354,144 @@ export function startKeyPackageCleanupJob(env: Record<string, string>) {
     await query.catch((err) => console.error("KeyPackage cleanup failed", err));
   }
   setInterval(job, 60 * 60 * 1000);
+}
+
+/**
+ * セッションの最終利用日時を監視し、長期間活動のない端末を
+ * チャットルームから除籍して再招待します。
+ *
+ * @param env 環境変数
+ * @param days 閾値となる非活動期間（日数）
+ */
+export function startInactiveSessionJob(
+  env: Record<string, string>,
+  days = 30,
+) {
+  const db = new MongoDB(env);
+  async function job() {
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const sessions = await Session.find({
+      tenant_id: tenantId,
+      $or: [
+        { lastDecryptAt: { $lt: threshold } },
+        { lastDecryptAt: { $exists: false } },
+      ],
+    }).lean<{ sessionId: string }[]>();
+    for (const s of sessions) {
+      const pair = await EncryptedKeyPair.findOne({
+        deviceId: s.sessionId,
+        tenant_id: tenantId,
+      }).lean<{ userName: string } | null>();
+      const user = pair?.userName;
+      if (!user) continue;
+      const rooms = await Chatroom.find({
+        members: user,
+        tenant_id: tenantId,
+      }).lean<{
+        owner: string;
+        id: string;
+        members: string[];
+        mls?: unknown;
+      }[]>();
+      for (const room of rooms) {
+        const idx = room.members.indexOf(user);
+        if (idx < 0) continue;
+        const stored = room.mls as StoredGroupState | null | undefined;
+        if (stored) {
+          try {
+            const { commit, state } = await removeMembers(stored, [idx]);
+            const commitStr = encodePublicMessage(commit);
+            const recipients = room.members.filter((_, i) => i !== idx);
+            await db.createHandshakeMessage({
+              roomId: room.id,
+              sender: user,
+              recipients,
+              message: commitStr,
+            });
+            room.mls = state;
+          } catch (err) {
+            console.error("Failed to create remove commit", err);
+          }
+        }
+        room.members = room.members.filter((_, i) => i !== idx);
+        await db.updateChatroom(room.owner, room);
+        await db.deleteMLSState(room.id, user, s.sessionId).catch(() => {});
+        const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
+        const activity = createRemoveActivity(
+          domain,
+          `https://${domain}/ap/rooms/${room.id}`,
+          user,
+        );
+        const account = await db.findAccountById(room.owner);
+        if (account) {
+          await deliverActivityPubObject(
+            room.members,
+            activity,
+            account.userName,
+            domain,
+            env,
+          ).catch((err) => console.error("Delivery failed", err));
+        }
+        try {
+          const kps = await db.listKeyPackages(user) as {
+            _id?: string;
+            content: string;
+            deviceId?: string;
+            createdAt?: Date;
+          }[];
+          if (kps.length > 0 && room.mls) {
+            kps.sort((a, b) => {
+              const t1 = a.createdAt ? a.createdAt.getTime() : 0;
+              const t2 = b.createdAt ? b.createdAt.getTime() : 0;
+              return t2 - t1;
+            });
+            const kp = kps[0];
+            const { commit: addCommit, welcomes, state } =
+              await createCommitAndWelcomes(
+                room.mls as StoredGroupState,
+                [{ content: kp.content, actor: user, deviceId: kp.deviceId }],
+              );
+            const commit2 = encodePublicMessage(addCommit);
+            const recipients2 = [...room.members];
+            await db.createHandshakeMessage({
+              roomId: room.id,
+              sender: user,
+              recipients: recipients2,
+              message: commit2,
+            });
+            for (const w of welcomes) {
+              if (!w.actor) continue;
+              const wrapped = encodeWelcome(w.data);
+              await db.createHandshakeMessage({
+                roomId: room.id,
+                sender: user,
+                recipients: [w.actor],
+                message: wrapped,
+              });
+              if (w.deviceId) {
+                await db.savePendingInvite(
+                  room.id,
+                  w.actor,
+                  w.deviceId,
+                  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                );
+              }
+            }
+            if (kp._id) {
+              await db.markKeyPackageUsed(user, kp._id);
+            }
+            room.mls = state;
+            room.members.push(user);
+            await db.updateChatroom(room.owner, room);
+          }
+        } catch (err) {
+          console.error("Failed to reinvite member", err);
+        }
+      }
+      await db.deleteEncryptedKeyPair(user, s.sessionId).catch(() => {});
+      await db.deleteSessionById(s.sessionId).catch(() => {});
+    }
+  }
+  setInterval(job, 24 * 60 * 60 * 1000);
 }

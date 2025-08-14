@@ -568,6 +568,7 @@ export function Chat() {
   const getPartnerKey = async (userName: string, domain?: string) => {
     const effectiveDomain = domain ?? getDomain();
     const keyId = `${userName}@${effectiveDomain}`;
+    const actorId = `https://${effectiveDomain}/users/${userName}`;
     if (partnerKeyCache.has(keyId)) {
       const cached = partnerKeyCache.get(keyId);
       return cached;
@@ -585,7 +586,7 @@ export function Chat() {
           const obj = JSON.parse(
             new TextDecoder().decode(body),
           ) as MLSKeyPackageData;
-          if (await verifyKeyPackage(obj)) {
+          if (await verifyKeyPackage(obj, actorId)) {
             pub = obj.initKey;
           }
         } catch {

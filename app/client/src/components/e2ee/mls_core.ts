@@ -225,15 +225,21 @@ export async function decryptMessage(
   state: StoredGroupState,
   data: Uint8Array,
 ): Promise<{ plaintext: Uint8Array; state: StoredGroupState } | null> {
-  if (!(await verifyPrivateMessage(state, data))) {
-    return null;
-  }
-  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
-  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const decoded = decodeMlsMessage(data, 0)?.[0];
   if (!decoded || decoded.wireformat !== "mls_private_message") {
     return null;
   }
+  if (
+    !(await verifyPrivateMessage(
+      state,
+      data,
+      state.groupContext.cipherSuite,
+    ))
+  ) {
+    return null;
+  }
+  const suiteName: CiphersuiteName = state.groupContext.cipherSuite;
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const res = await processPrivateMessage(
     state,
     decoded.privateMessage,
@@ -250,7 +256,7 @@ export async function processCommit(
   state: StoredGroupState,
   data: Uint8Array,
 ): Promise<StoredGroupState> {
-  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const suiteName: CiphersuiteName = state.groupContext.cipherSuite;
   const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const decoded = decodeMlsMessage(data, 0)?.[0];
   if (
@@ -274,7 +280,7 @@ export async function processProposal(
   state: StoredGroupState,
   data: Uint8Array,
 ): Promise<StoredGroupState> {
-  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const suiteName: CiphersuiteName = state.groupContext.cipherSuite;
   const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const decoded = decodeMlsMessage(data, 0)?.[0];
   if (
