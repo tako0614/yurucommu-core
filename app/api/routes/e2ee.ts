@@ -20,15 +20,31 @@ import {
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
 import {
+  decodeGroupInfo,
+  decodePrivateMessage,
+  decodePublicMessage,
+  decodeWelcome,
+  encodeGroupInfo,
+  encodePrivateMessage,
   encodePublicMessage,
   encodeWelcome,
 } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
 import {
   createCommitAndWelcomes,
+  encryptMessage,
+  exportGroupInfo,
+  processCommit,
+  processProposal,
   type RawKeyPackageInput,
+  removeMembers,
   type StoredGroupState,
+  verifyCommit,
+  verifyGroupInfo,
   verifyKeyPackage,
-} from "../../client/src/components/e2ee/mls_core.ts";
+  verifyPrivateMessage,
+  verifyWelcome,
+} from "../../shared/mls_wrapper.ts";
+import { decodeMlsMessage } from "ts-mls";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -135,7 +151,9 @@ function selectKeyPackages(
   M = 3,
 ): KeyPackageDoc[] {
   return list
-    .filter((kp) => kp.version === "1.0" && kp.cipherSuite === suite)
+    .filter((kp) =>
+      kp.version === "1.0" && kp.cipherSuite === suite && kp.used !== true
+    )
     .sort((a, b) => {
       const da = new Date(a.createdAt).getTime();
       const db = new Date(b.createdAt).getTime();
@@ -179,12 +197,47 @@ async function handleHandshake(
   const db = createDB(env);
   const found = await db.findChatroom(roomId);
   if (!found) return { ok: false, status: 404, error: "room not found" };
-  const { room: group } = found;
+  const { room: group, owner } = found;
   if (!group.members.includes(from)) {
     return { ok: false, status: 403, error: "not a member" };
   }
   const allMembers = [...group.members];
   const recipients = allMembers.filter((m) => m !== from);
+
+  const decoded = decodePublicMessage(content);
+  if (decoded) {
+    const inner = decodeMlsMessage(decoded, 0)?.[0];
+    if (inner && inner.wireformat === "mls_public_message" && group.mls) {
+      if (inner.publicMessage.content?.commit) {
+        const ok = await verifyCommit(
+          group.mls as StoredGroupState,
+          inner.publicMessage,
+        );
+        if (!ok) {
+          return { ok: false, status: 400, error: "invalid commit" };
+        }
+        group.mls = await processCommit(
+          group.mls as StoredGroupState,
+          inner.publicMessage,
+        );
+        await db.updateChatroom(owner, group);
+      } else if (inner.publicMessage.content?.proposal) {
+        group.mls = await processProposal(
+          group.mls as StoredGroupState,
+          inner.publicMessage,
+        );
+        await db.updateChatroom(owner, group);
+      }
+    }
+  } else {
+    const welcome = decodeWelcome(content);
+    if (welcome) {
+      const ok = await verifyWelcome(welcome);
+      if (!ok) {
+        return { ok: false, status: 400, error: "invalid welcome" };
+      }
+    }
+  }
 
   const mType = typeof mediaType === "string" ? mediaType : "message/mls";
   const encType = typeof encoding === "string" ? encoding : "base64";
@@ -654,6 +707,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     version,
     cipherSuite,
     generator,
+    roomId,
   } = await c.req.json();
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
@@ -663,12 +717,31 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     return c.json({ error: "invalid key package" }, 400);
   }
   const db = createDB(getEnv(c));
+  let gi = typeof groupInfo === "string" ? groupInfo : undefined;
+  if (!gi && typeof roomId === "string" && typeof deviceId === "string") {
+    try {
+      const stored = await db.findMLSState(roomId, user, deviceId);
+      if (typeof stored === "string") {
+        const parsed = JSON.parse(stored) as StoredGroupState;
+        const bytes = await exportGroupInfo(parsed);
+        gi = encodeGroupInfo(bytes);
+      }
+    } catch (err) {
+      console.error("GroupInfoの生成に失敗しました", err);
+    }
+  }
+  if (gi) {
+    const bytes = decodeGroupInfo(gi);
+    if (!bytes || !verifyGroupInfo(bytes)) {
+      return c.json({ error: "invalid group info" }, 400);
+    }
+  }
   const pkg = await db.createKeyPackage(
     user,
     content,
     mediaType,
     encoding,
-    groupInfo,
+    gi,
     expiresAt ? new Date(expiresAt) : undefined,
     typeof deviceId === "string" ? deviceId : undefined,
     typeof version === "string" ? version : undefined,
@@ -699,7 +772,11 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   };
   const addActivity = createAddActivity(domain, actorId, keyObj);
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
-  return c.json({ result: "ok", keyId: String(pkg._id) });
+  return c.json({
+    result: "ok",
+    keyId: String(pkg._id),
+    groupInfo: pkg.groupInfo,
+  });
 });
 
 app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
@@ -725,31 +802,92 @@ app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {
   return c.json({ result: "removed" });
 });
 
-app.get("/users/:user/encryptedKeyPair", authRequired, async (c) => {
-  const user = c.req.param("user");
-  const db = createDB(getEnv(c));
-  const doc = await db.findEncryptedKeyPair(user) as EncryptedKeyPairDoc | null;
-  if (!doc) return c.json({ content: null });
-  return c.json({ content: doc.content });
-});
+app.get(
+  "/users/:user/devices/:device/encryptedKeyPair",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const device = c.req.param("device");
+    const db = createDB(getEnv(c));
+    const doc = await db.findEncryptedKeyPair(
+      user,
+      device,
+    ) as EncryptedKeyPairDoc | null;
+    if (!doc) return c.json({ content: null });
+    return c.json({ content: doc.content });
+  },
+);
 
-app.post("/users/:user/encryptedKeyPair", authRequired, async (c) => {
-  const user = c.req.param("user");
-  const { content } = await c.req.json();
-  if (typeof content !== "string") {
-    return c.json({ error: "invalid body" }, 400);
-  }
-  const db = createDB(getEnv(c));
-  await db.upsertEncryptedKeyPair(user, content);
-  return c.json({ result: "ok" });
-});
+app.post(
+  "/users/:user/devices/:device/encryptedKeyPair",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const device = c.req.param("device");
+    const { content } = await c.req.json();
+    if (typeof content !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const db = createDB(getEnv(c));
+    await db.upsertEncryptedKeyPair(user, device, content);
+    return c.json({ result: "ok" });
+  },
+);
 
-app.delete("/users/:user/encryptedKeyPair", authRequired, async (c) => {
-  const user = c.req.param("user");
-  const db = createDB(getEnv(c));
-  await db.deleteEncryptedKeyPair(user);
-  return c.json({ result: "removed" });
-});
+app.delete(
+  "/users/:user/devices/:device/encryptedKeyPair",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const device = c.req.param("device");
+    const db = createDB(getEnv(c));
+    await db.deleteEncryptedKeyPair(user, device);
+    return c.json({ result: "removed" });
+  },
+);
+
+app.get(
+  "/users/:user/rooms/:room/devices/:device/mlsState",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const room = c.req.param("room");
+    const device = c.req.param("device");
+    const db = createDB(getEnv(c));
+    const state = await db.findMLSState(room, user, device);
+    return c.json({ state });
+  },
+);
+
+app.post(
+  "/users/:user/rooms/:room/devices/:device/mlsState",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const room = c.req.param("room");
+    const device = c.req.param("device");
+    const { state } = await c.req.json();
+    if (typeof state !== "string") {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const db = createDB(getEnv(c));
+    await db.upsertMLSState(room, user, device, state);
+    return c.json({ result: "ok" });
+  },
+);
+
+app.delete(
+  "/users/:user/rooms/:room/devices/:device/mlsState",
+  authRequired,
+  async (c) => {
+    const user = c.req.param("user");
+    const room = c.req.param("room");
+    const device = c.req.param("device");
+    const db = createDB(getEnv(c));
+    await db.deleteMLSState(room, user, device);
+    return c.json({ result: "removed" });
+  },
+);
 
 app.post("/users/:user/resetKeys", authRequired, async (c) => {
   const user = c.req.param("user");
@@ -772,7 +910,7 @@ app.post("/users/:user/resetKeys", authRequired, async (c) => {
     await deliverToFollowers(getEnv(c), user, deleteActivity, domain);
   }
   await db.deleteKeyPackagesByUser(user);
-  await db.deleteEncryptedKeyPair(user);
+  await db.deleteEncryptedKeyPairsByUser(user);
   return c.json({ result: "reset" });
 });
 
@@ -783,8 +921,11 @@ app.post(
   async (c) => {
     const roomId = c.req.param("room");
     const body = await c.req.json();
-    const { from, content, mediaType, encoding, attachments } = body;
-    if (typeof from !== "string" || typeof content !== "string") {
+    const { from, content, plaintext, mediaType, encoding, attachments } = body;
+    if (
+      typeof from !== "string" ||
+      (typeof content !== "string" && typeof plaintext !== "string")
+    ) {
       return c.json({ error: "invalid body" }, 400);
     }
     const [sender, senderDomain] = from.split("@");
@@ -802,7 +943,7 @@ app.post(
     const db = createDB(env);
     const found = await db.findChatroom(roomId);
     if (!found) return c.json({ error: "room not found" }, 404);
-    const { room: group } = found;
+    const { owner, room: group } = found;
     if (!group.members.includes(from)) {
       return c.json({ error: "not a member" }, 403);
     }
@@ -810,11 +951,29 @@ app.post(
 
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
+    let storedContent = typeof content === "string" ? content : "";
+    if (typeof plaintext === "string") {
+      const result = await encryptMessage(
+        group.mls as StoredGroupState,
+        plaintext,
+      );
+      group.mls = result.state;
+      storedContent = encodePrivateMessage(result.message);
+      await db.updateChatroom(owner, group);
+    } else if (typeof content === "string") {
+      const raw = decodePrivateMessage(content);
+      if (
+        !raw ||
+        !(await verifyPrivateMessage(group.mls as StoredGroupState, raw))
+      ) {
+        return c.json({ error: "invalid message" }, 400);
+      }
+    }
     const msg = await db.createEncryptedMessage({
       roomId,
       from,
       to: recipients,
-      content,
+      content: storedContent,
       mediaType: mType,
       encoding: encType,
     }) as EncryptedMessageDoc;
@@ -830,7 +989,7 @@ app.post(
     const object = await db.saveMessage(
       domain,
       sender,
-      content,
+      storedContent,
       extra,
       { to: recipients, cc: [] },
     );
@@ -869,7 +1028,7 @@ app.post(
       roomId,
       from,
       to: recipients,
-      content,
+      content: storedContent,
       mediaType: msg.mediaType,
       encoding: msg.encoding,
       createdAt: msg.createdAt,
@@ -962,8 +1121,6 @@ app.post(
             actor: acct,
             deviceId: kp.deviceId,
           });
-        }
-        for (const kp of selected) {
           if (kp.deviceId) {
             await db.savePendingInvite(
               roomId,
@@ -972,10 +1129,49 @@ app.post(
               new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             );
           }
+          if (typeof kp.id === "string") {
+            try {
+              await fetchJson(kp.id, {}, undefined, env);
+            } catch (err) {
+              console.error("mark keyPackage used failed", err);
+            }
+          }
         }
       } catch (err) {
         console.error("fetch keyPackages failed", err);
       }
+    }
+    // 自端末のアクティブなKeyPackageを取得し招待に含める
+    try {
+      const selfList = await db.listKeyPackages(sender) as KeyPackageDoc[];
+      const selfSelected = selectKeyPackages(selfList, suite, M);
+      addList.push(...selfSelected);
+      for (const kp of selfSelected) {
+        addInputs.push({
+          content: kp.content,
+          actor: from,
+          deviceId: kp.deviceId,
+        });
+        if (kp.deviceId) {
+          await db.savePendingInvite(
+            roomId,
+            from,
+            kp.deviceId,
+            new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          );
+        }
+        if (kp._id) {
+          try {
+            const kpUrl =
+              `https://${domain}/users/${sender}/keyPackages/${kp._id}`;
+            await fetchJson(kpUrl, {}, undefined, env);
+          } catch (err) {
+            console.error("mark keyPackage used failed", err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("list self keyPackages failed", err);
     }
     // 保存された状態を読み込み Commit / Welcome を生成
     const stored = room.mls as StoredGroupState | null | undefined;
@@ -1009,6 +1205,58 @@ app.post(
         .catch((err) => console.error("Delivery failed", err));
     }
     // 新しいグループ状態を保存
+    room.mls = state;
+    await db.updateChatroom(owner, room);
+    return c.json({ result: "ok", commit });
+  },
+);
+
+app.post(
+  "/rooms/:room/remove",
+  authRequired,
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const roomId = c.req.param("room");
+    const body = await c.req.json();
+    const from = typeof body.from === "string" ? body.from : "";
+    const targets = Array.isArray(body.targets)
+      ? body.targets.filter((v: unknown): v is string => typeof v === "string")
+      : [];
+    if (!from || targets.length === 0) {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    const [sender, host] = from.split("@");
+    const domain = getDomain(c);
+    if (!sender || host !== domain) {
+      return c.json({ error: "invalid sender" }, 400);
+    }
+    const env = getEnv(c);
+    const db = createDB(env);
+    const found = await db.findChatroom(roomId);
+    if (!found) return c.json({ error: "room not found" }, 404);
+    const { room, owner } = found;
+    if (!room.members.includes(from)) {
+      return c.json({ error: "not a member" }, 403);
+    }
+    const removeSet = new Set<number>();
+    for (const acct of targets) {
+      const idx = room.members.indexOf(acct);
+      if (idx >= 0) removeSet.add(idx);
+    }
+    const indices = Array.from(removeSet).sort((a, b) => a - b);
+    if (indices.length === 0) {
+      return c.json({ error: "no targets" }, 400);
+    }
+    const stored = room.mls as StoredGroupState | null | undefined;
+    if (!stored) {
+      return c.json({ error: "no group state" }, 400);
+    }
+    const { commit: commitRaw, state } = await removeMembers(
+      stored,
+      indices,
+    );
+    const commit = encodePublicMessage(commitRaw);
+    room.members = room.members.filter((_, i) => !removeSet.has(i));
     room.mls = state;
     await db.updateChatroom(owner, room);
     return c.json({ result: "ok", commit });

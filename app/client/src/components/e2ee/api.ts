@@ -1,5 +1,10 @@
 import { apiFetch } from "../../utils/config.ts";
-import { encodePublicMessage } from "../../../../shared/mls_message.ts";
+import {
+  decodeGroupInfo,
+  encodePublicMessage,
+} from "../../../../shared/mls_message.ts";
+import { verifyGroupInfo } from "../../../../shared/mls_wrapper.ts";
+import { createUpdateCommit, type StoredGroupState } from "./mls_core.ts";
 
 export interface KeyPackage {
   id: string;
@@ -59,7 +64,7 @@ export const addKeyPackage = async (
     groupInfo?: string;
     expiresAt?: string;
   },
-): Promise<string | null> => {
+): Promise<{ keyId: string | null; groupInfo?: string }> => {
   try {
     const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/keyPackages`,
@@ -69,12 +74,17 @@ export const addKeyPackage = async (
         body: JSON.stringify(pkg),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) return { keyId: null };
     const data = await res.json();
-    return typeof data.keyId === "string" ? data.keyId : null;
+    return {
+      keyId: typeof data.keyId === "string" ? data.keyId : null,
+      groupInfo: typeof data.groupInfo === "string"
+        ? data.groupInfo
+        : undefined,
+    };
   } catch (err) {
     console.error("Error adding key package:", err);
-    return null;
+    return { keyId: null };
   }
 };
 
@@ -92,6 +102,31 @@ export const fetchKeyPackage = async (
     return await res.json();
   } catch (err) {
     console.error("Error fetching key package:", err);
+    return null;
+  }
+};
+
+export const fetchGroupInfo = async (
+  user: string,
+  keyId: string,
+): Promise<string | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keyPackages/${
+        encodeURIComponent(keyId)
+      }`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (typeof data.groupInfo === "string") {
+      const bytes = decodeGroupInfo(data.groupInfo);
+      if (bytes && verifyGroupInfo(bytes)) {
+        return data.groupInfo;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error("Error fetching group info:", err);
     return null;
   }
 };
@@ -210,6 +245,49 @@ export const sendHandshake = async (
   }
 };
 
+export const removeRoomMembers = async (
+  roomId: string,
+  from: string,
+  targets: string[],
+): Promise<string | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/rooms/${encodeURIComponent(roomId)}/remove`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, targets }),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.commit === "string" ? data.commit : null;
+  } catch (err) {
+    console.error("Error removing members:", err);
+    return null;
+  }
+};
+
+type UpdateResult = Awaited<ReturnType<typeof createUpdateCommit>>;
+
+export const updateRoomKey = async (
+  roomId: string,
+  from: string,
+  identity: string,
+  state: StoredGroupState,
+): Promise<UpdateResult | null> => {
+  try {
+    const res = await createUpdateCommit(state, identity);
+    const content = encodePublicMessage(res.commit);
+    const ok = await sendHandshake(roomId, from, content);
+    if (!ok) return null;
+    return res;
+  } catch (err) {
+    console.error("Error updating room key:", err);
+    return null;
+  }
+};
+
 export const fetchHandshakes = async (
   roomId: string,
   params?: { limit?: number; before?: string; after?: string },
@@ -237,10 +315,13 @@ export const fetchHandshakes = async (
 
 export const fetchEncryptedKeyPair = async (
   user: string,
+  deviceId: string,
 ): Promise<string | null> => {
   try {
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+      `/api/users/${encodeURIComponent(user)}/devices/${
+        encodeURIComponent(deviceId)
+      }/encryptedKeyPair`,
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -253,11 +334,14 @@ export const fetchEncryptedKeyPair = async (
 
 export const saveEncryptedKeyPair = async (
   user: string,
+  deviceId: string,
   content: string,
 ): Promise<boolean> => {
   try {
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+      `/api/users/${encodeURIComponent(user)}/devices/${
+        encodeURIComponent(deviceId)
+      }/encryptedKeyPair`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -273,15 +357,81 @@ export const saveEncryptedKeyPair = async (
 
 export const deleteEncryptedKeyPair = async (
   user: string,
+  deviceId: string,
 ): Promise<boolean> => {
   try {
     const res = await apiFetch(
-      `/api/users/${encodeURIComponent(user)}/encryptedKeyPair`,
+      `/api/users/${encodeURIComponent(user)}/devices/${
+        encodeURIComponent(deviceId)
+      }/encryptedKeyPair`,
       { method: "DELETE" },
     );
     return res.ok;
   } catch (err) {
     console.error("Error deleting encrypted key pair:", err);
+    return false;
+  }
+};
+
+export const fetchMLSState = async (
+  user: string,
+  roomId: string,
+  deviceId: string,
+): Promise<string | null> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/rooms/${
+        encodeURIComponent(roomId)
+      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.state === "string" ? data.state : null;
+  } catch (err) {
+    console.error("Error fetching MLS state:", err);
+    return null;
+  }
+};
+
+export const saveMLSState = async (
+  user: string,
+  roomId: string,
+  deviceId: string,
+  state: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/rooms/${
+        encodeURIComponent(roomId)
+      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state }),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error saving MLS state:", err);
+    return false;
+  }
+};
+
+export const deleteMLSState = async (
+  user: string,
+  roomId: string,
+  deviceId: string,
+): Promise<boolean> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/rooms/${
+        encodeURIComponent(roomId)
+      }/devices/${encodeURIComponent(deviceId)}/mlsState`,
+      { method: "DELETE" },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error deleting MLS state:", err);
     return false;
   }
 };

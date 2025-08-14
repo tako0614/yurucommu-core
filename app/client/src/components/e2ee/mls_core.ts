@@ -1,7 +1,9 @@
 import {
+  acceptAll,
   bytesToBase64,
   type CiphersuiteName,
   type ClientState,
+  createApplicationMessage,
   createCommit,
   createGroup,
   type Credential,
@@ -15,9 +17,16 @@ import {
   getCiphersuiteImpl,
   type KeyPackage as TsKeyPackage,
   type PrivateKeyPackage,
+  processPrivateMessage,
+  processPublicMessage,
   type Proposal,
 } from "ts-mls";
 import "@noble/curves/p256";
+import {
+  verifyKeyPackage,
+  verifyPrivateMessage,
+} from "../../../../shared/mls_wrapper.ts";
+export { verifyKeyPackage };
 
 export type KeyPackage = TsKeyPackage;
 export type ActorID = string;
@@ -72,37 +81,6 @@ export async function generateKeyPackage(
   return { public: publicPackage, private: privatePackage, encoded };
 }
 
-export async function verifyKeyPackage(
-  pkg:
-    | string
-    | { credential: { publicKey: string }; signature: string }
-      & Record<string, unknown>,
-): Promise<boolean> {
-  if (typeof pkg === "string") {
-    const decoded = decodeMlsMessage(b64ToBytes(pkg), 0)?.[0];
-    return !!decoded && decoded.wireformat === "mls_key_package";
-  }
-  try {
-    const { signature, ...body } = pkg;
-    const data = new TextEncoder().encode(JSON.stringify(body));
-    const pub = await crypto.subtle.importKey(
-      "raw",
-      b64ToBytes(pkg.credential.publicKey),
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["verify"],
-    );
-    return await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      pub,
-      b64ToBytes(signature),
-      data,
-    );
-  } catch {
-    return false;
-  }
-}
-
 export async function createCommitAndWelcomes(
   _suite: number,
   _members: ActorID[],
@@ -152,4 +130,166 @@ export async function createCommitAndWelcomes(
     }
   }
   return { commit, welcomes, state };
+}
+
+export async function createRemoveCommit(
+  state: StoredGroupState,
+  removeIndices: number[],
+): Promise<{ commit: Uint8Array; state: StoredGroupState }> {
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const proposals: Proposal[] = [];
+  for (const index of removeIndices) {
+    proposals.push({
+      proposalType: "remove",
+      remove: { removed: index },
+    });
+  }
+  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  return { commit: encodeMlsMessage(result.commit), state: result.newState };
+}
+
+export async function createUpdateCommit(
+  state: StoredGroupState,
+  identity: string,
+): Promise<{
+  commit: Uint8Array;
+  state: StoredGroupState;
+  keyPair: { public: KeyPackage; private: PrivateKeyPackage; encoded: string };
+}> {
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const keyPair = await generateKeyPackage(identity, suiteName);
+  const proposals: Proposal[] = [{
+    proposalType: "update",
+    update: { keyPackage: keyPair.public },
+  }];
+  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  return {
+    commit: encodeMlsMessage(result.commit),
+    state: result.newState,
+    keyPair,
+  };
+}
+
+export async function encryptMessage(
+  state: StoredGroupState,
+  plaintext: Uint8Array | string,
+): Promise<{ message: Uint8Array; state: StoredGroupState }> {
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const input = typeof plaintext === "string"
+    ? new TextEncoder().encode(plaintext)
+    : plaintext;
+  const { newState, privateMessage } = await createApplicationMessage(
+    state,
+    input,
+    cs,
+  );
+  const message = encodeMlsMessage({
+    version: "mls10",
+    wireformat: "mls_private_message",
+    privateMessage,
+  });
+  return { message, state: newState };
+}
+
+const sentAck = new Set<string>();
+
+export async function encryptMessageWithAck(
+  state: StoredGroupState,
+  plaintext: Uint8Array | string,
+  roomId: string,
+  deviceId: string,
+): Promise<{ messages: Uint8Array[]; state: StoredGroupState }> {
+  let current = state;
+  const out: Uint8Array[] = [];
+  const key = `${roomId}:${deviceId}`;
+  if (!sentAck.has(key)) {
+    const ackBody = JSON.stringify({
+      type: "joinAck",
+      roomId,
+      deviceId,
+    });
+    const ack = await encryptMessage(current, ackBody);
+    out.push(ack.message);
+    current = ack.state;
+    sentAck.add(key);
+  }
+  const msg = await encryptMessage(current, plaintext);
+  out.push(msg.message);
+  return { messages: out, state: msg.state };
+}
+
+export async function decryptMessage(
+  state: StoredGroupState,
+  data: Uint8Array,
+): Promise<{ plaintext: Uint8Array; state: StoredGroupState } | null> {
+  if (!(await verifyPrivateMessage(state, data))) {
+    return null;
+  }
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const decoded = decodeMlsMessage(data, 0)?.[0];
+  if (!decoded || decoded.wireformat !== "mls_private_message") {
+    return null;
+  }
+  const res = await processPrivateMessage(
+    state,
+    decoded.privateMessage,
+    emptyPskIndex,
+    cs,
+  );
+  if (res.kind !== "applicationMessage") {
+    return { plaintext: new Uint8Array(), state: res.newState };
+  }
+  return { plaintext: res.message, state: res.newState };
+}
+
+export async function processCommit(
+  state: StoredGroupState,
+  data: Uint8Array,
+): Promise<StoredGroupState> {
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const decoded = decodeMlsMessage(data, 0)?.[0];
+  if (
+    !decoded ||
+    decoded.wireformat !== "mls_public_message" ||
+    !decoded.publicMessage.content?.commit
+  ) {
+    throw new Error("不正なCommitメッセージです");
+  }
+  const { newState } = await processPublicMessage(
+    state,
+    decoded.publicMessage,
+    emptyPskIndex,
+    cs,
+    acceptAll,
+  );
+  return newState;
+}
+
+export async function processProposal(
+  state: StoredGroupState,
+  data: Uint8Array,
+): Promise<StoredGroupState> {
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const decoded = decodeMlsMessage(data, 0)?.[0];
+  if (
+    !decoded ||
+    decoded.wireformat !== "mls_public_message" ||
+    !decoded.publicMessage.content?.proposal
+  ) {
+    throw new Error("不正なProposalメッセージです");
+  }
+  const { newState } = await processPublicMessage(
+    state,
+    decoded.publicMessage,
+    emptyPskIndex,
+    cs,
+    acceptAll,
+  );
+  return newState;
 }

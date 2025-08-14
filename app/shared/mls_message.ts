@@ -6,13 +6,19 @@ export type MLSMessageType =
   | "PublicMessage"
   | "PrivateMessage"
   | "Welcome"
-  | "KeyPackage";
+  | "KeyPackage"
+  | "Commit"
+  | "Proposal"
+  | "GroupInfo";
 
 const typeToByte: Record<MLSMessageType, number> = {
   PublicMessage: 1,
   PrivateMessage: 2,
   Welcome: 3,
   KeyPackage: 4,
+  Commit: 5,
+  Proposal: 6,
+  GroupInfo: 7,
 };
 
 const byteToType: Record<number, MLSMessageType> = {
@@ -20,6 +26,9 @@ const byteToType: Record<number, MLSMessageType> = {
   2: "PrivateMessage",
   3: "Welcome",
   4: "KeyPackage",
+  5: "Commit",
+  6: "Proposal",
+  7: "GroupInfo",
 };
 
 function toBytes(body: Uint8Array | string): Uint8Array {
@@ -67,6 +76,18 @@ export function encodeKeyPackage(body: Uint8Array | string): string {
   return bufToB64(serialize("KeyPackage", body));
 }
 
+export function encodeCommit(body: Uint8Array | string): string {
+  return bufToB64(serialize("Commit", body));
+}
+
+export function encodeProposal(body: Uint8Array | string): string {
+  return bufToB64(serialize("Proposal", body));
+}
+
+export function encodeGroupInfo(body: Uint8Array | string): string {
+  return bufToB64(serialize("GroupInfo", body));
+}
+
 export function decodePublicMessage(data: string): Uint8Array | null {
   const decoded = parseMLSMessage(data);
   return decoded && decoded.type === "PublicMessage" ? decoded.body : null;
@@ -85,6 +106,21 @@ export function decodeWelcome(data: string): Uint8Array | null {
 export function decodeKeyPackage(data: string): Uint8Array | null {
   const decoded = parseMLSMessage(data);
   return decoded && decoded.type === "KeyPackage" ? decoded.body : null;
+}
+
+export function decodeCommit(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "Commit" ? decoded.body : null;
+}
+
+export function decodeProposal(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "Proposal" ? decoded.body : null;
+}
+
+export function decodeGroupInfo(data: string): Uint8Array | null {
+  const decoded = parseMLSMessage(data);
+  return decoded && decoded.type === "GroupInfo" ? decoded.body : null;
 }
 
 export function parseMLSMessage(
