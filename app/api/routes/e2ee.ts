@@ -20,13 +20,11 @@ import {
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
 import {
-  decodeKeyPackage,
   encodePublicMessage,
   encodeWelcome,
 } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
 import {
   createCommitAndWelcomes,
-  type KeyPackage as MLSKeyPackage,
   type RawKeyPackageInput,
   type StoredGroupState,
   verifyKeyPackage,
@@ -660,17 +658,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
-  const raw = decodeKeyPackage(content);
-  if (!raw) {
-    return c.json({ error: "invalid key package" }, 400);
-  }
-  try {
-    const obj = JSON.parse(new TextDecoder().decode(raw)) as MLSKeyPackage;
-    const ok = await verifyKeyPackage(obj);
-    if (!ok) {
-      return c.json({ error: "invalid signature" }, 400);
-    }
-  } catch {
+  const ok = await verifyKeyPackage(content);
+  if (!ok) {
     return c.json({ error: "invalid key package" }, 400);
   }
   const db = createDB(getEnv(c));

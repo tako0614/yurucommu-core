@@ -5,11 +5,28 @@ import {
   encodeKeyPackage,
   encodePrivateMessage,
 } from "../../../../shared/mls_message.ts";
-import {
-  type ActorID,
-  type KeyPackageBody,
-  signKeyPackage,
-} from "../../../../shared/mls_core.ts";
+
+type ActorID = string;
+interface KeyPackageBody {
+  version: number;
+  suite: number;
+  initKey: string;
+  credential: { publicKey: string };
+  capabilities: { cipherSuites: number[] };
+}
+interface KeyPackage extends KeyPackageBody {
+  signature: string;
+}
+async function signKeyPackage(
+  body: KeyPackageBody,
+  signKey: CryptoKey,
+): Promise<KeyPackage> {
+  const data = new TextEncoder().encode(JSON.stringify(body));
+  const sig = new Uint8Array(
+    await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signKey, data),
+  );
+  return { ...body, signature: bufToB64(sig) };
+}
 
 export interface MLSKeyPair {
   publicKey: string; // base64化した公開鍵

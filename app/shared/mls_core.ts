@@ -1,58 +1,29 @@
-// Minimal MLS adapter for Deno/Browser environments
-// これは暫定的な実装であり、将来的に本格的な MLS ライブラリに置き換えられる想定です。
+import {
+  bytesToBase64,
+  type CiphersuiteName,
+  type ClientState,
+  createCommit,
+  createGroup,
+  type Credential,
+  decodeMlsMessage,
+  defaultCapabilities,
+  defaultLifetime,
+  emptyPskIndex,
+  encodeMlsMessage,
+  generateKeyPackage as tsGenerateKeyPackage,
+  getCiphersuiteFromName,
+  getCiphersuiteImpl,
+  type KeyPackage as TsKeyPackage,
+  type PrivateKeyPackage,
+  type Proposal,
+} from "npm:ts-mls";
+import "npm:@noble/curves/p256";
 
-import { b64ToBuf, bufToB64 } from "./buffer.ts";
-import { decodeKeyPackage } from "./mls_message.ts";
-
-export interface KeyPackageBody {
-  version: number;
-  suite: number;
-  initKey: string; // HPKE 公開鍵（base64）
-  credential: { publicKey: string };
-  capabilities: { cipherSuites: number[] };
-}
-
-export interface KeyPackage extends KeyPackageBody {
-  signature: string; // 署名（base64）
-}
-
-export async function signKeyPackage(
-  body: KeyPackageBody,
-  signKey: CryptoKey,
-): Promise<KeyPackage> {
-  const data = new TextEncoder().encode(JSON.stringify(body));
-  const sig = new Uint8Array(
-    await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signKey, data),
-  );
-  return { ...body, signature: bufToB64(sig) };
-}
-
-export async function verifyKeyPackage(pkg: KeyPackage): Promise<boolean> {
-  try {
-    const { signature, ...body } = pkg;
-    const data = new TextEncoder().encode(JSON.stringify(body));
-    const pub = await crypto.subtle.importKey(
-      "raw",
-      b64ToBuf(pkg.credential.publicKey),
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["verify"],
-    );
-    return await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      pub,
-      b64ToBuf(signature),
-      data,
-    );
-  } catch {
-    return false;
-  }
-}
-
+export type KeyPackage = TsKeyPackage;
 export type ActorID = string;
+export type StoredGroupState = ClientState;
 
 export interface RawKeyPackageInput {
-  // ActivityPub 経由で取得した KeyPackage （Base64）
   content: string;
   actor?: ActorID;
   deviceId?: string;
@@ -61,172 +32,80 @@ export interface RawKeyPackageInput {
 export interface WelcomeEntry {
   actor?: ActorID;
   deviceId?: string;
-  data: Uint8Array; // encodeWelcome(...) でラップする前の生データ
+  data: Uint8Array;
 }
 
-export interface StoredGroupState {
-  suite: number;
-  epoch: number;
-  publicKey: string; // base64
-  privateKey: JsonWebKey;
-  tree: Record<ActorID, unknown>;
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
-/**
- * HPKE/ECDH を用いてグループ秘密を配布するための状態
- */
-export class MLSGroupState {
-  suite: number;
-  epoch: number;
-  privateKey: CryptoKey;
-  publicKey: Uint8Array;
-  tree: Record<ActorID, unknown>;
+export async function generateKeyPackage(
+  identity: string,
+  suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256",
+): Promise<{
+  public: KeyPackage;
+  private: PrivateKeyPackage;
+  encoded: string;
+}> {
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  const credential: Credential = {
+    credentialType: "basic",
+    identity: new TextEncoder().encode(identity),
+  };
+  const { publicPackage, privatePackage } = await tsGenerateKeyPackage(
+    credential,
+    defaultCapabilities(),
+    defaultLifetime,
+    [],
+    cs,
+  );
+  const encoded = bytesToBase64(
+    encodeMlsMessage({
+      version: "mls10",
+      wireformat: "mls_key_package",
+      keyPackage: publicPackage,
+    }),
+  );
+  return { public: publicPackage, private: privatePackage, encoded };
+}
 
-  private constructor(
-    suite: number,
-    epoch: number,
-    key: CryptoKey,
-    pub: Uint8Array,
-    members: ActorID[],
-  ) {
-    this.suite = suite;
-    this.epoch = epoch;
-    this.privateKey = key;
-    this.publicKey = pub;
-    this.tree = {};
-    for (const m of members) this.tree[m] = {};
+export async function verifyKeyPackage(
+  pkg:
+    | string
+    | { credential: { publicKey: string }; signature: string }
+      & Record<string, unknown>,
+): Promise<boolean> {
+  if (typeof pkg === "string") {
+    const decoded = decodeMlsMessage(b64ToBytes(pkg), 0)?.[0];
+    return !!decoded && decoded.wireformat === "mls_key_package";
   }
-
-  /**
-   * 初期グループ状態を生成
-   */
-  static async init(
-    suite: number,
-    members: ActorID[],
-    epoch = 0,
-  ): Promise<MLSGroupState> {
-    const pair = await crypto.subtle.generateKey(
-      { name: "ECDH", namedCurve: "P-256" },
+  try {
+    const { signature, ...body } = pkg;
+    const data = new TextEncoder().encode(JSON.stringify(body));
+    const pub = await crypto.subtle.importKey(
+      "raw",
+      b64ToBytes(pkg.credential.publicKey),
+      { name: "ECDSA", namedCurve: "P-256" },
       true,
-      ["deriveBits"],
+      ["verify"],
     );
-    const pub = new Uint8Array(
-      await crypto.subtle.exportKey("raw", pair.publicKey),
+    return await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      pub,
+      b64ToBytes(signature),
+      data,
     );
-    return new MLSGroupState(suite, epoch, pair.privateKey, pub, members);
-  }
-
-  /**
-   * 永続化された状態から復元
-   */
-  static async fromStored(data: StoredGroupState): Promise<MLSGroupState> {
-    const priv = await crypto.subtle.importKey(
-      "jwk",
-      data.privateKey,
-      { name: "ECDH", namedCurve: "P-256" },
-      true,
-      ["deriveBits"],
-    );
-    const pub = b64ToBuf(data.publicKey);
-    const members = Object.keys(data.tree);
-    const state = new MLSGroupState(data.suite, data.epoch, priv, pub, members);
-    state.tree = data.tree;
-    return state;
-  }
-
-  /**
-   * 状態を永続化形式へ変換
-   */
-  async export(): Promise<StoredGroupState> {
-    const jwk = await crypto.subtle.exportKey("jwk", this.privateKey);
-    return {
-      suite: this.suite,
-      epoch: this.epoch,
-      publicKey: bufToB64(this.publicKey),
-      privateKey: jwk,
-      tree: this.tree,
-    };
-  }
-
-  /**
-   * 新規メンバーを追加し、Commit と Welcome を生成
-   */
-  async addMembers(
-    addKeyPackages: RawKeyPackageInput[],
-  ): Promise<{ commit: Uint8Array; welcomes: WelcomeEntry[]; epoch: number }> {
-    const added: ActorID[] = [];
-    const welcomes: WelcomeEntry[] = [];
-    const nextEpoch = this.epoch + 1;
-
-    for (const kp of addKeyPackages) {
-      try {
-        const kpBody = decodeKeyPackage(kp.content);
-        if (!kpBody) continue;
-        const text = new TextDecoder().decode(kpBody);
-        const obj = JSON.parse(text) as KeyPackage;
-        if (!(await verifyKeyPackage(obj))) continue;
-        if (obj.suite !== this.suite) continue;
-        const pubRaw = b64ToBuf(obj.initKey);
-        const pub = await crypto.subtle.importKey(
-          "raw",
-          pubRaw,
-          { name: "ECDH", namedCurve: "P-256" },
-          true,
-          [],
-        );
-        const secret = new Uint8Array(
-          await crypto.subtle.deriveBits(
-            { name: "ECDH", public: pub },
-            this.privateKey,
-            256,
-          ),
-        );
-        if (kp.actor) {
-          this.tree[kp.actor] = {};
-          added.push(kp.actor);
-        }
-        const membersNow = Object.keys(this.tree);
-        const welcomeBody = {
-          type: "welcome",
-          suite: this.suite,
-          epoch: nextEpoch,
-          group: bufToB64(this.publicKey),
-          secret: bufToB64(secret),
-          members: membersNow,
-          actor: kp.actor,
-          deviceId: kp.deviceId,
-          issuedAt: Date.now(),
-        } as const;
-        welcomes.push({
-          actor: kp.actor,
-          deviceId: kp.deviceId,
-          data: new TextEncoder().encode(JSON.stringify(welcomeBody)),
-        });
-      } catch {
-        continue;
-      }
-    }
-
-    const members = Object.keys(this.tree);
-    const commitBody = {
-      type: "commit",
-      suite: this.suite,
-      epoch: nextEpoch,
-      members,
-      added,
-    } as const;
-    const commit = new TextEncoder().encode(JSON.stringify(commitBody));
-    this.epoch = nextEpoch;
-    return { commit, welcomes, epoch: this.epoch };
+  } catch {
+    return false;
   }
 }
 
-/**
- * 永続化された状態をもとに Commit / Welcome を生成
- */
 export async function createCommitAndWelcomes(
-  suite: number,
-  members: ActorID[],
+  _suite: number,
+  _members: ActorID[],
   addKeyPackages: RawKeyPackageInput[],
   stored?: StoredGroupState | null,
 ): Promise<{
@@ -234,10 +113,43 @@ export async function createCommitAndWelcomes(
   welcomes: WelcomeEntry[];
   state: StoredGroupState;
 }> {
-  const group = stored
-    ? await MLSGroupState.fromStored(stored)
-    : await MLSGroupState.init(suite, members);
-  const { commit, welcomes } = await group.addMembers(addKeyPackages);
-  const state = await group.export();
+  const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+  const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
+  let state: ClientState;
+  if (stored) {
+    state = stored;
+  } else {
+    const self = await generateKeyPackage("server", suiteName);
+    const gid = new TextEncoder().encode(crypto.randomUUID());
+    state = await createGroup(gid, self.public, self.private, [], cs);
+  }
+  const proposals: Proposal[] = [];
+  for (const kp of addKeyPackages) {
+    const decoded = decodeMlsMessage(b64ToBytes(kp.content), 0)?.[0];
+    if (decoded && decoded.wireformat === "mls_key_package") {
+      proposals.push({
+        proposalType: "add",
+        add: { keyPackage: decoded.keyPackage },
+      });
+    }
+  }
+  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  state = result.newState;
+  const commit = encodeMlsMessage(result.commit);
+  const welcomes: WelcomeEntry[] = [];
+  if (result.welcome) {
+    const welcomeBytes = encodeMlsMessage({
+      version: "mls10",
+      wireformat: "mls_welcome",
+      welcome: result.welcome,
+    });
+    for (const kp of addKeyPackages) {
+      welcomes.push({
+        actor: kp.actor,
+        deviceId: kp.deviceId,
+        data: welcomeBytes,
+      });
+    }
+  }
   return { commit, welcomes, state };
 }
