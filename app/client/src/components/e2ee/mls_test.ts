@@ -9,10 +9,12 @@ function assertEquals<T>(actual: T, expected: T, message?: string): void {
 import {
   createCommitAndWelcomes,
   generateKeyPackage,
-} from "../../../../shared/mls_core.ts";
+  verifyKeyPackage,
+} from "./mls_core.ts";
 
 Deno.test("ts-mlsでCommitとWelcomeを生成できる", async () => {
   const bob = await generateKeyPackage("bob");
+  assert(await verifyKeyPackage(bob.encoded));
   const { commit, welcomes } = await createCommitAndWelcomes(1, ["alice"], [
     { content: bob.encoded, actor: "bob" },
   ]);

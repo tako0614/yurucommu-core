@@ -68,7 +68,7 @@ import {
 import {
   type KeyPackage as MLSKeyPackageData,
   verifyKeyPackage,
-} from "../../../shared/mls_core.ts";
+} from "./e2ee/mls_core.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {

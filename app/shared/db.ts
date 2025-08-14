@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import type { AccountDoc, SessionDoc } from "./types.ts";
-import type { StoredGroupState } from "./mls_core.ts";
+
+// MLS のグループ状態を表す型（詳細はクライアント側で定義）
+type StoredGroupState = Record<string, unknown>;
 
 /** タイムライン取得用オプション */
 export interface ListOpts {

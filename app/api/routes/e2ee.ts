@@ -28,7 +28,7 @@ import {
   type RawKeyPackageInput,
   type StoredGroupState,
   verifyKeyPackage,
-} from "../../shared/mls_core.ts";
+} from "../../client/src/components/e2ee/mls_core.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
