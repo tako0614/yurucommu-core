@@ -35,7 +35,7 @@ import {
   encryptGroupMessage,
   exportGroupState,
   exportKeyPair,
-  generateMLSKeyPair,
+  generateKeyPackage,
   importGroupState,
   importKeyPair,
   MLSGroupState,
@@ -61,9 +61,14 @@ import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import {
-  decodeMLSMessage,
-  encodeMLSMessage,
+  decodeKeyPackage,
+  encodePrivateMessage,
+  parseMLSMessage,
 } from "../../../shared/mls_message.ts";
+import {
+  type KeyPackage as MLSKeyPackageData,
+  verifyKeyPackage,
+} from "../../../shared/mls_core.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -539,13 +544,14 @@ export function Chat() {
         pair = null;
       }
       if (!pair) {
-        pair = await generateMLSKeyPair();
+        const { keyPackage, keyPair } = await generateKeyPackage();
+        pair = keyPair;
         try {
-          const exported = await exportKeyPair(pair);
+          const exported = await exportKeyPair(pair, keyPackage);
           await saveMLSKeyPair(user.id, exported);
           await addKeyPackage(
             user.userName,
-            { content: pair.publicKey },
+            { content: keyPackage.data },
           );
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
@@ -570,7 +576,23 @@ export function Chat() {
       userName,
       effectiveDomain,
     );
-    const pub = keys[0]?.content ?? null;
+    let pub: string | null = null;
+    const raw = keys[0]?.content;
+    if (raw) {
+      const body = decodeKeyPackage(raw);
+      if (body) {
+        try {
+          const obj = JSON.parse(
+            new TextDecoder().decode(body),
+          ) as MLSKeyPackageData;
+          if (await verifyKeyPackage(obj)) {
+            pub = obj.initKey;
+          }
+        } catch {
+          pub = null;
+        }
+      }
+    }
     partnerKeyCache.set(keyId, pub);
     return pub;
   };
@@ -624,7 +646,7 @@ export function Chat() {
       params,
     );
     for (const m of list) {
-      const decoded = decodeMLSMessage(m.content);
+      const decoded = parseMLSMessage(m.content);
       if (!decoded) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         const displayName = isMe
@@ -1195,7 +1217,7 @@ export function Chat() {
       const displayName = isMe
         ? (user.displayName || user.userName)
         : room.name;
-      const decoded = decodeMLSMessage(data.content);
+      const decoded = parseMLSMessage(data.content);
       if (!decoded) return;
 
       // Welcome 受信時は署名とメンバーを検証し、成功時のみ joinAck を返信
@@ -1215,10 +1237,26 @@ export function Chat() {
           bodyObj.deviceId === user.id &&
           bodyObj.welcome
         ) {
-          const verify = await verifyWelcome(bodyObj.welcome);
+          const kp = await ensureKeyPair();
+          if (!kp) {
+            alert("鍵ペアの取得に失敗しました。");
+            return;
+          }
+          const verify = await verifyWelcome(
+            self,
+            kp,
+            bodyObj.welcome,
+            bodyObj.welcome.group,
+            bodyObj.welcome.suite,
+          );
           const members = verify.members;
-          if (!verify.valid || !members || !members.includes(self)) {
-            alert("Welcome メッセージの検証に失敗しました。");
+          if (
+            !verify.valid ||
+            !members ||
+            !verify.group ||
+            !members.includes(self)
+          ) {
+            alert(verify.error ?? "Welcome メッセージの検証に失敗しました。");
             return;
           }
           const expected = new Set(room.members);
@@ -1230,8 +1268,7 @@ export function Chat() {
             alert("Welcome メッセージのメンバー一覧が一致しません。");
             return;
           }
-          const ack = encodeMLSMessage(
-            "PrivateMessage",
+          const ack = encodePrivateMessage(
             new TextEncoder().encode(
               JSON.stringify({
                 type: "joinAck",
@@ -1244,14 +1281,16 @@ export function Chat() {
           setChatRooms((rooms) =>
             rooms.map((r) => r.id === bodyObj.roomId ? { ...r, members } : r)
           );
+          setGroups({ ...groups(), [bodyObj.roomId]: verify.group });
+          saveGroupStates();
           return;
         }
       } catch {
         /* JSON でない場合は無視 */
       }
 
-  const bodyText = new TextDecoder().decode(decoded.body);
-  let text: string = bodyText;
+      const bodyText = new TextDecoder().decode(decoded.body);
+      let text: string = bodyText;
       let attachments:
         | {
           data?: string;

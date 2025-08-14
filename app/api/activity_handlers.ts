@@ -8,7 +8,7 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
-import { decodeMLSMessage } from "../shared/mls_message.ts";
+import { parseMLSMessage } from "../shared/mls_message.ts";
 
 function iriToHandle(iri: string): string {
   try {
@@ -113,7 +113,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         const db = createDB(env);
         const domain = getDomain(c as Context);
         const selfHandle = `${username}@${domain}`;
-        const decoded = decodeMLSMessage(obj.content);
+        const decoded = parseMLSMessage(obj.content);
         if (decoded) {
           let bodyObj: Record<string, unknown> | null = null;
           try {

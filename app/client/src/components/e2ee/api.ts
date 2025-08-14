@@ -1,5 +1,5 @@
 import { apiFetch } from "../../utils/config.ts";
-import { encodeMLSMessage } from "../../../../shared/mls_message.ts";
+import { encodePublicMessage } from "../../../../shared/mls_message.ts";
 
 export interface KeyPackage {
   id: string;
@@ -545,8 +545,7 @@ export const sendProposal = async (
   from: string,
   proposal: MLSProposalPayload,
 ): Promise<boolean> => {
-  const content = encodeMLSMessage(
-    "PublicMessage",
+  const content = encodePublicMessage(
     new TextEncoder().encode(JSON.stringify(proposal)),
   );
   return await sendHandshake(roomId, from, content);
@@ -557,16 +556,14 @@ export const sendCommit = async (
   from: string,
   commit: MLSCommitPayload,
 ): Promise<boolean> => {
-  const content = encodeMLSMessage(
-    "PublicMessage",
+  const content = encodePublicMessage(
     new TextEncoder().encode(JSON.stringify(commit)),
   );
   const ok = await sendHandshake(roomId, from, content);
   if (!ok) return false;
   if (commit.welcomes) {
     for (const w of commit.welcomes) {
-      const wContent = encodeMLSMessage(
-        "PublicMessage",
+      const wContent = encodePublicMessage(
         new TextEncoder().encode(JSON.stringify(w)),
       );
       const success = await sendHandshake(roomId, from, wContent);

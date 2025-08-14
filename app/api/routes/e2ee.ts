@@ -19,8 +19,18 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import { encodeMLSMessage } from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
-import { createCommitAndWelcomes, type RawKeyPackageInput } from "../../shared/mls_core.ts";
+import {
+  decodeKeyPackage,
+  encodePublicMessage,
+  encodeWelcome,
+} from "../../shared/mls_message.ts"; // MLSハンドシェイクのエンコード
+import {
+  createCommitAndWelcomes,
+  type KeyPackage as MLSKeyPackage,
+  type RawKeyPackageInput,
+  type StoredGroupState,
+  verifyKeyPackage,
+} from "../../shared/mls_core.ts";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -650,6 +660,19 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
+  const raw = decodeKeyPackage(content);
+  if (!raw) {
+    return c.json({ error: "invalid key package" }, 400);
+  }
+  try {
+    const obj = JSON.parse(new TextDecoder().decode(raw)) as MLSKeyPackage;
+    const ok = await verifyKeyPackage(obj);
+    if (!ok) {
+      return c.json({ error: "invalid signature" }, 400);
+    }
+  } catch {
+    return c.json({ error: "invalid key package" }, 400);
+  }
   const db = createDB(getEnv(c));
   const pkg = await db.createKeyPackage(
     user,
@@ -919,7 +942,7 @@ app.post(
     const db = createDB(env);
     const found = await db.findChatroom(roomId);
     if (!found) return c.json({ error: "room not found" }, 404);
-    const { room } = found;
+    const { room, owner } = found;
     if (!room.members.includes(from)) {
       return c.json({ error: "not a member" }, 403);
     }
@@ -945,7 +968,11 @@ app.post(
         const selected = selectKeyPackages(items, suite, M);
         addList.push(...selected);
         for (const kp of selected) {
-          addInputs.push({ content: kp.content, actor: acct, deviceId: kp.deviceId });
+          addInputs.push({
+            content: kp.content,
+            actor: acct,
+            deviceId: kp.deviceId,
+          });
         }
         for (const kp of selected) {
           if (kp.deviceId) {
@@ -961,17 +988,19 @@ app.post(
         console.error("fetch keyPackages failed", err);
       }
     }
-    // Build MLS commit + welcomes and deliver
-    const { commit: commitRaw, welcomes } = await createCommitAndWelcomes({
-      addKeyPackages: addInputs,
-      members: room.members,
-      suite: suite,
-      epoch: Date.now(),
-    });
-    const commit = encodeMLSMessage("PublicMessage", commitRaw);
+    // 保存された状態を読み込み Commit / Welcome を生成
+    const stored = room.mls as StoredGroupState | null | undefined;
+    const { commit: commitRaw, welcomes, state } =
+      await createCommitAndWelcomes(
+        suite,
+        room.members,
+        addInputs,
+        stored,
+      );
+    const commit = encodePublicMessage(commitRaw);
     for (const w of welcomes) {
       if (!w.actor) continue;
-      const wrapped = encodeMLSMessage("Welcome", w.data);
+      const wrapped = encodeWelcome(w.data);
       const activity: ActivityPubActivity = {
         "@context": [
           "https://www.w3.org/ns/activitystreams",
@@ -990,6 +1019,9 @@ app.post(
       await deliverActivityPubObject([w.actor], activity, sender, domain, env)
         .catch((err) => console.error("Delivery failed", err));
     }
+    // 新しいグループ状態を保存
+    room.mls = state;
+    await db.updateChatroom(owner, room);
     return c.json({ result: "ok", commit });
   },
 );
