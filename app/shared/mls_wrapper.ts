@@ -8,7 +8,7 @@ import {
   createApplicationMessage,
   createCommit,
   createGroup,
-  createGroupInfoWithExternalPub,
+  createGroupInfoWithExternalPubAndRatchetTree,
   decodeMlsMessage,
   defaultCapabilities,
   defaultLifetime,
@@ -19,7 +19,9 @@ import {
   getCiphersuiteImpl,
   getSignaturePublicKeyFromLeafIndex,
   joinGroup,
+  joinGroupExternal,
   type KeyPackage,
+  makePskIndex,
   type PrivateKeyPackage,
   processPrivateMessage,
   processPublicMessage,
@@ -62,6 +64,18 @@ function b64ToBytes(b64: string): Uint8Array {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+function buildPskIndex(
+  state: StoredGroupState | undefined,
+  psks?: Record<string, string>,
+) {
+  if (!psks) return emptyPskIndex;
+  const map: Record<string, Uint8Array> = {};
+  for (const [id, secret] of Object.entries(psks)) {
+    map[id] = b64ToBytes(secret);
+  }
+  return makePskIndex(state, map);
 }
 
 export async function generateKeyPair(
@@ -150,12 +164,19 @@ export async function verifyCommit(
   state: StoredGroupState,
   message: PublicMessage,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<boolean> {
   if (!message.content.commit) return false;
   try {
     const cs = await getSuite(suite);
     const cloned = structuredClone(state);
-    await processPublicMessage(cloned, message, emptyPskIndex, cs, acceptAll);
+    await processPublicMessage(
+      cloned,
+      message,
+      buildPskIndex(state, psks),
+      cs,
+      acceptAll,
+    );
     return true;
   } catch {
     return false;
@@ -165,6 +186,7 @@ export async function verifyCommit(
 export async function verifyWelcome(
   data: Uint8Array,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<boolean> {
   try {
     const decoded = decodeMlsMessage(data, 0)?.[0];
@@ -174,7 +196,13 @@ export async function verifyWelcome(
     const cs = await getSuite(suite);
     // joinGroup が失敗しないことを確認するためダミーの鍵ペアで参加を試みる
     const kp = await generateKeyPair("verify", suite);
-    await joinGroup(decoded.welcome, kp.public, kp.private, emptyPskIndex, cs);
+    await joinGroup(
+      decoded.welcome,
+      kp.public,
+      kp.private,
+      buildPskIndex(undefined, psks),
+      cs,
+    );
     return true;
   } catch {
     return false;
@@ -209,6 +237,7 @@ export async function verifyPrivateMessage(
   state: StoredGroupState,
   data: Uint8Array,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<boolean> {
   try {
     const cs = await getSuite(suite);
@@ -220,7 +249,7 @@ export async function verifyPrivateMessage(
     await processPrivateMessage(
       cloned,
       decoded.privateMessage,
-      emptyPskIndex,
+      buildPskIndex(state, psks),
       cs,
     );
     return true;
@@ -248,6 +277,7 @@ export async function addMembers(
   state: StoredGroupState,
   addKeyPackages: RawKeyPackageInput[],
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<{
   commit: Uint8Array;
   welcomes: WelcomeEntry[];
@@ -264,7 +294,13 @@ export async function addMembers(
       });
     }
   }
-  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  const result = await createCommit(
+    state,
+    buildPskIndex(state, psks),
+    false,
+    proposals,
+    cs,
+  );
   state = result.newState;
   const commit = encodeMlsMessage(result.commit);
   const welcomes: WelcomeEntry[] = [];
@@ -289,6 +325,7 @@ export async function removeMembers(
   state: StoredGroupState,
   removeIndices: number[],
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<{ commit: Uint8Array; state: StoredGroupState }> {
   const cs = await getSuite(suite);
   const proposals: Proposal[] = [];
@@ -298,7 +335,13 @@ export async function removeMembers(
       remove: { removed: index },
     });
   }
-  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  const result = await createCommit(
+    state,
+    buildPskIndex(state, psks),
+    false,
+    proposals,
+    cs,
+  );
   return { commit: encodeMlsMessage(result.commit), state: result.newState };
 }
 
@@ -306,6 +349,7 @@ export async function updateKey(
   state: StoredGroupState,
   identity: string,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<{
   commit: Uint8Array;
   state: StoredGroupState;
@@ -317,7 +361,13 @@ export async function updateKey(
     proposalType: "update",
     update: { keyPackage: keyPair.public },
   }];
-  const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
+  const result = await createCommit(
+    state,
+    buildPskIndex(state, psks),
+    false,
+    proposals,
+    cs,
+  );
   return {
     commit: encodeMlsMessage(result.commit),
     state: result.newState,
@@ -329,6 +379,7 @@ export async function joinWithWelcome(
   welcome: Uint8Array,
   keyPair: GeneratedKeyPair,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<StoredGroupState> {
   const cs = await getSuite(suite);
   const decoded = decodeMlsMessage(welcome, 0)?.[0];
@@ -339,7 +390,7 @@ export async function joinWithWelcome(
     decoded.welcome,
     keyPair.public,
     keyPair.private,
-    emptyPskIndex,
+    buildPskIndex(undefined, psks),
     cs,
   );
 }
@@ -370,6 +421,7 @@ export async function decryptMessage(
   state: StoredGroupState,
   data: Uint8Array,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<{ plaintext: Uint8Array; state: StoredGroupState } | null> {
   const cs = await getSuite(suite);
   const decoded = decodeMlsMessage(data, 0)?.[0];
@@ -379,7 +431,7 @@ export async function decryptMessage(
   const res = await processPrivateMessage(
     state,
     decoded.privateMessage,
-    emptyPskIndex,
+    buildPskIndex(state, psks),
     cs,
   );
   if (res.kind !== "applicationMessage") {
@@ -393,7 +445,10 @@ export async function exportGroupInfo(
   suite: CiphersuiteName = DEFAULT_SUITE,
 ): Promise<Uint8Array> {
   const cs = await getSuite(suite);
-  const info = await createGroupInfoWithExternalPub(state, cs);
+  const info = await createGroupInfoWithExternalPubAndRatchetTree(
+    state,
+    cs,
+  );
   return encodeMlsMessage({
     version: "mls10",
     wireformat: "mls_group_info",
@@ -401,10 +456,38 @@ export async function exportGroupInfo(
   });
 }
 
+export async function joinWithGroupInfo(
+  groupInfo: Uint8Array,
+  keyPair: GeneratedKeyPair,
+  suite: CiphersuiteName = DEFAULT_SUITE,
+): Promise<{ commit: Uint8Array; state: StoredGroupState }> {
+  const cs = await getSuite(suite);
+  const decoded = decodeMlsMessage(groupInfo, 0)?.[0];
+  if (!decoded || decoded.wireformat !== "mls_group_info") {
+    throw new Error("不正なGroupInfoです");
+  }
+  const { publicMessage, newState } = await joinGroupExternal(
+    decoded.groupInfo,
+    keyPair.public,
+    keyPair.private,
+    false,
+    cs,
+  );
+  return {
+    commit: encodeMlsMessage({
+      version: "mls10",
+      wireformat: "mls_public_message",
+      publicMessage,
+    }),
+    state: newState,
+  };
+}
+
 export async function processCommit(
   state: StoredGroupState,
   message: PublicMessage,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<StoredGroupState> {
   if (!message.content.commit) {
     throw new Error("不正なCommitメッセージです");
@@ -413,7 +496,7 @@ export async function processCommit(
   const { newState } = await processPublicMessage(
     state,
     message,
-    emptyPskIndex,
+    buildPskIndex(state, psks),
     cs,
     acceptAll,
   );
@@ -424,6 +507,7 @@ export async function processProposal(
   state: StoredGroupState,
   message: PublicMessage,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  psks?: Record<string, string>,
 ): Promise<StoredGroupState> {
   if (!message.content.proposal) {
     throw new Error("不正なProposalメッセージです");
@@ -432,7 +516,7 @@ export async function processProposal(
   const { newState } = await processPublicMessage(
     state,
     message,
-    emptyPskIndex,
+    buildPskIndex(state, psks),
     cs,
     acceptAll,
   );

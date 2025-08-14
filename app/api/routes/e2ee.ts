@@ -45,7 +45,7 @@ import {
   verifyPrivateMessage,
   verifyWelcome,
 } from "../../shared/mls_wrapper.ts";
-import { decodeMlsMessage } from "ts-mls";
+import { type CiphersuiteName, decodeMlsMessage } from "ts-mls";
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -205,6 +205,10 @@ async function handleHandshake(
   const allMembers = [...group.members];
   const recipients = allMembers.filter((m) => m !== from);
 
+  const psks = typeof body.psks === "object" && body.psks
+    ? body.psks as Record<string, string>
+    : undefined;
+
   const decoded = decodePublicMessage(content);
   if (decoded) {
     const inner = decodeMlsMessage(decoded, 0)?.[0];
@@ -215,6 +219,7 @@ async function handleHandshake(
           group.mls as StoredGroupState,
           inner.publicMessage,
           suite,
+          psks,
         );
         if (!ok) {
           return { ok: false, status: 400, error: "invalid commit" };
@@ -223,6 +228,7 @@ async function handleHandshake(
           group.mls as StoredGroupState,
           inner.publicMessage,
           suite,
+          psks,
         );
         await db.updateChatroom(owner, group);
       } else if (inner.publicMessage.content?.proposal) {
@@ -230,6 +236,7 @@ async function handleHandshake(
           group.mls as StoredGroupState,
           inner.publicMessage,
           suite,
+          psks,
         );
         await db.updateChatroom(owner, group);
       }
@@ -237,7 +244,11 @@ async function handleHandshake(
   } else {
     const welcome = decodeWelcome(content);
     if (welcome) {
-      const verified = await verifyWelcome(welcome);
+      const verified = await verifyWelcome(
+        welcome,
+        undefined as unknown as CiphersuiteName,
+        psks,
+      );
       if (!verified) {
         return { ok: false, status: 400, error: "invalid welcome" };
       }
@@ -957,6 +968,10 @@ app.post(
     }
     const recipients = group.members.filter((m) => m !== from);
 
+    const psks = typeof body.psks === "object" && body.psks
+      ? body.psks as Record<string, string>
+      : undefined;
+
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
     let storedContent = typeof content === "string" ? content : "";
@@ -978,6 +993,7 @@ app.post(
             group.mls as StoredGroupState,
             raw,
             group.mls.groupContext.cipherSuite,
+            psks,
           )
         )
       ) {
@@ -986,6 +1002,8 @@ app.post(
       const result = await decryptMessage(
         group.mls as StoredGroupState,
         raw,
+        group.mls.groupContext.cipherSuite,
+        psks,
       );
       if (result) {
         group.mls = result.state;
