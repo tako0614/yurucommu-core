@@ -7,6 +7,11 @@ import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import { b64ToBuf } from "../../shared/buffer.ts";
 
+// 未設定時に返すデフォルトアイコン
+const DEFAULT_AVATAR = await Deno.readFile(
+  new URL("../../client/public/takos.png", import.meta.url),
+);
+
 import {
   buildActivityFromStored,
   createActor,
@@ -141,7 +146,19 @@ app.get("/users/:username/avatar", async (c) => {
   const account = await db.findAccountByUserName(username);
   if (!account) return c.body("Not Found", 404);
 
-  let icon = account.avatarInitial || username.charAt(0).toUpperCase();
+  const icon = account.avatarInitial;
+  // 未設定またはテキストのみの場合はデフォルトアイコンを返す
+  if (
+    !icon ||
+    (!icon.startsWith("http://") &&
+      !icon.startsWith("https://") &&
+      !icon.startsWith("/") &&
+      !icon.startsWith("data:image/"))
+  ) {
+    return c.body(DEFAULT_AVATAR, 200, {
+      "content-type": "image/png",
+    });
+  }
   // 保存されている値がURLの場合はリダイレクトする
   if (icon.startsWith("http://") || icon.startsWith("https://")) {
     return c.redirect(icon);
@@ -160,11 +177,8 @@ app.get("/users/:username/avatar", async (c) => {
     }
   }
 
-  // それ以外は文字列からイニシャルを生成したSVGを返す
-  icon = icon.slice(0, 2).toUpperCase();
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">${icon}</text></svg>`;
-  return c.body(svg, 200, { "content-type": "image/svg+xml" });
+  // 上記に該当しない場合もデフォルトアイコンを返す
+  return c.body(DEFAULT_AVATAR, 200, { "content-type": "image/png" });
 });
 
 app.get("/users/:username/outbox", async (c) => {
