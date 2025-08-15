@@ -36,6 +36,12 @@ import {
   saveMLSGroupStates,
   saveMLSKeyPair,
 } from "./e2ee/storage.ts";
+import {
+  type CiphersuiteName,
+  createGroup,
+  getCiphersuiteFromName,
+  getCiphersuiteImpl,
+} from "ts-mls";
 // 暗号化キー入力は廃止: 端末内保存のみを使用
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
@@ -495,18 +501,25 @@ export function Chat() {
   // グループ状態が存在しなければ初期化して保存
   const initGroupState = async (roomId: string) => {
     try {
+      if (groups()[roomId]) return;
+      const pair = await ensureKeyPair();
+      if (!pair) return;
       let initState: StoredGroupState | undefined;
-      if (keyPair()) {
-        try {
-          // サーバーへの依存を避けてローカルで最小限の状態を生成
-        } catch (e) {
-          console.error(
-            "グループ初期化時にキーからの初期化に失敗しました",
-            e,
-          );
-        }
+      try {
+        // サーバーへ依存せずローカルで最小限の状態を生成
+        const suiteName: CiphersuiteName =
+          "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
+        const cs = await getCiphersuiteImpl(
+          getCiphersuiteFromName(suiteName),
+        );
+        const gid = new TextEncoder().encode(roomId);
+        initState = await createGroup(gid, pair.public, pair.private, [], cs);
+      } catch (e) {
+        console.error(
+          "グループ初期化時にキーからの初期化に失敗しました",
+          e,
+        );
       }
-      // only set group state when we actually created/loaded a valid state
       if (initState) {
         setGroups((prev) => ({
           ...prev,
@@ -959,7 +972,7 @@ export function Chat() {
       await initGroupState(roomId);
       group = groups()[roomId];
       if (!group) {
-        alert("グループが初期化されていないため送信できません");
+        alert("グループ初期化に失敗したため送信できません");
         return;
       }
     }
