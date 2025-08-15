@@ -10,11 +10,12 @@ import {
   createCommitAndWelcomes,
   decryptMessage,
   encryptMessageWithAck,
-  generateKeyPackage,
+  generateKeyPair,
+  joinWithWelcome,
   verifyKeyPackage,
-} from "./mls_core.ts";
+  verifyWelcome,
+} from "./mls_wrapper.ts";
 import { fetchKeyPackages } from "./api.ts";
-import { joinWithWelcome, verifyWelcome } from "./mls_wrapper.ts";
 
 // サーバー側の KeyPackage 選択ロジックをテスト用に簡易実装
 interface KeyPackageDoc {
@@ -54,7 +55,7 @@ function selectKeyPackages(
 }
 
 Deno.test("ts-mlsでCommitとWelcomeを生成できる", async () => {
-  const bob = await generateKeyPackage("bob");
+  const bob = await generateKeyPair("bob");
   assert(await verifyKeyPackage(bob.encoded, "bob"));
   const { commit, welcomes } = await createCommitAndWelcomes(1, ["alice"], [
     { content: bob.encoded, actor: "bob" },
@@ -64,8 +65,8 @@ Deno.test("ts-mlsでCommitとWelcomeを生成できる", async () => {
 });
 
 Deno.test("KeyPackage取得とCommit/Welcome交換ができる", async () => {
-  const kp1 = await generateKeyPackage("alice1");
-  const kp2 = await generateKeyPackage("alice2");
+  const kp1 = await generateKeyPair("alice1");
+  const kp2 = await generateKeyPair("alice2");
   const list: KeyPackageDoc[] = [
     {
       _id: 1,
@@ -124,7 +125,7 @@ Deno.test("KeyPackage取得とCommit/Welcome交換ができる", async () => {
 });
 
 Deno.test("Ackが一度だけ送信される", async () => {
-  const bob = await generateKeyPackage("bob");
+  const bob = await generateKeyPair("bob");
   const { welcomes, state: serverState0 } = await createCommitAndWelcomes(
     1,
     ["bob"],

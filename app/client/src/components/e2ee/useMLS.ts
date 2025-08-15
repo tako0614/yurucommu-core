@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { addKeyPackage } from "./api.ts";
-import { generateKeyPackage } from "./mls_core.ts";
+import { generateKeyPair } from "./mls_wrapper.ts";
 
 export function useMLS(userName: string) {
   const [status, setStatus] = createSignal<string | null>(null);
@@ -10,7 +10,7 @@ export function useMLS(userName: string) {
     try {
       setStatus("鍵を生成中...");
       setError(null);
-      const kp = await generateKeyPackage(userName);
+      const kp = await generateKeyPair(userName);
       await addKeyPackage(userName, { content: kp.encoded });
       setStatus("鍵を生成しました");
     } catch (err) {

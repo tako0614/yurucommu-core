@@ -1,5 +1,4 @@
-import type { StoredGroupState } from "./mls_core.ts";
-import type { GeneratedKeyPair } from "./mls_wrapper.ts";
+import type { GeneratedKeyPair, StoredGroupState } from "./mls_wrapper.ts";
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
 

@@ -15,8 +15,8 @@ import {
   addKeyPackage,
   addRoom,
   fetchEncryptedMessages,
-  fetchKeepMessages,
   fetchHandshakes,
+  fetchKeepMessages,
   searchRooms,
   sendEncryptedMessage,
   sendKeepMessage,
@@ -27,11 +27,11 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
   decryptMessage,
   encryptMessageWithAck,
-  generateKeyPackage,
-  type StoredGroupState,
+  generateKeyPair,
   processCommit,
   processProposal,
-} from "./e2ee/mls_core.ts";
+  type StoredGroupState,
+} from "./e2ee/mls_wrapper.ts";
 import { decodePublicMessage } from "./e2ee/mls_message.ts";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
@@ -556,7 +556,7 @@ export function Chat() {
         pair = null;
       }
       if (!pair) {
-        const kp = await generateKeyPackage(user.userName);
+        const kp = await generateKeyPair(user.userName);
         pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
         try {
           await saveMLSKeyPair(user.id, pair);
@@ -866,27 +866,35 @@ export function Chat() {
       const meta = state
         // 拡張の型適合 (extensionType を number に) ※ ts-mls の型差異吸収
         ? decodeGroupMetadata(
-            (() => {
-              type RawExt = { extensionType: number | string; extensionData: Uint8Array } | unknown;
-              const arr: RawExt[] = state.groupContext.extensions as unknown as RawExt[];
-              return arr.flatMap((e) => {
-                if (
-                  typeof e === "object" && e !== null &&
-                  "extensionType" in e && "extensionData" in e
-                ) {
-                  const et = (e as { extensionType: number | string }).extensionType;
-                  const ed = (e as { extensionData: unknown }).extensionData;
-                  if (ed instanceof Uint8Array) {
-                    return [{
-                      extensionType: typeof et === "string" ? Number(et) : et,
-                      extensionData: ed,
-                    }];
-                  }
+          (() => {
+            type RawExt = {
+              extensionType: number | string;
+              extensionData: Uint8Array;
+            } | unknown;
+            const arr: RawExt[] = state.groupContext
+              .extensions as unknown as RawExt[];
+            return arr.flatMap((e) => {
+              if (
+                typeof e === "object" && e !== null &&
+                "extensionType" in e && "extensionData" in e
+              ) {
+                const et =
+                  (e as { extensionType: number | string }).extensionType;
+                const ed = (e as { extensionData: unknown }).extensionData;
+                if (ed instanceof Uint8Array) {
+                  return [{
+                    extensionType: typeof et === "string" ? Number(et) : et,
+                    extensionData: ed,
+                  }];
                 }
-                return [] as { extensionType: number; extensionData: Uint8Array }[];
-              });
-            })(),
-          ) || {
+              }
+              return [] as {
+                extensionType: number;
+                extensionData: Uint8Array;
+              }[];
+            });
+          })(),
+        ) || {
           name: "",
           icon: undefined,
         }
@@ -1609,7 +1617,9 @@ export function Chat() {
             />
           </div>
           <div
-            class={isMobile() ? "w-[100vw] flex-shrink-0 min-w-0" : "flex-grow w-full min-w-0"}
+            class={isMobile()
+              ? "w-[100vw] flex-shrink-0 min-w-0"
+              : "flex-grow w-full min-w-0"}
           >
             <Show
               when={selectedRoom()}
@@ -1693,7 +1703,9 @@ export function Chat() {
         onRoomUpdated={(partial) => {
           const id = selectedRoom();
           if (!id) return;
-          setChatRooms((prev) => prev.map(r => r.id === id ? { ...r, ...partial } : r));
+          setChatRooms((prev) =>
+            prev.map((r) => r.id === id ? { ...r, ...partial } : r)
+          );
         }}
       />
     </>
