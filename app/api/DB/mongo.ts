@@ -801,6 +801,12 @@ export class MongoDB implements DB {
     await doc.save();
   }
 
+  async findPendingInvites(condition: Record<string, unknown>) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const query = this.withTenant(PendingInvite.find({ ...condition, tenant_id: tenantId }));
+    return await query.lean();
+  }
+
   async markInviteAcked(
     roomId: string,
     userName: string,

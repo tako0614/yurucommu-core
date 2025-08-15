@@ -179,6 +179,7 @@ export interface DB {
     deviceId: string,
     expiresAt: Date,
   ): Promise<void>;
+  findPendingInvites(condition: Record<string, unknown>): Promise<unknown[]>;
   markInviteAcked(
     roomId: string,
     userName: string,

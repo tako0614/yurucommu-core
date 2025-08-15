@@ -11,6 +11,7 @@ import {
   createCreateActivity,
   createDeleteActivity,
   createRemoveActivity,
+  createObjectId,
   deliverActivityPubObject,
   fetchJson,
   getDomain,
@@ -182,6 +183,52 @@ async function handleHandshake(
 
   const mType = typeof mediaType === "string" ? mediaType : "message/mls";
   const encType = typeof encoding === "string" ? encoding : "base64";
+
+  // --- MLS TLV デコードで種別判定 (client の mls_message.ts と整合) ---
+  function decodeMlsEnvelope(b64: string): { type: string; body: Uint8Array } | null {
+    try {
+  const raw = atob(b64);
+  const bin = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
+      if (bin.length < 3) return null;
+      const typeByte = bin[0];
+      const len = (bin[1] << 8) | bin[2];
+      if (bin.length < 3 + len) return null;
+      const typeMap: Record<number, string> = {
+        1: "PublicMessage",
+        2: "PrivateMessage",
+        3: "Welcome",
+        4: "KeyPackage",
+        5: "Commit",
+        6: "Proposal",
+        7: "GroupInfo",
+      };
+      return { type: typeMap[typeByte] ?? "", body: bin.subarray(3, 3 + len) };
+    } catch {
+      return null;
+    }
+  }
+  const envelope = decodeMlsEnvelope(content);
+
+  // If it's a welcome for a local member, save as PendingInvite and skip inbox delivery
+  if (envelope && envelope.type === "Welcome") {
+    // Welcome の本体は MLS Welcome 構造(バイナリ)で actor 情報は外側活動に含まれない。
+    // 仕様整合: ローカル Actor の他端末へは inbox 送信せずサーバ保管 (PendingInvite)
+    // 判定: from(送信者) は既存メンバー。ローカル他端末用 Welcome かどうかは
+    // "local only" ポリシーに従い: 送信者と同じドメインのルーム内メンバーに限り保存。
+    // 各ローカルメンバー全端末に同一 Welcome を再利用できるので sender 自身以外のローカルメンバーを保存対象とする。
+    const localMembers = group.members.filter(m => m.endsWith(`@${domain}`) && m !== from);
+    if (localMembers.length > 0) {
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      for (const lm of localMembers) {
+        const uname = lm.split("@")[0];
+        await db.savePendingInvite(roomId, uname, "", expiresAt);
+        sendToUser(lm, { type: "pendingInvite", payload: { roomId, from, welcomeB64: content } });
+      }
+      return { ok: true, id: "pending" };
+    }
+  }
+
   const msg = await db.createHandshakeMessage({
     roomId,
     sender: from,
@@ -197,6 +244,7 @@ async function handleHandshake(
     extra.attachments = attachments;
   }
 
+  // Save message; if it's a remote welcome, we'll mark object type as Welcome when building activity
   const object = await db.saveMessage(
     domain,
     sender,
@@ -205,7 +253,6 @@ async function handleHandshake(
     { to: recipients, cc: [] },
   );
   const saved = object as Record<string, unknown>;
-
   const activityObj = buildActivityFromStored(
     {
       ...saved,
@@ -228,6 +275,44 @@ async function handleHandshake(
   (activity as ActivityPubActivity)["@context"] = context;
   (activity as ActivityPubActivity).to = recipients;
   (activity as ActivityPubActivity).cc = [];
+
+  // If it's a welcome for a remote actor, deliver to that actor's inbox only
+  if (envelope && envelope.type === "Welcome") {
+    // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
+    // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
+    const remoteMembers = group.members.filter(m => !m.endsWith(`@${domain}`));
+    if (remoteMembers.length > 0) {
+      const welcomeObj = {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://purl.archive.org/socialweb/mls",
+        ],
+        id: createObjectId(domain, "objects"),
+        type: ["Object", "Welcome"],
+        attributedTo: `https://${domain}/users/${sender}`,
+        content: content,
+      };
+      const welcomeActivity = createCreateActivity(domain, `https://${domain}/users/${sender}`, welcomeObj);
+      (welcomeActivity as ActivityPubActivity)["@context"] = context;
+      try {
+        await deliverActivityPubObject(remoteMembers, welcomeActivity, sender, domain, env);
+      } catch (err) {
+        console.error("deliver remote welcome failed", err);
+      }
+      const newMsg = {
+        id: String(msg._id),
+        roomId,
+        sender: from,
+        recipients: remoteMembers,
+        message: content,
+        createdAt: msg.createdAt,
+      };
+      sendToUser(from, { type: "publicMessage", payload: newMsg });
+      return { ok: true, id: String(msg._id) };
+    }
+  }
+
+  // default: deliver as before
   deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
     (err) => {
       console.error("deliver failed", err);
@@ -260,6 +345,40 @@ app.get("/ap/rooms", authRequired, async (c) => {
   const db = createDB(env);
   const rooms = await db.listChatroomsByMember(member);
   return jsonResponse(c, { rooms });
+});
+
+// Get pending invites for a local user (non-acked)
+app.get("/users/:user/pendingInvites", authRequired, async (c) => {
+  const user = c.req.param("user");
+  const env = getEnv(c);
+  const db = createDB(env);
+  try {
+    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const list = await db.findPendingInvites({ userName: user, acked: false, tenant_id: tenantId });
+    return c.json(list);
+  } catch (err) {
+    console.error("failed to fetch pending invites", err);
+    return jsonResponse(c, { error: "failed" }, 500);
+  }
+});
+
+// Ack a pending invite: { roomId, deviceId }
+app.post("/users/:user/pendingInvites/ack", authRequired, async (c) => {
+  const user = c.req.param("user");
+  const body = await c.req.json();
+  if (!body || typeof body.roomId !== "string") {
+    return jsonResponse(c, { error: "invalid" }, 400);
+  }
+  const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
+  const env = getEnv(c);
+  const db = createDB(env);
+  try {
+    await db.markInviteAcked(body.roomId, user, deviceId);
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("failed to mark invite acked", err);
+    return jsonResponse(c, { error: "failed" }, 500);
+  }
 });
 
 // ルームアクター取得
