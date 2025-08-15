@@ -7,13 +7,6 @@ const chatroomSchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { type: String, default: "" },
   icon: { type: String, default: "" },
-  userSet: {
-    type: {
-      name: { type: Boolean, default: false },
-      icon: { type: Boolean, default: false },
-    },
-    default: { name: false, icon: false },
-  },
   members: { type: [String], default: [] },
 });
 

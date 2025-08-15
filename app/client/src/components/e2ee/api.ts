@@ -513,7 +513,6 @@ export interface GroupMeta {
   id: string;
   name: string;
   icon?: string;
-  userSet?: { name?: boolean; icon?: boolean };
   members: string[];
 }
 

@@ -238,7 +238,7 @@ async function handleHandshake(
     id: String(msg._id),
     roomId,
     sender: from,
-  recipients: recipients,
+    recipients: recipients,
     message: content,
     createdAt: msg.createdAt,
   };
@@ -319,12 +319,8 @@ app.post("/ap/rooms", authRequired, async (c) => {
   }
   const room = existing ?? {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
-    name: body.name,
-    icon: typeof body.icon === "string" ? body.icon : "",
-    userSet: {
-      name: !!(body.name && String(body.name).trim() !== ""),
-      icon: !!(body.icon && String(body.icon).trim() !== ""),
-    },
+    name: hasName ? body.name : "",
+    icon: hasIcon ? body.icon : "",
     members: requestedMembers,
   };
   if (!existing) {
@@ -497,10 +493,10 @@ app.get("/rooms", authRequired, async (c) => {
     const pKey = membersCount === 2 ? others[0] : canonGroupKey(others);
     const existing = map.get(pKey);
     if (existing) {
-      existing.name = g.userSet?.name ? g.name : "";
-      existing.icon = g.userSet?.icon ? g.icon ?? "" : "";
-      existing.hasName = !!g.userSet?.name;
-      existing.hasIcon = !!g.userSet?.icon;
+      existing.name = g.name ?? "";
+      existing.icon = g.icon ?? "";
+      existing.hasName = !!(g.name && String(g.name).trim() !== "");
+      existing.hasIcon = !!(g.icon && String(g.icon).trim() !== "");
       existing.members = others;
       existing.id = g.id;
       map.delete(pKey);
@@ -508,11 +504,11 @@ app.get("/rooms", authRequired, async (c) => {
     } else {
       map.set(g.id, {
         id: g.id,
-        name: g.userSet?.name ? g.name : "",
-        icon: g.userSet?.icon ? g.icon ?? "" : "",
+        name: g.name ?? "",
+        icon: g.icon ?? "",
         members: others,
-        hasName: !!g.userSet?.name,
-        hasIcon: !!g.userSet?.icon,
+        hasName: !!(g.name && String(g.name).trim() !== ""),
+        hasIcon: !!(g.icon && String(g.icon).trim() !== ""),
         membersCount,
         lastMessageAt: undefined,
       });

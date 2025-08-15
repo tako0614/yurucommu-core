@@ -304,7 +304,6 @@ export class MongoDB implements DB {
       $set: {
         name: room.name,
         icon: room.icon ?? "",
-        userSet: room.userSet ?? { name: false, icon: false },
         members: room.members,
       },
     });
