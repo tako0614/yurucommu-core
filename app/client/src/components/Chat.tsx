@@ -404,7 +404,7 @@ export function Chat() {
   const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
     {},
   );
-  const [keyPair, setKeyPair] = createSignal<MLSKeyPair | null>(null);
+  const [keyPair, setKeyPair] = createSignal<GeneratedKeyPair | null>(null);
   // 暗号化はデフォルトではオフにしておく
   const [useEncryption, setUseEncryption] = createSignal(false);
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);

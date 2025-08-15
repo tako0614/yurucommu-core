@@ -41,6 +41,15 @@ export interface WelcomeEntry {
   data: Uint8Array;
 }
 
+// Type guards for FramedContent discriminated members
+function hasCommit(content: unknown): content is { commit: unknown } {
+  return !!content && typeof content === "object" && "commit" in content;
+}
+
+function hasProposal(content: unknown): content is { proposal: unknown } {
+  return !!content && typeof content === "object" && "proposal" in content;
+}
+
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -157,10 +166,13 @@ export async function createUpdateCommit(
   const suiteName: CiphersuiteName = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
   const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const keyPair = await generateKeyPackage(identity, suiteName);
-  const proposals: Proposal[] = [{
+  // `Update` shape can vary between ts-mls versions; cast to satisfy typings here.
+  // use an unknown cast to satisfy the API where shape may differ across ts-mls versions
+  const proposalsUnknown = [{
     proposalType: "update",
     update: { keyPackage: keyPair.public },
   }];
+  const proposals: Proposal[] = (proposalsUnknown as unknown) as Proposal[];
   const result = await createCommit(state, emptyPskIndex, false, proposals, cs);
   return {
     commit: encodeMlsMessage(result.commit),
@@ -256,11 +268,7 @@ export async function processCommit(
   const suiteName: CiphersuiteName = state.groupContext.cipherSuite;
   const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const decoded = decodeMlsMessage(data, 0)?.[0];
-  if (
-    !decoded ||
-    decoded.wireformat !== "mls_public_message" ||
-    !decoded.publicMessage.content?.commit
-  ) {
+  if (!decoded || decoded.wireformat !== "mls_public_message" || !hasCommit(decoded.publicMessage.content)) {
     throw new Error("不正なCommitメッセージです");
   }
   const { newState } = await processPublicMessage(
@@ -280,11 +288,7 @@ export async function processProposal(
   const suiteName: CiphersuiteName = state.groupContext.cipherSuite;
   const cs = await getCiphersuiteImpl(getCiphersuiteFromName(suiteName));
   const decoded = decodeMlsMessage(data, 0)?.[0];
-  if (
-    !decoded ||
-    decoded.wireformat !== "mls_public_message" ||
-    !decoded.publicMessage.content?.proposal
-  ) {
+  if (!decoded || decoded.wireformat !== "mls_public_message" || !hasProposal(decoded.publicMessage.content)) {
     throw new Error("不正なProposalメッセージです");
   }
   const { newState } = await processPublicMessage(

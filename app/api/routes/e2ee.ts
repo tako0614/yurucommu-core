@@ -238,7 +238,7 @@ async function handleHandshake(
     id: String(msg._id),
     roomId,
     sender: from,
-    recipients: allMembers,
+  recipients: recipients,
     message: content,
     createdAt: msg.createdAt,
   };
