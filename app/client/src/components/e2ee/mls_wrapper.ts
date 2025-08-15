@@ -437,6 +437,31 @@ export async function encryptMessage(
   return { message, state: newState };
 }
 
+// Join ACK を一度だけ付加してメッセージを暗号化
+const sentAck = new Set<string>();
+
+export async function encryptMessageWithAck(
+  state: StoredGroupState,
+  plaintext: Uint8Array | string,
+  roomId: string,
+  deviceId: string,
+  suite: CiphersuiteName = DEFAULT_SUITE,
+): Promise<{ messages: Uint8Array[]; state: StoredGroupState }> {
+  let current = state;
+  const out: Uint8Array[] = [];
+  const key = `${roomId}:${deviceId}`;
+  if (!sentAck.has(key)) {
+    const ackBody = JSON.stringify({ type: "joinAck", roomId, deviceId });
+    const ack = await encryptMessage(current, ackBody, suite);
+    out.push(ack.message);
+    current = ack.state;
+    sentAck.add(key);
+  }
+  const msg = await encryptMessage(current, plaintext, suite);
+  out.push(msg.message);
+  return { messages: out, state: msg.state };
+}
+
 export async function decryptMessage(
   state: StoredGroupState,
   data: Uint8Array,

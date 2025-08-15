@@ -3,9 +3,10 @@ import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
   type GeneratedKeyPair,
   joinWithGroupInfo,
+  type StoredGroupState,
+  updateKey,
   verifyGroupInfo,
 } from "./mls_wrapper.ts";
-import { createUpdateCommit, type StoredGroupState } from "./mls_core.ts";
 
 export interface KeyPackage {
   id: string;
@@ -290,7 +291,7 @@ export const removeRoomMembers = async (
   }
 };
 
-type UpdateResult = Awaited<ReturnType<typeof createUpdateCommit>>;
+type UpdateResult = Awaited<ReturnType<typeof updateKey>>;
 
 export const updateRoomKey = async (
   roomId: string,
@@ -299,7 +300,7 @@ export const updateRoomKey = async (
   state: StoredGroupState,
 ): Promise<UpdateResult | null> => {
   try {
-    const res = await createUpdateCommit(state, identity);
+    const res = await updateKey(state, identity);
     const content = encodePublicMessage(res.commit);
     const ok = await sendHandshake(roomId, from, content);
     if (!ok) return null;
