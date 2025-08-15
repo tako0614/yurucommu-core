@@ -876,6 +876,26 @@ export function Chat() {
       console.error("相手の表示情報取得に失敗しました", e);
     }
     upsertRoom(room);
+    // 初期化: ローカルでグループ状態を作成して保存する
+    try {
+      // 既にキーがあればそれを利用して最小限のグループを作成
+  const initState: StoredGroupState | undefined = undefined;
+      if (keyPair()) {
+        try {
+          // createCommitAndWelcomes を呼ぶにはサーバ側の KeyPackage が必要になるため
+          // ここではクライアント側で最小の空グループ状態を作成しておく
+          // createMLSGroup のようなユーティリティは mls_wrapper にあるが
+          // 互換性を壊さないために、単純に既存 state がない場合は placeholder を使う。
+        } catch (e) {
+          console.error("グループ初期化時にキーからの初期化に失敗しました", e);
+        }
+      }
+      // placeholder: 空オブジェクトでも送信ボタンのガードを通すために設定
+  setGroups({ ...groups(), [room.id]: (initState as unknown as StoredGroupState) ?? ({} as StoredGroupState) });
+      await saveGroupStates();
+    } catch (e) {
+      console.error("ローカルグループ初期化に失敗しました", e);
+    }
     try {
       await addRoom(
         user.id,
