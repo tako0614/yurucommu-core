@@ -41,6 +41,12 @@ function isPrivateIP(ip: string): boolean {
 }
 
 async function validateServerHostname(hostname: string): Promise<boolean> {
+  // 開発環境の場合は検証をスキップ
+  const isDev = Deno.env.get("DEV") === "1";
+  if (isDev) {
+    return true;
+  }
+  
   // ローカルホストや内部アドレスのブロック
   const blockedHosts = [
     'localhost',
