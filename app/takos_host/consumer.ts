@@ -33,6 +33,9 @@ export function createConsumerApp(
   const freeLimit = options?.freeLimit ?? 1;
   const reserved = new Set(options?.reservedSubdomains ?? []);
 
+  const isReserved = (sub: string) => reserved.has(sub);
+  const overLimit = async (userId: string) => (await db.countInstances(userId)) >= freeLimit;
+
   app.use("/*", authRequired);
 
   app.get("/instances", async (c) => {
@@ -52,8 +55,7 @@ export function createConsumerApp(
       const host = rawHost.toLowerCase();
       const user = c.get("user") as HostUserDoc;
 
-      const count = await db.countInstances(String(user._id));
-      if (count >= freeLimit) {
+  if (await overLimit(String(user._id))) {
         return c.json({ error: "limit" }, 400);
       }
 
@@ -65,17 +67,17 @@ export function createConsumerApp(
           }
           fullHost = host;
           const sub = host.slice(0, -rootDomain.length - 1);
-          if (reserved.has(sub)) {
+      if (isReserved(sub)) {
             return c.json({ error: "reserved" }, 400);
           }
         } else {
-          if (reserved.has(host)) {
+      if (isReserved(host)) {
             return c.json({ error: "reserved" }, 400);
           }
           fullHost = `${host}.${rootDomain}`;
         }
       }
-      if (!rootDomain && reserved.has(host)) {
+    if (!rootDomain && isReserved(host)) {
         return c.json({ error: "reserved" }, 400);
       }
 

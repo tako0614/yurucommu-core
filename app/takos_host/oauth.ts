@@ -10,7 +10,11 @@ import {
   updateHostSession,
 } from "./repositories/session.ts";
 
+// OAuth 2.0 Authorization Code Grant (最小実装)
 export const oauthApp = new Hono();
+
+const AUTH_CODE_LIFETIME_MS = 10 * 60 * 1000; // 10 minutes
+const ACCESS_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000; // 24 hours
 // CORSミドルウェアの節約化
 oauthApp.use("/token", cors());
 oauthApp.use("/verify", cors());
@@ -37,7 +41,7 @@ oauthApp.get("/authorize", async (c) => {
   await updateHostSession(sid, newExpiresAt);
   setCookie(c, "hostSessionId", sid, createCookieOpts(c, newExpiresAt));
   const code = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + AUTH_CODE_LIFETIME_MS);
   const oauthCode = new OAuthCode({
     code,
     client: client._id,
@@ -81,7 +85,7 @@ oauthApp.post("/token", async (c) => {
   }
   await OAuthCode.deleteOne({ code });
   const tokenStr = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + ACCESS_TOKEN_LIFETIME_MS);
   const token = new OAuthToken({
     token: tokenStr,
     client: client._id,
@@ -92,7 +96,7 @@ oauthApp.post("/token", async (c) => {
   return c.json({
     access_token: tokenStr,
     token_type: "Bearer",
-    expires_in: 86400,
+  expires_in: Math.floor(ACCESS_TOKEN_LIFETIME_MS / 1000),
   });
 });
 
