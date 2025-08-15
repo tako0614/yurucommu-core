@@ -506,12 +506,14 @@ export function Chat() {
           );
         }
       }
-      setGroups((prev) => ({
-        ...prev,
-        [roomId]: (initState as unknown as StoredGroupState) ??
-          ({} as StoredGroupState),
-      }));
-      await saveGroupStates();
+      // only set group state when we actually created/loaded a valid state
+      if (initState) {
+        setGroups((prev) => ({
+          ...prev,
+          [roomId]: initState,
+        }));
+        await saveGroupStates();
+      }
     } catch (e) {
       console.error("ローカルグループ初期化に失敗しました", e);
     }
