@@ -16,7 +16,6 @@ import {
   addRoom,
   fetchEncryptedMessages,
   fetchKeepMessages,
-  RoomsSearchItem,
   searchRooms,
   sendEncryptedMessage,
   sendKeepMessage,
@@ -30,6 +29,7 @@ import {
   generateKeyPackage,
   type StoredGroupState,
 } from "./e2ee/mls_core.ts";
+import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
   loadMLSGroupStates,
   loadMLSKeyPair,
@@ -778,6 +778,21 @@ export function Chat() {
     setLoadingOlder(false);
   };
 
+  const extractMembers = (state: StoredGroupState): string[] => {
+    const list: string[] = [];
+    const tree = state.ratchetTree as unknown as {
+      nodeType: string;
+      leaf?: { credential?: { identity?: Uint8Array } };
+    }[];
+    for (const node of tree) {
+      if (node?.nodeType === "leaf") {
+        const id = node.leaf?.credential?.identity;
+        if (id) list.push(new TextDecoder().decode(id));
+      }
+    }
+    return list;
+  };
+
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
@@ -795,27 +810,36 @@ export function Chat() {
         lastMessageTime: undefined,
       },
     ];
-    const list = await searchRooms(user.id);
-    for (const r of list) {
+    const handle = `${user.userName}@${getDomain()}` as ActorID;
+    const serverRooms = await searchRooms(user.id);
+    for (const item of serverRooms) {
+      const state = groups()[item.id];
+      const meta = state
+        ? decodeGroupMetadata(state.groupContext.extensions) || {
+          name: "",
+          icon: undefined,
+        }
+        : { name: "", icon: undefined };
+      const name = meta.name ?? "";
+      const icon = meta.icon ?? "";
+      const members = state
+        ? extractMembers(state).filter((m) => m !== handle)
+        : item.members;
       rooms.push({
-        id: r.id,
-        name: r.name ?? "",
+        id: item.id,
+        name,
         userName: user.userName,
         domain: getDomain(),
-        avatar: r.icon ?? (r.name ? r.name.charAt(0).toUpperCase() : "👥"),
+        avatar: icon || (name ? name.charAt(0).toUpperCase() : "👥"),
         unreadCount: 0,
         type: "group",
-        members: r.members,
-        hasName: r.hasName,
-        hasIcon: r.hasIcon,
+        members,
+        hasName: name.trim() !== "",
+        hasIcon: icon.trim() !== "",
         lastMessage: "...",
-        lastMessageTime:
-          (r as RoomsSearchItem & { lastMessageAt?: string }).lastMessageAt
-            ? new Date(
-              (r as RoomsSearchItem & { lastMessageAt?: string })
-                .lastMessageAt!,
-            )
-            : undefined,
+        lastMessageTime: item.lastMessageAt
+          ? new Date(item.lastMessageAt)
+          : undefined,
       });
     }
 
@@ -1395,6 +1419,7 @@ export function Chat() {
 
   createEffect(() => {
     account();
+    groups();
     loadRooms();
   });
 
