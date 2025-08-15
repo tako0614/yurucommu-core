@@ -1513,7 +1513,7 @@ export function Chat() {
             />
           </div>
           <div
-            class={isMobile() ? "w-[100vw] flex-shrink-0" : "flex-grow w-full"}
+            class={isMobile() ? "w-[100vw] flex-shrink-0 min-w-0" : "flex-grow w-full min-w-0"}
           >
             <Show
               when={selectedRoom()}
@@ -1547,7 +1547,7 @@ export function Chat() {
                 </div>
               }
             >
-              <div class="relative flex flex-col bg-[#1e1e1e] h-full w-full">
+              <div class="relative flex flex-col bg-[#1e1e1e] h-full w-full min-w-0 overflow-hidden chat-container">
                 <ChatTitleBar
                   isMobile={isMobile()}
                   selectedRoom={selectedRoomInfo()}

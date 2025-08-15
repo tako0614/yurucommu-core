@@ -296,7 +296,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
   return (
 <>
   <div
-    class="flex-grow overflow-y-auto mt-[48px]"
+    class="flex-grow overflow-y-auto overflow-x-hidden mt-[48px]"
     style={{
       "scroll-padding-block-start": "200px",
       "scroll-behavior": "auto",
@@ -335,7 +335,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
                   isPrimary ? "mt-[16px]" : "mt-[2px]"
                 } ${message.isMe ? "justify-end mr-3" : "ml-3"}`}
               >
-                <div class="flex max-w-[85%] md:max-w-[70%]">
+                <div class="flex max-w-[85%] md:max-w-[70%] min-w-0">
                   <Show when={!message.isMe && isPrimary}>
                     <div class="h-8 w-8 mr-1 flex-shrink-0">
                       {isUrl(message.avatar) ||
@@ -355,7 +355,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         )}
                     </div>
                   </Show>
-                  <div class="flex-grow">
+                  <div class="flex-grow min-w-0">
                     <Show when={!message.isMe && isPrimary}>
                       <div class="flex items-center mb-1 ml-1">
                         <p class="text-xs font-semibold text-[#8E8E93]">
@@ -379,14 +379,14 @@ export function ChatMessageList(props: ChatMessageListProps) {
                         </span>
                       </Show>
                       <div
-                        class={`flex flex-col space-y-1 ${
+                        class={`flex flex-col space-y-1 min-w-0 ${
                           message.isMe ? "items-end" : "items-start"
                         }`}
                       >
                         {/* メッセージコンテンツ */}
                         <Show when={message.content && message.content.trim()}>
                           <div
-                            class={`relative px-[12px] py-[6px] rounded-[12px] z-[2] text-[15px] leading-[20px] w-fit ${
+                            class={`relative px-[12px] py-[6px] rounded-[12px] z-[2] text-[15px] leading-[20px] w-fit max-w-full min-w-0 ${
                               message.isMe
                                 ? "bg-[#ff3b3b] text-white shadow-[1px_1px_10px_rgba(0,0,0,0.2)]"
                                 : "bg-[#3c3c3c] text-white shadow-[1px_1px_10px_rgba(0,0,0,0.2)]"
@@ -402,7 +402,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
                                 : ""
                             }`}
                           >
-                            <p class="break-words whitespace-pre-wrap">
+                            <p class="break-words whitespace-pre-wrap word-break overflow-wrap-anywhere break-long-words">
                               {message.content}
                             </p>
                           </div>

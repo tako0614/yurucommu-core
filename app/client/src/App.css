@@ -41,6 +41,27 @@ body.dark {
   color: var(--color-text);
 }
 
+/* 長いテキストの適切な折り返しを強制 */
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* チャットメッセージの横スクロール防止 */
+.chat-container {
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+/* 長いURLや文字列を確実に折り返し */
+.break-long-words {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  hyphens: auto;
+}
+
 input::placeholder {
   color: var(--color-muted);
   opacity: 0.8;
