@@ -3,10 +3,25 @@ import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
   type GeneratedKeyPair,
   joinWithGroupInfo,
+  type RawKeyPackageInput,
+  type RosterEvidence,
   type StoredGroupState,
   updateKey,
   verifyGroupInfo,
+  verifyKeyPackage,
 } from "./mls_wrapper.ts";
+import {
+  appendKeyPackageRecords,
+  appendRosterEvidence,
+  loadKeyPackageRecords,
+} from "./storage.ts";
+import { decodeMlsMessage } from "ts-mls";
+
+const bindingErrorMessages: Record<string, string> = {
+  "ap_mls.binding.identity_mismatch":
+    "Credentialのidentityがアクターと一致しません",
+  "ap_mls.binding.policy_violation": "KeyPackageの形式が不正です",
+};
 
 export interface KeyPackage {
   id: string;
@@ -18,6 +33,8 @@ export interface KeyPackage {
   expiresAt?: string;
   used?: boolean;
   createdAt: string;
+  attributedTo?: string;
+  deviceId?: string;
 }
 
 export interface EncryptedMessage {
@@ -51,6 +68,7 @@ export const fetchKeyPackages = async (
     }
     const data = await res.json();
     const items = Array.isArray(data.items) ? data.items : [];
+    const result: KeyPackage[] = [];
     for (const item of items) {
       if (typeof item.groupInfo === "string") {
         const bytes = decodeGroupInfo(item.groupInfo);
@@ -58,8 +76,17 @@ export const fetchKeyPackages = async (
           delete item.groupInfo;
         }
       }
+      const expected = typeof item.attributedTo === "string"
+        ? item.attributedTo
+        : domain
+        ? `https://${domain}/users/${user}`
+        : new URL(`/users/${user}`, globalThis.location.origin).href;
+      if (!await verifyKeyPackage(item.content, expected)) {
+        continue;
+      }
+      result.push(item as KeyPackage);
     }
-    return items;
+    return result;
   } catch (err) {
     console.error("Error fetching key packages:", err);
     return [];
@@ -85,7 +112,18 @@ export const addKeyPackage = async (
         body: JSON.stringify(pkg),
       },
     );
-    if (!res.ok) return { keyId: null };
+    if (!res.ok) {
+      let msg = "KeyPackageの登録に失敗しました";
+      try {
+        const err = await res.json();
+        if (typeof err.error === "string") {
+          msg = bindingErrorMessages[err.error] ?? err.error;
+        }
+      } catch (_) {
+        /* noop */
+      }
+      throw new Error(msg);
+    }
     const data = await res.json();
     let gi = typeof data.groupInfo === "string" ? data.groupInfo : undefined;
     if (gi) {
@@ -100,7 +138,8 @@ export const addKeyPackage = async (
     };
   } catch (err) {
     console.error("Error adding key package:", err);
-    return { keyId: null };
+    if (err instanceof Error) throw err;
+    throw new Error("KeyPackageの登録に失敗しました");
   }
 };
 
@@ -122,9 +161,108 @@ export const fetchKeyPackage = async (
         delete data.groupInfo;
       }
     }
+    const expected = typeof data.attributedTo === "string"
+      ? data.attributedTo
+      : new URL(`/users/${user}`, globalThis.location.origin).href;
+    if (!await verifyKeyPackage(data.content, expected)) {
+      return null;
+    }
     return data as KeyPackage;
   } catch (err) {
     console.error("Error fetching key package:", err);
+    return null;
+  }
+};
+
+// KeyPackage の URL を指定して Actor とのバインディングを検証しつつ取得する
+export const fetchVerifiedKeyPackage = async (
+  kpUrl: string,
+  candidateActor?: string,
+  record?: { accountId: string; roomId: string; leafIndex: number },
+): Promise<RawKeyPackageInput | null> => {
+  try {
+    const res = await fetch(kpUrl, {
+      headers: { Accept: "application/activity+json" },
+    });
+    if (!res.ok) return null;
+    const kp = await res.json();
+    if (
+      typeof kp.attributedTo !== "string" ||
+      typeof kp.content !== "string"
+    ) {
+      return null;
+    }
+    const actorId = kp.attributedTo;
+    if (candidateActor && candidateActor !== actorId) return null;
+    const actorRes = await fetch(actorId, {
+      headers: { Accept: "application/activity+json" },
+    });
+    if (!actorRes.ok) return null;
+    const actor = await actorRes.json();
+    const kpId = typeof kp.id === "string" ? kp.id : kpUrl;
+    let listed = false;
+    const col = actor.keyPackages;
+    if (Array.isArray(col)) {
+      listed = col.includes(kpId);
+    } else if (col && Array.isArray(col.items)) {
+      listed = col.items.includes(kpId);
+    }
+    if (!listed) return null;
+    if (!await verifyKeyPackage(kp.content, actorId)) return null;
+    const b64ToBytes = (b64: string) => {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+    const bytes = b64ToBytes(kp.content);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    const toHex = (arr: Uint8Array) =>
+      Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hashHex = toHex(new Uint8Array(hashBuffer));
+    let ktIncluded = false;
+    try {
+      const origin = new URL(kpId).origin;
+      const proofRes = await fetch(
+        `${origin}/.well-known/key-transparency?hash=${hashHex}`,
+      );
+      if (proofRes.ok) {
+        const proof = await proofRes.json();
+        ktIncluded = Boolean(proof?.included);
+      }
+    } catch {
+      // KT 検証に失敗しても致命的ではない
+    }
+    let fpr: string | undefined;
+    const decoded = decodeMlsMessage(bytes, 0)?.[0];
+    const key = (decoded?.keyPackage as {
+      leafNode?: { signaturePublicKey?: Uint8Array };
+    })?.leafNode?.signaturePublicKey;
+    if (key) fpr = `p256:${toHex(key)}`;
+    const result: RawKeyPackageInput = {
+      content: kp.content,
+      actor: actorId,
+      deviceId: typeof kp.deviceId === "string" ? kp.deviceId : undefined,
+      url: kpId,
+      hash: hashHex,
+      leafSignatureKeyFpr: fpr,
+      fetchedAt: new Date().toISOString(),
+      etag: res.headers.get("ETag") ?? undefined,
+      kt: { included: ktIncluded },
+    };
+    if (record && fpr) {
+      await appendKeyPackageRecords(record.accountId, record.roomId, [{
+        kpUrl: kpId,
+        actorId,
+        leafIndex: record.leafIndex,
+        credentialFingerprint: fpr,
+        time: result.fetchedAt!,
+        ktIncluded,
+      }]);
+    }
+    return result;
+  } catch (err) {
+    console.error("KeyPackage の検証に失敗しました:", err);
     return null;
   }
 };
@@ -151,6 +289,57 @@ export const fetchGroupInfo = async (
   } catch (err) {
     console.error("Error fetching group info:", err);
     return null;
+  }
+};
+
+// RosterEvidence を検証する
+export const importRosterEvidence = async (
+  accountId: string,
+  roomId: string,
+  evidence: RosterEvidence,
+  leafIndex = -1,
+): Promise<boolean> => {
+  try {
+    const res = await fetch(evidence.keyPackageUrl, {
+      headers: { Accept: "application/activity+json" },
+    });
+    if (!res.ok) return false;
+    const kp = await res.json();
+    if (typeof kp.content !== "string" || kp.attributedTo !== evidence.actor) {
+      return false;
+    }
+    const b64ToBytes = (b64: string) => {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+    const bytes = b64ToBytes(kp.content);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    const toHex = (arr: Uint8Array) =>
+      Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hashHex = toHex(new Uint8Array(hashBuffer));
+    if (`sha256:${hashHex}` !== evidence.keyPackageHash) return false;
+    const decoded = decodeMlsMessage(bytes, 0)?.[0];
+    const key = (decoded?.keyPackage as {
+      leafNode?: { signaturePublicKey?: Uint8Array };
+    })?.leafNode?.signaturePublicKey;
+    if (!key || `p256:${toHex(key)}` !== evidence.leafSignatureKeyFpr) {
+      return false;
+    }
+    if (!await verifyKeyPackage(kp.content, evidence.actor)) return false;
+    await appendKeyPackageRecords(accountId, roomId, [{
+      kpUrl: evidence.keyPackageUrl,
+      actorId: evidence.actor,
+      leafIndex,
+      credentialFingerprint: evidence.leafSignatureKeyFpr,
+      time: evidence.fetchedAt,
+      ktIncluded: false,
+    }]);
+    return true;
+  } catch (err) {
+    console.error("RosterEvidence の検証に失敗しました:", err);
+    return false;
   }
 };
 
@@ -300,6 +489,11 @@ export const updateRoomKey = async (
   state: StoredGroupState,
 ): Promise<UpdateResult | null> => {
   try {
+    const records = await loadKeyPackageRecords(from, roomId);
+    const rec = records.find((r) => r.actorId === identity);
+    if (!rec) {
+      throw new Error("保存済みの actorId と一致しません");
+    }
     const res = await updateKey(state, identity);
     const content = encodePublicMessage(res.commit);
     const ok = await sendHandshake(roomId, from, content);
@@ -643,6 +837,7 @@ export interface MLSCommitPayload {
   epoch: number;
   proposals: MLSProposalPayload[];
   welcomes?: MLSWelcomePayload[];
+  evidences?: RosterEvidence[];
 }
 
 export const sendProposal = async (
@@ -673,6 +868,19 @@ export const sendCommit = async (
       );
       const success = await sendHandshake(roomId, from, wContent);
       if (!success) return false;
+    }
+  }
+  if (commit.evidences) {
+    for (const ev of commit.evidences) {
+      const evContent = encodePublicMessage(
+        new TextEncoder().encode(JSON.stringify(ev)),
+      );
+      const okEv = await sendHandshake(roomId, from, evContent);
+      if (!okEv) return false;
+      const verified = await importRosterEvidence(from, roomId, ev);
+      if (verified) {
+        await appendRosterEvidence(from, roomId, [ev]);
+      }
     }
   }
   return true;

@@ -1,12 +1,18 @@
-import type { GeneratedKeyPair, StoredGroupState } from "./mls_wrapper.ts";
+import type {
+  GeneratedKeyPair,
+  RosterEvidence,
+  StoredGroupState,
+} from "./mls_wrapper.ts";
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
 
 // 新実装に伴い保存形式を変更
-const DB_VERSION = 6;
+const DB_VERSION = 8;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
 const CACHE_STORE = "cache";
+const EVIDENCE_STORE = "evidence";
+const KP_RECORD_STORE = "kpRecords";
 
 const stores: Record<string, Store> = {};
 
@@ -37,6 +43,12 @@ function openDB(accountId: string): Promise<IDBDatabase> {
         if (db.objectStoreNames.contains(KEY_STORE)) {
           db.deleteObjectStore(KEY_STORE);
         }
+        if (db.objectStoreNames.contains(EVIDENCE_STORE)) {
+          db.deleteObjectStore(EVIDENCE_STORE);
+        }
+        if (db.objectStoreNames.contains(KP_RECORD_STORE)) {
+          db.deleteObjectStore(KP_RECORD_STORE);
+        }
       }
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
@@ -46,6 +58,12 @@ function openDB(accountId: string): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(CACHE_STORE)) {
         db.createObjectStore(CACHE_STORE);
+      }
+      if (!db.objectStoreNames.contains(EVIDENCE_STORE)) {
+        db.createObjectStore(EVIDENCE_STORE);
+      }
+      if (!db.objectStoreNames.contains(KP_RECORD_STORE)) {
+        db.createObjectStore(KP_RECORD_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -136,6 +154,124 @@ export const saveMLSKeyPair = async (
   const tx = db.transaction(KEY_STORE, "readwrite");
   const store = tx.objectStore(KEY_STORE);
   store.add(pair);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const loadRosterEvidence = async (
+  accountId: string,
+  roomId: string,
+): Promise<RosterEvidence[]> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const ev = await store.get<Record<string, RosterEvidence[]>>(
+      "evidence",
+    ) ?? {};
+    return ev[roomId] ?? [];
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(EVIDENCE_STORE, "readonly");
+  const store = tx.objectStore(EVIDENCE_STORE);
+  return await new Promise((resolve, reject) => {
+    const req = store.get(roomId);
+    req.onsuccess = () => {
+      resolve((req.result as RosterEvidence[]) ?? []);
+    };
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const appendRosterEvidence = async (
+  accountId: string,
+  roomId: string,
+  evidence: RosterEvidence[],
+): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const ev = await store.get<Record<string, RosterEvidence[]>>(
+      "evidence",
+    ) ?? {};
+    const current = ev[roomId] ?? [];
+    ev[roomId] = current.concat(evidence);
+    await store.set("evidence", ev);
+    await store.save();
+    return;
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(EVIDENCE_STORE, "readwrite");
+  const store = tx.objectStore(EVIDENCE_STORE);
+  const current: RosterEvidence[] = await new Promise((resolve, reject) => {
+    const req = store.get(roomId);
+    req.onsuccess = () => resolve((req.result as RosterEvidence[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+  store.put(current.concat(evidence), roomId);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+// KeyPackage 検証記録
+export interface KeyPackageRecord {
+  kpUrl: string;
+  actorId: string;
+  leafIndex: number;
+  credentialFingerprint: string;
+  time: string;
+  ktIncluded?: boolean;
+}
+
+export const loadKeyPackageRecords = async (
+  accountId: string,
+  roomId: string,
+): Promise<KeyPackageRecord[]> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const rec = await store.get<Record<string, KeyPackageRecord[]>>(
+      "kpRecords",
+    ) ?? {};
+    return rec[roomId] ?? [];
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(KP_RECORD_STORE, "readonly");
+  const store = tx.objectStore(KP_RECORD_STORE);
+  return await new Promise((resolve, reject) => {
+    const req = store.get(roomId);
+    req.onsuccess = () => {
+      resolve((req.result as KeyPackageRecord[]) ?? []);
+    };
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const appendKeyPackageRecords = async (
+  accountId: string,
+  roomId: string,
+  records: KeyPackageRecord[],
+): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const rec = await store.get<Record<string, KeyPackageRecord[]>>(
+      "kpRecords",
+    ) ?? {};
+    const current = rec[roomId] ?? [];
+    rec[roomId] = current.concat(records);
+    await store.set("kpRecords", rec);
+    await store.save();
+    return;
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(KP_RECORD_STORE, "readwrite");
+  const store = tx.objectStore(KP_RECORD_STORE);
+  const current: KeyPackageRecord[] = await new Promise((resolve, reject) => {
+    const req = store.get(roomId);
+    req.onsuccess = () => resolve((req.result as KeyPackageRecord[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+  store.put(current.concat(records), roomId);
   await new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(undefined);
     tx.onerror = () => reject(tx.error);

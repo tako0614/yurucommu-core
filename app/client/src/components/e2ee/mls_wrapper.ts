@@ -30,6 +30,16 @@ import {
 import "@noble/curves/p256";
 import { encodePublicMessage } from "./mls_message.ts";
 import { encodeGroupMetadata, type GroupMetadata } from "./group_metadata.ts";
+
+// ApplicationId 拡張の定義
+const APPLICATION_ID_EXTENSION_TYPE = 0x0001;
+
+function encodeApplicationId(id: string) {
+  return {
+    extensionType: APPLICATION_ID_EXTENSION_TYPE,
+    extensionData: new TextEncoder().encode(id),
+  };
+}
 // ts-mls does not publish some internal helpers via package exports; use local fallbacks/types
 type PublicMessage = {
   content: { commit?: unknown; proposal?: unknown } & Record<string, unknown>;
@@ -48,6 +58,22 @@ export interface RawKeyPackageInput {
   content: string;
   actor?: string;
   deviceId?: string;
+  url?: string;
+  hash?: string;
+  leafSignatureKeyFpr?: string;
+  fetchedAt?: string;
+  etag?: string;
+  kt?: { included: boolean };
+}
+
+export interface RosterEvidence {
+  type: "RosterEvidence";
+  actor: string;
+  keyPackageUrl: string;
+  keyPackageHash: string;
+  leafSignatureKeyFpr: string;
+  fetchedAt: string;
+  etag?: string;
 }
 
 export interface WelcomeEntry {
@@ -205,7 +231,11 @@ export async function verifyWelcome(
 ): Promise<boolean> {
   try {
     const decoded = decodeMlsMessage(data, 0)?.[0];
-    if (!decoded || decoded.wireformat !== "mls_welcome") {
+    if (
+      !decoded ||
+      decoded.wireformat !== "mls_welcome" ||
+      !decoded.welcome?.ratchetTree
+    ) {
       return false;
     }
     const cs = await getSuite(suite);
@@ -281,13 +311,17 @@ export async function createMLSGroup(
   const keyPair = await generateKeyPair(identity, suite);
   const gid = new TextEncoder().encode(crypto.randomUUID());
   const cs = await getSuite(suite);
-  const exts = metadata ? [encodeGroupMetadata(metadata)] : [];
+  const exts = [encodeApplicationId("ap-e2ee/actor-uri-binding-v1")];
+  if (metadata) exts.push(encodeGroupMetadata(metadata));
+  const required = defaultCapabilities();
+  required.credentials = ["basic"];
   const state = await createGroup(
     gid,
     keyPair.public,
     keyPair.private,
     exts,
     cs,
+    required,
   );
   return { state, keyPair, gid };
 }
@@ -301,6 +335,7 @@ export async function addMembers(
   commit: Uint8Array;
   welcomes: WelcomeEntry[];
   state: StoredGroupState;
+  evidences: RosterEvidence[];
 }> {
   const cs = await getSuite(suite);
   const proposals: Proposal[] = [];
@@ -323,7 +358,13 @@ export async function addMembers(
   state = result.newState;
   const commit = encodeMlsMessage(result.commit);
   const welcomes: WelcomeEntry[] = [];
+  const evidences: RosterEvidence[] = [];
   if (result.welcome) {
+    const info = await createGroupInfoWithExternalPubAndRatchetTree(
+      state,
+      cs,
+    );
+    result.welcome.ratchetTree = info.ratchetTree;
     const welcomeBytes = encodeMlsMessage({
       version: "mls10",
       wireformat: "mls_welcome",
@@ -337,7 +378,22 @@ export async function addMembers(
       });
     }
   }
-  return { commit, welcomes, state };
+  for (const kp of addKeyPackages) {
+    if (
+      kp.actor && kp.url && kp.hash && kp.leafSignatureKeyFpr && kp.fetchedAt
+    ) {
+      evidences.push({
+        type: "RosterEvidence",
+        actor: kp.actor,
+        keyPackageUrl: kp.url,
+        keyPackageHash: `sha256:${kp.hash}`,
+        leafSignatureKeyFpr: kp.leafSignatureKeyFpr,
+        fetchedAt: kp.fetchedAt,
+        etag: kp.etag,
+      });
+    }
+  }
+  return { commit, welcomes, state, evidences };
 }
 
 export async function removeMembers(

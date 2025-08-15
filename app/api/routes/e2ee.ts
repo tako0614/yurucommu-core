@@ -10,8 +10,8 @@ import {
   createAddActivity,
   createCreateActivity,
   createDeleteActivity,
-  createRemoveActivity,
   createObjectId,
+  createRemoveActivity,
   deliverActivityPubObject,
   fetchJson,
   getDomain,
@@ -20,7 +20,8 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-// MLS関連処理はクライアント側で完結するため、サーバーでは検証・生成を行わない
+import { extractBasicCredentialIdentity } from "../utils/basic_credential.ts";
+// MLS関連処理はクライアント側で完結するが、最低限の検証は行う
 
 interface ActivityPubActivity {
   [key: string]: unknown;
@@ -72,6 +73,13 @@ interface HandshakeMessageDoc {
   recipients: string[];
   message: string;
   createdAt: unknown;
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 async function resolveActorCached(
@@ -185,11 +193,13 @@ async function handleHandshake(
   const encType = typeof encoding === "string" ? encoding : "base64";
 
   // --- MLS TLV デコードで種別判定 (client の mls_message.ts と整合) ---
-  function decodeMlsEnvelope(b64: string): { type: string; body: Uint8Array } | null {
+  function decodeMlsEnvelope(
+    b64: string,
+  ): { type: string; body: Uint8Array } | null {
     try {
-  const raw = atob(b64);
-  const bin = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
+      const raw = atob(b64);
+      const bin = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
       if (bin.length < 3) return null;
       const typeByte = bin[0];
       const len = (bin[1] << 8) | bin[2];
@@ -217,13 +227,18 @@ async function handleHandshake(
     // 判定: from(送信者) は既存メンバー。ローカル他端末用 Welcome かどうかは
     // "local only" ポリシーに従い: 送信者と同じドメインのルーム内メンバーに限り保存。
     // 各ローカルメンバー全端末に同一 Welcome を再利用できるので sender 自身以外のローカルメンバーを保存対象とする。
-    const localMembers = group.members.filter(m => m.endsWith(`@${domain}`) && m !== from);
+    const localMembers = group.members.filter((m) =>
+      m.endsWith(`@${domain}`) && m !== from
+    );
     if (localMembers.length > 0) {
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       for (const lm of localMembers) {
         const uname = lm.split("@")[0];
         await db.savePendingInvite(roomId, uname, "", expiresAt);
-        sendToUser(lm, { type: "pendingInvite", payload: { roomId, from, welcomeB64: content } });
+        sendToUser(lm, {
+          type: "pendingInvite",
+          payload: { roomId, from, welcomeB64: content },
+        });
       }
       return { ok: true, id: "pending" };
     }
@@ -280,7 +295,9 @@ async function handleHandshake(
   if (envelope && envelope.type === "Welcome") {
     // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
     // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
-    const remoteMembers = group.members.filter(m => !m.endsWith(`@${domain}`));
+    const remoteMembers = group.members.filter((m) =>
+      !m.endsWith(`@${domain}`)
+    );
     if (remoteMembers.length > 0) {
       const welcomeObj = {
         "@context": [
@@ -292,10 +309,20 @@ async function handleHandshake(
         attributedTo: `https://${domain}/users/${sender}`,
         content: content,
       };
-      const welcomeActivity = createCreateActivity(domain, `https://${domain}/users/${sender}`, welcomeObj);
+      const welcomeActivity = createCreateActivity(
+        domain,
+        `https://${domain}/users/${sender}`,
+        welcomeObj,
+      );
       (welcomeActivity as ActivityPubActivity)["@context"] = context;
       try {
-        await deliverActivityPubObject(remoteMembers, welcomeActivity, sender, domain, env);
+        await deliverActivityPubObject(
+          remoteMembers,
+          welcomeActivity,
+          sender,
+          domain,
+          env,
+        );
       } catch (err) {
         console.error("deliver remote welcome failed", err);
       }
@@ -354,7 +381,11 @@ app.get("/users/:user/pendingInvites", authRequired, async (c) => {
   const db = createDB(env);
   try {
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const list = await db.findPendingInvites({ userName: user, acked: false, tenant_id: tenantId });
+    const list = await db.findPendingInvites({
+      userName: user,
+      acked: false,
+      tenant_id: tenantId,
+    });
     return c.json(list);
   } catch (err) {
     console.error("failed to fetch pending invites", err);
@@ -779,6 +810,22 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   }
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
+  // BasicCredential.identity と Actor の URL を照合
+  try {
+    const id = extractBasicCredentialIdentity(b64ToBytes(content));
+    if (!id) {
+      return c.json(
+        { error: "ap_mls.binding.policy_violation" },
+        400,
+      );
+    }
+    if (id !== actorId) {
+      return c.json({ error: "ap_mls.binding.identity_mismatch" }, 400);
+    }
+  } catch (err) {
+    console.error("KeyPackage verification failed", err);
+    return c.json({ error: "ap_mls.binding.policy_violation" }, 400);
+  }
   const db = createDB(getEnv(c));
   const gi = typeof groupInfo === "string" ? groupInfo : undefined;
   const pkg = await db.createKeyPackage(
@@ -813,6 +860,27 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     cipherSuite: pkg.cipherSuite,
     generator: pkg.generator,
   };
+  // Key Transparency ログへの追記
+  try {
+    const bin = atob(pkg.content);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const buf = await crypto.subtle.digest("SHA-256", bytes);
+    const toHex = (arr: Uint8Array) =>
+      Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hash = toHex(new Uint8Array(buf));
+    await fetch(`https://${domain}/.well-known/key-transparency/append`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor: actorId,
+        keyPackageUrl: keyObj.id,
+        keyPackageHash: hash,
+      }),
+    });
+  } catch (err) {
+    console.error("KT append failed", err);
+  }
   const addActivity = createAddActivity(domain, actorId, keyObj);
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
   return c.json({

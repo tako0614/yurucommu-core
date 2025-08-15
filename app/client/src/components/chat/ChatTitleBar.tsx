@@ -1,11 +1,15 @@
 import { Show } from "solid-js";
 import type { Room } from "./types.ts";
+import type { BindingStatus } from "../e2ee/binding.ts";
 
 interface ChatTitleBarProps {
   isMobile: boolean;
   selectedRoom: Room | null;
   onBack: () => void;
   onOpenSettings: () => void; // 右上設定メニュー表示
+  bindingStatus?: BindingStatus | null;
+  bindingInfo?: { label: string; caution?: string } | null;
+  ktInfo?: { included: boolean } | null;
 }
 
 export function ChatTitleBar(props: ChatTitleBarProps) {
@@ -35,6 +39,22 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
           </button>
         </Show>
         <h2>{props.selectedRoom?.name}</h2>
+        <Show when={props.bindingInfo}>
+          <span class="ml-2 px-2 py-0.5 text-xs bg-[#444] rounded">
+            {props.bindingInfo!.label}
+          </span>
+        </Show>
+        <Show
+          when={props.bindingStatus !== "Verified" &&
+            props.bindingInfo?.caution}
+        >
+          <span class="ml-2 text-xs text-yellow-400">
+            {props.bindingInfo!.caution}
+          </span>
+        </Show>
+        <Show when={props.ktInfo && !props.ktInfo.included}>
+          <span class="ml-2 text-xs text-yellow-400">監査未検証</span>
+        </Show>
       </div>
       <div class="ml-auto pr-4 flex items-center gap-3">
         <button
@@ -44,7 +64,17 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
           onClick={props.onOpenSettings}
         >
           {/* ハンバーガー / カスタム アイコン */}
-          <svg width="22" height="22" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" class="text-white">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+            class="text-white"
+          >
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="18" x2="21" y2="18" />

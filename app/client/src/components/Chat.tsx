@@ -17,24 +17,35 @@ import {
   fetchEncryptedMessages,
   fetchHandshakes,
   fetchKeepMessages,
+  importRosterEvidence,
   searchRooms,
   sendEncryptedMessage,
+  sendHandshake,
   sendKeepMessage,
   uploadFile,
 } from "./e2ee/api.ts";
-import { getDomain } from "../utils/config.ts";
+import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
   decryptMessage,
   encryptMessageWithAck,
   generateKeyPair,
+  joinWithWelcome,
   processCommit,
   processProposal,
+  removeMembers,
+  type RosterEvidence,
   type StoredGroupState,
+  verifyWelcome,
 } from "./e2ee/mls_wrapper.ts";
-import { decodePublicMessage } from "./e2ee/mls_message.ts";
+import {
+  decodePublicMessage,
+  encodePublicMessage,
+} from "./e2ee/mls_message.ts";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
+  appendRosterEvidence,
+  loadKeyPackageRecords,
   loadMLSGroupStates,
   loadMLSKeyPair,
   saveMLSGroupStates,
@@ -57,6 +68,7 @@ import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import type { GeneratedKeyPair } from "./e2ee/mls_wrapper.ts";
+import { useMLS } from "./e2ee/useMLS.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
@@ -404,6 +416,9 @@ function getSelfRoomId(_user: Account | null): string | null {
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
+  const { bindingStatus, bindingInfo, assessBinding, ktInfo } = useMLS(
+    account()?.userName ?? "",
+  );
   const [newMessage, setNewMessage] = createSignal("");
   const [mediaFile, setMediaFile] = createSignal<File | null>(null);
   const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
@@ -441,6 +456,33 @@ export function Chat() {
   );
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
+
+  const actorUrl = createMemo(() => {
+    const user = account();
+    return user
+      ? new URL(`/users/${user.userName}`, globalThis.location.origin).href
+      : null;
+  });
+
+  createEffect(() => {
+    const user = account();
+    const roomId = selectedRoom();
+    const actor = actorUrl();
+    if (!user || !roomId || !actor) return;
+    void (async () => {
+      const records = await loadKeyPackageRecords(user.id, roomId);
+      const last = records[records.length - 1];
+      if (last) {
+        await assessBinding(
+          user.id,
+          roomId,
+          actor,
+          last.credentialFingerprint,
+          last.ktIncluded,
+        );
+      }
+    })();
+  });
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -632,6 +674,49 @@ export function Chat() {
               continue;
             } catch {
               /* not a proposal */
+            }
+            try {
+              const obj = JSON.parse(new TextDecoder().decode(body));
+              if (obj?.type === "welcome" && Array.isArray(obj.data)) {
+                const wBytes = new Uint8Array(obj.data as number[]);
+                const ok = await verifyWelcome(wBytes);
+                if (!ok) {
+                  alert("不正なWelcomeメッセージを受信したため無視しました");
+                  continue;
+                }
+                const pair = await ensureKeyPair();
+                if (!pair) continue;
+                try {
+                  group = await joinWithWelcome(wBytes, pair);
+                  updated = true;
+                } catch (e) {
+                  console.warn("welcome apply failed", e);
+                }
+                continue;
+              }
+              if (obj?.type === "RosterEvidence") {
+                const ev = obj as RosterEvidence;
+                const okEv = await importRosterEvidence(
+                  user.id,
+                  room.id,
+                  ev,
+                );
+                if (okEv) {
+                  await appendRosterEvidence(user.id, room.id, [ev]);
+                  const actor = actorUrl();
+                  if (actor && ev.actor === actor) {
+                    await assessBinding(
+                      user.id,
+                      room.id,
+                      actor,
+                      ev.leafSignatureKeyFpr,
+                    );
+                  }
+                }
+                continue;
+              }
+            } catch {
+              /* not a JSON handshake */
             }
           } catch (e) {
             console.warn("handshake apply failed", e);
@@ -1033,6 +1118,38 @@ export function Chat() {
     }
     if (autoOpen) setSelectedRoom(room.id);
     setShowGroupDialog(false);
+  };
+
+  const removeActorLeaves = async (actorId: string): Promise<boolean> => {
+    const roomId = selectedRoom();
+    const user = account();
+    if (!roomId || !user) return false;
+    const group = groups()[roomId];
+    if (!group) return false;
+    try {
+      const records = await loadKeyPackageRecords(user.id, roomId);
+      const indices = Array.from(
+        new Set(
+          records.filter((r) => r.actorId === actorId).map((r) => r.leafIndex),
+        ),
+      );
+      if (indices.length === 0) return false;
+      const res = await removeMembers(group, indices);
+      const content = encodePublicMessage(res.commit);
+      const ok = await sendHandshake(roomId, user.id, content);
+      if (!ok) return false;
+      setGroups({ ...groups(), [roomId]: res.state });
+      await saveGroupStates();
+      await apiFetch(`/ap/rooms/${encodeURIComponent(roomId)}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "Remove", object: actorId }),
+      });
+      return true;
+    } catch (e) {
+      console.error("メンバー削除に失敗しました", e);
+      return false;
+    }
   };
 
   const sendMessage = async () => {
@@ -1659,6 +1776,9 @@ export function Chat() {
                   selectedRoom={selectedRoomInfo()}
                   onBack={backToRoomList}
                   onOpenSettings={() => setShowSettings(true)}
+                  bindingStatus={bindingStatus()}
+                  bindingInfo={bindingInfo()}
+                  ktInfo={ktInfo()}
                 />
                 {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
@@ -1707,6 +1827,10 @@ export function Chat() {
             prev.map((r) => r.id === id ? { ...r, ...partial } : r)
           );
         }}
+        bindingStatus={bindingStatus()}
+        bindingInfo={bindingInfo()}
+        ktInfo={ktInfo()}
+        onRemoveMember={removeActorLeaves}
       />
     </>
   );

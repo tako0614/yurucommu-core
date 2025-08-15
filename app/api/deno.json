@@ -10,9 +10,7 @@
     "mongodb": "npm:mongodb@^6.17.0",
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
     "@cloudflare/workers-types": "npm:@cloudflare/workers-types@^4",
-    "@std/flags": "jsr:@std/flags@1",
-    "@noble/curves": "npm:@noble/curves@^1.9.6",
-    "ts-mls": "npm:ts-mls@^1.0.4"
+    "@std/flags": "jsr:@std/flags@1"
   },
   "tasks": {
     "dev": "deno run -A --unstable-worker-options --watch --no-prompt --unsafely-ignore-certificate-errors index.ts --"
