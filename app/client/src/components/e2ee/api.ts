@@ -1,13 +1,10 @@
 import { apiFetch } from "../../utils/config.ts";
-import {
-  decodeGroupInfo,
-  encodePublicMessage,
-} from "../../../../shared/mls_message.ts";
+import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
   type GeneratedKeyPair,
   joinWithGroupInfo,
   verifyGroupInfo,
-} from "../../../../shared/mls_wrapper.ts";
+} from "./mls_wrapper.ts";
 import { createUpdateCommit, type StoredGroupState } from "./mls_core.ts";
 
 export interface KeyPackage {

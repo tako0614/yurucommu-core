@@ -1,7 +1,4 @@
-import type {
-  GeneratedKeyPair,
-  StoredGroupState,
-} from "../../../../shared/mls_wrapper.ts";
+import type { GeneratedKeyPair, StoredGroupState } from "./mls_wrapper.ts";
 
 // 旧実装との互換性を保つためのスタブ
 // 新しい ts-mls 実装が整うまでの一時的な措置

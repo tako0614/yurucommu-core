@@ -14,10 +14,7 @@ import {
   verifyKeyPackage,
 } from "./mls_core.ts";
 import { fetchKeyPackages } from "./api.ts";
-import {
-  joinWithWelcome,
-  verifyWelcome,
-} from "../../../../shared/mls_wrapper.ts";
+import { joinWithWelcome, verifyWelcome } from "./mls_wrapper.ts";
 
 // サーバー側の KeyPackage 選択ロジックをテスト用に簡易実装
 interface KeyPackageDoc {

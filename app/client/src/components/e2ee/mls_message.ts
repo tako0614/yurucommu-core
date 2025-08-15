@@ -1,6 +1,6 @@
 // RFC 9420 に基づく MLS メッセージの TLV 形式シリアライズ
 
-import { b64ToBuf, bufToB64 } from "./buffer.ts";
+import { b64ToBuf, bufToB64 } from "../../../../shared/buffer.ts";
 
 export type MLSMessageType =
   | "PublicMessage"

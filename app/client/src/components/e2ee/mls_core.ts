@@ -22,10 +22,7 @@ import {
   type Proposal,
 } from "ts-mls";
 import "@noble/curves/p256";
-import {
-  verifyKeyPackage,
-  verifyPrivateMessage,
-} from "../../../../shared/mls_wrapper.ts";
+import { verifyKeyPackage, verifyPrivateMessage } from "./mls_wrapper.ts";
 export { verifyKeyPackage };
 
 export type KeyPackage = TsKeyPackage;

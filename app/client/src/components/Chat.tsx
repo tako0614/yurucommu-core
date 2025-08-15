@@ -45,7 +45,7 @@ import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
-import type { GeneratedKeyPair } from "../../../shared/mls_wrapper.ts";
+import type { GeneratedKeyPair } from "./e2ee/mls_wrapper.ts";
 
 function adjustHeight(el?: HTMLTextAreaElement) {
   if (el) {
