@@ -446,13 +446,17 @@ app.get("/rooms", authRequired, async (c) => {
   const canonGroupKey = (members: string[]) =>
     `grp:${[...members].sort().join(",")}`;
 
-  const applyParticipants = (participants: Set<string>, timestamp: Date) => {
+  const applyParticipants = (
+    roomId: string | undefined,
+    participants: Set<string>,
+    timestamp: Date,
+  ) => {
     if (!participants.has(ownerHandle)) return;
     const others = [...participants].filter((m) => m !== ownerHandle);
     const membersCount = others.length + 1;
-    const key = membersCount === 2
+    const key = roomId ?? (membersCount === 2
       ? others[0] // 1:1 は相手ハンドルをそのままIDとして扱う
-      : canonGroupKey(others);
+      : canonGroupKey(others));
     const existing = map.get(key);
     if (existing) {
       if (!existing.lastMessageAt || existing.lastMessageAt < timestamp) {
@@ -475,10 +479,15 @@ app.get("/rooms", authRequired, async (c) => {
   // 1) 暗号化メッセージ由来
   const encList = await db.findEncryptedMessages({
     $or: [{ from: ownerHandle }, { to: ownerHandle }],
-  }, { limit: 500 }) as { from: string; to: string[]; createdAt: Date }[];
+  }, { limit: 500 }) as {
+    roomId?: string;
+    from: string;
+    to: string[];
+    createdAt: Date;
+  }[];
   for (const m of encList ?? []) {
     const participants = new Set<string>([m.from, ...m.to]);
-    applyParticipants(participants, m.createdAt ?? new Date());
+    applyParticipants(m.roomId, participants, m.createdAt ?? new Date());
   }
 
   // 2) ハンドシェイク（不足分の補完）は廃止
@@ -491,13 +500,14 @@ app.get("/rooms", authRequired, async (c) => {
     const others = g.members.filter((m) => m !== ownerHandle);
     const membersCount = others.length + 1;
     const pKey = membersCount === 2 ? others[0] : canonGroupKey(others);
-    const existing = map.get(pKey);
+    const existing = map.get(g.id) ?? map.get(pKey);
     if (existing) {
       existing.name = g.name ?? "";
       existing.icon = g.icon ?? "";
       existing.hasName = !!(g.name && String(g.name).trim() !== "");
       existing.hasIcon = !!(g.icon && String(g.icon).trim() !== "");
       existing.members = others;
+      existing.membersCount = membersCount;
       existing.id = g.id;
       map.delete(pKey);
       map.set(g.id, existing);

@@ -7,16 +7,20 @@ import { genSalt, hash as bcryptHash } from "bcrypt";
 
 const app = new Hono();
 
-// システムセットアップの必要性を返す（hashedPassword の有無で判定）
+// システムセットアップの必要性を返す（takos host では常に設定済み）
 app.get("/system/setup/status", (c) => {
   const env = getEnv(c);
-  const configured = Boolean(env["hashedPassword"]);
+  const configured = env["DB_MODE"] === "host" ||
+    Boolean(env["hashedPassword"]);
   return c.json({ configured });
 });
 
 // 初回のみ .env に hashedPassword を保存する
 app.post("/system/setup", async (c) => {
   const env = getEnv(c);
+  if (env["DB_MODE"] === "host") {
+    return c.json({ error: "host_mode" }, 400);
+  }
   if (env["hashedPassword"]) {
     return c.json({ error: "already_configured" }, 400);
   }
@@ -32,7 +36,10 @@ app.post("/system/setup", async (c) => {
   await ensureFile(envPath);
   const fileEnv = await load({ envPath });
   fileEnv.hashedPassword = hashed;
-  if (!fileEnv["ACTIVITYPUB_DOMAIN"] && typeof domain === "string" && domain.trim()) {
+  if (
+    !fileEnv["ACTIVITYPUB_DOMAIN"] && typeof domain === "string" &&
+    domain.trim()
+  ) {
     fileEnv.ACTIVITYPUB_DOMAIN = domain.trim();
   }
   await Deno.writeTextFile(envPath, stringify(fileEnv));
@@ -41,4 +48,3 @@ app.post("/system/setup", async (c) => {
 });
 
 export default app;
-
