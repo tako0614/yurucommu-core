@@ -509,29 +509,6 @@ export const searchRooms = async (
   }
 };
 
-export interface GroupMeta {
-  id: string;
-  name: string;
-  icon?: string;
-  members: string[];
-}
-
-export const fetchRoomList = async (
-  member: string,
-): Promise<GroupMeta[]> => {
-  try {
-    const res = await apiFetch(
-      `/api/ap/rooms?member=${encodeURIComponent(member)}`,
-    );
-    if (!res.ok) throw new Error("failed");
-    const data = await res.json();
-    return Array.isArray(data.rooms) ? data.rooms : [];
-  } catch (err) {
-    console.error("Error fetching room list:", err);
-    return [];
-  }
-};
-
 export const addRoom = async (
   id: string,
   room: Room,
