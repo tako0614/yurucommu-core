@@ -64,44 +64,42 @@ export function buildRootApp(ctx: HostContext) {
   app.route("/auth", authApp);
   app.route("/oauth", oauthApp);
 
-  // Always serve Host UI at /user and /user/ (any host) before consumer API middleware.
-  // This ensures authenticated API 404s don't mask the SPA entrypoint and removes rootDomain restriction.
-  if (isDev) {
-    const proxyUser = devProxy("/user");
-    const uiDevHandler = async (c: Context, next: () => Promise<void>) => {
-      const p = c.req.path;
-      if (p === "/user" || p === "/user/") {
-        return await proxyUser(c, next);
-      }
+  // ---- /user UI root (SPA entry) ----
+  const userUiHandler = (() => {
+    if (isDev) {
+      const proxy = devProxy("/user");
+      return async (c: Context, next: () => Promise<void>) => {
+        if (c.req.path === "/user" || c.req.path === "/user/") return await proxy(c, next);
+        await next();
+      };
+    }
+    const stat = serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/user/, "") });
+    return async (c: Context, next: () => Promise<void>) => {
+      if (c.req.path === "/user" || c.req.path === "/user/") return await stat(c, next);
       await next();
     };
-    app.use("/user", uiDevHandler);
-    app.use("/user/", uiDevHandler);
-  } else {
-    const userStatic = serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/user/, "") });
-    const uiProdHandler = async (c: Context, next: () => Promise<void>) => {
-      const p = c.req.path;
-      if (p === "/user" || p === "/user/") {
-        return await userStatic(c, next);
-      }
-      await next();
-    };
-    app.use("/user", uiProdHandler);
-    app.use("/user/", uiProdHandler);
-  }
+  })();
+  app.use("/user", userUiHandler);
+  app.use("/user/", userUiHandler);
 
-  // Consumer API: keep it on /user/* only so that /user (and /user/) root can fall through to UI (static/proxy)
+  // ---- /user/* Consumer API ----
   if (rootDomain) {
     app.use("/user/*", async (c, _next) => {
-      // /user プレフィックスを剥がして consumerApp ( /instances など ) に正しくマッチさせる
       const orig = c.req.raw;
       const url = new URL(orig.url);
-      url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // /user/instances -> /instances, /user/ -> /
+      url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // strip /user prefix
       const newReq = new Request(url, orig);
       return await consumerApp.fetch(newReq);
     });
   } else {
-    app.route("/user", consumerApp); // no rootDomain => expose whole /user (API + UI 可)
+    // rootDomain 無し構成では API も UI も /user を共有する (従来動作踏襲)
+    app.use("/user/*", async (c, _next) => {
+      const orig = c.req.raw;
+      const url = new URL(orig.url);
+      url.pathname = url.pathname.replace(/^\/user/, "") || "/";
+      const newReq = new Request(url, orig);
+      return await consumerApp.fetch(newReq);
+    });
   }
 
   // FASP provider_info endpoints
@@ -115,30 +113,9 @@ export function buildRootApp(ctx: HostContext) {
     app.get("/terms", () => new Response(termsText, { headers: { "content-type": "text/markdown; charset=utf-8" } }));
   }
 
-  // Dev vs Prod static / proxy handling
+  // Dev vs Prod: only handle /auth static/proxy & root domain static fallback + ActivityPub
   if (isDev) {
     app.use("/auth/*", devProxy("/auth"));
-    // Host UI for /user and /user/* - same logic as root path
-    if (rootDomain) {
-      const userProxy = devProxy("/user");
-      app.use("/user", async (c, next) => {
-        const host = getRealHost(c);
-        if (isRootHost(host, rootDomain)) {
-          return await userProxy(c, next);
-        }
-        await next();
-      });
-      app.use("/user/*", async (c, next) => {
-        const host = getRealHost(c);
-        if (isRootHost(host, rootDomain)) {
-          return await userProxy(c, next);
-        }
-        await next();
-      });
-    } else {
-      app.use("/user", devProxy("/user"));
-      app.use("/user/*", devProxy("/user"));
-    }
     if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
       const proxyRoot = devProxy("");
       app.use(async (c, next) => {
@@ -161,27 +138,6 @@ export function buildRootApp(ctx: HostContext) {
     const mid = serviceActorAndActivityPubMiddleware(ctx);
     if (mid) app.use(mid);
     app.use("/auth/*", serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/auth/, "") }));
-    // Host UI for /user and /user/* - same logic as root path
-    if (rootDomain) {
-      const userStatic = serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/user/, "") });
-      app.use("/user", async (c, next) => {
-        const host = getRealHost(c);
-        if (host === rootDomain) {
-          return await userStatic(c, next);
-        }
-        await next();
-      });
-      app.use("/user/*", async (c, next) => {
-        const host = getRealHost(c);
-        if (host === rootDomain) {
-          return await userStatic(c, next);
-        }
-        await next();
-      });
-    } else {
-      app.use("/user", serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/user/, "") }));
-      app.use("/user/*", serveStatic({ root: "./client/dist", rewriteRequestPath: (p) => p.replace(/^\/user/, "") }));
-    }
     if (rootDomain) {
       app.use(async (c, next) => {
         const host = getRealHost(c);
