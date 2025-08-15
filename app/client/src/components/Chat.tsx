@@ -492,6 +492,31 @@ export function Chat() {
     await saveMLSGroupStates(user.id, groups());
   };
 
+  // グループ状態が存在しなければ初期化して保存
+  const initGroupState = async (roomId: string) => {
+    try {
+      let initState: StoredGroupState | undefined;
+      if (keyPair()) {
+        try {
+          // サーバーへの依存を避けてローカルで最小限の状態を生成
+        } catch (e) {
+          console.error(
+            "グループ初期化時にキーからの初期化に失敗しました",
+            e,
+          );
+        }
+      }
+      setGroups((prev) => ({
+        ...prev,
+        [roomId]: (initState as unknown as StoredGroupState) ??
+          ({} as StoredGroupState),
+      }));
+      await saveGroupStates();
+    } catch (e) {
+      console.error("ローカルグループ初期化に失敗しました", e);
+    }
+  };
+
   const [isGeneratingKeyPair, setIsGeneratingKeyPair] = createSignal(false);
 
   const ensureKeyPair = async (): Promise<GeneratedKeyPair | null> => {
@@ -553,7 +578,9 @@ export function Chat() {
     const encryptedMsgs: ChatMessage[] = [];
     let group = groups()[room.id];
     if (!group) {
-      return [];
+      await initGroupState(room.id);
+      group = groups()[room.id];
+      if (!group) return [];
     }
     const list = await fetchEncryptedMessages(
       room.id,
@@ -876,26 +903,7 @@ export function Chat() {
       console.error("相手の表示情報取得に失敗しました", e);
     }
     upsertRoom(room);
-    // 初期化: ローカルでグループ状態を作成して保存する
-    try {
-      // 既にキーがあればそれを利用して最小限のグループを作成
-  const initState: StoredGroupState | undefined = undefined;
-      if (keyPair()) {
-        try {
-          // createCommitAndWelcomes を呼ぶにはサーバ側の KeyPackage が必要になるため
-          // ここではクライアント側で最小の空グループ状態を作成しておく
-          // createMLSGroup のようなユーティリティは mls_wrapper にあるが
-          // 互換性を壊さないために、単純に既存 state がない場合は placeholder を使う。
-        } catch (e) {
-          console.error("グループ初期化時にキーからの初期化に失敗しました", e);
-        }
-      }
-      // placeholder: 空オブジェクトでも送信ボタンのガードを通すために設定
-  setGroups({ ...groups(), [room.id]: (initState as unknown as StoredGroupState) ?? ({} as StoredGroupState) });
-      await saveGroupStates();
-    } catch (e) {
-      console.error("ローカルグループ初期化に失敗しました", e);
-    }
+    await initGroupState(room.id);
     try {
       await addRoom(
         user.id,
@@ -944,10 +952,14 @@ export function Chat() {
     }
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();
-    const group = groups()[roomId];
+    let group = groups()[roomId];
     if (!group) {
-      alert("グループが初期化されていないため送信できません");
-      return;
+      await initGroupState(roomId);
+      group = groups()[roomId];
+      if (!group) {
+        alert("グループが初期化されていないため送信できません");
+        return;
+      }
     }
     const note: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
