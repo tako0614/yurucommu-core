@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import tenantScope from "../plugins/tenant_scope.ts";
 
+// MLS の暗号状態はクライアントで管理し、サーバーでは保持しない
 const chatroomSchema = new mongoose.Schema({
   owner: { type: String, required: true },
   id: { type: String, required: true },
@@ -14,7 +15,6 @@ const chatroomSchema = new mongoose.Schema({
     default: { name: false, icon: false },
   },
   members: { type: [String], default: [] },
-  mls: { type: mongoose.Schema.Types.Mixed, default: null },
 });
 
 chatroomSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });

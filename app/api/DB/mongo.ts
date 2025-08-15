@@ -1263,12 +1263,7 @@ export function startInactiveSessionJob(
       const rooms = await Chatroom.find({
         members: user,
         tenant_id: tenantId,
-      }).lean<{
-        owner: string;
-        id: string;
-        members: string[];
-        mls?: unknown;
-      }[]>();
+      }).lean<(ChatroomInfo & { owner: string })[]>();
       for (const room of rooms) {
         const idx = room.members.indexOf(user);
         if (idx < 0) continue;
