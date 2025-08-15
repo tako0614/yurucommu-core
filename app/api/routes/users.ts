@@ -28,8 +28,13 @@ app.get("/users/:identifier", async (c) => {
 
     if (user) {
       // ユーザーの投稿数を取得
-      const postCount =
-        (await db.findNotes({ attributedTo: info.userName }, {})).length;
+      const fullUrl = `https://${domain}/users/${info.userName}`;
+      const postCount = (await db.findNotes({
+        $or: [
+          { attributedTo: info.userName },
+          { attributedTo: fullUrl },
+        ],
+      }, {})).length;
 
       return c.json({
         userName: info.userName,

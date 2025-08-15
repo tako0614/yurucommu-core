@@ -16,6 +16,7 @@ import {
   addRoom,
   fetchEncryptedMessages,
   fetchKeepMessages,
+  fetchHandshakes,
   searchRooms,
   sendEncryptedMessage,
   sendKeepMessage,
@@ -28,7 +29,10 @@ import {
   encryptMessageWithAck,
   generateKeyPackage,
   type StoredGroupState,
+  processCommit,
+  processProposal,
 } from "./e2ee/mls_core.ts";
+import { decodePublicMessage } from "./e2ee/mls_message.ts";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
   loadMLSGroupStates,
@@ -46,6 +50,7 @@ import {
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
+import { ChatSettingsOverlay } from "./chat/ChatSettingsOverlay.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
@@ -434,6 +439,8 @@ export function Chat() {
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
+  // 設定オーバーレイ表示状態
+  const [showSettings, setShowSettings] = createSignal(false);
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -597,6 +604,47 @@ export function Chat() {
       group = groups()[room.id];
       if (!group) return [];
     }
+
+    // 先に Handshake (Commit / Proposal) を適用して状態を同期
+    try {
+      const hs = await fetchHandshakes(room.id, { limit: 100 });
+      if (hs.length > 0) {
+        // createdAt 昇順で適用
+        const ordered = [...hs].sort((a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        let updated = false;
+        for (const h of ordered) {
+          const body = decodePublicMessage(h.message);
+          if (!body) continue;
+          try {
+            // Commit / Proposal 判定は decodeMlsMessage 内部で実施; 失敗時は例外
+            try {
+              group = await processCommit(group, body);
+              updated = true;
+              continue; // commit 適用できたら次へ
+            } catch {
+              /* not a commit */
+            }
+            try {
+              group = await processProposal(group, body);
+              updated = true;
+              continue;
+            } catch {
+              /* not a proposal */
+            }
+          } catch (e) {
+            console.warn("handshake apply failed", e);
+          }
+        }
+        if (updated) {
+          setGroups({ ...groups(), [room.id]: group });
+          await saveGroupStates();
+        }
+      }
+    } catch (e) {
+      console.warn("handshake sync failed", e);
+    }
     const list = await fetchEncryptedMessages(
       room.id,
       `${user.userName}@${getDomain()}`,
@@ -610,12 +658,13 @@ export function Chat() {
         const displayName = isMe
           ? user.displayName || user.userName
           : room.name;
+        // 復号できない暗号文はプレースホルダ表示 (後で再同期時に再取得対象)
         encryptedMsgs.push({
           id: m.id,
           author: m.from,
           displayName,
           address: m.from,
-          content: m.content,
+          content: "[Encrypted]", // m.content そのまま出さない
           timestamp: new Date(m.createdAt),
           type: "text",
           isMe,
@@ -815,7 +864,29 @@ export function Chat() {
     for (const item of serverRooms) {
       const state = groups()[item.id];
       const meta = state
-        ? decodeGroupMetadata(state.groupContext.extensions) || {
+        // 拡張の型適合 (extensionType を number に) ※ ts-mls の型差異吸収
+        ? decodeGroupMetadata(
+            (() => {
+              type RawExt = { extensionType: number | string; extensionData: Uint8Array } | unknown;
+              const arr: RawExt[] = state.groupContext.extensions as unknown as RawExt[];
+              return arr.flatMap((e) => {
+                if (
+                  typeof e === "object" && e !== null &&
+                  "extensionType" in e && "extensionData" in e
+                ) {
+                  const et = (e as { extensionType: number | string }).extensionType;
+                  const ed = (e as { extensionData: unknown }).extensionData;
+                  if (ed instanceof Uint8Array) {
+                    return [{
+                      extensionType: typeof et === "string" ? Number(et) : et,
+                      extensionData: ed,
+                    }];
+                  }
+                }
+                return [] as { extensionType: number; extensionData: Uint8Array }[];
+              });
+            })(),
+          ) || {
           name: "",
           icon: undefined,
         }
@@ -1577,6 +1648,7 @@ export function Chat() {
                   isMobile={isMobile()}
                   selectedRoom={selectedRoomInfo()}
                   onBack={backToRoomList}
+                  onOpenSettings={() => setShowSettings(true)}
                 />
                 {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
@@ -1613,6 +1685,16 @@ export function Chat() {
         }}
         onCreate={createRoom}
         initialMembers={initialMembers()}
+      />
+      <ChatSettingsOverlay
+        isOpen={showSettings()}
+        room={selectedRoomInfo()}
+        onClose={() => setShowSettings(false)}
+        onRoomUpdated={(partial) => {
+          const id = selectedRoom();
+          if (!id) return;
+          setChatRooms((prev) => prev.map(r => r.id === id ? { ...r, ...partial } : r));
+        }}
       />
     </>
   );

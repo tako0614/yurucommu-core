@@ -283,9 +283,9 @@ export class MongoDB implements DB {
         },
       },
     ];
-    const list = await this.withTenant(
-      EncryptedMessage.aggregate(pipeline),
-    ).exec() as { _id?: string; members: string[] }[];
+    const list = await EncryptedMessage.aggregate(pipeline).exec() as {
+      _id?: string; members: string[];
+    }[];
     for (const item of list) {
       if (!item._id) continue;
       const existing = map.get(item._id);
@@ -350,9 +350,9 @@ export class MongoDB implements DB {
         },
       },
     ];
-    const list = await this.withTenant(
-      EncryptedMessage.aggregate(pipeline),
-    ).exec() as { _id?: string; members: string[] }[];
+    const list = await EncryptedMessage.aggregate(pipeline).exec() as {
+      _id?: string; members: string[];
+    }[];
     if (list.length === 0 || !list[0]._id) return null;
     return {
       owner: "",
@@ -388,10 +388,12 @@ export class MongoDB implements DB {
     aud?: { to: string[]; cc: string[] },
   ) {
     const id = createObjectId(domain);
-    const actor = `https://${domain}/users/${author}`;
+    const actor = author.startsWith("http")
+      ? author
+      : `https://${domain}/users/${author}`;
     const doc = new Note({
       _id: id,
-      attributedTo: author,
+      attributedTo: actor,
       actor_id: actor,
       content,
       extra,
@@ -448,10 +450,12 @@ export class MongoDB implements DB {
     aud: { to: string[]; cc: string[] },
   ) {
     const id = createObjectId(domain);
-    const actor = `https://${domain}/users/${author}`;
+    const actor = author.startsWith("http")
+      ? author
+      : `https://${domain}/users/${author}`;
     const doc = new Message({
       _id: id,
-      attributedTo: author,
+      attributedTo: actor,
       actor_id: actor,
       content,
       extra,

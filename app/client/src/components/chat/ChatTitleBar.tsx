@@ -5,6 +5,7 @@ interface ChatTitleBarProps {
   isMobile: boolean;
   selectedRoom: Room | null;
   onBack: () => void;
+  onOpenSettings: () => void; // 右上設定メニュー表示
 }
 
 export function ChatTitleBar(props: ChatTitleBarProps) {
@@ -34,6 +35,21 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
           </button>
         </Show>
         <h2>{props.selectedRoom?.name}</h2>
+      </div>
+      <div class="ml-auto pr-4 flex items-center gap-3">
+        <button
+          type="button"
+          aria-label="Chat settings"
+          class="p-2 rounded hover:bg-white/10 transition-colors"
+          onClick={props.onOpenSettings}
+        >
+          {/* ハンバーガー / カスタム アイコン */}
+          <svg width="22" height="22" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" class="text-white">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
       </div>
     </div>
   );
