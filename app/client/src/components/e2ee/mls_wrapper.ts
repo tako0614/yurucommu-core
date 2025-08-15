@@ -9,6 +9,7 @@ import {
   createCommit,
   createGroup,
   createGroupInfoWithExternalPubAndRatchetTree,
+  type Credential,
   decodeMlsMessage,
   defaultCapabilities,
   defaultLifetime,
@@ -25,10 +26,10 @@ import {
   processPrivateMessage,
   processPublicMessage,
   type Proposal,
-  type Credential,
 } from "ts-mls";
 import "@noble/curves/p256";
 import { encodePublicMessage } from "./mls_message.ts";
+import { encodeGroupMetadata, type GroupMetadata } from "./group_metadata.ts";
 // ts-mls does not publish some internal helpers via package exports; use local fallbacks/types
 type PublicMessage = {
   content: { commit?: unknown; proposal?: unknown } & Record<string, unknown>;
@@ -126,10 +127,17 @@ export async function verifyKeyPackage(
       try {
         // KeyPackage stores credential inside the leafNode per ts-mls types
         const kp = decoded.keyPackage as {
-          leafNode?: { credential?: { credentialType?: string; identity?: Uint8Array } };
+          leafNode?: {
+            credential?: { credentialType?: string; identity?: Uint8Array };
+          };
         } | undefined;
-        const leafCred = kp?.leafNode?.credential as { credentialType?: string; identity?: Uint8Array } | undefined;
-        if (!leafCred || leafCred.credentialType !== "basic" || !leafCred.identity) return false;
+        const leafCred = kp?.leafNode?.credential as {
+          credentialType?: string;
+          identity?: Uint8Array;
+        } | undefined;
+        if (
+          !leafCred || leafCred.credentialType !== "basic" || !leafCred.identity
+        ) return false;
         const id = new TextDecoder().decode(leafCred.identity);
         if (id !== expectedIdentity) return false;
       } catch {
@@ -179,7 +187,7 @@ export async function verifyCommit(
     const cloned = structuredClone(state);
     await processPublicMessage(
       cloned,
-  message as unknown as never,
+      message as unknown as never,
       buildPskIndex(state, psks),
       cs,
       acceptAll,
@@ -222,13 +230,17 @@ export function verifyGroupInfo(
 ): Promise<boolean> {
   try {
     const decoded = decodeMlsMessage(data, 0)?.[0];
-  if (!decoded || decoded.wireformat !== "mls_group_info") return Promise.resolve(false);
-  // deep verification requires internal helpers not exported from package entrypoint.
-  // As a conservative check, validate structure and signer index.
-  if (!decoded.groupInfo || typeof decoded.groupInfo.signer !== "number") return Promise.resolve(false);
-  return Promise.resolve(true);
+    if (!decoded || decoded.wireformat !== "mls_group_info") {
+      return Promise.resolve(false);
+    }
+    // deep verification requires internal helpers not exported from package entrypoint.
+    // As a conservative check, validate structure and signer index.
+    if (!decoded.groupInfo || typeof decoded.groupInfo.signer !== "number") {
+      return Promise.resolve(false);
+    }
+    return Promise.resolve(true);
   } catch {
-  return Promise.resolve(false);
+    return Promise.resolve(false);
   }
 }
 
@@ -260,6 +272,7 @@ export async function verifyPrivateMessage(
 export async function createMLSGroup(
   identity: string,
   suite: CiphersuiteName = DEFAULT_SUITE,
+  metadata?: GroupMetadata,
 ): Promise<{
   state: StoredGroupState;
   keyPair: GeneratedKeyPair;
@@ -268,7 +281,14 @@ export async function createMLSGroup(
   const keyPair = await generateKeyPair(identity, suite);
   const gid = new TextEncoder().encode(crypto.randomUUID());
   const cs = await getSuite(suite);
-  const state = await createGroup(gid, keyPair.public, keyPair.private, [], cs);
+  const exts = metadata ? [encodeGroupMetadata(metadata)] : [];
+  const state = await createGroup(
+    gid,
+    keyPair.public,
+    keyPair.private,
+    exts,
+    cs,
+  );
   return { state, keyPair, gid };
 }
 
@@ -359,7 +379,7 @@ export async function updateKey(
   // ts-mls typings expect a specific `update` shape; cast to satisfy public API for now.
   const proposals: Proposal[] = [{
     proposalType: "update",
-    update: ( { keyPackage: keyPair.public } as unknown ),
+    update: ({ keyPackage: keyPair.public } as unknown),
   } as unknown as Proposal];
   const result = await createCommit(
     state,
@@ -493,7 +513,7 @@ export async function processCommit(
   const cs = await getSuite(suite);
   const { newState } = await processPublicMessage(
     state,
-  message as unknown as never,
+    message as unknown as never,
     buildPskIndex(state, psks),
     cs,
     acceptAll,
@@ -513,7 +533,7 @@ export async function processProposal(
   const cs = await getSuite(suite);
   const { newState } = await processPublicMessage(
     state,
-  message as unknown as never,
+    message as unknown as never,
     buildPskIndex(state, psks),
     cs,
     acceptAll,

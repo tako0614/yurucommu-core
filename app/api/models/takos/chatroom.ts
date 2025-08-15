@@ -2,11 +2,11 @@ import mongoose from "mongoose";
 import tenantScope from "../plugins/tenant_scope.ts";
 
 // MLS の暗号状態はクライアントで管理し、サーバーでは保持しない
+// このコレクションはメタデータの補完用であり、存在しなくても
+// 暗号化メッセージから参加メンバーを推測してトークを表示できる
 const chatroomSchema = new mongoose.Schema({
   owner: { type: String, required: true },
   id: { type: String, required: true },
-  name: { type: String, default: "" },
-  icon: { type: String, default: "" },
   members: { type: [String], default: [] },
 });
 

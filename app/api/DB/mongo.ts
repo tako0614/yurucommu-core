@@ -260,7 +260,47 @@ export class MongoDB implements DB {
     const rooms = await query.lean<
       (ChatroomInfo & { owner: string })[]
     >();
-    return rooms.map(({ owner: _o, ...room }) => room);
+    const map = new Map<string, ChatroomInfo>();
+    for (const { owner: _o, ...room } of rooms) {
+      map.set(room.id, room);
+    }
+
+    const pipeline = [
+      {
+        $match: { $or: [{ from: member }, { to: member }] },
+      },
+      {
+        $project: {
+          roomId: 1,
+          participants: { $concatArrays: [["$from"], "$to"] },
+        },
+      },
+      { $unwind: "$participants" },
+      {
+        $group: {
+          _id: "$roomId",
+          members: { $addToSet: "$participants" },
+        },
+      },
+    ];
+    const list = await this.withTenant(
+      EncryptedMessage.aggregate(pipeline),
+    ).exec() as { _id?: string; members: string[] }[];
+    for (const item of list) {
+      if (!item._id) continue;
+      const existing = map.get(item._id);
+      if (existing) {
+        existing.members = item.members;
+      } else {
+        map.set(item._id, {
+          id: item._id,
+          name: "",
+          icon: "",
+          members: item.members,
+        });
+      }
+    }
+    return Array.from(map.values());
   }
 
   async addChatroom(
@@ -291,9 +331,38 @@ export class MongoDB implements DB {
     const doc = await query.lean<
       (ChatroomInfo & { owner: string }) | null
     >();
-    if (!doc) return null;
-    const { owner, ...room } = doc;
-    return { owner, room };
+    if (doc) {
+      const { owner, ...room } = doc;
+      return { owner, room };
+    }
+    const pipeline = [
+      { $match: { roomId } },
+      {
+        $project: {
+          participants: { $concatArrays: [["$from"], "$to"] },
+        },
+      },
+      { $unwind: "$participants" },
+      {
+        $group: {
+          _id: "$roomId",
+          members: { $addToSet: "$participants" },
+        },
+      },
+    ];
+    const list = await this.withTenant(
+      EncryptedMessage.aggregate(pipeline),
+    ).exec() as { _id?: string; members: string[] }[];
+    if (list.length === 0 || !list[0]._id) return null;
+    return {
+      owner: "",
+      room: {
+        id: roomId,
+        name: "",
+        icon: "",
+        members: list[0].members,
+      },
+    };
   }
 
   async updateChatroom(
