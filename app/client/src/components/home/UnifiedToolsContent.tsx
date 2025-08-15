@@ -16,6 +16,7 @@ import {
   fetchAccounts,
 } from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
+import { navigate } from "../../utils/router.ts";
 import { fetchPostById } from "../microblog/api.ts";
 import { PostItem } from "../microblog/Post.tsx";
 import QRCode from "qrcode";
@@ -238,6 +239,18 @@ export default function UnifiedToolsContent() {
     return `${getOrigin()}/users/${name}`;
   };
 
+  // アクターURLを username@example.com 形式に変換
+  const actorToHandle = (actor: string) => {
+    try {
+      const url = new URL(actor);
+      const segs = url.pathname.split("/").filter(Boolean);
+      const name = segs[segs.length - 1];
+      return `${name}@${url.hostname}`;
+    } catch {
+      return actor;
+    }
+  };
+
   // フォロー関連の処理
   const handleFollow = async (actor: string, userId?: string) => {
     try {
@@ -246,8 +259,8 @@ export default function UnifiedToolsContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            follower: currentAccount()?.userName ?? "",
-            target: actor,
+            follower: `${currentAccount()?.userName}@${getDomain()}`,
+            target: actorToHandle(actor),
           }),
         });
       }
@@ -277,8 +290,8 @@ export default function UnifiedToolsContent() {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            follower: currentAccount()?.userName ?? "",
-            target: actor,
+            follower: `${currentAccount()?.userName}@${getDomain()}`,
+            target: actorToHandle(actor),
           }),
         });
       }
@@ -527,115 +540,188 @@ export default function UnifiedToolsContent() {
   }
 
   return (
-    <div class={`h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500 ${qrHandle() ? 'pointer-events-none select-none' : ''}`}>
+    <div
+      class={`h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500 ${
+        qrHandle() ? "pointer-events-none select-none" : ""
+      }`}
+    >
       <Portal>
         <Show when={qrHandle()}>
           {/* Portal化したQRモーダル: 外部space-yの影響を受けない */}
           <div class="fixed inset-0 z-50 bg-gradient-to-br from-gray-800 via-gray-700 to-gray-900 overflow-y-auto flex items-center justify-center p-6">
-          <button
-            type="button"
-            class="absolute top-6 right-6 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-all duration-200 flex items-center space-x-2"
-            onClick={closeQr}
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-            <span>閉じる</span>
-          </button>
-          
-          <div class="w-full">
-            <div class="max-w-4xl w-full bg-gray-800 rounded-lg p-8 border border-gray-600 shadow-2xl m-auto">
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-                {/* 左側：ユーザー情報 */}
-                <div class="space-y-6 text-center lg:text-left">
-                  <div>
-                    <div class="flex justify-center lg:justify-start mb-4">
-                      <div class="w-24 h-24 bg-gradient-to-br from-gray-400 to-gray-600 rounded-full flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
-                        {currentAccount()?.avatarInitial || currentAccount()?.userName?.charAt(0).toUpperCase() || "U"}
+            <button
+              type="button"
+              class="absolute top-6 right-6 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-all duration-200 flex items-center space-x-2"
+              onClick={closeQr}
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+              <span>閉じる</span>
+            </button>
+
+            <div class="w-full">
+              <div class="max-w-4xl w-full bg-gray-800 rounded-lg p-8 border border-gray-600 shadow-2xl m-auto">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                  {/* 左側：ユーザー情報 */}
+                  <div class="space-y-6 text-center lg:text-left">
+                    <div>
+                      <div class="flex justify-center lg:justify-start mb-4">
+                        <div class="w-24 h-24 bg-gradient-to-br from-gray-400 to-gray-600 rounded-full flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
+                          {currentAccount()?.avatarInitial ||
+                            currentAccount()?.userName?.charAt(0)
+                              .toUpperCase() ||
+                            "U"}
+                        </div>
                       </div>
-                    </div>
-                    <h2 class="text-3xl font-bold text-white mb-2">
-                      {currentAccount()?.displayName || currentAccount()?.userName}
-                    </h2>
-                    <div class="bg-gray-700 rounded-lg p-4 mb-4">
-                      <div class="flex items-center justify-center lg:justify-start space-x-2 text-gray-300 mb-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                      <h2 class="text-3xl font-bold text-white mb-2">
+                        {currentAccount()?.displayName ||
+                          currentAccount()?.userName}
+                      </h2>
+                      <div class="bg-gray-700 rounded-lg p-4 mb-4">
+                        <div class="flex items-center justify-center lg:justify-start space-x-2 text-gray-300 mb-2">
+                          <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                            />
+                          </svg>
+                          <span class="text-sm font-semibold">
+                            ユーザーハンドル
+                          </span>
+                        </div>
+                        <p class="font-mono text-lg text-white break-all">
+                          {qrHandle()}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="w-full lg:w-auto px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold rounded-lg text-lg transition-all duration-200 flex items-center justify-center space-x-2 mx-auto lg:mx-0"
+                        onClick={copyHandle}
+                      >
+                        <svg
+                          class="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
                         </svg>
-                        <span class="text-sm font-semibold">ユーザーハンドル</span>
+                        <span>コピー</span>
+                      </button>
+                      <Show when={qrMsg()}>
+                        <div class="mt-2 p-2 bg-green-600/20 border border-green-500 rounded-lg">
+                          <p class="text-green-300 text-sm flex items-center justify-center space-x-2">
+                            <svg
+                              class="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                            <span>{qrMsg()}</span>
+                          </p>
+                        </div>
+                      </Show>
+                      <Show when={qrError()}>
+                        <div class="mt-2 p-2 bg-red-600/20 border border-red-500 rounded-lg">
+                          <p class="text-red-300 text-sm flex items-center justify-center space-x-2">
+                            <svg
+                              class="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                            <span>{qrError()}</span>
+                          </p>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+
+                  {/* 右側：QRコード */}
+                  <div class="flex flex-col items-center space-y-4 justify-center">
+                    <div class="bg-white p-6 rounded-lg shadow-lg">
+                      <div innerHTML={qrSvg()} class="w-48 h-48" />
+                    </div>
+                    <div class="text-center">
+                      <div class="flex items-center justify-center space-x-2 text-gray-300 mb-2">
+                        <svg
+                          class="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+                          />
+                        </svg>
+                        <span class="text-sm font-semibold">QRコード</span>
                       </div>
-                      <p class="font-mono text-lg text-white break-all">
-                        {qrHandle()}
+                      <p class="text-gray-400 text-sm">
+                        他のユーザーがスキャンして<br />
+                        あなたをフォローできます
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      class="w-full lg:w-auto px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold rounded-lg text-lg transition-all duration-200 flex items-center justify-center space-x-2 mx-auto lg:mx-0"
-                      onClick={copyHandle}
-                    >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                      </svg>
-                      <span>コピー</span>
-                    </button>
-                    <Show when={qrMsg()}>
-                      <div class="mt-2 p-2 bg-green-600/20 border border-green-500 rounded-lg">
-                        <p class="text-green-300 text-sm flex items-center justify-center space-x-2">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                          </svg>
-                          <span>{qrMsg()}</span>
-                        </p>
-                      </div>
-                    </Show>
-                    <Show when={qrError()}>
-                      <div class="mt-2 p-2 bg-red-600/20 border border-red-500 rounded-lg">
-                        <p class="text-red-300 text-sm flex items-center justify-center space-x-2">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                          </svg>
-                          <span>{qrError()}</span>
-                        </p>
-                      </div>
-                    </Show>
                   </div>
                 </div>
 
-                {/* 右側：QRコード */}
-                <div class="flex flex-col items-center space-y-4 justify-center">
-                  <div class="bg-white p-6 rounded-lg shadow-lg">
-                    <div innerHTML={qrSvg()} class="w-48 h-48" />
-                  </div>
-                  <div class="text-center">
-                    <div class="flex items-center justify-center space-x-2 text-gray-300 mb-2">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
-                      </svg>
-                      <span class="text-sm font-semibold">QRコード</span>
+                {/* フッター情報 */}
+                <div class="mt-8 pt-6 border-t border-gray-600">
+                  <div class="flex items-center justify-between text-xs text-gray-400">
+                    <div class="flex items-center space-x-2">
+                      <span>TAKOS Network</span>
                     </div>
-                    <p class="text-gray-400 text-sm">
-                      他のユーザーがスキャンして<br/>
-                      あなたをフォローできます
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* フッター情報 */}
-              <div class="mt-8 pt-6 border-t border-gray-600">
-                <div class="flex items-center justify-between text-xs text-gray-400">
-                  <div class="flex items-center space-x-2">
-                    <span>TAKOS Network</span>
-                  </div>
-                  <div class="flex items-center space-x-4">
-                    <span>ID: {currentAccount()?.id?.substring(0, 8) || "--------"}</span>
-                    <span>•</span>
-                    <span>{new Date().toLocaleDateString('ja-JP')}</span>
+                    <div class="flex items-center space-x-4">
+                      <span>
+                        ID:{" "}
+                        {currentAccount()?.id?.substring(0, 8) || "--------"}
+                      </span>
+                      <span>•</span>
+                      <span>{new Date().toLocaleDateString("ja-JP")}</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
           </div>
         </Show>
       </Portal>
@@ -646,8 +732,18 @@ export default function UnifiedToolsContent() {
             class="absolute top-6 right-6 z-10 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all duration-200 flex items-center space-x-2"
             onClick={() => setShowScanner(false)}
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
             <span>閉じる</span>
           </button>
@@ -662,17 +758,21 @@ export default function UnifiedToolsContent() {
               ref={(el) => (videoRef = el)}
             />
             <canvas class="hidden" ref={(el) => (canvasRef = el)} />
-            
+
             {/* スキャンエリアのオーバーレイ */}
             <div class="absolute inset-0 flex items-center justify-center">
               <div class="relative">
                 <div class="w-64 h-64 border-2 border-white/70 rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
                 </div>
                 {/* コーナーのアニメーション */}
-                <div class="absolute top-0 left-0 w-8 h-8 border-l-4 border-t-4 border-blue-400 rounded-tl-2xl animate-pulse"></div>
-                <div class="absolute top-0 right-0 w-8 h-8 border-r-4 border-t-4 border-blue-400 rounded-tr-2xl animate-pulse"></div>
-                <div class="absolute bottom-0 left-0 w-8 h-8 border-l-4 border-b-4 border-blue-400 rounded-bl-2xl animate-pulse"></div>
-                <div class="absolute bottom-0 right-0 w-8 h-8 border-r-4 border-b-4 border-blue-400 rounded-br-2xl animate-pulse"></div>
+                <div class="absolute top-0 left-0 w-8 h-8 border-l-4 border-t-4 border-blue-400 rounded-tl-2xl animate-pulse">
+                </div>
+                <div class="absolute top-0 right-0 w-8 h-8 border-r-4 border-t-4 border-blue-400 rounded-tr-2xl animate-pulse">
+                </div>
+                <div class="absolute bottom-0 left-0 w-8 h-8 border-l-4 border-b-4 border-blue-400 rounded-bl-2xl animate-pulse">
+                </div>
+                <div class="absolute bottom-0 right-0 w-8 h-8 border-r-4 border-b-4 border-blue-400 rounded-br-2xl animate-pulse">
+                </div>
               </div>
             </div>
 
@@ -680,19 +780,39 @@ export default function UnifiedToolsContent() {
             <div class="absolute bottom-20 left-0 right-0 text-center">
               <div class="bg-black/70 backdrop-blur-sm rounded-full px-6 py-3 mx-auto inline-block">
                 <div class="flex items-center justify-center space-x-2 text-white">
-                  <Show 
+                  <Show
                     when={cameraReady()}
                     fallback={
                       <>
-                        <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        <svg
+                          class="w-5 h-5 animate-spin"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
                         </svg>
                         <span>カメラを起動しています...</span>
                       </>
                     }
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <svg
+                      class="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
                     </svg>
                     <span>QRコードを中央に合わせてください</span>
                   </Show>
@@ -705,8 +825,18 @@ export default function UnifiedToolsContent() {
           <Show when={scanError()}>
             <div class="bg-red-600/20 border-t border-red-600/30 p-4">
               <div class="flex items-center justify-center space-x-2 text-red-300">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L5.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L5.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
                 </svg>
                 <span>{scanError()}</span>
               </div>
@@ -717,8 +847,18 @@ export default function UnifiedToolsContent() {
           <div class="bg-gray-900 p-4 border-t border-gray-700">
             <div class="flex items-center justify-center">
               <label class="flex items-center space-x-3 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg cursor-pointer transition-all duration-200">
-                <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                <svg
+                  class="w-5 h-5 text-gray-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
                 </svg>
                 <span class="text-gray-300 font-medium">画像から読み取り</span>
                 <input
@@ -823,8 +963,18 @@ export default function UnifiedToolsContent() {
               onClick={openMyQr}
               class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white rounded-lg font-medium transition-all duration-200 shadow-lg"
             >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+                />
               </svg>
               <span>自分のQR</span>
             </button>
@@ -833,9 +983,24 @@ export default function UnifiedToolsContent() {
               onClick={() => setShowScanner(true)}
               class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-lg font-medium transition-all duration-200 shadow-lg"
             >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                />
               </svg>
               <span>QR読み取り</span>
             </button>
@@ -860,6 +1025,7 @@ export default function UnifiedToolsContent() {
                   {(result: SearchResult) => {
                     // ローカルユーザーの詳細情報を取得
                     const localUser = users().find((u) => u.id === result.id);
+                    const handle = actorToHandle(result.actor!);
 
                     return (
                       <div class="bg-gray-800/50 rounded-lg p-4 hover:bg-gray-800 transition-all duration-200">
@@ -880,7 +1046,18 @@ export default function UnifiedToolsContent() {
                             <div>
                               <div class="flex items-center space-x-2">
                                 <h4 class="font-semibold text-gray-200">
-                                  {result.title}
+                                  <a
+                                    href={`/user/${encodeURIComponent(handle)}`}
+                                    class="hover:underline"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      navigate(
+                                        `/user/${encodeURIComponent(handle)}`,
+                                      );
+                                    }}
+                                  >
+                                    {result.title}
+                                  </a>
                                 </h4>
                                 <Show when={result.origin}>
                                   <span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-full">
