@@ -28,9 +28,10 @@ function openDB(accountId: string): Promise<IDBDatabase> {
   const name = `takos_${accountId}`;
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(name, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const db = req.result;
-      if (req.oldVersion < DB_VERSION) {
+      const oldVersion = (ev as IDBVersionChangeEvent).oldVersion ?? 0;
+      if (oldVersion < DB_VERSION) {
         if (db.objectStoreNames.contains(STORE_NAME)) {
           db.deleteObjectStore(STORE_NAME);
         }
