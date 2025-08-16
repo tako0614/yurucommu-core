@@ -8,7 +8,9 @@ import { useMLS } from "../e2ee/useMLS.ts";
 import { loadMLSGroupStates } from "../e2ee/storage.ts";
 import type { StoredGroupState } from "../e2ee/mls_wrapper.ts";
 import { fetchUserInfo } from "../microblog/api.ts";
-import { fetchEncryptedMessages } from "../e2ee/api.ts";
+import { fetchEncryptedMessages, fetchKeyPackages, sendHandshake } from "../e2ee/api.ts";
+import { createCommitAndWelcomes } from "../e2ee/mls_wrapper.ts";
+import { encodePublicMessage } from "../e2ee/mls_message.ts";
 
 interface ChatSettingsOverlayProps {
   isOpen: boolean;
@@ -19,6 +21,8 @@ interface ChatSettingsOverlayProps {
   bindingInfo?: { label: string; caution?: string } | null;
   ktInfo?: { included: boolean } | null;
   onRemoveMember?: (id: string) => Promise<boolean>;
+  // 親(Chat)から渡される現在のグループ状態（ブラウザでは保存されないため）
+  groupState?: StoredGroupState | null;
 }
 
 interface MemberItem {
@@ -59,73 +63,22 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     const user = accountValue();
     if (!r || !user) return;
     try {
-      const res = await apiFetch(
-        `/api/rooms/${encodeURIComponent(r.id)}/members`,
-      );
-      if (res.ok) {
-        const data = await res.json();
-        type RawMember =
-          | {
-            id?: string;
-            displayName?: string;
-            avatar?: string;
-            actor?: string;
-            leafSignatureKeyFpr?: string;
-          }
-          | string;
-        const arr = Array.isArray(data.members) ? data.members as RawMember[] : [];
-        if (arr.length > 0) {
-          const list = await Promise.all(arr.map(async (m) => {
-            if (typeof m === "string") {
-              const resEval = await assessMemberBinding(user.id, r.id, undefined, "");
-              return {
-                id: m,
-                display: m,
-                actor: undefined,
-                avatar: undefined,
-                leafSignatureKeyFpr: "",
-                bindingStatus: resEval.status,
-                bindingInfo: resEval.info,
-                ktIncluded: resEval.kt.included,
-              } as MemberItem;
-            }
-            const resEval = await assessMemberBinding(
-              user.id,
-              r.id,
-              m.actor,
-              m.leafSignatureKeyFpr ?? "",
-            );
-            return {
-              id: m.id || m.actor || m.displayName || "unknown",
-              display: m.displayName || m.id || m.actor || "unknown",
-              avatar: m.avatar,
-              actor: m.actor,
-              leafSignatureKeyFpr: m.leafSignatureKeyFpr ?? "",
-              bindingStatus: resEval.status,
-              bindingInfo: resEval.info,
-              ktIncluded: resEval.kt.included,
-            } as MemberItem;
-          }));
-          const known = list.filter((m) => m.actor);
-          const unknown = list.filter((m) => !m.actor);
-          setMembers([...known, ...unknown]);
-          return;
-        }
-        // サーバからメンバーが返らない場合は MLS 由来で補完
-      }
-      await loadMembersFromMLS(r.id);
+      // サーバーのメンバーAPIは使用しない。MLS 由来で取得
+      await loadMembersFromMLS(r.id, props.groupState ?? undefined);
     } catch (e) {
       console.warn("loadMembers failed", e);
-      await loadMembersFromMLS(r.id);
+      await loadMembersFromMLS(r.id, props.groupState ?? undefined);
     }
   };
 
-  const loadMembersFromMLS = async (roomId: string) => {
+  const loadMembersFromMLS = async (roomId: string, stateFromParent?: StoredGroupState) => {
     const user = accountValue();
     if (!user) return setMembers([]);
     try {
-      const stored = await loadMLSGroupStates(user.id);
-      const state = stored[roomId] as StoredGroupState | undefined;
+      const state = stateFromParent ?? (await (async () => {
+        const stored = await loadMLSGroupStates(user.id);
+        return stored[roomId] as StoredGroupState | undefined;
+      })());
       if (!state) {
         // 最後のフォールバック: props.room.members から推測
         const self = `${user.userName}@${getDomain()}`;
@@ -230,20 +183,66 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     return out;
   };
 
+  const normalizeActor = (input: string): { user: string; domain?: string } | null => {
+    let v = input.trim();
+    if (!v) return null;
+    if (v.startsWith("http")) {
+      try {
+        const url = new URL(v);
+        const name = url.pathname.split("/").pop() || "";
+        if (!name) return null;
+        return { user: `${name}@${url.hostname}` } as { user: string; domain?: string };
+      } catch {
+        return null;
+      }
+    }
+    if (v.startsWith("@")) v = v.slice(1);
+    if (v.includes("@")) {
+      return { user: v } as { user: string; domain?: string };
+    }
+    // ドメイン省略時はローカル扱い
+    return { user: v, domain: getDomain() };
+  };
+
   const handleAddMember = async () => {
     const value = newMember().trim();
-    if (!value) return;
+    if (!value || !props.room) return;
+    const user = accountValue();
+    if (!user) return;
     try {
       setSaving(true);
-      const res = await apiFetch(
-        `/api/rooms/${encodeURIComponent(props.room!.id)}/invite`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ members: value }),
-        },
-      );
-      if (!res.ok) throw new Error("invite failed");
+      const ident = normalizeActor(value);
+      if (!ident) throw new Error("メンバーIDの形式が不正です");
+      // 追加する相手の KeyPackage を取得
+      const [name, dom] = ident.user.includes("@")
+        ? ((): [string, string | undefined] => {
+          const [u, d] = ident.user.split("@");
+          return [u, d];
+        })()
+        : [ident.user, ident.domain];
+      const kps = await fetchKeyPackages(name, dom);
+      if (!kps || kps.length === 0) {
+        throw new Error("相手のKeyPackageが見つかりません");
+      }
+      const kpInput = {
+        content: kps[0].content,
+        actor: dom ? `https://${dom}/users/${name}` : undefined,
+        deviceId: kps[0].deviceId,
+      };
+      const state = props.groupState;
+      if (!state) throw new Error("ルームの暗号状態が未初期化です");
+      // 追加用の Commit/Welcome を生成
+      const res = await createCommitAndWelcomes(state, [kpInput]);
+      // Handshake として送信（commit と welcome）
+      const commitContent = encodePublicMessage(res.commit);
+      const ok = await sendHandshake(props.room.id, user.id, commitContent);
+      if (!ok) throw new Error("Commitの送信に失敗しました");
+      for (const w of res.welcomes) {
+        const wContent = encodePublicMessage(w.data);
+        const wk = await sendHandshake(props.room.id, user.id, wContent);
+        if (!wk) throw new Error("Welcomeの送信に失敗しました");
+      }
+      // 送信後はメンバー一覧の再読込（グループ状態の反映はWS/再取得で同期）
       await loadMembers();
       setNewMember("");
     } catch (e) {

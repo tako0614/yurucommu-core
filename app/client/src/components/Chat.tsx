@@ -2028,6 +2028,11 @@ export function Chat() {
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}
+        groupState={(function(){
+          const id = selectedRoom();
+          if (!id) return null;
+          return groups()[id] ?? null;
+        })()}
         onClose={() => setShowSettings(false)}
         onRoomUpdated={(partial) => {
           const id = selectedRoom();
