@@ -107,17 +107,10 @@ export const saveMLSGroupStates = async (
     await store.save();
     return;
   }
-  const db = await openDB(accountId);
-  const tx = db.transaction(STORE_NAME, "readwrite");
-  const store = tx.objectStore(STORE_NAME);
-  store.clear();
-  for (const [id, state] of Object.entries(states)) {
-    store.put(state, id);
-  }
-  await new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(undefined);
-    tx.onerror = () => reject(tx.error);
-  });
+  // ブラウザ環境では ts-mls の ClientState に関数など非クローン要素が含まれ
+  // IndexedDB の structured clone で DataCloneError になるため、保存はスキップする。
+  // 将来的にシリアライズAPIが追加されたらここで永続化に切り替える。
+  return;
 };
 
 export const loadMLSKeyPair = async (

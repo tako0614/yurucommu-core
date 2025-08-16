@@ -835,7 +835,12 @@ export function Chat() {
     );
     for (const m of list) {
       const data = b64ToBuf(m.content);
-      const res = await decryptMessage(group, data);
+      let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
+      try {
+        res = await decryptMessage(group, data);
+      } catch (err) {
+        console.warn("decryptMessage failed", err);
+      }
       if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
@@ -1557,7 +1562,12 @@ export function Chat() {
         const group = groups()[room.id];
         if (group) {
           const buf = b64ToBuf(data.content);
-          const res = await decryptMessage(group, buf);
+          let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
+          try {
+            res = await decryptMessage(group, buf);
+          } catch (err) {
+            console.warn("decryptMessage failed (ws)", err);
+          }
           if (res) {
             const note = parseActivityPubNote(
               new TextDecoder().decode(res.plaintext),

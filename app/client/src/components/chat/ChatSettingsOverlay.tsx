@@ -5,6 +5,10 @@ import { apiFetch, getDomain } from "../../utils/config.ts";
 import type { Room } from "./types.ts";
 import type { BindingStatus } from "../e2ee/binding.ts";
 import { useMLS } from "../e2ee/useMLS.ts";
+import { loadMLSGroupStates } from "../e2ee/storage.ts";
+import type { StoredGroupState } from "../e2ee/mls_wrapper.ts";
+import { fetchUserInfo } from "../microblog/api.ts";
+import { fetchEncryptedMessages } from "../e2ee/api.ts";
 
 interface ChatSettingsOverlayProps {
   isOpen: boolean;
@@ -69,15 +73,11 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
             leafSignatureKeyFpr?: string;
           }
           | string;
-        const list = await Promise.all(
-          (data.members as RawMember[] || []).map(async (m) => {
+        const arr = Array.isArray(data.members) ? data.members as RawMember[] : [];
+        if (arr.length > 0) {
+          const list = await Promise.all(arr.map(async (m) => {
             if (typeof m === "string") {
-              const resEval = await assessMemberBinding(
-                user.id,
-                r.id,
-                undefined,
-                "",
-              );
+              const resEval = await assessMemberBinding(user.id, r.id, undefined, "");
               return {
                 id: m,
                 display: m,
@@ -105,18 +105,129 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
               bindingInfo: resEval.info,
               ktIncluded: resEval.kt.included,
             } as MemberItem;
-          }),
-        );
-        const known = list.filter((m) => m.actor);
-        const unknown = list.filter((m) => !m.actor);
-        setMembers([...known, ...unknown]);
-      } else {
-        setMembers([]);
+          }));
+          const known = list.filter((m) => m.actor);
+          const unknown = list.filter((m) => !m.actor);
+          setMembers([...known, ...unknown]);
+          return;
+        }
+        // サーバからメンバーが返らない場合は MLS 由来で補完
       }
+      await loadMembersFromMLS(r.id);
     } catch (e) {
       console.warn("loadMembers failed", e);
+      await loadMembersFromMLS(r.id);
+    }
+  };
+
+  const loadMembersFromMLS = async (roomId: string) => {
+    const user = accountValue();
+    if (!user) return setMembers([]);
+    try {
+      const stored = await loadMLSGroupStates(user.id);
+      const state = stored[roomId] as StoredGroupState | undefined;
+      if (!state) {
+        // 最後のフォールバック: props.room.members から推測
+        const self = `${user.userName}@${getDomain()}`;
+        const fallback = (props.room?.members ?? []).filter((id) => id !== self);
+        if (fallback.length > 0) {
+          const ids = fallback;
+          const list = await Promise.all(ids.map(async (id) => {
+            const info = await fetchUserInfo(id);
+            const resEval = await assessMemberBinding(user.id, roomId, id, "");
+            return {
+              id,
+              display: info?.displayName || info?.userName || id,
+              avatar: info?.authorAvatar,
+              actor: id,
+              leafSignatureKeyFpr: "",
+              bindingStatus: resEval.status,
+              bindingInfo: resEval.info,
+              ktIncluded: resEval.kt.included,
+            } as MemberItem;
+          }));
+          setMembers(list);
+          return;
+        }
+        // さらに履歴メッセージから推測
+        return await loadMembersFromMessages(roomId);
+      }
+      const self = `${user.userName}@${getDomain()}`;
+      const ids = extractIdentities(state).filter((id) => id !== self);
+      if (ids.length === 0) {
+        return await loadMembersFromMessages(roomId);
+      }
+      const list = await Promise.all(ids.map(async (id) => {
+        const info = await fetchUserInfo(id);
+        const resEval = await assessMemberBinding(user.id, roomId, id, "");
+        return {
+          id,
+          display: info?.displayName || info?.userName || id,
+          avatar: info?.authorAvatar,
+          actor: id,
+          leafSignatureKeyFpr: "",
+          bindingStatus: resEval.status,
+          bindingInfo: resEval.info,
+          ktIncluded: resEval.kt.included,
+        } as MemberItem;
+      }));
+      setMembers(list);
+    } catch (err) {
+      console.warn("loadMembersFromMLS failed", err);
+      await loadMembersFromMessages(roomId);
+    }
+  };
+
+  const loadMembersFromMessages = async (roomId: string) => {
+    const user = accountValue();
+    if (!user) return setMembers([]);
+    try {
+      const self = `${user.userName}@${getDomain()}`;
+      const msgs = await fetchEncryptedMessages(roomId, self, { limit: 100 });
+      const set = new Set<string>();
+      for (const m of msgs) {
+        if (typeof m.from === "string" && m.from !== self) set.add(m.from);
+        if (Array.isArray(m.to)) {
+          for (const t of m.to) {
+            if (typeof t === "string" && t !== self) set.add(t);
+          }
+        }
+      }
+      const ids = Array.from(set);
+      const list = await Promise.all(ids.map(async (id) => {
+        const info = await fetchUserInfo(id);
+        const resEval = await assessMemberBinding(user.id, roomId, id, "");
+        return {
+          id,
+          display: info?.displayName || info?.userName || id,
+          avatar: info?.authorAvatar,
+          actor: id,
+          leafSignatureKeyFpr: "",
+          bindingStatus: resEval.status,
+          bindingInfo: resEval.info,
+          ktIncluded: resEval.kt.included,
+        } as MemberItem;
+      }));
+      setMembers(list);
+    } catch (err) {
+      console.warn("loadMembersFromMessages failed", err);
       setMembers([]);
     }
+  };
+
+  const extractIdentities = (state: StoredGroupState): string[] => {
+    const out: string[] = [];
+    const tree = state.ratchetTree as unknown as {
+      nodeType: string;
+      leaf?: { credential?: { identity?: Uint8Array } };
+    }[];
+    for (const node of tree) {
+      if (node?.nodeType === "leaf") {
+        const id = node.leaf?.credential?.identity;
+        if (id) out.push(new TextDecoder().decode(id));
+      }
+    }
+    return out;
   };
 
   const handleAddMember = async () => {
