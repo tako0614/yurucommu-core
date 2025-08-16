@@ -166,9 +166,19 @@ async function handleHandshake(
   | { ok: true; id: string }
   | { ok: false; status: number; error: string }
 > {
-  const { from, content, mediaType, encoding, attachments } = body;
+  const { from, to, content, mediaType, encoding, attachments } = body as {
+    from?: unknown;
+    to?: unknown;
+    content?: unknown;
+    mediaType?: unknown;
+    encoding?: unknown;
+    attachments?: unknown;
+  };
   if (typeof from !== "string" || typeof content !== "string") {
     return { ok: false, status: 400, error: "invalid body" };
+  }
+  if (!Array.isArray(to) || to.some((v) => typeof v !== "string")) {
+    return { ok: false, status: 400, error: "invalid recipients" };
   }
   const [sender] = from.split("@");
   if (!sender) {
@@ -183,11 +193,13 @@ async function handleHandshake(
   const db = createDB(env);
   const found = await db.findChatroom(roomId);
   if (!found) return { ok: false, status: 404, error: "room not found" };
-  const { room: group } = found;
-  if (!group.members.includes(from)) {
-    return { ok: false, status: 403, error: "not a member" };
+  // 宛先はクライアント（MLS ロスター）から供給されたものを使用
+  const recipients = Array.from(
+    new Set((to as string[]).filter((m) => m && m !== from)),
+  );
+  if (recipients.length === 0) {
+    return { ok: false, status: 400, error: "no recipients" };
   }
-  const recipients = group.members.filter((m) => m !== from);
 
   const mType = typeof mediaType === "string" ? mediaType : "message/mls";
   const encType = typeof encoding === "string" ? encoding : "base64";
@@ -227,8 +239,8 @@ async function handleHandshake(
     // 判定: from(送信者) は既存メンバー。ローカル他端末用 Welcome かどうかは
     // "local only" ポリシーに従い: 送信者と同じドメインのルーム内メンバーに限り保存。
     // 各ローカルメンバー全端末に同一 Welcome を再利用できるので sender 自身以外のローカルメンバーを保存対象とする。
-    const localMembers = group.members.filter((m) =>
-      m.endsWith(`@${domain}`) && m !== from
+    const localMembers = recipients.filter((m) =>
+      m.endsWith(`@${domain}`)
     );
     if (localMembers.length > 0) {
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -247,7 +259,7 @@ async function handleHandshake(
   const msg = await db.createHandshakeMessage({
     roomId,
     sender: from,
-    recipients: group.members,
+    recipients,
     message: content,
   }) as HandshakeMessageDoc;
 
@@ -295,9 +307,7 @@ async function handleHandshake(
   if (envelope && envelope.type === "Welcome") {
     // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
     // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
-    const remoteMembers = group.members.filter((m) =>
-      !m.endsWith(`@${domain}`)
-    );
+    const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
     if (remoteMembers.length > 0) {
       const welcomeObj = {
         "@context": [
@@ -365,13 +375,20 @@ async function handleHandshake(
 // ルーム管理 API (ActivityPub 対応)
 
 // ActivityPub ルーム一覧取得
-app.get("/ap/rooms", authRequired, async (c) => {
-  const member = c.req.query("member");
-  if (!member) return jsonResponse(c, { error: "missing member" }, 400);
-  const env = getEnv(c);
-  const db = createDB(env);
-  const rooms = await db.listChatroomsByMember(member);
-  return jsonResponse(c, { rooms });
+// --- ルームメタ一覧 API（明示作成されたもののみ） ---
+// GET /api/rooms?owner=:id
+// - サーバが保持するメタデータ（id, name, icon）のみ返却
+// - 検索・フィルタは行わない（クライアント側実装）
+app.get("/rooms", authRequired, async (c) => {
+  const owner = c.req.query("owner");
+  if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
+  const db = createDB(getEnv(c));
+  const account = await db.findAccountById(owner);
+  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
+  const list = await db.listChatrooms(owner);
+  return jsonResponse(c, {
+    rooms: list.map((r) => ({ id: r.id, name: r.name, icon: r.icon ?? "" })),
+  });
 });
 
 // Get pending invites for a local user (non-acked)
@@ -425,7 +442,7 @@ app.get("/ap/rooms/:id", async (c) => {
     id: `https://${domain}/ap/rooms/${id}`,
     type: "Group",
     name: room.name,
-    members: room.members,
+    // members は公開しない
   };
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
@@ -436,14 +453,10 @@ app.post("/ap/rooms", authRequired, async (c) => {
   if (
     typeof body !== "object" ||
     typeof body.owner !== "string" ||
-    typeof body.name !== "string" ||
-    !Array.isArray(body.members)
+    typeof body.name !== "string"
   ) {
     return jsonResponse(c, { error: "invalid room" }, 400);
   }
-  const requestedMembers = body.members.filter((m: unknown) =>
-    typeof m === "string"
-  );
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountById(body.owner);
@@ -454,11 +467,8 @@ app.post("/ap/rooms", authRequired, async (c) => {
   const existing = existingList.find((g) => {
     const hasName = !!(g.name && String(g.name).trim() !== "");
     if (hasName) return false;
-    const a = new Set(g.members ?? []);
-    const b = new Set(requestedMembers);
-    if (a.size !== b.size) return false;
-    for (const v of a) if (!b.has(v)) return false;
-    return true;
+    // 互換性を保たず、メンバー構成による再利用は行わない
+    return false;
   });
   // 新しいトーク開始時に自動保存しない。
   // 既存ルームが見つからず、名前もアイコンも指定なしなら作成しない。
@@ -471,7 +481,8 @@ app.post("/ap/rooms", authRequired, async (c) => {
     id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
     name: hasName ? body.name : "",
     icon: hasIcon ? body.icon : "",
-    members: requestedMembers,
+    // サーバはメンバー情報を保持しない（メタのみ）
+    members: [],
   };
   if (!existing) {
     await db.addChatroom(body.owner, room);
@@ -482,7 +493,7 @@ app.post("/ap/rooms", authRequired, async (c) => {
     id: `https://${domain}/ap/rooms/${room.id}`,
     type: "Group",
     name: room.name,
-    members: room.members,
+    // members は返さない
   };
   if (body.handshake && typeof body.handshake === "object") {
     const hs = await handleHandshake(env, domain, room.id, body.handshake);
@@ -491,222 +502,6 @@ app.post("/ap/rooms", authRequired, async (c) => {
     }
   }
   return jsonResponse(c, actor, 201, "application/activity+json");
-});
-
-// メンバー変更 (Add/Remove または MLS Proposal)
-app.post("/ap/rooms/:id/members", authRequired, async (c) => {
-  const id = c.req.param("id");
-  const body = await c.req.json();
-  const db = createDB(getEnv(c));
-  const result = await db.findChatroom(id);
-  if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
-  const { owner, room } = result;
-  const account = await db.findAccountById(owner);
-  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const domain = getDomain(c);
-
-  if (body.type === "Add" && typeof body.object === "string") {
-    if (!room.members.includes(body.object)) {
-      room.members.push(body.object);
-      await db.updateChatroom(owner, room);
-    }
-    const activity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      type: "Add",
-      actor: `https://${domain}/ap/rooms/${id}`,
-      object: body.object,
-      target: `https://${domain}/ap/rooms/${id}`,
-    };
-    deliverActivityPubObject(
-      room.members,
-      activity,
-      account.userName,
-      domain,
-      getEnv(c),
-    ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: room.members });
-  }
-
-  if (body.type === "Remove" && typeof body.object === "string") {
-    room.members = room.members.filter((m) => m !== body.object);
-    await db.updateChatroom(owner, room);
-    const activity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      type: "Remove",
-      actor: `https://${domain}/ap/rooms/${id}`,
-      object: body.object,
-      target: `https://${domain}/ap/rooms/${id}`,
-    };
-    deliverActivityPubObject(
-      room.members,
-      activity,
-      account.userName,
-      domain,
-      getEnv(c),
-    ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: room.members });
-  }
-
-  if (body.type === "Proposal") {
-    deliverActivityPubObject(
-      room.members,
-      body,
-      account.userName,
-      domain,
-      getEnv(c),
-    ).catch((err) => console.error("Delivery failed:", err));
-    return jsonResponse(c, { members: room.members });
-  }
-
-  return jsonResponse(c, { error: "invalid activity" }, 400);
-});
-
-// --- ルーム検索API（単一モデル／ファセット） ---
-// GET /api/rooms?owner=:id&participants=u1,u2&match=all|any|none&hasName=true|false&hasIcon=true|false&members=eq:2|ge:3
-app.get("/rooms", authRequired, async (c) => {
-  const owner = c.req.query("owner");
-  if (!owner) return jsonResponse(c, { error: "missing owner" }, 400);
-  const db = createDB(getEnv(c));
-  const account = await db.findAccountById(owner);
-  if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const domain = getDomain(c);
-  const ownerHandle = `${account.userName}@${domain}`;
-
-  const qs = new URLSearchParams(c.req.url.split("?")[1] ?? "");
-  const parts = (qs.get("participants") ?? "").split(",").map((s) => s.trim())
-    .filter(Boolean);
-  const match = (qs.get("match") ?? "all") as "all" | "any" | "none";
-  const hasNameParam = qs.get("hasName");
-  const hasIconParam = qs.get("hasIcon");
-  const membersParam = qs.get("members"); // eq:2 | ge:3
-
-  type Derived = {
-    id: string;
-    name: string;
-    icon?: string;
-    members: string[]; // others only
-    hasName: boolean;
-    hasIcon: boolean;
-    membersCount: number;
-    lastMessageAt?: Date;
-  };
-
-  const map = new Map<string, Derived>();
-
-  const canonGroupKey = (members: string[]) =>
-    `grp:${[...members].sort().join(",")}`;
-
-  const applyParticipants = (
-    roomId: string | undefined,
-    participants: Set<string>,
-    timestamp: Date,
-  ) => {
-    if (!participants.has(ownerHandle)) return;
-    const others = [...participants].filter((m) => m !== ownerHandle);
-    const membersCount = others.length + 1;
-    const key = roomId ?? (membersCount === 2
-      ? others[0] // 1:1 は相手ハンドルをそのままIDとして扱う
-      : canonGroupKey(others));
-    const existing = map.get(key);
-    if (existing) {
-      if (!existing.lastMessageAt || existing.lastMessageAt < timestamp) {
-        existing.lastMessageAt = timestamp;
-      }
-      return;
-    }
-    map.set(key, {
-      id: key,
-      name: "",
-      icon: "",
-      members: others,
-      hasName: false,
-      hasIcon: false,
-      membersCount,
-      lastMessageAt: timestamp,
-    });
-  };
-
-  // 1) 暗号化メッセージ由来
-  const encList = await db.findEncryptedMessages({
-    $or: [{ from: ownerHandle }, { to: ownerHandle }],
-  }, { limit: 500 }) as {
-    roomId?: string;
-    from: string;
-    to: string[];
-    createdAt: Date;
-  }[];
-  for (const m of encList ?? []) {
-    const participants = new Set<string>([m.from, ...m.to]);
-    applyParticipants(m.roomId, participants, m.createdAt ?? new Date());
-  }
-
-  // 2) ハンドシェイク（不足分の補完）は廃止
-  // 以前はハンドシェイクメッセージから参加者候補を補完していましたが、
-  // 新しい仕様では使用しません。
-
-  // 3) グループメタデータ（名前・アイコン）
-  const metaList = await db.listChatrooms(owner);
-  for (const g of metaList ?? []) {
-    const others = g.members.filter((m) => m !== ownerHandle);
-    const membersCount = others.length + 1;
-    const pKey = membersCount === 2 ? others[0] : canonGroupKey(others);
-    const existing = map.get(g.id) ?? map.get(pKey);
-    if (existing) {
-      existing.name = g.name ?? "";
-      existing.icon = g.icon ?? "";
-      existing.hasName = !!(g.name && String(g.name).trim() !== "");
-      existing.hasIcon = !!(g.icon && String(g.icon).trim() !== "");
-      existing.members = others;
-      existing.membersCount = membersCount;
-      existing.id = g.id;
-      map.delete(pKey);
-      map.set(g.id, existing);
-    } else {
-      map.set(g.id, {
-        id: g.id,
-        name: g.name ?? "",
-        icon: g.icon ?? "",
-        members: others,
-        hasName: !!(g.name && String(g.name).trim() !== ""),
-        hasIcon: !!(g.icon && String(g.icon).trim() !== ""),
-        membersCount,
-        lastMessageAt: undefined,
-      });
-    }
-  }
-
-  let list = Array.from(map.values());
-
-  if (parts.length > 0) {
-    list = list.filter((r) => {
-      const set = new Set(r.members);
-      const matches = parts.map((p) => set.has(p));
-      if (match === "all") return matches.every(Boolean);
-      if (match === "any") return matches.some(Boolean);
-      return matches.every((m) => !m);
-    });
-  }
-
-  if (hasNameParam === "true") list = list.filter((r) => r.hasName);
-  if (hasNameParam === "false") list = list.filter((r) => !r.hasName);
-  if (hasIconParam === "true") list = list.filter((r) => r.hasIcon);
-  if (hasIconParam === "false") list = list.filter((r) => !r.hasIcon);
-
-  if (membersParam) {
-    const [op, valStr] = membersParam.split(":");
-    const val = Number(valStr);
-    if (!Number.isNaN(val)) {
-      if (op === "eq") list = list.filter((r) => r.membersCount === val);
-      if (op === "ge") list = list.filter((r) => r.membersCount >= val);
-    }
-  }
-
-  // 並び順: 最終メッセージ時刻の降順
-  list.sort((a, b) =>
-    (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0)
-  );
-
-  return jsonResponse(c, { rooms: list });
 });
 
 app.get("/users/:user/keyPackages", authRequired, async (c) => {
@@ -989,12 +784,22 @@ app.post(
   async (c) => {
     const roomId = c.req.param("room");
     const body = await c.req.json();
-    const { from, content, mediaType, encoding, attachments } = body;
+    const { from, to, content, mediaType, encoding, attachments } = body as {
+      from?: unknown;
+      to?: unknown;
+      content?: unknown;
+      mediaType?: unknown;
+      encoding?: unknown;
+      attachments?: unknown;
+    };
     if (
       typeof from !== "string" ||
       typeof content !== "string"
     ) {
       return c.json({ error: "invalid body" }, 400);
+    }
+    if (!Array.isArray(to) || to.some((v) => typeof v !== "string")) {
+      return c.json({ error: "invalid recipients" }, 400);
     }
     const [sender, senderDomain] = from.split("@");
     if (!sender || !senderDomain) {
@@ -1011,11 +816,13 @@ app.post(
     const db = createDB(env);
     const found = await db.findChatroom(roomId);
     if (!found) return c.json({ error: "room not found" }, 404);
-    const { room: group } = found;
-    if (!group.members.includes(from)) {
-      return c.json({ error: "not a member" }, 403);
+    // 宛先はクライアント提供（MLS ロスター由来）を使用
+    const recipients = Array.from(
+      new Set((to as string[]).filter((m) => m && m !== from)),
+    );
+    if (recipients.length === 0) {
+      return c.json({ error: "no recipients" }, 400);
     }
-    const recipients = group.members.filter((m) => m !== from);
 
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";

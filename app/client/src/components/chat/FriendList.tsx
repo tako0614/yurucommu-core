@@ -156,7 +156,7 @@ export function FriendList(props: FriendListProps) {
                     {friend.name}
                   </p>
                   <p class="text-gray-400 text-xs truncate">
-                    {friend.domain ? `@${friend.domain}` : friend.id}
+                    {friend.id}
                   </p>
                 </div>
               </div>

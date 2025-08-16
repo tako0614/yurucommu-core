@@ -320,7 +320,7 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
                   <For each={selectedMembers()}>
                     {(member) => (
                       <div class="flex items-center gap-2 bg-blue-600 bg-opacity-20 border border-blue-500 text-blue-300 px-3 py-1 rounded-full text-sm">
-                        <span>{member.split("@")[0]}</span>
+                        <span>{member}</span>
                         <button
                           type="button"
                           onClick={() => removeMember(member)}

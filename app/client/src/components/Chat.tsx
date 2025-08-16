@@ -497,6 +497,33 @@ export function Chat() {
   function upsertRoom(room: Room) {
     upsertRooms([room]);
   }
+
+  // 受信メッセージの送信者ハンドルから、メンバーIDをフルハンドル形式に補正
+  const updatePeerHandle = (roomId: string, fromHandle: string) => {
+    const user = account();
+    if (!user) return;
+    const selfHandle = `${user.userName}@${getDomain()}`;
+    if (fromHandle === selfHandle) return;
+    const [fromUser] = splitActor(fromHandle as ActorID);
+    setChatRooms((prev) => prev.map((r) => {
+      if (r.id !== roomId) return r;
+      let members = (r.members ?? []).map((m) => {
+        if (typeof m === "string" && !m.includes("@")) {
+          // ユーザー名だけ一致している場合はフルハンドルに置き換え
+          const [mu] = splitActor(m as ActorID);
+          if (mu === fromUser) return fromHandle as ActorID;
+        }
+        return m;
+      });
+      // 1対1・未命名のとき、タイトルがローカル名等に上書きされていたらハンドルに補正
+      const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
+      let name = r.name;
+      if (isDm && (!name || name === user.displayName || name === user.userName)) {
+        name = fromHandle;
+      }
+      return { ...r, name, members };
+    }));
+  };
   const updateRoomLast = (roomId: string, msg?: ChatMessage) => {
     setChatRooms((rooms) => {
       let updated = false;
@@ -517,6 +544,42 @@ export function Chat() {
       });
       return updated ? newRooms : rooms;
     });
+  };
+
+  // 1対1ルームで、選択時に相手の情報と members を補正する
+  const ensureDmPartnerInfo = async (room: Room) => {
+    const user = account();
+    if (!user || room.type === "memo") return;
+    const selfHandle = `${user.userName}@${getDomain()}`;
+    // 既存 members から相手を特定（自分以外）
+    let partner = room.members.find((m) => m !== selfHandle);
+    // 既存から取れない場合は、URL/選択値から相手候補を推測
+    if (!partner) {
+      const sel = selectedRoom();
+      if (sel) {
+        const nsel = normalizeActor(sel as ActorID);
+        if (nsel.includes("@") && nsel !== selfHandle) partner = nsel as ActorID;
+      }
+    }
+    if (!partner) return;
+
+    // members が自分しか含まず相手が欠けている場合は補正（Room.members は相手だけを持つ設計）
+    if ((room.members?.length ?? 0) <= 1 && room.members[0] === selfHandle) {
+      setChatRooms((prev) => prev.map((r) => r.id === room.id ? { ...r, members: [partner!] } : r));
+    }
+
+    // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
+    if (!(room.hasName || room.hasIcon) && (room.name === "" || room.name === user.displayName || room.name === user.userName)) {
+      try {
+        const info = await fetchUserInfo(partner as ActorID);
+        if (info) {
+          setChatRooms((prev) => prev.map((r) => r.id === room.id
+            ? { ...r, name: info.displayName || info.userName, avatar: info.authorAvatar || r.avatar }
+            : r,
+          ));
+        }
+      } catch {}
+    }
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
@@ -740,9 +803,13 @@ export function Chat() {
       const res = await decryptMessage(group, data);
       if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
-        const displayName = isMe
-          ? user.displayName || user.userName
+        if (!isMe) updatePeerHandle(room.id, m.from);
+        const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+          ? m.from
           : room.name;
+        const displayName = isMe
+          ? (user.displayName || user.userName)
+          : otherName;
         // 復号できない暗号文はプレースホルダ表示 (後で再同期時に再取得対象)
         encryptedMsgs.push({
           id: m.id,
@@ -858,7 +925,11 @@ export function Chat() {
       }
       const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
-      const displayName = isMe ? user.displayName || user.userName : room.name;
+      if (!isMe) updatePeerHandle(room.id, m.from);
+      const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+        ? m.from
+        : room.name;
+      const displayName = isMe ? (user.displayName || user.userName) : otherName;
       encryptedMsgs.push({
         id: m.id,
         author: m.from,
@@ -945,7 +1016,8 @@ export function Chat() {
       },
     ];
     const handle = `${user.userName}@${getDomain()}` as ActorID;
-    const serverRooms = await searchRooms(user.id);
+    // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
+    const serverRooms = await searchRooms(user.id, { implicit: "exclude" });
     for (const item of serverRooms) {
       const state = groups()[item.id];
       const meta = state
@@ -988,7 +1060,7 @@ export function Chat() {
       const icon = meta.icon ?? "";
       const members = state
         ? extractMembers(state).filter((m) => m !== handle)
-        : item.members;
+        : item.members.filter((m) => m !== handle);
       rooms.push({
         id: item.id,
         name,
@@ -1020,12 +1092,20 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
+    const totalMembers = (r: Room) => {
+      const len = r.members?.length ?? 0;
+      const includesSelf = r.members?.includes(selfHandle) ?? false;
+      return len + (includesSelf ? 0 : 1);
+    };
     const twoNoName = rooms.filter((r) =>
-      r.type !== "memo" && ((r.members?.length ?? 0) + 1 === 2) &&
-      !(r.hasName || r.hasIcon)
+      r.type !== "memo" && totalMembers(r) === 2 && !(r.hasName || r.hasIcon)
     );
     const ids = twoNoName
-      .map((r) => r.members.find((m) => m !== selfHandle))
+      .map((r) => {
+        const includesSelf = r.members.includes(selfHandle);
+        if (includesSelf) return r.members.find((m) => m !== selfHandle) as string | undefined;
+        return r.members[0];
+      })
       .filter((v): v is string => !!v);
     if (ids.length > 0) {
       const infos = await fetchUserInfoBatch(ids, user.id);
@@ -1035,6 +1115,13 @@ export function Chat() {
         if (info) {
           r.name = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
+          const desired = `${info.userName}@${info.domain}`;
+          if (Array.isArray(r.members) && r.members.length === 1) {
+            const cur = r.members[0];
+            if (typeof cur === "string" && cur !== desired) {
+              r.members = [desired];
+            }
+          }
         }
       }
     }
@@ -1411,9 +1498,13 @@ export function Chat() {
       }
 
       const isMe = data.from === self;
+      if (!isMe) updatePeerHandle(room.id, data.from);
+      const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+        ? data.from
+        : room.name;
       const displayName = isMe
         ? (user.displayName || user.userName)
-        : room.name;
+        : otherName;
       const bodyText = new TextDecoder().decode(b64ToBuf(data.content));
       let text: string = bodyText;
       let attachments:
@@ -1654,8 +1745,9 @@ export function Chat() {
           }
         }
 
-        // ルームが見つかった場合はメッセージを読み込み
+        // ルームが見つかった場合は相手情報を補正した上でメッセージを読み込み
         if (room) {
+          await ensureDmPartnerInfo(room);
           await loadMessages(room, true);
         } else if (roomId === selfRoomId) {
           // セルフルーム（TAKO Keep）の場合は空のメッセージリストを設定
@@ -1773,7 +1865,22 @@ export function Chat() {
               <div class="relative flex flex-col bg-[#1e1e1e] h-full w-full min-w-0 overflow-hidden chat-container">
                 <ChatTitleBar
                   isMobile={isMobile()}
-                  selectedRoom={selectedRoomInfo()}
+                  selectedRoom={(function () {
+                    const r = selectedRoomInfo();
+                    const me = account();
+                    if (!r) return r;
+                    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
+                    const rawOther = r.members.find((m) => m !== selfHandle) ?? r.members[0];
+                    const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
+                    const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
+                    if (isDm || looksLikeSelf) {
+                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
+                      // 相手が分からない場合は現状名を維持（自分のIDに上書きしない）
+                      if (other) return { ...r, name: other };
+                      return r;
+                    }
+                    return r;
+                  })()}
                   onBack={backToRoomList}
                   onOpenSettings={() => setShowSettings(true)}
                   bindingStatus={bindingStatus()}

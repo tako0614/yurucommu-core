@@ -678,6 +678,8 @@ export const searchRooms = async (
     hasName?: boolean;
     hasIcon?: boolean;
     members?: string; // e.g., "eq:2", "ge:3"
+    // 暗黙（メッセージ履歴から推定）のルームの扱い
+    implicit?: "include" | "exclude" | "only";
   },
 ): Promise<RoomsSearchItem[]> => {
   try {
@@ -694,6 +696,7 @@ export const searchRooms = async (
       search.set("hasIcon", String(params.hasIcon));
     }
     if (params?.members) search.set("members", params.members);
+    if (params?.implicit) search.set("implicit", params.implicit);
     const res = await apiFetch(`/api/rooms?${search.toString()}`);
     if (!res.ok) throw new Error("failed to search rooms");
     const data = await res.json();

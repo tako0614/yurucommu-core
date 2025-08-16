@@ -43,20 +43,27 @@ export function ChatRoomList(props: ChatRoomListProps) {
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();
     let base = props.rooms;
-    // Keep はセグメントでは除外（"すべて"のみ表示）
-    if (props.segment !== "all") {
-      base = base.filter((r) => r.type !== "memo");
-    }
+
+    // セグメントごとの基本フィルタ
     if (props.segment === "people") {
       base = base.filter((r) => isFriendRoom(r));
     } else if (props.segment === "groups") {
-      base = base.filter((r) => isGroupRoom(r));
+      // グループのみだが、TAKO Keep は常に先頭で表示する
+      const memoRoom = base.find((r) => r.type === "memo");
+      const rest = base.filter((r) => isGroupRoom(r));
+      base = memoRoom ? [memoRoom, ...rest] : rest;
     }
-    if (!q) return base;
-    return base.filter((r) =>
-      r.name.toLowerCase().includes(q) ||
-      (r.lastMessage ?? "").toLowerCase().includes(q)
-    );
+
+    // 検索クエリ
+    const list = q
+      ? base.filter((r) =>
+          r.name.toLowerCase().includes(q) ||
+          (r.lastMessage ?? "").toLowerCase().includes(q),
+        )
+      : base;
+
+    // 重複排除（memo を2重に並べない保険）
+    return list.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
   });
 
   const segUnread = createMemo(() => {
