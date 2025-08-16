@@ -42,6 +42,7 @@ import {
   decodePublicMessage,
   encodePublicMessage,
 } from "./e2ee/mls_message.ts";
+import { decodeMlsMessage } from "ts-mls";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
   appendRosterEvidence,
@@ -498,6 +499,20 @@ export function Chat() {
     upsertRooms([room]);
   }
 
+  // MLSの状態から参加者（自分以外）を抽出
+  const participantsFromState = (roomId: string): string[] => {
+    const user = account();
+    if (!user) return [];
+    const state = groups()[roomId];
+    if (!state) return [];
+    const handle = `${user.userName}@${getDomain()}` as ActorID;
+    try {
+      return extractMembers(state).filter((m) => m !== handle);
+    } catch {
+      return [];
+    }
+  };
+
   // 受信メッセージの送信者ハンドルから、メンバーIDをフルハンドル形式に補正
   const updatePeerHandle = (roomId: string, fromHandle: string) => {
     const user = account();
@@ -507,7 +522,7 @@ export function Chat() {
     const [fromUser] = splitActor(fromHandle as ActorID);
     setChatRooms((prev) => prev.map((r) => {
       if (r.id !== roomId) return r;
-      let members = (r.members ?? []).map((m) => {
+      const members = (r.members ?? []).map((m) => {
         if (typeof m === "string" && !m.includes("@")) {
           // ユーザー名だけ一致している場合はフルハンドルに置き換え
           const [mu] = splitActor(m as ActorID);
@@ -551,9 +566,9 @@ export function Chat() {
     const user = account();
     if (!user || room.type === "memo") return;
     const selfHandle = `${user.userName}@${getDomain()}`;
-    // 既存 members から相手を特定（自分以外）
-    let partner = room.members.find((m) => m !== selfHandle);
-    // 既存から取れない場合は、URL/選択値から相手候補を推測
+    // MLSの状態から相手を特定（自分以外）
+    let partner = participantsFromState(room.id)[0];
+    // 取れない場合は、URL/選択値から相手候補を推測
     if (!partner) {
       const sel = selectedRoom();
       if (sel) {
@@ -563,10 +578,13 @@ export function Chat() {
     }
     if (!partner) return;
 
-    // members が自分しか含まず相手が欠けている場合は補正（Room.members は相手だけを持つ設計）
-    if ((room.members?.length ?? 0) <= 1 && room.members[0] === selfHandle) {
-      setChatRooms((prev) => prev.map((r) => r.id === room.id ? { ...r, members: [partner!] } : r));
-    }
+    // 画面表示用に client 側で members を補完（サーバーから返らない想定）
+    setChatRooms((prev) => prev.map((r) => {
+      if (r.id !== room.id) return r;
+      const cur = r.members ?? [];
+      if (cur.length === 1 && cur[0] === partner) return r;
+      return { ...r, members: [partner!] };
+    }));
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
     if (!(room.hasName || room.hasIcon) && (room.name === "" || room.name === user.displayName || room.name === user.userName)) {
@@ -578,7 +596,10 @@ export function Chat() {
             : r,
           ));
         }
-      } catch {}
+      } catch (err) {
+        // ネットワークエラーや404は致命的ではないので無視
+        console.warn("相手情報の取得に失敗しました", err);
+      }
     }
   };
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -607,7 +628,11 @@ export function Chat() {
   const saveGroupStates = async () => {
     const user = account();
     if (!user) return;
-    await saveMLSGroupStates(user.id, groups());
+    try {
+      await saveMLSGroupStates(user.id, groups());
+    } catch (e) {
+      console.error("グループ状態の保存に失敗しました", e);
+    }
   };
 
   // グループ状態が存在しなければ初期化して保存
@@ -725,14 +750,24 @@ export function Chat() {
           try {
             // Commit / Proposal 判定は decodeMlsMessage 内部で実施; 失敗時は例外
             try {
-              group = await processCommit(group, body);
+              const dec = decodeMlsMessage(body, 0)?.[0];
+              if (dec && dec.wireformat === "mls_public_message") {
+                group = await processCommit(group, dec.publicMessage as unknown as never);
+              } else {
+                throw new Error("not a public message");
+              }
               updated = true;
               continue; // commit 適用できたら次へ
             } catch {
               /* not a commit */
             }
             try {
-              group = await processProposal(group, body);
+              const dec = decodeMlsMessage(body, 0)?.[0];
+              if (dec && dec.wireformat === "mls_public_message") {
+                group = await processProposal(group, dec.publicMessage as unknown as never);
+              } else {
+                throw new Error("not a public message");
+              }
               updated = true;
               continue;
             } catch {
@@ -1710,6 +1745,62 @@ export function Chat() {
     groups();
     loadRooms();
   });
+
+  // MLS グループ状態の更新に合わせてメンバー/表示名を補正
+  createEffect(
+    on(
+      () => groups(),
+      async () => {
+        const user = account();
+        if (!user) return;
+        const list = chatRooms();
+        if (list.length === 0) return;
+
+        // members を MLS 由来に同期（変更がある場合のみ更新）
+        let changed = false;
+        const nextA = list.map((r) => {
+          if (r.type === "memo") return r;
+          const parts = participantsFromState(r.id);
+          if (parts.length === 0) return r;
+          const cur = r.members ?? [];
+          const equals = cur.length === parts.length && cur.every((v, i) => v === parts[i]);
+          if (!equals) {
+            changed = true;
+            return { ...r, members: parts };
+          }
+          return r;
+        });
+        if (changed) setChatRooms(nextA);
+
+        // 1対1・未命名の表示名補完（変更がある場合のみ更新）
+        const base = changed ? nextA : list;
+        const candidates = base.filter((r) => r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon));
+        const ids = candidates.map((r) => r.members[0]).filter((v): v is string => !!v);
+        if (ids.length === 0) return;
+        try {
+          const infos = await fetchUserInfoBatch(ids, user.id);
+          const map = new Map<string, typeof infos[number]>();
+          for (let i = 0; i < ids.length; i++) map.set(ids[i], infos[i]);
+          let nameChanged = false;
+          const nextB = base.map((r) => {
+            if (r.type === "memo" || !(r.members?.length === 1) || (r.hasName || r.hasIcon)) return r;
+            const info = map.get(r.members[0]);
+            if (!info) return r;
+            const newName = info.displayName || info.userName;
+            const newAvatar = info.authorAvatar || r.avatar;
+            if (r.name !== newName || r.avatar !== newAvatar) {
+              nameChanged = true;
+              return { ...r, name: newName, avatar: newAvatar };
+            }
+            return r;
+          });
+          if (nameChanged) setChatRooms(nextB);
+        } catch {
+          // ignore
+        }
+      },
+    ),
+  );
 
   createEffect(
     on(

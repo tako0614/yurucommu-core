@@ -29,31 +29,48 @@ export function FriendList(props: FriendListProps) {
   // ルームから友達リストを生成
   const friends = createMemo(() => {
     const friendMap = new Map<string, Friend>();
-    
-    // 2人だけのトークルームから友達を抽出
     const friendRooms = props.rooms.filter(isFriendRoom);
-    console.log("Friend rooms:", friendRooms); // デバッグ用
-    
     for (const room of friendRooms) {
-      // 相手のIDを取得（自分以外のメンバー）
-      // 2人だけのトークなので、membersの長さを確認
-      if (room.members && room.members.length > 0) {
-        const friendId = room.members[0]; // 最初のメンバーが相手
-        
-        if (!friendMap.has(friendId)) {
-          friendMap.set(friendId, {
-            id: friendId,
-            name: room.name || friendId.split('@')[0] || friendId,
-            avatar: room.avatar,
-            domain: friendId.includes('@') ? friendId.split('@')[1] : undefined,
-          });
-        }
+      const friendId = (room.members && room.members.length > 0)
+        ? room.members[0]
+        : (room.id.includes("@") ? room.id : undefined);
+      if (!friendId) continue;
+      if (!friendMap.has(friendId)) {
+        friendMap.set(friendId, {
+          id: friendId,
+          name: room.name || friendId.split("@")[0] || friendId,
+          avatar: room.avatar,
+          domain: friendId.includes("@") ? friendId.split("@")[1] : undefined,
+        });
       }
     }
-    
-    const result = Array.from(friendMap.values());
-    console.log("Generated friends:", result); // デバッグ用
-    return result;
+    // 並び順: 未読合計 → 最終アクティビティ → 名前
+    const items = Array.from(friendMap.values());
+    const unreadSum = (fid: string) =>
+      props.rooms.filter((r) => isFriendRoom(r) && (
+        (r.members?.includes(fid)) || (r.members?.length ?? 0) === 0 && r.id === fid
+      )).reduce((a, r) => a + (r.unreadCount || 0), 0);
+    const lastTime = (fid: string) => {
+      let t = 0;
+      for (const r of props.rooms) {
+        if (!isFriendRoom(r)) continue;
+        const match = (r.members?.includes(fid)) || (r.members?.length ?? 0) === 0 && r.id === fid;
+        if (!match) continue;
+        const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
+        if (ts > t) t = ts;
+      }
+      return t;
+    };
+    items.sort((a, b) => {
+      const ua = unreadSum(a.id);
+      const ub = unreadSum(b.id);
+      if (ua !== ub) return ub - ua;
+      const ta = lastTime(a.id);
+      const tb = lastTime(b.id);
+      if (ta !== tb) return tb - ta;
+      return a.name.localeCompare(b.name);
+    });
+    return items;
   });
 
   const filteredFriends = createMemo(() => {

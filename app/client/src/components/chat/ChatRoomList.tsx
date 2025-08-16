@@ -6,6 +6,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { useAtom } from "solid-jotai";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
@@ -13,6 +14,8 @@ import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
 import { Button, EmptyState, Input } from "../ui/index.ts";
+import { activeAccount } from "../../states/account.ts";
+import { getDomain } from "../../utils/config.ts";
 
 interface ChatRoomListProps {
   rooms: Room[];
@@ -28,6 +31,7 @@ interface ChatRoomListProps {
 export function ChatRoomList(props: ChatRoomListProps) {
   const [query, setQuery] = createSignal("");
   const [selectedFriend, setSelectedFriend] = createSignal<string | null>(null);
+  const [account] = useAtom(activeAccount);
 
   // ローカルストレージに最後のセグメントを保存/復元
   onMount(() => {
@@ -39,6 +43,25 @@ export function ChatRoomList(props: ChatRoomListProps) {
   createEffect(() => {
     globalThis.localStorage.setItem("chat.seg", props.segment);
   });
+
+  // 1対1（未命名）トークの表示名を補正（自分の名前で表示されないように）
+  const displayNameFor = (room: Room): string => {
+    const me = account();
+    if (!me) return room.name;
+    if (room.type === "memo") return room.name;
+    if (isFriendRoom(room)) {
+      const selfHandle = `${me.userName}@${getDomain()}`;
+      const rawOther = room.members.find((m) => m !== selfHandle) ?? room.members[0];
+      if (
+        rawOther &&
+        (room.name === "" || room.name === me.displayName || room.name === me.userName)
+      ) {
+        return rawOther;
+      }
+      return room.name;
+    }
+    return room.name;
+  };
 
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();
@@ -55,7 +78,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
     }
 
     // 検索クエリ
-    const list = q
+    let list = q
       ? base.filter((r) =>
           r.name.toLowerCase().includes(q) ||
           (r.lastMessage ?? "").toLowerCase().includes(q),
@@ -63,7 +86,20 @@ export function ChatRoomList(props: ChatRoomListProps) {
       : base;
 
     // 重複排除（memo を2重に並べない保険）
-    return list.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    list = list.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+
+    // 並び順: 未読優先 → 最終メッセージ時刻降順 → 名前
+    const time = (d?: Date) => (d ? d.getTime() : 0);
+    list.sort((a, b) => {
+      const ua = a.unreadCount || 0;
+      const ub = b.unreadCount || 0;
+      if (ua !== ub) return ub - ua;
+      const ta = time(a.lastMessageTime);
+      const tb = time(b.lastMessageTime);
+      if (ta !== tb) return tb - ta;
+      return displayNameFor(a).localeCompare(displayNameFor(b));
+    });
+    return list;
   });
 
   const segUnread = createMemo(() => {
@@ -254,14 +290,14 @@ export function ChatRoomList(props: ChatRoomListProps) {
                                 : "bg-[#444]"
                             }`}
                           >
-                            {room.avatar}
+                            {room.avatar || displayNameFor(room).charAt(0).toUpperCase()}
                           </span>
                         )}
                     </span>
                     <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
                       <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
                         <span class="font-bold flex-1">
-                          {room.name}
+                          {displayNameFor(room)}
                         </span>
                         <span
                           class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"

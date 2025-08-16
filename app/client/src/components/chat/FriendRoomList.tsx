@@ -17,16 +17,32 @@ export function FriendRoomList(props: FriendRoomListProps) {
 
   // 選択された友達とのトークルームを取得
   const friendRooms = createMemo(() => {
-    return props.rooms.filter((room) => room.members.includes(props.friendId));
+    return props.rooms.filter((room) => {
+      const members = room.members ?? [];
+      if (members.includes(props.friendId)) return true;
+      // members が未補完のときは、ID が friendId と一致する 1:1 とみなす
+      if (members.length === 0 && room.id === props.friendId) return true;
+      return false;
+    });
   });
 
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();
-    if (!q) return friendRooms();
-    return friendRooms().filter((r) =>
+    const base = friendRooms();
+    const byQuery = !q ? base : base.filter((r) =>
       r.name.toLowerCase().includes(q) ||
       (r.lastMessage ?? "").toLowerCase().includes(q)
     );
+    const time = (d?: Date) => (d ? d.getTime() : 0);
+    return byQuery.sort((a, b) => {
+      const ua = a.unreadCount || 0;
+      const ub = b.unreadCount || 0;
+      if (ua !== ub) return ub - ua;
+      const ta = time(a.lastMessageTime);
+      const tb = time(b.lastMessageTime);
+      if (ta !== tb) return tb - ta;
+      return a.name.localeCompare(b.name);
+    });
   });
 
   return (
