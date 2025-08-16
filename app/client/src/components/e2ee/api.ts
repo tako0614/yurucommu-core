@@ -394,6 +394,36 @@ export const sendEncryptedMessage = async (
   }
 };
 
+export const sendPublicMessage = async (
+  roomId: string,
+  from: string,
+  note: Record<string, unknown>,
+  attachments?: unknown[],
+): Promise<boolean> => {
+  try {
+    const content = new TextEncoder().encode(JSON.stringify(note));
+    const payload: Record<string, unknown> = {
+      from,
+      content: bufToB64(content),
+      mediaType: "application/activity+json",
+      encoding: "base64",
+    };
+    if (attachments) payload.attachments = attachments;
+    const res = await apiFetch(
+      `/api/rooms/${encodeURIComponent(roomId)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    return res.ok;
+  } catch (err) {
+    console.error("Error sending public message:", err);
+    return false;
+  }
+};
+
 export const fetchEncryptedMessages = async (
   roomId: string,
   member: string,

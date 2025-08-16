@@ -20,9 +20,11 @@ import {
   importRosterEvidence,
   searchRooms,
   sendEncryptedMessage,
+  sendPublicMessage,
   sendHandshake,
   sendKeepMessage,
   uploadFile,
+  fetchKeyPackages,
 } from "./e2ee/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -34,6 +36,7 @@ import {
   processCommit,
   processProposal,
   removeMembers,
+  createCommitAndWelcomes,
   type RosterEvidence,
   type StoredGroupState,
   verifyWelcome,
@@ -518,6 +521,7 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}`;
+    const fullFrom = normalizeHandle(fromHandle as ActorID) ?? fromHandle;
     if (fromHandle === selfHandle) return;
     const [fromUser] = splitActor(fromHandle as ActorID);
     setChatRooms((prev) => prev.map((r) => {
@@ -526,7 +530,7 @@ export function Chat() {
         if (typeof m === "string" && !m.includes("@")) {
           // ユーザー名だけ一致している場合はフルハンドルに置き換え
           const [mu] = splitActor(m as ActorID);
-          if (mu === fromUser) return fromHandle as ActorID;
+          if (mu === fromUser) return fullFrom as ActorID;
         }
         return m;
       });
@@ -534,7 +538,7 @@ export function Chat() {
       const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
       let name = r.name;
       if (isDm && (!name || name === user.displayName || name === user.userName)) {
-        name = fromHandle;
+        name = fullFrom;
       }
       return { ...r, name, members };
     }));
@@ -572,7 +576,7 @@ export function Chat() {
     if (!partner) {
       const sel = selectedRoom();
       if (sel) {
-        const nsel = normalizeActor(sel as ActorID);
+        const nsel = normalizeHandle(sel as ActorID) ?? normalizeActor(sel as ActorID);
         if (nsel.includes("@") && nsel !== selfHandle) partner = nsel as ActorID;
       }
     }
@@ -582,8 +586,10 @@ export function Chat() {
     setChatRooms((prev) => prev.map((r) => {
       if (r.id !== room.id) return r;
       const cur = r.members ?? [];
-      if (cur.length === 1 && cur[0] === partner) return r;
-      return { ...r, members: [partner!] };
+      const norm = normalizeHandle(partner as string) as string | undefined;
+      if (!norm) return r;
+      if (cur.length === 1 && cur[0] === norm) return r;
+      return { ...r, members: [norm] };
     }));
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
@@ -677,21 +683,23 @@ export function Chat() {
     let pair: GeneratedKeyPair | null = keyPair();
     const user = account();
     if (!user) return null;
-    if (!pair) {
-      setIsGeneratingKeyPair(true);
-      try {
-        pair = await loadMLSKeyPair(user.id);
-      } catch (err) {
-        console.error("鍵ペアの読み込みに失敗しました", err);
-        pair = null;
-      }
       if (!pair) {
-        const kp = await generateKeyPair(user.userName);
-        pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
+        setIsGeneratingKeyPair(true);
         try {
-          await saveMLSKeyPair(user.id, pair);
-          await addKeyPackage(user.userName, { content: kp.encoded });
+          pair = await loadMLSKeyPair(user.id);
         } catch (err) {
+          console.error("鍵ペアの読み込みに失敗しました", err);
+          pair = null;
+        }
+        if (!pair) {
+          // MLS の identity はアクターURLを用いる（外部連合との整合性維持）
+          const actor = new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+          const kp = await generateKeyPair(actor);
+          pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
+          try {
+            await saveMLSKeyPair(user.id, pair);
+            await addKeyPackage(user.userName, { content: kp.encoded });
+          } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           setIsGeneratingKeyPair(false);
           return null;
@@ -1315,15 +1323,6 @@ export function Chat() {
     }
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();
-    let group = groups()[roomId];
-    if (!group) {
-      await initGroupState(roomId);
-      group = groups()[roomId];
-      if (!group) {
-        alert("グループ初期化に失敗したため送信できません");
-        return;
-      }
-    }
     const note: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Note",
@@ -1335,34 +1334,92 @@ export function Chat() {
       const att = await buildAttachment(file);
       if (att) note.attachment = [att];
     }
-    const encrypted = await encryptMessageWithAck(
-      group,
-      JSON.stringify(note),
-      roomId,
-      user.id,
-    );
-    let success = true;
-    for (const msg of encrypted.messages) {
-      const ok = await sendEncryptedMessage(
+    // 暗号化が有効ならMLSで送信、無効ならプレーン（ActivityPub Note）で即時送信
+    if (useEncryption()) {
+      let group = groups()[roomId];
+      if (!group) {
+        await initGroupState(roomId);
+        group = groups()[roomId];
+        if (!group) {
+          alert("グループ初期化に失敗したため送信できません");
+          return;
+        }
+      }
+      // 必要であれば、相手の KeyPackage を使って Add→Commit→Welcome を先行送信
+      try {
+        const self = `${user.userName}@${getDomain()}`;
+        const current = participantsFromState(roomId);
+        const targets = (room.members ?? []).filter((m) => m && m !== self);
+        const need = targets.filter((t) => !current.includes(t));
+        if (need.length > 0) {
+          const kpInputs: { content: string; actor?: string; deviceId?: string }[] = [];
+          for (const h of need) {
+            const [uname, dom] = splitActor(h as ActorID);
+            const kps = await fetchKeyPackages(uname, dom);
+            if (kps && kps.length > 0) {
+              const kp = kps[0];
+              const actor = dom ? `https://${dom}/users/${uname}` : undefined;
+              kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
+            }
+          }
+          if (kpInputs.length > 0) {
+            const resAdd = await createCommitAndWelcomes(group, kpInputs);
+            const commitContent = encodePublicMessage(resAdd.commit);
+            const ok = await sendHandshake(roomId, user.id, commitContent);
+            if (!ok) throw new Error("Commit送信に失敗しました");
+            for (const w of resAdd.welcomes) {
+              const wContent = encodePublicMessage(w.data);
+              const wk = await sendHandshake(roomId, user.id, wContent);
+              if (!wk) throw new Error("Welcome送信に失敗しました");
+            }
+            group = resAdd.state;
+            setGroups({ ...groups(), [roomId]: group });
+            saveGroupStates();
+          }
+        }
+      } catch (e) {
+        console.warn("初回Add/Welcome処理に失敗しました", e);
+      }
+      const encrypted = await encryptMessageWithAck(
+        group,
+        JSON.stringify(note),
+        roomId,
+        user.id,
+      );
+      let success = true;
+      for (const msg of encrypted.messages) {
+        const ok = await sendEncryptedMessage(
+          roomId,
+          `${user.userName}@${getDomain()}`,
+          {
+            content: bufToB64(msg),
+            mediaType: "message/mls",
+            encoding: "base64",
+          },
+        );
+        if (!ok) {
+          success = false;
+          break;
+        }
+      }
+      if (!success) {
+        alert("メッセージの送信に失敗しました");
+        return;
+      }
+      setGroups({ ...groups(), [roomId]: encrypted.state });
+      saveGroupStates();
+    } else {
+      const ok = await sendPublicMessage(
         roomId,
         `${user.userName}@${getDomain()}`,
-        {
-          content: bufToB64(msg),
-          mediaType: "message/mls",
-          encoding: "base64",
-        },
+        note,
+        Array.isArray(note.attachment) ? note.attachment as unknown[] : undefined,
       );
       if (!ok) {
-        success = false;
-        break;
+        alert("メッセージの送信に失敗しました");
+        return;
       }
     }
-    if (!success) {
-      alert("メッセージの送信に失敗しました");
-      return;
-    }
-    setGroups({ ...groups(), [roomId]: encrypted.state });
-    saveGroupStates();
     // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
@@ -1976,7 +2033,7 @@ export function Chat() {
                     const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
                     const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
+          const other = rawOther && rawOther !== selfHandle ? (normalizeHandle(rawOther) ?? rawOther) : undefined;
                       // 相手が分からない場合は現状名を維持（自分のIDに上書きしない）
                       if (other) return { ...r, name: other };
                       return r;
@@ -2073,4 +2130,19 @@ function normalizeActor(actor: ActorID): string {
     }
   }
   return actor;
+}
+
+function normalizeHandle(actor: ActorID): string | null {
+  if (actor.startsWith("http")) {
+    try {
+      const url = new URL(actor);
+      const name = url.pathname.split("/").pop()!;
+      return `${name}@${url.hostname}`;
+    } catch {
+      return null;
+    }
+  }
+  if (actor.includes("@")) return actor;
+  // ローカルIDは user@domain に補正
+  return `${actor}@${getDomain()}`;
 }

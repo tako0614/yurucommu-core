@@ -46,6 +46,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const [roomIcon, setRoomIcon] = createSignal<string | null>(null);
   const [uploading, setUploading] = createSignal(false);
   const [members, setMembers] = createSignal<MemberItem[]>([]);
+  const [pending, setPending] = createSignal<MemberItem[]>([]);
   const [newMember, setNewMember] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -65,10 +66,66 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     try {
       // サーバーのメンバーAPIは使用しない。MLS 由来で取得
       await loadMembersFromMLS(r.id, props.groupState ?? undefined);
+      await loadPendingFromStorage(r.id);
     } catch (e) {
       console.warn("loadMembers failed", e);
       await loadMembersFromMLS(r.id, props.groupState ?? undefined);
+      await loadPendingFromStorage(r.id);
     }
+  };
+  // 招待中リストの保存・読込（アカウント/ルーム単位でlocalStorage保持）
+  const pendingKey = (roomId: string) => {
+    const user = accountValue();
+    return `takos.pendingInvites:${user?.id ?? "anon"}:${roomId}`;
+  };
+  const readPending = (roomId: string): string[] => {
+    try {
+      const raw = globalThis.localStorage.getItem(pendingKey(roomId));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter((v) => typeof v === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  const writePending = (roomId: string, ids: string[]) => {
+    try {
+      const uniq = Array.from(new Set(ids));
+      globalThis.localStorage.setItem(pendingKey(roomId), JSON.stringify(uniq));
+    } catch {}
+  };
+  const addPending = (roomId: string, ids: string[]) => {
+    const cur = readPending(roomId);
+    writePending(roomId, [...cur, ...ids]);
+  };
+  const removePending = (roomId: string, id: string) => {
+    const cur = readPending(roomId).filter((v) => v !== id);
+    writePending(roomId, cur);
+  };
+  const loadPendingFromStorage = async (roomId: string, presentIds?: string[]) => {
+    const present = new Set(presentIds ?? members().map((m) => m.id));
+    const ids = readPending(roomId)
+      .map((id) => normalizeHandle(id))
+      .filter((id): id is string => !!id)
+      .filter((id) => !present.has(id));
+    // 永続側も現在の未参加者だけに整流化
+    writePending(roomId, ids);
+    const user = accountValue();
+    if (!user) return setPending([]);
+    const list = await Promise.all(ids.map(async (id) => {
+      const info = await fetchUserInfo(id);
+      const resEval = await assessMemberBinding(user.id, roomId, id, "");
+      return {
+        id,
+        display: info?.displayName || info?.userName || id,
+        avatar: info?.authorAvatar,
+        actor: id,
+        leafSignatureKeyFpr: "",
+        bindingStatus: resEval.status,
+        bindingInfo: resEval.info,
+        ktIncluded: resEval.kt.included,
+      } as MemberItem;
+    }));
+    setPending(list);
   };
 
   const loadMembersFromMLS = async (roomId: string, stateFromParent?: StoredGroupState) => {
@@ -82,10 +139,43 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       if (!state) {
         // 最後のフォールバック: props.room.members から推測
         const self = `${user.userName}@${getDomain()}`;
-        const fallback = (props.room?.members ?? []).filter((id) => id !== self);
-        if (fallback.length > 0) {
-          const ids = fallback;
+        const fallback = (props.room?.members ?? [])
+          .map((id) => normalizeHandle(id))
+          .filter((id): id is string => !!id)
+          .filter((id) => id !== self);
+        const derived = deriveIdsFromRoom(self);
+        const ids = [...new Set([...(fallback ?? []), ...derived])];
+        if (ids.length > 0) {
           const list = await Promise.all(ids.map(async (id) => {
+            const info = await fetchUserInfo(id);
+            const resEval = await assessMemberBinding(user.id, roomId, id, "");
+            return {
+              id,
+              display: info?.displayName || info?.userName || id,
+              avatar: info?.authorAvatar,
+              actor: id,
+              leafSignatureKeyFpr: "",
+              bindingStatus: resEval.status,
+              bindingInfo: resEval.info,
+              ktIncluded: resEval.kt.included,
+            } as MemberItem;
+          }));
+          setMembers(list);
+          await loadPendingFromStorage(roomId, list.map((m) => m.id));
+          return;
+        }
+        // さらに履歴メッセージから推測
+        return await loadMembersFromMessages(roomId);
+      }
+      const self = `${user.userName}@${getDomain()}`;
+      const ids = extractIdentities(state)
+        .map((id) => normalizeHandle(id))
+        .filter((id): id is string => !!id)
+        .filter((id) => id !== self);
+      if (ids.length === 0) {
+        const derived = deriveIdsFromRoom(self);
+        if (derived.length > 0) {
+          const list = await Promise.all(derived.map(async (id) => {
             const info = await fetchUserInfo(id);
             const resEval = await assessMemberBinding(user.id, roomId, id, "");
             return {
@@ -102,12 +192,6 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
           setMembers(list);
           return;
         }
-        // さらに履歴メッセージから推測
-        return await loadMembersFromMessages(roomId);
-      }
-      const self = `${user.userName}@${getDomain()}`;
-      const ids = extractIdentities(state).filter((id) => id !== self);
-      if (ids.length === 0) {
         return await loadMembersFromMessages(roomId);
       }
       const list = await Promise.all(ids.map(async (id) => {
@@ -125,6 +209,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         } as MemberItem;
       }));
       setMembers(list);
+      await loadPendingFromStorage(roomId, list.map((m) => m.id));
+      await loadPendingFromStorage(roomId, list.map((m) => m.id));
     } catch (err) {
       console.warn("loadMembersFromMLS failed", err);
       await loadMembersFromMessages(roomId);
@@ -139,10 +225,16 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       const msgs = await fetchEncryptedMessages(roomId, self, { limit: 100 });
       const set = new Set<string>();
       for (const m of msgs) {
-        if (typeof m.from === "string" && m.from !== self) set.add(m.from);
+        if (typeof m.from === "string") {
+          const h = normalizeHandle(m.from);
+          if (h && h !== self) set.add(h);
+        }
         if (Array.isArray(m.to)) {
           for (const t of m.to) {
-            if (typeof t === "string" && t !== self) set.add(t);
+            if (typeof t === "string") {
+              const h = normalizeHandle(t);
+              if (h && h !== self) set.add(h);
+            }
           }
         }
       }
@@ -181,6 +273,32 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       }
     }
     return out;
+  };
+
+  const deriveIdsFromRoom = (self: string): string[] => {
+    const out = new Set<string>();
+    const id = normalizeHandle(props.room?.id);
+    if (id && id !== self) out.add(id);
+    const name = normalizeHandle(props.room?.name || "");
+    if (name && name !== self) out.add(name);
+    return Array.from(out);
+  };
+
+  const normalizeHandle = (id?: string): string | undefined => {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    // ローカルIDは user@domain へ
+    return `${id}@${getDomain()}`;
   };
 
   const normalizeActor = (input: string): { user: string; domain?: string } | null => {
@@ -242,7 +360,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         const wk = await sendHandshake(props.room.id, user.id, wContent);
         if (!wk) throw new Error("Welcomeの送信に失敗しました");
       }
-      // 送信後はメンバー一覧の再読込（グループ状態の反映はWS/再取得で同期）
+      // 招待中に登録（Join済みになれば自動でmembers側に移動）
+      const target = normalizeHandle(ident.user);
+      if (target) addPending(props.room.id, [target]);
       await loadMembers();
       setNewMember("");
     } catch (e) {
@@ -490,72 +610,78 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                     <h3 class="text-sm font-semibold text-gray-300 mb-2">
                       メンバー一覧
                     </h3>
-                    <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
-                      <For each={members()}>
-                        {(m) => (
-                          <div class="flex items-center gap-3 bg-[#2b2b2b] rounded px-3 py-2 border border-[#343434]">
-                            <div class="w-8 h-8 rounded-full bg-[#3a3a3a] overflow-hidden flex items-center justify-center text-xs text-gray-400">
-                              {m.avatar
-                                ? (
-                                  <img
-                                    src={m.avatar}
-                                    alt={m.display}
-                                    class="w-full h-full object-cover"
-                                  />
-                                )
-                                : m.display[0]}
-                            </div>
-                            <div class="flex-1 min-w-0">
-                              <p class="text-sm text-white font-medium truncate">
-                                {m.display}
-                              </p>
-                              <p class="text-xs text-gray-500 truncate">
-                                {m.actor ?? m.id}
-                              </p>
-                              <p class="text-xs text-gray-300 mt-1">
-                                {m.bindingInfo.label}
-                                <Show when={m.bindingInfo.caution}>
-                                  <span class="ml-2 text-yellow-400">
-                                    {m.bindingInfo.caution}
-                                  </span>
-                                </Show>
-                                <Show when={!m.ktIncluded}>
-                                  <span class="ml-2 text-yellow-400">
-                                    監査未検証
-                                  </span>
-                                </Show>
-                              </p>
-                            </div>
-                            <div class="flex items-center gap-2">
-                              <Show when={m.bindingStatus !== "Verified"}>
-                                <button
-                                  type="button"
-                                  class="px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white"
-                                >
-                                  指紋確認
-                                </button>
-                              </Show>
-                              <Show
-                                when={accountValue() &&
-                                  `${
-                                      accountValue()!.userName
-                                    }@${getDomain()}` !==
-                                    m.id}
-                              >
-                                <button
-                                  type="button"
-                                  disabled={saving()}
-                                  onClick={() => handleRemoveMember(m.id)}
-                                  class="px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-700 text-white"
-                                >
-                                  削除
-                                </button>
-                              </Show>
-                            </div>
+                    <div class="space-y-3 max-h-72 overflow-y-auto pr-1">
+                      <Show when={members().length > 0}>
+                        <div>
+                          <p class="text-xs text-gray-400 mb-1">メンバー</p>
+                          <div class="space-y-2">
+                            <For each={members()}>
+                              {(m) => (
+                                <div class="flex items-center gap-3 bg-[#2b2b2b] rounded px-3 py-2 border border-[#343434]">
+                                  <div class="w-8 h-8 rounded-full bg-[#3a3a3a] overflow-hidden flex items-center justify-center text-xs text-gray-400">
+                                    {m.avatar
+                                      ? (
+                                        <img
+                                          src={m.avatar}
+                                          alt={m.display}
+                                          class="w-full h-full object-cover"
+                                        />
+                                      )
+                                      : m.display[0]}
+                                  </div>
+                                  <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-white font-medium truncate">{m.display}</p>
+                                    <p class="text-xs text-gray-500 truncate">{m.actor ?? m.id}</p>
+                                    <p class="text-xs text-gray-300 mt-1">
+                                      {m.bindingInfo.label}
+                                      <Show when={m.bindingInfo.caution}>
+                                        <span class="ml-2 text-yellow-400">{m.bindingInfo.caution}</span>
+                                      </Show>
+                                      <Show when={!m.ktIncluded}>
+                                        <span class="ml-2 text-yellow-400">監査未検証</span>
+                                      </Show>
+                                    </p>
+                                  </div>
+                                  <div class="flex items-center gap-2">
+                                    <Show when={m.bindingStatus !== "Verified"}>
+                                      <button type="button" class="px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white">指紋確認</button>
+                                    </Show>
+                                    <Show when={accountValue() && `${accountValue()!.userName}@${getDomain()}` !== m.id}>
+                                      <button type="button" disabled={saving()} onClick={() => handleRemoveMember(m.id)} class="px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-700 text-white">削除</button>
+                                    </Show>
+                                  </div>
+                                </div>
+                              )}
+                            </For>
                           </div>
-                        )}
-                      </For>
-                      <Show when={members().length === 0}>
+                        </div>
+                      </Show>
+                      <Show when={pending().length > 0}>
+                        <div>
+                          <p class="text-xs text-gray-400 mt-2 mb-1">招待中</p>
+                          <div class="space-y-2">
+                            <For each={pending()}>
+                              {(m) => (
+                                <div class="flex items-center gap-3 bg-[#252525] rounded px-3 py-2 border border-dashed border-[#3a3a3a]">
+                                  <div class="w-8 h-8 rounded-full bg-[#3a3a3a] overflow-hidden flex items-center justify-center text-xs text-gray-400">
+                                    {m.avatar
+                                      ? (
+                                        <img src={m.avatar} alt={m.display} class="w-full h-full object-cover" />
+                                      )
+                                      : m.display[0]}
+                                  </div>
+                                  <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-white font-medium truncate">{m.display}</p>
+                                    <p class="text-xs text-gray-500 truncate">{m.actor ?? m.id}</p>
+                                  </div>
+                                  <span class="text-xs text-yellow-400">招待中</span>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                      <Show when={members().length === 0 && pending().length === 0}>
                         <div class="text-xs text-gray-500">メンバー無し</div>
                       </Show>
                     </div>

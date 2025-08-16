@@ -18,13 +18,29 @@ export function FriendRoomList(props: FriendRoomListProps) {
   // 選択された友達とのトークルームを取得
   const friendRooms = createMemo(() => {
     return props.rooms.filter((room) => {
-      const members = room.members ?? [];
+      const members = (room.members ?? []).map(normalizeHandle);
       if (members.includes(props.friendId)) return true;
       // members が未補完のときは、ID が friendId と一致する 1:1 とみなす
-      if (members.length === 0 && room.id === props.friendId) return true;
+      if (members.length === 0 && normalizeHandle(room.id) === props.friendId) return true;
       return false;
     });
   });
+
+  function normalizeHandle(id?: string): string | undefined {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    return id; // ここではドメインを付けない（比較用は props.friendId 側が正規化済み）
+  }
 
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();

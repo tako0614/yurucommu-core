@@ -52,15 +52,33 @@ export function ChatRoomList(props: ChatRoomListProps) {
     if (isFriendRoom(room)) {
       const selfHandle = `${me.userName}@${getDomain()}`;
       const rawOther = room.members.find((m) => m !== selfHandle) ?? room.members[0];
+      const other = normalizeHandle(rawOther);
       if (
-        rawOther &&
+        other &&
         (room.name === "" || room.name === me.displayName || room.name === me.userName)
       ) {
-        return rawOther;
+        return other;
       }
       return room.name;
     }
     return room.name;
+  };
+
+  const normalizeHandle = (id?: string): string | undefined => {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    // ローカルIDは user@domain へ
+    return `${id}@${getDomain()}`;
   };
 
   const filteredRooms = createMemo(() => {

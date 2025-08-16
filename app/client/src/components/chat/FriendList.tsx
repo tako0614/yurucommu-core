@@ -31,9 +31,10 @@ export function FriendList(props: FriendListProps) {
     const friendMap = new Map<string, Friend>();
     const friendRooms = props.rooms.filter(isFriendRoom);
     for (const room of friendRooms) {
-      const friendId = (room.members && room.members.length > 0)
+      const raw = (room.members && room.members.length > 0)
         ? room.members[0]
-        : (room.id.includes("@") ? room.id : undefined);
+        : (room.id.includes("@") ? room.id : room.id);
+      const friendId = normalizeHandle(raw);
       if (!friendId) continue;
       if (!friendMap.has(friendId)) {
         friendMap.set(friendId, {
@@ -72,6 +73,23 @@ export function FriendList(props: FriendListProps) {
     });
     return items;
   });
+
+  function normalizeHandle(id?: string): string | undefined {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    // ローカルIDは user@domain
+    return `${id}@${location.hostname}`;
+  }
 
   const filteredFriends = createMemo(() => {
     const qq = q().toLowerCase().trim();
