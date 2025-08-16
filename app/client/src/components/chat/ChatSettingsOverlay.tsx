@@ -119,7 +119,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
             ktIncluded: resEval.kt.included,
           });
           continue;
-        } catch {}
+        } catch {
+          console.error("ユーザー情報の取得に失敗しました");
+        }
       }
       const resEval = await assessMemberBinding(user.id, roomId, undefined, "");
       list.push({

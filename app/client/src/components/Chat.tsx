@@ -59,13 +59,6 @@ import {
   getCacheItem,
   setCacheItem,
 } from "./e2ee/storage.ts";
-import {
-  type CiphersuiteName,
-  createGroup,
-  getCiphersuiteFromName,
-  getCiphersuiteImpl,
-} from "ts-mls";
-// 暗号化キー入力は廃止: 端末内保存のみを使用
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
@@ -808,6 +801,7 @@ export function Chat() {
                     joined = st;
                     break;
                   } catch (e) {
+                    console.warn("welcome apply failed", e);
                     // try next
                     continue;
                   }
@@ -1025,7 +1019,9 @@ export function Chat() {
         const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
         await syncPendingWithParticipants(acc.id, room.id, participants);
       }
-    } catch {}
+    } catch {
+      console.error("参加メンバーの同期に失敗しました");
+    }
     return msgs;
   };
 
@@ -1447,7 +1443,9 @@ export function Chat() {
                 const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
                 await syncPendingWithParticipants(acc.id, roomId, participants);
               }
-            } catch {}
+            } catch {
+              console.error("参加メンバーの同期に失敗しました");
+            }
             // 招待中に登録
             await addPendingInvites(user.id, roomId, need);
           }
