@@ -32,6 +32,7 @@ import {
   decryptMessage,
   encryptMessageWithAck,
   generateKeyPair,
+  createMLSGroup,
   joinWithWelcome,
   processCommit,
   processProposal,
@@ -649,14 +650,12 @@ export function Chat() {
       if (!pair) return;
       let initState: StoredGroupState | undefined;
       try {
-        // サーバーへ依存せずローカルで最小限の状態を生成
-        const suiteName: CiphersuiteName =
-          "MLS_128_DHKEMP256_AES128GCM_SHA256_P256";
-        const cs = await getCiphersuiteImpl(
-          getCiphersuiteFromName(suiteName),
-        );
-        const gid = new TextEncoder().encode(roomId);
-        initState = await createGroup(gid, pair.public, pair.private, [], cs);
+        // アクターURLを identity に用いた正しい Credential で生成
+        const user = account();
+        if (!user) return;
+        const actor = new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+        const created = await createMLSGroup(actor);
+        initState = created.state;
       } catch (e) {
         console.error(
           "グループ初期化時にキーからの初期化に失敗しました",
@@ -1252,6 +1251,40 @@ export function Chat() {
     } catch (e) {
       console.error("ルーム作成に失敗しました", e);
     }
+    // MLS 即時開始: 可能なら相手の KeyPackage を取得して Add→Commit→Welcome を送信
+    try {
+      const group = groups()[room.id];
+      if (group) {
+        const kpInputs: { content: string; actor?: string; deviceId?: string }[] = [];
+        for (const h of others) {
+          const [uname, dom] = splitActor(h as ActorID);
+          const kps = await fetchKeyPackages(uname, dom);
+          if (kps && kps.length > 0) {
+            const kp = kps[0];
+            const actor = dom ? `https://${dom}/users/${uname}` : undefined;
+            kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
+          }
+        }
+        if (kpInputs.length > 0) {
+          const resAdd = await createCommitAndWelcomes(group, kpInputs);
+          const commitContent = encodePublicMessage(resAdd.commit);
+          const ok = await sendHandshake(room.id, user.id, commitContent);
+          if (ok) {
+            for (const w of resAdd.welcomes) {
+              const wContent = encodePublicMessage(w.data);
+              const wk = await sendHandshake(room.id, user.id, wContent);
+              if (!wk) break;
+            }
+            setGroups({ ...groups(), [room.id]: resAdd.state });
+            saveGroupStates();
+            // 招待中として登録（Join後に設定画面で自動的にメンバー側へ移動）
+            addPendingInvites(user.id, room.id, others);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("作成時のAdd/Welcome送信に失敗しました", e);
+    }
     if (autoOpen) setSelectedRoom(room.id);
     setShowGroupDialog(false);
   };
@@ -1375,6 +1408,8 @@ export function Chat() {
             group = resAdd.state;
             setGroups({ ...groups(), [roomId]: group });
             saveGroupStates();
+            // 招待中に登録
+            addPendingInvites(user.id, roomId, need);
           }
         }
       } catch (e) {
@@ -2128,6 +2163,30 @@ function normalizeActor(actor: ActorID): string {
     }
   }
   return actor;
+}
+
+// 招待中のローカル管理（設定オーバーレイが参照）
+function pendingKey(accountId: string, roomId: string) {
+  return `takos.pendingInvites:${accountId}:${roomId}`;
+}
+function readPending(accountId: string, roomId: string): string[] {
+  try {
+    const raw = globalThis.localStorage.getItem(pendingKey(accountId, roomId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function writePending(accountId: string, roomId: string, ids: string[]) {
+  try {
+    const uniq = Array.from(new Set(ids));
+    globalThis.localStorage.setItem(pendingKey(accountId, roomId), JSON.stringify(uniq));
+  } catch {}
+}
+function addPendingInvites(accountId: string, roomId: string, ids: string[]) {
+  const cur = readPending(accountId, roomId);
+  writePending(accountId, roomId, [...cur, ...ids]);
 }
 
 function normalizeHandle(actor: ActorID): string | null {

@@ -45,9 +45,11 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
             avatar?: string;
             authorAvatar?: string;
           }) => ({
-            id: f.userName && f.domain
-              ? `${f.userName}@${f.domain}`
-              : f.userName || String(f),
+            id: (function () {
+              if (f.userName && f.domain) return `${f.userName}@${f.domain}`;
+              if (f.userName && !f.domain) return `${f.userName}@${getDomain()}`;
+              return String(f);
+            })(),
             name: f.displayName || f.userName || String(f),
             avatar: f.avatar || f.authorAvatar,
           }))
@@ -77,8 +79,12 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   };
 
   const addMemberFromInput = () => {
-    const input = memberInput().trim();
-    if (input && !selectedMembers().includes(input)) {
+    let input = memberInput().trim();
+    if (!input) return;
+    if (input.startsWith("@")) input = input.slice(1);
+    // ローカル省略時は local domain を補う
+    if (!input.includes("@")) input = `${input}@${getDomain()}`;
+    if (!selectedMembers().includes(input)) {
       setSelectedMembers([...selectedMembers(), input]);
       setMemberInput("");
     }

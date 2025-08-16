@@ -171,11 +171,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       const raws = extractIdentities(state);
       const ids = raws
         .map((id) => normalizeHandle(id))
-        .filter((id): id is string => !!id)
-        .filter((id) => id !== self);
+        .filter((id): id is string => !!id);
       const unknown = raws
         .filter((raw) => !normalizeHandle(raw))
-        .filter((raw) => raw && raw !== self);
+        .filter((raw) => !!raw);
       if (ids.length === 0 && unknown.length === 0) {
         const derived = deriveIdsFromRoom(self);
         if (derived.length > 0) {
