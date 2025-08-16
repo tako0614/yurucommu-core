@@ -102,29 +102,43 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     writePending(roomId, cur);
   };
   const loadPendingFromStorage = async (roomId: string, presentIds?: string[]) => {
-    const present = new Set(presentIds ?? members().map((m) => m.id));
-    const ids = readPending(roomId)
-      .map((id) => normalizeHandle(id))
-      .filter((id): id is string => !!id)
-      .filter((id) => !present.has(id));
-    // 永続側も現在の未参加者だけに整流化
-    writePending(roomId, ids);
     const user = accountValue();
     if (!user) return setPending([]);
-    const list = await Promise.all(ids.map(async (id) => {
-      const info = await fetchUserInfo(id);
-      const resEval = await assessMemberBinding(user.id, roomId, id, "");
-      return {
-        id,
-        display: info?.displayName || info?.userName || id,
-        avatar: info?.authorAvatar,
-        actor: id,
+    const present = new Set(presentIds ?? members().map((m) => m.id));
+    const rawIds = readPending(roomId);
+    const list: MemberItem[] = [];
+    for (const raw of rawIds) {
+      const handle = normalizeHandle(raw);
+      if (handle && present.has(handle)) continue; // 既にメンバー
+      if (handle) {
+        try {
+          const info = await fetchUserInfo(handle);
+          const resEval = await assessMemberBinding(user.id, roomId, handle, "");
+          list.push({
+            id: handle,
+            display: info?.displayName || info?.userName || handle,
+            avatar: info?.authorAvatar,
+            actor: handle,
+            leafSignatureKeyFpr: "",
+            bindingStatus: resEval.status,
+            bindingInfo: resEval.info,
+            ktIncluded: resEval.kt.included,
+          });
+          continue;
+        } catch {}
+      }
+      const resEval = await assessMemberBinding(user.id, roomId, undefined, "");
+      list.push({
+        id: raw,
+        display: "不明",
+        avatar: undefined,
+        actor: undefined,
         leafSignatureKeyFpr: "",
         bindingStatus: resEval.status,
         bindingInfo: resEval.info,
         ktIncluded: resEval.kt.included,
-      } as MemberItem;
-    }));
+      });
+    }
     setPending(list);
   };
 

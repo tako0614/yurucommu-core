@@ -1281,6 +1281,8 @@ export function Chat() {
             addPendingInvites(user.id, room.id, others);
           }
         }
+        // UI上は常に招待中として表示（Joinしたら自動的にメンバーへ移動）
+        addPendingInvites(user.id, room.id, others);
       }
     } catch (e) {
       console.warn("作成時のAdd/Welcome送信に失敗しました", e);
@@ -1411,6 +1413,8 @@ export function Chat() {
             // 招待中に登録
             addPendingInvites(user.id, roomId, need);
           }
+          // UI上は常に招待中として表示
+          addPendingInvites(user.id, roomId, need);
         }
       } catch (e) {
         console.warn("初回Add/Welcome処理に失敗しました", e);
