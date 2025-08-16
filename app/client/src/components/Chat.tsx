@@ -1058,9 +1058,10 @@ export function Chat() {
         : { name: "", icon: undefined };
       const name = meta.name ?? "";
       const icon = meta.icon ?? "";
+      // サーバーが members を返さない場合に備えて安全に処理
       const members = state
         ? extractMembers(state).filter((m) => m !== handle)
-        : item.members.filter((m) => m !== handle);
+        : (item.members ?? []).filter((m) => m !== handle);
       rooms.push({
         id: item.id,
         name,
