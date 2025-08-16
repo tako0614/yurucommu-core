@@ -1,5 +1,6 @@
 import { apiFetch } from "../../utils/config.ts";
 import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
+import { bufToB64 } from "../../../../shared/buffer.ts";
 import {
   type GeneratedKeyPair,
   joinWithGroupInfo,
