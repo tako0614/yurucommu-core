@@ -22,6 +22,7 @@ import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
 import fcm from "./routes/fcm.ts";
 import placeholder from "./routes/placeholder.ts";
+import image from "./routes/image.ts";
 import trends from "./routes/trends.ts";
 import systemSetup from "./routes/system_setup.ts";
 import { fetchOgpData } from "./services/ogp.ts";
@@ -65,6 +66,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     systemSetup,
     onboarding,
     placeholder,
+    image,
     trends,
     keep,
     files,

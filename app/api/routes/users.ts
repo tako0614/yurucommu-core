@@ -39,7 +39,8 @@ app.get("/users/:identifier", async (c) => {
       return c.json({
         userName: info.userName,
         displayName: info.displayName,
-        avatarInitial: info.authorAvatar || user.avatarInitial || "/api/placeholder/128/128",
+        avatarInitial: info.authorAvatar || user.avatarInitial ||
+          "/api/image/people.png",
         domain: info.domain,
         followersCount: user.followers?.length || 0,
         followingCount: user.following?.length || 0,
@@ -50,7 +51,7 @@ app.get("/users/:identifier", async (c) => {
     return c.json({
       userName: info.userName,
       displayName: info.displayName,
-      avatarInitial: info.authorAvatar || "/api/placeholder/128/128",
+      avatarInitial: info.authorAvatar || "/api/image/people.png",
       domain: info.domain,
       followersCount: 0,
       followingCount: 0,

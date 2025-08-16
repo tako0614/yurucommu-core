@@ -22,11 +22,10 @@ function formatAccount(doc: AccountDoc) {
   };
 }
 
-// 画像データURLやURL文字列を処理して保存し、URLまたはイニシャルを返す
+// 画像データURLやURL文字列を処理して保存し、URLまたはデフォルトを返す
 async function resolveAvatar(
   value: unknown,
   env: Record<string, string>,
-  name: string,
 ): Promise<string> {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -47,9 +46,8 @@ async function resolveAvatar(
     // 既にURLで渡された場合はそのまま利用
     if (isUrl(trimmed) || trimmed.startsWith("/")) return trimmed;
   }
-  // 画像が指定されない場合はデフォルトのプレースホルダーエンドポイントを返す
-  // 固定サイズのプレースホルダー（必要に応じてクライアントでサイズを指定）
-  return "/api/placeholder/128/128";
+  // 画像が指定されない場合はデフォルトアイコンを返す
+  return "/api/image/people.png";
 }
 
 const app = new Hono();
@@ -96,7 +94,6 @@ app.post("/accounts", async (c) => {
     avatarInitial: await resolveAvatar(
       icon,
       env,
-      (displayName ?? username).trim(),
     ),
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
@@ -136,13 +133,15 @@ app.put("/accounts/:id", async (c) => {
   // userName is immutable after creation - removed from update logic
   if (updates.displayName) data.displayName = updates.displayName;
   if (updates.avatarInitial !== undefined) {
-    const base = updates.displayName ?? orig.displayName ?? orig.userName;
-    data.avatarInitial = await resolveAvatar(updates.avatarInitial, env, base);
+    data.avatarInitial = await resolveAvatar(updates.avatarInitial, env);
   } else if (updates.displayName) {
     const cur = orig.avatarInitial;
     // 現在の値がデータURL/URL/パスでない場合はデフォルトのエンドポイントに揃える
-    if (!cur || (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))) {
-      data.avatarInitial = "/api/placeholder/128/128";
+    if (
+      !cur ||
+      (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))
+    ) {
+      data.avatarInitial = "/api/image/people.png";
     }
   }
   if (updates.privateKey) data.privateKey = updates.privateKey;

@@ -9,7 +9,7 @@ import { b64ToBuf } from "../../shared/buffer.ts";
 
 // 未設定時に返すデフォルトアイコン
 const DEFAULT_AVATAR = await Deno.readFile(
-  new URL("../../client/public/takos.png", import.meta.url),
+  new URL("../image/people.png", import.meta.url),
 );
 
 import {

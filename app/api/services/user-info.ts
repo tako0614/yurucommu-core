@@ -101,7 +101,7 @@ export async function getUserInfo(
   if (account) {
     // ローカルユーザーの場合
     displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "/api/placeholder/128/128";
+    authorAvatar = account.avatarInitial || "/api/image/people.png";
   } else if (identifier.includes("@") && !isUrl(identifier)) {
     // user@domain 形式の外部ユーザー
     isLocal = false;
@@ -142,7 +142,7 @@ export async function getUserInfo(
         const localAccount = await db.findAccountByUserName(extractedUsername);
         if (localAccount) {
           displayName = localAccount.displayName || extractedUsername;
-          authorAvatar = localAccount.avatarInitial || "/api/placeholder/128/128";
+          authorAvatar = localAccount.avatarInitial || "/api/image/people.png";
         } else {
           displayName = extractedUsername;
         }
@@ -156,7 +156,7 @@ export async function getUserInfo(
         const info = await fetchExternalActorInfo(identifier, db);
         if (info) {
           displayName = info.displayName || extractedUsername;
-          authorAvatar = info.avatar || "/api/placeholder/128/128";
+          authorAvatar = info.avatar || "/api/image/people.png";
         } else {
           displayName = extractedUsername;
         }
@@ -232,7 +232,7 @@ export async function getUserInfoBatch(
         const userInfo: UserInfo = {
           userName: entry.username,
           displayName: account.displayName || entry.username,
-          authorAvatar: account.avatarInitial || "",
+          authorAvatar: account.avatarInitial || "/api/image/people.png",
           domain,
           isLocal: true,
         };
@@ -268,14 +268,14 @@ export async function getUserInfoBatch(
             ? typeof actor.icon === "object" && actor.icon !== null
               ? (actor.icon as Record<string, string>).url ?? ""
               : (actor.icon as string)
-            : "/api/placeholder/128/128";
+            : "/api/image/people.png";
 
           const userInfo: UserInfo = {
             userName: extractedUsername,
             displayName: (actor.name as string) ||
               (actor.preferredUsername as string) ||
               extractedUsername,
-            authorAvatar: avatar || "/api/placeholder/128/128",
+            authorAvatar: avatar || "/api/image/people.png",
             domain: urlObj.hostname,
             isLocal: false,
           };
@@ -285,7 +285,7 @@ export async function getUserInfoBatch(
           const userInfo: UserInfo = {
             userName: "external_user",
             displayName: "external_user",
-      authorAvatar: "/api/placeholder/128/128",
+            authorAvatar: "/api/image/people.png",
             domain: "external",
             isLocal: false,
           };
