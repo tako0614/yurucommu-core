@@ -26,7 +26,7 @@ import {
   uploadFile,
   fetchKeyPackages,
 } from "./e2ee/api.ts";
-import { apiFetch, getDomain } from "../utils/config.ts";
+import { apiFetch, getDomain, getKpPoolSize } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
   decryptMessage,
@@ -53,8 +53,11 @@ import {
   loadKeyPackageRecords,
   loadMLSGroupStates,
   loadMLSKeyPair,
+  loadAllMLSKeyPairs,
   saveMLSGroupStates,
   saveMLSKeyPair,
+  getCacheItem,
+  setCacheItem,
 } from "./e2ee/storage.ts";
 import {
   type CiphersuiteName,
@@ -698,11 +701,13 @@ export function Chat() {
           try {
             await saveMLSKeyPair(user.id, pair);
             await addKeyPackage(user.userName, { content: kp.encoded });
+            // 目標プール数まで補充
+            await topUpSelfKeyPackages(user.userName, user.id);
           } catch (err) {
-          console.error("鍵ペアの保存に失敗しました", err);
-          setIsGeneratingKeyPair(false);
-          return null;
-        }
+            console.error("鍵ペアの保存に失敗しました", err);
+            setIsGeneratingKeyPair(false);
+            return null;
+          }
       }
       setKeyPair(pair);
       setIsGeneratingKeyPair(false);
@@ -789,13 +794,29 @@ export function Chat() {
                   alert("不正なWelcomeメッセージを受信したため無視しました");
                   continue;
                 }
-                const pair = await ensureKeyPair();
-                if (!pair) continue;
-                try {
-                  group = await joinWithWelcome(wBytes, pair);
+                // 複数の鍵ペアプールから順次試す
+                let joined: StoredGroupState | null = null;
+                const me = account();
+                const pairs = me ? await loadAllMLSKeyPairs(me.id) : [];
+                if (pairs.length === 0) {
+                  const single = await ensureKeyPair();
+                  if (single) pairs.push(single);
+                }
+                for (const p of pairs) {
+                  try {
+                    const st = await joinWithWelcome(wBytes, p);
+                    joined = st;
+                    break;
+                  } catch (e) {
+                    // try next
+                    continue;
+                  }
+                }
+                if (joined) {
+                  group = joined;
                   updated = true;
-                } catch (e) {
-                  console.warn("welcome apply failed", e);
+                } else {
+                  console.warn("welcome apply failed for all key pairs");
                 }
                 continue;
               }
@@ -997,6 +1018,14 @@ export function Chat() {
     );
     setGroups({ ...groups(), [room.id]: group });
     saveGroupStates();
+    // 参加メンバーに合わせて招待中を整流化
+    try {
+      const acc = account();
+      if (acc) {
+        const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
+        await syncPendingWithParticipants(acc.id, room.id, participants);
+      }
+    } catch {}
     return msgs;
   };
 
@@ -1260,7 +1289,8 @@ export function Chat() {
           const [uname, dom] = splitActor(h as ActorID);
           const kps = await fetchKeyPackages(uname, dom);
           if (kps && kps.length > 0) {
-            const kp = kps[0];
+            const kp = pickUsableKeyPackage(kps as unknown as { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[]);
+            if (!kp) continue;
             const actor = dom ? `https://${dom}/users/${uname}` : undefined;
             kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
           }
@@ -1278,11 +1308,11 @@ export function Chat() {
             setGroups({ ...groups(), [room.id]: resAdd.state });
             saveGroupStates();
             // 招待中として登録（Join後に設定画面で自動的にメンバー側へ移動）
-            addPendingInvites(user.id, room.id, others);
+            await addPendingInvites(user.id, room.id, others);
           }
         }
         // UI上は常に招待中として表示（Joinしたら自動的にメンバーへ移動）
-        addPendingInvites(user.id, room.id, others);
+        await addPendingInvites(user.id, room.id, others);
       }
     } catch (e) {
       console.warn("作成時のAdd/Welcome送信に失敗しました", e);
@@ -1392,7 +1422,8 @@ export function Chat() {
             const [uname, dom] = splitActor(h as ActorID);
             const kps = await fetchKeyPackages(uname, dom);
             if (kps && kps.length > 0) {
-              const kp = kps[0];
+              const kp = pickUsableKeyPackage(kps as unknown as { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[]);
+              if (!kp) continue;
               const actor = dom ? `https://${dom}/users/${uname}` : undefined;
               kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
             }
@@ -1410,11 +1441,18 @@ export function Chat() {
             group = resAdd.state;
             setGroups({ ...groups(), [roomId]: group });
             saveGroupStates();
+            try {
+              const acc = account();
+              if (acc) {
+                const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
+                await syncPendingWithParticipants(acc.id, roomId, participants);
+              }
+            } catch {}
             // 招待中に登録
-            addPendingInvites(user.id, roomId, need);
+            await addPendingInvites(user.id, roomId, need);
           }
           // UI上は常に招待中として表示
-          addPendingInvites(user.id, roomId, need);
+          await addPendingInvites(user.id, roomId, need);
         }
       } catch (e) {
         console.warn("初回Add/Welcome処理に失敗しました", e);
@@ -2170,27 +2208,64 @@ function normalizeActor(actor: ActorID): string {
 }
 
 // 招待中のローカル管理（設定オーバーレイが参照）
-function pendingKey(accountId: string, roomId: string) {
-  return `takos.pendingInvites:${accountId}:${roomId}`;
+const cacheKeyPending = (roomId: string) => `pendingInvites:${roomId}`;
+async function readPending(accountId: string, roomId: string): Promise<string[]> {
+  const raw = await getCacheItem(accountId, cacheKeyPending(roomId));
+  return Array.isArray(raw) ? (raw as unknown[]).filter((v) => typeof v === "string") as string[] : [];
 }
-function readPending(accountId: string, roomId: string): string[] {
+async function writePending(accountId: string, roomId: string, ids: string[]) {
+  const uniq = Array.from(new Set(ids));
+  await setCacheItem(accountId, cacheKeyPending(roomId), uniq);
+}
+async function addPendingInvites(accountId: string, roomId: string, ids: string[]) {
+  const cur = await readPending(accountId, roomId);
+  await writePending(accountId, roomId, [...cur, ...ids]);
+}
+async function removePendingInvite(accountId: string, roomId: string, id: string) {
+  const cur = (await readPending(accountId, roomId)).filter((v) => v !== id);
+  await writePending(accountId, roomId, cur);
+}
+async function syncPendingWithParticipants(accountId: string, roomId: string, participants: string[]) {
+  const present = new Set(participants);
+  const cur = await readPending(accountId, roomId);
+  const next = cur.filter((v) => !present.has(v));
+  await writePending(accountId, roomId, next);
+}
+
+function pickUsableKeyPackage(
+  list: { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[],
+): { content: string; expiresAt?: string; used?: boolean; deviceId?: string } | null {
+  const now = Date.now();
+  const usable = list.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  if (usable.length > 0) return usable[0];
+  return list[0] ?? null;
+}
+
+async function topUpSelfKeyPackages(userName: string, accountId: string) {
   try {
-    const raw = globalThis.localStorage.getItem(pendingKey(accountId, roomId));
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter((v) => typeof v === "string") : [];
-  } catch {
-    return [];
+    const target = getKpPoolSize();
+    if (!target || target <= 1) return;
+    const selfKps = await fetchKeyPackages(userName);
+    const now = Date.now();
+    const usable = (selfKps ?? []).filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+    const need = target - usable.length;
+    if (need <= 0) return;
+    // actor URL for identity
+    const actor = new URL(`/users/${userName}`, globalThis.location.origin).href;
+    for (let i = 0; i < need; i++) {
+      try {
+        const kp = await generateKeyPair(actor);
+        // 保存（複数保存可能: KEY_STORE は autoIncrement）
+        await saveMLSKeyPair(accountId, { public: kp.public, private: kp.private, encoded: kp.encoded });
+        await addKeyPackage(userName, { content: kp.encoded });
+      } catch (e) {
+        console.warn("KeyPackage 補充に失敗しました", e);
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn("KeyPackage プール確認に失敗しました", e);
   }
-}
-function writePending(accountId: string, roomId: string, ids: string[]) {
-  try {
-    const uniq = Array.from(new Set(ids));
-    globalThis.localStorage.setItem(pendingKey(accountId, roomId), JSON.stringify(uniq));
-  } catch {}
-}
-function addPendingInvites(accountId: string, roomId: string, ids: string[]) {
-  const cur = readPending(accountId, roomId);
-  writePending(accountId, roomId, [...cur, ...ids]);
 }
 
 function normalizeHandle(actor: ActorID): string | null {

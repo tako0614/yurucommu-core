@@ -207,6 +207,78 @@ export const appendRosterEvidence = async (
   });
 };
 
+// すべての鍵ペアを取得（プール運用向け）
+export const loadAllMLSKeyPairs = async (
+  accountId: string,
+): Promise<GeneratedKeyPair[]> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    // tauri-store では一覧を保持していないため直近のみ
+    const last = await store.get<GeneratedKeyPair>("keyPair");
+    return last ? [last] : [];
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(KEY_STORE, "readonly");
+  const store = tx.objectStore(KEY_STORE);
+  return await new Promise((resolve, reject) => {
+    const req = store.openCursor();
+    const out: GeneratedKeyPair[] = [];
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (cur) {
+        out.push(cur.value as GeneratedKeyPair);
+        cur.continue();
+      } else {
+        resolve(out);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+};
+
+// 汎用キャッシュ（IndexedDB の CACHE_STORE を利用）
+export const getCacheItem = async (
+  accountId: string,
+  key: string,
+): Promise<unknown | null> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const all = await store.get<Record<string, unknown>>("cache");
+    return (all ?? {})[key] ?? null;
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(CACHE_STORE, "readonly");
+  const store = tx.objectStore(CACHE_STORE);
+  return await new Promise((resolve, reject) => {
+    const req = store.get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const setCacheItem = async (
+  accountId: string,
+  key: string,
+  value: unknown,
+): Promise<void> => {
+  if (isTauri()) {
+    const store = await openStore(accountId);
+    const all = await store.get<Record<string, unknown>>("cache") ?? {};
+    all[key] = value;
+    await store.set("cache", all);
+    await store.save();
+    return;
+  }
+  const db = await openDB(accountId);
+  const tx = db.transaction(CACHE_STORE, "readwrite");
+  const store = tx.objectStore(CACHE_STORE);
+  store.put(value, key);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
 // KeyPackage 検証記録
 export interface KeyPackageRecord {
   kpUrl: string;

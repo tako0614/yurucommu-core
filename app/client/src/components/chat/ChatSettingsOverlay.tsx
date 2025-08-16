@@ -5,7 +5,7 @@ import { apiFetch, getDomain } from "../../utils/config.ts";
 import type { Room } from "./types.ts";
 import type { BindingStatus } from "../e2ee/binding.ts";
 import { useMLS } from "../e2ee/useMLS.ts";
-import { loadMLSGroupStates } from "../e2ee/storage.ts";
+import { loadMLSGroupStates, getCacheItem, setCacheItem } from "../e2ee/storage.ts";
 import type { StoredGroupState } from "../e2ee/mls_wrapper.ts";
 import { fetchUserInfo } from "../microblog/api.ts";
 import { fetchEncryptedMessages, fetchKeyPackages, sendHandshake } from "../e2ee/api.ts";
@@ -74,38 +74,32 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
   // 招待中リストの保存・読込（アカウント/ルーム単位でlocalStorage保持）
-  const pendingKey = (roomId: string) => {
+  const cacheKey = (roomId: string) => `pendingInvites:${roomId}`;
+  const readPending = async (roomId: string): Promise<string[]> => {
     const user = accountValue();
-    return `takos.pendingInvites:${user?.id ?? "anon"}:${roomId}`;
+    if (!user) return [];
+    const raw = await getCacheItem(user.id, cacheKey(roomId));
+    return Array.isArray(raw) ? (raw as unknown[]).filter((v) => typeof v === "string") as string[] : [];
   };
-  const readPending = (roomId: string): string[] => {
-    try {
-      const raw = globalThis.localStorage.getItem(pendingKey(roomId));
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr.filter((v) => typeof v === "string") : [];
-    } catch {
-      return [];
-    }
+  const writePending = async (roomId: string, ids: string[]) => {
+    const user = accountValue();
+    if (!user) return;
+    const uniq = Array.from(new Set(ids));
+    await setCacheItem(user.id, cacheKey(roomId), uniq);
   };
-  const writePending = (roomId: string, ids: string[]) => {
-    try {
-      const uniq = Array.from(new Set(ids));
-      globalThis.localStorage.setItem(pendingKey(roomId), JSON.stringify(uniq));
-    } catch {}
+  const addPending = async (roomId: string, ids: string[]) => {
+    const cur = await readPending(roomId);
+    await writePending(roomId, [...cur, ...ids]);
   };
-  const addPending = (roomId: string, ids: string[]) => {
-    const cur = readPending(roomId);
-    writePending(roomId, [...cur, ...ids]);
-  };
-  const removePending = (roomId: string, id: string) => {
-    const cur = readPending(roomId).filter((v) => v !== id);
-    writePending(roomId, cur);
+  const removePending = async (roomId: string, id: string) => {
+    const cur = (await readPending(roomId)).filter((v) => v !== id);
+    await writePending(roomId, cur);
   };
   const loadPendingFromStorage = async (roomId: string, presentIds?: string[]) => {
     const user = accountValue();
     if (!user) return setPending([]);
     const present = new Set(presentIds ?? members().map((m) => m.id));
-    const rawIds = readPending(roomId);
+    const rawIds = await readPending(roomId);
     const list: MemberItem[] = [];
     for (const raw of rawIds) {
       const handle = normalizeHandle(raw);
@@ -392,7 +386,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       }
       // 招待中に登録（Join済みになれば自動でmembers側に移動）
       const target = normalizeHandle(ident.user);
-      if (target) addPending(props.room.id, [target]);
+      if (target) await addPending(props.room.id, [target]);
       await loadMembers();
       setNewMember("");
     } catch (e) {
