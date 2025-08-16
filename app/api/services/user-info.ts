@@ -101,7 +101,7 @@ export async function getUserInfo(
   if (account) {
     // ローカルユーザーの場合
     displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "";
+    authorAvatar = account.avatarInitial || "/api/placeholder/128/128";
   } else if (identifier.includes("@") && !isUrl(identifier)) {
     // user@domain 形式の外部ユーザー
     isLocal = false;
@@ -142,7 +142,7 @@ export async function getUserInfo(
         const localAccount = await db.findAccountByUserName(extractedUsername);
         if (localAccount) {
           displayName = localAccount.displayName || extractedUsername;
-          authorAvatar = localAccount.avatarInitial || "";
+          authorAvatar = localAccount.avatarInitial || "/api/placeholder/128/128";
         } else {
           displayName = extractedUsername;
         }
@@ -156,7 +156,7 @@ export async function getUserInfo(
         const info = await fetchExternalActorInfo(identifier, db);
         if (info) {
           displayName = info.displayName || extractedUsername;
-          authorAvatar = info.avatar;
+          authorAvatar = info.avatar || "/api/placeholder/128/128";
         } else {
           displayName = extractedUsername;
         }
@@ -268,14 +268,14 @@ export async function getUserInfoBatch(
             ? typeof actor.icon === "object" && actor.icon !== null
               ? (actor.icon as Record<string, string>).url ?? ""
               : (actor.icon as string)
-            : "";
+            : "/api/placeholder/128/128";
 
           const userInfo: UserInfo = {
             userName: extractedUsername,
             displayName: (actor.name as string) ||
               (actor.preferredUsername as string) ||
               extractedUsername,
-            authorAvatar: avatar,
+            authorAvatar: avatar || "/api/placeholder/128/128",
             domain: urlObj.hostname,
             isLocal: false,
           };
@@ -285,7 +285,7 @@ export async function getUserInfoBatch(
           const userInfo: UserInfo = {
             userName: "external_user",
             displayName: "external_user",
-            authorAvatar: "",
+      authorAvatar: "/api/placeholder/128/128",
             domain: "external",
             isLocal: false,
           };

@@ -165,20 +165,8 @@ export default function Profile() {
       if (editingIcon() !== currentAccount.avatarInitial) {
         if (isDataUrl(editingIcon())) {
           payload.avatarInitial = editingIcon();
-        } else {
-          const baseName = editingDisplayName() || currentAccount.displayName;
-          payload.avatarInitial = (baseName.charAt(0).toUpperCase() || "?")
-            .substring(0, 2);
         }
-      } else if (
-        editingDisplayName() !== currentAccount.displayName &&
-        !isDataUrl(currentAccount.avatarInitial)
-      ) {
-        payload.avatarInitial =
-          (editingDisplayName().charAt(0).toUpperCase() || "?").substring(
-            0,
-            2,
-          );
+        // データURLでない場合はサーバー側のデフォルトに委ねる（payload には設定しない）
       }
       if (Object.keys(payload).length === 0) return;
       const res = await apiFetch(`/api/accounts/${id}`, {

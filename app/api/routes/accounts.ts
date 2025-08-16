@@ -47,8 +47,9 @@ async function resolveAvatar(
     // 既にURLで渡された場合はそのまま利用
     if (isUrl(trimmed) || trimmed.startsWith("/")) return trimmed;
   }
-  // 画像が指定されない場合は表示名からイニシャルを生成
-  return name.charAt(0).toUpperCase().substring(0, 2);
+  // 画像が指定されない場合はデフォルトのプレースホルダーエンドポイントを返す
+  // 固定サイズのプレースホルダー（必要に応じてクライアントでサイズを指定）
+  return "/api/placeholder/128/128";
 }
 
 const app = new Hono();
@@ -139,12 +140,9 @@ app.put("/accounts/:id", async (c) => {
     data.avatarInitial = await resolveAvatar(updates.avatarInitial, env, base);
   } else if (updates.displayName) {
     const cur = orig.avatarInitial;
-    if (
-      !cur ||
-      (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))
-    ) {
-      data.avatarInitial = updates.displayName.charAt(0).toUpperCase()
-        .substring(0, 2);
+    // 現在の値がデータURL/URL/パスでない場合はデフォルトのエンドポイントに揃える
+    if (!cur || (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))) {
+      data.avatarInitial = "/api/placeholder/128/128";
     }
   }
   if (updates.privateKey) data.privateKey = updates.privateKey;
