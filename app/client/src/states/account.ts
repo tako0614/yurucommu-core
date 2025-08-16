@@ -58,3 +58,38 @@ export async function fetchAccounts(): Promise<Account[]> {
     return [];
   }
 }
+
+// アカウントの基本統計情報（投稿数・フォロー/フォロワー数）を格納
+export type AccountStats = {
+  postCount: number;
+  followersCount: number;
+  followingCount: number;
+};
+
+// key は account.id
+export const accountStatsMap = atom<Record<string, AccountStats>>({});
+
+export const setAccountStatsMap = atom(
+  (get) => get(accountStatsMap),
+  (_get, set, payload: { accountId: string; stats: AccountStats }) => {
+    set(accountStatsMap, (prev) => ({ ...prev, [payload.accountId]: payload.stats }));
+  },
+);
+
+// フォロー/フォロワー一覧のキャッシュ（key は account.id）
+export const followingListMap = atom<Record<string, unknown[]>>({});
+export const followersListMap = atom<Record<string, unknown[]>>({});
+
+export const setFollowingList = atom(
+  (get) => get(followingListMap),
+  (_get, set, payload: { accountId: string; list: unknown[] }) => {
+    set(followingListMap, (prev) => ({ ...prev, [payload.accountId]: payload.list }));
+  },
+);
+
+export const setFollowersList = atom(
+  (get) => get(followersListMap),
+  (_get, set, payload: { accountId: string; list: unknown[] }) => {
+    set(followersListMap, (prev) => ({ ...prev, [payload.accountId]: payload.list }));
+  },
+);

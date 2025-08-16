@@ -171,9 +171,7 @@ export function Home() {
     }
   };
 
-  onMount(() => {
-    loadAccounts();
-  });
+  // 初期アカウント取得は useInitialLoad に集約
 
   // ショートカットキー: S=設定, N=通知（入力中は無効化）
   onMount(() => {

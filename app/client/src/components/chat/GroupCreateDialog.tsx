@@ -9,6 +9,7 @@ import {
 import { fetchFollowing } from "../microblog/api.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
+import { followingListMap, setFollowingList } from "../../states/account.ts";
 import { getDomain } from "../../utils/config.ts";
 
 interface GroupCreateDialogProps {
@@ -30,35 +31,52 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const [followingUsers, setFollowingUsers] = createSignal<
     Array<{ id: string; name: string; avatar?: string }>
   >([]);
+  const [followingMap] = useAtom(followingListMap);
+  const [, saveFollowingGlobal] = useAtom(setFollowingList);
 
-  // フォロー中のユーザーを取得
-  onMount(async () => {
-    const user = account();
-    if (user) {
-      try {
-        const following = await fetchFollowing(user.userName);
-        const followingList = Array.isArray(following)
-          ? following.map((f: {
-            userName?: string;
-            displayName?: string;
-            domain?: string;
-            avatar?: string;
-            authorAvatar?: string;
-          }) => ({
-            id: (function () {
-              if (f.userName && f.domain) return `${f.userName}@${f.domain}`;
-              if (f.userName && !f.domain) return `${f.userName}@${getDomain()}`;
-              return String(f);
-            })(),
-            name: f.displayName || f.userName || String(f),
-            avatar: f.avatar || f.authorAvatar,
-          }))
-          : [];
-        setFollowingUsers(followingList);
-      } catch (error) {
-        console.error("Failed to fetch following users:", error);
-      }
+  // 表示用に整形する補助
+  const toDisplayList = (list: unknown[]) => (
+    Array.isArray(list)
+      ? list.map((f: any) => ({
+        id: (function () {
+          if (f?.userName && f?.domain) return `${f.userName}@${f.domain}`;
+          if (f?.userName && !f?.domain) return `${f.userName}@${getDomain()}`;
+          return String(f);
+        })(),
+        name: f?.displayName || f?.userName || String(f),
+        avatar: f?.avatar || f?.authorAvatar,
+      }))
+      : []
+  );
+
+  // ダイアログが開いたとき、またはアカウントが確定したときにフォロー中ユーザーを用意
+  createEffect(async () => {
+    const acc = account();
+    if (!props.isOpen || !acc) return;
+
+    const accountId = acc.id;
+    const cached = followingMap()[accountId];
+    if (cached) {
+      setFollowingUsers(toDisplayList(cached));
+      return;
     }
+
+    try {
+      const list = await fetchFollowing(acc.userName);
+      setFollowingUsers(toDisplayList(list));
+      // グローバルにも保存（次回以降の画面で共有）
+      saveFollowingGlobal({ accountId, list: Array.isArray(list) ? list : [] });
+    } catch (error) {
+      console.error("Failed to fetch following users:", error);
+    }
+  });
+
+  // グローバルキャッシュが更新された場合にも同期
+  createEffect(() => {
+    const acc = account();
+    if (!acc) return;
+    const cached = followingMap()[acc.id];
+    if (cached) setFollowingUsers(toDisplayList(cached));
   });
 
   // 表示用のフォロー中ユーザーリスト（検索フィルタ適用）
