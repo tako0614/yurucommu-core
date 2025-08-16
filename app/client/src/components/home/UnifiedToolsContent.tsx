@@ -15,6 +15,10 @@ import {
   activeAccountId,
   fetchAccounts,
 } from "../../states/account.ts";
+import {
+  followingListMap,
+  setFollowingList,
+} from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
 import { navigate } from "../../utils/router.ts";
 import { fetchPostById } from "../microblog/api.ts";
@@ -54,6 +58,8 @@ export default function UnifiedToolsContent() {
   const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
   const [accounts, setAccountsState] = useAtom(accountsAtom);
+  const [followingMap] = useAtom(followingListMap);
+  const [, saveFollowing] = useAtom(setFollowingList);
   const [activeTab, setActiveTab] = createSignal<"users" | "posts">("users");
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchType, setSearchType] = createSignal<"users" | "posts">(
@@ -108,12 +114,29 @@ export default function UnifiedToolsContent() {
       try {
         const username = accounts().find((a) => a.id === id)?.userName;
         if (!username) return;
-        const res = await apiFetch(`/api/users/${username}/following`);
-        if (res.ok) {
-          const data = await res.json();
+
+        // グローバルのフォロー一覧キャッシュ
+        const cached = followingMap()[id];
+        let list: any[] | null = null;
+        if (cached) {
+          list = Array.isArray(cached) ? cached : [];
+        } else {
+          // 未キャッシュの場合のみ取得してグローバルへ保存
+          const res = await apiFetch(`/api/users/${username}/following`);
+          if (res.ok) {
+            list = await res.json();
+            saveFollowing({ accountId: id, list: Array.isArray(list) ? list : [] });
+          }
+        }
+
+        // followStatus（表示用の真偽値マップ）を更新
+        if (list) {
           const map: Record<string, boolean> = {};
-          for (const actor of data as string[]) {
-            map[actor] = true;
+          for (const item of list as any[]) {
+            const actor = typeof item === "string"
+              ? item
+              : (item?.actor || item?.id || item?.userName) ?? "";
+            if (actor) map[actor] = true;
           }
           setFollowStatus((prev) => ({ ...map, ...prev }));
         }

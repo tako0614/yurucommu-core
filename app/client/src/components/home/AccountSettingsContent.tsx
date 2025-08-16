@@ -1,7 +1,6 @@
 import {
   Component,
   createEffect,
-  createResource,
   createSignal,
   For,
   Show,
@@ -9,13 +8,19 @@ import {
 import { Account, isDataUrl, isUrl } from "./types.ts";
 import {
   fetchActivityPubObjects,
-  fetchFollowers,
-  fetchFollowing,
   fetchUserProfile,
 } from "../microblog/api.ts";
 import { PostList } from "../microblog/Post.tsx";
 import { UserAvatar } from "../microblog/UserAvatar.tsx";
 import { getDomain } from "../../utils/config.ts";
+import { useAtom } from "solid-jotai";
+import {
+  followersListMap,
+  followingListMap,
+  setFollowersList,
+  setFollowingList,
+} from "../../states/account.ts";
+import { fetchFollowers, fetchFollowing } from "../microblog/api.ts";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
@@ -49,17 +54,40 @@ const AccountSettingsContent: Component<{
   const [showFollowingModal, setShowFollowingModal] = createSignal(false);
   const [showFollowersModal, setShowFollowersModal] = createSignal(false);
 
-  const [posts] = createResource(
-    () => selectedAccount()?.userName,
-    async (username) => {
-      if (!username) return [];
-      const objs = await fetchActivityPubObjects(username, "Note");
-      return objs.map((o) => ({
+  const [posts, setPosts] = createSignal<Array<any>>([]);
+
+  // グローバル: フォロー/フォロワー一覧（アカウントIDごと）
+  const [followingMap] = useAtom(followingListMap);
+  const [followersMap] = useAtom(followersListMap);
+  const [, saveFollowing] = useAtom(setFollowingList);
+  const [, saveFollowers] = useAtom(setFollowersList);
+
+  // 選択アカウントのフォロー/フォロワー配列（グローバル state 参照）
+  const followingList = () => {
+    const acc = selectedAccount();
+    if (!acc) return [] as any[];
+    return (followingMap()[acc.id] as any[]) || [];
+  };
+  const followers = () => {
+    const acc = selectedAccount();
+    if (!acc) return [] as any[];
+    return (followersMap()[acc.id] as any[]) || [];
+  };
+
+  // アカウント変更時：投稿取得 + フォロー/フォロワーはグローバルキャッシュを確認し、なければ取得
+  createEffect(() => {
+    const account = selectedAccount();
+    if (!account) return;
+
+    // 投稿
+    (async () => {
+      const objs = await fetchActivityPubObjects(account.userName, "Note");
+      setPosts(objs.map((o) => ({
         id: o.id,
         content: o.content ?? "",
-        userName: username,
-        displayName: selectedAccount()?.displayName || username,
-        authorAvatar: selectedAccount()?.avatarInitial || "",
+        userName: account.userName,
+        displayName: account.displayName || account.userName,
+        authorAvatar: account.avatarInitial || "",
         createdAt: o.published,
         likes: typeof (o.extra as Record<string, unknown>)?.likes === "number"
           ? (o.extra as Record<string, unknown>)?.likes as number
@@ -72,25 +100,30 @@ const AccountSettingsContent: Component<{
           typeof (o.extra as Record<string, unknown>)?.replies === "number"
             ? (o.extra as Record<string, unknown>)?.replies as number
             : 0,
-      }));
-    },
-  );
+      })));
+    })();
 
-  const [followers, { refetch: refetchFollowers }] = createResource(
-    () => selectedAccount()?.userName,
-    async (username) => {
-      if (!username) return [];
-      return await fetchFollowers(username);
-    },
-  );
-
-  const [followingList, { refetch: refetchFollowing }] = createResource(
-    () => selectedAccount()?.userName,
-    async (username) => {
-      if (!username) return [];
-      return await fetchFollowing(username);
-    },
-  );
+    // フォロー/フォロワー（グローバル参照→未取得ならフェッチ）
+    (async () => {
+      const accId = account.id;
+      if (!followingMap()[accId]) {
+        try {
+          const list = await fetchFollowing(account.userName);
+          saveFollowing({ accountId: accId, list: Array.isArray(list) ? list : [] });
+        } catch (e) {
+          console.error("failed to fetch following", e);
+        }
+      }
+      if (!followersMap()[accId]) {
+        try {
+          const list = await fetchFollowers(account.userName);
+          saveFollowers({ accountId: accId, list: Array.isArray(list) ? list : [] });
+        } catch (e) {
+          console.error("failed to fetch followers", e);
+        }
+      }
+    })();
+  });
 
   // 選択されたアカウントが変更されたときにローカル状態を更新
   createEffect(() => {
@@ -117,9 +150,7 @@ const AccountSettingsContent: Component<{
         setFollowingCount(0);
         setFollowerCount(0);
       });
-      // フォロー・フォロワー情報を事前に取得
-      refetchFollowers();
-      refetchFollowing();
+      // フォロー・フォロワーはグローバルで必要時に取得するため個別refetchは不要
     }
   });
 
