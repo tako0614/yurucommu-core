@@ -2033,10 +2033,8 @@ export function Chat() {
                     const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
                     const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-          const other = rawOther && rawOther !== selfHandle ? (normalizeHandle(rawOther) ?? rawOther) : undefined;
-                      // 相手が分からない場合は現状名を維持（自分のIDに上書きしない）
-                      if (other) return { ...r, name: other };
-                      return r;
+                      const other = rawOther && rawOther !== selfHandle ? (normalizeHandle(rawOther) ?? null) : null;
+                      return { ...r, name: other ?? (r.name || "不明") };
                     }
                     return r;
                   })()}
@@ -2143,6 +2141,6 @@ function normalizeHandle(actor: ActorID): string | null {
     }
   }
   if (actor.includes("@")) return actor;
-  // ローカルIDは user@domain に補正
-  return `${actor}@${getDomain()}`;
+  // 裸の文字列（displayName/uuid等）はハンドルとみなさない
+  return null;
 }

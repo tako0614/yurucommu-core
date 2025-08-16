@@ -53,11 +53,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
       const selfHandle = `${me.userName}@${getDomain()}`;
       const rawOther = room.members.find((m) => m !== selfHandle) ?? room.members[0];
       const other = normalizeHandle(rawOther);
-      if (
-        other &&
-        (room.name === "" || room.name === me.displayName || room.name === me.userName)
-      ) {
-        return other;
+      if (room.name === "" || room.name === me.displayName || room.name === me.userName) {
+        return other ?? "不明";
       }
       return room.name;
     }
@@ -77,8 +74,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
       }
     }
     if (id.includes("@")) return id;
-    // ローカルIDは user@domain へ
-    return `${id}@${getDomain()}`;
+    // 裸の文字列（displayName/uuid等）はハンドルとみなさない
+    return undefined;
   };
 
   const filteredRooms = createMemo(() => {

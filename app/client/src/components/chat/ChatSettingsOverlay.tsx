@@ -168,11 +168,15 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         return await loadMembersFromMessages(roomId);
       }
       const self = `${user.userName}@${getDomain()}`;
-      const ids = extractIdentities(state)
+      const raws = extractIdentities(state);
+      const ids = raws
         .map((id) => normalizeHandle(id))
         .filter((id): id is string => !!id)
         .filter((id) => id !== self);
-      if (ids.length === 0) {
+      const unknown = raws
+        .filter((raw) => !normalizeHandle(raw))
+        .filter((raw) => raw && raw !== self);
+      if (ids.length === 0 && unknown.length === 0) {
         const derived = deriveIdsFromRoom(self);
         if (derived.length > 0) {
           const list = await Promise.all(derived.map(async (id) => {
@@ -208,7 +212,20 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
           ktIncluded: resEval.kt.included,
         } as MemberItem;
       }));
-      setMembers(list);
+      const unknownList = await Promise.all(unknown.map(async (raw) => {
+        const resEval = await assessMemberBinding(user.id, roomId, undefined, "");
+        return {
+          id: raw,
+          display: "不明",
+          avatar: undefined,
+          actor: undefined,
+          leafSignatureKeyFpr: "",
+          bindingStatus: resEval.status,
+          bindingInfo: resEval.info,
+          ktIncluded: resEval.kt.included,
+        } as MemberItem;
+      }));
+      setMembers([...list, ...unknownList]);
       await loadPendingFromStorage(roomId, list.map((m) => m.id));
       await loadPendingFromStorage(roomId, list.map((m) => m.id));
     } catch (err) {
@@ -297,8 +314,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       }
     }
     if (id.includes("@")) return id;
-    // ローカルIDは user@domain へ
-    return `${id}@${getDomain()}`;
+    // 裸の文字列はハンドルとみなさない
+    return undefined;
   };
 
   const normalizeActor = (input: string): { user: string; domain?: string } | null => {

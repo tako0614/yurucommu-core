@@ -33,7 +33,7 @@ export function FriendList(props: FriendListProps) {
     for (const room of friendRooms) {
       const raw = (room.members && room.members.length > 0)
         ? room.members[0]
-        : (room.id.includes("@") ? room.id : room.id);
+        : (room.id.includes("@") ? room.id : undefined);
       const friendId = normalizeHandle(raw);
       if (!friendId) continue;
       if (!friendMap.has(friendId)) {
@@ -87,8 +87,8 @@ export function FriendList(props: FriendListProps) {
       }
     }
     if (id.includes("@")) return id;
-    // ローカルIDは user@domain
-    return `${id}@${location.hostname}`;
+    // 裸の文字列はハンドルとみなさない
+    return undefined;
   }
 
   const filteredFriends = createMemo(() => {
