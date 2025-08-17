@@ -194,6 +194,16 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
   return { content: text };
 }
 
+// joinAck シグナル (初回参加確認) を表示用メッセージから除外するための判定
+function isJoinAckText(text: string): boolean {
+  try {
+    const obj = JSON.parse(text);
+    return !!obj && typeof obj === "object" && (obj as { type?: unknown }).type === "joinAck";
+  } catch {
+    return false;
+  }
+}
+
 async function encryptFile(file: File) {
   const buf = await file.arrayBuffer();
   const key = await crypto.subtle.generateKey(
@@ -930,9 +940,12 @@ export function Chat() {
         continue;
       }
       group = res.state;
-      const note = parseActivityPubNote(
-        new TextDecoder().decode(res.plaintext),
-      );
+      const plaintextStr = new TextDecoder().decode(res.plaintext);
+      // joinAck は UI に表示しない
+      if (isJoinAckText(plaintextStr)) {
+        continue;
+      }
+      const note = parseActivityPubNote(plaintextStr);
       const text = note.content;
       const listAtt = Array.isArray(m.attachments)
         ? m.attachments
@@ -1869,9 +1882,14 @@ export function Chat() {
             console.warn("decryptMessage failed (ws)", err);
           }
           if (res) {
-            const note = parseActivityPubNote(
-              new TextDecoder().decode(res.plaintext),
-            );
+            const plaintextStr = new TextDecoder().decode(res.plaintext);
+            // joinAck は表示しない (state 更新のみ)
+            if (isJoinAckText(plaintextStr)) {
+              setGroups({ ...groups(), [room.id]: res.state });
+              saveGroupStates();
+              return; // この受信メッセージは追加しない
+            }
+            const note = parseActivityPubNote(plaintextStr);
             text = note.content;
             localId = note.id?.startsWith("urn:uuid:")
               ? note.id.slice(9)
