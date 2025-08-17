@@ -1372,7 +1372,7 @@ export function Chat() {
       await addRoom(
         user.id,
         { id: room.id, name: room.name, members },
-        { from: me, content: "hi" },
+        { from: me, content: "hi", to: members },
       );
     } catch (e) {
       console.error("ルーム作成に失敗しました", e);

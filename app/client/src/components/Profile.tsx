@@ -249,7 +249,7 @@ export default function Profile() {
     await addRoom(
       user.id,
       { id: handle, name: handle, members: [handle, me] },
-      { from: me, content: "hi" },
+      { from: me, content: "hi", to: [handle, me] },
     );
     setRoom(handle);
     setApp("chat");

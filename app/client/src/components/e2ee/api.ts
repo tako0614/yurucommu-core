@@ -720,6 +720,7 @@ export const addRoom = async (
     content: string;
     mediaType?: string;
     encoding?: string;
+  to?: string[]; // recipients (ハンドシェイク時必須)
   },
 ): Promise<boolean> => {
   try {
@@ -730,6 +731,7 @@ export const addRoom = async (
         content: handshake.content,
         mediaType: handshake.mediaType ?? "message/mls",
         encoding: handshake.encoding ?? "base64",
+    to: Array.isArray(handshake.to) ? handshake.to : (room.members ?? []).filter((m): m is string => typeof m === "string"),
       };
     }
     const res = await apiFetch(`/api/ap/rooms`, {
