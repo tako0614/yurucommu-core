@@ -17,27 +17,26 @@ import {
   fetchEncryptedMessages,
   fetchHandshakes,
   fetchKeepMessages,
+  fetchKeyPackages,
   importRosterEvidence,
   searchRooms,
   sendEncryptedMessage,
-  sendPublicMessage,
   sendHandshake,
   sendKeepMessage,
   uploadFile,
-  fetchKeyPackages,
 } from "./e2ee/api.ts";
 import { apiFetch, getDomain, getKpPoolSize } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
+  createCommitAndWelcomes,
+  createMLSGroup,
   decryptMessage,
   encryptMessageWithAck,
   generateKeyPair,
-  createMLSGroup,
   joinWithWelcome,
   processCommit,
   processProposal,
   removeMembers,
-  createCommitAndWelcomes,
   type RosterEvidence,
   type StoredGroupState,
   verifyWelcome,
@@ -50,13 +49,13 @@ import { decodeMlsMessage } from "ts-mls";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
   appendRosterEvidence,
+  getCacheItem,
+  loadAllMLSKeyPairs,
   loadKeyPackageRecords,
   loadMLSGroupStates,
   loadMLSKeyPair,
-  loadAllMLSKeyPairs,
   saveMLSGroupStates,
   saveMLSKeyPair,
-  getCacheItem,
   setCacheItem,
 } from "./e2ee/storage.ts";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
@@ -432,8 +431,6 @@ export function Chat() {
     {},
   );
   const [keyPair, setKeyPair] = createSignal<GeneratedKeyPair | null>(null);
-  // 暗号化はデフォルトではオフにしておく
-  const [useEncryption, setUseEncryption] = createSignal(false);
   const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
@@ -521,24 +518,29 @@ export function Chat() {
     const fullFrom = normalizeHandle(fromHandle as ActorID) ?? fromHandle;
     if (fromHandle === selfHandle) return;
     const [fromUser] = splitActor(fromHandle as ActorID);
-    setChatRooms((prev) => prev.map((r) => {
-      if (r.id !== roomId) return r;
-      const members = (r.members ?? []).map((m) => {
-        if (typeof m === "string" && !m.includes("@")) {
-          // ユーザー名だけ一致している場合はフルハンドルに置き換え
-          const [mu] = splitActor(m as ActorID);
-          if (mu === fromUser) return fullFrom as ActorID;
+    setChatRooms((prev) =>
+      prev.map((r) => {
+        if (r.id !== roomId) return r;
+        const members = (r.members ?? []).map((m) => {
+          if (typeof m === "string" && !m.includes("@")) {
+            // ユーザー名だけ一致している場合はフルハンドルに置き換え
+            const [mu] = splitActor(m as ActorID);
+            if (mu === fromUser) return fullFrom as ActorID;
+          }
+          return m;
+        });
+        // 1対1・未命名のとき、タイトルがローカル名等に上書きされていたらハンドルに補正
+        const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
+          !(r.hasName || r.hasIcon);
+        let name = r.name;
+        if (
+          isDm && (!name || name === user.displayName || name === user.userName)
+        ) {
+          name = fullFrom;
         }
-        return m;
-      });
-      // 1対1・未命名のとき、タイトルがローカル名等に上書きされていたらハンドルに補正
-      const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
-      let name = r.name;
-      if (isDm && (!name || name === user.displayName || name === user.userName)) {
-        name = fullFrom;
-      }
-      return { ...r, name, members };
-    }));
+        return { ...r, name, members };
+      })
+    );
   };
   const updateRoomLast = (roomId: string, msg?: ChatMessage) => {
     setChatRooms((rooms) => {
@@ -573,31 +575,47 @@ export function Chat() {
     if (!partner) {
       const sel = selectedRoom();
       if (sel) {
-        const nsel = normalizeHandle(sel as ActorID) ?? normalizeActor(sel as ActorID);
-        if (nsel.includes("@") && nsel !== selfHandle) partner = nsel as ActorID;
+        const nsel = normalizeHandle(sel as ActorID) ??
+          normalizeActor(sel as ActorID);
+        if (nsel.includes("@") && nsel !== selfHandle) {
+          partner = nsel as ActorID;
+        }
       }
     }
     if (!partner) return;
 
     // 画面表示用に client 側で members を補完（サーバーから返らない想定）
-    setChatRooms((prev) => prev.map((r) => {
-      if (r.id !== room.id) return r;
-      const cur = r.members ?? [];
-      const norm = normalizeHandle(partner as string) as string | undefined;
-      if (!norm) return r;
-      if (cur.length === 1 && cur[0] === norm) return r;
-      return { ...r, members: [norm] };
-    }));
+    setChatRooms((prev) =>
+      prev.map((r) => {
+        if (r.id !== room.id) return r;
+        const cur = r.members ?? [];
+        const norm = normalizeHandle(partner as string) as string | undefined;
+        if (!norm) return r;
+        if (cur.length === 1 && cur[0] === norm) return r;
+        return { ...r, members: [norm] };
+      })
+    );
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
-    if (!(room.hasName || room.hasIcon) && (room.name === "" || room.name === user.displayName || room.name === user.userName)) {
+    if (
+      !(room.hasName || room.hasIcon) &&
+      (room.name === "" || room.name === user.displayName ||
+        room.name === user.userName)
+    ) {
       try {
         const info = await fetchUserInfo(partner as ActorID);
         if (info) {
-          setChatRooms((prev) => prev.map((r) => r.id === room.id
-            ? { ...r, name: info.displayName || info.userName, avatar: info.authorAvatar || r.avatar }
-            : r,
-          ));
+          setChatRooms((prev) =>
+            prev.map((r) =>
+              r.id === room.id
+                ? {
+                  ...r,
+                  name: info.displayName || info.userName,
+                  avatar: info.authorAvatar || r.avatar,
+                }
+                : r
+            )
+          );
         }
       } catch (err) {
         // ネットワークエラーや404は致命的ではないので無視
@@ -611,9 +629,7 @@ export function Chat() {
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
     if (!useEncryption() && !partnerHasKey()) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "暗号化に未対応", description: "このユーザーは暗号化された会話に対応していません。" },
-      }));
+      alert("このユーザーは暗号化された会話に対応していません。");
       return;
     }
     setUseEncryption(!useEncryption());
@@ -651,7 +667,8 @@ export function Chat() {
         // アクターURLを identity に用いた正しい Credential で生成
         const user = account();
         if (!user) return;
-        const actor = new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+        const actor =
+          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
         const created = await createMLSGroup(actor);
         initState = created.state;
       } catch (e) {
@@ -680,29 +697,30 @@ export function Chat() {
     let pair: GeneratedKeyPair | null = keyPair();
     const user = account();
     if (!user) return null;
+    if (!pair) {
+      setIsGeneratingKeyPair(true);
+      try {
+        pair = await loadMLSKeyPair(user.id);
+      } catch (err) {
+        console.error("鍵ペアの読み込みに失敗しました", err);
+        pair = null;
+      }
       if (!pair) {
-        setIsGeneratingKeyPair(true);
+        // MLS の identity はアクターURLを用いる（外部連合との整合性維持）
+        const actor =
+          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+        const kp = await generateKeyPair(actor);
+        pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
         try {
-          pair = await loadMLSKeyPair(user.id);
+          await saveMLSKeyPair(user.id, pair);
+          await addKeyPackage(user.userName, { content: kp.encoded });
+          // 目標プール数まで補充
+          await topUpSelfKeyPackages(user.userName, user.id);
         } catch (err) {
-          console.error("鍵ペアの読み込みに失敗しました", err);
-          pair = null;
+          console.error("鍵ペアの保存に失敗しました", err);
+          setIsGeneratingKeyPair(false);
+          return null;
         }
-        if (!pair) {
-          // MLS の identity はアクターURLを用いる（外部連合との整合性維持）
-          const actor = new URL(`/users/${user.userName}`, globalThis.location.origin).href;
-          const kp = await generateKeyPair(actor);
-          pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
-          try {
-            await saveMLSKeyPair(user.id, pair);
-            await addKeyPackage(user.userName, { content: kp.encoded });
-            // 目標プール数まで補充
-            await topUpSelfKeyPackages(user.userName, user.id);
-          } catch (err) {
-            console.error("鍵ペアの保存に失敗しました", err);
-            setIsGeneratingKeyPair(false);
-            return null;
-          }
       }
       setKeyPair(pair);
       setIsGeneratingKeyPair(false);
@@ -759,7 +777,10 @@ export function Chat() {
             try {
               const dec = decodeMlsMessage(body, 0)?.[0];
               if (dec && dec.wireformat === "mls_public_message") {
-                group = await processCommit(group, dec.publicMessage as unknown as never);
+                group = await processCommit(
+                  group,
+                  dec.publicMessage as unknown as never,
+                );
               } else {
                 throw new Error("not a public message");
               }
@@ -771,7 +792,10 @@ export function Chat() {
             try {
               const dec = decodeMlsMessage(body, 0)?.[0];
               if (dec && dec.wireformat === "mls_public_message") {
-                group = await processProposal(group, dec.publicMessage as unknown as never);
+                group = await processProposal(
+                  group,
+                  dec.publicMessage as unknown as never,
+                );
               } else {
                 throw new Error("not a public message");
               }
@@ -870,7 +894,8 @@ export function Chat() {
       if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
-        const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+        const otherName = (!room.name || room.name === user.displayName ||
+            room.name === user.userName)
           ? m.from
           : room.name;
         const displayName = isMe
@@ -992,10 +1017,13 @@ export function Chat() {
       const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
       if (!isMe) updatePeerHandle(room.id, m.from);
-      const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+      const otherName = (!room.name || room.name === user.displayName ||
+          room.name === user.userName)
         ? m.from
         : room.name;
-      const displayName = isMe ? (user.displayName || user.userName) : otherName;
+      const displayName = isMe
+        ? (user.displayName || user.userName)
+        : otherName;
       encryptedMsgs.push({
         id: m.id,
         author: m.from,
@@ -1020,7 +1048,9 @@ export function Chat() {
     try {
       const acc = account();
       if (acc) {
-        const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
+        const participants = extractMembers(group).map((x) =>
+          normalizeHandle(x) ?? x
+        ).filter((v): v is string => !!v);
         await syncPendingWithParticipants(acc.id, room.id, participants);
       }
     } catch {
@@ -1180,7 +1210,9 @@ export function Chat() {
     const ids = twoNoName
       .map((r) => {
         const includesSelf = r.members.includes(selfHandle);
-        if (includesSelf) return r.members.find((m) => m !== selfHandle) as string | undefined;
+        if (includesSelf) {
+          return r.members.find((m) => m !== selfHandle) as string | undefined;
+        }
         return r.members[0];
       })
       .filter((v): v is string => !!v);
@@ -1284,15 +1316,30 @@ export function Chat() {
     try {
       const group = groups()[room.id];
       if (group) {
-        const kpInputs: { content: string; actor?: string; deviceId?: string }[] = [];
+        const kpInputs: {
+          content: string;
+          actor?: string;
+          deviceId?: string;
+        }[] = [];
         for (const h of others) {
           const [uname, dom] = splitActor(h as ActorID);
           const kps = await fetchKeyPackages(uname, dom);
           if (kps && kps.length > 0) {
-            const kp = pickUsableKeyPackage(kps as unknown as { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[]);
+            const kp = pickUsableKeyPackage(
+              kps as unknown as {
+                content: string;
+                expiresAt?: string;
+                used?: boolean;
+                deviceId?: string;
+              }[],
+            );
             if (!kp) continue;
             const actor = dom ? `https://${dom}/users/${uname}` : undefined;
-            kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
+            kpInputs.push({
+              content: kp.content,
+              actor,
+              deviceId: kp.deviceId,
+            });
           }
         }
         if (kpInputs.length > 0) {
@@ -1388,6 +1435,10 @@ export function Chat() {
       setMediaPreview(null);
       return;
     }
+    if (!partnerHasKey()) {
+      alert("このユーザーは暗号化された会話に対応していません。");
+      return;
+    }
     // クライアント側で仮のメッセージIDを生成しておく
     const localId = crypto.randomUUID();
     const note: Record<string, unknown> = {
@@ -1408,9 +1459,7 @@ export function Chat() {
         await initGroupState(roomId);
         group = groups()[roomId];
         if (!group) {
-          globalThis.dispatchEvent(new CustomEvent("app:toast", {
-            detail: { type: "error", title: "送信できません", description: "グループ初期化に失敗したため送信できません" },
-          }));
+          alert("グループ初期化に失敗したため送信できません");
           return;
         }
       }
@@ -1486,9 +1535,7 @@ export function Chat() {
         }
       }
       if (!success) {
-        globalThis.dispatchEvent(new CustomEvent("app:toast", {
-          detail: { type: "error", title: "送信エラー", description: "メッセージの送信に失敗しました" },
-        }));
+        alert("メッセージの送信に失敗しました");
         return;
       }
       setGroups({ ...groups(), [roomId]: encrypted.state });
@@ -1501,9 +1548,7 @@ export function Chat() {
         Array.isArray(note.attachment) ? note.attachment as unknown[] : undefined,
       );
       if (!ok) {
-        globalThis.dispatchEvent(new CustomEvent("app:toast", {
-          detail: { type: "error", title: "送信エラー", description: "メッセージの送信に失敗しました" },
-        }));
+        alert("メッセージの送信に失敗しました");
         return;
       }
     }
@@ -1684,7 +1729,8 @@ export function Chat() {
 
       const isMe = data.from === self;
       if (!isMe) updatePeerHandle(room.id, data.from);
-      const otherName = (!room.name || room.name === user.displayName || room.name === user.userName)
+      const otherName = (!room.name || room.name === user.displayName ||
+          room.name === user.userName)
         ? data.from
         : room.name;
       const displayName = isMe
@@ -1706,7 +1752,8 @@ export function Chat() {
         const group = groups()[room.id];
         if (group) {
           const buf = b64ToBuf(data.content);
-          let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
+          let res: { plaintext: Uint8Array; state: StoredGroupState } | null =
+            null;
           try {
             res = await decryptMessage(group, buf);
           } catch (err) {
@@ -1917,7 +1964,8 @@ export function Chat() {
           const parts = participantsFromState(r.id);
           if (parts.length === 0) return r;
           const cur = r.members ?? [];
-          const equals = cur.length === parts.length && cur.every((v, i) => v === parts[i]);
+          const equals = cur.length === parts.length &&
+            cur.every((v, i) => v === parts[i]);
           if (!equals) {
             changed = true;
             return { ...r, members: parts };
@@ -1928,8 +1976,13 @@ export function Chat() {
 
         // 1対1・未命名の表示名補完（変更がある場合のみ更新）
         const base = changed ? nextA : list;
-        const candidates = base.filter((r) => r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon));
-        const ids = candidates.map((r) => r.members[0]).filter((v): v is string => !!v);
+        const candidates = base.filter((r) =>
+          r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
+          !(r.hasName || r.hasIcon)
+        );
+        const ids = candidates.map((r) => r.members[0]).filter((
+          v,
+        ): v is string => !!v);
         if (ids.length === 0) return;
         try {
           const infos = await fetchUserInfoBatch(ids, user.id);
@@ -1937,7 +1990,10 @@ export function Chat() {
           for (let i = 0; i < ids.length; i++) map.set(ids[i], infos[i]);
           let nameChanged = false;
           const nextB = base.map((r) => {
-            if (r.type === "memo" || !(r.members?.length === 1) || (r.hasName || r.hasIcon)) return r;
+            if (
+              r.type === "memo" || !(r.members?.length === 1) ||
+              (r.hasName || r.hasIcon)
+            ) return r;
             const info = map.get(r.members[0]);
             if (!info) return r;
             const newName = info.displayName || info.userName;
@@ -2034,9 +2090,7 @@ export function Chat() {
 
   createEffect(() => {
     if (useEncryption() && !partnerHasKey()) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "暗号化に未対応", description: "このユーザーは暗号化された会話に対応していません。" },
-      }));
+      alert("このユーザーは暗号化された会話に対応していません。");
     }
   });
 
@@ -2117,12 +2171,20 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     const me = account();
                     if (!r) return r;
-                    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
-                    const rawOther = r.members.find((m) => m !== selfHandle) ?? r.members[0];
-                    const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
-                    const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
+                    const selfHandle = me
+                      ? `${me.userName}@${getDomain()}`
+                      : undefined;
+                    const rawOther = r.members.find((m) => m !== selfHandle) ??
+                      r.members[0];
+                    const isDm = r.type !== "memo" &&
+                      (r.members?.length ?? 0) === 1 &&
+                      !(r.hasName || r.hasIcon);
+                    const looksLikeSelf = me &&
+                      (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle ? (normalizeHandle(rawOther) ?? null) : null;
+                      const other = rawOther && rawOther !== selfHandle
+                        ? (normalizeHandle(rawOther) ?? null)
+                        : null;
                       return { ...r, name: other ?? (r.name || "不明") };
                     }
                     return r;
@@ -2151,8 +2213,6 @@ export function Chat() {
                   setMediaFile={setMediaFile}
                   mediaPreview={mediaPreview()}
                   setMediaPreview={setMediaPreview}
-                  useEncryption={useEncryption()}
-                  toggleEncryption={toggleEncryption}
                   sendMessage={sendMessage}
                 />
               </div>
@@ -2172,7 +2232,7 @@ export function Chat() {
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}
-        groupState={(function(){
+        groupState={(function () {
           const id = selectedRoom();
           if (!id) return null;
           return groups()[id] ?? null;
@@ -2221,23 +2281,40 @@ function normalizeActor(actor: ActorID): string {
 
 // 招待中のローカル管理（設定オーバーレイが参照）
 const cacheKeyPending = (roomId: string) => `pendingInvites:${roomId}`;
-async function readPending(accountId: string, roomId: string): Promise<string[]> {
+async function readPending(
+  accountId: string,
+  roomId: string,
+): Promise<string[]> {
   const raw = await getCacheItem(accountId, cacheKeyPending(roomId));
-  return Array.isArray(raw) ? (raw as unknown[]).filter((v) => typeof v === "string") as string[] : [];
+  return Array.isArray(raw)
+    ? (raw as unknown[]).filter((v) => typeof v === "string") as string[]
+    : [];
 }
 async function writePending(accountId: string, roomId: string, ids: string[]) {
   const uniq = Array.from(new Set(ids));
   await setCacheItem(accountId, cacheKeyPending(roomId), uniq);
 }
-async function addPendingInvites(accountId: string, roomId: string, ids: string[]) {
+async function addPendingInvites(
+  accountId: string,
+  roomId: string,
+  ids: string[],
+) {
   const cur = await readPending(accountId, roomId);
   await writePending(accountId, roomId, [...cur, ...ids]);
 }
-async function removePendingInvite(accountId: string, roomId: string, id: string) {
+async function _removePendingInvite(
+  accountId: string,
+  roomId: string,
+  id: string,
+) {
   const cur = (await readPending(accountId, roomId)).filter((v) => v !== id);
   await writePending(accountId, roomId, cur);
 }
-async function syncPendingWithParticipants(accountId: string, roomId: string, participants: string[]) {
+async function syncPendingWithParticipants(
+  accountId: string,
+  roomId: string,
+  participants: string[],
+) {
   const present = new Set(participants);
   const cur = await readPending(accountId, roomId);
   const next = cur.filter((v) => !present.has(v));
@@ -2245,10 +2322,19 @@ async function syncPendingWithParticipants(accountId: string, roomId: string, pa
 }
 
 function pickUsableKeyPackage(
-  list: { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[],
-): { content: string; expiresAt?: string; used?: boolean; deviceId?: string } | null {
+  list: {
+    content: string;
+    expiresAt?: string;
+    used?: boolean;
+    deviceId?: string;
+  }[],
+):
+  | { content: string; expiresAt?: string; used?: boolean; deviceId?: string }
+  | null {
   const now = Date.now();
-  const usable = list.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  const usable = list.filter((k) =>
+    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
+  );
   if (usable.length > 0) return usable[0];
   return list[0] ?? null;
 }
@@ -2259,16 +2345,23 @@ async function topUpSelfKeyPackages(userName: string, accountId: string) {
     if (!target || target <= 1) return;
     const selfKps = await fetchKeyPackages(userName);
     const now = Date.now();
-    const usable = (selfKps ?? []).filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+    const usable = (selfKps ?? []).filter((k) =>
+      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
+    );
     const need = target - usable.length;
     if (need <= 0) return;
     // actor URL for identity
-    const actor = new URL(`/users/${userName}`, globalThis.location.origin).href;
+    const actor =
+      new URL(`/users/${userName}`, globalThis.location.origin).href;
     for (let i = 0; i < need; i++) {
       try {
         const kp = await generateKeyPair(actor);
         // 保存（複数保存可能: KEY_STORE は autoIncrement）
-        await saveMLSKeyPair(accountId, { public: kp.public, private: kp.private, encoded: kp.encoded });
+        await saveMLSKeyPair(accountId, {
+          public: kp.public,
+          private: kp.private,
+          encoded: kp.encoded,
+        });
         await addKeyPackage(userName, { content: kp.encoded });
       } catch (e) {
         console.warn("KeyPackage 補充に失敗しました", e);
