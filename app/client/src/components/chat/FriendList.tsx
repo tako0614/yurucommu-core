@@ -34,38 +34,69 @@ export function FriendList(props: FriendListProps) {
   const friends = createMemo(() => {
     const me = account();
     const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
+    const selfShort = me?.userName;
+    const isSelf = (id?: string) => {
+      if (!id) return false;
+      const h = normalizeHandle(id);
+      if (h && selfHandle && h === selfHandle) return true;
+      if (selfHandle && id === selfHandle) return true;
+      if (selfShort && id === selfShort) return true;
+      // 自分の actor URL 形式
+      try {
+        if (id.startsWith("http")) {
+          const u = new URL(id);
+          const name = u.pathname.split("/").pop() || "";
+          if (selfShort && name === selfShort && u.hostname === getDomain()) return true;
+        }
+      } catch {/* ignore */}
+      return false;
+    };
+    const isUuid = (v?: string) => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
     const friendMap = new Map<string, Friend>();
-    // フレンド候補: 自分以外の候補がちょうど1名の未命名ルーム
+    // フレンド候補: 自分以外の候補がちょうど1名のルーム（名前の有無は問わない）
     const candidateRooms = props.rooms.filter((r) => {
       if (r.type === "memo") return false;
-      if (r.hasName || r.hasIcon) return false;
-      const base = (r.members && r.members.length > 0) ? r.members : (r.pendingInvites ?? []);
-      const norm = base
-        .filter((m): m is string => typeof m === "string" && !!m)
-        .map((m) => normalizeHandle(m) || m);
-      const others = norm.filter((m) => m !== selfHandle);
-      // ID が @ を含む/含まないにかかわらず、他者候補が1名なら候補にする
-      if (others.length === 1) return true;
-      // さらに base が1名でも候補にする（未正規化の暫定ID対応）
-      return base.length === 1 && (selfHandle ? base[0] !== selfHandle : true);
+      const base = [
+        ...((r.members ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+        ...((r.pendingInvites ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+      ];
+      let normalized = base.map((m) => normalizeHandle(m) || m);
+      normalized = normalized.filter((m) => !!m && !isSelf(m));
+      // members/pending が空なら room.id を候補に（1:1の actor id ルーム想定）
+      if (normalized.length === 0) {
+        const rid = normalizeHandle(r.id) || r.id;
+        if (rid && !isSelf(rid) && !isUuid(rid)) normalized = [rid];
+      }
+      const uniqueOthers = Array.from(new Set(normalized));
+      return uniqueOthers.length === 1;
     });
     for (const room of candidateRooms) {
-      const base = (room.members && room.members.length > 0)
-        ? room.members
-        : (room.pendingInvites ?? []);
-      // 自分以外の最初のID
-      const raw = base.find((m) => m && m !== selfHandle) ?? base[0];
+      const base = [
+        ...((room.members ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+        ...((room.pendingInvites ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+      ];
+      let normalized = base.map((m) => normalizeHandle(m) || m);
+      normalized = normalized.filter((m) => !!m && !isSelf(m));
+      // 自分以外が見つからない場合は room.id を使用（1:1の actor id ルーム想定）
+      if (normalized.length === 0) {
+        const rid = normalizeHandle(room.id) || room.id;
+        if (rid && !isSelf(rid) && !isUuid(rid)) normalized = [rid];
+      }
+      const raw = normalized[0];
       if (!raw) continue;
-      const friendId = normalizeHandle(raw) || raw;
+      const friendId = raw;
       if (selfHandle && friendId === selfHandle) continue;
       if (!friendMap.has(friendId)) {
         const isSelfLikeName = me && (room.name === me.displayName || room.name === me.userName || room.name === selfHandle);
         const short = friendId.includes("@") ? friendId.split("@")[0] : friendId;
-        const fromPending = (!room.members || room.members.length === 0) && (room.pendingInvites?.length === 1);
         const fallbackName = (short || friendId);
         friendMap.set(friendId, {
           id: friendId,
-          name: (room.name && !isSelfLikeName) ? room.name : fallbackName,
+          name: (room.displayName && !isSelfLikeName)
+            ? room.displayName
+            : (room.name && !isSelfLikeName)
+            ? room.name
+            : fallbackName,
           avatar: room.avatar,
           domain: friendId.includes("@") ? friendId.split("@")[1] : undefined,
         });

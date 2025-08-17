@@ -496,15 +496,23 @@ export function Chat() {
     upsertRooms([room]);
   }
 
-  // MLSの状態から参加者（自分以外）を抽出
+  // MLSの状態から参加者（自分以外）を抽出（actor URL / handle を正規化しつつ重複除去）
   const participantsFromState = (roomId: string): string[] => {
     const user = account();
     if (!user) return [];
     const state = groups()[roomId];
     if (!state) return [];
-    const handle = `${user.userName}@${getDomain()}` as ActorID;
+    const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
     try {
-      return extractMembers(state).filter((m) => m !== handle);
+      const raws = extractMembers(state);
+      const normed = raws
+        .map((m) => normalizeHandle(m as ActorID) ?? m)
+        .filter((m): m is string => !!m);
+      const withoutSelf = normed.filter((m) => {
+        const h = normalizeHandle(m as ActorID) ?? m;
+        return h !== selfHandle;
+      });
+      return Array.from(new Set(withoutSelf));
     } catch {
       return [];
     }
@@ -1161,7 +1169,9 @@ export function Chat() {
       const icon = meta.icon ?? "";
       // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
       let members = state
-        ? extractMembers(state).filter((m) => m !== handle)
+        ? extractMembers(state)
+          .map((m) => normalizeHandle(m as ActorID) ?? m)
+          .filter((m) => (normalizeHandle(m as ActorID) ?? m) !== handle)
         : [] as string[];
       if (members.length === 0) {
         try {
@@ -1581,6 +1591,9 @@ export function Chat() {
       const ok = await sendEncryptedMessage(
         roomId,
         `${user.userName}@${getDomain()}`,
+        participantsFromState(roomId).length > 0
+          ? participantsFromState(roomId)
+          : (room.members ?? []).map((m) => m || "").filter((v) => !!v),
         {
           content: bufToB64(msg),
           mediaType: "message/mls",
