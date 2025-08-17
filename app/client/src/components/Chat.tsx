@@ -1190,7 +1190,21 @@ export function Chat() {
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
     setChatRooms(unique);
-    // メッセージの取得は選択時に実行する
+    // 初期表示のため、各ルームの最新メッセージをバックグラウンドで取得し一覧のプレビューを更新
+    // （選択中ルーム以外は本文状態には反映せず、lastMessage/lastMessageTime のみ更新）
+    void (async () => {
+      for (const r of unique) {
+        try {
+          const msgs = await fetchMessagesForRoom(r, { limit: 1 });
+          if (msgs.length > 0) {
+            updateRoomLast(r.id, msgs[msgs.length - 1]);
+          }
+        } catch (e) {
+          // ネットワーク不通や復号不可などは致命的ではないため一覧更新のみ諦める
+          console.warn("最新メッセージの事前取得に失敗しました", r.id, e);
+        }
+      }
+    })();
   };
 
   const applyDisplayFallback = async (rooms: Room[]) => {
@@ -1948,11 +1962,18 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-  createEffect(() => {
-    account();
-    groups();
-    loadRooms();
+  // ルーム一覧の読み込みはアカウント変更時と初期表示時のみ実行
+  onMount(() => {
+    void loadRooms();
   });
+  createEffect(
+    on(
+      () => account(),
+      () => {
+        void loadRooms();
+      },
+    ),
+  );
 
   // MLS グループ状態の更新に合わせてメンバー/表示名を補正
   createEffect(
