@@ -534,7 +534,7 @@ export function Chat() {
           !(r.hasName || r.hasIcon);
         let name = r.name;
         if (
-          isDm && (!name || name === user.displayName || name === user.userName)
+          isDm && (!name || name === user.displayName || name === user.userName || name === selfHandle)
         ) {
           name = fullFrom;
         }
@@ -600,7 +600,7 @@ export function Chat() {
     if (
       !(room.hasName || room.hasIcon) &&
       (room.name === "" || room.name === user.displayName ||
-        room.name === user.userName)
+        room.name === user.userName || room.name === selfHandle)
     ) {
       try {
         const info = await fetchUserInfo(partner as ActorID);
@@ -892,8 +892,9 @@ export function Chat() {
       if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
+        const selfH = `${user.userName}@${getDomain()}`;
         const otherName = (!room.name || room.name === user.displayName ||
-            room.name === user.userName)
+            room.name === user.userName || room.name === selfH)
           ? m.from
           : room.name;
         const displayName = isMe
@@ -1015,8 +1016,9 @@ export function Chat() {
       const fullId = `${user.userName}@${getDomain()}`;
       const isMe = m.from === fullId;
       if (!isMe) updatePeerHandle(room.id, m.from);
+      const selfH2 = `${user.userName}@${getDomain()}`;
       const otherName = (!room.name || room.name === user.displayName ||
-          room.name === user.userName)
+          room.name === user.userName || room.name === selfH2)
         ? m.from
         : room.name;
       const displayName = isMe
@@ -1162,18 +1164,25 @@ export function Chat() {
         : { name: "", icon: undefined };
       const name = meta.name ?? "";
       const icon = meta.icon ?? "";
-      // サーバーが members を返さない場合に備えて安全に処理
-      const members = state
+      // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
+      let members = state
         ? extractMembers(state).filter((m) => m !== handle)
-        : (item.members ?? []).filter((m) => m !== handle);
-      // サーバーが自分しか返していない（=filterで0人になった）無名グループは仮に「招待中のグループ」と表示
-      const displayName = name.trim() !== "" ? name : (members.length === 0 ? "招待中のグループ" : "");
+        : [] as string[];
+      if (members.length === 0) {
+        try {
+          const pend = await readPending(user.id, item.id);
+          const others = (pend || []).filter((m) => m && m !== handle);
+          if (others.length > 0) members = others;
+        } catch {
+          /* ignore */
+        }
+      }
       rooms.push({
         id: item.id,
-        name: displayName,
+        name,
         userName: user.userName,
         domain: getDomain(),
-        avatar: icon || (displayName ? displayName.charAt(0).toUpperCase() : "👥"),
+        avatar: icon || (name ? name.charAt(0).toUpperCase() : "👥"),
         unreadCount: 0,
         type: "group",
         members,
@@ -1213,22 +1222,24 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    // ルームごとの招待中メンバーを取得（自分は除外）
-    const pendingMap = new Map<string, string[]>();
+    // 参加者は MLS の leaf から導出済みの room.members のみを信頼（APIやpendingは使わない）
+    const uniqueOthers = (r: Room): string[] =>
+      (r.members ?? []).filter((m) => m && m !== selfHandle);
+
+    // MLS 同期前の暫定表示: members が空のルームは pending 招待から1名だけでも補完
     for (const r of rooms) {
       try {
-        const list = await readPending(user.id, r.id);
-        const others = (list || []).filter((id) => id && id !== selfHandle);
-        pendingMap.set(r.id, others);
+        if ((r.members?.length ?? 0) === 0 && r.type !== "memo") {
+          const pend = await readPending(user.id, r.id);
+          const cand = (pend || []).filter((m) => m && m !== selfHandle);
+          if (cand.length > 0) {
+            r.members = [cand[0]];
+          }
+        }
       } catch {
-        pendingMap.set(r.id, []);
+        // ignore
       }
     }
-    const uniqueOthers = (r: Room): string[] => {
-      const base = (r.members ?? []).filter((m) => m && m !== selfHandle);
-      const pend = pendingMap.get(r.id) ?? [];
-      return Array.from(new Set([...base, ...pend]));
-    };
     const totalMembers = (r: Room) => 1 + uniqueOthers(r).length; // 自分+その他
     // 事前補正: 2人想定で名前が自分の表示名/ユーザー名のときは未命名として扱う
     for (const r of rooms) {
@@ -1255,16 +1266,7 @@ export function Chat() {
         if (info) {
           r.name = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
-          const desired = `${info.userName}@${info.domain}`;
-          const others = uniqueOthers(r);
-          if (others.length === 1) {
-            const cur = others[0];
-            if (cur !== desired) {
-              r.members = [desired];
-            } else if ((r.members?.length ?? 0) !== 1 || r.members?.[0] !== desired) {
-              r.members = [desired];
-            }
-          }
+          // 参加者リストは MLS 由来を保持する（表示名のみ補完）
         }
       }
     }
@@ -1324,6 +1326,7 @@ export function Chat() {
       avatar: "",
       unreadCount: 0,
       type: "group",
+      // UI表示用に招待先を入れておく（MLS同期後は state 由来に上書きされる）
       members: others,
       hasName: Boolean(finalName),
       hasIcon: false,
@@ -1772,8 +1775,9 @@ export function Chat() {
 
       const isMe = data.from === self;
       if (!isMe) updatePeerHandle(room.id, data.from);
+      const selfH3 = `${user.userName}@${getDomain()}`;
       const otherName = (!room.name || room.name === user.displayName ||
-          room.name === user.userName)
+          room.name === user.userName || room.name === selfH3)
         ? data.from
         : room.name;
       const displayName = isMe

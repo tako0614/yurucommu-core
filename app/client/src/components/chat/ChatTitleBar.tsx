@@ -1,5 +1,9 @@
 import { Show } from "solid-js";
 import type { Room } from "./types.ts";
+import { isFriendRoom } from "./types.ts";
+import { useAtom } from "solid-jotai";
+import { activeAccount } from "../../states/account.ts";
+import { getDomain } from "../../utils/config.ts";
 import type { BindingStatus } from "../e2ee/binding.ts";
 
 interface ChatTitleBarProps {
@@ -13,6 +17,41 @@ interface ChatTitleBarProps {
 }
 
 export function ChatTitleBar(props: ChatTitleBarProps) {
+  const [account] = useAtom(activeAccount);
+  const normalizeHandle = (id?: string): string | undefined => {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    return undefined;
+  };
+  const titleFor = (room: Room | null): string => {
+    if (!room) return "";
+    if (room.type === "memo") return room.name;
+    const me = account();
+    if (!me) return room.name;
+    const selfHandle = `${me.userName}@${getDomain()}`;
+    if (isFriendRoom(room)) {
+      const other = (room.members ?? []).find((m) => m !== selfHandle) ?? room.members?.[0];
+      const otherId = normalizeHandle(typeof other === "string" ? other : undefined);
+      if (!room.name || room.name === me.displayName || room.name === me.userName || room.name === selfHandle) {
+        if (otherId && otherId !== selfHandle) return otherId;
+        // 相手未確定なら空を返す（自分名は表示しない）
+        return "";
+      }
+    }
+    // グループで自分名/自分ハンドルがタイトルに入ってしまっている場合は空で返す
+    if (room.name === me.displayName || room.name === me.userName || room.name === selfHandle) return "";
+    return room.name;
+  };
   return (
     <div
       class={`absolute w-full h-12 flex items-center font-bold text-[20px] border-b border-[#333333] bg-[rgba(30,30,30,0.85)] backdrop-blur-md shadow-[0_3px_18px_rgba(0,0,0,0.2)] text-white z-[2] md:px-[18px] ${
@@ -38,7 +77,7 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
             </svg>
           </button>
         </Show>
-        <h2>{props.selectedRoom?.name}</h2>
+        <h2>{titleFor(props.selectedRoom)}</h2>
         <Show when={props.bindingInfo}>
           <span class="ml-2 px-2 py-0.5 text-xs bg-[#444] rounded">
             {props.bindingInfo!.label}

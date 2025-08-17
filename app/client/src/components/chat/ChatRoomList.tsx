@@ -63,30 +63,22 @@ export function ChatRoomList(props: ChatRoomListProps) {
     const me = account();
     if (!me) return room.name;
     if (room.type === "memo") return room.name;
-    // 招待中で自分しか居ないケース（members が空、または自分のみ）
     const selfHandle = `${me.userName}@${getDomain()}`;
     const members = room.members ?? [];
-    const onlyMe = members.length === 0 || (members.length === 1 && members[0] === selfHandle);
-    if (!isFriendRoom(room)) {
-      if (onlyMe) {
-        // グループ未命名で自分しかいない状態は招待中と表示
-        return room.name && room.name.trim() !== "" ? room.name : "招待中のグループ";
-      }
-      return room.name;
-    }
+    // グループ（1:1以外）はそのまま（後段の補完で名前が入る想定）
+    if (!isFriendRoom(room)) return room.name;
     if (isFriendRoom(room)) {
       const rawOther = room.members.find((m) => m !== selfHandle) ??
         room.members[0];
       const other = normalizeHandle(rawOther);
       if (
         room.name === "" || room.name === me.displayName ||
-        room.name === me.userName
+        room.name === me.userName || room.name === selfHandle
       ) {
-        // 万一、other が自分（または取得不可）の場合は招待中扱い
-        if (!other || other === selfHandle) {
-          return "招待中のグループ";
-        }
-        return other ?? "不明";
+        // 自分名や空のときは相手のハンドルを優先
+        if (other && other !== selfHandle) return other;
+        // 相手未確定なら空（自分を表示しない）
+        return "";
       }
       return room.name;
     }

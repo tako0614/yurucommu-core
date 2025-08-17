@@ -2,6 +2,9 @@ import { createSignal, Show, For, createMemo } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
 import { isFriendRoom } from "./types.ts";
+import { useAtom } from "solid-jotai";
+import { activeAccount } from "../../states/account.ts";
+import { getDomain } from "../../utils/config.ts";
 
 interface Friend {
   id: string; // actor ID
@@ -21,6 +24,7 @@ interface FriendListProps {
 }
 
 export function FriendList(props: FriendListProps) {
+  const [account] = useAtom(activeAccount);
   const [localQuery, setLocalQuery] = createSignal("");
   const q = () => (props.query !== undefined ? props.query : localQuery());
   const setQuery = (v: string) =>
@@ -28,18 +32,27 @@ export function FriendList(props: FriendListProps) {
 
   // ルームから友達リストを生成
   const friends = createMemo(() => {
+    const me = account();
+    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
     const friendMap = new Map<string, Friend>();
     const friendRooms = props.rooms.filter(isFriendRoom);
     for (const room of friendRooms) {
+      // 自分以外を優先して相手IDを導出
       const raw = (room.members && room.members.length > 0)
-        ? room.members[0]
+        ? (room.members.find((m) => m !== selfHandle) ?? room.members[0])
         : (room.id.includes("@") ? room.id : undefined);
       const friendId = normalizeHandle(raw);
+      if (friendId && selfHandle && friendId === selfHandle) {
+        // 自分自身は友だち一覧から除外
+        continue;
+      }
       if (!friendId) continue;
       if (!friendMap.has(friendId)) {
+        const isSelfLikeName = me && (room.name === me.displayName || room.name === me.userName || room.name === selfHandle);
+        const fallbackName = friendId.split("@")[0] || friendId;
         friendMap.set(friendId, {
           id: friendId,
-          name: room.name || friendId.split("@")[0] || friendId,
+          name: (room.name && !isSelfLikeName) ? room.name : fallbackName,
           avatar: room.avatar,
           domain: friendId.includes("@") ? friendId.split("@")[1] : undefined,
         });
@@ -48,14 +61,12 @@ export function FriendList(props: FriendListProps) {
     // 並び順: 未読合計 → 最終アクティビティ → 名前
     const items = Array.from(friendMap.values());
     const unreadSum = (fid: string) =>
-      props.rooms.filter((r) => isFriendRoom(r) && (
-        (r.members?.includes(fid)) || (r.members?.length ?? 0) === 0 && r.id === fid
-      )).reduce((a, r) => a + (r.unreadCount || 0), 0);
+      props.rooms.filter((r) => isFriendRoom(r) && (r.members?.includes(fid))).reduce((a, r) => a + (r.unreadCount || 0), 0);
     const lastTime = (fid: string) => {
       let t = 0;
       for (const r of props.rooms) {
         if (!isFriendRoom(r)) continue;
-        const match = (r.members?.includes(fid)) || (r.members?.length ?? 0) === 0 && r.id === fid;
+        const match = r.members?.includes(fid);
         if (!match) continue;
         const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
         if (ts > t) t = ts;
