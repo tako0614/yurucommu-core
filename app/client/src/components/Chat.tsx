@@ -569,6 +569,10 @@ export function Chat() {
     const user = account();
     if (!user || room.type === "memo") return;
     const selfHandle = `${user.userName}@${getDomain()}`;
+    // UUID のルームはグループとみなし、DM用の名称/アイコン補完は行わない
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const isUuidRoom = uuidRe.test(room.id);
     // MLSの状態から相手を特定（自分以外）
     const partner = participantsFromState(room.id)[0];
     if (!partner) return;
@@ -586,7 +590,7 @@ export function Chat() {
     );
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
-    if (
+    if (!isUuidRoom &&
       !(room.hasName || room.hasIcon) &&
       (room.name === "" || room.name === user.displayName ||
         room.name === user.userName || room.name === selfHandle)
@@ -2023,10 +2027,13 @@ export function Chat() {
         if (changed) setChatRooms(nextA);
 
         // 1対1・未命名の表示名補完（変更がある場合のみ更新）
+        // ただし UUID などグループIDのルームは対象外（誤ってDM扱いしない）
         const base = changed ? nextA : list;
+        const uuidRe =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         const candidates = base.filter((r) =>
           r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
-          !(r.hasName || r.hasIcon)
+          !(r.hasName || r.hasIcon) && !uuidRe.test(r.id)
         );
         const ids = candidates.map((r) => r.members[0]).filter((
           v,
