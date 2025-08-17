@@ -91,7 +91,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     const cur = await readPending(roomId);
     await writePending(roomId, [...cur, ...ids]);
   };
-  const removePending = async (roomId: string, id: string) => {
+  const _removePending = async (roomId: string, id: string) => {
     const cur = (await readPending(roomId)).filter((v) => v !== id);
     await writePending(roomId, cur);
   };
