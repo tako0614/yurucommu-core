@@ -6,6 +6,10 @@ type SwipeTabsProps = {
   children: JSX.Element | JSX.Element[];
   /** スワイプ確定のしきい値(px) */
   threshold?: number;
+  /** コンテナに付与するクラス */
+  class?: string;
+  /** コンテナに付与するスタイル */
+  style?: JSX.CSSProperties;
 };
 
 // モバイル横スワイプ用のタブコンテナ。
@@ -154,9 +158,12 @@ export function SwipeTabs(props: SwipeTabsProps) {
         // 初期化時にリスナー登録
         addListeners();
       }}
-      class="relative w-full overflow-x-hidden touch-pan-y select-none"
+      class={`relative w-full overflow-x-hidden touch-pan-y select-none ${
+        props.class ?? ""
+      }`}
       role="tablist"
       aria-orientation="horizontal"
+      style={props.style}
     >
       <div
         class="flex w-full will-change-transform"
@@ -173,4 +180,3 @@ export function SwipeTabs(props: SwipeTabsProps) {
 }
 
 export default SwipeTabs;
-

@@ -556,10 +556,14 @@ export function Microblog() {
                     {/* コンテンツエリア */}
                     <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 max-lg:min-h-[calc(100vh-4rem)] text-[#CDD1D6]">
                       {/* モバイル: スワイプでタブを切り替え（ドラッグ中は両方見える） */}
-                      <div class="lg:hidden min-h-full">
-                        <SwipeTabs index={mobileIndex()} onIndexChange={setMobileIndex}>
+                      <div class="lg:hidden">
+                        <SwipeTabs
+                          class="min-h-[calc(100vh-4rem)]"
+                          index={mobileIndex()}
+                          onIndexChange={setMobileIndex}
+                        >
                           {/* 最新 */}
-                          <div class="min-h-full">
+                          <div class="min-h-[calc(100vh-4rem)]">
                             <PostList
                               posts={posts() || []}
                               tab="latest"
@@ -599,7 +603,7 @@ export function Microblog() {
                           </div>
 
                           {/* フォロー中 */}
-                          <div class="min-h-full">
+                          <div class="min-h-[calc(100vh-4rem)]">
                             <PostList
                               posts={followingTimelinePosts() || []}
                               tab="following"
@@ -639,7 +643,7 @@ export function Microblog() {
                           </div>
 
                           {/* トレンド */}
-                          <div class="p-4 min-h-full">
+                          <div class="p-4 min-h-[calc(100vh-4rem)]">
                             <Trends />
                           </div>
                         </SwipeTabs>
