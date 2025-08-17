@@ -1166,12 +1166,14 @@ export function Chat() {
       const members = state
         ? extractMembers(state).filter((m) => m !== handle)
         : (item.members ?? []).filter((m) => m !== handle);
+      // サーバーが自分しか返していない（=filterで0人になった）無名グループは仮に「招待中のグループ」と表示
+      const displayName = name.trim() !== "" ? name : (members.length === 0 ? "招待中のグループ" : "");
       rooms.push({
         id: item.id,
-        name,
+        name: displayName,
         userName: user.userName,
         domain: getDomain(),
-        avatar: icon || (name ? name.charAt(0).toUpperCase() : "👥"),
+        avatar: icon || (displayName ? displayName.charAt(0).toUpperCase() : "👥"),
         unreadCount: 0,
         type: "group",
         members,
@@ -1211,22 +1213,39 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    const totalMembers = (r: Room) => {
-      const len = r.members?.length ?? 0;
-      const includesSelf = r.members?.includes(selfHandle) ?? false;
-      return len + (includesSelf ? 0 : 1);
+    // ルームごとの招待中メンバーを取得（自分は除外）
+    const pendingMap = new Map<string, string[]>();
+    for (const r of rooms) {
+      try {
+        const list = await readPending(user.id, r.id);
+        const others = (list || []).filter((id) => id && id !== selfHandle);
+        pendingMap.set(r.id, others);
+      } catch {
+        pendingMap.set(r.id, []);
+      }
+    }
+    const uniqueOthers = (r: Room): string[] => {
+      const base = (r.members ?? []).filter((m) => m && m !== selfHandle);
+      const pend = pendingMap.get(r.id) ?? [];
+      return Array.from(new Set([...base, ...pend]));
     };
+    const totalMembers = (r: Room) => 1 + uniqueOthers(r).length; // 自分+その他
+    // 事前補正: 2人想定で名前が自分の表示名/ユーザー名のときは未命名として扱う
+    for (const r of rooms) {
+      if (r.type === "memo") continue;
+      const others = uniqueOthers(r);
+      // 自分の名前がタイトルに入ってしまう誤表示を防止（相手1人または未確定0人のとき）
+      if (others.length <= 1 && (r.name === user.displayName || r.name === user.userName)) {
+        r.name = "";
+        r.hasName = false;
+      }
+    }
+
     const twoNoName = rooms.filter((r) =>
       r.type !== "memo" && totalMembers(r) === 2 && !(r.hasName || r.hasIcon)
     );
     const ids = twoNoName
-      .map((r) => {
-        const includesSelf = r.members.includes(selfHandle);
-        if (includesSelf) {
-          return r.members.find((m) => m !== selfHandle) as string | undefined;
-        }
-        return r.members[0];
-      })
+      .map((r) => uniqueOthers(r)[0])
       .filter((v): v is string => !!v);
     if (ids.length > 0) {
       const infos = await fetchUserInfoBatch(ids, user.id);
@@ -1237,9 +1256,12 @@ export function Chat() {
           r.name = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
           const desired = `${info.userName}@${info.domain}`;
-          if (Array.isArray(r.members) && r.members.length === 1) {
-            const cur = r.members[0];
-            if (typeof cur === "string" && cur !== desired) {
+          const others = uniqueOthers(r);
+          if (others.length === 1) {
+            const cur = others[0];
+            if (cur !== desired) {
+              r.members = [desired];
+            } else if ((r.members?.length ?? 0) !== 1 || r.members?.[0] !== desired) {
               r.members = [desired];
             }
           }
@@ -1248,15 +1270,15 @@ export function Chat() {
     }
     // 3人以上の自動生成（簡易）
     const multi = rooms.filter((r) =>
-      r.type !== "memo" && ((r.members?.length ?? 0) + 1) >= 3 && !(r.hasName)
+      r.type !== "memo" && totalMembers(r) >= 3 && !(r.hasName)
     );
-    const needIds = Array.from(new Set(multi.flatMap((r) => r.members)));
+    const needIds = Array.from(new Set(multi.flatMap((r) => uniqueOthers(r))));
     if (needIds.length > 0) {
       const infos = await fetchUserInfoBatch(needIds, user.id);
       const map = new Map<string, typeof infos[number]>();
       for (let i = 0; i < needIds.length; i++) map.set(needIds[i], infos[i]);
       for (const r of multi) {
-        const names = r.members.map((m) =>
+        const names = uniqueOthers(r).map((m) =>
           map.get(m)?.displayName || map.get(m)?.userName
         ).filter(Boolean) as string[];
         const top = names.slice(0, 2);

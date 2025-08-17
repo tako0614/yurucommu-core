@@ -32,6 +32,11 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   >([]);
   const [followingMap] = useAtom(followingListMap);
   const [, saveFollowingGlobal] = useAtom(setFollowingList);
+  // 自身のハンドル（@user@domain）を求める
+  const selfHandle = createMemo(() => {
+    const acc = account();
+    return acc ? `${acc.userName}@${getDomain()}` : null;
+  });
 
   // フォロイングユーザーのためのインターフェース
   interface FollowingUser {
@@ -99,13 +104,24 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   // 表示用のフォロー中ユーザーリスト（検索フィルタ適用）
   const filteredFollowing = createMemo(() => {
     const term = searchTerm().toLowerCase();
-    return followingUsers().filter((user) =>
-      user.name.toLowerCase().includes(term) ||
-      user.id.toLowerCase().includes(term)
-    );
+    const me = selfHandle();
+    return followingUsers()
+      // 自分自身は候補から除外
+      .filter((u) => !me || u.id !== me)
+      .filter((user) =>
+        user.name.toLowerCase().includes(term) ||
+        user.id.toLowerCase().includes(term)
+      );
   });
 
   const addMember = (userId: string) => {
+    // 自分自身は追加しない
+    if (selfHandle() && userId === selfHandle()) {
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "追加できません", description: "自分自身はメンバーに追加できません" },
+      }));
+      return;
+    }
     if (!selectedMembers().includes(userId)) {
       setSelectedMembers([...selectedMembers(), userId]);
       setMemberInput("");
@@ -119,6 +135,13 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     if (input.startsWith("@")) input = input.slice(1);
     // ローカル省略時は local domain を補う
     if (!input.includes("@")) input = `${input}@${getDomain()}`;
+    // 自分自身は追加しない
+    if (selfHandle() && input === selfHandle()) {
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "追加できません", description: "自分自身はメンバーに追加できません" },
+      }));
+      return;
+    }
     if (!selectedMembers().includes(input)) {
       setSelectedMembers([...selectedMembers(), input]);
       setMemberInput("");
@@ -176,7 +199,10 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
 
   createEffect(() => {
     if (props.isOpen) {
-      setSelectedMembers(props.initialMembers ?? []);
+      const me = selfHandle();
+      // 初期選択に自分が含まれる場合は除外
+      const init = (props.initialMembers ?? []).filter((id) => !me || id !== me);
+      setSelectedMembers(init);
     } else {
       resetForm();
     }
