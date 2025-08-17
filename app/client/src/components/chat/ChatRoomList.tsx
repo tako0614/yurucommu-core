@@ -60,6 +60,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
   // 1対1（未命名）トークの表示名を補正（自分の名前で表示されないように）
   // かつ、招待中で自分しか居ないグループはプレースホルダーを表示
   const displayNameFor = (room: Room): string => {
+    // 明示的な displayName があれば最優先
+    if (room.displayName && room.displayName.trim() !== "") return room.displayName;
     const me = account();
     if (!me) return room.name;
     if (room.type === "memo") return room.name;
@@ -77,7 +79,14 @@ export function ChatRoomList(props: ChatRoomListProps) {
       ) {
         // 自分名や空のときは相手のハンドルを優先
         if (other && other !== selfHandle) return other;
-        // 相手未確定なら空（自分を表示しない）
+        // 相手未確定なら pendingInvites から推測（接尾辞は付けない）
+        const cand = (room.pendingInvites && room.pendingInvites[0]) || undefined;
+        const guess = normalizeHandle(cand);
+        if (guess && guess !== selfHandle) {
+          const short = guess.includes("@") ? guess.split("@")[0] : guess;
+          return short;
+        }
+        // 何も推定できない場合は空文字（表示は空のまま）
         return "";
       }
       return room.name;
@@ -115,10 +124,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
     }
 
     let list = q
-      ? base.filter((r) =>
-        r.name.toLowerCase().includes(q) ||
-        (r.lastMessage ?? "").toLowerCase().includes(q)
-      )
+      ? base.filter((r) => {
+        const dn = displayNameFor(r).toLowerCase();
+        const nm = (r.name || "").toLowerCase();
+        const lm = (r.lastMessage ?? "").toLowerCase();
+        return dn.includes(q) || nm.includes(q) || lm.includes(q);
+      })
       : base;
 
     list = list.filter((r, i, arr) =>
@@ -150,7 +161,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
     const room = props.rooms.find((r) =>
       isFriendRoom(r) && r.members.includes(friendId)
     );
-    return room?.name || friendId.split("@")[0] || friendId;
+    return room?.displayName || room?.name || friendId.split("@")[0] || friendId;
   };
 
   const changeSeg = (seg: "all" | "people" | "groups") => {

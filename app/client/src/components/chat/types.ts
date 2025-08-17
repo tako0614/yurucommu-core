@@ -21,6 +21,8 @@ export interface ChatMessage {
 export interface Room {
   id: string;
   name: string;
+  // 画面表示用の名称（未命名DMなどの補完に使用）。name はサーバー由来の正規名。
+  displayName?: string;
   userName: string;
   domain: string;
   lastMessage?: string;

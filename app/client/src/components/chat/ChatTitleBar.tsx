@@ -37,14 +37,23 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
     if (!room) return "";
     if (room.type === "memo") return room.name;
     const me = account();
-    if (!me) return room.name;
+    if (!me) return room.displayName || room.name;
+    // 明示的な displayName があれば尊重
+    if (room.displayName && room.displayName.trim() !== "") return room.displayName;
     const selfHandle = `${me.userName}@${getDomain()}`;
     if (isFriendRoom(room)) {
       const other = (room.members ?? []).find((m) => m !== selfHandle) ?? room.members?.[0];
       const otherId = normalizeHandle(typeof other === "string" ? other : undefined);
       if (!room.name || room.name === me.displayName || room.name === me.userName || room.name === selfHandle) {
         if (otherId && otherId !== selfHandle) return otherId;
-        // 相手未確定なら空を返す（自分名は表示しない）
+        // 相手未確定なら pendingInvites から推定（接尾辞は付けない）
+        const cand = (room.pendingInvites && room.pendingInvites[0]) || undefined;
+        const guess = normalizeHandle(typeof cand === "string" ? cand : undefined);
+        if (guess && guess !== selfHandle) {
+          const short = guess.includes("@") ? guess.split("@")[0] : guess;
+          return short;
+        }
+        // 何も推定できない場合は空文字
         return "";
       }
     }

@@ -532,13 +532,13 @@ export function Chat() {
         // 1対1・未命名のとき、タイトルがローカル名等に上書きされていたらハンドルに補正
         const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
           !(r.hasName || r.hasIcon);
-        let name = r.name;
+        let displayName = r.displayName;
         if (
-          isDm && (!name || name === user.displayName || name === user.userName || name === selfHandle)
+          isDm && (!displayName || displayName === user.displayName || displayName === user.userName || displayName === selfHandle)
         ) {
-          name = fullFrom;
+          displayName = fullFrom;
         }
-        return { ...r, name, members };
+        return { ...r, displayName, members };
       })
     );
   };
@@ -592,8 +592,8 @@ export function Chat() {
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
     if (!isUuidRoom &&
       !(room.hasName || room.hasIcon) &&
-      (room.name === "" || room.name === user.displayName ||
-        room.name === user.userName || room.name === selfHandle)
+      ((room.displayName ?? room.name) === "" || (room.displayName ?? room.name) === user.displayName ||
+        (room.displayName ?? room.name) === user.userName || (room.displayName ?? room.name) === selfHandle)
     ) {
       try {
         const info = await fetchUserInfo(partner as ActorID);
@@ -603,7 +603,7 @@ export function Chat() {
               r.id === room.id
                 ? {
                   ...r,
-                  name: info.displayName || info.userName,
+                  displayName: info.displayName || info.userName,
                   avatar: info.authorAvatar || r.avatar,
                 }
                 : r
@@ -886,10 +886,11 @@ export function Chat() {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
         const selfH = `${user.userName}@${getDomain()}`;
-        const otherName = (!room.name || room.name === user.displayName ||
-            room.name === user.userName || room.name === selfH)
+        const baseName = room.displayName ?? room.name;
+        const otherName = (!baseName || baseName === user.displayName ||
+            baseName === user.userName || baseName === selfH)
           ? m.from
-          : room.name;
+          : baseName;
         const displayName = isMe
           ? (user.displayName || user.userName)
           : otherName;
@@ -1010,10 +1011,11 @@ export function Chat() {
       const isMe = m.from === fullId;
       if (!isMe) updatePeerHandle(room.id, m.from);
       const selfH2 = `${user.userName}@${getDomain()}`;
-      const otherName = (!room.name || room.name === user.displayName ||
-          room.name === user.userName || room.name === selfH2)
+      const baseName2 = room.displayName ?? room.name;
+      const otherName = (!baseName2 || baseName2 === user.displayName ||
+          baseName2 === user.userName || baseName2 === selfH2)
         ? m.from
-        : room.name;
+        : baseName2;
       const displayName = isMe
         ? (user.displayName || user.userName)
         : otherName;
@@ -1240,7 +1242,7 @@ export function Chat() {
       const others = uniqueOthers(r);
       // 自分の名前がタイトルに入ってしまう誤表示を防止（相手1人または未確定0人のとき）
       if (others.length <= 1 && (r.name === user.displayName || r.name === user.userName)) {
-        r.name = "";
+        r.displayName = "";
         r.hasName = false;
         // アバターが自分の頭文字（1文字）なら一旦消して再計算に委ねる
         const selfInitial = (user.displayName || user.userName || "").charAt(0).toUpperCase();
@@ -1262,7 +1264,7 @@ export function Chat() {
         const info = infos[i];
         const r = twoNoName[i];
         if (info) {
-          r.name = info.displayName || info.userName;
+          r.displayName = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
           // 参加者リストは MLS 由来を保持する（表示名のみ補完）
         }
@@ -1283,9 +1285,9 @@ export function Chat() {
         ).filter(Boolean) as string[];
         const top = names.slice(0, 2);
         const rest = Math.max(0, names.length + 1 - top.length - 1); // +1 = 自分
-        r.name = top.length > 0
+        r.displayName = top.length > 0
           ? `${top.join("、")}${rest > 0 ? ` ほか${rest}名` : ""}`
-          : r.name;
+          : r.displayName ?? r.name;
         r.avatar = r.avatar || "👥";
       }
     }
@@ -1750,7 +1752,8 @@ export function Chat() {
             if (info) {
               room = {
                 id: normalizedPartner,
-                name: info.displayName || info.userName,
+                name: "",
+                displayName: info.displayName || info.userName,
                 userName: info.userName,
                 domain: info.domain,
                 avatar: info.authorAvatar ||
@@ -1774,10 +1777,11 @@ export function Chat() {
       const isMe = data.from === self;
       if (!isMe) updatePeerHandle(room.id, data.from);
       const selfH3 = `${user.userName}@${getDomain()}`;
-      const otherName = (!room.name || room.name === user.displayName ||
-          room.name === user.userName || room.name === selfH3)
+      const baseName3 = room.displayName ?? room.name;
+      const otherName = (!baseName3 || baseName3 === user.displayName ||
+          baseName3 === user.userName || baseName3 === selfH3)
         ? data.from
-        : room.name;
+        : baseName3;
       const displayName = isMe
         ? (user.displayName || user.userName)
         : otherName;
@@ -2053,9 +2057,9 @@ export function Chat() {
             if (!info) return r;
             const newName = info.displayName || info.userName;
             const newAvatar = info.authorAvatar || r.avatar;
-            if (r.name !== newName || r.avatar !== newAvatar) {
+            if ((r.displayName ?? r.name) !== newName || r.avatar !== newAvatar) {
               nameChanged = true;
-              return { ...r, name: newName, avatar: newAvatar };
+              return { ...r, displayName: newName, avatar: newAvatar };
             }
             return r;
           });
@@ -2087,7 +2091,8 @@ export function Chat() {
           if (info && user) {
             room = {
               id: normalizedRoomId,
-              name: info.displayName || info.userName,
+              name: "",
+              displayName: info.displayName || info.userName,
               userName: info.userName,
               domain: info.domain,
               avatar: info.authorAvatar ||

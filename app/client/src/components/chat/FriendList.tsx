@@ -35,21 +35,34 @@ export function FriendList(props: FriendListProps) {
     const me = account();
     const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
     const friendMap = new Map<string, Friend>();
-    const friendRooms = props.rooms.filter(isFriendRoom);
-    for (const room of friendRooms) {
-      // 自分以外を優先して相手IDを導出
-      const raw = (room.members && room.members.length > 0)
-        ? (room.members.find((m) => m !== selfHandle) ?? room.members[0])
-        : (room.id.includes("@") ? room.id : undefined);
-      const friendId = normalizeHandle(raw);
-      if (friendId && selfHandle && friendId === selfHandle) {
-        // 自分自身は友だち一覧から除外
-        continue;
-      }
-      if (!friendId) continue;
+    // フレンド候補: 自分以外の候補がちょうど1名の未命名ルーム
+    const candidateRooms = props.rooms.filter((r) => {
+      if (r.type === "memo") return false;
+      if (r.hasName || r.hasIcon) return false;
+      const base = (r.members && r.members.length > 0) ? r.members : (r.pendingInvites ?? []);
+      const norm = base
+        .filter((m): m is string => typeof m === "string" && !!m)
+        .map((m) => normalizeHandle(m) || m);
+      const others = norm.filter((m) => m !== selfHandle);
+      // ID が @ を含む/含まないにかかわらず、他者候補が1名なら候補にする
+      if (others.length === 1) return true;
+      // さらに base が1名でも候補にする（未正規化の暫定ID対応）
+      return base.length === 1 && (selfHandle ? base[0] !== selfHandle : true);
+    });
+    for (const room of candidateRooms) {
+      const base = (room.members && room.members.length > 0)
+        ? room.members
+        : (room.pendingInvites ?? []);
+      // 自分以外の最初のID
+      const raw = base.find((m) => m && m !== selfHandle) ?? base[0];
+      if (!raw) continue;
+      const friendId = normalizeHandle(raw) || raw;
+      if (selfHandle && friendId === selfHandle) continue;
       if (!friendMap.has(friendId)) {
         const isSelfLikeName = me && (room.name === me.displayName || room.name === me.userName || room.name === selfHandle);
-        const fallbackName = friendId.split("@")[0] || friendId;
+        const short = friendId.includes("@") ? friendId.split("@")[0] : friendId;
+        const fromPending = (!room.members || room.members.length === 0) && (room.pendingInvites?.length === 1);
+        const fallbackName = (short || friendId);
         friendMap.set(friendId, {
           id: friendId,
           name: (room.name && !isSelfLikeName) ? room.name : fallbackName,
@@ -61,12 +74,15 @@ export function FriendList(props: FriendListProps) {
     // 並び順: 未読合計 → 最終アクティビティ → 名前
     const items = Array.from(friendMap.values());
     const unreadSum = (fid: string) =>
-      props.rooms.filter((r) => isFriendRoom(r) && (r.members?.includes(fid))).reduce((a, r) => a + (r.unreadCount || 0), 0);
+      props.rooms
+        .filter((r) => r.type !== "memo" && !(r.hasName || r.hasIcon))
+        .filter((r) => (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid)))
+        .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const lastTime = (fid: string) => {
       let t = 0;
       for (const r of props.rooms) {
-        if (!isFriendRoom(r)) continue;
-        const match = r.members?.includes(fid);
+        if (r.type === "memo") continue;
+        const match = (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid));
         if (!match) continue;
         const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
         if (ts > t) t = ts;
@@ -80,7 +96,7 @@ export function FriendList(props: FriendListProps) {
       const ta = lastTime(a.id);
       const tb = lastTime(b.id);
       if (ta !== tb) return tb - ta;
-      return a.name.localeCompare(b.name);
+      return (a.name || a.id).localeCompare(b.name || b.id);
     });
     return items;
   });

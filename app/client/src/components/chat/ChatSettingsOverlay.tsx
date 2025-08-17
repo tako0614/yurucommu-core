@@ -684,8 +684,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                       </Show>
                       <Show when={pending().length > 0}>
                         <div>
-                          <p class="text-xs text-gray-400 mt-2 mb-1">招待中</p>
-                          <div class="space-y-2">
+                          <div class="space-y-2 mt-2">
                             <For each={pending()}>
                               {(m) => (
                                 <div class="flex items-center gap-3 bg-[#252525] rounded px-3 py-2 border border-dashed border-[#3a3a3a]">
@@ -700,7 +699,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                                     <p class="text-sm text-white font-medium truncate">{m.display}</p>
                                     <p class="text-xs text-gray-500 truncate">{m.actor ?? m.id}</p>
                                   </div>
-                                  <span class="text-xs text-yellow-400">招待中</span>
+                                  {/* pending badge intentionally hidden */}
                                 </div>
                               )}
                             </For>
