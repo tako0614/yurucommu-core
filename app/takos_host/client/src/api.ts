@@ -144,3 +144,40 @@ export async function deleteFaspProvider(serverId: string): Promise<boolean> {
   const res = await fetch(`/api/fasp/providers/${serverId}`, { method: "DELETE" });
   return res.ok;
 }
+
+/**
+ * MLS handshake via REST API.
+ * Clients MUST use this function to send MLS handshake payloads (base64 MLS bytes etc.).
+ * Servers reject handshakes sent over WebSocket — use REST: POST /api/rooms/:room/handshakes
+ */
+export async function sendHandshake(
+  roomId: string,
+  payload: {
+    from: string;
+    to: string[];
+    content: string;
+    mediaType?: string;
+    encoding?: string;
+    attachments?: unknown[];
+  },
+): Promise<{ ok: true; id?: string } | { ok: false; error?: string }> {
+  const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/handshakes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    try {
+      const data = await res.json();
+      return { ok: false, error: data.error ?? res.statusText };
+    } catch {
+      return { ok: false, error: res.statusText };
+    }
+  }
+  try {
+    const data = await res.json();
+    return { ok: true, id: data.id };
+  } catch {
+    return { ok: true };
+  }
+}

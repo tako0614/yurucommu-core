@@ -94,16 +94,26 @@ app.get(
         for (const h of openHandlers) h(ws, state);
       },
       onMessage(evt, ws) {
+        // WebSocket は通知目的に限定する:
+        // - 文字列メッセージは JSON を期待。type フィールドによりハンドラを呼ぶ。
+        // - ただしタイプ "handshake" は受け付けない（クライアントは REST を使うこと）。
+        // - バイナリペイロード（MLS ワイヤフォーマット想定）は一切受け付けずエラー応答する。
         if (typeof evt.data === "string") {
           try {
             const msg = JSON.parse(evt.data);
+            if (msg && msg.type === "handshake") {
+              // ハンドシェイク本体は REST (/rooms/:room/handshakes) へ移行済み
+              ws.send(JSON.stringify({ error: "handshake_not_allowed_on_websocket", message: "Use REST /rooms/:room/handshakes for MLS handshakes" }));
+              return;
+            }
             const handler = messageHandlers.get(msg.type);
             handler?.(msg.payload, ws, state);
           } catch {
             ws.send(JSON.stringify({ error: "invalid message" }));
           }
-        } else if (binaryHandler) {
-          binaryHandler(evt.data, ws, state);
+        } else {
+          // バイナリデータは MLS ハンドシェイク等を含む可能性があるため拒否する
+          ws.send(JSON.stringify({ error: "binary_payload_not_allowed", message: "Binary payloads (MLS) are not allowed over websocket; use REST APIs" }));
         }
       },
       async onClose(_evt, ws) {
