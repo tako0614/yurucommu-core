@@ -31,7 +31,7 @@ import {
   createCommitAndWelcomes,
   createMLSGroup,
   decryptMessage,
-  encryptMessageWithAck,
+  encryptMessage,
   generateKeyPair,
   joinWithWelcome,
   processCommit,
@@ -931,7 +931,7 @@ export function Chat() {
           author: m.from,
           displayName,
           address: m.from,
-          content: "[Encrypted]", // m.content そのまま出さない
+          content: "[未復号]", // m.content そのまま出さない
           timestamp: new Date(m.createdAt),
           type: "text",
           isMe,
@@ -1611,14 +1611,38 @@ export function Chat() {
     } catch (e) {
       console.warn("初回Add/Welcome処理に失敗しました", e);
     }
-    const encrypted = await encryptMessageWithAck(
-      group,
-      JSON.stringify(note),
-      roomId,
-      user.id,
-    );
+    // joinAck をルーム/端末ごとに一度だけ送る（永続化して再送を防止）
+    const ackCacheKey = `ackSent:${roomId}`;
+    try {
+      const sent = await getCacheItem(user.id, ackCacheKey);
+      if (!sent) {
+        const ackBody = JSON.stringify({ type: "joinAck", roomId, deviceId: user.id });
+        const ack = await encryptMessage(group, ackBody);
+        const ok = await sendEncryptedMessage(
+          roomId,
+          `${user.userName}@${getDomain()}`,
+          participantsFromState(roomId).length > 0
+            ? participantsFromState(roomId)
+            : (room.members ?? []).map((m) => m || "").filter((v) => !!v),
+          {
+            content: bufToB64(ack.message),
+            mediaType: "message/mls",
+            encoding: "base64",
+          },
+        );
+        if (ok) {
+          group = ack.state;
+          setGroups({ ...groups(), [roomId]: group });
+          saveGroupStates();
+          await setCacheItem(user.id, ackCacheKey, true);
+        }
+      }
+    } catch (e) {
+      console.warn("joinAck の送信または永続化に失敗しました", e);
+    }
+    const msgEnc = await encryptMessage(group, JSON.stringify(note));
     let success = true;
-    for (const msg of encrypted.messages) {
+    {
       const ok = await sendEncryptedMessage(
         roomId,
         `${user.userName}@${getDomain()}`,
@@ -1626,21 +1650,18 @@ export function Chat() {
           ? participantsFromState(roomId)
           : (room.members ?? []).map((m) => m || "").filter((v) => !!v),
         {
-          content: bufToB64(msg),
+          content: bufToB64(msgEnc.message),
           mediaType: "message/mls",
           encoding: "base64",
         },
       );
-      if (!ok) {
-        success = false;
-        break;
-      }
+      if (!ok) success = false;
     }
     if (!success) {
       alert("メッセージの送信に失敗しました");
       return;
     }
-    setGroups({ ...groups(), [roomId]: encrypted.state });
+    setGroups({ ...groups(), [roomId]: msgEnc.state });
     saveGroupStates();
     // 入力欄をクリア
     setNewMessage("");
@@ -1960,10 +1981,18 @@ export function Chat() {
                   }
                 }
               }
-            }
-            setGroups({ ...groups(), [room.id]: res.state });
-            saveGroupStates();
+              }
+              setGroups({ ...groups(), [room.id]: res.state });
+              saveGroupStates();
+          } else {
+            // 復号に失敗: ガベージを出さず未復号表示にする
+            text = "[未復号]";
+            attachments = undefined;
           }
+        } else {
+          // グループ状態が未同期: 未復号表示にする
+          text = "[未復号]";
+          attachments = undefined;
         }
       } else {
         const note = parseActivityPubNote(bodyText);
