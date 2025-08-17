@@ -113,6 +113,11 @@ export class MongoDB implements DB {
         actor_id: String(data.actor_id),
         extra: data.extra ?? {},
       });
+      if (this.env["DB_MODE"] === "host") {
+        // ホストモードではテナント識別のため環境変数を伝搬する
+        (doc as unknown as { $locals?: { env?: Record<string, string> } })
+          .$locals = { env: this.env };
+      }
       await doc.save();
       return doc.toObject();
     }
@@ -284,7 +289,8 @@ export class MongoDB implements DB {
       },
     ];
     const list = await EncryptedMessage.aggregate(pipeline).exec() as {
-      _id?: string; members: string[];
+      _id?: string;
+      members: string[];
     }[];
     for (const item of list) {
       if (!item._id) continue;
@@ -351,7 +357,8 @@ export class MongoDB implements DB {
       },
     ];
     const list = await EncryptedMessage.aggregate(pipeline).exec() as {
-      _id?: string; members: string[];
+      _id?: string;
+      members: string[];
     }[];
     if (list.length === 0 || !list[0]._id) return null;
     return {
@@ -807,7 +814,9 @@ export class MongoDB implements DB {
 
   async findPendingInvites(condition: Record<string, unknown>) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = this.withTenant(PendingInvite.find({ ...condition, tenant_id: tenantId }));
+    const query = this.withTenant(
+      PendingInvite.find({ ...condition, tenant_id: tenantId }),
+    );
     return await query.lean();
   }
 
