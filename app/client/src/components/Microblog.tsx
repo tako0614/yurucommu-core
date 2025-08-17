@@ -65,7 +65,22 @@ export function Microblog() {
     "trends",
   ];
   const mobileIndex = () => tabOrder.indexOf(mobileTab());
-  const setMobileIndex = (i: number) => setMobileTab(tabOrder[i] ?? "following");
+  // タブごとのスクロール位置保持用
+  const scrollPos: Record<"latest" | "following" | "trends", number> = {
+    latest: 0,
+    following: 0,
+    trends: 0,
+  };
+  let scrollEl: HTMLDivElement | undefined;
+  const setMobileIndex = (i: number) => {
+    const prev = mobileTab();
+    if (scrollEl) scrollPos[prev] = scrollEl.scrollTop;
+    const next = tabOrder[i] ?? "following";
+    setMobileTab(next);
+    queueMicrotask(() => {
+      if (scrollEl) scrollEl.scrollTo({ top: scrollPos[next] ?? 0, behavior: "auto" });
+    });
+  };
 
   const LIKED_POSTS_KEY = "liked_posts";
   let likedPostIds = new Set<string>();
@@ -432,7 +447,7 @@ export function Microblog() {
                     <button
                       type="button"
                       class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
-                      onClick={() => setMobileTab("latest")}
+                      onClick={() => setMobileIndex(0)}
                     >
                       <span class="relative inline-flex items-center">
                         <span
@@ -452,7 +467,7 @@ export function Microblog() {
                     <button
                       type="button"
                       class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
-                      onClick={() => setMobileTab("following")}
+                      onClick={() => setMobileIndex(1)}
                     >
                       <span class="relative inline-flex items-center">
                         <span
@@ -472,7 +487,7 @@ export function Microblog() {
                     <button
                       type="button"
                       class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
-                      onClick={() => setMobileTab("trends")}
+                      onClick={() => setMobileIndex(2)}
                     >
                       <span class="relative inline-flex items-center">
                         <span
@@ -554,7 +569,14 @@ export function Microblog() {
                     </div>
 
                     {/* コンテンツエリア */}
-                    <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 max-lg:min-h-[calc(100vh-4rem)] text-[#CDD1D6]">
+                    <div
+                      class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 max-lg:min-h-[calc(100vh-4rem)] text-[#CDD1D6]"
+                      ref={(el) => (scrollEl = el)}
+                      onScroll={() => {
+                        const key = mobileTab();
+                        if (scrollEl) scrollPos[key] = scrollEl.scrollTop;
+                      }}
+                    >
                       {/* モバイル: スワイプでタブを切り替え（ドラッグ中は両方見える） */}
                       <div class="lg:hidden">
                         <SwipeTabs
