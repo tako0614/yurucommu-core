@@ -64,9 +64,13 @@ export function ChatRoomList(props: ChatRoomListProps) {
     if (room.type === "memo") return room.name;
     if (isFriendRoom(room)) {
       const selfHandle = `${me.userName}@${getDomain()}`;
-      const rawOther = room.members.find((m) => m !== selfHandle) ?? room.members[0];
+      const rawOther = room.members.find((m) => m !== selfHandle) ??
+        room.members[0];
       const other = normalizeHandle(rawOther);
-      if (room.name === "" || room.name === me.displayName || room.name === me.userName) {
+      if (
+        room.name === "" || room.name === me.displayName ||
+        room.name === me.userName
+      ) {
         return other ?? "不明";
       }
       return room.name;
@@ -105,12 +109,14 @@ export function ChatRoomList(props: ChatRoomListProps) {
 
     let list = q
       ? base.filter((r) =>
-          r.name.toLowerCase().includes(q) ||
-          (r.lastMessage ?? "").toLowerCase().includes(q),
-        )
+        r.name.toLowerCase().includes(q) ||
+        (r.lastMessage ?? "").toLowerCase().includes(q)
+      )
       : base;
 
-    list = list.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    list = list.filter((r, i, arr) =>
+      arr.findIndex((x) => x.id === r.id) === i
+    );
 
     const time = (d?: Date) => (d ? d.getTime() : 0);
     list.sort((a, b) => {
@@ -241,7 +247,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
       {/* セグメントを横スワイプで切替（ドラッグ中は隣が見える） */}
       <SwipeTabs
         index={["all", "people", "groups"].indexOf(props.segment)}
-        onIndexChange={(i) => changeSeg(["all", "people", "groups"][i] ?? "all")}
+        onIndexChange={(i) =>
+          changeSeg((["all", "people", "groups"] as const)[i] ?? "all")}
       >
         {/* すべて */}
         <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
@@ -256,36 +263,67 @@ export function ChatRoomList(props: ChatRoomListProps) {
                 <RoomListSkeleton />
               </li>
             </Show>
-            <Show when={!showAllSkeleton() && getFilteredRoomsFor("all").length === 0}>
+            <Show
+              when={!showAllSkeleton() &&
+                getFilteredRoomsFor("all").length === 0}
+            >
               <li class="px-2 py-2">
-                <EmptyState title="トークはありません" description="新しいトークを作成して会話を始めましょう。" />
+                <EmptyState
+                  title="トークはありません"
+                  description="新しいトークを作成して会話を始めましょう。"
+                />
               </li>
             </Show>
             <For each={getFilteredRoomsFor("all")}>
               {(room) => (
                 <li
                   class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
-                    props.selectedRoom === room.id ? "bg-[#4a4a4a]" : "hover:bg-[#3c3c3c]"
+                    props.selectedRoom === room.id
+                      ? "bg-[#4a4a4a]"
+                      : "hover:bg-[#3c3c3c]"
                   }`}
                   onClick={() => props.onSelect(room.id)}
                 >
                   <div class="flex items-center w-full">
                     <span class="relative w-[40px] h-[40px] flex items-center justify-center">
                       {isUrl(room.avatar) ||
-                          (typeof room.avatar === "string" && room.avatar.startsWith("data:image/"))
+                          (typeof room.avatar === "string" &&
+                            room.avatar.startsWith("data:image/"))
                         ? (
-                          <img src={room.avatar} alt="avatar" class="w-[40px] h-[40px] object-cover rounded-full" />
-                        ) : (
-                          <span class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${room.type === "memo" ? "bg-green-600" : "bg-[#444]"}`}>
-                            {room.avatar || displayNameFor(room).charAt(0).toUpperCase()}
+                          <img
+                            src={room.avatar}
+                            alt="avatar"
+                            class="w-[40px] h-[40px] object-cover rounded-full"
+                          />
+                        )
+                        : (
+                          <span
+                            class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
+                              room.type === "memo"
+                                ? "bg-green-600"
+                                : "bg-[#444]"
+                            }`}
+                          >
+                            {room.avatar ||
+                              displayNameFor(room).charAt(0).toUpperCase()}
                           </span>
                         )}
                     </span>
                     <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
                       <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                        <span class="font-bold flex-1">{displayNameFor(room)}</span>
-                        <span class="text-[10px] text-gray-500 ml-1 whitespace-nowrap" style="text-align:right;">
-                          {room.lastMessageTime ? room.lastMessageTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                        <span class="font-bold flex-1">
+                          {displayNameFor(room)}
+                        </span>
+                        <span
+                          class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
+                          style="text-align:right;"
+                        >
+                          {room.lastMessageTime
+                            ? room.lastMessageTime.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                            : ""}
                         </span>
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
@@ -325,42 +363,78 @@ export function ChatRoomList(props: ChatRoomListProps) {
 
         {/* グループ */}
         <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
-          <ul id="panel-groups" role="tabpanel" aria-labelledby="tab-groups" class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar">
+          <ul
+            id="panel-groups"
+            role="tabpanel"
+            aria-labelledby="tab-groups"
+            class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
+          >
             <Show when={showGroupSkeleton()}>
               <li class="px-2 py-2">
                 <RoomListSkeleton />
               </li>
             </Show>
-            <Show when={!showGroupSkeleton() && getFilteredRoomsFor("groups").length === 0}>
+            <Show
+              when={!showGroupSkeleton() &&
+                getFilteredRoomsFor("groups").length === 0}
+            >
               <li class="px-2 py-2">
-                <EmptyState title="グループはまだありません" description="『グループ作成』から始めましょう。" />
+                <EmptyState
+                  title="グループはまだありません"
+                  description="『グループ作成』から始めましょう。"
+                />
               </li>
             </Show>
             <For each={getFilteredRoomsFor("groups")}>
               {(room) => (
                 <li
                   class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
-                    props.selectedRoom === room.id ? "bg-[#4a4a4a]" : "hover:bg-[#3c3c3c]"
+                    props.selectedRoom === room.id
+                      ? "bg-[#4a4a4a]"
+                      : "hover:bg-[#3c3c3c]"
                   }`}
                   onClick={() => props.onSelect(room.id)}
                 >
                   <div class="flex items-center w-full">
                     <span class="relative w-[40px] h-[40px] flex items-center justify-center">
                       {isUrl(room.avatar) ||
-                          (typeof room.avatar === "string" && room.avatar.startsWith("data:image/"))
+                          (typeof room.avatar === "string" &&
+                            room.avatar.startsWith("data:image/"))
                         ? (
-                          <img src={room.avatar} alt="avatar" class="w-[40px] h-[40px] object-cover rounded-full" />
-                        ) : (
-                          <span class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${room.type === "memo" ? "bg-green-600" : "bg-[#444]"}`}>
-                            {room.avatar || displayNameFor(room).charAt(0).toUpperCase()}
+                          <img
+                            src={room.avatar}
+                            alt="avatar"
+                            class="w-[40px] h-[40px] object-cover rounded-full"
+                          />
+                        )
+                        : (
+                          <span
+                            class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
+                              room.type === "memo"
+                                ? "bg-green-600"
+                                : "bg-[#444]"
+                            }`}
+                          >
+                            {room.avatar ||
+                              displayNameFor(room).charAt(0).toUpperCase()}
                           </span>
                         )}
                     </span>
                     <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
                       <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                        <span class="font-bold flex-1">{displayNameFor(room)}</span>
-                        <span class="text-[10px] text-gray-500 ml-1 whitespace-nowrap" style="text-align:right;">
-                          {room.lastMessageTime ? room.lastMessageTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                        <span class="font-bold flex-1">
+                          {displayNameFor(room)}
+                        </span>
+                        <span
+                          class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
+                          style="text-align:right;"
+                        >
+                          {room.lastMessageTime
+                            ? room.lastMessageTime.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                            : ""}
                         </span>
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
@@ -387,7 +461,10 @@ function RoomListSkeleton() {
         <li class="flex items-center h-16 rounded-lg mb-2 w-full bg-transparent">
           <div class="flex items-center w-full px-2">
             <span class="relative w-[40px] h-[40px] flex items-center justify-center">
-              <Skeleton class="w-[40px] h-[40px] rounded-full" rounded="rounded-full" />
+              <Skeleton
+                class="w-[40px] h-[40px] rounded-full"
+                rounded="rounded-full"
+              />
             </span>
             <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
               <span class="flex justify-between items-center w-full">
