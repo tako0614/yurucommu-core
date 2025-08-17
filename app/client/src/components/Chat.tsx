@@ -1708,14 +1708,17 @@ export function Chat() {
       iv?: string;
       preview?: { url?: string; data?: string; mediaType?: string };
     }
+    // WS はトリガー用: 本文は含まれない想定
     interface IncomingPayload {
       id: string;
+      roomId?: string;
       from: string;
       to: string[];
-      content: string;
-      mediaType: string;
-      encoding: string;
       createdAt: string;
+      // 旧仕様互換のため任意に残す（存在しても使わない）
+      content?: string;
+      mediaType?: string;
+      encoding?: string;
       attachments?: IncomingAttachment[];
     }
     interface HandshakePayload {
@@ -1750,9 +1753,6 @@ export function Chat() {
       const base = typeof o.id === "string" &&
         typeof o.from === "string" &&
         isStringArray(o.to) &&
-        typeof o.content === "string" &&
-        typeof o.mediaType === "string" &&
-        typeof o.encoding === "string" &&
         typeof o.createdAt === "string";
       if (!base) return false;
       if (typeof o.attachments === "undefined") return true;
@@ -1879,8 +1879,7 @@ export function Chat() {
       const displayName = isMe
         ? (user.displayName || user.userName)
         : otherName;
-      const bodyText = new TextDecoder().decode(b64ToBuf(data.content));
-      let text: string = bodyText;
+      let text: string = "";
       let attachments:
         | {
           data?: string;
@@ -1891,204 +1890,50 @@ export function Chat() {
         | undefined;
       let localId: string | undefined;
 
+      // WSは通知のみ: RESTから取得して反映
       if (msg.type === "encryptedMessage") {
-        const group = groups()[room.id];
-        if (group) {
-          const buf = b64ToBuf(data.content);
-          let res: { plaintext: Uint8Array; state: StoredGroupState } | null =
-            null;
-          try {
-            res = await decryptMessage(group, buf);
-          } catch (err) {
-            console.warn("decryptMessage failed (ws)", err);
-          }
-          if (res) {
-            const plaintextStr = new TextDecoder().decode(res.plaintext);
-            // joinAck は表示しない (state 更新のみ)
-            if (isJoinAckText(plaintextStr)) {
-              setGroups({ ...groups(), [room.id]: res.state });
-              saveGroupStates();
-              return; // この受信メッセージは追加しない
-            }
-            const note = parseActivityPubNote(plaintextStr);
-            text = note.content;
-            localId = note.id?.startsWith("urn:uuid:")
-              ? note.id.slice(9)
-              : note.id;
-            const listAtt = Array.isArray(data.attachments)
-              ? data.attachments
-              : note.attachments;
-            if (Array.isArray(listAtt)) {
-              attachments = [];
-              for (const at of listAtt) {
-                if (typeof at.url === "string") {
-                  let preview;
-                  if (at.preview && typeof at.preview.url === "string") {
-                    const previewItem = at.preview as ActivityPubPreview;
-                    const pmt = typeof previewItem.mediaType === "string"
-                      ? previewItem.mediaType
-                      : "image/jpeg";
-                    try {
-                      const pres = await fetch(previewItem.url);
-                      let pbuf = await pres.arrayBuffer();
-                      if (
-                        typeof previewItem.key === "string" &&
-                        typeof previewItem.iv === "string"
-                      ) {
-                        pbuf = await decryptFile(
-                          pbuf,
-                          previewItem.key,
-                          previewItem.iv,
-                        );
-                      }
-                      preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
-                    } catch {
-                      preview = { url: previewItem.url, mediaType: pmt };
-                    }
-                  }
-                  try {
-                    const res2 = await fetch(at.url);
-                    let buf2 = await res2.arrayBuffer();
-                    if (
-                      typeof at.key === "string" && typeof at.iv === "string"
-                    ) {
-                      buf2 = await decryptFile(buf2, at.key, at.iv);
-                    }
-                    const mt = typeof at.mediaType === "string"
-                      ? at.mediaType
-                      : "application/octet-stream";
-                    if (
-                      mt.startsWith("video/") || mt.startsWith("audio/") ||
-                      buf2.byteLength > 1024 * 1024
-                    ) {
-                      attachments.push({
-                        url: bufToUrl(buf2, mt),
-                        mediaType: mt,
-                        preview,
-                      });
-                    } else {
-                      attachments.push({
-                        data: bufToB64(buf2),
-                        mediaType: mt,
-                        preview,
-                      });
-                    }
-                  } catch {
-                    const mt = typeof at.mediaType === "string"
-                      ? at.mediaType
-                      : "application/octet-stream";
-                    attachments.push({ url: at.url, mediaType: mt, preview });
-                  }
-                }
-              }
-              }
-              setGroups({ ...groups(), [room.id]: res.state });
-              saveGroupStates();
-          } else {
-            // 復号に失敗: ガベージを出さず未復号表示にする
-            text = "[未復号]";
-            attachments = undefined;
+        const isSelected = selectedRoom() === room.id;
+        if (isSelected) {
+          const prev = messages();
+          const lastTs = prev.length > 0
+            ? prev[prev.length - 1].timestamp.toISOString()
+            : undefined;
+          const fetched = await fetchMessagesForRoom(
+            room,
+            lastTs ? { after: lastTs } : { limit: 1 },
+          );
+          if (fetched.length > 0) {
+            setMessages((old) => {
+              const ids = new Set(old.map((m) => m.id));
+              const add = fetched.filter((m) => !ids.has(m.id));
+              return [...old, ...add];
+            });
+            const last = fetched[fetched.length - 1];
+            updateRoomLast(room.id, last);
           }
         } else {
-          // グループ状態が未同期: 未復号表示にする
-          text = "[未復号]";
-          attachments = undefined;
-        }
-      } else {
-        const note = parseActivityPubNote(bodyText);
-        text = note.content;
-        localId = note.id?.startsWith("urn:uuid:") ? note.id.slice(9) : note.id;
-        const listAtt = Array.isArray(data.attachments)
-          ? data.attachments
-          : note.attachments;
-        if (Array.isArray(listAtt)) {
-          attachments = [];
-          for (const at of listAtt) {
-            if (typeof at.url === "string") {
-              const mt = typeof at.mediaType === "string"
-                ? at.mediaType
-                : "application/octet-stream";
-              let preview;
-              if (at.preview && typeof at.preview.url === "string") {
-                const previewItem = at.preview as ActivityPubPreview;
-                const pmt = typeof previewItem.mediaType === "string"
-                  ? previewItem.mediaType
-                  : "image/jpeg";
-                try {
-                  const pres = await fetch(previewItem.url);
-                  let pbuf = await pres.arrayBuffer();
-                  if (
-                    typeof previewItem.key === "string" &&
-                    typeof previewItem.iv === "string"
-                  ) {
-                    pbuf = await decryptFile(
-                      pbuf,
-                      previewItem.key,
-                      previewItem.iv,
-                    );
-                  }
-                  preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
-                } catch {
-                  preview = { url: previewItem.url, mediaType: pmt };
-                }
-              }
-              try {
-                const res = await fetch(at.url);
-                let buf = await res.arrayBuffer();
-                if (typeof at.key === "string" && typeof at.iv === "string") {
-                  buf = await decryptFile(buf, at.key, at.iv);
-                }
-                if (
-                  mt.startsWith("video/") || mt.startsWith("audio/") ||
-                  buf.byteLength > 1024 * 1024
-                ) {
-                  attachments.push({
-                    url: bufToUrl(buf, mt),
-                    mediaType: mt,
-                    preview,
-                  });
-                } else {
-                  attachments.push({
-                    data: bufToB64(buf),
-                    mediaType: mt,
-                    preview,
-                  });
-                }
-              } catch {
-                attachments.push({ url: at.url, mediaType: mt, preview });
-              }
-            }
+          // 一覧のみ更新（最新1件を取得してプレビュー）
+          const fetched = await fetchMessagesForRoom(room, { limit: 1 });
+          if (fetched.length > 0) {
+            updateRoomLast(room.id, fetched[fetched.length - 1]);
           }
         }
+        return;
       }
 
-      const m: ChatMessage = {
-        id: data.id,
-        author: data.from,
-        displayName,
-        address: data.from,
-        content: parseActivityPubContent(text),
-        attachments,
-        timestamp: new Date(data.createdAt),
-        type: attachments && attachments.length > 0
-          ? (attachments[0].mediaType.startsWith("image/") ? "image" : "file")
-          : "text",
-        isMe,
-        avatar: room.avatar,
-      };
-      setMessages((prev) => {
-        if (localId) {
-          const idx = prev.findIndex((msg) => msg.id === localId);
-          if (idx !== -1) {
-            const newMsgs = [...prev];
-            newMsgs[idx] = m;
-            return newMsgs;
-          }
+      // publicMessage 等の将来拡張が来た場合はRESTで取得する
+      const fetched = await fetchMessagesForRoom(room, { limit: 1 });
+      if (fetched.length > 0) {
+        const last = fetched[fetched.length - 1];
+        const isSelected = selectedRoom() === room.id;
+        if (isSelected) {
+          setMessages((prev) => {
+            if (prev.some((x) => x.id === last.id)) return prev;
+            return [...prev, last];
+          });
         }
-        if (prev.some((msg) => msg.id === m.id)) return prev;
-        return [...prev, m];
-      });
-      updateRoomLast(room.id, m);
+        updateRoomLast(room.id, last);
+      }
     };
     addMessageHandler(handler);
     wsCleanup = () => removeMessageHandler(handler);

@@ -827,37 +827,14 @@ app.post(
       },
     );
 
-    const newMsg = {
-      id: String(msg._id),
-      roomId,
-      from,
-      to: recipients,
-      content: storedContent,
-      mediaType: msg.mediaType,
-      encoding: msg.encoding,
-      createdAt: msg.createdAt,
-      attachments: Array.isArray(attachments)
-        ? attachments.map((att, idx) => {
-          const a = att as Record<string, unknown>;
-          if (typeof a.url === "string") {
-            return {
-              url: a.url,
-              mediaType: typeof a.mediaType === "string"
-                ? a.mediaType
-                : "application/octet-stream",
-              key: a.key,
-              iv: a.iv,
-            };
-          }
-          return {
-            url: `https://${domain}/api/files/messages/${msg._id}/${idx}`,
-            mediaType: (a.mediaType as string) || "application/octet-stream",
-            key: a.key as string | undefined,
-            iv: a.iv as string | undefined,
-          };
-        })
-        : undefined,
-    };
+  // WebSocket はリアルタイム通知のみ（本文等は送らない）
+  const newMsg = {
+    id: String(msg._id),
+    roomId,
+    from,
+    to: recipients,
+    createdAt: msg.createdAt,
+  };
     sendToUser(from, { type: "encryptedMessage", payload: newMsg });
     for (const t of recipients) {
       sendToUser(t, { type: "encryptedMessage", payload: newMsg });

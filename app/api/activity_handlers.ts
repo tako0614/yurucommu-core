@@ -134,14 +134,12 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             encoding: string;
             createdAt: unknown;
           };
+          // WSはトリガーのみ（本文等は送らない）
           const newMsg = {
             id: String(msg._id),
             roomId: msg.roomId,
             from,
             to: recipients,
-            content: obj.content,
-            mediaType: msg.mediaType,
-            encoding: msg.encoding,
             createdAt: msg.createdAt,
           };
           sendToUser(selfHandle, { type: "encryptedMessage", payload: newMsg });
@@ -164,7 +162,6 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             roomId: msg.roomId,
             sender: from,
             recipients,
-            message: obj.content,
             createdAt: msg.createdAt,
           };
           sendToUser(selfHandle, { type: "publicMessage", payload: newMsg });
