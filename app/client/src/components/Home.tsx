@@ -256,7 +256,7 @@ export function Home() {
           onClose={() => setShowSettings(false)}
           title="設定"
         >
-          <div class="max-w-4xl">
+          <div class="max-w-4xl mx-auto">
             <Setting />
           </div>
         </Modal>

@@ -39,7 +39,7 @@ export function Setting() {
   };
 
   return (
-    <div class="space-y-6">
+    <div class="space-y-6 mx-auto">
       <div>
         <label for="lang" class="block mb-1">言語</label>
         <select

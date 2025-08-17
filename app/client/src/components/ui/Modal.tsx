@@ -44,7 +44,9 @@ export function Modal(props: ModalProps) {
         {props.title && (
           <h2 class="text-xl font-semibold mb-3">{props.title}</h2>
         )}
-        {props.children}
+        <div class="overflow-auto flex">
+          {props.children}
+        </div>
       </div>
     </Show>
   );
