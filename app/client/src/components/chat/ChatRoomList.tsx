@@ -13,7 +13,8 @@ import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
-import { Button, EmptyState, Input } from "../ui/index.ts";
+import { Button, EmptyState, Input, Skeleton } from "../ui/index.ts";
+import { createDelayedVisibility } from "../../utils/ui.ts";
 import SwipeTabs from "../ui/SwipeTabs.tsx";
 import { activeAccount } from "../../states/account.ts";
 import { getDomain } from "../../utils/config.ts";
@@ -33,6 +34,17 @@ export function ChatRoomList(props: ChatRoomListProps) {
   const [query, setQuery] = createSignal("");
   const [selectedFriend, setSelectedFriend] = createSignal<string | null>(null);
   const [account] = useAtom(activeAccount);
+  // リストが空のときだけ、遅延してスケルトンを表示する（点滅防止）
+  const showAllSkeleton = createDelayedVisibility(
+    () => getFilteredRoomsFor("all").length === 0 && query().trim() === "",
+    250,
+    250,
+  );
+  const showGroupSkeleton = createDelayedVisibility(
+    () => getFilteredRoomsFor("groups").length === 0 && query().trim() === "",
+    250,
+    250,
+  );
 
   // ローカルストレージに最後のセグメントを保存/復元
   onMount(() => {
@@ -239,7 +251,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
             aria-labelledby="tab-all"
             class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
           >
-            <Show when={getFilteredRoomsFor("all").length === 0}>
+            <Show when={showAllSkeleton()}>
+              <li class="px-2 py-2">
+                <RoomListSkeleton />
+              </li>
+            </Show>
+            <Show when={!showAllSkeleton() && getFilteredRoomsFor("all").length === 0}>
               <li class="px-2 py-2">
                 <EmptyState title="トークはありません" description="新しいトークを作成して会話を始めましょう。" />
               </li>
@@ -309,7 +326,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
         {/* グループ */}
         <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
           <ul id="panel-groups" role="tabpanel" aria-labelledby="tab-groups" class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar">
-            <Show when={getFilteredRoomsFor("groups").length === 0}>
+            <Show when={showGroupSkeleton()}>
+              <li class="px-2 py-2">
+                <RoomListSkeleton />
+              </li>
+            </Show>
+            <Show when={!showGroupSkeleton() && getFilteredRoomsFor("groups").length === 0}>
               <li class="px-2 py-2">
                 <EmptyState title="グループはまだありません" description="『グループ作成』から始めましょう。" />
               </li>
@@ -353,5 +375,32 @@ export function ChatRoomList(props: ChatRoomListProps) {
         </div>
       </SwipeTabs>
     </div>
+  );
+}
+
+// チャットルーム一覧のスケルトン
+function RoomListSkeleton() {
+  const items = Array.from({ length: 6 });
+  return (
+    <ul>
+      {items.map(() => (
+        <li class="flex items-center h-16 rounded-lg mb-2 w-full bg-transparent">
+          <div class="flex items-center w-full px-2">
+            <span class="relative w-[40px] h-[40px] flex items-center justify-center">
+              <Skeleton class="w-[40px] h-[40px] rounded-full" rounded="rounded-full" />
+            </span>
+            <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
+              <span class="flex justify-between items-center w-full">
+                <Skeleton class="h-4 w-1/3" />
+                <Skeleton class="h-3 w-12" />
+              </span>
+              <span class="mt-2 flex justify-between items-center w-full">
+                <Skeleton class="h-3 w-2/3" />
+              </span>
+            </span>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

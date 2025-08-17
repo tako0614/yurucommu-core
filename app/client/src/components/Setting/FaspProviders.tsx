@@ -116,7 +116,9 @@ export function FaspProviders() {
       const t = await res.text();
       alert(`保存に失敗しました: ${t}`);
     } else {
-      alert("保存しました");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "success", title: "保存しました", description: "設定が更新されました" },
+      }));
     }
   };
 

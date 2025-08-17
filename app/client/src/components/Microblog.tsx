@@ -13,6 +13,8 @@ import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
 import SwipeTabs from "./ui/SwipeTabs.tsx";
+import { Skeleton } from "./ui";
+import { createDelayedVisibility } from "../utils/ui.ts";
 import { microblogPostLimitState } from "../states/settings.ts";
 import {
   createPost,
@@ -56,6 +58,9 @@ export function Microblog() {
   const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [loadingInitial, setLoadingInitial] = createSignal(true);
+  // スケルトンの遅延表示（速いレスポンスでは出さない）
+  const showInitialSkeleton = createDelayedVisibility(() => loadingInitial(), 250, 300);
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
 
   // モバイルのタブ <-> インデックスの相互変換
@@ -129,9 +134,11 @@ export function Microblog() {
   let sentinel: HTMLDivElement | undefined;
 
   const loadInitialPosts = async () => {
+    setLoadingInitial(true);
     const data = await fetchPosts({ limit: limit() });
     setPosts(data.map(applyLiked));
     setCursor(data.length > 0 ? data[data.length - 1].createdAt : null);
+    setLoadingInitial(false);
   };
 
   const loadMorePosts = async () => {
@@ -256,6 +263,11 @@ export function Microblog() {
       )
       : Promise.resolve([]);
   });
+  const showFollowingSkeleton = createDelayedVisibility(
+    () => Boolean(followingTimelinePosts.loading),
+    250,
+    300,
+  );
 
   const _handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -264,7 +276,9 @@ export function Microblog() {
 
     const user = account();
     if (!user) {
-      alert("アカウントが選択されていません");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "操作できません", description: "アカウントが選択されていません" },
+      }));
       return;
     }
 
@@ -283,8 +297,13 @@ export function Microblog() {
       setQuoteTarget(null);
       setShowPostForm(false);
       resetPosts();
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "success", title: "投稿しました", description: "タイムラインを更新しました" },
+      }));
     } else {
-      alert("投稿の作成に失敗しました");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "error", title: "投稿エラー", description: "投稿の作成に失敗しました" },
+      }));
     }
   };
 
@@ -294,7 +313,9 @@ export function Microblog() {
   ) => {
     const user = account();
     if (!user) {
-      alert("アカウントが選択されていません");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "操作できません", description: "アカウントが選択されていません" },
+      }));
       return;
     }
     const postId = targetPostId();
@@ -311,8 +332,13 @@ export function Microblog() {
     if (success) {
       // リプライリストを更新
       await loadPostById(postId);
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "success", title: "返信を投稿しました" },
+      }));
     } else {
-      alert("返信の投稿に失敗しました");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "error", title: "投稿エラー", description: "返信の投稿に失敗しました" },
+      }));
     }
   };
 
@@ -378,8 +404,13 @@ export function Microblog() {
       } else {
         resetPosts();
       }
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "success", title: "更新しました" },
+      }));
     } else {
-      alert("投稿の更新に失敗しました");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "error", title: "更新エラー", description: "投稿の更新に失敗しました" },
+      }));
     }
   };
 
@@ -399,8 +430,13 @@ export function Microblog() {
       } else {
         resetPosts();
       }
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "success", title: "削除しました" },
+      }));
     } else {
-      alert("投稿の削除に失敗しました");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "error", title: "削除エラー", description: "投稿の削除に失敗しました" },
+      }));
     }
   };
 
@@ -411,6 +447,7 @@ export function Microblog() {
   return (
     <>
       <div class="min-h-screen text-[#E6E7EA] relative">
+        {/* タイムライン用スケルトン: 初期読み込み時は各カラムで表示 */}
         <Show
           when={targetPostId() && selectedPost()}
           fallback={
@@ -530,17 +567,21 @@ export function Microblog() {
                       </h3>
                     </div>
                     <div class="p-4 overflow-x-hidden text-[#CDD1D6]">
-                      <PostList
-                        posts={posts() || []}
-                        tab="latest"
-                        handleReply={handleReply}
-                        handleRetweet={handleRetweet}
-                        handleQuote={handleQuote}
-                        handleLike={handleLike}
-                        handleEdit={handleEdit}
-                        handleDelete={handleDelete}
-                        formatDate={formatDate}
-                      />
+                      <Show when={!showInitialSkeleton()}
+                        fallback={<PostListSkeleton count={6} />}
+                      >
+                        <PostList
+                          posts={posts() || []}
+                          tab="latest"
+                          handleReply={handleReply}
+                          handleRetweet={handleRetweet}
+                          handleQuote={handleQuote}
+                          handleLike={handleLike}
+                          handleEdit={handleEdit}
+                          handleDelete={handleDelete}
+                          formatDate={formatDate}
+                        />
+                      </Show>
                     </div>
                   </div>
                 </div>
@@ -586,7 +627,10 @@ export function Microblog() {
                         >
                           {/* 最新 */}
                           <div class="min-h-[calc(100vh-4rem)]">
-                            <PostList
+                            <Show when={!showInitialSkeleton()}
+                              fallback={<PostListSkeleton count={6} />}
+                            >
+                              <PostList
                               posts={posts() || []}
                               tab="latest"
                               handleReply={handleReply}
@@ -596,7 +640,8 @@ export function Microblog() {
                               handleEdit={handleEdit}
                               handleDelete={handleDelete}
                               formatDate={formatDate}
-                            />
+                              />
+                            </Show>
                             <Show when={(posts() || []).length === 0}>
                               <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
@@ -626,7 +671,10 @@ export function Microblog() {
 
                           {/* フォロー中 */}
                           <div class="min-h-[calc(100vh-4rem)]">
-                            <PostList
+                            <Show when={!showFollowingSkeleton()}
+                              fallback={<PostListSkeleton count={6} />}
+                            >
+                              <PostList
                               posts={followingTimelinePosts() || []}
                               tab="following"
                               handleReply={handleReply}
@@ -636,7 +684,8 @@ export function Microblog() {
                               handleEdit={handleEdit}
                               handleDelete={handleDelete}
                               formatDate={formatDate}
-                            />
+                              />
+                            </Show>
                             <Show when={(followingTimelinePosts() || []).length === 0}>
                               <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
@@ -673,7 +722,10 @@ export function Microblog() {
 
                       {/* デスクトップ: フォロー中投稿のみ */}
                       <div class="hidden lg:block text-[#CDD1D6]">
-                        <PostList
+                        <Show when={!showFollowingSkeleton()}
+                          fallback={<PostListSkeleton count={8} />}
+                        >
+                          <PostList
                           posts={followingTimelinePosts() || []}
                           tab="following"
                           handleReply={handleReply}
@@ -683,7 +735,8 @@ export function Microblog() {
                           handleEdit={handleEdit}
                           handleDelete={handleDelete}
                           formatDate={formatDate}
-                        />
+                          />
+                        </Show>
                         <Show
                           when={(followingTimelinePosts() || []).length === 0}
                         >
@@ -833,5 +886,36 @@ export function Microblog() {
         </Show>
       </div>
     </>
+  );
+}
+
+// タイムライン用のスケルトンカード
+function PostListSkeleton(props: { count?: number }) {
+  const n = props.count ?? 6;
+  const items = Array.from({ length: n });
+  return (
+    <div class="divide-y divide-[#2B3340]/50">
+      {items.map(() => (
+        <div class="py-4">
+          <div class="flex gap-3">
+            <Skeleton class="w-10 h-10 rounded-full shrink-0" rounded="rounded-full" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <Skeleton class="h-4 w-28" />
+                <Skeleton class="h-3 w-16" />
+              </div>
+              <div class="mt-2 space-y-2">
+                <Skeleton class="h-3 w-11/12" />
+                <Skeleton class="h-3 w-9/12" />
+                <Skeleton class="h-3 w-5/12" />
+              </div>
+              <div class="mt-3">
+                <Skeleton class="h-36 w-full rounded-lg" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

@@ -32,15 +32,28 @@ export async function apiFetch(path: string, init?: RequestInit) {
   // Tauri環境判定
   const is = isTauri();
   console.log("isTauri:" + is);
-  const res = is
-    ? await tauriFetch(apiUrl(path), init)
-    : await fetch(
-      apiUrl(path),
-      {
-        credentials: "include",
-        ...(init ?? {}),
+  let res: Response;
+  try {
+    res = is
+      ? await tauriFetch(apiUrl(path), init)
+      : await fetch(
+        apiUrl(path),
+        {
+          credentials: "include",
+          ...(init ?? {}),
+        },
+      );
+  } catch (err) {
+    // ネットワークエラーはグローバルに通知
+    globalThis.dispatchEvent(new CustomEvent("app:toast", {
+      detail: {
+        type: "error",
+        title: "通信エラー",
+        description: "サーバーへの接続に失敗しました。しばらくしてから再度お試しください。",
       },
-    );
+    }));
+    throw err;
+  }
   if (path.endsWith("/config")) {
     try {
       const data = await res.clone().json();

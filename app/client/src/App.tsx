@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { ErrorBoundary } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { loginState } from "./states/session.ts";
 import { languageState, microblogPostLimitState } from "./states/settings.ts";
@@ -10,6 +11,7 @@ import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { usePathRouter } from "./utils/router.ts";
 import "./App.css";
+import { Spinner, ToastProvider, Toaster } from "./components/ui";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
@@ -22,6 +24,9 @@ function App() {
   useInitialLoad();
   // URL パスと状態を同期
   usePathRouter();
+
+  // 初期ロード中フラグ（ログイン状態確定までのフラッシュ防止）
+  const [initializing, setInitializing] = createSignal(true);
 
   // アプリケーション初期化時にログイン状態を確認
   onMount(async () => {
@@ -42,6 +47,8 @@ function App() {
     } catch (err) {
       console.error("Failed to fetch login status:", err);
       setIsLoggedIn(false);
+    } finally {
+      setInitializing(false);
     }
   });
 
@@ -94,20 +101,37 @@ function App() {
 
 
   return (
-    <>
-      <Show when={!isLoggedIn() && showSystemSetup()}>
-        <SystemSetupForm onSuccess={() => setShowSystemSetup(false)} />
+    <ToastProvider>
+      <Toaster />
+      <Show when={!initializing()} fallback={
+        <div class="min-h-dvh grid place-items-center text-gray-200">
+          <div class="flex items-center gap-3 text-sm">
+            <Spinner />
+            <span>読み込み中...</span>
+          </div>
+        </div>
+      }>
+        <Show when={!isLoggedIn() && showSystemSetup()}>
+          <SystemSetupForm onSuccess={() => setShowSystemSetup(false)} />
+        </Show>
+        <Show when={!isLoggedIn() && !showSystemSetup()}>
+          <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
+        </Show>
+        <Show when={isLoggedIn() && showSetup()}>
+          <OnboardingForm onSuccess={() => setShowSetup(false)} />
+        </Show>
+        <Show when={isLoggedIn() && !showSetup()}>
+          <ErrorBoundary fallback={(e) => (
+            <div class="p-6 text-rose-200">
+              <p class="font-semibold">画面の表示でエラーが発生しました。</p>
+              <p class="mt-1 text-rose-300/90 text-sm overflow-wrap-anywhere">{String(e)}</p>
+            </div>
+          )}>
+            <Application />
+          </ErrorBoundary>
+        </Show>
       </Show>
-      <Show when={!isLoggedIn() && !showSystemSetup()}>
-        <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
-      </Show>
-      <Show when={isLoggedIn() && showSetup()}>
-        <OnboardingForm onSuccess={() => setShowSetup(false)} />
-      </Show>
-      <Show when={isLoggedIn() && !showSetup()}>
-        <Application />
-      </Show>
-    </>
+    </ToastProvider>
   );
 }
 

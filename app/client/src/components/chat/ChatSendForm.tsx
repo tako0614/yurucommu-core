@@ -215,7 +215,9 @@ export function ChatSendForm(props: ChatSendFormProps) {
             if (props.newMessage.trim() || props.mediaFile) {
               props.sendMessage();
             } else {
-              alert("録音機能は未実装です");
+              globalThis.dispatchEvent(new CustomEvent("app:toast", {
+                detail: { type: "info", title: "お知らせ", description: "録音機能は未実装です" },
+              }));
             }
           }}
         >

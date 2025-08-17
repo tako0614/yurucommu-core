@@ -123,12 +123,16 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     const members = membersArr.join(",");
 
     if (props.mode === "create" && selectedMembers().length < 1) {
-      alert("最低1人のメンバーを追加してください");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "追加してください", description: "最低1人のメンバーを追加してください" },
+      }));
       return;
     }
 
     if (props.mode === "create" && !groupName && selectedMembers().length > 1) {
-      alert("グループ名を入力してください");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "入力が必要です", description: "グループ名を入力してください" },
+      }));
       return;
     }
 

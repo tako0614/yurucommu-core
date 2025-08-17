@@ -611,7 +611,9 @@ export function Chat() {
   const toggleEncryption = () => {
     // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
     if (!useEncryption() && !partnerHasKey()) {
-      alert("このユーザーは暗号化された会話に対応していません。");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "暗号化に未対応", description: "このユーザーは暗号化された会話に対応していません。" },
+      }));
       return;
     }
     setUseEncryption(!useEncryption());
@@ -784,7 +786,9 @@ export function Chat() {
                 const wBytes = new Uint8Array(obj.data as number[]);
                 const ok = await verifyWelcome(wBytes);
                 if (!ok) {
-                  alert("不正なWelcomeメッセージを受信したため無視しました");
+                  globalThis.dispatchEvent(new CustomEvent("app:toast", {
+                    detail: { type: "warning", title: "無視しました", description: "不正なWelcomeメッセージを受信したため無視しました" },
+                  }));
                   continue;
                 }
                 // 複数の鍵ペアプールから順次試す
@@ -1362,7 +1366,9 @@ export function Chat() {
         text,
       );
       if (!res) {
-        alert("メモの保存に失敗しました");
+        globalThis.dispatchEvent(new CustomEvent("app:toast", {
+          detail: { type: "error", title: "保存エラー", description: "メモの保存に失敗しました" },
+        }));
         return;
       }
       const msg: ChatMessage = {
@@ -1402,7 +1408,9 @@ export function Chat() {
         await initGroupState(roomId);
         group = groups()[roomId];
         if (!group) {
-          alert("グループ初期化に失敗したため送信できません");
+          globalThis.dispatchEvent(new CustomEvent("app:toast", {
+            detail: { type: "error", title: "送信できません", description: "グループ初期化に失敗したため送信できません" },
+          }));
           return;
         }
       }
@@ -1478,7 +1486,9 @@ export function Chat() {
         }
       }
       if (!success) {
-        alert("メッセージの送信に失敗しました");
+        globalThis.dispatchEvent(new CustomEvent("app:toast", {
+          detail: { type: "error", title: "送信エラー", description: "メッセージの送信に失敗しました" },
+        }));
         return;
       }
       setGroups({ ...groups(), [roomId]: encrypted.state });
@@ -1491,7 +1501,9 @@ export function Chat() {
         Array.isArray(note.attachment) ? note.attachment as unknown[] : undefined,
       );
       if (!ok) {
-        alert("メッセージの送信に失敗しました");
+        globalThis.dispatchEvent(new CustomEvent("app:toast", {
+          detail: { type: "error", title: "送信エラー", description: "メッセージの送信に失敗しました" },
+        }));
         return;
       }
     }
@@ -2022,7 +2034,9 @@ export function Chat() {
 
   createEffect(() => {
     if (useEncryption() && !partnerHasKey()) {
-      alert("このユーザーは暗号化された会話に対応していません。");
+      globalThis.dispatchEvent(new CustomEvent("app:toast", {
+        detail: { type: "warning", title: "暗号化に未対応", description: "このユーザーは暗号化された会話に対応していません。" },
+      }));
     }
   });
 
