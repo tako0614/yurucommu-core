@@ -1,7 +1,6 @@
 import { createSignal, Show, For, createMemo } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
-import { isFriendRoom } from "./types.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
 import { getDomain } from "../../utils/config.ts";
@@ -57,8 +56,8 @@ export function FriendList(props: FriendListProps) {
     const candidateRooms = props.rooms.filter((r) => {
       if (r.type === "memo") return false;
       const base = [
-        ...((r.members ?? []).filter((m): m is string => typeof m === "string" && !!m)),
-        ...((r.pendingInvites ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+        ...((r.members ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
+        ...((r.pendingInvites ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
       ];
       let normalized = base.map((m) => normalizeHandle(m) || m);
       normalized = normalized.filter((m) => !!m && !isSelf(m));
@@ -72,8 +71,8 @@ export function FriendList(props: FriendListProps) {
     });
     for (const room of candidateRooms) {
       const base = [
-        ...((room.members ?? []).filter((m): m is string => typeof m === "string" && !!m)),
-        ...((room.pendingInvites ?? []).filter((m): m is string => typeof m === "string" && !!m)),
+        ...((room.members ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
+        ...((room.pendingInvites ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
       ];
       let normalized = base.map((m) => normalizeHandle(m) || m);
       normalized = normalized.filter((m) => !!m && !isSelf(m));
