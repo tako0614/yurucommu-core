@@ -11,6 +11,13 @@ import {
   verifyHttpSignature,
 } from "../api/utils/activitypub.ts";
 
+interface ActivityPubActivity {
+  type: string;
+  actor: string;
+  object?: string | ActivityPubActivity;
+  [key: string]: unknown;
+}
+
 interface QueueItem {
   inbox: string;
   body: string;
@@ -120,9 +127,9 @@ export function createServiceActorApp(env: Record<string, string>) {
     if (!okDigest || !okSig) {
       return jsonResponse(c, { error: "Invalid signature" }, 401);
     }
-    let activity: Record<string, unknown>;
+    let activity: ActivityPubActivity;
     try {
-      activity = JSON.parse(bodyText);
+      activity = JSON.parse(bodyText) as ActivityPubActivity;
     } catch {
       return jsonResponse(c, { error: "Bad JSON" }, 400);
     }
@@ -156,10 +163,12 @@ export function createServiceActorApp(env: Record<string, string>) {
     // Undo(Follow) でフォロワーの inbox を削除
     if (
       activity?.type === "Undo" &&
-      activity?.object?.type === "Follow" &&
-      activity?.object?.object === actorId
+      activity?.object &&
+      typeof activity.object === "object" &&
+      (activity.object as ActivityPubActivity)?.type === "Follow" &&
+      (activity.object as ActivityPubActivity)?.object === actorId
     ) {
-      const actor: string = activity.object.actor;
+      const actor: string = (activity.object as ActivityPubActivity).actor;
       try {
         const inbox = await fetchActorInbox(actor, env);
         if (inbox) followers.delete(inbox);
