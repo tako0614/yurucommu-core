@@ -22,14 +22,15 @@ export async function saveFile(
   await storage!.put(storageKey, bytes);
   const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const db = createDB(env);
-  const obj = await db.saveObject({
+  // ファイルIDはURLを含まないランダム文字列にする
+  const id = crypto.randomUUID();
+  await db.saveObject({
+    _id: id,
     type: "Attachment",
     attributedTo: `https://${domain}/system`,
     extra: { mediaType, key: options.key, iv: options.iv, storageKey },
   });
-  const id = (obj as { _id: { toString(): string } | string })._id;
-  const strId = typeof id === "string" ? id : id.toString();
-  return { id: strId, url: `https://${domain}/api/files/${strId}` };
+  return { id, url: `https://${domain}/api/files/${id}` };
 }
 
 export async function getFile(

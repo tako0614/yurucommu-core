@@ -190,9 +190,10 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 - `POST /api/users/:user/messages` – メッセージ送信
 - `GET /api/users/:user/keep` – TAKO Keep に保存したメモ一覧を取得
 - `POST /api/users/:user/keep` – TAKO Keep へメモを保存
-- `POST /api/files` – ファイルアップロード（HTTP のみ）
-- `GET /api/files/:id` – ファイル取得
-- `GET /api/files/messages/:messageId/:index` – メッセージ添付ファイル取得
+- `POST /api/files` – ファイルアップロード（HTTP のみ、要ログイン）
+- `GET /api/files/:id` – ファイル取得（認証不要）
+- `GET /api/files/messages/:messageId/:index` –
+  メッセージ添付ファイル取得（認証不要）
 
 ### ファイルアップロード設定
 

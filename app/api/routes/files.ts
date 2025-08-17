@@ -24,51 +24,68 @@ function parseSizeToBytes(v?: string): number | undefined {
   const m = s.match(/^(\d+)(b|kb|mb|gb)?$/i);
   if (!m) return undefined;
   const n = Number(m[1]);
-  const unit = (m[2] || 'b').toLowerCase();
+  const unit = (m[2] || "b").toLowerCase();
   switch (unit) {
-    case 'b':
+    case "b":
       return n;
-    case 'kb':
+    case "kb":
       return n * 1024;
-    case 'mb':
+    case "mb":
       return n * 1024 * 1024;
-    case 'gb':
+    case "gb":
       return n * 1024 * 1024 * 1024;
     default:
       return undefined;
   }
 }
 
-function getListFromEnv(env: Record<string, string>, key: string): string[] | undefined {
+function getListFromEnv(
+  env: Record<string, string>,
+  key: string,
+): string[] | undefined {
   const raw = env[key];
   if (!raw) return undefined;
-  return raw.split(',').map((x) => x.trim()).filter(Boolean);
+  return raw.split(",").map((x) => x.trim()).filter(Boolean);
 }
 
 function getMaxFileSize(env: Record<string, string>): number | undefined {
   return (
     parseSizeToBytes(env["FILE_MAX_SIZE"]) ??
-    parseSizeToBytes(env["FILE_MAX_SIZE_BYTES"]) ??
-    (env["FILE_MAX_SIZE_MB"] ? Number(env["FILE_MAX_SIZE_MB"]) * 1024 * 1024 : undefined)
+      parseSizeToBytes(env["FILE_MAX_SIZE_BYTES"]) ??
+      (env["FILE_MAX_SIZE_MB"]
+        ? Number(env["FILE_MAX_SIZE_MB"]) * 1024 * 1024
+        : undefined)
   );
 }
 
-function getAllowedMimeTypes(env: Record<string, string>): string[] | undefined {
+function getAllowedMimeTypes(
+  env: Record<string, string>,
+): string[] | undefined {
   const list = getListFromEnv(env, "FILE_ALLOWED_MIME_TYPES");
   return (list && list.length > 0) ? list : undefined;
 }
 
-function getBlockedMimeTypes(env: Record<string, string>): string[] | undefined {
+function getBlockedMimeTypes(
+  env: Record<string, string>,
+): string[] | undefined {
   const list = getListFromEnv(env, "FILE_BLOCKED_MIME_TYPES");
   return (list && list.length > 0) ? list : undefined;
 }
 
-function getBlockedExtensions(env: Record<string, string>): string[] | undefined {
+function getBlockedExtensions(
+  env: Record<string, string>,
+): string[] | undefined {
   const list = getListFromEnv(env, "FILE_BLOCKED_EXTENSIONS");
-  return (list && list.length > 0) ? list.map((x) => x.toLowerCase()) : undefined;
+  return (list && list.length > 0)
+    ? list.map((x) => x.toLowerCase())
+    : undefined;
 }
 
-function isAllowedFileType(mediaType: string, filename: string | undefined, env: Record<string, string>): boolean {
+function isAllowedFileType(
+  mediaType: string,
+  filename: string | undefined,
+  env: Record<string, string>,
+): boolean {
   const allowed = getAllowedMimeTypes(env);
   const blockedMime = getBlockedMimeTypes(env);
   const blockedExts = getBlockedExtensions(env);
@@ -92,9 +109,8 @@ function isAllowedFileType(mediaType: string, filename: string | undefined, env:
 }
 
 const app = new Hono();
-app.use("/files/*", authRequired);
 
-app.post("/files", async (c) => {
+app.post("/files", authRequired, async (c) => {
   const env = getEnv(c);
   const contentType = c.req.header("content-type") || "";
   let bytes: Uint8Array | null = null;
@@ -111,12 +127,16 @@ app.post("/files", async (c) => {
     if (!(file instanceof File)) {
       return c.json({ error: "invalid body" }, 400);
     }
-    
+
     // ファイルサイズのチェック（設定がある場合のみ）
     if (typeof MAX_FILE_SIZE === "number" && file.size > MAX_FILE_SIZE) {
-      return c.json({ error: `File too large. Maximum size is ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB` }, 400);
+      return c.json({
+        error: `File too large. Maximum size is ${
+          Math.round(MAX_FILE_SIZE / 1024 / 1024)
+        }MB`,
+      }, 400);
     }
-    
+
     bytes = new Uint8Array(await file.arrayBuffer());
     mediaType = file.type || mediaType;
     filename = file.name;
@@ -125,12 +145,19 @@ app.post("/files", async (c) => {
     ext = extname(file.name);
   } else if (contentType === "application/octet-stream") {
     const arrayBuffer = await c.req.arrayBuffer();
-    
+
     // ファイルサイズのチェック（設定がある場合のみ）
-    if (typeof MAX_FILE_SIZE === "number" && arrayBuffer.byteLength > MAX_FILE_SIZE) {
-      return c.json({ error: `File too large. Maximum size is ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB` }, 400);
+    if (
+      typeof MAX_FILE_SIZE === "number" &&
+      arrayBuffer.byteLength > MAX_FILE_SIZE
+    ) {
+      return c.json({
+        error: `File too large. Maximum size is ${
+          Math.round(MAX_FILE_SIZE / 1024 / 1024)
+        }MB`,
+      }, 400);
     }
-    
+
     bytes = new Uint8Array(arrayBuffer);
     mediaType = c.req.header("x-media-type") || mediaType;
     filename = c.req.header("x-filename");
@@ -142,12 +169,16 @@ app.post("/files", async (c) => {
       return c.json({ error: "invalid body" }, 400);
     }
     bytes = b64ToBuf(content);
-    
+
     // ファイルサイズのチェック（設定がある場合のみ）
     if (typeof MAX_FILE_SIZE === "number" && bytes.byteLength > MAX_FILE_SIZE) {
-      return c.json({ error: `File too large. Maximum size is ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB` }, 400);
+      return c.json({
+        error: `File too large. Maximum size is ${
+          Math.round(MAX_FILE_SIZE / 1024 / 1024)
+        }MB`,
+      }, 400);
     }
-    
+
     mediaType = typeof mt === "string" ? mt : mediaType;
     key = typeof k === "string" ? k : undefined;
     iv = typeof i === "string" ? i : undefined;
@@ -156,7 +187,7 @@ app.post("/files", async (c) => {
   if (!bytes) {
     return c.json({ error: "invalid body" }, 400);
   }
-  
+
   // ファイルタイプの検証
   if (!isAllowedFileType(mediaType, filename, env)) {
     return c.json({ error: "File type not allowed" }, 400);

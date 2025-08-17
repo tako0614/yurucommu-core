@@ -688,7 +688,7 @@ paths:
           description: 送信結果
   /api/files:
     post:
-      summary: ファイルアップロード（HTTP のみ）
+      summary: ファイルアップロード（HTTP のみ、要ログイン）
       requestBody:
         required: true
         content:
@@ -718,7 +718,7 @@ paths:
         schema:
           type: string
     get:
-      summary: ファイル取得
+      summary: ファイル取得（認証不要）
       responses:
         "200":
           description: ファイルデータ
@@ -735,7 +735,7 @@ paths:
         schema:
           type: integer
     get:
-      summary: メッセージ添付ファイル取得
+      summary: メッセージ添付ファイル取得（認証不要）
       responses:
         "200":
           description: ファイルデータ
