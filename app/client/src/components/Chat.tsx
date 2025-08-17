@@ -1663,11 +1663,42 @@ export function Chat() {
     }
     setGroups({ ...groups(), [roomId]: msgEnc.state });
     saveGroupStates();
+
     // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
     setMediaPreview(null);
-    // WebSocketからメッセージ受信を待つため、即座の表示は行わない
+
+    // 送信直後に REST で直近を再取得して即時反映（WSの遅延/未送信をカバー）
+    try {
+      const isSelected = selectedRoom() === roomId;
+      if (isSelected) {
+        const prev = messages();
+        const lastTs = prev.length > 0
+          ? prev[prev.length - 1].timestamp.toISOString()
+          : undefined;
+        const fetched = await fetchMessagesForRoom(
+          room,
+          lastTs ? { after: lastTs } : { limit: 1 },
+        );
+        if (fetched.length > 0) {
+          setMessages((old) => {
+            const ids = new Set(old.map((m) => m.id));
+            const add = fetched.filter((m) => !ids.has(m.id));
+            return [...old, ...add];
+          });
+          const last = fetched[fetched.length - 1];
+          updateRoomLast(roomId, last);
+        }
+      } else {
+        const fetched = await fetchMessagesForRoom(room, { limit: 1 });
+        if (fetched.length > 0) {
+          updateRoomLast(roomId, fetched[fetched.length - 1]);
+        }
+      }
+    } catch (e) {
+      console.warn("送信後の即時再取得に失敗しました", e);
+    }
   };
 
   // 画面サイズ検出
@@ -1803,6 +1834,11 @@ export function Chat() {
         return;
       }
 
+      // まず roomId が来ていればそれで特定する（UUIDグループ等に強い）
+      let room = data.roomId
+        ? chatRooms().find((r) => r.id === data.roomId)
+        : undefined;
+
       const partnerId = data.from === self
         ? (data.to.find((v) => v !== self) ?? data.to[0])
         : data.from;
@@ -1811,7 +1847,7 @@ export function Chat() {
       const [partnerName] = splitActor(normalizedPartner);
       const uuidRe =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      let room = chatRooms().find((r) => r.id === partnerName);
+      if (!room) room = chatRooms().find((r) => r.id === partnerName);
       if (!room) {
         for (const t of data.to) {
           const normalized = normalizeActor(t);
