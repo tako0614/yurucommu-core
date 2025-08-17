@@ -12,6 +12,7 @@ import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
+import SwipeTabs from "./ui/SwipeTabs.tsx";
 import { microblogPostLimitState } from "../states/settings.ts";
 import {
   createPost,
@@ -56,6 +57,15 @@ export function Microblog() {
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
+
+  // モバイルのタブ <-> インデックスの相互変換
+  const tabOrder: ("latest" | "following" | "trends")[] = [
+    "latest",
+    "following",
+    "trends",
+  ];
+  const mobileIndex = () => tabOrder.indexOf(mobileTab());
+  const setMobileIndex = (i: number) => setMobileTab(tabOrder[i] ?? "following");
 
   const LIKED_POSTS_KEY = "liked_posts";
   let likedPostIds = new Set<string>();
@@ -552,9 +562,10 @@ export function Microblog() {
 
                     {/* コンテンツエリア */}
                     <div class="flex-1 overflow-y-auto lg:p-4 max-lg:pt-16 max-lg:min-h-[calc(100vh-4rem)] text-[#CDD1D6]">
-                      {/* モバイル: タブに応じた表示 */}
+                      {/* モバイル: スワイプでタブを切り替え（ドラッグ中は両方見える） */}
                       <div class="lg:hidden min-h-full">
-                        <Show when={mobileTab() === "latest"}>
+                        <SwipeTabs index={mobileIndex()} onIndexChange={setMobileIndex}>
+                          {/* 最新 */}
                           <div class="min-h-full">
                             <PostList
                               posts={posts() || []}
@@ -593,9 +604,8 @@ export function Microblog() {
                               </div>
                             </Show>
                           </div>
-                        </Show>
 
-                        <Show when={mobileTab() === "following"}>
+                          {/* フォロー中 */}
                           <div class="min-h-full">
                             <PostList
                               posts={followingTimelinePosts() || []}
@@ -608,10 +618,7 @@ export function Microblog() {
                               handleDelete={handleDelete}
                               formatDate={formatDate}
                             />
-                            <Show
-                              when={(followingTimelinePosts() || []).length ===
-                                0}
-                            >
+                            <Show when={(followingTimelinePosts() || []).length === 0}>
                               <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
                                   <svg
@@ -637,13 +644,12 @@ export function Microblog() {
                               </div>
                             </Show>
                           </div>
-                        </Show>
 
-                        <Show when={mobileTab() === "trends"}>
+                          {/* トレンド */}
                           <div class="p-4 min-h-full">
                             <Trends />
                           </div>
-                        </Show>
+                        </SwipeTabs>
                       </div>
 
                       {/* デスクトップ: フォロー中投稿のみ */}
