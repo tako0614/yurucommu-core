@@ -591,7 +591,6 @@ export function Chat() {
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
     if (!isUuidRoom &&
-      !(room.hasName || room.hasIcon) &&
       (room.name === "" || room.name === user.displayName ||
         room.name === user.userName || room.name === selfHandle)
     ) {
@@ -605,6 +604,7 @@ export function Chat() {
                   ...r,
                   name: info.displayName || info.userName,
                   avatar: info.authorAvatar || r.avatar,
+                  // 2人ルームの場合は hasName を設定しない（友達として認識させるため）
                 }
                 : r
             )
@@ -1264,6 +1264,7 @@ export function Chat() {
         if (info) {
           r.name = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
+          // 2人ルーム（友達ルーム）の場合は hasName を設定しない（友達として認識させるため）
           // 参加者リストは MLS 由来を保持する（表示名のみ補完）
         }
       }
@@ -1326,7 +1327,8 @@ export function Chat() {
       type: "group",
       // UI表示用に招待先を入れておく（MLS同期後は state 由来に上書きされる）
       members: others,
-      hasName: Boolean(finalName),
+      // 2人ルーム（友達ルーム）の場合は hasName を設定しない（友達として認識させるため）
+      hasName: others.length > 1 ? Boolean(finalName) : false,
       hasIcon: false,
       lastMessage: "...",
       lastMessageTime: undefined,
@@ -1576,9 +1578,12 @@ export function Chat() {
     );
     let success = true;
     for (const msg of encrypted.messages) {
+      // 送信先を取得（ルームのメンバー）
+      const toList = room.members ?? [];
       const ok = await sendEncryptedMessage(
         roomId,
         `${user.userName}@${getDomain()}`,
+        toList,
         {
           content: bufToB64(msg),
           mediaType: "message/mls",

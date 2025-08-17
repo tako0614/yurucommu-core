@@ -76,7 +76,10 @@ export function ChatRoomList(props: ChatRoomListProps) {
         room.name === me.userName || room.name === selfHandle
       ) {
         // 自分名や空のときは相手のハンドルを優先
-        if (other && other !== selfHandle) return other;
+        if (other && other !== selfHandle) {
+          // ハンドルから表示名を生成（@以前の部分）
+          return other.split("@")[0] || other;
+        }
         // 相手未確定なら空（自分を表示しない）
         return "";
       }
