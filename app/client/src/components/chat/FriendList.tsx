@@ -50,13 +50,9 @@ export function FriendList(props: FriendListProps) {
       if (!friendMap.has(friendId)) {
         const isSelfLikeName = me && (room.name === me.displayName || room.name === me.userName || room.name === selfHandle);
         const fallbackName = friendId.split("@")[0] || friendId;
-        // 名前が自分の名前や空の場合は、相手のIDから名前を生成
-        const displayName = (room.name && !isSelfLikeName && room.name.trim() !== "")
-          ? room.name
-          : fallbackName;
         friendMap.set(friendId, {
           id: friendId,
-          name: displayName,
+          name: (room.name && !isSelfLikeName) ? room.name : fallbackName,
           avatar: room.avatar,
           domain: friendId.includes("@") ? friendId.split("@")[1] : undefined,
         });

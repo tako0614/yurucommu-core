@@ -37,11 +37,10 @@ export interface Room {
 // トークルームの種類を判定するユーティリティ関数
 export function isFriendRoom(room: Room): boolean {
   if (room.type === "memo") return false;
+  if (room.hasName || room.hasIcon) return false;
   const count = room.members?.length ?? 0;
-  // MLS 同期済み: 相手だけが 1 名（hasName/hasIconに関係なく、メンバー数で判定）
+  // MLS 同期済み: 相手だけが 1 名
   if (count === 1) return true;
-  // 2名でも1:1チャットとみなす（自分+相手）
-  if (count === 2) return true;
   // 未同期でも、ID がハンドル形式なら 1:1 とみなす（暫定表示）
   if (count === 0 && typeof room.id === "string" && room.id.includes("@")) {
     return true;
