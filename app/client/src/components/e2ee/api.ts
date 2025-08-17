@@ -436,6 +436,7 @@ export const sendHandshake = async (
   roomId: string,
   from: string,
   content: string,
+  to?: string[],
 ): Promise<boolean> => {
   try {
     const payload: Record<string, unknown> = {
@@ -444,6 +445,10 @@ export const sendHandshake = async (
       mediaType: "message/mls",
       encoding: "base64",
     };
+    if (Array.isArray(to)) {
+      // 送信先（MLS ロスター由来）を明示し、サーバー側の検証/配送に使用する
+      payload.to = to;
+    }
     const res = await apiFetch(
       `/api/rooms/${encodeURIComponent(roomId)}/handshakes`,
       {

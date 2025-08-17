@@ -379,11 +379,24 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       const res = await createCommitAndWelcomes(state, [kpInput]);
       // Handshake として送信（commit と welcome）
       const commitContent = encodePublicMessage(res.commit);
-      const ok = await sendHandshake(props.room.id, user.id, commitContent);
+      // 既知のメンバー（UIが持つ room.members）と自分を宛先に含める
+      const self = `${user.userName}@${getDomain()}`;
+      const toList = Array.from(new Set([...(props.room?.members ?? []), self]));
+      const ok = await sendHandshake(
+        props.room.id,
+        `${user.userName}@${getDomain()}`,
+        commitContent,
+        toList,
+      );
       if (!ok) throw new Error("Commitの送信に失敗しました");
       for (const w of res.welcomes) {
         const wContent = encodePublicMessage(w.data);
-        const wk = await sendHandshake(props.room.id, user.id, wContent);
+        const wk = await sendHandshake(
+          props.room.id,
+          `${user.userName}@${getDomain()}`,
+          wContent,
+          toList,
+        );
         if (!wk) throw new Error("Welcomeの送信に失敗しました");
       }
       // 招待中に登録（Join済みになれば自動でmembers側に移動）

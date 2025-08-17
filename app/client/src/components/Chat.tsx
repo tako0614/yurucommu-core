@@ -735,6 +735,7 @@ export function Chat() {
     return pair;
   };
 
+  // Handshake の再取得カーソルは ID ではなく時刻ベースで管理（APIが createdAt を after に使うため）
   const lastHandshakeId = new Map<string, string>();
 
   async function syncHandshakes(room: Room) {
@@ -768,7 +769,7 @@ export function Chat() {
               dec.publicMessage as unknown as never,
             );
             updated = true;
-            lastHandshakeId.set(room.id, h.id);
+            lastHandshakeId.set(room.id, String(h.createdAt));
             continue;
           }
         } catch {
@@ -782,7 +783,7 @@ export function Chat() {
               dec.publicMessage as unknown as never,
             );
             updated = true;
-            lastHandshakeId.set(room.id, h.id);
+            lastHandshakeId.set(room.id, String(h.createdAt));
             continue;
           }
         } catch {
@@ -829,7 +830,7 @@ export function Chat() {
                 console.warn("welcome apply failed for all key pairs");
               }
             }
-            lastHandshakeId.set(room.id, h.id);
+            lastHandshakeId.set(room.id, String(h.createdAt));
             continue;
           }
           if (obj?.type === "RosterEvidence") {
@@ -851,7 +852,7 @@ export function Chat() {
                 );
               }
             }
-            lastHandshakeId.set(room.id, h.id);
+            lastHandshakeId.set(room.id, String(h.createdAt));
             continue;
           }
         } catch {
@@ -905,7 +906,11 @@ export function Chat() {
       `${user.userName}@${getDomain()}`,
       params,
     );
-    for (const m of list) {
+    // 復号は古い順に処理しないとラチェットが進まず失敗するため昇順で処理
+    const ordered = [...list].sort((a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    for (const m of ordered) {
       const data = b64ToBuf(m.content);
       let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
       try {
@@ -1423,11 +1428,22 @@ export function Chat() {
         if (kpInputs.length > 0) {
           const resAdd = await createCommitAndWelcomes(group, kpInputs);
           const commitContent = encodePublicMessage(resAdd.commit);
-          const ok = await sendHandshake(room.id, user.id, commitContent);
+          const ok = await sendHandshake(
+            room.id,
+            `${user.userName}@${getDomain()}`,
+            commitContent,
+            // ルーム作成時は members が最新のロスター
+            members,
+          );
           if (ok) {
             for (const w of resAdd.welcomes) {
               const wContent = encodePublicMessage(w.data);
-              const wk = await sendHandshake(room.id, user.id, wContent);
+              const wk = await sendHandshake(
+                room.id,
+                `${user.userName}@${getDomain()}`,
+                wContent,
+                members,
+              );
               if (!wk) break;
             }
             setGroups({ ...groups(), [room.id]: resAdd.state });
@@ -1462,7 +1478,16 @@ export function Chat() {
       if (indices.length === 0) return false;
       const res = await removeMembers(group, indices);
       const content = encodePublicMessage(res.commit);
-      const ok = await sendHandshake(roomId, user.id, content);
+      const room = chatRooms().find((r) => r.id === roomId);
+      const toList = participantsFromState(roomId).length > 0
+        ? participantsFromState(roomId)
+        : (room?.members ?? []).filter((m) => !!m);
+      const ok = await sendHandshake(
+        roomId,
+        `${user.userName}@${getDomain()}`,
+        content,
+        toList,
+      );
       if (!ok) return false;
       setGroups({ ...groups(), [roomId]: res.state });
       await saveGroupStates();
@@ -1581,11 +1606,26 @@ export function Chat() {
         if (kpInputs.length > 0) {
           const resAdd = await createCommitAndWelcomes(group, kpInputs);
           const commitContent = encodePublicMessage(resAdd.commit);
-          const ok = await sendHandshake(roomId, user.id, commitContent);
+          const toList = Array.from(new Set([
+            ...current,
+            ...need,
+            self,
+          ]));
+          const ok = await sendHandshake(
+            roomId,
+            `${user.userName}@${getDomain()}`,
+            commitContent,
+            toList,
+          );
           if (!ok) throw new Error("Commit送信に失敗しました");
           for (const w of resAdd.welcomes) {
             const wContent = encodePublicMessage(w.data);
-            const wk = await sendHandshake(roomId, user.id, wContent);
+            const wk = await sendHandshake(
+              roomId,
+              `${user.userName}@${getDomain()}`,
+              wContent,
+              toList,
+            );
             if (!wk) throw new Error("Welcome送信に失敗しました");
           }
           group = resAdd.state;
