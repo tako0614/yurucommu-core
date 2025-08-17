@@ -231,30 +231,9 @@ async function handleHandshake(
     }
   }
   const envelope = decodeMlsEnvelope(content);
-
-  // If it's a welcome for a local member, save as PendingInvite and skip inbox delivery
-  if (envelope && envelope.type === "Welcome") {
-    // Welcome の本体は MLS Welcome 構造(バイナリ)で actor 情報は外側活動に含まれない。
-    // 仕様整合: ローカル Actor の他端末へは inbox 送信せずサーバ保管 (PendingInvite)
-    // 判定: from(送信者) は既存メンバー。ローカル他端末用 Welcome かどうかは
-    // "local only" ポリシーに従い: 送信者と同じドメインのルーム内メンバーに限り保存。
-    // 各ローカルメンバー全端末に同一 Welcome を再利用できるので sender 自身以外のローカルメンバーを保存対象とする。
-    const localMembers = recipients.filter((m) =>
-      m.endsWith(`@${domain}`)
-    );
-    if (localMembers.length > 0) {
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      for (const lm of localMembers) {
-        const uname = lm.split("@")[0];
-        await db.savePendingInvite(roomId, uname, "", expiresAt);
-        sendToUser(lm, {
-          type: "pendingInvite",
-          payload: { roomId, from, welcomeB64: content },
-        });
-      }
-      return { ok: true, id: "pending" };
-    }
-  }
+  const localTargets = envelope && envelope.type === "Welcome"
+    ? recipients.filter((m) => m.endsWith(`@${domain}`))
+    : [];
 
   const msg = await db.createHandshakeMessage({
     roomId,
@@ -303,6 +282,27 @@ async function handleHandshake(
   (activity as ActivityPubActivity).to = recipients;
   (activity as ActivityPubActivity).cc = [];
 
+  const newMsg = {
+    id: String(msg._id),
+    roomId,
+    sender: from,
+    recipients: recipients,
+    createdAt: msg.createdAt,
+  };
+  sendToUser(from, { type: "handshake", payload: newMsg });
+  for (const t of recipients) {
+    sendToUser(t, { type: "handshake", payload: newMsg });
+  }
+
+  if (localTargets.length > 0) {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    for (const lm of localTargets) {
+      const uname = lm.split("@")[0];
+      await db.savePendingInvite(roomId, uname, "", expiresAt);
+      sendToUser(lm, { type: "pendingInvite", payload: { roomId, from } });
+    }
+  }
+
   // If it's a welcome for a remote actor, deliver to that actor's inbox only
   if (envelope && envelope.type === "Welcome") {
     // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
@@ -336,15 +336,6 @@ async function handleHandshake(
       } catch (err) {
         console.error("deliver remote welcome failed", err);
       }
-      const newMsg = {
-        id: String(msg._id),
-        roomId,
-        sender: from,
-        recipients: remoteMembers,
-        message: content,
-        createdAt: msg.createdAt,
-      };
-      sendToUser(from, { type: "publicMessage", payload: newMsg });
       return { ok: true, id: String(msg._id) };
     }
   }
@@ -355,19 +346,6 @@ async function handleHandshake(
       console.error("deliver failed", err);
     },
   );
-
-  const newMsg = {
-    id: String(msg._id),
-    roomId,
-    sender: from,
-    recipients: recipients,
-    message: content,
-    createdAt: msg.createdAt,
-  };
-  sendToUser(from, { type: "publicMessage", payload: newMsg });
-  for (const t of recipients) {
-    sendToUser(t, { type: "publicMessage", payload: newMsg });
-  }
 
   return { ok: true, id: String(msg._id) };
 }

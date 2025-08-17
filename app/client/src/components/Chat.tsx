@@ -542,7 +542,9 @@ export function Chat() {
           !(r.hasName || r.hasIcon);
         let displayName = r.displayName;
         if (
-          isDm && (!displayName || displayName === user.displayName || displayName === user.userName || displayName === selfHandle)
+          isDm &&
+          (!displayName || displayName === user.displayName ||
+            displayName === user.userName || displayName === selfHandle)
         ) {
           displayName = fullFrom;
         }
@@ -598,10 +600,13 @@ export function Chat() {
     );
 
     // 名前が未設定/自分名に見える場合は相手の displayName を取得して補完
-    if (!isUuidRoom &&
+    if (
+      !isUuidRoom &&
       !(room.hasName || room.hasIcon) &&
-      ((room.displayName ?? room.name) === "" || (room.displayName ?? room.name) === user.displayName ||
-        (room.displayName ?? room.name) === user.userName || (room.displayName ?? room.name) === selfHandle)
+      ((room.displayName ?? room.name) === "" ||
+        (room.displayName ?? room.name) === user.displayName ||
+        (room.displayName ?? room.name) === user.userName ||
+        (room.displayName ?? room.name) === selfHandle)
     ) {
       try {
         const info = await fetchUserInfo(partner as ActorID);
@@ -720,6 +725,138 @@ export function Chat() {
     return pair;
   };
 
+  const lastHandshakeId = new Map<string, string>();
+
+  async function syncHandshakes(room: Room) {
+    const user = account();
+    if (!user) return;
+    let group = groups()[room.id];
+    if (!group) {
+      await initGroupState(room.id);
+      group = groups()[room.id];
+      if (!group) return;
+    }
+    const after = lastHandshakeId.get(room.id);
+    const hs = await fetchHandshakes(
+      room.id,
+      after ? { limit: 100, after } : { limit: 100 },
+    );
+    if (hs.length === 0) return;
+    const ordered = [...hs].sort((a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    let updated = false;
+    for (const h of ordered) {
+      const body = decodePublicMessage(h.message);
+      if (!body) continue;
+      try {
+        try {
+          const dec = decodeMlsMessage(body, 0)?.[0];
+          if (dec && dec.wireformat === "mls_public_message") {
+            group = await processCommit(
+              group,
+              dec.publicMessage as unknown as never,
+            );
+            updated = true;
+            lastHandshakeId.set(room.id, h.id);
+            continue;
+          }
+        } catch {
+          /* not a commit */
+        }
+        try {
+          const dec = decodeMlsMessage(body, 0)?.[0];
+          if (dec && dec.wireformat === "mls_public_message") {
+            group = await processProposal(
+              group,
+              dec.publicMessage as unknown as never,
+            );
+            updated = true;
+            lastHandshakeId.set(room.id, h.id);
+            continue;
+          }
+        } catch {
+          /* not a proposal */
+        }
+        try {
+          const obj = JSON.parse(new TextDecoder().decode(body));
+          if (obj?.type === "welcome" && Array.isArray(obj.data)) {
+            const wBytes = new Uint8Array(obj.data as number[]);
+            const ok = await verifyWelcome(wBytes);
+            if (!ok) {
+              globalThis.dispatchEvent(
+                new CustomEvent("app:toast", {
+                  detail: {
+                    type: "warning",
+                    title: "無視しました",
+                    description:
+                      "不正なWelcomeメッセージを受信したため無視しました",
+                  },
+                }),
+              );
+            } else {
+              let joined: StoredGroupState | null = null;
+              const me = account();
+              const pairs = me ? await loadAllMLSKeyPairs(me.id) : [];
+              if (pairs.length === 0) {
+                const single = await ensureKeyPair();
+                if (single) pairs.push(single);
+              }
+              for (const p of pairs) {
+                try {
+                  const st = await joinWithWelcome(wBytes, p);
+                  joined = st;
+                  break;
+                } catch (e) {
+                  console.warn("welcome apply failed", e);
+                  continue;
+                }
+              }
+              if (joined) {
+                group = joined;
+                updated = true;
+              } else {
+                console.warn("welcome apply failed for all key pairs");
+              }
+            }
+            lastHandshakeId.set(room.id, h.id);
+            continue;
+          }
+          if (obj?.type === "RosterEvidence") {
+            const ev = obj as RosterEvidence;
+            const okEv = await importRosterEvidence(
+              user.id,
+              room.id,
+              ev,
+            );
+            if (okEv) {
+              await appendRosterEvidence(user.id, room.id, [ev]);
+              const actor = actorUrl();
+              if (actor && ev.actor === actor) {
+                await assessBinding(
+                  user.id,
+                  room.id,
+                  actor,
+                  ev.leafSignatureKeyFpr,
+                );
+              }
+            }
+            lastHandshakeId.set(room.id, h.id);
+            continue;
+          }
+        } catch {
+          /* not a JSON handshake */
+        }
+      } catch (e) {
+        console.warn("handshake apply failed", e);
+      }
+    }
+    if (updated) {
+      setGroups({ ...groups(), [room.id]: group });
+      await saveGroupStates();
+    }
+  }
+
   const fetchMessagesForRoom = async (
     room: Room,
     params?: { limit?: number; before?: string; after?: string },
@@ -751,132 +888,8 @@ export function Chat() {
       group = groups()[room.id];
       if (!group) return [];
     }
-
-    // 先に Handshake (Commit / Proposal) を適用して状態を同期
-    try {
-      const hs = await fetchHandshakes(room.id, { limit: 100 });
-      if (hs.length > 0) {
-        // createdAt 昇順で適用
-        const ordered = [...hs].sort((a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-        let updated = false;
-        for (const h of ordered) {
-          const body = decodePublicMessage(h.message);
-          if (!body) continue;
-          try {
-            // Commit / Proposal 判定は decodeMlsMessage 内部で実施; 失敗時は例外
-            try {
-              const dec = decodeMlsMessage(body, 0)?.[0];
-              if (dec && dec.wireformat === "mls_public_message") {
-                group = await processCommit(
-                  group,
-                  dec.publicMessage as unknown as never,
-                );
-              } else {
-                throw new Error("not a public message");
-              }
-              updated = true;
-              continue; // commit 適用できたら次へ
-            } catch {
-              /* not a commit */
-            }
-            try {
-              const dec = decodeMlsMessage(body, 0)?.[0];
-              if (dec && dec.wireformat === "mls_public_message") {
-                group = await processProposal(
-                  group,
-                  dec.publicMessage as unknown as never,
-                );
-              } else {
-                throw new Error("not a public message");
-              }
-              updated = true;
-              continue;
-            } catch {
-              /* not a proposal */
-            }
-            try {
-              const obj = JSON.parse(new TextDecoder().decode(body));
-              if (obj?.type === "welcome" && Array.isArray(obj.data)) {
-                const wBytes = new Uint8Array(obj.data as number[]);
-                const ok = await verifyWelcome(wBytes);
-                if (!ok) {
-                  globalThis.dispatchEvent(
-                    new CustomEvent("app:toast", {
-                      detail: {
-                        type: "warning",
-                        title: "無視しました",
-                        description:
-                          "不正なWelcomeメッセージを受信したため無視しました",
-                      },
-                    }),
-                  );
-                  continue;
-                }
-                // 複数の鍵ペアプールから順次試す
-                let joined: StoredGroupState | null = null;
-                const me = account();
-                const pairs = me ? await loadAllMLSKeyPairs(me.id) : [];
-                if (pairs.length === 0) {
-                  const single = await ensureKeyPair();
-                  if (single) pairs.push(single);
-                }
-                for (const p of pairs) {
-                  try {
-                    const st = await joinWithWelcome(wBytes, p);
-                    joined = st;
-                    break;
-                  } catch (e) {
-                    console.warn("welcome apply failed", e);
-                    // try next
-                    continue;
-                  }
-                }
-                if (joined) {
-                  group = joined;
-                  updated = true;
-                } else {
-                  console.warn("welcome apply failed for all key pairs");
-                }
-                continue;
-              }
-              if (obj?.type === "RosterEvidence") {
-                const ev = obj as RosterEvidence;
-                const okEv = await importRosterEvidence(
-                  user.id,
-                  room.id,
-                  ev,
-                );
-                if (okEv) {
-                  await appendRosterEvidence(user.id, room.id, [ev]);
-                  const actor = actorUrl();
-                  if (actor && ev.actor === actor) {
-                    await assessBinding(
-                      user.id,
-                      room.id,
-                      actor,
-                      ev.leafSignatureKeyFpr,
-                    );
-                  }
-                }
-                continue;
-              }
-            } catch {
-              /* not a JSON handshake */
-            }
-          } catch (e) {
-            console.warn("handshake apply failed", e);
-          }
-        }
-        if (updated) {
-          setGroups({ ...groups(), [room.id]: group });
-          await saveGroupStates();
-        }
-      }
-    } catch (e) {
-      console.warn("handshake sync failed", e);
-    }
+    await syncHandshakes(room);
+    group = groups()[room.id];
     const list = await fetchEncryptedMessages(
       room.id,
       `${user.userName}@${getDomain()}`,
@@ -1251,12 +1264,19 @@ export function Chat() {
       if (r.type === "memo") continue;
       const others = uniqueOthers(r);
       // 自分の名前がタイトルに入ってしまう誤表示を防止（相手1人または未確定0人のとき）
-      if (others.length <= 1 && (r.name === user.displayName || r.name === user.userName)) {
+      if (
+        others.length <= 1 &&
+        (r.name === user.displayName || r.name === user.userName)
+      ) {
         r.displayName = "";
         r.hasName = false;
         // アバターが自分の頭文字（1文字）なら一旦消して再計算に委ねる
-        const selfInitial = (user.displayName || user.userName || "").charAt(0).toUpperCase();
-        if (typeof r.avatar === "string" && r.avatar.length === 1 && r.avatar.toUpperCase() === selfInitial) {
+        const selfInitial = (user.displayName || user.userName || "").charAt(0)
+          .toUpperCase();
+        if (
+          typeof r.avatar === "string" && r.avatar.length === 1 &&
+          r.avatar.toUpperCase() === selfInitial
+        ) {
           r.avatar = "";
         }
       }
@@ -1666,11 +1686,19 @@ export function Chat() {
       createdAt: string;
       attachments?: IncomingAttachment[];
     }
-    type IncomingMsgType = "encryptedMessage" | "publicMessage";
-    interface IncomingMessage {
-      type: IncomingMsgType;
-      payload: IncomingPayload;
+    interface HandshakePayload {
+      id: string;
+      roomId: string;
+      sender: string;
+      recipients: string[];
+      createdAt: string;
     }
+    type IncomingMessage =
+      | { type: "handshake"; payload: HandshakePayload }
+      | {
+        type: "encryptedMessage" | "publicMessage";
+        payload: IncomingPayload;
+      };
     const isStringArray = (v: unknown): v is string[] =>
       Array.isArray(v) && v.every((x) => typeof x === "string");
 
@@ -1699,10 +1727,21 @@ export function Chat() {
       return Array.isArray(o.attachments) && o.attachments.every(isAttachment);
     };
 
+    const isHandshakePayload = (v: unknown): v is HandshakePayload => {
+      if (typeof v !== "object" || v === null) return false;
+      const o = v as Record<string, unknown>;
+      return typeof o.id === "string" &&
+        typeof o.roomId === "string" &&
+        typeof o.sender === "string" &&
+        isStringArray(o.recipients) &&
+        typeof o.createdAt === "string";
+    };
+
     const isIncomingMessage = (v: unknown): v is IncomingMessage => {
       if (typeof v !== "object" || v === null) return false;
       const o = v as Record<string, unknown>;
       const t = o.type;
+      if (t === "handshake") return isHandshakePayload(o.payload);
       if (t !== "encryptedMessage" && t !== "publicMessage") return false;
       return isPayload(o.payload);
     };
@@ -1712,12 +1751,22 @@ export function Chat() {
         // 想定外のメッセージは無視
         return;
       }
-      const data = msg.payload;
       const user = account();
       if (!user) return;
-
-      // フィルタ: 自分宛て/自分発でないメッセージは無視
       const self = `${user.userName}@${getDomain()}`;
+
+      if (msg.type === "handshake") {
+        const data = msg.payload;
+        if (!(data.recipients.includes(self) || data.sender === self)) {
+          return;
+        }
+        const room = chatRooms().find((r) => r.id === data.roomId);
+        if (room) await syncHandshakes(room);
+        return;
+      }
+
+      const data = msg.payload;
+      // フィルタ: 自分宛て/自分発でないメッセージは無視
       if (!(data.to.includes(self) || data.from === self)) {
         return;
       }
@@ -2070,7 +2119,9 @@ export function Chat() {
             if (!info) return r;
             const newName = info.displayName || info.userName;
             const newAvatar = info.authorAvatar || r.avatar;
-            if ((r.displayName ?? r.name) !== newName || r.avatar !== newAvatar) {
+            if (
+              (r.displayName ?? r.name) !== newName || r.avatar !== newAvatar
+            ) {
               nameChanged = true;
               return { ...r, displayName: newName, avatar: newAvatar };
             }
