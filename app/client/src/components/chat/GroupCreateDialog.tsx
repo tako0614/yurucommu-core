@@ -3,7 +3,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
   Show,
 } from "solid-js";
 import { fetchFollowing } from "../microblog/api.ts";
@@ -34,18 +33,36 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const [followingMap] = useAtom(followingListMap);
   const [, saveFollowingGlobal] = useAtom(setFollowingList);
 
+  // フォロイングユーザーのためのインターフェース
+  interface FollowingUser {
+    userName?: string;
+    domain?: string;
+    displayName?: string;
+    avatar?: string;
+    authorAvatar?: string;
+  }
+
   // 表示用に整形する補助
   const toDisplayList = (list: unknown[]) => (
     Array.isArray(list)
-      ? list.map((f: any) => ({
-        id: (function () {
-          if (f?.userName && f?.domain) return `${f.userName}@${f.domain}`;
-          if (f?.userName && !f?.domain) return `${f.userName}@${getDomain()}`;
-          return String(f);
-        })(),
-        name: f?.displayName || f?.userName || String(f),
-        avatar: f?.avatar || f?.authorAvatar,
-      }))
+      ? list.map((f: unknown) => {
+          const user = f as FollowingUser | string;
+          return {
+            id: (function () {
+              if (typeof user === 'object' && user && 'userName' in user) {
+                if (user.userName && user.domain) return `${user.userName}@${user.domain}`;
+                if (user.userName && !user.domain) return `${user.userName}@${getDomain()}`;
+              }
+              return String(user);
+            })(),
+            name: typeof user === 'object' && user && 'displayName' in user 
+              ? (user.displayName || user.userName || String(user)) 
+              : String(user),
+            avatar: typeof user === 'object' && user && 'avatar' in user 
+              ? (user.avatar || user.authorAvatar) 
+              : undefined,
+          };
+        })
       : []
   );
 
