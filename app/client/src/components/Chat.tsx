@@ -570,18 +570,7 @@ export function Chat() {
     if (!user || room.type === "memo") return;
     const selfHandle = `${user.userName}@${getDomain()}`;
     // MLSの状態から相手を特定（自分以外）
-    let partner = participantsFromState(room.id)[0];
-    // 取れない場合は、URL/選択値から相手候補を推測
-    if (!partner) {
-      const sel = selectedRoom();
-      if (sel) {
-        const nsel = normalizeHandle(sel as ActorID) ??
-          normalizeActor(sel as ActorID);
-        if (nsel.includes("@") && nsel !== selfHandle) {
-          partner = nsel as ActorID;
-        }
-      }
-    }
+    const partner = participantsFromState(room.id)[0];
     if (!partner) return;
 
     // 画面表示用に client 側で members を補完（サーバーから返らない想定）
@@ -1249,6 +1238,11 @@ export function Chat() {
       if (others.length <= 1 && (r.name === user.displayName || r.name === user.userName)) {
         r.name = "";
         r.hasName = false;
+        // アバターが自分の頭文字（1文字）なら一旦消して再計算に委ねる
+        const selfInitial = (user.displayName || user.userName || "").charAt(0).toUpperCase();
+        if (typeof r.avatar === "string" && r.avatar.length === 1 && r.avatar.toUpperCase() === selfInitial) {
+          r.avatar = "";
+        }
       }
     }
 
