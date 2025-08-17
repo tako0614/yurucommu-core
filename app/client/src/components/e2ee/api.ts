@@ -657,19 +657,14 @@ export const resetKeyData = async (user: string): Promise<boolean> => {
 
 export interface Room {
   id: string;
-  name: string;
-  members: string[];
+  // name や members はサーバ保存対象外（必要ならクライアント内のみで使用）
+  name?: string;
+  members?: string[];
 }
 
 export interface RoomsSearchItem {
   id: string;
-  name: string;
-  icon?: string;
-  members: string[];
-  hasName: boolean;
-  hasIcon: boolean;
-  membersCount: number;
-  lastMessageAt?: string;
+  // 他フィールドはサーバーから提供されない
 }
 
 export const searchRooms = async (
@@ -702,7 +697,15 @@ export const searchRooms = async (
     const res = await apiFetch(`/api/rooms?${search.toString()}`);
     if (!res.ok) throw new Error("failed to search rooms");
     const data = await res.json();
-    return Array.isArray(data.rooms) ? data.rooms : [];
+    return Array.isArray(data.rooms)
+      ? data.rooms.map((r: unknown) => {
+        if (r && typeof r === "object" && "id" in r) {
+          // deno-lint-ignore no-explicit-any
+          return { id: String((r as any).id) };
+        }
+        return { id: "" };
+  }).filter((r: RoomsSearchItem) => r.id !== "")
+      : [];
   } catch (err) {
     console.error("Error searching rooms:", err);
     return [];
@@ -720,7 +723,7 @@ export const addRoom = async (
   },
 ): Promise<boolean> => {
   try {
-    const body: Record<string, unknown> = { owner: id, ...room };
+  const body: Record<string, unknown> = { owner: id, id: room.id };
     if (handshake) {
       body.handshake = {
         from: handshake.from,

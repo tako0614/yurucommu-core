@@ -364,9 +364,7 @@ app.get("/rooms", authRequired, async (c) => {
   const account = await db.findAccountById(owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const list = await db.listChatrooms(owner);
-  return jsonResponse(c, {
-    rooms: list.map((r) => ({ id: r.id, name: r.name, icon: r.icon ?? "" })),
-  });
+  return jsonResponse(c, { rooms: list.map((r) => ({ id: r.id })) });
 });
 
 // Get pending invites for a local user (non-acked)
@@ -413,14 +411,11 @@ app.get("/ap/rooms/:id", async (c) => {
   const db = createDB(getEnv(c));
   const result = await db.findChatroom(id);
   if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
-  const { room } = result;
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/ap/rooms/${id}`,
     type: "Group",
-    name: room.name,
-    // members は公開しない
   };
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
@@ -430,8 +425,7 @@ app.post("/ap/rooms", authRequired, async (c) => {
   const body = await c.req.json();
   if (
     typeof body !== "object" ||
-    typeof body.owner !== "string" ||
-    typeof body.name !== "string"
+    typeof body.owner !== "string"
   ) {
     return jsonResponse(c, { error: "invalid room" }, 400);
   }
@@ -439,42 +433,16 @@ app.post("/ap/rooms", authRequired, async (c) => {
   const db = createDB(env);
   const account = await db.findAccountById(body.owner);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-
-  // 1:1 未設定名（DM）重複防止: 同一メンバー構成・nameが空の既存ルームを再利用
-  const existingList = await db.listChatrooms(body.owner);
-  const existing = existingList.find((g) => {
-    const hasName = !!(g.name && String(g.name).trim() !== "");
-    if (hasName) return false;
-    // 互換性を保たず、メンバー構成による再利用は行わない
-    return false;
-  });
-  // 新しいトーク開始時に自動保存しない。
-  // 既存ルームが見つからず、名前もアイコンも指定なしなら作成しない。
-  const hasName = typeof body.name === "string" && body.name.trim() !== "";
-  const hasIcon = typeof body.icon === "string" && body.icon.trim() !== "";
-  if (!existing && !hasName && !hasIcon) {
-    return jsonResponse(c, { error: "room metadata required" }, 400);
-  }
-  const room = existing ?? {
-    id: typeof body.id === "string" ? body.id : crypto.randomUUID(),
-    name: hasName ? body.name : "",
-    icon: hasIcon ? body.icon : "",
-    // サーバはメンバー情報を保持しない（メタのみ）
-    members: [],
-  };
-  if (!existing) {
-    await db.addChatroom(body.owner, room);
-  }
+  const id = typeof body.id === "string" ? body.id : crypto.randomUUID();
+  await db.addChatroom(body.owner, { id });
   const domain = getDomain(c);
   const actor = {
     "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/ap/rooms/${room.id}`,
+    id: `https://${domain}/ap/rooms/${id}`,
     type: "Group",
-    name: room.name,
-    // members は返さない
   };
   if (body.handshake && typeof body.handshake === "object") {
-    const hs = await handleHandshake(env, domain, room.id, body.handshake);
+    const hs = await handleHandshake(env, domain, id, body.handshake);
     if (!hs.ok) {
       return jsonResponse(c, { error: hs.error }, hs.status);
     }

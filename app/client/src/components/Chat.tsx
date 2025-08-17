@@ -1178,8 +1178,8 @@ export function Chat() {
           icon: undefined,
         }
         : { name: "", icon: undefined };
-      const name = meta.name ?? "";
-      const icon = meta.icon ?? "";
+  const name = meta.name ?? "";
+  const icon = meta.icon ?? "";
       // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
       let members = state
         ? extractMembers(state)
@@ -1204,12 +1204,10 @@ export function Chat() {
         unreadCount: 0,
         type: "group",
         members,
-        hasName: name.trim() !== "",
-        hasIcon: icon.trim() !== "",
+  hasName: name.trim() !== "",
+  hasIcon: icon.trim() !== "",
         lastMessage: "...",
-        lastMessageTime: item.lastMessageAt
-          ? new Date(item.lastMessageAt)
-          : undefined,
+  lastMessageTime: undefined,
       });
     }
 

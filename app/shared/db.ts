@@ -12,9 +12,7 @@ export interface ListOpts {
 /** チャットルーム情報（MLS 状態は含まない） */
 export interface ChatroomInfo {
   id: string;
-  name: string;
-  icon?: string;
-  members: string[];
+  // name, icon, members はサーバーでは保持しない
 }
 
 /** DB 抽象インターフェース */

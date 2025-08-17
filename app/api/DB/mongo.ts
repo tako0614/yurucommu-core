@@ -22,10 +22,7 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import mongoose from "mongoose";
-import {
-  createRemoveActivity,
-  deliverActivityPubObject,
-} from "../utils/activitypub.ts";
+// chatroom メンバー管理ロジック削除により activity 配信は未使用
 import type { ChatroomInfo, DB, ListOpts } from "../../shared/db.ts";
 import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
@@ -260,53 +257,8 @@ export class MongoDB implements DB {
     return rooms.map(({ owner: _o, ...room }) => room);
   }
 
-  async listChatroomsByMember(member: string) {
-    const query = this.withTenant(Chatroom.find({ members: member }));
-    const rooms = await query.lean<
-      (ChatroomInfo & { owner: string })[]
-    >();
-    const map = new Map<string, ChatroomInfo>();
-    for (const { owner: _o, ...room } of rooms) {
-      map.set(room.id, room);
-    }
-
-    const pipeline = [
-      {
-        $match: { $or: [{ from: member }, { to: member }] },
-      },
-      {
-        $project: {
-          roomId: 1,
-          participants: { $concatArrays: [["$from"], "$to"] },
-        },
-      },
-      { $unwind: "$participants" },
-      {
-        $group: {
-          _id: "$roomId",
-          members: { $addToSet: "$participants" },
-        },
-      },
-    ];
-    const list = await EncryptedMessage.aggregate(pipeline).exec() as {
-      _id?: string;
-      members: string[];
-    }[];
-    for (const item of list) {
-      if (!item._id) continue;
-      const existing = map.get(item._id);
-      if (existing) {
-        existing.members = item.members;
-      } else {
-        map.set(item._id, {
-          id: item._id,
-          name: "",
-          icon: "",
-          members: item.members,
-        });
-      }
-    }
-    return Array.from(map.values());
+  async listChatroomsByMember(_member: string) {
+    return Promise.resolve([] as ChatroomInfo[]);
   }
 
   async addChatroom(
@@ -341,48 +293,16 @@ export class MongoDB implements DB {
       const { owner, ...room } = doc;
       return { owner, room };
     }
-    const pipeline = [
-      { $match: { roomId } },
-      {
-        $project: {
-          participants: { $concatArrays: [["$from"], "$to"] },
-        },
-      },
-      { $unwind: "$participants" },
-      {
-        $group: {
-          _id: "$roomId",
-          members: { $addToSet: "$participants" },
-        },
-      },
-    ];
-    const list = await EncryptedMessage.aggregate(pipeline).exec() as {
-      _id?: string;
-      members: string[];
-    }[];
-    if (list.length === 0 || !list[0]._id) return null;
-    return {
-      owner: "",
-      room: {
-        id: roomId,
-        name: "",
-        icon: "",
-        members: list[0].members,
-      },
-    };
+  // 履歴からの補完は行わない
+  return null;
   }
 
   async updateChatroom(
     owner: string,
     room: ChatroomInfo,
   ) {
-    const query = Chatroom.updateOne({ owner, id: room.id }, {
-      $set: {
-        name: room.name,
-        icon: room.icon ?? "",
-        members: room.members,
-      },
-    });
+  // もはや更新対象フィールドが無いので no-op
+  const query = Chatroom.updateOne({ owner, id: room.id }, { $set: {} });
     this.withTenant(query);
     await query;
   }
@@ -1257,7 +1177,6 @@ export class MongoDB implements DB {
  * 有効期限切れの招待を除外して再招待します。
  */
 export function startPendingInviteJob(env: Record<string, string>) {
-  const db = new MongoDB(env);
   // 期限切れの招待をクリーンアップするジョブ
   async function job() {
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
@@ -1270,30 +1189,7 @@ export function startPendingInviteJob(env: Record<string, string>) {
     >();
     for (const inv of list) {
       await PendingInvite.deleteOne({ _id: inv._id });
-      const info = await db.findChatroom(inv.roomId);
-      if (!info) continue;
-      const { owner, room } = info;
-      const idx = room.members.indexOf(inv.userName);
-      if (idx >= 0) {
-        room.members = room.members.filter((_, i) => i !== idx);
-        await db.updateChatroom(owner, room);
-        const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
-        const activity = createRemoveActivity(
-          domain,
-          `https://${domain}/ap/rooms/${inv.roomId}`,
-          inv.userName,
-        );
-        const account = await db.findAccountById(owner);
-        if (account) {
-          await deliverActivityPubObject(
-            room.members,
-            activity,
-            account.userName,
-            domain,
-            env,
-          ).catch((err) => console.error("Delivery failed", err));
-        }
-      }
+      // chatroom メンバー同期機能は廃止したため追加処理なし
     }
   }
   setInterval(job, 60 * 60 * 1000);
@@ -1347,32 +1243,7 @@ export function startInactiveSessionJob(
       }).lean<{ userName: string } | null>();
       const user = pair?.userName;
       if (!user) continue;
-      const rooms = await Chatroom.find({
-        members: user,
-        tenant_id: tenantId,
-      }).lean<(ChatroomInfo & { owner: string })[]>();
-      for (const room of rooms) {
-        const idx = room.members.indexOf(user);
-        if (idx < 0) continue;
-        room.members = room.members.filter((_, i) => i !== idx);
-        await db.updateChatroom(room.owner, room);
-        const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
-        const activity = createRemoveActivity(
-          domain,
-          `https://${domain}/ap/rooms/${room.id}`,
-          user,
-        );
-        const account = await db.findAccountById(room.owner);
-        if (account) {
-          await deliverActivityPubObject(
-            room.members,
-            activity,
-            account.userName,
-            domain,
-            env,
-          ).catch((err) => console.error("Delivery failed", err));
-        }
-      }
+  // chatroom メンバー参照は廃止
       await db.deleteEncryptedKeyPair(user, s.sessionId).catch(() => {});
       await db.deleteSessionById(s.sessionId).catch(() => {});
     }
