@@ -103,7 +103,20 @@ app.get(
             const msg = JSON.parse(evt.data);
             if (msg && msg.type === "handshake") {
               // ハンドシェイク本体は REST (/rooms/:room/handshakes) へ移行済み
-              ws.send(JSON.stringify({ error: "handshake_not_allowed_on_websocket", message: "Use REST /rooms/:room/handshakes for MLS handshakes" }));
+              // ログを追加して、どの接続・ユーザーから来たかを追跡可能にする（リプレイや誤送信の確認用）
+              try {
+                const user = state.user as string | undefined;
+                console.warn("websocket: rejected handshake message", {
+                  user: user ?? "unknown",
+                  origin: (ws as any)?.context?.req?.headers?.get?.("origin") ?? null,
+                });
+              } catch (e) {
+                console.warn("websocket: rejected handshake (failed to read state)", e);
+              }
+              ws.send(JSON.stringify({
+                error: "handshake_not_allowed_on_websocket",
+                message: "Use REST /rooms/:room/handshakes for MLS handshakes",
+              }));
               return;
             }
             const handler = messageHandlers.get(msg.type);
