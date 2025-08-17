@@ -7,8 +7,6 @@ interface ChatSendFormProps {
   setMediaFile: (f: File | null) => void;
   mediaPreview: string | null;
   setMediaPreview: (url: string | null) => void;
-  useEncryption: boolean;
-  toggleEncryption: () => void;
   sendMessage: () => void;
 }
 
@@ -81,30 +79,6 @@ export function ChatSendForm(props: ChatSendFormProps) {
                   <polyline points="21 15 16 10 5 21"></polyline>
                 </svg>
                 <span class="text-sm">ファイル</span>
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
-                onClick={() => {
-                  setShowMenu(false);
-                  props.toggleEncryption();
-                }}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-4 w-4"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-                <span class="text-sm">
-                  {props.useEncryption ? "暗号化中" : "暗号化"}
-                </span>
               </button>
             </div>
           </Show>
@@ -210,7 +184,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
             ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#e63535] cursor-pointer hover:bg-[#c52d2d] text-white"
             : "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent cursor-default text-white"}
           style="min-height:28px;opacity:1;color:#ffffff;position:relative;z-index:10;display:flex;align-items:center;justify-content:center;"
-          title={""}
+          title=""
           onClick={() => {
             if (props.newMessage.trim() || props.mediaFile) {
               props.sendMessage();
@@ -262,31 +236,6 @@ export function ChatSendForm(props: ChatSendFormProps) {
             </svg>
           </Show>
         </div>
-        <Show when={props.useEncryption && !props.encryptionKey}>
-          <button
-            type="button"
-            onClick={() => props.onShowEncryptionKeyForm?.()}
-            class="h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#ff3b3b] cursor-pointer hover:bg-[#db3232]"
-            title="暗号化キーを設定する"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-7 w-7"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              style="display:block"
-            >
-              <rect x="9" y="2" width="6" height="12" rx="3" />
-              <path d="M5 10v2a7 7 0 0 0 14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-              <line x1="8" y1="22" x2="16" y2="22" />
-            </svg>
-          </button>
-        </Show>
         <input
           ref={(el) => (fileInputFile = el)}
           type="file"

@@ -1,6 +1,5 @@
 import { apiFetch } from "../../utils/config.ts";
 import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
-import { bufToB64 } from "../../../../shared/buffer.ts";
 import {
   type GeneratedKeyPair,
   joinWithGroupInfo,
@@ -365,6 +364,7 @@ export const deleteKeyPackage = async (
 export const sendEncryptedMessage = async (
   roomId: string,
   from: string,
+  to: string[],
   data: {
     content: string;
     mediaType?: string;
@@ -375,6 +375,7 @@ export const sendEncryptedMessage = async (
   try {
     const payload: Record<string, unknown> = {
       from,
+      to,
       content: data.content,
       mediaType: data.mediaType ?? "message/mls",
       encoding: data.encoding ?? "base64",
@@ -391,36 +392,6 @@ export const sendEncryptedMessage = async (
     return res.ok;
   } catch (err) {
     console.error("Error sending message:", err);
-    return false;
-  }
-};
-
-export const sendPublicMessage = async (
-  roomId: string,
-  from: string,
-  note: Record<string, unknown>,
-  attachments?: unknown[],
-): Promise<boolean> => {
-  try {
-    const content = new TextEncoder().encode(JSON.stringify(note));
-    const payload: Record<string, unknown> = {
-      from,
-      content: bufToB64(content),
-      mediaType: "application/activity+json",
-      encoding: "base64",
-    };
-    if (attachments) payload.attachments = attachments;
-    const res = await apiFetch(
-      `/api/rooms/${encodeURIComponent(roomId)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
-    return res.ok;
-  } catch (err) {
-    console.error("Error sending public message:", err);
     return false;
   }
 };
