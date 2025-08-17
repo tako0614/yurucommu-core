@@ -104,7 +104,7 @@ app.post("/accounts", async (c) => {
     category: "account",
     eventType: "new",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account);
+  }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -155,7 +155,7 @@ app.put("/accounts/:id", async (c) => {
     category: "account",
     eventType: "update",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account);
+  }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -172,7 +172,7 @@ app.delete("/accounts/:id", async (c) => {
     category: "account",
     eventType: "delete",
     objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account);
+  }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, { success: true });
 });
 
