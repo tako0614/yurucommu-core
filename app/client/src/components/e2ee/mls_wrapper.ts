@@ -313,15 +313,14 @@ export async function createMLSGroup(
   const cs = await getSuite(suite);
   const exts = [encodeApplicationId("ap-e2ee/actor-uri-binding-v1")];
   if (metadata) exts.push(encodeGroupMetadata(metadata));
-  const required = defaultCapabilities();
-  required.credentials = ["basic"];
+  // ts-mls v1.0.4 以降では RequiredCapabilities を渡す引数が
+  // clientConfig に置き換えられたため、デフォルト設定を使用する
   const state = await createGroup(
     gid,
     keyPair.public,
     keyPair.private,
     exts,
     cs,
-    required,
   );
   return { state, keyPair, gid };
 }
