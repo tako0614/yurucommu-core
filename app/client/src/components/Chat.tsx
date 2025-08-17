@@ -626,15 +626,6 @@ export function Chat() {
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
 
-  const toggleEncryption = () => {
-    // 暗号化ONにしようとした時、相手がkeyPackage未所持なら警告
-    if (!useEncryption() && !partnerHasKey()) {
-      alert("このユーザーは暗号化された会話に対応していません。");
-      return;
-    }
-    setUseEncryption(!useEncryption());
-  };
-
   const loadGroupStates = async () => {
     const user = account();
     if (!user) return;
@@ -810,9 +801,16 @@ export function Chat() {
                 const wBytes = new Uint8Array(obj.data as number[]);
                 const ok = await verifyWelcome(wBytes);
                 if (!ok) {
-                  globalThis.dispatchEvent(new CustomEvent("app:toast", {
-                    detail: { type: "warning", title: "無視しました", description: "不正なWelcomeメッセージを受信したため無視しました" },
-                  }));
+                  globalThis.dispatchEvent(
+                    new CustomEvent("app:toast", {
+                      detail: {
+                        type: "warning",
+                        title: "無視しました",
+                        description:
+                          "不正なWelcomeメッセージを受信したため無視しました",
+                      },
+                    }),
+                  );
                   continue;
                 }
                 // 複数の鍵ペアプールから順次試す
@@ -1413,9 +1411,15 @@ export function Chat() {
         text,
       );
       if (!res) {
-        globalThis.dispatchEvent(new CustomEvent("app:toast", {
-          detail: { type: "error", title: "保存エラー", description: "メモの保存に失敗しました" },
-        }));
+        globalThis.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: {
+              type: "error",
+              title: "保存エラー",
+              description: "メモの保存に失敗しました",
+            },
+          }),
+        );
         return;
       }
       const msg: ChatMessage = {
@@ -1452,106 +1456,109 @@ export function Chat() {
       const att = await buildAttachment(file);
       if (att) note.attachment = [att];
     }
-    // 暗号化が有効ならMLSで送信、無効ならプレーン（ActivityPub Note）で即時送信
-    if (useEncryption()) {
-      let group = groups()[roomId];
+    let group = groups()[roomId];
+    if (!group) {
+      await initGroupState(roomId);
+      group = groups()[roomId];
       if (!group) {
-        await initGroupState(roomId);
-        group = groups()[roomId];
-        if (!group) {
-          alert("グループ初期化に失敗したため送信できません");
-          return;
-        }
-      }
-      // 必要であれば、相手の KeyPackage を使って Add→Commit→Welcome を先行送信
-      try {
-        const self = `${user.userName}@${getDomain()}`;
-        const current = participantsFromState(roomId);
-        const targets = (room.members ?? []).filter((m) => m && m !== self);
-        const need = targets.filter((t) => !current.includes(t));
-        if (need.length > 0) {
-          const kpInputs: { content: string; actor?: string; deviceId?: string }[] = [];
-          for (const h of need) {
-            const [uname, dom] = splitActor(h as ActorID);
-            const kps = await fetchKeyPackages(uname, dom);
-            if (kps && kps.length > 0) {
-              const kp = pickUsableKeyPackage(kps as unknown as { content: string; expiresAt?: string; used?: boolean; deviceId?: string }[]);
-              if (!kp) continue;
-              const actor = dom ? `https://${dom}/users/${uname}` : undefined;
-              kpInputs.push({ content: kp.content, actor, deviceId: kp.deviceId });
-            }
-          }
-          if (kpInputs.length > 0) {
-            const resAdd = await createCommitAndWelcomes(group, kpInputs);
-            const commitContent = encodePublicMessage(resAdd.commit);
-            const ok = await sendHandshake(roomId, user.id, commitContent);
-            if (!ok) throw new Error("Commit送信に失敗しました");
-            for (const w of resAdd.welcomes) {
-              const wContent = encodePublicMessage(w.data);
-              const wk = await sendHandshake(roomId, user.id, wContent);
-              if (!wk) throw new Error("Welcome送信に失敗しました");
-            }
-            group = resAdd.state;
-            setGroups({ ...groups(), [roomId]: group });
-            saveGroupStates();
-            try {
-              const acc = account();
-              if (acc) {
-                const participants = extractMembers(group).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
-                await syncPendingWithParticipants(acc.id, roomId, participants);
-              }
-            } catch {
-              console.error("参加メンバーの同期に失敗しました");
-            }
-            // 招待中に登録
-            await addPendingInvites(user.id, roomId, need);
-          }
-          // UI上は常に招待中として表示
-          await addPendingInvites(user.id, roomId, need);
-        }
-      } catch (e) {
-        console.warn("初回Add/Welcome処理に失敗しました", e);
-      }
-      const encrypted = await encryptMessageWithAck(
-        group,
-        JSON.stringify(note),
-        roomId,
-        user.id,
-      );
-      let success = true;
-      for (const msg of encrypted.messages) {
-        const ok = await sendEncryptedMessage(
-          roomId,
-          `${user.userName}@${getDomain()}`,
-          {
-            content: bufToB64(msg),
-            mediaType: "message/mls",
-            encoding: "base64",
-          },
-        );
-        if (!ok) {
-          success = false;
-          break;
-        }
-      }
-      if (!success) {
-        alert("メッセージの送信に失敗しました");
-        return;
-      }
-      setGroups({ ...groups(), [roomId]: encrypted.state });
-      saveGroupStates();
-    } else {
-      const ok = await sendPublicMessage(
-        roomId,
-        `${user.userName}@${getDomain()}`,
-        note,
-        Array.isArray(note.attachment) ? note.attachment as unknown[] : undefined,
-      );
-      if (!ok) {
-        alert("メッセージの送信に失敗しました");
+        alert("グループ初期化に失敗したため送信できません");
         return;
       }
     }
+    // 必要であれば、相手の KeyPackage を使って Add→Commit→Welcome を先行送信
+    try {
+      const self = `${user.userName}@${getDomain()}`;
+      const current = participantsFromState(roomId);
+      const targets = (room.members ?? []).filter((m) => m && m !== self);
+      const need = targets.filter((t) => !current.includes(t));
+      if (need.length > 0) {
+        const kpInputs: {
+          content: string;
+          actor?: string;
+          deviceId?: string;
+        }[] = [];
+        for (const h of need) {
+          const [uname, dom] = splitActor(h as ActorID);
+          const kps = await fetchKeyPackages(uname, dom);
+          if (kps && kps.length > 0) {
+            const kp = pickUsableKeyPackage(
+              kps as unknown as {
+                content: string;
+                expiresAt?: string;
+                used?: boolean;
+                deviceId?: string;
+              }[],
+            );
+            if (!kp) continue;
+            const actor = dom ? `https://${dom}/users/${uname}` : undefined;
+            kpInputs.push({
+              content: kp.content,
+              actor,
+              deviceId: kp.deviceId,
+            });
+          }
+        }
+        if (kpInputs.length > 0) {
+          const resAdd = await createCommitAndWelcomes(group, kpInputs);
+          const commitContent = encodePublicMessage(resAdd.commit);
+          const ok = await sendHandshake(roomId, user.id, commitContent);
+          if (!ok) throw new Error("Commit送信に失敗しました");
+          for (const w of resAdd.welcomes) {
+            const wContent = encodePublicMessage(w.data);
+            const wk = await sendHandshake(roomId, user.id, wContent);
+            if (!wk) throw new Error("Welcome送信に失敗しました");
+          }
+          group = resAdd.state;
+          setGroups({ ...groups(), [roomId]: group });
+          saveGroupStates();
+          try {
+            const acc = account();
+            if (acc) {
+              const participants = extractMembers(group).map((x) =>
+                normalizeHandle(x) ?? x
+              ).filter((v): v is string => !!v);
+              await syncPendingWithParticipants(acc.id, roomId, participants);
+            }
+          } catch {
+            console.error("参加メンバーの同期に失敗しました");
+          }
+          // 招待中に登録
+          await addPendingInvites(user.id, roomId, need);
+        }
+        // UI上は常に招待中として表示
+        await addPendingInvites(user.id, roomId, need);
+      }
+    } catch (e) {
+      console.warn("初回Add/Welcome処理に失敗しました", e);
+    }
+    const encrypted = await encryptMessageWithAck(
+      group,
+      JSON.stringify(note),
+      roomId,
+      user.id,
+    );
+    let success = true;
+    for (const msg of encrypted.messages) {
+      const ok = await sendEncryptedMessage(
+        roomId,
+        `${user.userName}@${getDomain()}`,
+        {
+          content: bufToB64(msg),
+          mediaType: "message/mls",
+          encoding: "base64",
+        },
+      );
+      if (!ok) {
+        success = false;
+        break;
+      }
+    }
+    if (!success) {
+      alert("メッセージの送信に失敗しました");
+      return;
+    }
+    setGroups({ ...groups(), [roomId]: encrypted.state });
+    saveGroupStates();
     // 入力欄をクリア
     setNewMessage("");
     setMediaFile(null);
@@ -2089,7 +2096,7 @@ export function Chat() {
   });
 
   createEffect(() => {
-    if (useEncryption() && !partnerHasKey()) {
+    if (!partnerHasKey()) {
       alert("このユーザーは暗号化された会話に対応していません。");
     }
   });
