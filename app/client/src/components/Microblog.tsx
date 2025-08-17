@@ -400,101 +400,94 @@ export function Microblog() {
           when={targetPostId() && selectedPost()}
           fallback={
             <>
-              {/* モバイル用タブナビゲーション */}
+              {/* モバイル用ヘッダー（上段: ハンバーガー/ロゴ、下段: タブメニュー） */}
               <div class="lg:hidden sticky top-0 z-30 bg-[#0F141A]/95 backdrop-blur-lg border-b border-[#2B3340]/80 shadow-lg">
-                <div class="flex relative">
-                  <button
-                    type="button"
-                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
-                      mobileTab() === "latest"
-                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#2563EB]/20 to-[#3B82F6]/20"
-                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
-                    }`}
-                    onClick={() => setMobileTab("latest")}
-                  >
-                    <div class="flex items-center justify-center gap-2 relative z-10">
+                <div class="px-3 pt-2 pb-3">
+                  {/* 上段: 左ハンバーガー + 中央ロゴ */}
+                  <div class="flex items-center justify-between">
+                    <button
+                      type="button"
+                      aria-label="メニュー"
+                      class="p-2 rounded-md text-[#E5E7EB] hover:bg-[#1F2937]/60 active:scale-95 transition"
+                    >
                       <svg
-                        class="w-4 h-4"
+                        class="w-6 h-6"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
                       >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M13 10V3L4 14h7v7l9-11h-7z"
-                        />
+                        <path stroke-linecap="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
-                      最新
+                    </button>
+                    <div class="flex-1 flex items-center justify-center">
+                      <img src="/takos.svg" alt="Takos" class="h-6 opacity-90" />
                     </div>
-                    {mobileTab() === "latest" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.6)]">
-                      </div>
-                    )}
-                  </button>
+                    {/* 右側の余白(ロゴを中央に見せるため) */}
+                    <div class="w-10" />
+                  </div>
 
-                  <button
-                    type="button"
-                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
-                      mobileTab() === "following"
-                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#059669]/20 to-[#10B981]/20"
-                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
-                    }`}
-                    onClick={() => setMobileTab("following")}
-                  >
-                    <div class="flex items-center justify-center gap-2 relative z-10">
-                      <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                  {/* 下段: メニュータブ（選択中は文字の背後に丸背景） */}
+                  <div class="mt-2 flex items-center justify-around gap-1">
+                    {/* 最新 */}
+                    <button
+                      type="button"
+                      class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
+                      onClick={() => setMobileTab("latest")}
+                    >
+                      <span class="relative inline-flex items-center">
+                        <span
+                          class={`absolute inset-[-4px] rounded-full transition-colors duration-200 ${
+                            mobileTab() === "latest"
+                              ? "bg-[#1d4ed8]/30"
+                              : "bg-transparent"
+                          }`}
                         />
-                      </svg>
-                      フォロー中
-                    </div>
-                    {mobileTab() === "following" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#059669] to-[#10B981] shadow-[0_0_8px_rgba(5,150,105,0.6)]">
-                      </div>
-                    )}
-                  </button>
+                        <span class={`${mobileTab() === "latest" ? "text-white" : ""}`}>
+                          最新
+                        </span>
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    class={`flex-1 py-3 px-4 text-sm font-bold transition-all duration-300 relative overflow-hidden group ${
-                      mobileTab() === "trends"
-                        ? "text-[#FFFFFF] bg-gradient-to-r from-[#DC2626]/20 to-[#EF4444]/20"
-                        : "text-[#9CA3AF] hover:text-[#E5E7EB] hover:bg-[#1F2937]/40"
-                    }`}
-                    onClick={() => setMobileTab("trends")}
-                  >
-                    <div class="flex items-center justify-center gap-2 relative z-10">
-                      <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                    {/* フォロー中 */}
+                    <button
+                      type="button"
+                      class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
+                      onClick={() => setMobileTab("following")}
+                    >
+                      <span class="relative inline-flex items-center">
+                        <span
+                          class={`absolute inset-[-4px] rounded-full transition-colors duration-200 ${
+                            mobileTab() === "following"
+                              ? "bg-[#059669]/30"
+                              : "bg-transparent"
+                          }`}
                         />
-                      </svg>
-                      トレンド
-                    </div>
-                    {mobileTab() === "trends" && (
-                      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#DC2626] to-[#EF4444] shadow-[0_0_8px_rgba(220,38,38,0.6)]">
-                      </div>
-                    )}
-                  </button>
+                        <span class={`${mobileTab() === "following" ? "text-white" : ""}`}>
+                          フォロー中
+                        </span>
+                      </span>
+                    </button>
+
+                    {/* トレンド */}
+                    <button
+                      type="button"
+                      class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
+                      onClick={() => setMobileTab("trends")}
+                    >
+                      <span class="relative inline-flex items-center">
+                        <span
+                          class={`absolute inset-[-4px] rounded-full transition-colors duration-200 ${
+                            mobileTab() === "trends"
+                              ? "bg-[#dc2626]/30"
+                              : "bg-transparent"
+                          }`}
+                        />
+                        <span class={`${mobileTab() === "trends" ? "text-white" : ""}`}>
+                          トレンド
+                        </span>
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
