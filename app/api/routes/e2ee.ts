@@ -711,6 +711,18 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
+  const mt = typeof mediaType === "string" && mediaType === "message/mls"
+    ? mediaType
+    : null;
+  if (!mt) {
+    return c.json({ error: 'mediaType must be "message/mls"' }, 400);
+  }
+  const enc = typeof encoding === "string" && encoding === "base64"
+    ? encoding
+    : null;
+  if (!enc) {
+    return c.json({ error: 'encoding must be "base64"' }, 400);
+  }
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   // BasicCredential.identity と Actor の URL を照合
@@ -734,8 +746,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const pkg = await db.createKeyPackage(
     user,
     content,
-    mediaType,
-    encoding,
+    mt,
+    enc,
     gi,
     expiresAt ? new Date(expiresAt) : undefined,
     typeof deviceId === "string" ? deviceId : undefined,
