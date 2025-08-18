@@ -1,4 +1,11 @@
-import { Component, createEffect, createResource, createSignal, For, Show } from "solid-js";
+import {
+  Component,
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import type { Notification } from "./types.ts";
 import { apiFetch } from "../../utils/config.ts";
 import { Button, Card, EmptyState, Spinner } from "../ui";
@@ -6,6 +13,7 @@ import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
 import { activeAccount } from "../../states/account.ts";
+import { addMessageHandler, removeMessageHandler } from "../../utils/ws.ts";
 
 const NotificationsContent: Component = () => {
   const [, setApp] = useAtom(selectedAppState);
@@ -16,7 +24,9 @@ const NotificationsContent: Component = () => {
       const acc = account();
       if (!acc) return [] as Notification[];
       try {
-        const res = await apiFetch(`/api/notifications?owner=${encodeURIComponent(acc.id)}`);
+        const res = await apiFetch(
+          `/api/notifications?owner=${encodeURIComponent(acc.id)}`,
+        );
         if (!res.ok) throw new Error("failed to load notifications");
         return await res.json();
       } catch (e) {
@@ -27,16 +37,36 @@ const NotificationsContent: Component = () => {
   );
   const [deletingIds, setDeletingIds] = createSignal<Set<string>>(new Set());
   // アカウント変更時に再取得
-  createEffect(() => { account(); void refetch(); });
+  createEffect(() => {
+    account();
+    void refetch();
+  });
   // ページ表示中は一定間隔で通知を再取得（WSに依存しない）
   let timer: number | undefined;
   createEffect(() => {
     if (timer) clearInterval(timer);
-    timer = setInterval(() => { void refetch(); }, 30_000) as unknown as number;
+    timer = setInterval(() => {
+      void refetch();
+    }, 30_000) as unknown as number;
+  });
+  // WS通知を受信したら即時再取得
+  createEffect(() => {
+    const handler = (msg: unknown) => {
+      if (
+        typeof msg === "object" &&
+        msg !== null &&
+        (msg as Record<string, unknown>).type === "notification"
+      ) {
+        void refetch();
+      }
+    };
+    addMessageHandler(handler);
+    return () => removeMessageHandler(handler);
   });
   // 簡易クリーンアップ（Solidでは自動で破棄されるが明示）
-  // deno-lint-ignore no-window prefix
-  addEventListener("beforeunload", () => { if (timer) clearInterval(timer); });
+  addEventListener("beforeunload", () => {
+    if (timer) clearInterval(timer);
+  });
 
   const markAsRead = async (id: string) => {
     try {
@@ -93,16 +123,40 @@ const NotificationsContent: Component = () => {
   const iconPath = (type: string) => {
     switch (type) {
       case "success":
-        return <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />;
+        return (
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M5 13l4 4L19 7"
+          />
+        );
       case "warning":
         return (
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 19a7 7 0 100-14 7 7 0 000 14z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 9v2m0 4h.01M12 19a7 7 0 100-14 7 7 0 000 14z"
+          />
         );
       case "error":
-        return <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />;
+        return (
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          />
+        );
       default:
         return (
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
         );
     }
   };
@@ -120,11 +174,19 @@ const NotificationsContent: Component = () => {
               disabled={notifications.loading}
               aria-label="通知を更新"
             >
-              {notifications.loading ? (
-                <Spinner class="mr-2" size={16} />
-              ) : (
-                <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              {notifications.loading ? <Spinner class="mr-2" size={16} /> : (
+                <svg
+                  class="w-4 h-4 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
               )}
               更新
@@ -157,32 +219,45 @@ const NotificationsContent: Component = () => {
               {(n) => {
                 const isDeleting = deletingIds().has(n.id);
                 // chat-invite の場合は message をJSONとしてパースして操作ボタンを出す
-                let invite: { kind?: string; roomId?: string; sender?: string } | null = null;
+                let invite:
+                  | { kind?: string; roomId?: string; sender?: string }
+                  | null = null;
                 if (n.type === "chat-invite") {
                   try {
                     const obj = JSON.parse(n.message);
                     if (obj && obj.kind === "chat-invite") invite = obj;
-                  } catch {/* ignore */}
+                  } catch { /* ignore */ }
                 }
 
                 return (
                   <div class="py-4 flex items-start gap-3">
                     <div class="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center flex-shrink-0">
-                      <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg
+                        class="w-4 h-4 text-gray-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
                         {iconPath(n.type)}
                       </svg>
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
-                          <h4 class="text-base font-semibold text-gray-100 truncate">{n.title}</h4>
+                          <h4 class="text-base font-semibold text-gray-100 truncate">
+                            {n.title}
+                          </h4>
                           <p class="text-sm text-gray-400 mt-1 leading-relaxed">
                             {invite
-                              ? `${invite.sender ?? "不明"} からの会話招待です。参加しますか？`
+                              ? `${
+                                invite.sender ?? "不明"
+                              } からの会話招待です。参加しますか？`
                               : n.message}
                           </p>
                         </div>
-                        <span class="text-xs text-gray-500 whitespace-nowrap">{new Date(n.createdAt).toLocaleString()}</span>
+                        <span class="text-xs text-gray-500 whitespace-nowrap">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </span>
                       </div>
                       <div class="mt-2 flex items-center gap-2">
                         <Show when={invite}>
@@ -195,20 +270,35 @@ const NotificationsContent: Component = () => {
                               // チャットへ遷移し、Chat 側のリスナーに参加処理を委譲
                               setApp("chat");
                               setRoom(rid);
-                              globalThis.dispatchEvent(new CustomEvent("app:accept-invite", { detail: { roomId: rid, sender: invite?.sender } }));
+                              globalThis.dispatchEvent(
+                                new CustomEvent("app:accept-invite", {
+                                  detail: {
+                                    roomId: rid,
+                                    sender: invite?.sender,
+                                  },
+                                }),
+                              );
                               // 通知は削除
                               await deleteNotification(n.id);
                             }}
-                          >参加する</Button>
+                          >
+                            参加する
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => deleteNotification(n.id)}
                             disabled={isDeleting}
-                          >後で</Button>
+                          >
+                            後で
+                          </Button>
                         </Show>
                         <Show when={!n.read && !invite}>
-                          <Button variant="secondary" size="sm" onClick={() => markAsRead(n.id)}>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => markAsRead(n.id)}
+                          >
                             既読にする
                           </Button>
                         </Show>
@@ -230,7 +320,9 @@ const NotificationsContent: Component = () => {
         </Show>
 
         <div class="mt-4 text-xs text-gray-500">
-          未読: {notifications()?.filter((n) => !n.read).length || 0}件 / 合計: {notifications()?.length || 0}件
+          未読: {notifications()?.filter((n) => !n.read).length || 0}件 / 合計:
+          {" "}
+          {notifications()?.length || 0}件
         </div>
       </Card>
     </div>

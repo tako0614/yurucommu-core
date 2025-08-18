@@ -168,15 +168,28 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           sendToUser(selfHandle, { type: "handshake", payload: newMsg });
           // Welcome オブジェクトを受信した場合はサーバー側で通知を作成（ローカル受信者のみ）
           if (objTypes.includes("Welcome")) {
+            if (roomId) {
+              const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+              await db.savePendingInvite(roomId, username, "", expiresAt);
+              sendToUser(selfHandle, {
+                type: "pendingInvite",
+                payload: { roomId, from },
+              });
+            }
             try {
               const acc = await db.findAccountByUserName(username);
               if (acc && acc._id) {
                 await db.createNotification(
                   String(acc._id),
                   "会話招待",
-                  JSON.stringify({ kind: "chat-invite", roomId: msg.roomId, sender: from }),
+                  JSON.stringify({
+                    kind: "chat-invite",
+                    roomId: msg.roomId,
+                    sender: from,
+                  }),
                   "chat-invite",
                 );
+                sendToUser(selfHandle, { type: "notification" });
               }
             } catch (e) {
               console.error("failed to create welcome notification", e);

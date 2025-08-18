@@ -310,6 +310,7 @@ async function handleHandshake(
             JSON.stringify({ kind: "chat-invite", roomId, sender: from }),
             "chat-invite",
           );
+          sendToUser(lm, { type: "notification" });
         }
       } catch (e) {
         console.error("failed to create invite notification", e);
@@ -857,14 +858,14 @@ app.post(
       },
     );
 
-  // WebSocket はリアルタイム通知のみ（本文等は送らない）
-  const newMsg = {
-    id: String(msg._id),
-    roomId,
-    from,
-    to: recipients,
-    createdAt: msg.createdAt,
-  };
+    // WebSocket はリアルタイム通知のみ（本文等は送らない）
+    const newMsg = {
+      id: String(msg._id),
+      roomId,
+      from,
+      to: recipients,
+      createdAt: msg.createdAt,
+    };
     sendToUser(from, { type: "encryptedMessage", payload: newMsg });
     for (const t of recipients) {
       sendToUser(t, { type: "encryptedMessage", payload: newMsg });
