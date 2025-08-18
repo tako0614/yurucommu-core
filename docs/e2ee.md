@@ -59,7 +59,8 @@
 
 - 自分自身のActor向けも、**コミットを実行した端末を除く他のアクティブ端末**に対してWelcomeを作成する（コミット端末は既にメンバーでWelcome不要）。
 
-5. **配送**：各Welcomeを `Create` で**対象Actorの `inbox`
+5. **配送**：各Welcomeに加え、`Commit` や `Proposal` などのハンドシェイクも
+   `Create` で**対象Actorの `inbox`
    へ明示宛先**で投函（`mediaType: "message/mls"`,
    `encoding: "base64"`）。([SWICG][1])
 

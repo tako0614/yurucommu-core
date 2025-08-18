@@ -8,6 +8,7 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
+import { extractBasicCredentialIdentity } from "./utils/basic_credential.ts";
 // MLS関連データは検証せずそのまま保持する
 
 function iriToHandle(iri: string): string {
@@ -19,6 +20,13 @@ function iriToHandle(iri: string): string {
   } catch {
     return iri;
   }
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 export type ActivityHandler = (
@@ -282,9 +290,10 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       string
     >;
     const db = createDB(env);
-    const actor = typeof activity.actor === "string"
-      ? iriToHandle(activity.actor)
-      : username;
+    const actorUrl = typeof activity.actor === "string"
+      ? activity.actor
+      : undefined;
+    const actor = actorUrl ? iriToHandle(actorUrl) : username;
     const mediaType = typeof obj.mediaType === "string"
       ? obj.mediaType
       : "message/mls";
@@ -312,6 +321,18 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     const keyId = typeof obj.id === "string"
       ? obj.id.split("/").pop()
       : undefined;
+    // BasicCredential.identity と actor の URL を照合
+    let identity: string | null = null;
+    try {
+      identity = extractBasicCredentialIdentity(b64ToBytes(obj.content));
+    } catch (err) {
+      console.error("KeyPackage verification failed", err);
+      return;
+    }
+    if (!identity || identity !== actorUrl) {
+      console.error("KeyPackage identity mismatch", identity, actorUrl);
+      return;
+    }
     await db.createKeyPackage(
       actor,
       obj.content,

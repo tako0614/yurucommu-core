@@ -180,6 +180,22 @@ async function handleHandshake(
   if (!Array.isArray(to) || to.some((v) => typeof v !== "string")) {
     return { ok: false, status: 400, error: "invalid recipients" };
   }
+  // Public や followers などのコレクション URI を拒否
+  const hasCollection = (to as string[]).some((v) => {
+    if (v === "https://www.w3.org/ns/activitystreams#Public") return true;
+    if (v.includes("/followers") || v.includes("/following")) {
+      try {
+        const path = v.startsWith("http") ? new URL(v).pathname : v;
+        return path.endsWith("/followers") || path.endsWith("/following");
+      } catch {
+        return true;
+      }
+    }
+    return false;
+  });
+  if (hasCollection) {
+    return { ok: false, status: 400, error: "invalid recipients" };
+  }
   const [sender] = from.split("@");
   if (!sender) {
     return { ok: false, status: 400, error: "invalid user format" };
@@ -263,7 +279,7 @@ async function handleHandshake(
   const activityObj = buildActivityFromStored(
     {
       ...saved,
-      type: "PublicMessage",
+      type: envelope?.type ?? "PublicMessage",
     } as {
       _id: unknown;
       type: string;
@@ -319,73 +335,79 @@ async function handleHandshake(
     }
   }
 
-  // If it's a welcome for a remote actor, deliver to that actor's inbox only
-  if (envelope && envelope.type === "Welcome") {
-    // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
-    // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
-    const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
-    if (remoteMembers.length > 0) {
-      for (const mem of remoteMembers) {
-        let actorIri = "";
-        try {
-          const actor = await resolveActorCached(mem, env);
-          if (actor?.id) actorIri = actor.id;
-        } catch {
-          // ignore
-        }
-        if (!actorIri) {
-          if (mem.startsWith("http")) {
-            actorIri = mem;
-          } else {
-            const [n, h] = mem.split("@");
-            if (n && h) actorIri = `https://${h}/users/${n}`;
-          }
-        }
-
-        const welcomeObj = {
-          "@context": [
-            "https://www.w3.org/ns/activitystreams",
-            "https://purl.archive.org/socialweb/mls",
-          ],
-          id: createObjectId(domain, "objects"),
-          type: ["Object", "Welcome"],
-          attributedTo: `https://${domain}/users/${sender}`,
-          content: content,
-        };
-        const welcomeActivity = createCreateActivity(
-          domain,
-          `https://${domain}/users/${sender}`,
-          welcomeObj,
-        );
-        (welcomeActivity as ActivityPubActivity)["@context"] = context;
-        (welcomeActivity as ActivityPubActivity).to = [actorIri];
-        try {
-          await deliverActivityPubObject(
-            [mem],
-            welcomeActivity,
-            sender,
-            domain,
-            env,
-          );
-        } catch (err) {
-          console.error("deliver remote welcome failed", err);
+// Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
+if (
+  envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.type)
+) {
+  const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
+  if (remoteMembers.length > 0) {
+    for (const mem of remoteMembers) {
+      let actorIri = "";
+      try {
+        const actor = await resolveActorCached(mem, env);
+        if (actor?.id) actorIri = actor.id;
+      } catch {
+        // ignore
+      }
+      if (!actorIri) {
+        if (mem.startsWith("http")) {
+          actorIri = mem;
+        } else {
+          const [n, h] = mem.split("@");
+          if (n && h) actorIri = `https://${h}/users/${n}`;
         }
       }
-      return { ok: true, id: String(msg._id) };
+
+      const hsObj = {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://purl.archive.org/socialweb/mls",
+        ],
+        id: createObjectId(domain, "objects"),
+        type: ["Object", envelope.type],
+        attributedTo: `https://${domain}/users/${sender}`,
+        content,
+      };
+
+      const hsActivity = createCreateActivity(
+        domain,
+        `https://${domain}/users/${sender}`,
+        hsObj,
+      );
+      (hsActivity as ActivityPubActivity)["@context"] = context;
+      (hsActivity as ActivityPubActivity).to = [actorIri];
+
+      try {
+        await deliverActivityPubObject(
+          [mem],
+          hsActivity,
+          sender,
+          domain,
+          env,
+        );
+      } catch (err) {
+        console.error(
+          `deliver remote ${envelope.type.toLowerCase()} failed for ${mem}`,
+          err,
+        );
+      }
     }
   }
-
-  // default: deliver as before
-  deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
-    (err) => {
-      console.error("deliver failed", err);
-    },
-  );
-
   return { ok: true, id: String(msg._id) };
 }
 
+// default: deliver as before
+deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+  (err) => {
+    console.error("deliver failed", err);
+  },
+);
+
+return { ok: true, id: String(msg._id) };
+}
+
 // ルーム管理 API (ActivityPub 対応)
+
 
 // ActivityPub ルーム一覧取得
 // --- ルームメタ一覧 API（明示作成されたもののみ） ---
