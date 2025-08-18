@@ -1264,7 +1264,7 @@ export function Chat() {
     ];
     const handle = `${user.userName}@${getDomain()}` as ActorID;
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
-    const serverRooms = await searchRooms(user.id, { implicit: "exclude" });
+    const serverRooms = await searchRooms(user.id, { implicit: "include" });
     for (const item of serverRooms) {
       const state = groups()[item.id];
       const meta = state
@@ -1986,7 +1986,31 @@ export function Chat() {
         if (!(data.recipients.includes(self) || data.sender === self)) {
           return;
         }
-        const room = chatRooms().find((r) => r.id === data.roomId);
+        let room = chatRooms().find((r) => r.id === data.roomId);
+        if (!room) {
+          // 受信側に部屋が無い場合はプレースホルダを作成して一覧に出す
+          const others = Array.from(new Set([
+            ...data.recipients,
+            data.sender,
+          ].filter((m) => m && m !== self)));
+          room = {
+            id: data.roomId,
+            name: "",
+            userName: user.userName,
+            domain: getDomain(),
+            avatar: "",
+            unreadCount: 0,
+            type: "group",
+            members: others,
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          };
+          upsertRoom(room);
+          try {
+            await applyDisplayFallback([room]);
+          } catch {/* ignore */}
+          await initGroupState(room.id);
+        }
         if (room) await syncHandshakes(room);
         return;
       }
@@ -2363,6 +2387,44 @@ export function Chat() {
     onCleanup(() => {
       if (timer) clearInterval(timer as unknown as number);
     });
+  });
+
+  // RESTオンリーでも新規ルームが検出されるように定期的にサーチ
+  onMount(() => {
+    let timer: number | undefined;
+    const discover = async () => {
+      try {
+        const user = account();
+        if (!user) return;
+        const serverRooms = await searchRooms(user.id, { implicit: "include" });
+        const existing = new Set(chatRooms().map((r) => r.id));
+        for (const item of serverRooms) {
+          if (!item?.id || existing.has(item.id)) continue;
+          const r: Room = {
+            id: item.id,
+            name: "",
+            userName: user.userName,
+            domain: getDomain(),
+            avatar: "",
+            unreadCount: 0,
+            type: "group",
+            members: [],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          };
+          upsertRoom(r);
+          try { await applyDisplayFallback([r]); } catch { /* ignore */ }
+          await initGroupState(r.id);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    // 30秒ごとに確認
+    // deno-lint-ignore no-explicit-any
+    timer = setInterval(discover, 30000) as any as number;
+    void discover();
+    onCleanup(() => { if (timer) clearInterval(timer as unknown as number); });
   });
 
   // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
