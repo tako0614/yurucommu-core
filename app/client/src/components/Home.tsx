@@ -2,7 +2,6 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
-import NotificationsContent from "./home/NotificationsContent.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
 import { Button, Modal } from "./ui/index.ts";
@@ -13,9 +12,8 @@ import {
 } from "../states/account.ts";
 
 export function Home() {
-  // 設定・通知のモーダル制御
+  // 設定のモーダル制御
   const [showSettings, setShowSettings] = createSignal(false);
-  const [showNotifications, setShowNotifications] = createSignal(false);
 
   const [accounts, setAccounts] = useAtom(accountsAtom);
 
@@ -181,7 +179,6 @@ export function Home() {
         (document.activeElement as HTMLElement)?.isContentEditable;
       if (isTyping) return;
       if (e.key.toLowerCase() === "s") setShowSettings(true);
-      if (e.key.toLowerCase() === "n") setShowNotifications(true);
     };
     globalThis.addEventListener("keydown", handler);
     onCleanup(() => globalThis.removeEventListener("keydown", handler));
@@ -203,42 +200,17 @@ export function Home() {
       {/* 右上のフローティングアイコン（ヘッダーは使わない） */}
       <div class="fixed top-3 right-3 z-20 flex items-center gap-2">
         <Button
-          variant="ghost"
-          size="sm"
-          class="rounded-full p-2 bg-[#1f1f1f]/70 hover:bg-[#2a2a2a] border border-[#2f2f2f] shadow"
-          aria-label="通知"
-          title="通知 (N)"
-          onClick={() => setShowNotifications(true)}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            class="w-5 h-5"
-          >
-            <path
-              fill="currentColor"
-              d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5l-2 2v1h16v-1l-2-2Z"
-            />
-          </svg>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="rounded-full p-2 bg-[#1f1f1f]/70 hover:bg-[#2a2a2a] border border-[#2f2f2f] shadow"
+          variant="primary"
+          size="md"
+          class="rounded-md px-4 py-2 shadow-lg flex items-center gap-2"
           aria-label="設定"
           title="設定 (S)"
           onClick={() => setShowSettings(true)}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            class="w-5 h-5"
-          >
-            <path
-              fill="currentColor"
-              d="M19.14,12.94a7.49,7.49,0,0,0,.05-1,7.49,7.49,0,0,0-.05-1l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.12,7.12,0,0,0-1.73-1L14.5,2.5a.5.5,0,0,0-.5-.5H10a.5.5,0,0,0-.5.5l-.38,2.47a7.12,7.12,0,0,0-1.73,1l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L4.86,10a7.49,7.49,0,0,0-.05,1,7.49,7.49,0,0,0,.05,1L2.75,13.65a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.12,7.12,0,0,0,1.73,1L9.5,21.5a.5.5,0,0,0,.5.5h4a.5.5,0,0,0,.5-.5l.38-2.47a7.12,7.12,0,0,0,1.73-1l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"
-            />
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5">
+            <path fill="currentColor" d="M19.14,12.94a7.49,7.49,0,0,0,.05-1,7.49,7.49,0,0,0-.05-1l2.11-1.65a.5.5,0,0,0,.12-.64l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.12,7.12,0,0,0-1.73-1L14.5,2.5a.5.5,0,0,0-.5-.5H10a.5.5,0,0,0-.5.5l-.38,2.47a7.12,7.12,0,0,0-1.73,1l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.64L4.86,10a7.49,7.49,0,0,0-.05,1,7.49,7.49,0,0,0,.05,1L2.75,13.65a.5.5,0,0,0-.12.64l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.12,7.12,0,0,0,1.73,1L9.5,21.5a.5.5,0,0,0,.5.5h4a.5.5,0,0,0,.5-.5l.38-2.47a7.12,7.12,0,0,0,1.73-1l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.64ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
           </svg>
+          <span class="text-base font-semibold">設定</span>
         </Button>
       </div>
 
@@ -262,18 +234,6 @@ export function Home() {
         </Modal>
       </Show>
 
-      {/* 通知モーダル */}
-      <Show when={showNotifications()}>
-        <Modal
-          open={showNotifications()}
-          onClose={() => setShowNotifications(false)}
-          title="通知"
-        >
-          <div class="max-w-3xl">
-            <NotificationsContent />
-          </div>
-        </Modal>
-      </Show>
     </div>
   );
 }

@@ -14,7 +14,7 @@ function classes(variant: Variant, size: Size, disabled?: boolean) {
     "inline-flex items-center justify-center font-medium transition-colors duration-150 rounded-md focus-visible:outline-none disabled:opacity-60 disabled:cursor-not-allowed";
   const v = {
     primary:
-      "bg-cyan-500 hover:bg-cyan-400 text-slate-900 focus-visible:shadow-[0_0_0_3px_rgba(34,211,238,0.45)]",
+      "bg-gray-600 hover:bg-gray-700 text-white focus-visible:shadow-[0_0_0_3px_rgba(148,163,184,0.45)]",
     secondary:
       "bg-[#2a2a2a] hover:bg-[#333] text-gray-100 border border-[#3a3a3a]",
     ghost: "bg-transparent hover:bg-[#2a2a2a] text-gray-200",
@@ -54,4 +54,3 @@ export function Button(props: ButtonProps) {
 }
 
 export default Button;
-
