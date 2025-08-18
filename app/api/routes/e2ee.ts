@@ -325,48 +325,51 @@ async function handleHandshake(
     // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
     const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
     if (remoteMembers.length > 0) {
-      const welcomeObj = {
-        "@context": [
-          "https://www.w3.org/ns/activitystreams",
-          "https://purl.archive.org/socialweb/mls",
-        ],
-        id: createObjectId(domain, "objects"),
-        type: ["Object", "Welcome"],
-        attributedTo: `https://${domain}/users/${sender}`,
-        content: content,
-      };
-      const welcomeActivity = createCreateActivity(
-        domain,
-        `https://${domain}/users/${sender}`,
-        welcomeObj,
-      );
-      (welcomeActivity as ActivityPubActivity)["@context"] = context;
-      // 配送対象を to にも明示し、受信側でターゲット分解できるようにする
-      const toIris: string[] = [];
       for (const mem of remoteMembers) {
+        let actorIri = "";
         try {
           const actor = await resolveActorCached(mem, env);
-          if (actor?.id) toIris.push(actor.id);
-          else {
-            const [n, h] = mem.split("@");
-            if (n && h) toIris.push(`https://${h}/users/${n}`);
-          }
+          if (actor?.id) actorIri = actor.id;
         } catch {
-          const [n, h] = mem.split("@");
-          if (n && h) toIris.push(`https://${h}/users/${n}`);
+          // ignore
         }
-      }
-      (welcomeActivity as ActivityPubActivity).to = toIris;
-      try {
-        await deliverActivityPubObject(
-          remoteMembers,
-          welcomeActivity,
-          sender,
+        if (!actorIri) {
+          if (mem.startsWith("http")) {
+            actorIri = mem;
+          } else {
+            const [n, h] = mem.split("@");
+            if (n && h) actorIri = `https://${h}/users/${n}`;
+          }
+        }
+
+        const welcomeObj = {
+          "@context": [
+            "https://www.w3.org/ns/activitystreams",
+            "https://purl.archive.org/socialweb/mls",
+          ],
+          id: createObjectId(domain, "objects"),
+          type: ["Object", "Welcome"],
+          attributedTo: `https://${domain}/users/${sender}`,
+          content: content,
+        };
+        const welcomeActivity = createCreateActivity(
           domain,
-          env,
+          `https://${domain}/users/${sender}`,
+          welcomeObj,
         );
-      } catch (err) {
-        console.error("deliver remote welcome failed", err);
+        (welcomeActivity as ActivityPubActivity)["@context"] = context;
+        (welcomeActivity as ActivityPubActivity).to = [actorIri];
+        try {
+          await deliverActivityPubObject(
+            [mem],
+            welcomeActivity,
+            sender,
+            domain,
+            env,
+          );
+        } catch (err) {
+          console.error("deliver remote welcome failed", err);
+        }
       }
       return { ok: true, id: String(msg._id) };
     }
