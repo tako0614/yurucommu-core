@@ -311,7 +311,8 @@ async function handleHandshake(
   }
   const envelope = decodeMlsEnvelope(content);
   const localTargets = envelope &&
-      (envelope.originalType === "Welcome" || envelope.originalType === "Commit")
+      (envelope.originalType === "Welcome" ||
+        envelope.originalType === "Commit")
     ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
@@ -342,8 +343,8 @@ async function handleHandshake(
   const activityObj = buildActivityFromStored(
     {
       ...saved,
-  // 公開用タイプのみ利用（Commit / Proposal は decode 時点で PrivateMessage に正規化済み）
-  type: envelope?.type ?? "PublicMessage",
+      // 公開用タイプのみ利用（Commit / Proposal は decode 時点で PrivateMessage に正規化済み）
+      type: envelope?.type ?? "PublicMessage",
     } as {
       _id: unknown;
       type: string;
@@ -417,7 +418,8 @@ async function handleHandshake(
 
   // Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
   if (
-    envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.originalType)
+    envelope &&
+    ["Welcome", "Commit", "Proposal"].includes(envelope.originalType)
   ) {
     const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
     if (remoteMembers.length > 0) {
@@ -692,6 +694,18 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
   }
+  const mt = typeof mediaType === "string" && mediaType === "message/mls"
+    ? mediaType
+    : null;
+  if (!mt) {
+    return c.json({ error: 'mediaType must be "message/mls"' }, 400);
+  }
+  const enc = typeof encoding === "string" && encoding === "base64"
+    ? encoding
+    : null;
+  if (!enc) {
+    return c.json({ error: 'encoding must be "base64"' }, 400);
+  }
   const domain = getDomain(c);
   const actorId = `https://${domain}/users/${user}`;
   // BasicCredential.identity と Actor の URL を照合
@@ -715,8 +729,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const pkg = await db.createKeyPackage(
     user,
     content,
-    mediaType,
-    encoding,
+    mt,
+    enc,
     gi,
     expiresAt ? new Date(expiresAt) : undefined,
     typeof deviceId === "string" ? deviceId : undefined,
@@ -733,7 +747,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
       "https://purl.archive.org/socialweb/mls",
     ],
     id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
-  type: ["Object", "KeyPackage"],
+    type: ["Object", "KeyPackage"],
     attributedTo: actorId,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: pkg.mediaType,
