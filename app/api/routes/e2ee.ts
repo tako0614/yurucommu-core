@@ -232,7 +232,7 @@ async function handleHandshake(
   }
   const envelope = decodeMlsEnvelope(content);
   const localTargets = envelope &&
-    (envelope.type === "Welcome" || envelope.type === "Commit")
+      (envelope.type === "Welcome" || envelope.type === "Commit")
     ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
@@ -437,22 +437,7 @@ app.post("/users/:user/pendingInvites/ack", authRequired, async (c) => {
   }
 });
 
-// ルームアクター取得
-app.get("/ap/rooms/:id", async (c) => {
-  const id = c.req.param("id");
-  const db = createDB(getEnv(c));
-  const result = await db.findChatroom(id);
-  if (!result) return jsonResponse(c, { error: "Room not found" }, 404);
-  const domain = getDomain(c);
-  const actor = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/ap/rooms/${id}`,
-    type: "Group",
-  };
-  return jsonResponse(c, actor, 200, "application/activity+json");
-});
-
-// ルーム作成
+// ルーム作成とハンドシェイク
 app.post("/ap/rooms", authRequired, async (c) => {
   const body = await c.req.json();
   if (
@@ -468,18 +453,13 @@ app.post("/ap/rooms", authRequired, async (c) => {
   const id = typeof body.id === "string" ? body.id : crypto.randomUUID();
   await db.addChatroom(body.owner, { id });
   const domain = getDomain(c);
-  const actor = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: `https://${domain}/ap/rooms/${id}`,
-    type: "Group",
-  };
   if (body.handshake && typeof body.handshake === "object") {
     const hs = await handleHandshake(env, domain, id, body.handshake);
     if (!hs.ok) {
       return jsonResponse(c, { error: hs.error }, hs.status);
     }
   }
-  return jsonResponse(c, actor, 201, "application/activity+json");
+  return jsonResponse(c, { id }, 201, "application/json");
 });
 
 app.get("/users/:user/keyPackages", authRequired, async (c) => {
@@ -503,7 +483,7 @@ app.get("/users/:user/keyPackages", authRequired, async (c) => {
       cipherSuite: doc.cipherSuite,
       generator: doc.generator,
       createdAt: doc.createdAt,
-  keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
+      keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
     }));
     return c.json({ type: "Collection", items });
   }
@@ -559,9 +539,9 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     groupInfo: doc.groupInfo,
     expiresAt: doc.expiresAt,
     version: doc.version,
-  cipherSuite: doc.cipherSuite,
-  generator: doc.generator,
-  keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
+    cipherSuite: doc.cipherSuite,
+    generator: doc.generator,
+    keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
   };
   return c.json(object);
 });
@@ -577,8 +557,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     deviceId,
     version,
     cipherSuite,
-  generator,
-  lastResort,
+    generator,
+    lastResort,
   } = await c.req.json();
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
@@ -613,9 +593,9 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     typeof deviceId === "string" ? deviceId : undefined,
     typeof version === "string" ? version : undefined,
     typeof cipherSuite === "number" ? cipherSuite : undefined,
-  typeof generator === "string" ? generator : undefined,
-  undefined,
-  typeof lastResort === "boolean" ? lastResort : undefined,
+    typeof generator === "string" ? generator : undefined,
+    undefined,
+    typeof lastResort === "boolean" ? lastResort : undefined,
   ) as KeyPackageDoc;
   await db.cleanupKeyPackages(user);
   const keyObj = {
@@ -633,10 +613,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     groupInfo: pkg.groupInfo,
     expiresAt: pkg.expiresAt,
     version: pkg.version,
-  cipherSuite: pkg.cipherSuite,
-  generator: pkg.generator,
-  keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
-  lastResort: (pkg as { lastResort?: boolean }).lastResort,
+    cipherSuite: pkg.cipherSuite,
+    generator: pkg.generator,
+    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
+    lastResort: (pkg as { lastResort?: boolean }).lastResort,
   };
   // Key Transparency ログへの追記
   try {
@@ -674,7 +654,9 @@ app.post("/users/:user/keyPackages/markUsed", authRequired, async (c) => {
   const user = c.req.param("user");
   const body = await c.req.json().catch(() => ({}));
   const refs = Array.isArray(body.keyPackageRefs) ? body.keyPackageRefs : [];
-  if (refs.length === 0) return c.json({ ok: false, error: "keyPackageRefs required" }, 400);
+  if (refs.length === 0) {
+    return c.json({ ok: false, error: "keyPackageRefs required" }, 400);
+  }
   const db = createDB(getEnv(c));
   for (const ref of refs) {
     if (typeof ref === "string" && /^[0-9a-fA-F]{64}$/.test(ref)) {
