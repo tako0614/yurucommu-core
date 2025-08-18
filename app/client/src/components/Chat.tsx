@@ -870,7 +870,7 @@ export function Chat() {
 
   const fetchMessagesForRoom = async (
     room: Room,
-    params?: { limit?: number; before?: string; after?: string },
+    params?: { limit?: number; before?: string; after?: string; dryRun?: boolean },
   ): Promise<ChatMessage[]> => {
     const user = account();
     if (!user) return [];
@@ -893,6 +893,7 @@ export function Chat() {
       return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     }
     const encryptedMsgs: ChatMessage[] = [];
+    const isDryRun = Boolean(params?.dryRun);
     let group = groups()[room.id];
     if (!group) {
       await initGroupState(room.id);
@@ -1105,19 +1106,21 @@ export function Chat() {
     const msgs = encryptedMsgs.sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
-    setGroups({ ...groups(), [room.id]: group });
-    saveGroupStates();
-    // 参加メンバーに合わせて招待中を整流化
-    try {
-      const acc = account();
-      if (acc) {
-        const participants = extractMembers(group).map((x) =>
-          normalizeHandle(x) ?? x
-        ).filter((v): v is string => !!v);
-        await syncPendingWithParticipants(acc.id, room.id, participants);
+    if (!isDryRun) {
+      setGroups({ ...groups(), [room.id]: group });
+      saveGroupStates();
+      // 参加メンバーに合わせて招待中を整流化
+      try {
+        const acc = account();
+        if (acc) {
+          const participants = extractMembers(group).map((x) =>
+            normalizeHandle(x) ?? x
+          ).filter((v): v is string => !!v);
+          await syncPendingWithParticipants(acc.id, room.id, participants);
+        }
+      } catch {
+        console.error("参加メンバーの同期に失敗しました");
       }
-    } catch {
-      console.error("参加メンバーの同期に失敗しました");
     }
     return msgs;
   };
@@ -1269,7 +1272,7 @@ export function Chat() {
     void (async () => {
       for (const r of unique) {
         try {
-          const msgs = await fetchMessagesForRoom(r, { limit: 1 });
+          const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
           if (msgs.length > 0) {
             updateRoomLast(r.id, msgs[msgs.length - 1]);
           }
@@ -1733,41 +1736,40 @@ export function Chat() {
     setGroups({ ...groups(), [roomId]: msgEnc.state });
     saveGroupStates();
 
-    // 入力欄をクリア
+    // 楽観的に自分の送信メッセージをUIへ即時反映（再取得は行わない）
+    try {
+      const meHandle = `${user.userName}@${getDomain()}`;
+      const dispName = user.displayName || user.userName;
+      let attachmentsUi: { data?: string; url?: string; mediaType: string; preview?: { url?: string; data?: string; mediaType?: string } }[] | undefined;
+      if (mediaFile()) {
+        const file = mediaFile()!;
+        const purl = mediaPreview();
+        attachmentsUi = [{ mediaType: file.type || "application/octet-stream", ...(purl ? { url: purl } : {}) }];
+      }
+      const optimistic: ChatMessage = {
+        id: localId,
+        author: meHandle,
+        displayName: dispName,
+        address: meHandle,
+        content: text,
+        attachments: attachmentsUi,
+        timestamp: new Date(),
+        type: attachmentsUi && attachmentsUi.length > 0
+          ? attachmentsUi[0].mediaType.startsWith("image/") ? "image" : "file"
+          : "text",
+        isMe: true,
+        avatar: room.avatar,
+      };
+      setMessages((old) => [...old, optimistic]);
+      updateRoomLast(roomId, optimistic);
+    } catch (e) {
+      console.warn("楽観表示の反映に失敗しました", e);
+    }
+
+    // 入力欄と選択中のメディアをクリア
     setNewMessage("");
     setMediaFile(null);
     setMediaPreview(null);
-
-    // 送信直後に REST で直近を再取得して即時反映（WSの遅延/未送信をカバー）
-    try {
-      const isSelected = selectedRoom() === roomId;
-      if (isSelected) {
-        const prev = messages();
-        const lastTs = prev.length > 0
-          ? prev[prev.length - 1].timestamp.toISOString()
-          : undefined;
-        const fetched = await fetchMessagesForRoom(
-          room,
-          lastTs ? { after: lastTs } : { limit: 1 },
-        );
-        if (fetched.length > 0) {
-          setMessages((old) => {
-            const ids = new Set(old.map((m) => m.id));
-            const add = fetched.filter((m) => !ids.has(m.id));
-            return [...old, ...add];
-          });
-          const last = fetched[fetched.length - 1];
-          updateRoomLast(roomId, last);
-        }
-      } else {
-        const fetched = await fetchMessagesForRoom(room, { limit: 1 });
-        if (fetched.length > 0) {
-          updateRoomLast(roomId, fetched[fetched.length - 1]);
-        }
-      }
-    } catch (e) {
-      console.warn("送信後の即時再取得に失敗しました", e);
-    }
   };
 
   // 画面サイズ検出
@@ -1997,6 +1999,10 @@ export function Chat() {
 
       // WSは通知のみ: RESTから取得して反映
       if (msg.type === "encryptedMessage") {
+        // 自分が送信した直後の通知は再取得せず無視（ラチェット巻き戻り防止）
+        if (msg.payload.from === self) {
+          return;
+        }
         const isSelected = selectedRoom() === room.id;
         if (isSelected) {
           const prev = messages();
@@ -2018,7 +2024,7 @@ export function Chat() {
           }
         } else {
           // 一覧のみ更新（最新1件を取得してプレビュー）
-          const fetched = await fetchMessagesForRoom(room, { limit: 1 });
+          const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
           if (fetched.length > 0) {
             updateRoomLast(room.id, fetched[fetched.length - 1]);
           }
@@ -2027,7 +2033,7 @@ export function Chat() {
       }
 
       // publicMessage 等の将来拡張が来た場合はRESTで取得する
-      const fetched = await fetchMessagesForRoom(room, { limit: 1 });
+      const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
       if (fetched.length > 0) {
         const last = fetched[fetched.length - 1];
         const isSelected = selectedRoom() === room.id;
