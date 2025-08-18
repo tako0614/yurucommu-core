@@ -180,6 +180,22 @@ async function handleHandshake(
   if (!Array.isArray(to) || to.some((v) => typeof v !== "string")) {
     return { ok: false, status: 400, error: "invalid recipients" };
   }
+  // Public や followers などのコレクション URI を拒否
+  const hasCollection = (to as string[]).some((v) => {
+    if (v === "https://www.w3.org/ns/activitystreams#Public") return true;
+    if (v.includes("/followers") || v.includes("/following")) {
+      try {
+        const path = v.startsWith("http") ? new URL(v).pathname : v;
+        return path.endsWith("/followers") || path.endsWith("/following");
+      } catch {
+        return true;
+      }
+    }
+    return false;
+  });
+  if (hasCollection) {
+    return { ok: false, status: 400, error: "invalid recipients" };
+  }
   const [sender] = from.split("@");
   if (!sender) {
     return { ok: false, status: 400, error: "invalid user format" };

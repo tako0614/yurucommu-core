@@ -198,6 +198,20 @@ export async function deliverActivityPubObject(
   domain: string,
   env: Record<string, string> = {},
 ): Promise<void> {
+  const isCollection = (url: string): boolean => {
+    if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
+    try {
+      const path = new URL(url).pathname;
+      return path.endsWith("/followers") ||
+        path.endsWith("/following") ||
+        path.endsWith("/outbox") ||
+        path.endsWith("/collections") ||
+        path.endsWith("/liked") ||
+        path.endsWith("/likes");
+    } catch {
+      return false;
+    }
+  };
   const deliveryPromises = targets.map(async (addr) => {
     let iri = addr;
     // acct:username@domain または username@domain 形式を解決
@@ -212,6 +226,10 @@ export async function deliverActivityPubObject(
         return Promise.resolve();
       }
     }
+    if (isCollection(iri)) {
+      console.error(`Skip delivery to non-actor URI ${iri}`);
+      return Promise.resolve();
+    }
     // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
       return sendActivityPubObject(iri, object, actor, domain, env).catch(
@@ -225,6 +243,10 @@ export async function deliverActivityPubObject(
     try {
       const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
       const target = sharedInbox ?? inbox;
+      if (!target) {
+        console.error(`Target ${iri} has no inbox`);
+        return Promise.resolve();
+      }
       return sendActivityPubObject(target, object, actor, domain, env).catch(
         (err) => {
           console.error(`Failed to deliver to ${iri}`, err);
