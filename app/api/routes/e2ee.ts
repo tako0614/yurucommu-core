@@ -586,82 +586,86 @@ app.post("/ap/rooms", authRequired, async (c) => {
   return jsonResponse(c, { id }, 201, "application/json");
 });
 
-app.get("/users/:user/keyPackages", authRequired, async (c) => {
-  const identifier = c.req.param("user");
-  const domain = getDomain(c);
+app.get(
+  "/users/:user/keyPackages",
+  rateLimit({ windowMs: 60_000, limit: 20 }),
+  async (c) => {
+    const identifier = c.req.param("user");
+    const domain = getDomain(c);
 
-  const [user, host] = identifier.split("@");
-  if (!host || host === domain) {
-    const username = user ?? identifier;
-    const db = createDB(getEnv(c));
-    const list = await db.listKeyPackages(username) as KeyPackageDoc[];
-    const items = list.map((doc) => ({
-      "@context": [
-        "https://www.w3.org/ns/activitystreams",
-        "https://purl.archive.org/socialweb/mls",
-      ],
-      id: `https://${domain}/users/${username}/keyPackages/${doc._id}`,
-      type: ["Object", "KeyPackage"],
-      content: doc.content,
-      mediaType: doc.mediaType,
-      encoding: doc.encoding,
-      groupInfo: doc.groupInfo,
-      expiresAt: doc.expiresAt,
-      version: doc.version,
-      cipherSuite: doc.cipherSuite,
-      generator: doc.generator,
-      createdAt: doc.createdAt,
-      keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
-    }));
-    return c.json({ type: "Collection", items });
-  }
-
-  const acct = identifier;
-
-  const actor = await resolveActorCached(
-    acct,
-    getEnv(c),
-  );
-  if (!actor) return c.json({ type: "Collection", items: [] });
-  const kpUrl = typeof actor.keyPackages === "string"
-    ? actor.keyPackages
-    : actor.keyPackages?.id;
-  if (!kpUrl) return c.json({ type: "Collection", items: [] });
-
-  try {
-    const col = await fetchJson<{ items?: unknown[] }>(
-      kpUrl,
-      {},
-      undefined,
-      getEnv(c),
-    );
-    const items = Array.isArray(col.items) ? col.items : [];
-    // Ensure each remote item has @context and type array format
-    const norm = items.map((it) => {
-      const obj = it as Record<string, unknown>;
-      const out: Record<string, unknown> = { ...obj };
-      if (!Array.isArray(out["@context"])) {
-        out["@context"] = [
+    const [user, host] = identifier.split("@");
+    if (!host || host === domain) {
+      const username = user ?? identifier;
+      const db = createDB(getEnv(c));
+      const list = await db.listKeyPackages(username) as KeyPackageDoc[];
+      const items = list.map((doc) => ({
+        "@context": [
           "https://www.w3.org/ns/activitystreams",
           "https://purl.archive.org/socialweb/mls",
-        ];
-      }
-      const t = out.type;
-      if (Array.isArray(t)) {
-        out.type = t;
-      } else if (typeof t === "string") {
-        out.type = ["Object", t];
-      } else {
-        out.type = ["Object", "KeyPackage"];
-      }
-      return out;
-    });
-    return c.json({ type: "Collection", items: norm });
-  } catch (_err) {
-    console.error("remote keyPackages fetch failed", _err);
-    return c.json({ type: "Collection", items: [] });
-  }
-});
+        ],
+        id: `https://${domain}/users/${username}/keyPackages/${doc._id}`,
+        type: ["Object", "KeyPackage"],
+        content: doc.content,
+        mediaType: doc.mediaType,
+        encoding: doc.encoding,
+        groupInfo: doc.groupInfo,
+        expiresAt: doc.expiresAt,
+        version: doc.version,
+        cipherSuite: doc.cipherSuite,
+        generator: doc.generator,
+        createdAt: doc.createdAt,
+        keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
+      }));
+      return c.json({ type: "Collection", items });
+    }
+
+    const acct = identifier;
+
+    const actor = await resolveActorCached(
+      acct,
+      getEnv(c),
+    );
+    if (!actor) return c.json({ type: "Collection", items: [] });
+    const kpUrl = typeof actor.keyPackages === "string"
+      ? actor.keyPackages
+      : actor.keyPackages?.id;
+    if (!kpUrl) return c.json({ type: "Collection", items: [] });
+
+    try {
+      const col = await fetchJson<{ items?: unknown[] }>(
+        kpUrl,
+        {},
+        undefined,
+        getEnv(c),
+      );
+      const items = Array.isArray(col.items) ? col.items : [];
+      // Ensure each remote item has @context and type array format
+      const norm = items.map((it) => {
+        const obj = it as Record<string, unknown>;
+        const out: Record<string, unknown> = { ...obj };
+        if (!Array.isArray(out["@context"])) {
+          out["@context"] = [
+            "https://www.w3.org/ns/activitystreams",
+            "https://purl.archive.org/socialweb/mls",
+          ];
+        }
+        const t = out.type;
+        if (Array.isArray(t)) {
+          out.type = t;
+        } else if (typeof t === "string") {
+          out.type = ["Object", t];
+        } else {
+          out.type = ["Object", "KeyPackage"];
+        }
+        return out;
+      });
+      return c.json({ type: "Collection", items: norm });
+    } catch (_err) {
+      console.error("remote keyPackages fetch failed", _err);
+      return c.json({ type: "Collection", items: [] });
+    }
+  },
+);
 
 app.get("/users/:user/keyPackages/:keyId", async (c) => {
   const user = c.req.param("user");
