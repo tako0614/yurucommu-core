@@ -966,8 +966,23 @@ app.post(
       return c.json({ error: "no recipients" }, 400);
     }
 
+    // パブリックやフォロワー宛ての配送は拒否する
+    if (
+      recipients.some((r) =>
+        r === "https://www.w3.org/ns/activitystreams#Public" ||
+        r.endsWith("/followers") ||
+        r.endsWith("/following")
+      )
+    ) {
+      return c.json({ error: "invalid recipients" }, 400);
+    }
+
     const mType = typeof mediaType === "string" ? mediaType : "message/mls";
     const encType = typeof encoding === "string" ? encoding : "base64";
+    // MLS 以外の形式や Base64 以外のエンコードは受け付けない
+    if (mType !== "message/mls" || encType !== "base64") {
+      return c.json({ error: "unsupported format" }, 400);
+    }
     const storedContent = typeof content === "string" ? content : "";
     const msg = await db.createEncryptedMessage({
       roomId,
