@@ -458,6 +458,8 @@ async function handleHandshake(
           content,
           mediaType: "message/mls",
           encoding: "base64",
+          summary:
+            "This is an encrypted private message. See https://swicg.github.io/activitypub-e2ee/ …",
         };
 
         if (hsObj.mediaType !== "message/mls" || hsObj.encoding !== "base64") {
@@ -476,6 +478,7 @@ async function handleHandshake(
         );
         (hsActivity as ActivityPubActivity)["@context"] = context;
         (hsActivity as ActivityPubActivity).to = [actorIri];
+        (hsActivity as ActivityPubActivity).cc = [];
 
         try {
           await deliverActivityPubObject(
@@ -608,6 +611,8 @@ app.get(
         content: doc.content,
         mediaType: doc.mediaType,
         encoding: doc.encoding,
+        summary:
+          "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …",
         groupInfo: doc.groupInfo,
         expiresAt: doc.expiresAt,
         version: doc.version,
@@ -657,6 +662,10 @@ app.get(
         } else {
           out.type = ["Object", "KeyPackage"];
         }
+        if (typeof out.summary !== "string") {
+          out.summary =
+            "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …";
+        }
         return out;
       });
       return c.json({ type: "Collection", items: norm });
@@ -687,6 +696,8 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: doc.mediaType,
     encoding: doc.encoding,
+    summary:
+      "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …",
     content: doc.content,
     groupInfo: doc.groupInfo,
     expiresAt: doc.expiresAt,
@@ -773,6 +784,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: pkg.mediaType,
     encoding: pkg.encoding,
+    summary:
+      "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …",
     content: pkg.content,
     groupInfo: pkg.groupInfo,
     expiresAt: pkg.expiresAt,
@@ -804,6 +817,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     console.error("KT append failed", err);
   }
   const createActivity = createCreateActivity(domain, actorId, keyObj);
+  (createActivity as ActivityPubActivity).cc = [];
   await deliverToFollowers(getEnv(c), user, createActivity, domain);
   const addActivity = createAddActivity(
     domain,
