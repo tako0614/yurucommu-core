@@ -224,6 +224,12 @@ async function handleHandshake(
   if (!Array.isArray(to) || to.some((v) => typeof v !== "string")) {
     return { ok: false, status: 400, error: "invalid recipients" };
   }
+  if (mediaType !== undefined && mediaType !== "message/mls") {
+    return { ok: false, status: 400, error: "invalid mediaType" };
+  }
+  if (encoding !== undefined && encoding !== "base64") {
+    return { ok: false, status: 400, error: "invalid encoding" };
+  }
   // Public や followers などのコレクション URI を拒否
   const hasCollection = (to as string[]).some((v) => {
     if (v === "https://www.w3.org/ns/activitystreams#Public") return true;
