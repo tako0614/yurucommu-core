@@ -335,12 +335,29 @@ async function handleHandshake(
     }
   }
 
-  // Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
-  if (
-    envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.type)
-  ) {
-    const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
-    if (remoteMembers.length > 0) {
+// Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
+if (
+  envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.type)
+) {
+  const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
+  if (remoteMembers.length > 0) {
+    for (const mem of remoteMembers) {
+      let actorIri = "";
+      try {
+        const actor = await resolveActorCached(mem, env);
+        if (actor?.id) actorIri = actor.id;
+      } catch {
+        // ignore
+      }
+      if (!actorIri) {
+        if (mem.startsWith("http")) {
+          actorIri = mem;
+        } else {
+          const [n, h] = mem.split("@");
+          if (n && h) actorIri = `https://${h}/users/${n}`;
+        }
+      }
+
       const hsObj = {
         "@context": [
           "https://www.w3.org/ns/activitystreams",
@@ -349,33 +366,20 @@ async function handleHandshake(
         id: createObjectId(domain, "objects"),
         type: ["Object", envelope.type],
         attributedTo: `https://${domain}/users/${sender}`,
-        content: content,
+        content,
       };
+
       const hsActivity = createCreateActivity(
         domain,
         `https://${domain}/users/${sender}`,
         hsObj,
       );
       (hsActivity as ActivityPubActivity)["@context"] = context;
-      // 配送対象を to にも明示し、受信側でターゲット分解できるようにする
-      const toIris: string[] = [];
-      for (const mem of remoteMembers) {
-        try {
-          const actor = await resolveActorCached(mem, env);
-          if (actor?.id) toIris.push(actor.id);
-          else {
-            const [n, h] = mem.split("@");
-            if (n && h) toIris.push(`https://${h}/users/${n}`);
-          }
-        } catch {
-          const [n, h] = mem.split("@");
-          if (n && h) toIris.push(`https://${h}/users/${n}`);
-        }
-      }
-      (hsActivity as ActivityPubActivity).to = toIris;
+      (hsActivity as ActivityPubActivity).to = [actorIri];
+
       try {
         await deliverActivityPubObject(
-          remoteMembers,
+          [mem],
           hsActivity,
           sender,
           domain,
@@ -383,25 +387,27 @@ async function handleHandshake(
         );
       } catch (err) {
         console.error(
-          `deliver remote ${envelope.type.toLowerCase()} failed`,
+          `deliver remote ${envelope.type.toLowerCase()} failed for ${mem}`,
           err,
         );
       }
     }
-    return { ok: true, id: String(msg._id) };
   }
-
-  // default: deliver as before
-  deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
-    (err) => {
-      console.error("deliver failed", err);
-    },
-  );
-
   return { ok: true, id: String(msg._id) };
 }
 
+// default: deliver as before
+deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+  (err) => {
+    console.error("deliver failed", err);
+  },
+);
+
+return { ok: true, id: String(msg._id) };
+}
+
 // ルーム管理 API (ActivityPub 対応)
+
 
 // ActivityPub ルーム一覧取得
 // --- ルームメタ一覧 API（明示作成されたもののみ） ---
