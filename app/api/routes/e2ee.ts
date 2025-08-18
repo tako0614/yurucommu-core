@@ -263,7 +263,7 @@ async function handleHandshake(
   const activityObj = buildActivityFromStored(
     {
       ...saved,
-      type: "PublicMessage",
+      type: envelope?.type ?? "PublicMessage",
     } as {
       _id: unknown;
       type: string;
@@ -319,28 +319,28 @@ async function handleHandshake(
     }
   }
 
-  // If it's a welcome for a remote actor, deliver to that actor's inbox only
-  if (envelope && envelope.type === "Welcome") {
-    // リモート宛: 既存ロジック（ルーム全員への deliver）ではなく
-    // 仕様準拠: ルームのリモートメンバー inbox へ個別配送 (Welcome Object)
+  // Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
+  if (
+    envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.type)
+  ) {
     const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
     if (remoteMembers.length > 0) {
-      const welcomeObj = {
+      const hsObj = {
         "@context": [
           "https://www.w3.org/ns/activitystreams",
           "https://purl.archive.org/socialweb/mls",
         ],
         id: createObjectId(domain, "objects"),
-        type: ["Object", "Welcome"],
+        type: ["Object", envelope.type],
         attributedTo: `https://${domain}/users/${sender}`,
         content: content,
       };
-      const welcomeActivity = createCreateActivity(
+      const hsActivity = createCreateActivity(
         domain,
         `https://${domain}/users/${sender}`,
-        welcomeObj,
+        hsObj,
       );
-      (welcomeActivity as ActivityPubActivity)["@context"] = context;
+      (hsActivity as ActivityPubActivity)["@context"] = context;
       // 配送対象を to にも明示し、受信側でターゲット分解できるようにする
       const toIris: string[] = [];
       for (const mem of remoteMembers) {
@@ -356,20 +356,23 @@ async function handleHandshake(
           if (n && h) toIris.push(`https://${h}/users/${n}`);
         }
       }
-      (welcomeActivity as ActivityPubActivity).to = toIris;
+      (hsActivity as ActivityPubActivity).to = toIris;
       try {
         await deliverActivityPubObject(
           remoteMembers,
-          welcomeActivity,
+          hsActivity,
           sender,
           domain,
           env,
         );
       } catch (err) {
-        console.error("deliver remote welcome failed", err);
+        console.error(
+          `deliver remote ${envelope.type.toLowerCase()} failed`,
+          err,
+        );
       }
-      return { ok: true, id: String(msg._id) };
     }
+    return { ok: true, id: String(msg._id) };
   }
 
   // default: deliver as before
