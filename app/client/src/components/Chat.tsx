@@ -914,11 +914,40 @@ export function Chat() {
       const data = b64ToBuf(m.content);
       let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
       try {
+        console.debug("[decrypt] attempt", {
+          id: m.id,
+          room: room.id,
+          from: m.from,
+          mediaType: m.mediaType,
+          encoding: m.encoding,
+          contentLen: m.content ? m.content.length : 0,
+        });
+        try {
+          const peek = decodeMlsMessage(data, 0)?.[0];
+          console.debug("[decrypt] peekWireformat", { id: m.id, wireformat: peek?.wireformat });
+        } catch (e) {
+          console.debug("[decrypt] peek failed", { id: m.id, err: e });
+        }
         res = await decryptMessage(group, data);
+        console.debug("[decrypt] result", { id: m.id, ok: !!res, updatedState: !!res?.state });
       } catch (err) {
-        console.warn("decryptMessage failed", err);
+        console.error("decryptMessage failed", err, { id: m.id, room: room.id });
       }
       if (!res) {
+        try {
+          const peek2 = decodeMlsMessage(b64ToBuf(m.content), 0)?.[0];
+          console.warn("[decrypt] failed -> placeholder", {
+            id: m.id,
+            room: room.id,
+            from: m.from,
+            mediaType: m.mediaType,
+            encoding: m.encoding,
+            contentLen: m.content ? m.content.length : 0,
+            peekWireformat: peek2?.wireformat,
+          });
+        } catch (e) {
+          console.warn("[decrypt] failed -> placeholder (peek failed)", { id: m.id, room: room.id, err: e });
+        }
         const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
         const selfH = `${user.userName}@${getDomain()}`;

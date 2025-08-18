@@ -416,11 +416,12 @@ export const fetchEncryptedMessages = async (
       throw new Error("Failed to fetch messages");
     }
     const data = await res.json();
+    console.debug("[fetchEncryptedMessages]", { roomId, member, params, count: Array.isArray(data) ? data.length : undefined, raw: data });
     return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error("Error fetching messages:", err);
-    return [];
-  }
+    } catch (err) {
+      console.error("Error fetching messages:", err);
+      return [];
+    }
 };
 
 export interface HandshakeMessage {
