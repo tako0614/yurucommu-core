@@ -231,7 +231,8 @@ async function handleHandshake(
     }
   }
   const envelope = decodeMlsEnvelope(content);
-  const localTargets = envelope && envelope.type === "Welcome"
+  const localTargets = envelope &&
+    (envelope.type === "Welcome" || envelope.type === "Commit")
     ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
