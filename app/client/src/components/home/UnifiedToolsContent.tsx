@@ -15,10 +15,7 @@ import {
   activeAccountId,
   fetchAccounts,
 } from "../../states/account.ts";
-import {
-  followingListMap,
-  setFollowingList,
-} from "../../states/account.ts";
+import { followingListMap, setFollowingList } from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
 import { navigate } from "../../utils/router.ts";
 import { fetchPostById } from "../microblog/api.ts";
@@ -125,7 +122,10 @@ export default function UnifiedToolsContent() {
           const res = await apiFetch(`/api/users/${username}/following`);
           if (res.ok) {
             list = await res.json();
-            saveFollowing({ accountId: id, list: Array.isArray(list) ? list : [] });
+            saveFollowing({
+              accountId: id,
+              list: Array.isArray(list) ? list : [],
+            });
           }
         }
 

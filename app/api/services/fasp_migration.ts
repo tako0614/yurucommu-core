@@ -45,7 +45,10 @@ export async function migrateFaspCollections(env: Record<string, string>) {
         };
         await newProviders.updateOne(
           { tenant_id: tenantId, $or: [{ baseUrl }, { serverId }] },
-          { $set: doc, $setOnInsert: { faspId: doc.faspId, createdAt: doc.createdAt } },
+          {
+            $set: doc,
+            $setOnInsert: { faspId: doc.faspId, createdAt: doc.createdAt },
+          },
           { upsert: true },
         );
       }
@@ -56,9 +59,15 @@ export async function migrateFaspCollections(env: Record<string, string>) {
 
   // settings: 単一ドキュメントをコピー
   try {
-    const existsNew = await newSettings.findOne({ _id: "default", tenant_id: tenantId });
+    const existsNew = await newSettings.findOne({
+      _id: "default",
+      tenant_id: tenantId,
+    });
     if (!existsNew) {
-      const legacy = await legacySettings.findOne({ _id: "default", tenant_id: tenantId });
+      const legacy = await legacySettings.findOne({
+        _id: "default",
+        tenant_id: tenantId,
+      });
       if (legacy) {
         await newSettings.updateOne(
           { _id: "default", tenant_id: tenantId },
@@ -69,7 +78,11 @@ export async function migrateFaspCollections(env: Record<string, string>) {
               shareServerIds: legacy.shareServerIds ?? null,
               updatedAt: new Date(),
             },
-            $setOnInsert: { _id: "default", tenant_id: tenantId, createdAt: new Date() },
+            $setOnInsert: {
+              _id: "default",
+              tenant_id: tenantId,
+              createdAt: new Date(),
+            },
           },
           { upsert: true },
         );
@@ -95,7 +108,9 @@ export async function migrateFaspCollections(env: Record<string, string>) {
     const countNew = await newBackfills.countDocuments({ tenant_id: tenantId });
     if (countNew === 0) {
       const all = await legacyBackfills.find({ tenant_id: tenantId }).toArray();
-      if (all.length > 0) await newBackfills.insertMany(all.map((d) => ({ ...d })));
+      if (all.length > 0) {
+        await newBackfills.insertMany(all.map((d) => ({ ...d })));
+      }
     }
   } catch (_) {
     // ignore

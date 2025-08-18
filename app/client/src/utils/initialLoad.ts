@@ -6,8 +6,16 @@ import {
   setAccounts,
 } from "../states/account.ts";
 import { getDomain } from "./config.ts";
-import { fetchFollowers, fetchFollowing, fetchUserProfile } from "../components/microblog/api.ts";
-import { setAccountStatsMap, setFollowersList, setFollowingList } from "../states/account.ts";
+import {
+  fetchFollowers,
+  fetchFollowing,
+  fetchUserProfile,
+} from "../components/microblog/api.ts";
+import {
+  setAccountStatsMap,
+  setFollowersList,
+  setFollowingList,
+} from "../states/account.ts";
 
 export function useInitialLoad() {
   const [, setAccs] = useAtom(setAccounts);

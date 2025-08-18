@@ -130,6 +130,50 @@ async function resolveActorCached(
   return actor;
 }
 
+// Resolve a list of recipient identifiers (http URLs, acct:..., or user@host)
+// to ActivityPub actor IRIs. Unresolvable entries are returned in `unresolved`.
+async function resolveRecipientsToActorIris(
+  recipients: string[],
+  env: Record<string, string>,
+): Promise<{ resolved: string[]; unresolved: string[] }> {
+  const resolved: string[] = [];
+  const unresolved: string[] = [];
+
+  for (const r of recipients) {
+    if (!r || typeof r !== "string") continue;
+    // If it's already an absolute IRI, keep as-is
+    if (r.startsWith("http")) {
+      resolved.push(r);
+      continue;
+    }
+
+    // Strip acct: prefix if present
+    let acct = r;
+    if (acct.startsWith("acct:")) acct = acct.slice(5);
+
+    // Expect username@host
+    if (acct.includes("@")) {
+      try {
+        const actor = await resolveActorCached(acct, env);
+        if (actor && typeof actor.id === "string") {
+          resolved.push(actor.id);
+          continue;
+        }
+      } catch (err) {
+        console.error("resolveActorCached failed for", acct, err);
+      }
+      // Could not resolve -> exclude and mark unresolved
+      unresolved.push(r);
+      continue;
+    }
+
+    // Unknown format -> mark unresolved
+    unresolved.push(r);
+  }
+
+  return { resolved: Array.from(new Set(resolved)), unresolved };
+}
+
 // KeyPackage の選択ロジックをテストから利用できるよう公開
 export function selectKeyPackages(
   list: KeyPackageDoc[],
@@ -223,7 +267,7 @@ async function handleHandshake(
   // --- MLS TLV デコードで種別判定 (client の mls_message.ts と整合) ---
   function decodeMlsEnvelope(
     b64: string,
-  ): { type: string; body: Uint8Array } | null {
+  ): { type: string; originalType: string; body: Uint8Array } | null {
     try {
       const raw = atob(b64);
       const bin = new Uint8Array(raw.length);
@@ -241,14 +285,33 @@ async function handleHandshake(
         6: "Proposal",
         7: "GroupInfo",
       };
-      return { type: typeMap[typeByte] ?? "", body: bin.subarray(3, 3 + len) };
+      const originalType = typeMap[typeByte] ?? "";
+      // Commit / Proposal は ActivityPub Object type として公開せず、PrivateMessage として扱う
+      // （仕様で定義された表示用タイプのみ利用: PublicMessage / PrivateMessage / Welcome / KeyPackage / GroupInfo）
+      const allowedExposure = new Set([
+        "PublicMessage",
+        "PrivateMessage",
+        "Welcome",
+        "KeyPackage",
+        "GroupInfo",
+      ]);
+      let normalized = originalType;
+      if (originalType === "Commit" || originalType === "Proposal") {
+        normalized = "PrivateMessage"; // Handshake系を内部的には識別するが外部公開は PrivateMessage として統一
+      }
+      if (!allowedExposure.has(normalized)) normalized = "PublicMessage";
+      return {
+        type: normalized,
+        originalType,
+        body: bin.subarray(3, 3 + len),
+      };
     } catch {
       return null;
     }
   }
   const envelope = decodeMlsEnvelope(content);
   const localTargets = envelope &&
-      (envelope.type === "Welcome" || envelope.type === "Commit")
+      (envelope.originalType === "Welcome" || envelope.originalType === "Commit")
     ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
@@ -279,7 +342,8 @@ async function handleHandshake(
   const activityObj = buildActivityFromStored(
     {
       ...saved,
-      type: envelope?.type ?? "PublicMessage",
+  // 公開用タイプのみ利用（Commit / Proposal は decode 時点で PrivateMessage に正規化済み）
+  type: envelope?.type ?? "PublicMessage",
     } as {
       _id: unknown;
       type: string;
@@ -296,7 +360,23 @@ async function handleHandshake(
   const actorId = `https://${domain}/users/${sender}`;
   const activity = createCreateActivity(domain, actorId, activityObj);
   (activity as ActivityPubActivity)["@context"] = context;
-  (activity as ActivityPubActivity).to = recipients;
+  // Resolve recipients to actor IRIs (acct: or user@host) where possible.
+  try {
+    const { resolved, unresolved } = await resolveRecipientsToActorIris(
+      recipients,
+      env,
+    );
+    if (resolved.length === 0) {
+      return { ok: false, status: 400, error: "no valid recipients" };
+    }
+    (activity as ActivityPubActivity).to = resolved;
+    if (unresolved.length > 0) {
+      console.warn("some recipients could not be resolved:", unresolved);
+    }
+  } catch (err) {
+    console.error("failed to resolve recipients", err);
+    return { ok: false, status: 500, error: "failed to resolve recipients" };
+  }
   (activity as ActivityPubActivity).cc = [];
 
   const newMsg = {
@@ -335,79 +415,79 @@ async function handleHandshake(
     }
   }
 
-// Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
-if (
-  envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.type)
-) {
-  const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
-  if (remoteMembers.length > 0) {
-    for (const mem of remoteMembers) {
-      let actorIri = "";
-      try {
-        const actor = await resolveActorCached(mem, env);
-        if (actor?.id) actorIri = actor.id;
-      } catch {
-        // ignore
-      }
-      if (!actorIri) {
-        if (mem.startsWith("http")) {
-          actorIri = mem;
-        } else {
-          const [n, h] = mem.split("@");
-          if (n && h) actorIri = `https://${h}/users/${n}`;
+  // Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
+  if (
+    envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.originalType)
+  ) {
+    const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
+    if (remoteMembers.length > 0) {
+      for (const mem of remoteMembers) {
+        let actorIri = "";
+        try {
+          const actor = await resolveActorCached(mem, env);
+          if (actor?.id) actorIri = actor.id;
+        } catch {
+          // ignore
+        }
+        if (!actorIri) {
+          if (mem.startsWith("http")) {
+            actorIri = mem;
+          } else {
+            const [n, h] = mem.split("@");
+            if (n && h) actorIri = `https://${h}/users/${n}`;
+          }
+        }
+
+        const hsObj = {
+          "@context": [
+            "https://www.w3.org/ns/activitystreams",
+            "https://purl.archive.org/socialweb/mls",
+          ],
+          id: createObjectId(domain, "objects"),
+          // envelope.type は正規化済み（Commit/Proposal -> PrivateMessage）
+          type: ["Object", envelope.type],
+          attributedTo: `https://${domain}/users/${sender}`,
+          content,
+        };
+
+        const hsActivity = createCreateActivity(
+          domain,
+          `https://${domain}/users/${sender}`,
+          hsObj,
+        );
+        (hsActivity as ActivityPubActivity)["@context"] = context;
+        (hsActivity as ActivityPubActivity).to = [actorIri];
+
+        try {
+          await deliverActivityPubObject(
+            [mem],
+            hsActivity,
+            sender,
+            domain,
+            env,
+          );
+        } catch (err) {
+          console.error(
+            `deliver remote ${envelope.type.toLowerCase()} failed for ${mem}`,
+            err,
+          );
         }
       }
-
-      const hsObj = {
-        "@context": [
-          "https://www.w3.org/ns/activitystreams",
-          "https://purl.archive.org/socialweb/mls",
-        ],
-        id: createObjectId(domain, "objects"),
-        type: ["Object", envelope.type],
-        attributedTo: `https://${domain}/users/${sender}`,
-        content,
-      };
-
-      const hsActivity = createCreateActivity(
-        domain,
-        `https://${domain}/users/${sender}`,
-        hsObj,
-      );
-      (hsActivity as ActivityPubActivity)["@context"] = context;
-      (hsActivity as ActivityPubActivity).to = [actorIri];
-
-      try {
-        await deliverActivityPubObject(
-          [mem],
-          hsActivity,
-          sender,
-          domain,
-          env,
-        );
-      } catch (err) {
-        console.error(
-          `deliver remote ${envelope.type.toLowerCase()} failed for ${mem}`,
-          err,
-        );
-      }
     }
+    return { ok: true, id: String(msg._id) };
   }
+
+  // default: deliver as before
+  deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
+    (err) => {
+      console.error("deliver failed", err);
+    },
+  );
+
   return { ok: true, id: String(msg._id) };
 }
 
-// default: deliver as before
-deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
-  (err) => {
-    console.error("deliver failed", err);
-  },
-);
-
-return { ok: true, id: String(msg._id) };
-}
-
 // ルーム管理 API (ActivityPub 対応)
-
 
 // ActivityPub ルーム一覧取得
 // --- ルームメタ一覧 API（明示作成されたもののみ） ---
@@ -497,8 +577,12 @@ app.get("/users/:user/keyPackages", authRequired, async (c) => {
     const db = createDB(getEnv(c));
     const list = await db.listKeyPackages(username) as KeyPackageDoc[];
     const items = list.map((doc) => ({
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://purl.archive.org/socialweb/mls",
+      ],
       id: `https://${domain}/users/${username}/keyPackages/${doc._id}`,
-      type: "KeyPackage",
+      type: ["Object", "KeyPackage"],
       content: doc.content,
       mediaType: doc.mediaType,
       encoding: doc.encoding,
@@ -533,7 +617,27 @@ app.get("/users/:user/keyPackages", authRequired, async (c) => {
       getEnv(c),
     );
     const items = Array.isArray(col.items) ? col.items : [];
-    return c.json({ type: "Collection", items });
+    // Ensure each remote item has @context and type array format
+    const norm = items.map((it) => {
+      const obj = it as Record<string, unknown>;
+      const out: Record<string, unknown> = { ...obj };
+      if (!Array.isArray(out["@context"])) {
+        out["@context"] = [
+          "https://www.w3.org/ns/activitystreams",
+          "https://purl.archive.org/socialweb/mls",
+        ];
+      }
+      const t = out.type;
+      if (Array.isArray(t)) {
+        out.type = t;
+      } else if (typeof t === "string") {
+        out.type = ["Object", t];
+      } else {
+        out.type = ["Object", "KeyPackage"];
+      }
+      return out;
+    });
+    return c.json({ type: "Collection", items: norm });
   } catch (_err) {
     console.error("remote keyPackages fetch failed", _err);
     return c.json({ type: "Collection", items: [] });
@@ -555,7 +659,7 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
       "https://purl.archive.org/socialweb/mls",
     ],
     id: `https://${domain}/users/${user}/keyPackages/${keyId}`,
-    type: "KeyPackage",
+    type: ["Object", "KeyPackage"],
     attributedTo: `https://${domain}/users/${user}`,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: doc.mediaType,
@@ -629,7 +733,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
       "https://purl.archive.org/socialweb/mls",
     ],
     id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
-    type: "KeyPackage",
+  type: ["Object", "KeyPackage"],
     attributedTo: actorId,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: pkg.mediaType,
@@ -880,13 +984,29 @@ app.post(
     const actorId = `https://${domain}/users/${sender}`;
     const activity = createCreateActivity(domain, actorId, activityObj);
     (activity as ActivityPubActivity)["@context"] = context;
-    (activity as ActivityPubActivity).to = recipients;
-    (activity as ActivityPubActivity).cc = [];
-    deliverActivityPubObject(recipients, activity, sender, domain, env).catch(
-      (err) => {
-        console.error("deliver failed", err);
-      },
-    );
+    // Resolve recipients to actor IRIs and exclude unresolved entries.
+    try {
+      const { resolved, unresolved } = await resolveRecipientsToActorIris(
+        recipients,
+        env,
+      );
+      if (resolved.length === 0) {
+        return c.json({ error: "no valid recipients" }, 400);
+      }
+      (activity as ActivityPubActivity).to = resolved;
+      (activity as ActivityPubActivity).cc = [];
+      if (unresolved.length > 0) {
+        console.warn("some recipients could not be resolved:", unresolved);
+      }
+      deliverActivityPubObject(resolved, activity, sender, domain, env).catch(
+        (err) => {
+          console.error("deliver failed", err);
+        },
+      );
+    } catch (err) {
+      console.error("failed to resolve recipients", err);
+      return c.json({ error: "failed to resolve recipients" }, 500);
+    }
 
     // WebSocket はリアルタイム通知のみ（本文等は送らない）
     const newMsg = {

@@ -11,7 +11,7 @@ import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { usePathRouter } from "./utils/router.ts";
 import "./App.css";
-import { Spinner, ToastProvider, Toaster } from "./components/ui";
+import { Spinner, Toaster, ToastProvider } from "./components/ui/index.ts";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
@@ -99,18 +99,20 @@ function App() {
     localStorage.setItem("microblogPostLimit", String(postLimit()));
   });
 
-
   return (
     <ToastProvider>
       <Toaster />
-      <Show when={!initializing()} fallback={
-        <div class="min-h-dvh grid place-items-center text-gray-200">
-          <div class="flex items-center gap-3 text-sm">
-            <Spinner />
-            <span>読み込み中...</span>
+      <Show
+        when={!initializing()}
+        fallback={
+          <div class="min-h-dvh grid place-items-center text-gray-200">
+            <div class="flex items-center gap-3 text-sm">
+              <Spinner />
+              <span>読み込み中...</span>
+            </div>
           </div>
-        </div>
-      }>
+        }
+      >
         <Show when={!isLoggedIn() && showSystemSetup()}>
           <SystemSetupForm onSuccess={() => setShowSystemSetup(false)} />
         </Show>
@@ -121,12 +123,16 @@ function App() {
           <OnboardingForm onSuccess={() => setShowSetup(false)} />
         </Show>
         <Show when={isLoggedIn() && !showSetup()}>
-          <ErrorBoundary fallback={(e) => (
-            <div class="p-6 text-rose-200">
-              <p class="font-semibold">画面の表示でエラーが発生しました。</p>
-              <p class="mt-1 text-rose-300/90 text-sm overflow-wrap-anywhere">{String(e)}</p>
-            </div>
-          )}>
+          <ErrorBoundary
+            fallback={(e) => (
+              <div class="p-6 text-rose-200">
+                <p class="font-semibold">画面の表示でエラーが発生しました。</p>
+                <p class="mt-1 text-rose-300/90 text-sm overflow-wrap-anywhere">
+                  {String(e)}
+                </p>
+              </div>
+            )}
+          >
             <Application />
           </ErrorBoundary>
         </Show>

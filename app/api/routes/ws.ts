@@ -108,10 +108,14 @@ app.get(
                 const user = state.user as string | undefined;
                 console.warn("websocket: rejected handshake message", {
                   user: user ?? "unknown",
-                  origin: (ws as any)?.context?.req?.headers?.get?.("origin") ?? null,
+                  origin: (ws as any)?.context?.req?.headers?.get?.("origin") ??
+                    null,
                 });
               } catch (e) {
-                console.warn("websocket: rejected handshake (failed to read state)", e);
+                console.warn(
+                  "websocket: rejected handshake (failed to read state)",
+                  e,
+                );
               }
               ws.send(JSON.stringify({
                 error: "handshake_not_allowed_on_websocket",
@@ -126,7 +130,13 @@ app.get(
           }
         } else {
           // バイナリデータは MLS ハンドシェイク等を含む可能性があるため拒否する
-          ws.send(JSON.stringify({ error: "binary_payload_not_allowed", message: "Binary payloads (MLS) are not allowed over websocket; use REST APIs" }));
+          ws.send(
+            JSON.stringify({
+              error: "binary_payload_not_allowed",
+              message:
+                "Binary payloads (MLS) are not allowed over websocket; use REST APIs",
+            }),
+          );
         }
       },
       async onClose(_evt, ws) {

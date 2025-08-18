@@ -4,7 +4,8 @@
 
 - **目的**
 
-  - takos に Fediscovery（FASP）クライアント機能を接続し、検索・発見（Discovery）機能を強化。
+  - takos に
+    Fediscovery（FASP）クライアント機能を接続し、検索・発見（Discovery）機能を強化。
   - takos host に **Service Actor**
     を実装し、従来のリレーサーバー代替として「フォロー可能な配信ハブ」を提供。
   - takos host が従来提供していたリレーサーバー機能を廃止し、Service Actor
@@ -12,8 +13,11 @@
 
 - **スコープ**
 
-  - **takos**: FASP **クライアント機能**（プロバイダ情報取得・capability管理・Discovery API呼び出し）の実装。
-  - **takos host**: **Service Actor**（ActivityStreamsの`Service`/`Application`）のみを公開し、**フォロー/Accept/配信**を行う。
+  - **takos**: FASP
+    **クライアント機能**（プロバイダ情報取得・capability管理・Discovery
+    API呼び出し）の実装。
+  - **takos host**: **Service
+    Actor**（ActivityStreamsの`Service`/`Application`）のみを公開し、**フォロー/Accept/配信**を行う。
   - FASP **Discovery**のうち **data\_sharing** / **trends** /
     **account\_search** 対応。
   - 詳細仕様は `docs/fasp/general/v0.1/` および `docs/fasp/discovery/` を参照。
@@ -37,7 +41,9 @@
 - **構成要素**
 
   - **takos Core**：既存アプリケーション。
-  - **takos FASP Client**：FASP クライアント機能（プロバイダ情報取得・capability管理・Discovery API呼び出し）。
+  - **takos FASP Client**：FASP
+    クライアント機能（プロバイダ情報取得・capability管理・Discovery
+    API呼び出し）。
   - **takos host Service Actor**：`https://{takos-host}/actor`
     に公開。inbox/outbox、公開鍵、フォロー受付、配信制御のみ。
   - **FASP（Discovery Provider）**：外部サービス。
@@ -45,13 +51,15 @@
 - **役割分担**
 
   - **takos**: FASP プロバイダとの通信、Discovery API の利用、検索結果の表示。
-  - **takos host**: Service Actor としての配信ハブ機能のみ提供。FASP との直接通信は行わない。
+  - **takos host**: Service Actor としての配信ハブ機能のみ提供。FASP
+    との直接通信は行わない。
 
 - **ベースURLの取り決め**
 
   - takos は `.well-known/nodeinfo` の `metadata.faspBaseUrl` に takos
     側FASPクライアントAPIのベースURLを掲載。例：`"faspBaseUrl": "https://{takos-instance}/fasp"`。
-  - takos host は Service Actor のエンドポイント `https://{takos-host}/actor` のみ提供。
+  - takos host は Service Actor のエンドポイント `https://{takos-host}/actor`
+    のみ提供。
 
 ---
 
@@ -96,9 +104,8 @@
    ```
 
    takosは FASP登録要求を保存し、自身の公開鍵と
-   `faspId`、`registrationCompletionUri` を返す。
-   `registrationCompletionUri` は takos 側の管理 API
-   `https://{takos-instance}/api/fasp/providers`
+   `faspId`、`registrationCompletionUri` を返す。 `registrationCompletionUri` は
+   takos 側の管理 API `https://{takos-instance}/api/fasp/providers`
    を指し、管理者はここから承認・capability 設定を実施する。
 3. 管理者は takos 管理UIで**指紋（FASP公開鍵のSHA-256
    Base64）**を確認し、受理/拒否を決定。
@@ -254,7 +261,7 @@ fasp:
       base_url: "https://fasp.example.com"
       capabilities:
         data_sharing: "0.1"
-        trends: "0.1" 
+        trends: "0.1"
         account_search: "0.1"
 ```
 
@@ -266,8 +273,8 @@ fasp:
   - `DELETE /fasp/data_sharing/v0/event_subscriptions/{id}`
   - `POST /fasp/data_sharing/v0/backfill_requests`
   - `POST /fasp/data_sharing/v0/backfill_requests/{id}/continuation`
-  - 認証・保全: HTTP Message Signatures（RFC 9421）と
-    `Content-Digest`（RFC 9530）または旧 `Digest`（互換）による検証を必須。
+  - 認証・保全: HTTP Message Signatures（RFC 9421）と `Content-Digest`（RFC
+    9530）または旧 `Digest`（互換）による検証を必須。
 
 - 管理（takos の通常 API 配下、要ログイン）
   - `GET /api/fasp/providers`（一覧）
@@ -275,8 +282,10 @@ fasp:
   - `POST /api/fasp/providers/{serverId}/approve`（承認）
   - `POST /api/fasp/providers/{serverId}/reject`（却下）
   - `PUT /api/fasp/providers/{serverId}/capabilities`
-    - body 例: `{ "capabilities": { "data_sharing": { "version": "0.1", "enabled": true } } }`
-  - `GET /api/fasp/providers/{serverId}/provider_info`（FASP の provider_info を取得）
+    - body 例:
+      `{ "capabilities": { "data_sharing": { "version": "0.1", "enabled": true } } }`
+  - `GET /api/fasp/providers/{serverId}/provider_info`（FASP の provider_info
+    を取得）
   - （オプション）`POST /api/fasp/announcements`（手動アナウンス送信の簡易デバッグ）
   - `POST /api/fasp/providers/discover`（ドメイン/URL を指定して FASP を仮登録）
 
@@ -350,13 +359,16 @@ service_actor:
 ## 10. 実装メモ（最小プロトタイプ）
 
 ### takos host (Service Actor のみ)
+
 - Service Actor 公開（`/actor`）とinbox/outboxの実装。
 - Follow受付・Accept配信の最小フロー。
 
 ### takos (クライアント機能のみ)
+
 - Nodeinfoに `faspBaseUrl` を追加。
 - FASP Registration とCapability有効化の往復。
-- `data_sharing`の event\_subscriptions/backfill 受理・`announcements`送信の最小フロー。
+- `data_sharing`の event\_subscriptions/backfill
+  受理・`announcements`送信の最小フロー。
 - `trends`/`account_search` のクライアント呼び出しとUI表示。
 
 ---

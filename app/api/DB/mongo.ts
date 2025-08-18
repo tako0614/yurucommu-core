@@ -258,9 +258,9 @@ export class MongoDB implements DB {
   }
 
   async listChatroomsByMember(_member: string) {
-  // 現状未実装: 空配列。lint 対策のため await を挿入。
-  await Promise.resolve();
-  return [] as ChatroomInfo[];
+    // 現状未実装: 空配列。lint 対策のため await を挿入。
+    await Promise.resolve();
+    return [] as ChatroomInfo[];
   }
 
   async addChatroom(
@@ -295,16 +295,16 @@ export class MongoDB implements DB {
       const { owner, ...room } = doc;
       return { owner, room };
     }
-  // 履歴からの補完は行わない
-  return null;
+    // 履歴からの補完は行わない
+    return null;
   }
 
   async updateChatroom(
     owner: string,
     room: ChatroomInfo,
   ) {
-  // もはや更新対象フィールドが無いので no-op
-  const query = Chatroom.updateOne({ owner, id: room.id }, { $set: {} });
+    // もはや更新対象フィールドが無いので no-op
+    const query = Chatroom.updateOne({ owner, id: room.id }, { $set: {} });
     this.withTenant(query);
     await query;
   }
@@ -636,8 +636,8 @@ export class MongoDB implements DB {
     version?: string,
     cipherSuite?: number,
     generator?: string,
-  id?: string,
-  lastResort?: boolean,
+    id?: string,
+    lastResort?: boolean,
   ) {
     // keyPackageRef: sha256 of decoded content (raw KeyPackage bytes)
     let keyPackageRef: string | undefined;
@@ -646,7 +646,9 @@ export class MongoDB implements DB {
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
-      keyPackageRef = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      keyPackageRef = Array.from(new Uint8Array(hashBuf)).map((b) =>
+        b.toString(16).padStart(2, "0")
+      ).join("");
     } catch (_e) {
       // ignore hash errors (content may be invalid base64) – validation happens elsewhere
     }
@@ -713,10 +715,14 @@ export class MongoDB implements DB {
       userName,
       tenant_id: tenantId,
       $or: [
-  { used: true },
-  { expiresAt: { $lt: new Date() } },
-  // lastResort かつ未使用は保持
-  { $and: [{ deviceId: { $nin: devices } }, { $or: [{ lastResort: { $ne: true } }, { used: true }] }] },
+        { used: true },
+        { expiresAt: { $lt: new Date() } },
+        // lastResort かつ未使用は保持
+        {
+          $and: [{ deviceId: { $nin: devices } }, {
+            $or: [{ lastResort: { $ne: true } }, { used: true }],
+          }],
+        },
       ],
     });
     this.withTenant(query);
@@ -1279,7 +1285,7 @@ export function startInactiveSessionJob(
       }).lean<{ userName: string } | null>();
       const user = pair?.userName;
       if (!user) continue;
-  // chatroom メンバー参照は廃止
+      // chatroom メンバー参照は廃止
       await db.deleteEncryptedKeyPair(user, s.sessionId).catch(() => {});
       await db.deleteSessionById(s.sessionId).catch(() => {});
     }

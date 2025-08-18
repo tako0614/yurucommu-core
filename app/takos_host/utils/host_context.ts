@@ -15,14 +15,24 @@ import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
 import Instance from "../models/instance.ts";
 import FaspClient from "../models/fasp_client.ts";
-import { FCM_KEYS, FASP_PROVIDER_INFO_PATHS, isTruthyFlag } from "./host_constants.ts";
+import {
+  FASP_PROVIDER_INFO_PATHS,
+  FCM_KEYS,
+  isTruthyFlag,
+} from "./host_constants.ts";
 
 // Light-weight text file loader (returns empty string on failure)
-async function loadTextFile(path: string | URL, label: string): Promise<string> {
+async function loadTextFile(
+  path: string | URL,
+  label: string,
+): Promise<string> {
   try {
     return await Deno.readTextFile(path);
   } catch (e) {
-    console.error(`${label} ${path} を読み込めませんでした`, e instanceof Error ? e.message : e);
+    console.error(
+      `${label} ${path} を読み込めませんでした`,
+      e instanceof Error ? e.message : e,
+    );
     return "";
   }
 }
@@ -51,36 +61,71 @@ export async function initHostContext(): Promise<HostContext> {
   hostEnv["DB_MODE"] = "host";
   await connectDatabase(hostEnv);
 
-  const rootDomain = (hostEnv["ROOT_DOMAIN"] ?? hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
-  const rootActivityPubApp = rootDomain ? createRootActivityPubApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain }) : null;
-  const serviceActorApp = rootDomain ? createServiceActorApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain }) : null;
+  const rootDomain =
+    (hostEnv["ROOT_DOMAIN"] ?? hostEnv["ACTIVITYPUB_DOMAIN"] ?? "")
+      .toLowerCase();
+  const rootActivityPubApp = rootDomain
+    ? createRootActivityPubApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
+    : null;
+  const serviceActorApp = rootDomain
+    ? createServiceActorApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
+    : null;
   const freeLimit = Number(hostEnv["FREE_PLAN_LIMIT"] ?? "1");
-  const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  const reservedSubdomains = (hostEnv["RESERVED_SUBDOMAINS"] ?? "").split(",")
+    .map((s) => s.trim().toLowerCase()).filter(Boolean);
   const termsPath = hostEnv["TERMS_FILE"];
-  const termsText = termsPath ? await loadTextFile(termsPath, "TERMS_FILE") : "";
-  const notFoundHtml = await loadTextFile(new URL("../404.html", import.meta.url), "404.html");
-  const consumerApp = createConsumerApp(host => apps.delete(host), { rootDomain, freeLimit, reservedSubdomains });
+  const termsText = termsPath
+    ? await loadTextFile(termsPath, "TERMS_FILE")
+    : "";
+  const notFoundHtml = await loadTextFile(
+    new URL("../404.html", import.meta.url),
+    "404.html",
+  );
+  const consumerApp = createConsumerApp((host) => apps.delete(host), {
+    rootDomain,
+    freeLimit,
+    reservedSubdomains,
+  });
   const authApp = createAuthApp({ rootDomain, termsRequired: !!termsText });
   const isDev = Deno.env.get("DEV") === "1";
   const faspServerDisabled = isTruthyFlag(hostEnv["FASP_SERVER_DISABLED"]);
   const defaultFaspBaseUrl = (hostEnv["FASP_DEFAULT_BASE_URL"] ?? "").trim();
 
-  return { hostEnv, rootDomain, freeLimit, reservedSubdomains, termsText, notFoundHtml, authApp, consumerApp, oauthApp, rootActivityPubApp, serviceActorApp, faspServerDisabled, defaultFaspBaseUrl, isDev };
+  return {
+    hostEnv,
+    rootDomain,
+    freeLimit,
+    reservedSubdomains,
+    termsText,
+    notFoundHtml,
+    authApp,
+    consumerApp,
+    oauthApp,
+    rootActivityPubApp,
+    serviceActorApp,
+    faspServerDisabled,
+    defaultFaspBaseUrl,
+    isDev,
+  };
 }
 
 // ---- Host / tenant app resolution ----
 const apps = new Map<string, import("hono").Hono>();
 const appInitPromises = new Map<string, Promise<import("hono").Hono | null>>();
 
-export const parseHost = (value: string | undefined): string => value?.split(":")[0].toLowerCase() ?? "";
-export const isRootHost = (h: string, rootDomain?: string) => !!rootDomain && h === rootDomain;
+export const parseHost = (value: string | undefined): string =>
+  value?.split(":")[0].toLowerCase() ?? "";
+export const isRootHost = (h: string, rootDomain?: string) =>
+  !!rootDomain && h === rootDomain;
 
 export function getRealHost(c: Context): string {
   const forwarded = c.req.header("x-forwarded-host");
   const hostHeader = c.req.header("host");
   let host = forwarded?.split(",")[0].trim() || hostHeader;
   if (!host) {
-    try { host = new URL(c.req.url).host; } catch {/* ignore */}
+    try {
+      host = new URL(c.req.url).host;
+    } catch { /* ignore */ }
   }
   if (!host) {
     console.warn("Host header missing:", { forwarded, hostHeader });
@@ -89,11 +134,17 @@ export function getRealHost(c: Context): string {
   return parseHost(host);
 }
 
-async function getEnvForHost(host: string, rootDomain: string, hostEnv: Record<string,string>): Promise<Record<string, string> | null> {
+async function getEnvForHost(
+  host: string,
+  rootDomain: string,
+  hostEnv: Record<string, string>,
+): Promise<Record<string, string> | null> {
   host = parseHost(host);
   const baseEnv: Record<string, string> = { ...takosEnv };
   for (const k of FCM_KEYS) if (hostEnv[k]) baseEnv[k] = hostEnv[k] as string;
-  if (isRootHost(host, rootDomain)) return { ...baseEnv, ACTIVITYPUB_DOMAIN: rootDomain };
+  if (isRootHost(host, rootDomain)) {
+    return { ...baseEnv, ACTIVITYPUB_DOMAIN: rootDomain };
+  }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst || Array.isArray(inst)) return null;
   return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
@@ -109,8 +160,11 @@ function canonicalizeFaspBaseUrl(u: string): string {
     let p = url.pathname.replace(/\/+$/, "");
     const wl = "/.well-known/fasp/provider_info";
     if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-    else if (p.endsWith("/fasp/provider_info")) p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-    else if (p.endsWith("/provider_info")) p = p.slice(0, -"/provider_info".length);
+    else if (p.endsWith("/fasp/provider_info")) {
+      p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
+    } else if (p.endsWith("/provider_info")) {
+      p = p.slice(0, -"/provider_info".length);
+    }
     if (p === "/") p = "";
     return `${url.origin}${p}`.replace(/\/$/, "");
   } catch {
@@ -118,7 +172,11 @@ function canonicalizeFaspBaseUrl(u: string): string {
   }
 }
 
-async function seedDefaultFasp(appEnv: Record<string, string>, host: string, defaultFaspBaseUrl: string) {
+async function seedDefaultFasp(
+  appEnv: Record<string, string>,
+  host: string,
+  defaultFaspBaseUrl: string,
+) {
   if (!defaultFaspBaseUrl) return;
   try {
     const normalized = canonicalizeFaspBaseUrl(defaultFaspBaseUrl);
@@ -126,8 +184,12 @@ async function seedDefaultFasp(appEnv: Record<string, string>, host: string, def
     const mongo = await tenantDb.getDatabase();
     const fasps = mongo.collection("fasp_client_providers");
     const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
-    const exists = await fasps.findOne({ tenant_id: tenantId, baseUrl: normalized });
-    const secret = (exists?.secret as string | undefined) ?? btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+    const exists = await fasps.findOne({
+      tenant_id: tenantId,
+      baseUrl: normalized,
+    });
+    const secret = (exists?.secret as string | undefined) ??
+      btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
     if (!exists) {
       await fasps.insertOne({
         name: normalized,
@@ -141,14 +203,24 @@ async function seedDefaultFasp(appEnv: Record<string, string>, host: string, def
         updatedAt: new Date(),
       });
     } else if (!exists.secret) {
-      await fasps.updateOne({ _id: exists._id, tenant_id: tenantId }, { $set: { secret, updatedAt: new Date() } });
+      await fasps.updateOne({ _id: exists._id, tenant_id: tenantId }, {
+        $set: { secret, updatedAt: new Date() },
+      });
     }
-    await FaspClient.updateOne({ tenant: host }, { $set: { tenant: host, secret } }, { upsert: true }).catch(() => {});
-    await bootstrapDefaultFasp({ ...appEnv, FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl }).catch(() => {});
-  } catch {/* ignore */}
+    await FaspClient.updateOne({ tenant: host }, {
+      $set: { tenant: host, secret },
+    }, { upsert: true }).catch(() => {});
+    await bootstrapDefaultFasp({
+      ...appEnv,
+      FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
+    }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
-export async function getAppForHost(host: string, ctx: HostContext): Promise<import("hono").Hono | null> {
+export async function getAppForHost(
+  host: string,
+  ctx: HostContext,
+): Promise<import("hono").Hono | null> {
   host = parseHost(host);
   const existing = apps.get(host);
   if (existing) return existing;

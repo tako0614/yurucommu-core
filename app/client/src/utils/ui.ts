@@ -1,4 +1,12 @@
-import { Accessor, createEffect, createSignal, onCleanup, getOwner, runWithOwner, createRoot } from "solid-js";
+import {
+  Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+  getOwner,
+  onCleanup,
+  runWithOwner,
+} from "solid-js";
 
 // ローディングの“見せ方”を改善するためのユーティリティ
 // - delay: この時間以内に読み込みが終わればスケルトンを出さない
@@ -39,7 +47,10 @@ export function createDelayedVisibility(
           const elapsed = Date.now() - shownAt;
           const rest = Math.max(0, min - elapsed);
           clearTimers();
-          minTimer = setTimeout(() => setShown(false), rest) as unknown as number;
+          minTimer = setTimeout(
+            () => setShown(false),
+            rest,
+          ) as unknown as number;
         } else {
           clearTimers();
           setShown(false);

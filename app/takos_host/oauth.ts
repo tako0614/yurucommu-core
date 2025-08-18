@@ -96,7 +96,7 @@ oauthApp.post("/token", async (c) => {
   return c.json({
     access_token: tokenStr,
     token_type: "Bearer",
-  expires_in: Math.floor(ACCESS_TOKEN_LIFETIME_MS / 1000),
+    expires_in: Math.floor(ACCESS_TOKEN_LIFETIME_MS / 1000),
   });
 });
 

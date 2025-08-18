@@ -10,7 +10,11 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import { fetchUserInfo, fetchUserInfoBatch, fetchFollowing } from "./microblog/api.ts";
+import {
+  fetchFollowing,
+  fetchUserInfo,
+  fetchUserInfoBatch,
+} from "./microblog/api.ts";
 import {
   addKeyPackage,
   addRoom,
@@ -48,19 +52,19 @@ import {
 } from "./e2ee/mls_message.ts";
 import { decodeMlsMessage } from "ts-mls";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
-  import {
-    appendRosterEvidence,
-    getCacheItem,
-    loadDecryptedMessages,
-    loadAllMLSKeyPairs,
-    loadKeyPackageRecords,
-    loadMLSGroupStates,
-    loadMLSKeyPair,
-    saveDecryptedMessages,
-    saveMLSGroupStates,
-    saveMLSKeyPair,
-    setCacheItem,
-  } from "./e2ee/storage.ts";
+import {
+  appendRosterEvidence,
+  getCacheItem,
+  loadAllMLSKeyPairs,
+  loadDecryptedMessages,
+  loadKeyPackageRecords,
+  loadMLSGroupStates,
+  loadMLSKeyPair,
+  saveDecryptedMessages,
+  saveMLSGroupStates,
+  saveMLSKeyPair,
+  setCacheItem,
+} from "./e2ee/storage.ts";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
@@ -201,7 +205,8 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
 function isJoinAckText(text: string): boolean {
   try {
     const obj = JSON.parse(text);
-    return !!obj && typeof obj === "object" && (obj as { type?: unknown }).type === "joinAck";
+    return !!obj && typeof obj === "object" &&
+      (obj as { type?: unknown }).type === "joinAck";
   } catch {
     return false;
   }
@@ -476,7 +481,9 @@ export function Chat() {
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
   // 受信した Welcome を保留し、ユーザーに参加可否を尋ねる
-  const [pendingWelcomes, setPendingWelcomes] = createSignal<Record<string, Uint8Array>>({});
+  const [pendingWelcomes, setPendingWelcomes] = createSignal<
+    Record<string, Uint8Array>
+  >({});
 
   const actorUrl = createMemo(() => {
     const user = account();
@@ -863,7 +870,12 @@ export function Chat() {
 
   const fetchMessagesForRoom = async (
     room: Room,
-    params?: { limit?: number; before?: string; after?: string; dryRun?: boolean },
+    params?: {
+      limit?: number;
+      before?: string;
+      after?: string;
+      dryRun?: boolean;
+    },
   ): Promise<ChatMessage[]> => {
     const user = account();
     if (!user) return [];
@@ -927,14 +939,24 @@ export function Chat() {
         });
         try {
           const peek = decodeMlsMessage(data, 0)?.[0];
-          console.debug("[decrypt] peekWireformat", { id: m.id, wireformat: peek?.wireformat });
+          console.debug("[decrypt] peekWireformat", {
+            id: m.id,
+            wireformat: peek?.wireformat,
+          });
         } catch (e) {
           console.debug("[decrypt] peek failed", { id: m.id, err: e });
         }
         res = await decryptMessage(group, data);
-        console.debug("[decrypt] result", { id: m.id, ok: !!res, updatedState: !!res?.state });
+        console.debug("[decrypt] result", {
+          id: m.id,
+          ok: !!res,
+          updatedState: !!res?.state,
+        });
       } catch (err) {
-        console.error("decryptMessage failed", err, { id: m.id, room: room.id });
+        console.error("decryptMessage failed", err, {
+          id: m.id,
+          room: room.id,
+        });
       }
       if (!res) {
         const isMe = m.from === `${user.userName}@${getDomain()}`;
@@ -955,7 +977,11 @@ export function Chat() {
             peekWireformat: peek2?.wireformat,
           });
         } catch (e) {
-          console.warn("[decrypt] failed -> placeholder (peek failed)", { id: m.id, room: room.id, err: e });
+          console.warn("[decrypt] failed -> placeholder (peek failed)", {
+            id: m.id,
+            room: room.id,
+            err: e,
+          });
         }
         if (!isMe) updatePeerHandle(room.id, m.from);
         const selfH = `${user.userName}@${getDomain()}`;
@@ -1135,7 +1161,9 @@ export function Chat() {
   const loadMessages = async (room: Room, _isSelectedRoom: boolean) => {
     const user = account();
     const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (
-      user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined
+      user
+        ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined
+        : undefined
     );
     if (cached && selectedRoom() === room.id) {
       setMessages(cached);
@@ -1159,7 +1187,10 @@ export function Chat() {
         if (add.length > 0) {
           const next = [...cached, ...add];
           setMessages(next);
-          setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
+          setMessagesByRoom({
+            ...messagesByRoom(),
+            [roomCacheKey(room.id)]: next,
+          });
           if (user) await saveDecryptedMessages(user.id, room.id, next);
           updateRoomLast(room.id, next[next.length - 1]);
         }
@@ -1186,10 +1217,11 @@ export function Chat() {
       const g = groups()[room.id];
       if (g && user) {
         const selfHandle = `${user.userName}@${getDomain()}`;
-        const members = extractMembers(g).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
+        const members = extractMembers(g).map((x) => normalizeHandle(x) ?? x)
+          .filter((v): v is string => !!v);
         setPartnerHasKey(members.includes(selfHandle));
       }
-    } catch {/* ignore */}
+    } catch { /* ignore */ }
   };
 
   const loadOlderMessages = async (room: Room) => {
@@ -1203,7 +1235,10 @@ export function Chat() {
       setCursor(msgs[0].timestamp.toISOString());
       setMessages((prev) => {
         const next = [...msgs, ...prev];
-        setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
+        setMessagesByRoom({
+          ...messagesByRoom(),
+          [roomCacheKey(room.id)]: next,
+        });
         const user = account();
         if (user) void saveDecryptedMessages(user.id, room.id, next);
         return next;
@@ -1286,8 +1321,8 @@ export function Chat() {
           icon: undefined,
         }
         : { name: "", icon: undefined };
-  const name = meta.name ?? "";
-  const icon = meta.icon ?? "";
+      const name = meta.name ?? "";
+      const icon = meta.icon ?? "";
       // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
       let members = state
         ? extractMembers(state)
@@ -1312,10 +1347,10 @@ export function Chat() {
         unreadCount: 0,
         type: "group",
         members,
-  hasName: name.trim() !== "",
-  hasIcon: icon.trim() !== "",
+        hasName: name.trim() !== "",
+        hasIcon: icon.trim() !== "",
         lastMessage: "...",
-  lastMessageTime: undefined,
+        lastMessageTime: undefined,
       });
     }
 
@@ -1330,7 +1365,10 @@ export function Chat() {
     void (async () => {
       for (const r of unique) {
         try {
-          const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+          const msgs = await fetchMessagesForRoom(r, {
+            limit: 1,
+            dryRun: true,
+          });
           if (msgs.length > 0) {
             updateRoomLast(r.id, msgs[msgs.length - 1]);
           }
@@ -1708,11 +1746,13 @@ export function Chat() {
         if (kpInputs.length > 0) {
           const resAdd = await createCommitAndWelcomes(group, kpInputs);
           const commitContent = encodePublicMessage(resAdd.commit);
-          const toList = Array.from(new Set([
-            ...current,
-            ...need,
-            self,
-          ]));
+          const toList = Array.from(
+            new Set([
+              ...current,
+              ...need,
+              self,
+            ]),
+          );
           const ok = await sendHandshake(
             roomId,
             `${user.userName}@${getDomain()}`,
@@ -1758,7 +1798,11 @@ export function Chat() {
     try {
       const sent = await getCacheItem(user.id, ackCacheKey);
       if (!sent) {
-        const ackBody = JSON.stringify({ type: "joinAck", roomId, deviceId: user.id });
+        const ackBody = JSON.stringify({
+          type: "joinAck",
+          roomId,
+          deviceId: user.id,
+        });
         const ack = await encryptMessage(group, ackBody);
         const ok = await sendEncryptedMessage(
           roomId,
@@ -1810,11 +1854,19 @@ export function Chat() {
     try {
       const meHandle = `${user.userName}@${getDomain()}`;
       const dispName = user.displayName || user.userName;
-      let attachmentsUi: { data?: string; url?: string; mediaType: string; preview?: { url?: string; data?: string; mediaType?: string } }[] | undefined;
+      let attachmentsUi: {
+        data?: string;
+        url?: string;
+        mediaType: string;
+        preview?: { url?: string; data?: string; mediaType?: string };
+      }[] | undefined;
       if (mediaFile()) {
         const file = mediaFile()!;
         const purl = mediaPreview();
-        attachmentsUi = [{ mediaType: file.type || "application/octet-stream", ...(purl ? { url: purl } : {}) }];
+        attachmentsUi = [{
+          mediaType: file.type || "application/octet-stream",
+          ...(purl ? { url: purl } : {}),
+        }];
       }
       const optimistic: ChatMessage = {
         id: localId,
@@ -1832,7 +1884,10 @@ export function Chat() {
       };
       setMessages((old) => {
         const next = [...old, optimistic];
-        setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(roomId)]: next });
+        setMessagesByRoom({
+          ...messagesByRoom(),
+          [roomCacheKey(roomId)]: next,
+        });
         const user2 = account();
         if (user2) void saveDecryptedMessages(user2.id, roomId, next);
         return next;
@@ -1970,8 +2025,16 @@ export function Chat() {
               // 既に一覧にあれば同期処理だけ行う
               let room = chatRooms().find((r) => r.id === payload.roomId);
               if (!room) {
-                const maybeFrom = typeof payload.from === "string" ? payload.from : undefined;
-                const others = Array.from(new Set(( [maybeFrom].filter((m): m is string => typeof m === "string" && m !== self) )));
+                const maybeFrom = typeof payload.from === "string"
+                  ? payload.from
+                  : undefined;
+                const others = Array.from(
+                  new Set(
+                    [maybeFrom].filter((m): m is string =>
+                      typeof m === "string" && m !== self
+                    ),
+                  ),
+                );
                 const newRoom = {
                   id: payload.roomId,
                   name: "",
@@ -1985,7 +2048,9 @@ export function Chat() {
                   lastMessageTime: undefined,
                 };
                 upsertRoom(newRoom);
-                try { await applyDisplayFallback([newRoom]); } catch {/* ignore */}
+                try {
+                  await applyDisplayFallback([newRoom]);
+                } catch { /* ignore */ }
                 await initGroupState(newRoom.id);
                 room = newRoom;
               }
@@ -2020,8 +2085,8 @@ export function Chat() {
             const following = await fetchFollowing(me.userName);
             isFollowing = Array.isArray(following)
               ? following.some((u: string) =>
-                  u === data.sender || u === normalizeActor(data.sender)
-                )
+                u === data.sender || u === normalizeActor(data.sender)
+              )
               : false;
           }
         } catch {
@@ -2035,15 +2100,17 @@ export function Chat() {
 
         if (!isFollowing) {
           // フォロー外の招待はサーバー側で通知化（ここでは案内のみ）
-          globalThis.dispatchEvent(new CustomEvent("app:toast", {
-            detail: {
-              type: "info",
-              title: "会話招待",
-              description:
-                `${data.sender} から会話招待が届きました（フォロー外）。通知に表示します。`,
-              duration: 5000,
-            },
-          }));
+          globalThis.dispatchEvent(
+            new CustomEvent("app:toast", {
+              detail: {
+                type: "info",
+                title: "会話招待",
+                description:
+                  `${data.sender} から会話招待が届きました（フォロー外）。通知に表示します。`,
+                duration: 5000,
+              },
+            }),
+          );
           // フォロー外の場合は自動参加・同期しない
           return;
         }
@@ -2051,10 +2118,12 @@ export function Chat() {
         // フォロー中ならチャット一覧にプレースホルダを作成して同期
         let room = chatRooms().find((r) => r.id === data.roomId);
         if (!room) {
-          const others = Array.from(new Set([
-            ...data.recipients,
-            data.sender,
-          ].filter((m) => m && m !== self)));
+          const others = Array.from(
+            new Set([
+              ...data.recipients,
+              data.sender,
+            ].filter((m) => m && m !== self)),
+          );
           room = {
             id: data.roomId,
             name: "",
@@ -2070,7 +2139,7 @@ export function Chat() {
           upsertRoom(room);
           try {
             await applyDisplayFallback([room]);
-          } catch {/* ignore */}
+          } catch { /* ignore */ }
           await initGroupState(room.id);
         }
         if (room) await syncHandshakes(room);
@@ -2161,10 +2230,10 @@ export function Chat() {
           baseName3 === user.userName || baseName3 === selfH3)
         ? data.from
         : baseName3;
-  const _displayName = isMe
+      const _displayName = isMe
         ? (user.displayName || user.userName)
         : otherName;
-  const _text: string = "";
+      const _text: string = "";
       const _attachments:
         | {
           data?: string;
@@ -2173,7 +2242,7 @@ export function Chat() {
           preview?: { url?: string; data?: string; mediaType?: string };
         }[]
         | undefined = undefined;
-  const _localId: string | undefined = undefined;
+      const _localId: string | undefined = undefined;
 
       // WSは通知のみ: RESTから取得して反映
       if (msg.type === "encryptedMessage") {
@@ -2181,7 +2250,7 @@ export function Chat() {
         if (msg.payload.from === self) {
           return;
         }
-  const _isSelected = selectedRoom() === room.id;
+        const _isSelected = selectedRoom() === room.id;
         if (room.type === "memo") return; // メモはWS対象外
         if (selectedRoom() === room.id) {
           const prev = messages();
@@ -2197,7 +2266,10 @@ export function Chat() {
               const ids = new Set(old.map((m) => m.id));
               const add = fetched.filter((m) => !ids.has(m.id));
               const next = [...old, ...add];
-              setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
+              setMessagesByRoom({
+                ...messagesByRoom(),
+                [roomCacheKey(room.id)]: next,
+              });
               const user = account();
               if (user) void saveDecryptedMessages(user.id, room.id, next);
               return next;
@@ -2207,7 +2279,10 @@ export function Chat() {
           }
         } else {
           // 一覧のみ更新（最新1件を取得してプレビュー）
-          const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+          const fetched = await fetchMessagesForRoom(room, {
+            limit: 1,
+            dryRun: true,
+          });
           if (fetched.length > 0) {
             updateRoomLast(room.id, fetched[fetched.length - 1]);
           }
@@ -2217,14 +2292,20 @@ export function Chat() {
 
       // publicMessage 等の将来拡張が来た場合はRESTで取得する
       if (room.type === "memo") return; // メモはWS対象外
-      const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+      const fetched = await fetchMessagesForRoom(room, {
+        limit: 1,
+        dryRun: true,
+      });
       if (fetched.length > 0) {
         const last = fetched[fetched.length - 1];
         if (selectedRoom() === room.id) {
           setMessages((prev) => {
             if (prev.some((x) => x.id === last.id)) return prev;
             const next = [...prev, last];
-            setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
+            setMessagesByRoom({
+              ...messagesByRoom(),
+              [roomCacheKey(room.id)]: next,
+            });
             const user = account();
             if (user) void saveDecryptedMessages(user.id, room.id, next);
             return next;
@@ -2273,35 +2354,85 @@ export function Chat() {
               const st = await joinWithWelcome(w, p);
               joined = st;
               break;
-            } catch {/* try next */}
+            } catch { /* try next */ }
           }
           if (joined) {
             // 参加成功: 自分の chatrooms に登録
-            try { await addRoom(user.id, { id: room.id }); } catch {/* ignore */}
+            try {
+              await addRoom(user.id, { id: room.id });
+            } catch { /* ignore */ }
             setGroups({ ...groups(), [room.id]: joined });
             await saveGroupStates();
-            setPendingWelcomes((prev) => { const n = { ...prev }; delete n[room!.id]; return n; });
+            setPendingWelcomes((prev) => {
+              const n = { ...prev };
+              delete n[room!.id];
+              return n;
+            });
             await loadMessages(room, true);
             setSelectedRoom(room.id);
             // 招待のACK（任意）
-            try { await apiFetch(`/api/users/${encodeURIComponent(user.userName)}/pendingInvites/ack`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId: room.id, deviceId: "" }) }); } catch {/* ignore */}
+            try {
+              await apiFetch(
+                `/api/users/${
+                  encodeURIComponent(user.userName)
+                }/pendingInvites/ack`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ roomId: room.id, deviceId: "" }),
+                },
+              );
+            } catch { /* ignore */ }
             // サーバー側の chatrooms 登録反映を一覧に再取得
-            try { await loadRooms(); } catch {/* ignore */}
-            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "success", title: "参加しました", description: "会話に参加しました" } }));
+            try {
+              await loadRooms();
+            } catch { /* ignore */ }
+            globalThis.dispatchEvent(
+              new CustomEvent("app:toast", {
+                detail: {
+                  type: "success",
+                  title: "参加しました",
+                  description: "会話に参加しました",
+                },
+              }),
+            );
           } else {
-            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: "Welcomeの適用に失敗しました" } }));
+            globalThis.dispatchEvent(
+              new CustomEvent("app:toast", {
+                detail: {
+                  type: "error",
+                  title: "参加に失敗",
+                  description: "Welcomeの適用に失敗しました",
+                },
+              }),
+            );
           }
         } else {
           // Welcome がまだ無い場合はルームを開いて手動参加に委ねる
           setSelectedRoom(room.id);
         }
       } catch (err) {
-        globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: String(err) } }));
+        globalThis.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: {
+              type: "error",
+              title: "参加に失敗",
+              description: String(err),
+            },
+          }),
+        );
       }
     };
 
-    globalThis.addEventListener("app:accept-invite", onAcceptInvite as EventListener);
-    acceptCleanup = () => globalThis.removeEventListener("app:accept-invite", onAcceptInvite as EventListener);
+    globalThis.addEventListener(
+      "app:accept-invite",
+      onAcceptInvite as EventListener,
+    );
+    acceptCleanup = () =>
+      globalThis.removeEventListener(
+        "app:accept-invite",
+        onAcceptInvite as EventListener,
+      );
 
     addMessageHandler(handler);
     wsCleanup = () => removeMessageHandler(handler);
@@ -2341,7 +2472,7 @@ export function Chat() {
           }
           await syncHandshakes(room);
         }
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
     }, 25_000) as unknown as number;
   });
 
@@ -2359,11 +2490,14 @@ export function Chat() {
           .slice(0, 10);
         for (const r of targets) {
           try {
-            const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+            const msgs = await fetchMessagesForRoom(r, {
+              limit: 1,
+              dryRun: true,
+            });
             if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
-          } catch {/* ignore one */}
+          } catch { /* ignore one */ }
         }
-      } catch {/* ignore all */}
+      } catch { /* ignore all */ }
     }, 60_000) as unknown as number;
   });
 
@@ -2555,26 +2689,57 @@ export function Chat() {
         const cur = await getCacheItem(user.id, "eventsCursor");
         if (typeof cur === "string") setEventsCursor(cur);
       }
-    } catch {/* ignore */}
+    } catch { /* ignore */ }
 
-    const processEvents = async (evs: { id: string; type: string; roomId?: string; from?: string; to?: string[]; createdAt?: string }[]) => {
-      const user = account(); if (!user) return;
+    const processEvents = async (
+      evs: {
+        id: string;
+        type: string;
+        roomId?: string;
+        from?: string;
+        to?: string[];
+        createdAt?: string;
+      }[],
+    ) => {
+      const user = account();
+      if (!user) return;
       let maxTs = eventsCursor();
-      const byRoom = new Map<string, { handshake: boolean; message: boolean }>();
+      const byRoom = new Map<
+        string,
+        { handshake: boolean; message: boolean }
+      >();
       for (const ev of evs) {
-        const rid = ev.roomId; if (!rid) continue;
+        const rid = ev.roomId;
+        if (!rid) continue;
         const cur = byRoom.get(rid) || { handshake: false, message: false };
         if (ev.type === "handshake") cur.handshake = true;
-        if (ev.type === "encryptedMessage" || ev.type === "publicMessage") cur.message = true;
+        if (ev.type === "encryptedMessage" || ev.type === "publicMessage") {
+          cur.message = true;
+        }
         byRoom.set(rid, cur);
-        if (ev.createdAt && (!maxTs || ev.createdAt > maxTs)) maxTs = ev.createdAt;
+        if (ev.createdAt && (!maxTs || ev.createdAt > maxTs)) {
+          maxTs = ev.createdAt;
+        }
       }
       for (const [rid, flg] of byRoom) {
         let room = chatRooms().find((r) => r.id === rid);
         if (!room) {
-          room = { id: rid, name: "", userName: account()?.userName || "", domain: getDomain(), avatar: "", unreadCount: 0, type: "group", members: [], lastMessage: "...", lastMessageTime: undefined };
+          room = {
+            id: rid,
+            name: "",
+            userName: account()?.userName || "",
+            domain: getDomain(),
+            avatar: "",
+            unreadCount: 0,
+            type: "group",
+            members: [],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          };
           upsertRoom(room);
-          try { await applyDisplayFallback([room]); } catch {/* ignore */}
+          try {
+            await applyDisplayFallback([room]);
+          } catch { /* ignore */ }
           await initGroupState(rid);
         }
         if (room && flg.handshake) await syncHandshakes(room);
@@ -2582,43 +2747,65 @@ export function Chat() {
           const isSel = selectedRoom() === rid;
           if (isSel) {
             const prev = messages();
-            const lastTs = prev.length > 0 ? prev[prev.length - 1].timestamp.toISOString() : undefined;
-            const fetched = await fetchMessagesForRoom(room, lastTs ? { after: lastTs } : { limit: 1 });
+            const lastTs = prev.length > 0
+              ? prev[prev.length - 1].timestamp.toISOString()
+              : undefined;
+            const fetched = await fetchMessagesForRoom(
+              room,
+              lastTs ? { after: lastTs } : { limit: 1 },
+            );
             if (fetched.length > 0) {
               setMessages((old) => {
                 const ids = new Set(old.map((m) => m.id));
                 const add = fetched.filter((m) => !ids.has(m.id));
                 const next = [...old, ...add];
-                setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(rid)]: next });
-                const user2 = account(); if (user2) void saveDecryptedMessages(user2.id, rid, next);
+                setMessagesByRoom({
+                  ...messagesByRoom(),
+                  [roomCacheKey(rid)]: next,
+                });
+                const user2 = account();
+                if (user2) void saveDecryptedMessages(user2.id, rid, next);
                 return next;
               });
               updateRoomLast(rid, fetched[fetched.length - 1]);
             }
           } else {
-            const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
-            if (fetched.length > 0) updateRoomLast(rid, fetched[fetched.length - 1]);
+            const fetched = await fetchMessagesForRoom(room, {
+              limit: 1,
+              dryRun: true,
+            });
+            if (fetched.length > 0) {
+              updateRoomLast(rid, fetched[fetched.length - 1]);
+            }
           }
         }
       }
       if (maxTs) {
         setEventsCursor(maxTs);
-        try { const user2 = account(); if (user2) await setCacheItem(user2.id, "eventsCursor", maxTs); } catch {/* ignore */}
+        try {
+          const user2 = account();
+          if (user2) await setCacheItem(user2.id, "eventsCursor", maxTs);
+        } catch { /* ignore */ }
       }
     };
 
     const syncOnce = async () => {
       try {
-        const evs = await fetchEvents({ since: eventsCursor() ?? undefined, limit: 100 });
+        const evs = await fetchEvents({
+          since: eventsCursor() ?? undefined,
+          limit: 100,
+        });
         if (evs.length > 0) await processEvents(evs);
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
     };
 
     await syncOnce();
     const onFocus = () => void syncOnce();
     globalThis.addEventListener("focus", onFocus);
     globalThis.addEventListener("online", onFocus);
-    globalThis.addEventListener("visibilitychange", () => { if (!document.hidden) void syncOnce(); });
+    globalThis.addEventListener("visibilitychange", () => {
+      if (!document.hidden) void syncOnce();
+    });
     onCleanup(() => {
       globalThis.removeEventListener("focus", onFocus);
       globalThis.removeEventListener("online", onFocus);
@@ -2721,9 +2908,18 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     return r ? r.type !== "memo" : true;
                   })()}
-                  bindingStatus={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? bindingStatus() : null;})()}
-                  bindingInfo={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? bindingInfo() : null;})()}
-                  ktInfo={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? ktInfo() : null;})()}
+                  bindingStatus={(function () {
+                    const r = selectedRoomInfo();
+                    return r && r.type !== "memo" ? bindingStatus() : null;
+                  })()}
+                  bindingInfo={(function () {
+                    const r = selectedRoomInfo();
+                    return r && r.type !== "memo" ? bindingInfo() : null;
+                  })()}
+                  ktInfo={(function () {
+                    const r = selectedRoomInfo();
+                    return r && r.type !== "memo" ? ktInfo() : null;
+                  })()}
                 />
                 {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
@@ -2737,9 +2933,16 @@ export function Chat() {
                   }}
                 />
                 {/* Welcome 受信時の参加確認バナー */}
-                <Show when={(function(){ const id = selectedRoom(); return id ? pendingWelcomes()[id] : undefined; })()}>
+                <Show
+                  when={(function () {
+                    const id = selectedRoom();
+                    return id ? pendingWelcomes()[id] : undefined;
+                  })()}
+                >
                   <div class="px-3 py-2 bg-amber-900/40 border-t border-amber-600/40 text-amber-100 flex items-center justify-between">
-                    <div class="text-sm">この会話に招待されています。参加しますか？</div>
+                    <div class="text-sm">
+                      この会話に招待されています。参加しますか？
+                    </div>
                     <div class="flex gap-2">
                       <button
                         class="px-3 py-1 rounded bg-amber-600/80 hover:bg-amber-600 text-white text-sm"
@@ -2752,40 +2955,94 @@ export function Chat() {
                           try {
                             const pairs = await loadAllMLSKeyPairs(user.id);
                             let joined: StoredGroupState | null = null;
-                            const list = pairs.length > 0 ? pairs : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
+                            const list = pairs.length > 0
+                              ? pairs
+                              : (await ensureKeyPair()
+                                ? [await ensureKeyPair()!]
+                                : []);
                             for (const p of list) {
                               try {
-                                if (!p) throw new Error("key pair not prepared");
+                                if (!p) {
+                                  throw new Error("key pair not prepared");
+                                }
                                 const st = await joinWithWelcome(w, p);
                                 joined = st;
                                 break;
-                              } catch {/* try next */}
+                              } catch { /* try next */ }
                             }
                             if (joined) {
-                              try { await addRoom(user.id, { id }); } catch {/* ignore */}
+                              try {
+                                await addRoom(user.id, { id });
+                              } catch { /* ignore */ }
                               setGroups({ ...groups(), [id]: joined });
                               await saveGroupStates();
-                              setPendingWelcomes((prev) => { const n = { ...prev }; delete n[id]; return n; });
+                              setPendingWelcomes((prev) => {
+                                const n = { ...prev };
+                                delete n[id];
+                                return n;
+                              });
                               const room = chatRooms().find((r) => r.id === id);
                               if (room) await loadMessages(room, true);
-                              try { await apiFetch(`/api/users/${encodeURIComponent(user.userName)}/pendingInvites/ack`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId: id, deviceId: "" }) }); } catch {/* ignore */}
-                              try { await loadRooms(); } catch {/* ignore */}
+                              try {
+                                await apiFetch(
+                                  `/api/users/${
+                                    encodeURIComponent(user.userName)
+                                  }/pendingInvites/ack`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "content-type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                      roomId: id,
+                                      deviceId: "",
+                                    }),
+                                  },
+                                );
+                              } catch { /* ignore */ }
+                              try {
+                                await loadRooms();
+                              } catch { /* ignore */ }
                             } else {
-                              globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: "Welcomeの適用に失敗しました" } }));
+                              globalThis.dispatchEvent(
+                                new CustomEvent("app:toast", {
+                                  detail: {
+                                    type: "error",
+                                    title: "参加に失敗",
+                                    description: "Welcomeの適用に失敗しました",
+                                  },
+                                }),
+                              );
                             }
                           } catch (e) {
-                            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: String(e) } }));
+                            globalThis.dispatchEvent(
+                              new CustomEvent("app:toast", {
+                                detail: {
+                                  type: "error",
+                                  title: "参加に失敗",
+                                  description: String(e),
+                                },
+                              }),
+                            );
                           }
                         }}
-                      >参加する</button>
+                      >
+                        参加する
+                      </button>
                       <button
                         class="px-3 py-1 rounded bg-transparent border border-amber-500/60 text-amber-100 text-sm hover:bg-amber-500/20"
                         onClick={() => {
                           const id = selectedRoom();
                           if (!id) return;
-                          setPendingWelcomes((prev) => { const n = { ...prev }; delete n[id]; return n; });
+                          setPendingWelcomes((prev) => {
+                            const n = { ...prev };
+                            delete n[id];
+                            return n;
+                          });
                         }}
-                      >後で</button>
+                      >
+                        後で
+                      </button>
                     </div>
                   </div>
                 </Show>
@@ -2797,7 +3054,7 @@ export function Chat() {
                   mediaPreview={mediaPreview()}
                   setMediaPreview={setMediaPreview}
                   sendMessage={sendMessage}
-                  allowMedia={(function() {
+                  allowMedia={(function () {
                     const r = selectedRoomInfo();
                     return r ? r.type !== "memo" : true;
                   })()}
@@ -2917,15 +3174,25 @@ function pickUsableKeyPackage(
     lastResort?: boolean;
   }[],
 ):
-  | { content: string; expiresAt?: string; used?: boolean; deviceId?: string; lastResort?: boolean }
+  | {
+    content: string;
+    expiresAt?: string;
+    used?: boolean;
+    deviceId?: string;
+    lastResort?: boolean;
+  }
   | null {
   const now = Date.now();
   const normal = list.filter((k) => !k.lastResort);
   const lastResort = list.filter((k) => k.lastResort);
-  const usableNormal = normal.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  const usableNormal = normal.filter((k) =>
+    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
+  );
   if (usableNormal.length > 0) return usableNormal[0];
   // 通常キーが無い場合のみ lastResort を候補にする（unused/未期限切れ優先）
-  const usableLR = lastResort.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  const usableLR = lastResort.filter((k) =>
+    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
+  );
   if (usableLR.length > 0) return usableLR[0];
   // それでも無ければ全体から最初
   return list[0] ?? null;
@@ -2938,16 +3205,25 @@ async function topUpSelfKeyPackages(userName: string, accountId: string) {
     const selfKps = await fetchKeyPackages(userName);
     const now = Date.now();
     const usable = (selfKps ?? []).filter((k) =>
-      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) && !k.lastResort
+      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) &&
+      !k.lastResort
     );
     // lastResort が存在しない場合は 1 個だけ作る（target にはカウントしない）
     const hasLastResort = (selfKps ?? []).some((k) => k.lastResort);
     if (!hasLastResort) {
       try {
-        const actor = new URL(`/users/${userName}`, globalThis.location.origin).href;
+        const actor =
+          new URL(`/users/${userName}`, globalThis.location.origin).href;
         const kp = await generateKeyPair(actor);
-        await saveMLSKeyPair(accountId, { public: kp.public, private: kp.private, encoded: kp.encoded });
-        await addKeyPackage(userName, { content: kp.encoded, lastResort: true });
+        await saveMLSKeyPair(accountId, {
+          public: kp.public,
+          private: kp.private,
+          encoded: kp.encoded,
+        });
+        await addKeyPackage(userName, {
+          content: kp.encoded,
+          lastResort: true,
+        });
       } catch (e) {
         console.warn("lastResort KeyPackage 生成に失敗", e);
       }

@@ -13,8 +13,11 @@ function normalizeBaseUrl(url: string): string | null {
     let p = u.pathname.replace(/\/+$/, "");
     const wl = "/.well-known/fasp/provider_info";
     if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-    else if (p.endsWith("/fasp/provider_info")) p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-    else if (p.endsWith("/provider_info")) p = p.slice(0, -"/provider_info".length);
+    else if (p.endsWith("/fasp/provider_info")) {
+      p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
+    } else if (p.endsWith("/provider_info")) {
+      p = p.slice(0, -"/provider_info".length);
+    }
     if (p === "/") p = "";
     const out = `${u.origin}${p}`.replace(/\/$/, "");
     return out;
@@ -40,7 +43,10 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
 
   const now = new Date();
-  const existing = await fasps.findOne({ tenant_id: tenantId, baseUrl: normalized });
+  const existing = await fasps.findOne({
+    tenant_id: tenantId,
+    baseUrl: normalized,
+  });
 
   let secret = existing?.secret as string | undefined;
   if (!secret) secret = genSecret();

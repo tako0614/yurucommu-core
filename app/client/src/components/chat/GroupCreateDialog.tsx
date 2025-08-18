@@ -1,10 +1,4 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { fetchFollowing } from "../microblog/api.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
@@ -51,23 +45,27 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const toDisplayList = (list: unknown[]) => (
     Array.isArray(list)
       ? list.map((f: unknown) => {
-          const user = f as FollowingUser | string;
-          return {
-            id: (function () {
-              if (typeof user === 'object' && user && 'userName' in user) {
-                if (user.userName && user.domain) return `${user.userName}@${user.domain}`;
-                if (user.userName && !user.domain) return `${user.userName}@${getDomain()}`;
-              }
-              return String(user);
-            })(),
-            name: typeof user === 'object' && user && 'displayName' in user 
-              ? (user.displayName || user.userName || String(user)) 
-              : String(user),
-            avatar: typeof user === 'object' && user && 'avatar' in user 
-              ? (user.avatar || user.authorAvatar) 
-              : undefined,
-          };
-        })
+        const user = f as FollowingUser | string;
+        return {
+          id: (function () {
+            if (typeof user === "object" && user && "userName" in user) {
+              if (
+                user.userName && user.domain
+              ) return `${user.userName}@${user.domain}`;
+              if (
+                user.userName && !user.domain
+              ) return `${user.userName}@${getDomain()}`;
+            }
+            return String(user);
+          })(),
+          name: typeof user === "object" && user && "displayName" in user
+            ? (user.displayName || user.userName || String(user))
+            : String(user),
+          avatar: typeof user === "object" && user && "avatar" in user
+            ? (user.avatar || user.authorAvatar)
+            : undefined,
+        };
+      })
       : []
   );
 
@@ -117,9 +115,15 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const addMember = (userId: string) => {
     // 自分自身は追加しない
     if (selfHandle() && userId === selfHandle()) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "追加できません", description: "自分自身はメンバーに追加できません" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "追加できません",
+            description: "自分自身はメンバーに追加できません",
+          },
+        }),
+      );
       return;
     }
     if (!selectedMembers().includes(userId)) {
@@ -137,9 +141,15 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     if (!input.includes("@")) input = `${input}@${getDomain()}`;
     // 自分自身は追加しない
     if (selfHandle() && input === selfHandle()) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "追加できません", description: "自分自身はメンバーに追加できません" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "追加できません",
+            description: "自分自身はメンバーに追加できません",
+          },
+        }),
+      );
       return;
     }
     if (!selectedMembers().includes(input)) {
@@ -163,16 +173,28 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     const members = membersArr.join(",");
 
     if (props.mode === "create" && selectedMembers().length < 1) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "追加してください", description: "最低1人のメンバーを追加してください" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "追加してください",
+            description: "最低1人のメンバーを追加してください",
+          },
+        }),
+      );
       return;
     }
 
     if (props.mode === "create" && !groupName && selectedMembers().length > 1) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "入力が必要です", description: "グループ名を入力してください" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "入力が必要です",
+            description: "グループ名を入力してください",
+          },
+        }),
+      );
       return;
     }
 
@@ -201,7 +223,9 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     if (props.isOpen) {
       const me = selfHandle();
       // 初期選択に自分が含まれる場合は除外
-      const init = (props.initialMembers ?? []).filter((id) => !me || id !== me);
+      const init = (props.initialMembers ?? []).filter((id) =>
+        !me || id !== me
+      );
       setSelectedMembers(init);
     } else {
       resetForm();

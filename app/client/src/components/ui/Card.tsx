@@ -7,11 +7,16 @@ export interface CardProps extends JSX.HTMLAttributes<HTMLElement> {
 }
 
 export function Card(props: CardProps) {
-  const [local, rest] = splitProps(props, ["children", "title", "actions", "class"]);
+  const [local, rest] = splitProps(props, [
+    "children",
+    "title",
+    "actions",
+    "class",
+  ]);
   return (
     <section
       {...rest}
-      class={("surface p-5 " + (local.class ?? ""))}
+      class={"surface p-5 " + (local.class ?? "")}
       role="region"
     >
       {(local.title || local.actions) && (
@@ -28,4 +33,3 @@ export function Card(props: CardProps) {
 }
 
 export default Card;
-

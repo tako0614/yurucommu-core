@@ -1,5 +1,5 @@
 import { createSignal, For, Show as _Show } from "solid-js";
-import { Card, Button } from "./ui";
+import { Button, Card } from "./ui";
 
 interface ServerListProps {
   servers: { url: string; password: string }[];
@@ -22,7 +22,11 @@ export function ServerList(props: ServerListProps) {
         {(s) => (
           <Card title={s.url} class="hover:bg-[#242424] transition-colors">
             <div class="flex justify-end">
-              <Button type="button" onClick={() => props.onSelect(s.url, s.password)}>
+              <Button
+                type="button"
+                onClick={() =>
+                  props.onSelect(s.url, s.password)}
+              >
                 ログイン
               </Button>
             </div>

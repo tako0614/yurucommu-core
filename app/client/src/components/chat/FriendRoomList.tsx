@@ -18,7 +18,9 @@ export function FriendRoomList(props: FriendRoomListProps) {
   // 選択された友達とのトークルームを取得
   const friendRooms = createMemo(() => {
     return props.rooms.filter((room) => {
-      const members = (room.members ?? []).map(normalizeHandle).filter((v): v is string => !!v);
+      const members = (room.members ?? []).map(normalizeHandle).filter((
+        v,
+      ): v is string => !!v);
       if (members.includes(props.friendId)) return true;
       // members が未補完のときは、ID が friendId と一致する 1:1 とみなす
       const rid = normalizeHandle(room.id);
@@ -47,10 +49,12 @@ export function FriendRoomList(props: FriendRoomListProps) {
   const filteredRooms = createMemo(() => {
     const q = query().toLowerCase().trim();
     const base = friendRooms();
-    const byQuery = !q ? base : base.filter((r) =>
-      r.name.toLowerCase().includes(q) ||
-      (r.lastMessage ?? "").toLowerCase().includes(q)
-    );
+    const byQuery = !q
+      ? base
+      : base.filter((r) =>
+        r.name.toLowerCase().includes(q) ||
+        (r.lastMessage ?? "").toLowerCase().includes(q)
+      );
     const time = (d?: Date) => (d ? d.getTime() : 0);
     return byQuery.sort((a, b) => {
       const ua = a.unreadCount || 0;

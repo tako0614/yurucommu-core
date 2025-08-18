@@ -3,7 +3,8 @@ import { JSX, splitProps } from "solid-js";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
-export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps
+  extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
   loading?: boolean;
@@ -20,21 +21,29 @@ function classes(variant: Variant, size: Size, disabled?: boolean) {
     ghost: "bg-transparent hover:bg-[#2a2a2a] text-gray-200",
     danger: "bg-rose-600 hover:bg-rose-500 text-white",
   }[variant];
-  const s = { sm: "px-2.5 h-8 text-sm", md: "px-3.5 h-10", lg: "px-4.5 h-12 text-lg" }[
-    size
-  ];
+  const s =
+    { sm: "px-2.5 h-8 text-sm", md: "px-3.5 h-10", lg: "px-4.5 h-12 text-lg" }[
+      size
+    ];
   return [base, v, s, disabled ? "pointer-events-none" : ""].join(" ");
 }
 
 export function Button(props: ButtonProps) {
-  const [local, rest] = splitProps(props, ["children", "variant", "size", "loading", "disabled"]);
+  const [local, rest] = splitProps(props, [
+    "children",
+    "variant",
+    "size",
+    "loading",
+    "disabled",
+  ]);
   const variant = local.variant ?? "primary";
   const size = local.size ?? "md";
 
   return (
     <button
       {...rest}
-      class={classes(variant, size, local.disabled || local.loading) + (rest.class ? ` ${rest.class}` : "")}
+      class={classes(variant, size, local.disabled || local.loading) +
+        (rest.class ? ` ${rest.class}` : "")}
       disabled={local.disabled || local.loading}
     >
       {local.loading && (
@@ -44,8 +53,19 @@ export function Button(props: ButtonProps) {
           viewBox="0 0 24 24"
           aria-hidden="true"
         >
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          />
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          />
         </svg>
       )}
       {local.children}

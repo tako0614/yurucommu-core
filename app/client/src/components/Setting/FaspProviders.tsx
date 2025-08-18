@@ -1,4 +1,12 @@
-import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { apiFetch } from "../../utils/config.ts";
 import { Button } from "../ui/index.ts";
 
@@ -116,9 +124,15 @@ export function FaspProviders() {
       const t = await res.text();
       alert(`保存に失敗しました: ${t}`);
     } else {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "success", title: "保存しました", description: "設定が更新されました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "success",
+            title: "保存しました",
+            description: "設定が更新されました",
+          },
+        }),
+      );
     }
   };
 
@@ -132,7 +146,8 @@ export function FaspProviders() {
     if (pollTimer) return;
     pollTimer = setInterval(() => {
       const list = providers();
-      const hasPending = Array.isArray(list) && list.some((p) => p.status !== "approved");
+      const hasPending = Array.isArray(list) &&
+        list.some((p) => p.status !== "approved");
       if (hasPending) {
         refetch();
       } else {

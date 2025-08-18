@@ -165,11 +165,14 @@ export interface DB {
     version?: string,
     cipherSuite?: number,
     generator?: string,
-  id?: string,
-  lastResort?: boolean,
+    id?: string,
+    lastResort?: boolean,
   ): Promise<unknown>;
   markKeyPackageUsed(userName: string, id: string): Promise<void>;
-  markKeyPackageUsedByRef(userName: string, keyPackageRef: string): Promise<void>;
+  markKeyPackageUsedByRef(
+    userName: string,
+    keyPackageRef: string,
+  ): Promise<void>;
   cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;

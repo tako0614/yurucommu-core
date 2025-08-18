@@ -22,4 +22,3 @@ const FaspClientSetting = mongoose.models.FaspClientSetting ??
 
 export default FaspClientSetting;
 export { faspClientSettingSchema };
-

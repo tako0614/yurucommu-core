@@ -7,7 +7,11 @@ const serverClientSchema = new mongoose.Schema({
   publicKey: { type: String, required: true },
   keyId: { type: String, default: "" },
   secret: { type: String, default: "" },
-  status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+  status: {
+    type: String,
+    enum: ["pending", "approved", "rejected"],
+    default: "pending",
+  },
   createdAt: { type: Date, default: Date.now },
   approvedAt: { type: Date, default: null },
   rejectedAt: { type: Date, default: null },
@@ -25,4 +29,3 @@ const FaspServerClient = mongoose.models.FaspServerClient ??
   mongoose.model("FaspServerClient", serverClientSchema);
 
 export default FaspServerClient;
-

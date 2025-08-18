@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
-import { activityHandlers, type ActivityHandler } from "../activity_handlers.ts";
+import {
+  type ActivityHandler,
+  activityHandlers,
+} from "../activity_handlers.ts";
 import { createDB } from "../DB/mod.ts";
 import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
 
@@ -59,10 +62,14 @@ app.post("/inbox", async (c) => {
         if (!account) continue;
         const typeVal = (activity as { type?: unknown })?.type;
         if (typeof typeVal === "string" && typeVal in activityHandlers) {
-          const handler = (activityHandlers as Record<string, ActivityHandler>)[typeVal];
+          const handler =
+            (activityHandlers as Record<string, ActivityHandler>)[typeVal];
           if (typeof handler === "function") {
             const res = await handler(activity, username, c);
-            if (res && typeof res === "object" && ("status" in (res as object) || "body" in (res as object))) {
+            if (
+              res && typeof res === "object" &&
+              ("status" in (res as object) || "body" in (res as object))
+            ) {
               return res as unknown as Response;
             }
           }

@@ -1,15 +1,15 @@
 language: ja-JP
-tone_instructions: ''
+tone_instructions: ""
 early_access: false
 enable_free_tier: true
 reviews:
   profile: chill
   request_changes_workflow: false
   high_level_summary: true
-  high_level_summary_placeholder: '@coderabbitai summary'
+  high_level_summary_placeholder: "@coderabbitai summary"
   high_level_summary_in_walkthrough: false
-  auto_title_placeholder: '@coderabbitai'
-  auto_title_instructions: ''
+  auto_title_placeholder: "@coderabbitai"
+  auto_title_instructions: ""
   review_status: true
   commit_status: true
   fail_commit_status: false
@@ -48,7 +48,7 @@ reviews:
       threshold: 80
     title:
       mode: warning
-      requirements: ''
+      requirements: ""
     description:
       mode: warning
     issue_assessment:

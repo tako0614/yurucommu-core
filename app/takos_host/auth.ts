@@ -127,7 +127,7 @@ export function createAuthApp(options?: {
     await user.save();
 
     const sessionId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
     await new HostSession({ sessionId, user: user._id, expiresAt }).save();
 
     setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
@@ -150,7 +150,7 @@ export function createAuthApp(options?: {
     if (!ok) return c.json({ error: "invalid" }, 401);
 
     const sessionId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
     await new HostSession({ sessionId, user: user._id, expiresAt }).save();
 
     setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
@@ -166,7 +166,7 @@ export function createAuthApp(options?: {
     const session = await HostSession.findOne({ sessionId: sid });
     if (session && session.expiresAt > new Date()) {
       // 期限延長
-  session.expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+      session.expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
       await session.save();
       setCookie(
         c,

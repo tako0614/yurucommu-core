@@ -34,24 +34,25 @@ export async function apiFetch(path: string, init?: RequestInit) {
   console.log("isTauri:" + is);
   let res: Response;
   try {
-    res = is
-      ? await tauriFetch(apiUrl(path), init)
-      : await fetch(
-        apiUrl(path),
-        {
-          credentials: "include",
-          ...(init ?? {}),
-        },
-      );
+    res = is ? await tauriFetch(apiUrl(path), init) : await fetch(
+      apiUrl(path),
+      {
+        credentials: "include",
+        ...(init ?? {}),
+      },
+    );
   } catch (err) {
     // ネットワークエラーはグローバルに通知
-    globalThis.dispatchEvent(new CustomEvent("app:toast", {
-      detail: {
-        type: "error",
-        title: "通信エラー",
-        description: "サーバーへの接続に失敗しました。しばらくしてから再度お試しください。",
-      },
-    }));
+    globalThis.dispatchEvent(
+      new CustomEvent("app:toast", {
+        detail: {
+          type: "error",
+          title: "通信エラー",
+          description:
+            "サーバーへの接続に失敗しました。しばらくしてから再度お試しください。",
+        },
+      }),
+    );
     throw err;
   }
   if (path.endsWith("/config")) {
@@ -81,8 +82,10 @@ export function getDomain(): string {
 // KeyPackage プールの目標数（env で指定可能）
 const DEFAULT_KP_POOL = 3;
 export function getKpPoolSize(): number {
-  const v = Number(import.meta.env.VITE_MLS_KP_POOL ||
-    localStorage.getItem("takos-mls-kp-pool") || DEFAULT_KP_POOL);
+  const v = Number(
+    import.meta.env.VITE_MLS_KP_POOL ||
+      localStorage.getItem("takos-mls-kp-pool") || DEFAULT_KP_POOL,
+  );
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : DEFAULT_KP_POOL;
 }
 export function setKpPoolSize(n: number) {

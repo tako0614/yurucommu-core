@@ -9,11 +9,11 @@ import { faspFetch, notifyCapabilityActivation } from "../services/fasp.ts";
 import { verifyDigest, verifyHttpSignature } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 import {
-  listProviders,
-  insertEventSubscription,
-  deleteEventSubscription,
-  createBackfill,
   continueBackfill,
+  createBackfill,
+  deleteEventSubscription,
+  insertEventSubscription,
+  listProviders,
   registrationUpsert,
 } from "../DB/fasp_client.ts";
 
@@ -66,40 +66,39 @@ app.post("/fasp/registration", async (c) => {
   }
 
   const faspId = crypto.randomUUID();
-// baseUrl の正規化（末尾のスラッシュを削除）
-const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
+  // baseUrl の正規化（末尾のスラッシュを削除）
+  const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
 
-// 共通の upsert ヘルパーがあれば優先して利用し、なければ従来処理にフォールバック
-if (typeof registrationUpsert === "function") {
-  await registrationUpsert(env, {
-    name,
-    baseUrl: normalizedBaseUrl,
-    serverId,
-    publicKey,
-    faspId,
-  });
-} else {
-  // 既存の仮登録（discover）を baseUrl / serverId でマージしつつ upsert
-  await fasps.updateOne(
-    { $or: [{ serverId }, { baseUrl: normalizedBaseUrl }] },
-    {
-      $set: {
-        name,
-        baseUrl: normalizedBaseUrl,
-        serverId,
-        publicKey,
-        // 署名検証済みのため承認済みに更新
-        status: "approved",
-        approvedAt: new Date(),
-        rejectedAt: null,
-        updatedAt: new Date(),
+  // 共通の upsert ヘルパーがあれば優先して利用し、なければ従来処理にフォールバック
+  if (typeof registrationUpsert === "function") {
+    await registrationUpsert(env, {
+      name,
+      baseUrl: normalizedBaseUrl,
+      serverId,
+      publicKey,
+      faspId,
+    });
+  } else {
+    // 既存の仮登録（discover）を baseUrl / serverId でマージしつつ upsert
+    await fasps.updateOne(
+      { $or: [{ serverId }, { baseUrl: normalizedBaseUrl }] },
+      {
+        $set: {
+          name,
+          baseUrl: normalizedBaseUrl,
+          serverId,
+          publicKey,
+          // 署名検証済みのため承認済みに更新
+          status: "approved",
+          approvedAt: new Date(),
+          rejectedAt: null,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: { faspId },
       },
-      $setOnInsert: { faspId },
-    },
-    { upsert: true },
-  );
-}
-
+      { upsert: true },
+    );
+  }
 
   const { publicKey: takosPublicKey } = await getSystemKey(db, domain);
   const registrationCompletionUri = `https://${domain}/api/fasp/providers`; // 管理APIを案内
@@ -277,12 +276,16 @@ app.post(
       if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
       try {
         const url = new URL(b);
-        url.hash = ""; url.search = "";
+        url.hash = "";
+        url.search = "";
         let p = url.pathname.replace(/\/+$/, "");
         const wl = "/.well-known/fasp/provider_info";
         if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-        else if (p.endsWith("/fasp/provider_info")) p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-        else if (p.endsWith("/provider_info")) p = p.slice(0, -"/provider_info".length);
+        else if (p.endsWith("/fasp/provider_info")) {
+          p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
+        } else if (p.endsWith("/provider_info")) {
+          p = p.slice(0, -"/provider_info".length);
+        }
         if (p === "/") p = "";
         return `${url.origin}${p}`.replace(/\/$/, "");
       } catch {
@@ -298,13 +301,16 @@ app.post(
     const defaultBase = env["FASP_DEFAULT_BASE_URL"] ?? "";
     const hostRoot = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
     const hostOf = (u: string) => {
-      try { return new URL(canonicalize(u)).hostname.toLowerCase(); } catch { return ""; }
+      try {
+        return new URL(canonicalize(u)).hostname.toLowerCase();
+      } catch {
+        return "";
+      }
     };
-    const isDefault = (
-      (defaultBase && (
-        compareKey(defaultBase) === compareKey(baseUrl) || hostOf(defaultBase) === hostOf(baseUrl)
-      )) || (hostRoot && hostOf(baseUrl) === hostRoot)
-    );
+    const isDefault = (defaultBase && (
+      compareKey(defaultBase) === compareKey(baseUrl) ||
+      hostOf(defaultBase) === hostOf(baseUrl)
+    )) || (hostRoot && hostOf(baseUrl) === hostRoot);
 
     // provider_info の取得（複数候補にフォールバック）
     let info: unknown;
@@ -319,8 +325,13 @@ app.post(
     let lastErr: unknown = null;
     for (const url of candidates) {
       try {
-        const res = await faspFetch(env, url, { verifyResponseSignature: false });
-        if (!res.ok) { lastErr = new Error(`HTTP ${res.status}`); continue; }
+        const res = await faspFetch(env, url, {
+          verifyResponseSignature: false,
+        });
+        if (!res.ok) {
+          lastErr = new Error(`HTTP ${res.status}`);
+          continue;
+        }
         info = await res.json();
         lastErr = null;
         break;
@@ -355,13 +366,15 @@ app.post(
     const providersCol = mongo.collection("fasp_client_providers");
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     // 既存のベースURL表記揺れを正規化して統合
-    const variants = Array.from(new Set([
-      baseUrl,
-      `${baseUrl}/provider_info`,
-      `${baseUrl}/fasp`,
-      `${baseUrl}/fasp/provider_info`,
-      `${baseUrl}/.well-known/fasp/provider_info`,
-    ].flatMap((u) => [u, `${u}/`])));
+    const variants = Array.from(
+      new Set([
+        baseUrl,
+        `${baseUrl}/provider_info`,
+        `${baseUrl}/fasp`,
+        `${baseUrl}/fasp/provider_info`,
+        `${baseUrl}/.well-known/fasp/provider_info`,
+      ].flatMap((u) => [u, `${u}/`])),
+    );
     await providersCol.updateMany(
       { tenant_id: tenantId, baseUrl: { $in: variants } },
       { $set: { baseUrl, updatedAt: new Date() } },
@@ -434,7 +447,10 @@ app.get("/api/fasp/providers/:serverId", async (c) => {
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const d = await mongo.collection("fasp_client_providers").findOne({ tenant_id: tenantId, serverId });
+  const d = await mongo.collection("fasp_client_providers").findOne({
+    tenant_id: tenantId,
+    serverId,
+  });
   if (!d) return c.json({ error: "not found" }, 404);
   return c.json({
     name: d.name,
@@ -489,7 +505,10 @@ app.delete("/api/fasp/providers/:serverId", async (c) => {
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const res = await mongo.collection("fasp_client_providers").deleteOne({ tenant_id: tenantId, serverId });
+  const res = await mongo.collection("fasp_client_providers").deleteOne({
+    tenant_id: tenantId,
+    serverId,
+  });
   if (!res || res.deletedCount === 0) {
     return c.json({ error: "not found" }, 404);
   }
@@ -516,11 +535,12 @@ app.put(
     };
     const mongo = await db.getDatabase();
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const res = await mongo.collection("fasp_client_providers").findOneAndUpdate(
-      { tenant_id: tenantId, serverId },
-      { $set: { capabilities, updatedAt: new Date() } },
-      { returnDocument: "after" },
-    );
+    const res = await mongo.collection("fasp_client_providers")
+      .findOneAndUpdate(
+        { tenant_id: tenantId, serverId },
+        { $set: { capabilities, updatedAt: new Date() } },
+        { returnDocument: "after" },
+      );
     if (!res) return c.json({ error: "not found" }, 404);
     const baseUrl = (res.baseUrl ?? "").replace(/\/$/, "");
     if (baseUrl) {
@@ -547,8 +567,11 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const db = createDB(env);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const rec = await mongo.collection("fasp_client_providers").findOne({ tenant_id: tenantId, serverId });
+  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const rec = await mongo.collection("fasp_client_providers").findOne({
+    tenant_id: tenantId,
+    serverId,
+  });
   if (!rec) return c.json({ error: "not found" }, 404);
   const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
@@ -610,7 +633,11 @@ app.put("/api/fasp/settings", async (c) => {
       { _id: "default", tenant_id: tenantId },
       {
         $set: { ...update, updatedAt: new Date() },
-        $setOnInsert: { _id: "default", tenant_id: tenantId, createdAt: new Date() },
+        $setOnInsert: {
+          _id: "default",
+          tenant_id: tenantId,
+          createdAt: new Date(),
+        },
       },
       { upsert: true },
     );

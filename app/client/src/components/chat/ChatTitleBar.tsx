@@ -40,16 +40,27 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
     const me = account();
     if (!me) return room.displayName || room.name;
     // 明示的な displayName があれば尊重
-    if (room.displayName && room.displayName.trim() !== "") return room.displayName;
+    if (room.displayName && room.displayName.trim() !== "") {
+      return room.displayName;
+    }
     const selfHandle = `${me.userName}@${getDomain()}`;
     if (isFriendRoom(room)) {
-      const other = (room.members ?? []).find((m) => m !== selfHandle) ?? room.members?.[0];
-      const otherId = normalizeHandle(typeof other === "string" ? other : undefined);
-      if (!room.name || room.name === me.displayName || room.name === me.userName || room.name === selfHandle) {
+      const other = (room.members ?? []).find((m) => m !== selfHandle) ??
+        room.members?.[0];
+      const otherId = normalizeHandle(
+        typeof other === "string" ? other : undefined,
+      );
+      if (
+        !room.name || room.name === me.displayName ||
+        room.name === me.userName || room.name === selfHandle
+      ) {
         if (otherId && otherId !== selfHandle) return otherId;
         // 相手未確定なら pendingInvites から推定（接尾辞は付けない）
-        const cand = (room.pendingInvites && room.pendingInvites[0]) || undefined;
-        const guess = normalizeHandle(typeof cand === "string" ? cand : undefined);
+        const cand = (room.pendingInvites && room.pendingInvites[0]) ||
+          undefined;
+        const guess = normalizeHandle(
+          typeof cand === "string" ? cand : undefined,
+        );
         if (guess && guess !== selfHandle) {
           const short = guess.includes("@") ? guess.split("@")[0] : guess;
           return short;
@@ -59,7 +70,10 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
       }
     }
     // グループで自分名/自分ハンドルがタイトルに入ってしまっている場合は空で返す
-    if (room.name === me.displayName || room.name === me.userName || room.name === selfHandle) return "";
+    if (
+      room.name === me.displayName || room.name === me.userName ||
+      room.name === selfHandle
+    ) return "";
     return room.name;
   };
   return (
@@ -107,29 +121,29 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
       </div>
       <div class="ml-auto pr-4 flex items-center gap-3">
         <Show when={props.showSettings !== false}>
-        <button
-          type="button"
-          aria-label="Chat settings"
-          class="p-2 rounded hover:bg-white/10 transition-colors"
-          onClick={props.onOpenSettings}
-        >
-          {/* ハンバーガー / カスタム アイコン */}
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-            class="text-white"
+          <button
+            type="button"
+            aria-label="Chat settings"
+            class="p-2 rounded hover:bg-white/10 transition-colors"
+            onClick={props.onOpenSettings}
           >
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
+            {/* ハンバーガー / カスタム アイコン */}
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              fill="none"
+              class="text-white"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
         </Show>
       </div>
     </div>

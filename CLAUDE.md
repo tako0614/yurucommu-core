@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## プロジェクト概要
 
@@ -80,6 +81,7 @@ deno run -A setup.ts
 ### 主要なAPIエンドポイント
 
 #### ActivityPub
+
 - `/.well-known/webfinger` - WebFinger検索
 - `/users/:username` - アクター情報
 - `/users/:username/inbox` - 受信ボックス
@@ -87,6 +89,7 @@ deno run -A setup.ts
 - `/inbox` - 共有受信ボックス
 
 #### REST API
+
 - `/api/posts` - 投稿CRUD操作
 - `/api/follow` - フォロー管理
 - `/api/accounts` - アカウント管理
@@ -96,8 +99,10 @@ deno run -A setup.ts
 
 ### データモデル
 
-- **テナント分離**: すべてのドキュメントに `tenant_id` フィールドを持ち、ドメインごとにデータを分離
-- **コレクション分割**: 投稿データは `notes`、`messages`、`stories` に分類して保存
+- **テナント分離**: すべてのドキュメントに `tenant_id`
+  フィールドを持ち、ドメインごとにデータを分離
+- **コレクション分割**: 投稿データは `notes`、`messages`、`stories`
+  に分類して保存
 - **セッション管理**: TTLインデックスによる自動削除（7日間）
 
 ## 環境変数
@@ -110,6 +115,7 @@ deno run -A setup.ts
 - `SERVER_PORT` - サーバーポート（省略時: 80）
 
 オプション：
+
 - `SERVER_CERT`/`SERVER_KEY` - HTTPS証明書
 - `OAUTH_HOST`/`OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` - OAuth認証設定
 - `FILE_MAX_SIZE` - ファイルアップロード最大サイズ
@@ -117,10 +123,13 @@ deno run -A setup.ts
 
 ## 開発時の注意事項
 
-1. **環境変数の取得**: 常に `getEnv(c)` を使用してコンテキストから環境変数を取得すること
-2. **テナント管理**: `tenant_id` はActivityPubドメインと同一で、自動的に付与される
+1. **環境変数の取得**: 常に `getEnv(c)`
+   を使用してコンテキストから環境変数を取得すること
+2. **テナント管理**: `tenant_id`
+   はActivityPubドメインと同一で、自動的に付与される
 3. **セキュリティ**: 秘密鍵や認証情報をコミットしないこと
-4. **SSL開発環境**: 自己署名証明書使用時は `--unsafely-ignore-certificate-errors` フラグを使用
+4. **SSL開発環境**: 自己署名証明書使用時は
+   `--unsafely-ignore-certificate-errors` フラグを使用
 5. **初期設定**: 未設定時はブラウザで初期設定画面が表示される
 
 ## コード規約

@@ -53,8 +53,12 @@ export function OnboardingForm(props: OnboardingFormProps) {
       <main class="flex-grow flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md bg-[#212121] p-8 rounded-lg shadow-xl">
           <div class="mb-8 text-center">
-            <h2 class="text-3xl font-semibold mb-2 text-white">アカウント作成</h2>
-            <p class="text-gray-400 text-sm">最初のアカウントを作成し、興味のあるアカウントをフォローしましょう。</p>
+            <h2 class="text-3xl font-semibold mb-2 text-white">
+              アカウント作成
+            </h2>
+            <p class="text-gray-400 text-sm">
+              最初のアカウントを作成し、興味のあるアカウントをフォローしましょう。
+            </p>
           </div>
           <form onSubmit={handleSubmit} class="space-y-6">
             <div>
@@ -73,7 +77,9 @@ export function OnboardingForm(props: OnboardingFormProps) {
                 placeholder="alice"
                 disabled={isLoading()}
               />
-              <p class="mt-1 text-xs text-gray-400">英数字と - _ が利用可能（3〜32文字）</p>
+              <p class="mt-1 text-xs text-gray-400">
+                英数字と - _ が利用可能（3〜32文字）
+              </p>
             </div>
             <div>
               <label
@@ -106,7 +112,10 @@ export function OnboardingForm(props: OnboardingFormProps) {
                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
                 disabled={isLoading()}
               />
-              <p class="mt-1 text-xs text-gray-400">例: https://example.com/users/alice, https://remote.social/users/bob</p>
+              <p class="mt-1 text-xs text-gray-400">
+                例: https://example.com/users/alice,
+                https://remote.social/users/bob
+              </p>
             </div>
             <Show when={error()}>
               <p class="text-red-400 text-sm font-medium bg-red-900/30 p-3 rounded-md">

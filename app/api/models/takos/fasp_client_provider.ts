@@ -7,7 +7,11 @@ const faspClientProviderSchema = new mongoose.Schema({
   serverId: { type: String, required: true },
   faspId: { type: String, required: true },
   publicKey: { type: String, default: "" },
-  status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+  status: {
+    type: String,
+    enum: ["pending", "approved", "rejected"],
+    default: "pending",
+  },
   capabilities: { type: mongoose.Schema.Types.Mixed, default: {} },
   secret: { type: String, default: "" },
   createdAt: { type: Date, default: Date.now },
@@ -30,4 +34,3 @@ const FaspClientProvider = mongoose.models.FaspClientProvider ??
 
 export default FaspClientProvider;
 export { faspClientProviderSchema };
-

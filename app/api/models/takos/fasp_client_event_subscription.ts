@@ -7,11 +7,16 @@ const faspClientEventSubscriptionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 }, { collection: "fasp_client_event_subscriptions" });
 
-faspClientEventSubscriptionSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
+faspClientEventSubscriptionSchema.plugin(tenantScope, {
+  envKey: "ACTIVITYPUB_DOMAIN",
+});
 
-const FaspClientEventSubscription = mongoose.models.FaspClientEventSubscription ??
-  mongoose.model("FaspClientEventSubscription", faspClientEventSubscriptionSchema);
+const FaspClientEventSubscription =
+  mongoose.models.FaspClientEventSubscription ??
+    mongoose.model(
+      "FaspClientEventSubscription",
+      faspClientEventSubscriptionSchema,
+    );
 
 export default FaspClientEventSubscription;
 export { faspClientEventSubscriptionSchema };
-

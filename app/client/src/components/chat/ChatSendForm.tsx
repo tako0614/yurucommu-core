@@ -37,10 +37,66 @@ export function ChatSendForm(props: ChatSendFormProps) {
       >
         <Show when={props.allowMedia !== false}>
           <div class="relative">
+            <div
+              class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+              onClick={() => setShowMenu(!showMenu())}
+              title="メニューを開く"
+              style="min-height:28px;"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                style="display:block"
+              >
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </div>
+            <Show when={showMenu()}>
+              <div class="absolute bottom-full mb-1 left-0 bg-[#2e2e2e] p-2 rounded shadow flex flex-col gap-1">
+                <button
+                  type="button"
+                  class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
+                  onClick={() => {
+                    setShowMenu(false);
+                    fileInputFile?.click();
+                  }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    style="display:block"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2">
+                    </rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                  </svg>
+                  <span class="text-sm">ファイル</span>
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
+        <Show when={props.allowMedia !== false}>
           <div
             class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-            onClick={() => setShowMenu(!showMenu())}
-            title="メニューを開く"
+            onClick={() => fileInputImage?.click()}
+            title="画像・動画を送信"
             style="min-height:28px;"
           >
             <svg
@@ -55,82 +111,27 @@ export function ChatSendForm(props: ChatSendFormProps) {
               stroke-linejoin="round"
               style="display:block"
             >
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
             </svg>
-          </div>
-          <Show when={showMenu()}>
-            <div class="absolute bottom-full mb-1 left-0 bg-[#2e2e2e] p-2 rounded shadow flex flex-col gap-1">
-              <button
-                type="button"
-                class="flex items-center gap-1 hover:bg-[#3a3a3a] px-2 py-1 rounded"
-                onClick={() => {
-                  setShowMenu(false);
-                  fileInputFile?.click();
-                }}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  style="display:block"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                  <polyline points="21 15 16 10 5 21"></polyline>
-                </svg>
-                <span class="text-sm">ファイル</span>
-              </button>
-            </div>
-          </Show>
-          </div>
-        </Show>
-        <Show when={props.allowMedia !== false}>
-          <div
-            class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-            onClick={() => fileInputImage?.click()}
-            title="画像・動画を送信"
-            style="min-height:28px;"
-          >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            style="display:block"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-            <polyline points="21 15 16 10 5 21"></polyline>
-          </svg>
-          <input
-            ref={(el) => (fileInputImage = el)}
-            type="file"
-            accept="image/*,video/*"
-            class="hidden"
-            style="display:none;"
-            onChange={(e) => {
-              const f = (e.currentTarget as HTMLInputElement).files?.[0];
-              if (!f) return;
-              props.setMediaFile(f);
-              const reader = new FileReader();
-              reader.onload = () => {
-                props.setMediaPreview(reader.result as string);
-              };
-              reader.readAsDataURL(f);
-            }}
-          />
+            <input
+              ref={(el) => (fileInputImage = el)}
+              type="file"
+              accept="image/*,video/*"
+              class="hidden"
+              style="display:none;"
+              onChange={(e) => {
+                const f = (e.currentTarget as HTMLInputElement).files?.[0];
+                if (!f) return;
+                props.setMediaFile(f);
+                const reader = new FileReader();
+                reader.onload = () => {
+                  props.setMediaPreview(reader.result as string);
+                };
+                reader.readAsDataURL(f);
+              }}
+            />
           </div>
         </Show>
         <div class="flex flex-col flex-1 pr-1">
@@ -199,9 +200,15 @@ export function ChatSendForm(props: ChatSendFormProps) {
             if (canSend()) {
               props.sendMessage();
             } else {
-              globalThis.dispatchEvent(new CustomEvent("app:toast", {
-                detail: { type: "info", title: "お知らせ", description: "録音機能は未実装です" },
-              }));
+              globalThis.dispatchEvent(
+                new CustomEvent("app:toast", {
+                  detail: {
+                    type: "info",
+                    title: "お知らせ",
+                    description: "録音機能は未実装です",
+                  },
+                }),
+              );
             }
           }}
         >

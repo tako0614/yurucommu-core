@@ -395,7 +395,9 @@ export const saveCacheEntry = async <T>(
 };
 
 // 復号済みメッセージの永続化（ブラウザ/tauri 両対応）
-type SerializableChatMessage = Omit<ChatMessage, "timestamp"> & { timestamp: string };
+type SerializableChatMessage = Omit<ChatMessage, "timestamp"> & {
+  timestamp: string;
+};
 
 function serializeMessages(list: ChatMessage[]): SerializableChatMessage[] {
   return list.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }));

@@ -64,7 +64,10 @@ export function ChatRoomList(props: ChatRoomListProps) {
           const elapsed = Date.now() - shownAt;
           const rest = Math.max(0, min - elapsed);
           clearTimers();
-          minTimer = setTimeout(() => setShown(false), rest) as unknown as number;
+          minTimer = setTimeout(
+            () => setShown(false),
+            rest,
+          ) as unknown as number;
         } else {
           clearTimers();
           setShown(false);
@@ -109,7 +112,9 @@ export function ChatRoomList(props: ChatRoomListProps) {
   // かつ、招待中で自分しか居ないグループはプレースホルダーを表示
   const displayNameFor = (room: Room): string => {
     // 明示的な displayName があれば最優先
-    if (room.displayName && room.displayName.trim() !== "") return room.displayName;
+    if (room.displayName && room.displayName.trim() !== "") {
+      return room.displayName;
+    }
     const me = account();
     if (!me) return room.name;
     if (room.type === "memo") return room.name;
@@ -128,7 +133,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
         // 自分名や空のときは相手のハンドルを優先
         if (other && other !== selfHandle) return other;
         // 相手未確定なら pendingInvites から推測（接尾辞は付けない）
-        const cand = (room.pendingInvites && room.pendingInvites[0]) || undefined;
+        const cand = (room.pendingInvites && room.pendingInvites[0]) ||
+          undefined;
         const guess = normalizeHandle(cand);
         if (guess && guess !== selfHandle) {
           const short = guess.includes("@") ? guess.split("@")[0] : guess;
@@ -209,7 +215,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
     const room = props.rooms.find((r) =>
       isFriendRoom(r) && r.members.includes(friendId)
     );
-    return room?.displayName || room?.name || friendId.split("@")[0] || friendId;
+    return room?.displayName || room?.name || friendId.split("@")[0] ||
+      friendId;
   };
 
   const changeSeg = (seg: "all" | "people" | "groups") => {

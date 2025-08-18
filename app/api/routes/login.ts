@@ -31,29 +31,30 @@ app.post(
       if (!host) {
         return c.json({ error: "Server configuration error" }, 500);
       }
-      
+
       // OAuth ホストの検証
-      const oauthHostname = host.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
-      
+      const oauthHostname =
+        host.replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+
       // 内部アドレスやローカルホストのブロック
       const blockedHosts = [
-        'localhost',
-        '127.0.0.1',
-        '0.0.0.0',
-        '169.254.169.254', // AWS metadata
-        '::1',
-        '::ffff:127.0.0.1'
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "169.254.169.254", // AWS metadata
+        "::1",
+        "::ffff:127.0.0.1",
       ];
-      
+
       if (blockedHosts.includes(oauthHostname.toLowerCase())) {
         console.error(`Invalid OAuth host configuration: ${oauthHostname}`);
         return c.json({ error: "Invalid OAuth configuration" }, 500);
       }
-      
+
       // IPアドレスの検証
       const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
       const ipv6Regex = /^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/i;
-      
+
       if (ipv4Regex.test(oauthHostname) || ipv6Regex.test(oauthHostname)) {
         // プライベートIPアドレスのチェック
         const privateRanges = [
@@ -68,19 +69,19 @@ app.post(
           /^fe80:/i,
           /^::1$/i,
         ];
-        
-        if (privateRanges.some(range => range.test(oauthHostname))) {
+
+        if (privateRanges.some((range) => range.test(oauthHostname))) {
           console.error(`OAuth host resolves to private IP: ${oauthHostname}`);
           return c.json({ error: "Invalid OAuth configuration" }, 500);
         }
       }
-      
+
       const url = host.startsWith("http") ? host : `https://${host}`;
-      
+
       // タイムアウト設定
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      
+
       try {
         const res = await fetch(`${url}/oauth/verify`, {
           method: "POST",
@@ -88,7 +89,7 @@ app.post(
           body: JSON.stringify({ token: accessToken }),
           signal: controller.signal,
         });
-        
+
         if (!res.ok) return c.json({ error: "Invalid token" }, 401);
         const data = await res.json();
         if (!data.active) return c.json({ error: "Invalid token" }, 401);

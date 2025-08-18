@@ -9,7 +9,7 @@ info:
     See
     [the full specification](https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/tree/main/general/v0.1)
     for all the details.
-  version: '0.1'
+  version: "0.1"
 externalDocs:
   description: Fediverse Auxiliary Service Provider Specifications
   url: https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications
@@ -31,14 +31,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProviderRegistrationInfo'
+              $ref: "#/components/schemas/ProviderRegistrationInfo"
       responses:
-        '201':
+        "201":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerRegistrationInfo'
+                $ref: "#/components/schemas/ServerRegistrationInfo"
       security:
         - provider_auth: []
 components:

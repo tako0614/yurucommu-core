@@ -1,4 +1,4 @@
-import { Accessor, JSX, createSignal, onCleanup, children } from "solid-js";
+import { Accessor, children, createSignal, JSX, onCleanup } from "solid-js";
 
 type SwipeTabsProps = {
   index: number | Accessor<number>;
@@ -15,7 +15,10 @@ type SwipeTabsProps = {
 // モバイル横スワイプ用のタブコンテナ。
 // ドラッグ中は両方のページを同時に表示し、離したタイミングでスナップします。
 export function SwipeTabs(props: SwipeTabsProps) {
-  const getIndex = () => (typeof props.index === "function" ? (props.index as Accessor<number>)() : props.index);
+  const getIndex =
+    () => (typeof props.index === "function"
+      ? (props.index as Accessor<number>)()
+      : props.index);
 
   const [dragX, setDragX] = createSignal(0);
   const [isDragging, setIsDragging] = createSignal(false);
@@ -121,7 +124,9 @@ export function SwipeTabs(props: SwipeTabsProps) {
 
   const addListeners = () => {
     if (!containerRef) return;
-    containerRef.addEventListener("touchstart", onTouchStart, { passive: true });
+    containerRef.addEventListener("touchstart", onTouchStart, {
+      passive: true,
+    });
     containerRef.addEventListener("touchmove", onTouchMove, { passive: false });
     containerRef.addEventListener("touchend", onTouchEnd, { passive: true });
     containerRef.addEventListener("touchcancel", onTouchEnd, { passive: true });
@@ -150,7 +155,9 @@ export function SwipeTabs(props: SwipeTabsProps) {
     const translate = `translateX(calc(${-idx * 100}% + ${px}px))`;
     return {
       transform: translate,
-      transition: isDragging() ? "none" : "transform 280ms cubic-bezier(0.22, 0.61, 0.36, 1)",
+      transition: isDragging()
+        ? "none"
+        : "transform 280ms cubic-bezier(0.22, 0.61, 0.36, 1)",
     } as JSX.CSSProperties;
   };
 

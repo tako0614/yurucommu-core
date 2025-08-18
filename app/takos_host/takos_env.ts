@@ -41,7 +41,10 @@ const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
 
 type KeyTuple = readonly string[];
 
-function copyKeys(src: Record<string, string>, keys: KeyTuple): Record<string, string> {
+function copyKeys(
+  src: Record<string, string>,
+  keys: KeyTuple,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const k of keys) {
     if (src[k] !== undefined) out[k] = src[k];

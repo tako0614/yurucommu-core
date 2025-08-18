@@ -1,15 +1,6 @@
-import {
-  Component,
-  createEffect,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { Account, isDataUrl, isUrl } from "./types.ts";
-import {
-  fetchActivityPubObjects,
-  fetchUserProfile,
-} from "../microblog/api.ts";
+import { fetchActivityPubObjects, fetchUserProfile } from "../microblog/api.ts";
 import { PostList } from "../microblog/Post.tsx";
 import { UserAvatar } from "../microblog/UserAvatar.tsx";
 import { getDomain } from "../../utils/config.ts";
@@ -109,7 +100,10 @@ const AccountSettingsContent: Component<{
       if (!followingMap()[accId]) {
         try {
           const list = await fetchFollowing(account.userName);
-          saveFollowing({ accountId: accId, list: Array.isArray(list) ? list : [] });
+          saveFollowing({
+            accountId: accId,
+            list: Array.isArray(list) ? list : [],
+          });
         } catch (e) {
           console.error("failed to fetch following", e);
         }
@@ -117,7 +111,10 @@ const AccountSettingsContent: Component<{
       if (!followersMap()[accId]) {
         try {
           const list = await fetchFollowers(account.userName);
-          saveFollowers({ accountId: accId, list: Array.isArray(list) ? list : [] });
+          saveFollowers({
+            accountId: accId,
+            list: Array.isArray(list) ? list : [],
+          });
         } catch (e) {
           console.error("failed to fetch followers", e);
         }

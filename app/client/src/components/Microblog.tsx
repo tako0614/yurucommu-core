@@ -60,7 +60,11 @@ export function Microblog() {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [loadingInitial, setLoadingInitial] = createSignal(true);
   // スケルトンの遅延表示（速いレスポンスでは出さない）
-  const showInitialSkeleton = createDelayedVisibility(() => loadingInitial(), 250, 300);
+  const showInitialSkeleton = createDelayedVisibility(
+    () => loadingInitial(),
+    250,
+    300,
+  );
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
 
   // モバイルのタブ <-> インデックスの相互変換
@@ -83,7 +87,9 @@ export function Microblog() {
     const next = tabOrder[i] ?? "following";
     setMobileTab(next);
     queueMicrotask(() => {
-      if (scrollEl) scrollEl.scrollTo({ top: scrollPos[next] ?? 0, behavior: "auto" });
+      if (scrollEl) {
+        scrollEl.scrollTo({ top: scrollPos[next] ?? 0, behavior: "auto" });
+      }
     });
   };
 
@@ -276,9 +282,15 @@ export function Microblog() {
 
     const user = account();
     if (!user) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "操作できません", description: "アカウントが選択されていません" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "操作できません",
+            description: "アカウントが選択されていません",
+          },
+        }),
+      );
       return;
     }
 
@@ -297,13 +309,25 @@ export function Microblog() {
       setQuoteTarget(null);
       setShowPostForm(false);
       resetPosts();
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "success", title: "投稿しました", description: "タイムラインを更新しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "success",
+            title: "投稿しました",
+            description: "タイムラインを更新しました",
+          },
+        }),
+      );
     } else {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "error", title: "投稿エラー", description: "投稿の作成に失敗しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "error",
+            title: "投稿エラー",
+            description: "投稿の作成に失敗しました",
+          },
+        }),
+      );
     }
   };
 
@@ -313,9 +337,15 @@ export function Microblog() {
   ) => {
     const user = account();
     if (!user) {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "warning", title: "操作できません", description: "アカウントが選択されていません" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "warning",
+            title: "操作できません",
+            description: "アカウントが選択されていません",
+          },
+        }),
+      );
       return;
     }
     const postId = targetPostId();
@@ -332,13 +362,21 @@ export function Microblog() {
     if (success) {
       // リプライリストを更新
       await loadPostById(postId);
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "success", title: "返信を投稿しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { type: "success", title: "返信を投稿しました" },
+        }),
+      );
     } else {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "error", title: "投稿エラー", description: "返信の投稿に失敗しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "error",
+            title: "投稿エラー",
+            description: "返信の投稿に失敗しました",
+          },
+        }),
+      );
     }
   };
 
@@ -404,13 +442,21 @@ export function Microblog() {
       } else {
         resetPosts();
       }
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "success", title: "更新しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { type: "success", title: "更新しました" },
+        }),
+      );
     } else {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "error", title: "更新エラー", description: "投稿の更新に失敗しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "error",
+            title: "更新エラー",
+            description: "投稿の更新に失敗しました",
+          },
+        }),
+      );
     }
   };
 
@@ -430,13 +476,21 @@ export function Microblog() {
       } else {
         resetPosts();
       }
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "success", title: "削除しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { type: "success", title: "削除しました" },
+        }),
+      );
     } else {
-      globalThis.dispatchEvent(new CustomEvent("app:toast", {
-        detail: { type: "error", title: "削除エラー", description: "投稿の削除に失敗しました" },
-      }));
+      globalThis.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: {
+            type: "error",
+            title: "削除エラー",
+            description: "投稿の削除に失敗しました",
+          },
+        }),
+      );
     }
   };
 
@@ -468,11 +522,19 @@ export function Microblog() {
                         stroke="currentColor"
                         viewBox="0 0 24 24"
                       >
-                        <path stroke-linecap="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        <path
+                          stroke-linecap="round"
+                          stroke-width="2"
+                          d="M4 6h16M4 12h16M4 18h16"
+                        />
                       </svg>
                     </button>
                     <div class="flex-1 flex items-center justify-center">
-                      <img src="/takos.svg" alt="Takos" class="h-6 opacity-90" />
+                      <img
+                        src="/takos.svg"
+                        alt="Takos"
+                        class="h-6 opacity-90"
+                      />
                     </div>
                     {/* 右側の余白(ロゴを中央に見せるため) */}
                     <div class="w-10" />
@@ -494,7 +556,11 @@ export function Microblog() {
                               : "bg-transparent"
                           }`}
                         />
-                        <span class={`${mobileTab() === "latest" ? "text-white" : ""}`}>
+                        <span
+                          class={`${
+                            mobileTab() === "latest" ? "text-white" : ""
+                          }`}
+                        >
                           最新
                         </span>
                       </span>
@@ -514,7 +580,11 @@ export function Microblog() {
                               : "bg-transparent"
                           }`}
                         />
-                        <span class={`${mobileTab() === "following" ? "text-white" : ""}`}>
+                        <span
+                          class={`${
+                            mobileTab() === "following" ? "text-white" : ""
+                          }`}
+                        >
                           フォロー中
                         </span>
                       </span>
@@ -534,7 +604,11 @@ export function Microblog() {
                               : "bg-transparent"
                           }`}
                         />
-                        <span class={`${mobileTab() === "trends" ? "text-white" : ""}`}>
+                        <span
+                          class={`${
+                            mobileTab() === "trends" ? "text-white" : ""
+                          }`}
+                        >
                           トレンド
                         </span>
                       </span>
@@ -567,7 +641,8 @@ export function Microblog() {
                       </h3>
                     </div>
                     <div class="p-4 overflow-x-hidden text-[#CDD1D6]">
-                      <Show when={!showInitialSkeleton()}
+                      <Show
+                        when={!showInitialSkeleton()}
                         fallback={<PostListSkeleton count={6} />}
                       >
                         <PostList
@@ -627,19 +702,20 @@ export function Microblog() {
                         >
                           {/* 最新 */}
                           <div class="min-h-[calc(100vh-4rem)]">
-                            <Show when={!showInitialSkeleton()}
+                            <Show
+                              when={!showInitialSkeleton()}
                               fallback={<PostListSkeleton count={6} />}
                             >
                               <PostList
-                              posts={posts() || []}
-                              tab="latest"
-                              handleReply={handleReply}
-                              handleRetweet={handleRetweet}
-                              handleQuote={handleQuote}
-                              handleLike={handleLike}
-                              handleEdit={handleEdit}
-                              handleDelete={handleDelete}
-                              formatDate={formatDate}
+                                posts={posts() || []}
+                                tab="latest"
+                                handleReply={handleReply}
+                                handleRetweet={handleRetweet}
+                                handleQuote={handleQuote}
+                                handleLike={handleLike}
+                                handleEdit={handleEdit}
+                                handleDelete={handleDelete}
+                                formatDate={formatDate}
                               />
                             </Show>
                             <Show when={(posts() || []).length === 0}>
@@ -671,22 +747,26 @@ export function Microblog() {
 
                           {/* フォロー中 */}
                           <div class="min-h-[calc(100vh-4rem)]">
-                            <Show when={!showFollowingSkeleton()}
+                            <Show
+                              when={!showFollowingSkeleton()}
                               fallback={<PostListSkeleton count={6} />}
                             >
                               <PostList
-                              posts={followingTimelinePosts() || []}
-                              tab="following"
-                              handleReply={handleReply}
-                              handleRetweet={handleRetweet}
-                              handleQuote={handleQuote}
-                              handleLike={handleLike}
-                              handleEdit={handleEdit}
-                              handleDelete={handleDelete}
-                              formatDate={formatDate}
+                                posts={followingTimelinePosts() || []}
+                                tab="following"
+                                handleReply={handleReply}
+                                handleRetweet={handleRetweet}
+                                handleQuote={handleQuote}
+                                handleLike={handleLike}
+                                handleEdit={handleEdit}
+                                handleDelete={handleDelete}
+                                formatDate={formatDate}
                               />
                             </Show>
-                            <Show when={(followingTimelinePosts() || []).length === 0}>
+                            <Show
+                              when={(followingTimelinePosts() || []).length ===
+                                0}
+                            >
                               <div class="p-8 text-center min-h-[50vh] flex flex-col justify-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[#2B3340]/50 flex items-center justify-center">
                                   <svg
@@ -722,19 +802,20 @@ export function Microblog() {
 
                       {/* デスクトップ: フォロー中投稿のみ */}
                       <div class="hidden lg:block text-[#CDD1D6]">
-                        <Show when={!showFollowingSkeleton()}
+                        <Show
+                          when={!showFollowingSkeleton()}
                           fallback={<PostListSkeleton count={8} />}
                         >
                           <PostList
-                          posts={followingTimelinePosts() || []}
-                          tab="following"
-                          handleReply={handleReply}
-                          handleRetweet={handleRetweet}
-                          handleQuote={handleQuote}
-                          handleLike={handleLike}
-                          handleEdit={handleEdit}
-                          handleDelete={handleDelete}
-                          formatDate={formatDate}
+                            posts={followingTimelinePosts() || []}
+                            tab="following"
+                            handleReply={handleReply}
+                            handleRetweet={handleRetweet}
+                            handleQuote={handleQuote}
+                            handleLike={handleLike}
+                            handleEdit={handleEdit}
+                            handleDelete={handleDelete}
+                            formatDate={formatDate}
                           />
                         </Show>
                         <Show
@@ -898,7 +979,10 @@ function PostListSkeleton(props: { count?: number }) {
       {items.map(() => (
         <div class="py-4">
           <div class="flex gap-3">
-            <Skeleton class="w-10 h-10 rounded-full shrink-0" rounded="rounded-full" />
+            <Skeleton
+              class="w-10 h-10 rounded-full shrink-0"
+              rounded="rounded-full"
+            />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
                 <Skeleton class="h-4 w-28" />

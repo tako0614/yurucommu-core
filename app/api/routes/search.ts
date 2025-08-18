@@ -31,13 +31,13 @@ function isPrivateIP(ip: string): boolean {
     /^127\./,
     /^0\./,
     /^169\.254\./, // Link-local
-    /^fc00:/i,      // IPv6 Unique Local
+    /^fc00:/i, // IPv6 Unique Local
     /^fd[0-9a-f]{2}:/i,
-    /^fe80:/i,      // IPv6 Link-local
-    /^::1$/i,       // IPv6 localhost
+    /^fe80:/i, // IPv6 Link-local
+    /^::1$/i, // IPv6 localhost
   ];
-  
-  return privateRanges.some(range => range.test(ip));
+
+  return privateRanges.some((range) => range.test(ip));
 }
 
 async function validateServerHostname(hostname: string): Promise<boolean> {
@@ -46,25 +46,25 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
   if (isDev) {
     return true;
   }
-  
+
   // ローカルホストや内部アドレスのブロック
   const blockedHosts = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    '169.254.169.254', // AWS metadata
-    '::1',
-    '::ffff:127.0.0.1'
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "169.254.169.254", // AWS metadata
+    "::1",
+    "::ffff:127.0.0.1",
   ];
-  
+
   if (blockedHosts.includes(hostname.toLowerCase())) {
     return false;
   }
-  
+
   // IPアドレスかどうかチェック
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
   const ipv6Regex = /^([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}$/i;
-  
+
   if (ipv4Regex.test(hostname) || ipv6Regex.test(hostname)) {
     if (isPrivateIP(hostname)) {
       return false;
@@ -92,7 +92,7 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
       }
     }
   }
-  
+
   return true;
 }
 
@@ -237,28 +237,30 @@ app.get("/search", async (c) => {
     // サーバーホスト名の検証
     const isValidServer = await validateServerHostname(server);
     if (!isValidServer) {
-      console.warn(`Blocked search request to potentially unsafe server: ${server}`);
+      console.warn(
+        `Blocked search request to potentially unsafe server: ${server}`,
+      );
       return c.json(results); // 内部結果のみ返す
     }
-    
+
     let remoteResults: SearchResult[] = [];
     try {
       const url = `https://${server}/api/search?q=${
         encodeURIComponent(q)
       }&type=${type}`;
-      
+
       // タイムアウト設定
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      
+
       try {
         const res = await fetch(url, {
           signal: controller.signal,
           headers: {
-            'User-Agent': 'takos-search/1.0'
-          }
+            "User-Agent": "takos-search/1.0",
+          },
         });
-        
+
         if (res.ok) {
           remoteResults = await res.json();
           for (const r of remoteResults) {

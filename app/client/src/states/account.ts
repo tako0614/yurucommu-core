@@ -72,7 +72,10 @@ export const accountStatsMap = atom<Record<string, AccountStats>>({});
 export const setAccountStatsMap = atom(
   (get) => get(accountStatsMap),
   (_get, set, payload: { accountId: string; stats: AccountStats }) => {
-    set(accountStatsMap, (prev) => ({ ...prev, [payload.accountId]: payload.stats }));
+    set(
+      accountStatsMap,
+      (prev) => ({ ...prev, [payload.accountId]: payload.stats }),
+    );
   },
 );
 
@@ -83,13 +86,19 @@ export const followersListMap = atom<Record<string, unknown[]>>({});
 export const setFollowingList = atom(
   (get) => get(followingListMap),
   (_get, set, payload: { accountId: string; list: unknown[] }) => {
-    set(followingListMap, (prev) => ({ ...prev, [payload.accountId]: payload.list }));
+    set(
+      followingListMap,
+      (prev) => ({ ...prev, [payload.accountId]: payload.list }),
+    );
   },
 );
 
 export const setFollowersList = atom(
   (get) => get(followersListMap),
   (_get, set, payload: { accountId: string; list: unknown[] }) => {
-    set(followersListMap, (prev) => ({ ...prev, [payload.accountId]: payload.list }));
+    set(
+      followersListMap,
+      (prev) => ({ ...prev, [payload.accountId]: payload.list }),
+    );
   },
 );

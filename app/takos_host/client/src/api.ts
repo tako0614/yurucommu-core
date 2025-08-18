@@ -141,7 +141,9 @@ export async function fetchFaspProviders(): Promise<FaspProvider[]> {
 }
 
 export async function deleteFaspProvider(serverId: string): Promise<boolean> {
-  const res = await fetch(`/api/fasp/providers/${serverId}`, { method: "DELETE" });
+  const res = await fetch(`/api/fasp/providers/${serverId}`, {
+    method: "DELETE",
+  });
   return res.ok;
 }
 
@@ -161,11 +163,14 @@ export async function sendHandshake(
     attachments?: unknown[];
   },
 ): Promise<{ ok: true; id?: string } | { ok: false; error?: string }> {
-  const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/handshakes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch(
+    `/api/rooms/${encodeURIComponent(roomId)}/handshakes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
   if (!res.ok) {
     try {
       const data = await res.json();

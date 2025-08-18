@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { MicroblogPost } from "./types.ts";
 import { PostItem } from "./Post.tsx";
 
@@ -67,8 +67,18 @@ export function PostDetailView(props: PostDetailViewProps) {
             class="text-[#9CA3AF] hover:text-[#E5E7EB] flex items-center gap-2"
             aria-label="戻る"
           >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
             <span class="font-semibold">ポスト</span>
           </button>
@@ -76,7 +86,7 @@ export function PostDetailView(props: PostDetailViewProps) {
       </div>
 
       {/* 元ポスト */}
-  <div class="px-4 border-b border-[#2B3340]/50">
+      <div class="px-4 border-b border-[#2B3340]/50">
         <PostItem
           post={props.post}
           tab="latest"
@@ -91,34 +101,35 @@ export function PostDetailView(props: PostDetailViewProps) {
       </div>
 
       {/* 返信フォーム */}
-  <div class="px-4 py-3 border-b border-[#2B3340]/50">
+      <div class="px-4 py-3 border-b border-[#2B3340]/50">
         <form onSubmit={onSubmitReply} class="flex flex-col gap-3">
           <textarea
-    class="w-full bg-transparent border border-[#2B3340]/60 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#2563EB]"
+            class="w-full bg-transparent border border-[#2B3340]/60 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#2563EB]"
             rows={3}
             placeholder="返信をポスト"
             value={replyText()}
-            onInput={(e) => setReplyText((e.currentTarget as HTMLTextAreaElement).value)}
+            onInput={(e) =>
+              setReplyText((e.currentTarget as HTMLTextAreaElement).value)}
           />
 
           {/* 添付プレビュー */}
           <Show when={attachments().length > 0}>
-      <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2">
               <For each={attachments()}>
                 {(att, i) => (
-          <div class="flex items-center gap-2 border border-[#2B3340]/60 rounded-lg px-2 py-1">
+                  <div class="flex items-center gap-2 border border-[#2B3340]/60 rounded-lg px-2 py-1">
                     <span class="text-xs text-gray-300">{att.type}</span>
                     <a
                       href={att.url}
                       target="_blank"
                       rel="noreferrer"
-            class="max-w-[200px] truncate text-[#60A5FA] hover:underline"
+                      class="max-w-[200px] truncate text-[#60A5FA] hover:underline"
                     >
                       {att.url}
                     </a>
                     <button
                       type="button"
-            class="ml-1 text-gray-400 hover:text-red-400"
+                      class="ml-1 text-gray-400 hover:text-red-400"
                       onClick={() => removeAttachment(i())}
                       aria-label="添付を削除"
                     >
@@ -147,7 +158,8 @@ export function PostDetailView(props: PostDetailViewProps) {
                   placeholder="メディアのURL"
                   class="min-w-[220px] bg-transparent border border-[#2B3340]/60 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
                   value={attUrl()}
-                  onInput={(e) => setAttUrl((e.currentTarget as HTMLInputElement).value)}
+                  onInput={(e) =>
+                    setAttUrl((e.currentTarget as HTMLInputElement).value)}
                 />
                 <select
                   class="bg-transparent border border-[#2B3340]/60 rounded-lg px-2 py-1"
@@ -175,7 +187,8 @@ export function PostDetailView(props: PostDetailViewProps) {
               <span class="text-xs text-gray-400">{replyText().length}</span>
               <button
                 type="submit"
-                disabled={submitting() || (!replyText().trim() && attachments().length === 0)}
+                disabled={submitting() ||
+                  (!replyText().trim() && attachments().length === 0)}
                 class="px-4 py-2 rounded-full bg-[#2563EB] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#3B82F6]"
               >
                 {submitting() ? "送信中…" : "返信"}

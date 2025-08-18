@@ -181,14 +181,18 @@ export async function sendAnnouncements(
       | { shareEnabled?: boolean; shareServerIds?: string[] }
       | null;
   if (settings && settings.shareEnabled === false) return; // 共有無効
-  const baseFilter: Record<string, unknown> = { tenant_id: tenantId, status: "approved" };
+  const baseFilter: Record<string, unknown> = {
+    tenant_id: tenantId,
+    status: "approved",
+  };
   if (
     settings?.shareServerIds && Array.isArray(settings.shareServerIds) &&
     settings.shareServerIds.length > 0
   ) {
     baseFilter.serverId = { $in: settings.shareServerIds };
   }
-  const fasps = await mongo.collection("fasp_client_providers").find(baseFilter).toArray();
+  const fasps = await mongo.collection("fasp_client_providers").find(baseFilter)
+    .toArray();
   if (!fasps || fasps.length === 0) return;
   const body = JSON.stringify({
     source: ann.source ?? { subscription: { id: "default" } },
@@ -203,7 +207,11 @@ export async function sendAnnouncements(
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
       try {
-        await faspFetch(env, url, { method: "POST", body, signing: "registered" });
+        await faspFetch(env, url, {
+          method: "POST",
+          body,
+          signing: "registered",
+        });
       } catch {
         /* ignore errors */
       }
@@ -277,7 +285,10 @@ export async function notifyCapabilityActivation(
     baseUrl.replace(/\/$/, "")
   }/capabilities/${identifier}/${version}/activation`;
   try {
-    await faspFetch(env, url, { method: enabled ? "POST" : "DELETE", signing: "registered" });
+    await faspFetch(env, url, {
+      method: enabled ? "POST" : "DELETE",
+      signing: "registered",
+    });
   } catch {
     /* ignore errors */
   }

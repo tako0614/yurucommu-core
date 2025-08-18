@@ -317,7 +317,10 @@ app.post("/users/:username/inbox", async (c) => {
     if (typeof handler === "function") {
       const res = await handler(activity as unknown, username, c);
       // handler が Hono のレスポンス用のオブジェクトを返したらそれを返す
-      if (res && typeof res === "object" && ("status" in (res as object) || "body" in (res as object))) {
+      if (
+        res && typeof res === "object" &&
+        ("status" in (res as object) || "body" in (res as object))
+      ) {
         return res as unknown as Response;
       }
     }

@@ -17,8 +17,9 @@ export const FASP_PROVIDER_INFO_PATHS = [
   "/fasp/provider_info",
 ];
 
-export const isTruthyFlag = (v: string | undefined) => (v ?? "").toLowerCase() in {
-  "1": true,
-  "true": true,
-  "yes": true,
-};
+export const isTruthyFlag = (v: string | undefined) =>
+  (v ?? "").toLowerCase() in {
+    "1": true,
+    "true": true,
+    "yes": true,
+  };

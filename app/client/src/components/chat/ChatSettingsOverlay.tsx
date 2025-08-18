@@ -5,10 +5,18 @@ import { apiFetch, getDomain } from "../../utils/config.ts";
 import type { Room } from "./types.ts";
 import type { BindingStatus } from "../e2ee/binding.ts";
 import { useMLS } from "../e2ee/useMLS.ts";
-import { loadMLSGroupStates, getCacheItem, setCacheItem } from "../e2ee/storage.ts";
+import {
+  getCacheItem,
+  loadMLSGroupStates,
+  setCacheItem,
+} from "../e2ee/storage.ts";
 import type { StoredGroupState } from "../e2ee/mls_wrapper.ts";
 import { fetchUserInfo } from "../microblog/api.ts";
-import { fetchEncryptedMessages, fetchKeyPackages, sendHandshake } from "../e2ee/api.ts";
+import {
+  fetchEncryptedMessages,
+  fetchKeyPackages,
+  sendHandshake,
+} from "../e2ee/api.ts";
 import { createCommitAndWelcomes } from "../e2ee/mls_wrapper.ts";
 import { encodePublicMessage } from "../e2ee/mls_message.ts";
 
@@ -79,7 +87,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     const user = accountValue();
     if (!user) return [];
     const raw = await getCacheItem(user.id, cacheKey(roomId));
-    return Array.isArray(raw) ? (raw as unknown[]).filter((v) => typeof v === "string") as string[] : [];
+    return Array.isArray(raw)
+      ? (raw as unknown[]).filter((v) => typeof v === "string") as string[]
+      : [];
   };
   const writePending = async (roomId: string, ids: string[]) => {
     const user = accountValue();
@@ -95,7 +105,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     const cur = (await readPending(roomId)).filter((v) => v !== id);
     await writePending(roomId, cur);
   };
-  const loadPendingFromStorage = async (roomId: string, presentIds?: string[]) => {
+  const loadPendingFromStorage = async (
+    roomId: string,
+    presentIds?: string[],
+  ) => {
     const user = accountValue();
     if (!user) return setPending([]);
     const present = new Set(presentIds ?? members().map((m) => m.id));
@@ -107,7 +120,12 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       if (handle) {
         try {
           const info = await fetchUserInfo(handle);
-          const resEval = await assessMemberBinding(user.id, roomId, handle, "");
+          const resEval = await assessMemberBinding(
+            user.id,
+            roomId,
+            handle,
+            "",
+          );
           list.push({
             id: handle,
             display: info?.displayName || info?.userName || handle,
@@ -138,7 +156,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     setPending(list);
   };
 
-  const loadMembersFromMLS = async (roomId: string, stateFromParent?: StoredGroupState) => {
+  const loadMembersFromMLS = async (
+    roomId: string,
+    stateFromParent?: StoredGroupState,
+  ) => {
     const user = accountValue();
     if (!user) return setMembers([]);
     try {
@@ -222,7 +243,12 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         } as MemberItem;
       }));
       const unknownList = await Promise.all(unknown.map(async (raw) => {
-        const resEval = await assessMemberBinding(user.id, roomId, undefined, "");
+        const resEval = await assessMemberBinding(
+          user.id,
+          roomId,
+          undefined,
+          "",
+        );
         return {
           id: raw,
           display: "不明",
@@ -327,7 +353,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     return undefined;
   };
 
-  const normalizeActor = (input: string): { user: string; domain?: string } | null => {
+  const normalizeActor = (
+    input: string,
+  ): { user: string; domain?: string } | null => {
     let v = input.trim();
     if (!v) return null;
     if (v.startsWith("http")) {
@@ -335,7 +363,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         const url = new URL(v);
         const name = url.pathname.split("/").pop() || "";
         if (!name) return null;
-        return { user: `${name}@${url.hostname}` } as { user: string; domain?: string };
+        return { user: `${name}@${url.hostname}` } as {
+          user: string;
+          domain?: string;
+        };
       } catch {
         return null;
       }
@@ -381,7 +412,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       const commitContent = encodePublicMessage(res.commit);
       // 既知のメンバー（UIが持つ room.members）と自分を宛先に含める
       const self = `${user.userName}@${getDomain()}`;
-      const toList = Array.from(new Set([...(props.room?.members ?? []), self]));
+      const toList = Array.from(
+        new Set([...(props.room?.members ?? []), self]),
+      );
       const ok = await sendHandshake(
         props.room.id,
         `${user.userName}@${getDomain()}`,
@@ -669,24 +702,49 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                                       : m.display[0]}
                                   </div>
                                   <div class="flex-1 min-w-0">
-                                    <p class="text-sm text-white font-medium truncate">{m.display}</p>
-                                    <p class="text-xs text-gray-500 truncate">{m.actor ?? m.id}</p>
+                                    <p class="text-sm text-white font-medium truncate">
+                                      {m.display}
+                                    </p>
+                                    <p class="text-xs text-gray-500 truncate">
+                                      {m.actor ?? m.id}
+                                    </p>
                                     <p class="text-xs text-gray-300 mt-1">
                                       {m.bindingInfo.label}
                                       <Show when={m.bindingInfo.caution}>
-                                        <span class="ml-2 text-yellow-400">{m.bindingInfo.caution}</span>
+                                        <span class="ml-2 text-yellow-400">
+                                          {m.bindingInfo.caution}
+                                        </span>
                                       </Show>
                                       <Show when={!m.ktIncluded}>
-                                        <span class="ml-2 text-yellow-400">監査未検証</span>
+                                        <span class="ml-2 text-yellow-400">
+                                          監査未検証
+                                        </span>
                                       </Show>
                                     </p>
                                   </div>
                                   <div class="flex items-center gap-2">
                                     <Show when={m.bindingStatus !== "Verified"}>
-                                      <button type="button" class="px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white">指紋確認</button>
+                                      <button
+                                        type="button"
+                                        class="px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white"
+                                      >
+                                        指紋確認
+                                      </button>
                                     </Show>
-                                    <Show when={accountValue() && `${accountValue()!.userName}@${getDomain()}` !== m.id}>
-                                      <button type="button" disabled={saving()} onClick={() => handleRemoveMember(m.id)} class="px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-700 text-white">削除</button>
+                                    <Show
+                                      when={accountValue() &&
+                                        `${
+                                            accountValue()!.userName
+                                          }@${getDomain()}` !== m.id}
+                                    >
+                                      <button
+                                        type="button"
+                                        disabled={saving()}
+                                        onClick={() => handleRemoveMember(m.id)}
+                                        class="px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-700 text-white"
+                                      >
+                                        削除
+                                      </button>
                                     </Show>
                                   </div>
                                 </div>
@@ -704,13 +762,21 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                                   <div class="w-8 h-8 rounded-full bg-[#3a3a3a] overflow-hidden flex items-center justify-center text-xs text-gray-400">
                                     {m.avatar
                                       ? (
-                                        <img src={m.avatar} alt={m.display} class="w-full h-full object-cover" />
+                                        <img
+                                          src={m.avatar}
+                                          alt={m.display}
+                                          class="w-full h-full object-cover"
+                                        />
                                       )
                                       : m.display[0]}
                                   </div>
                                   <div class="flex-1 min-w-0">
-                                    <p class="text-sm text-white font-medium truncate">{m.display}</p>
-                                    <p class="text-xs text-gray-500 truncate">{m.actor ?? m.id}</p>
+                                    <p class="text-sm text-white font-medium truncate">
+                                      {m.display}
+                                    </p>
+                                    <p class="text-xs text-gray-500 truncate">
+                                      {m.actor ?? m.id}
+                                    </p>
                                   </div>
                                   {/* pending badge intentionally hidden */}
                                 </div>
@@ -719,7 +785,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           </div>
                         </div>
                       </Show>
-                      <Show when={members().length === 0 && pending().length === 0}>
+                      <Show
+                        when={members().length === 0 && pending().length === 0}
+                      >
                         <div class="text-xs text-gray-500">メンバー無し</div>
                       </Show>
                     </div>

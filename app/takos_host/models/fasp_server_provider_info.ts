@@ -22,4 +22,3 @@ const FaspServerProviderInfo = mongoose.models.FaspServerProviderInfo ??
   mongoose.model("FaspServerProviderInfo", providerInfoSchema);
 
 export default FaspServerProviderInfo;
-

@@ -46,7 +46,9 @@ export function isFriendRoom(room: Room): boolean {
   // 1 名（自分以外）がいる＝1:1 ルームとみなす（名称/アイコン有無に依らず友だち扱い）
   if (count === 1) return true;
   // 未同期で members がまだ空でも、ID が @ を含む（= actor handle 形式）なら暫定的に 1:1 とする
-  if (count === 0 && typeof room.id === "string" && room.id.includes("@")) return true;
+  if (count === 0 && typeof room.id === "string" && room.id.includes("@")) {
+    return true;
+  }
   return false;
 }
 

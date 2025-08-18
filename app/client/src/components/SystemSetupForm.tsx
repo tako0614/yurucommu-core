@@ -28,7 +28,10 @@ export function SystemSetupForm(props: SystemSetupFormProps) {
       const res = await apiFetch("/api/system/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: password(), domain: domain().trim() || undefined }),
+        body: JSON.stringify({
+          password: password(),
+          domain: domain().trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -48,12 +51,19 @@ export function SystemSetupForm(props: SystemSetupFormProps) {
       <main class="flex-grow flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md bg-[#212121] p-8 rounded-lg shadow-xl">
           <div class="mb-8 text-center">
-            <h2 class="text-3xl font-semibold mb-2 text-white">システム初期設定</h2>
-            <p class="text-gray-400 text-sm">ログイン用パスワードとドメインを設定します。</p>
+            <h2 class="text-3xl font-semibold mb-2 text-white">
+              システム初期設定
+            </h2>
+            <p class="text-gray-400 text-sm">
+              ログイン用パスワードとドメインを設定します。
+            </p>
           </div>
           <form onSubmit={handleSubmit} class="space-y-6">
             <div>
-              <label for="sysDomain" class="block text-sm font-medium text-gray-300 mb-2">
+              <label
+                for="sysDomain"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
                 ドメイン名（任意）
               </label>
               <input
@@ -65,10 +75,15 @@ export function SystemSetupForm(props: SystemSetupFormProps) {
                 placeholder="example.com"
                 disabled={isLoading()}
               />
-              <p class="mt-1 text-xs text-gray-400">未入力の場合は既存設定を使用します</p>
+              <p class="mt-1 text-xs text-gray-400">
+                未入力の場合は既存設定を使用します
+              </p>
             </div>
             <div>
-              <label for="sysPass" class="block text-sm font-medium text-gray-300 mb-2">
+              <label
+                for="sysPass"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
                 ログイン用パスワード
               </label>
               <input
@@ -82,7 +97,10 @@ export function SystemSetupForm(props: SystemSetupFormProps) {
               />
             </div>
             <div>
-              <label for="sysPass2" class="block text-sm font-medium text-gray-300 mb-2">
+              <label
+                for="sysPass2"
+                class="block text-sm font-medium text-gray-300 mb-2"
+              >
                 パスワード（確認）
               </label>
               <input
@@ -113,4 +131,3 @@ export function SystemSetupForm(props: SystemSetupFormProps) {
     </div>
   );
 }
-

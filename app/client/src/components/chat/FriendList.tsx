@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
 import { useAtom } from "solid-jotai";
@@ -45,19 +45,28 @@ export function FriendList(props: FriendListProps) {
         if (id.startsWith("http")) {
           const u = new URL(id);
           const name = u.pathname.split("/").pop() || "";
-          if (selfShort && name === selfShort && u.hostname === getDomain()) return true;
+          if (selfShort && name === selfShort && u.hostname === getDomain()) {
+            return true;
+          }
         }
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
       return false;
     };
-    const isUuid = (v?: string) => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    const isUuid = (v?: string) =>
+      !!v &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        .test(v);
     const friendMap = new Map<string, Friend>();
     // フレンド候補: 自分以外の候補がちょうど1名のルーム（名前の有無は問わない）
     const candidateRooms = props.rooms.filter((r) => {
       if (r.type === "memo") return false;
       const base = [
-        ...((r.members ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
-        ...((r.pendingInvites ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
+        ...((r.members ?? []).filter((m: unknown): m is string =>
+          typeof m === "string" && !!m
+        )),
+        ...((r.pendingInvites ?? []).filter((m: unknown): m is string =>
+          typeof m === "string" && !!m
+        )),
       ];
       let normalized = base.map((m) => normalizeHandle(m) || m);
       normalized = normalized.filter((m) => !!m && !isSelf(m));
@@ -71,8 +80,12 @@ export function FriendList(props: FriendListProps) {
     });
     for (const room of candidateRooms) {
       const base = [
-        ...((room.members ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
-        ...((room.pendingInvites ?? []).filter((m: unknown): m is string => typeof m === "string" && !!m)),
+        ...((room.members ?? []).filter((m: unknown): m is string =>
+          typeof m === "string" && !!m
+        )),
+        ...((room.pendingInvites ?? []).filter((m: unknown): m is string =>
+          typeof m === "string" && !!m
+        )),
       ];
       let normalized = base.map((m) => normalizeHandle(m) || m);
       normalized = normalized.filter((m) => !!m && !isSelf(m));
@@ -86,9 +99,13 @@ export function FriendList(props: FriendListProps) {
       const friendId = raw;
       if (selfHandle && friendId === selfHandle) continue;
       if (!friendMap.has(friendId)) {
-        const isSelfLikeName = me && (room.name === me.displayName || room.name === me.userName || room.name === selfHandle);
-        const short = friendId.includes("@") ? friendId.split("@")[0] : friendId;
-        const fallbackName = (short || friendId);
+        const isSelfLikeName = me &&
+          (room.name === me.displayName || room.name === me.userName ||
+            room.name === selfHandle);
+        const short = friendId.includes("@")
+          ? friendId.split("@")[0]
+          : friendId;
+        const fallbackName = short || friendId;
         friendMap.set(friendId, {
           id: friendId,
           name: (room.displayName && !isSelfLikeName)
@@ -106,13 +123,16 @@ export function FriendList(props: FriendListProps) {
     const unreadSum = (fid: string) =>
       props.rooms
         .filter((r) => r.type !== "memo" && !(r.hasName || r.hasIcon))
-        .filter((r) => (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid)))
+        .filter((r) =>
+          (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid))
+        )
         .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const lastTime = (fid: string) => {
       let t = 0;
       for (const r of props.rooms) {
         if (r.type === "memo") continue;
-        const match = (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid));
+        const match = (r.members?.includes(fid)) ||
+          (r.pendingInvites?.includes(fid));
         if (!match) continue;
         const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
         if (ts > t) t = ts;
@@ -197,7 +217,9 @@ export function FriendList(props: FriendListProps) {
                 />
               </svg>
             </div>
-            <h3 class="text-lg font-medium text-white mb-2">友だちがいません</h3>
+            <h3 class="text-lg font-medium text-white mb-2">
+              友だちがいません
+            </h3>
             <p class="text-gray-400 text-sm">
               新しいトークを開始して友だちを増やしましょう
             </p>
@@ -220,8 +242,8 @@ export function FriendList(props: FriendListProps) {
               >
                 <div class="relative w-12 h-12 flex items-center justify-center">
                   {isUrl(friend.avatar) ||
-                    (typeof friend.avatar === "string" &&
-                      friend.avatar.startsWith("data:image/"))
+                      (typeof friend.avatar === "string" &&
+                        friend.avatar.startsWith("data:image/"))
                     ? (
                       <img
                         src={friend.avatar}
@@ -230,19 +252,18 @@ export function FriendList(props: FriendListProps) {
                       />
                     )
                     : (
-                      <div
-                        class="w-12 h-12 flex items-center justify-center rounded-full text-white bg-[#444]"
-                      >
+                      <div class="w-12 h-12 flex items-center justify-center rounded-full text-white bg-[#444]">
                         {friend.avatar || friend.name.charAt(0).toUpperCase()}
                       </div>
                     )}
-                  
+
                   {/* オンライン状態の表示（将来的に実装） */}
                   <Show when={friend.isOnline}>
-                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#1e1e1e]"></div>
+                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#1e1e1e]">
+                    </div>
                   </Show>
                 </div>
-                
+
                 <div class="ml-3 flex-1 min-w-0">
                   <p class="text-white text-sm font-medium truncate">
                     {friend.name}

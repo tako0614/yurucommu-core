@@ -8,31 +8,31 @@ info:
     See
     [the full specification](https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/tree/main/general/v0.1)
     for all the details.
-  version: '0.1'
+  version: "0.1"
 externalDocs:
   description: Fediverse Auxiliary Service Provider Specifications
   url: https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications
 tags:
-  - name: provider_info 
-    description: Information about the provider 
+  - name: provider_info
+    description: Information about the provider
     externalDocs:
       description: Find out more
-      url: https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/tree/main/general/v0.1/provider_info.md 
+      url: https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/tree/main/general/v0.1/provider_info.md
 paths:
   /provider_info:
     get:
       tags:
-        - provider_info 
+        - provider_info
       summary: Provider information
-      description: Necessary information an instance needs to know about the provider 
+      description: Necessary information an instance needs to know about the provider
       operationId: showProviderInfo
       responses:
-        '200':
+        "200":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProviderInfo'
+                $ref: "#/components/schemas/ProviderInfo"
       security:
         - provider_auth: []
 components:
@@ -46,11 +46,11 @@ components:
         privacy_policy:
           type: array
           items:
-            $ref: '#/components/schemas/PrivacyPolicy'
+            $ref: "#/components/schemas/PrivacyPolicy"
         capabilities:
           type: array
           items:
-            $ref: '#/components/schemas/Capability'
+            $ref: "#/components/schemas/Capability"
         sign_in_url:
           type: string
           format: uri
@@ -78,4 +78,4 @@ components:
     provider_auth:
       type: http
       scheme: signature
-      description: "HTTP Message Signatures based authentication as described in https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/blob/main/general/v0.1/protocol_basics.md" 
+      description: "HTTP Message Signatures based authentication as described in https://github.com/mastodon/fediverse_auxiliary_service_provider_specifications/blob/main/general/v0.1/protocol_basics.md"

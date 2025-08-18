@@ -1,5 +1,5 @@
 import { createSignal, Show } from "solid-js";
-import { Modal, Input, Button } from "./ui";
+import { Button, Input, Modal } from "./ui";
 
 interface AddServerFormProps {
   onAdd: (url: string, password: string) => Promise<void>;
@@ -60,7 +60,12 @@ export function AddServerForm(props: AddServerFormProps) {
           </p>
         </Show>
         <div class="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={props.onClose} disabled={isLoading()}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={props.onClose}
+            disabled={isLoading()}
+          >
             閉じる
           </Button>
           <Button type="submit" loading={isLoading()}>

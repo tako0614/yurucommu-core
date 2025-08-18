@@ -119,7 +119,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           ? [obj.to]
           : [];
         // 宛先リストにコレクション URI (as:Public や /followers) が含まれている場合は拒否
-        const allRecipientRaw = [...toRaw, ...objToRaw].filter((v): v is string => typeof v === "string");
+        const allRecipientRaw = [...toRaw, ...objToRaw].filter((
+          v,
+        ): v is string => typeof v === "string");
         const hasCollectionRecipient = allRecipientRaw.some((iri) => {
           if (iri === "as:Public") return true;
           try {
@@ -128,7 +130,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             if (parts.includes("followers")) return true;
           } catch {
             // 非URLの文字列もチェック（as:Public 以外の拡張が来る可能性）
-            if (typeof iri === "string" && iri.includes("/followers")) return true;
+            if (typeof iri === "string" && iri.includes("/followers")) {
+              return true;
+            }
           }
           return false;
         });
@@ -137,7 +141,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           if (c && typeof (c as Context).json === "function") {
             return (c as Context).json({ error: "invalid recipients" }, 400);
           }
-          console.error("Rejected MLS message due to collection recipient", { recipients: allRecipientRaw });
+          console.error("Rejected MLS message due to collection recipient", {
+            recipients: allRecipientRaw,
+          });
           return;
         }
         const recipients = [...toRaw, ...objToRaw]

@@ -17,4 +17,3 @@ export function Skeleton(props: SkeletonProps) {
 }
 
 export default Skeleton;
-

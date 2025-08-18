@@ -1,4 +1,10 @@
-import { JSX, ParentProps, createContext, createSignal, useContext } from "solid-js";
+import {
+  createContext,
+  createSignal,
+  JSX,
+  ParentProps,
+  useContext,
+} from "solid-js";
 
 type ToastType = "info" | "success" | "warning" | "error";
 
@@ -23,7 +29,8 @@ export function ToastProvider(props: ParentProps) {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let counter = 0;
 
-  const dismiss = (id: number) => setToasts((list) => list.filter((t) => t.id !== id));
+  const dismiss = (id: number) =>
+    setToasts((list) => list.filter((t) => t.id !== id));
   const clear = () => setToasts([]);
   const show = (t: Omit<Toast, "id">) => {
     const id = ++counter;
@@ -78,12 +85,16 @@ export function Toaster() {
       {toasts().map((t) => (
         <div
           role="status"
-          class={`pointer-events-auto w-full max-w-sm rounded-md border px-4 py-3 shadow-lg backdrop-blur-md ${typeClasses(t.type)} animate-[fadeIn_.2s_ease]`}
+          class={`pointer-events-auto w-full max-w-sm rounded-md border px-4 py-3 shadow-lg backdrop-blur-md ${
+            typeClasses(t.type)
+          } animate-[fadeIn_.2s_ease]`}
         >
           <div class="flex items-start gap-3">
             <div class="flex-1 min-w-0">
               {t.title && (
-                <p class="text-sm font-semibold leading-5 truncate">{t.title}</p>
+                <p class="text-sm font-semibold leading-5 truncate">
+                  {t.title}
+                </p>
               )}
               {t.description && (
                 <p class="mt-0.5 text-sm leading-6 text-gray-200/90 break-words">
@@ -98,7 +109,12 @@ export function Toaster() {
               onClick={() => dismiss(t.id)}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
               </svg>
             </button>
           </div>
@@ -109,4 +125,3 @@ export function Toaster() {
 }
 
 export default Toaster;
-

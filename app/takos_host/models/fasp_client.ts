@@ -16,4 +16,3 @@ const FaspClient = mongoose.models.FaspClient ??
   mongoose.model("FaspClient", faspClientSchema);
 
 export default FaspClient;
-

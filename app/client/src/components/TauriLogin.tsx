@@ -120,7 +120,10 @@ export function TauriLogin(props: TauriLoginProps) {
 
       {/* server list --------------------------------------------------------- */}
       <div class="w-full max-w-md flex flex-col gap-4 mb-16">
-        <Show when={servers().length} fallback={<EmptyState title="まだサーバーが追加されていません" />}>
+        <Show
+          when={servers().length}
+          fallback={<EmptyState title="まだサーバーが追加されていません" />}
+        >
           {/** 空状態は共通コンポーネントに統一 */}
           <For each={servers()}>
             {(s) => (
