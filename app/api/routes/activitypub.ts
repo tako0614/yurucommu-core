@@ -315,7 +315,11 @@ app.post("/users/:username/inbox", async (c) => {
     // deno-lint-ignore no-explicit-any
     const handler = (activityHandlers as Record<string, any>)[typeVal];
     if (typeof handler === "function") {
-      await handler(activity as unknown, username, c);
+      const res = await handler(activity as unknown, username, c);
+      // handler が Hono のレスポンス用のオブジェクトを返したらそれを返す
+      if (res && typeof res === "object" && ("status" in (res as object) || "body" in (res as object))) {
+        return res as unknown as Response;
+      }
     }
   }
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");

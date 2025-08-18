@@ -33,7 +33,7 @@ export type ActivityHandler = (
   activity: Record<string, unknown>,
   username: string,
   c: unknown,
-) => Promise<void>;
+) => Promise<unknown>;
 
 async function saveObject(
   env: Record<string, string>,
@@ -78,7 +78,7 @@ async function saveObject(
       : new Date(),
     raw: obj,
     extra,
-  });
+  }) as unknown as Record<string, unknown>;
 }
 
 export const activityHandlers: Record<string, ActivityHandler> = {
@@ -100,6 +100,14 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         const encoding = typeof obj.encoding === "string"
           ? obj.encoding
           : "base64";
+        // mediaType / encoding の仕様チェック: 期待値以外は保存せずエラー扱い
+        if (mediaType !== "message/mls" || encoding !== "base64") {
+          console.error(
+            "Unsupported MLS message format",
+            { mediaType, encoding, types: objTypes },
+          );
+          return; // 仕様外メッセージは保存しない
+        }
         const toRaw = Array.isArray(activity.to)
           ? activity.to
           : activity.to
@@ -110,6 +118,28 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           : obj.to
           ? [obj.to]
           : [];
+        // 宛先リストにコレクション URI (as:Public や /followers) が含まれている場合は拒否
+        const allRecipientRaw = [...toRaw, ...objToRaw].filter((v): v is string => typeof v === "string");
+        const hasCollectionRecipient = allRecipientRaw.some((iri) => {
+          if (iri === "as:Public") return true;
+          try {
+            const u = new URL(iri);
+            const parts = u.pathname.split("/").filter(Boolean);
+            if (parts.includes("followers")) return true;
+          } catch {
+            // 非URLの文字列もチェック（as:Public 以外の拡張が来る可能性）
+            if (typeof iri === "string" && iri.includes("/followers")) return true;
+          }
+          return false;
+        });
+        if (hasCollectionRecipient) {
+          // c が Hono の Context ならエラーレスポンスを返す
+          if (c && typeof (c as Context).json === "function") {
+            return (c as Context).json({ error: "invalid recipients" }, 400);
+          }
+          console.error("Rejected MLS message due to collection recipient", { recipients: allRecipientRaw });
+          return;
+        }
         const recipients = [...toRaw, ...objToRaw]
           .filter((v): v is string => typeof v === "string")
           .map(iriToHandle);

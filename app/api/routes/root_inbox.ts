@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
-import { activityHandlers } from "../activity_handlers.ts";
+import { activityHandlers, type ActivityHandler } from "../activity_handlers.ts";
 import { createDB } from "../DB/mod.ts";
 import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
 
@@ -34,12 +34,12 @@ app.post("/inbox", async (c) => {
   }
 
   const candidateUrls = [
-    ...collect(activity.to),
-    ...collect(activity.cc),
+    ...collect((activity as { to?: unknown }).to),
+    ...collect((activity as { cc?: unknown }).cc),
   ];
   if (typeof activity.object === "object" && activity.object !== null) {
-    candidateUrls.push(...collect(activity.object.to));
-    candidateUrls.push(...collect(activity.object.cc));
+    candidateUrls.push(...collect((activity.object as { to?: unknown }).to));
+    candidateUrls.push(...collect((activity.object as { cc?: unknown }).cc));
   }
 
   const targets = new Set(candidateUrls);
@@ -57,8 +57,16 @@ app.post("/inbox", async (c) => {
         const db = createDB(env);
         const account = await db.findAccountByUserName(username);
         if (!account) continue;
-        const handler = activityHandlers[activity.type];
-        if (handler) await handler(activity, username, c);
+        const typeVal = (activity as { type?: unknown })?.type;
+        if (typeof typeVal === "string" && typeVal in activityHandlers) {
+          const handler = (activityHandlers as Record<string, ActivityHandler>)[typeVal];
+          if (typeof handler === "function") {
+            const res = await handler(activity, username, c);
+            if (res && typeof res === "object" && ("status" in (res as object) || "body" in (res as object))) {
+              return res as unknown as Response;
+            }
+          }
+        }
       }
     } catch {
       continue;
