@@ -130,6 +130,13 @@ app.get("/users/:username", async (c) => {
       `https://${domain}/users/${username}/keyPackages/${p._id}`
     ),
   };
+  // keyPackages を含める場合は MLS コンテキストを追加
+  const mls = "https://purl.archive.org/socialweb/mls";
+  if (Array.isArray(actor["@context"])) {
+    if (!actor["@context"].includes(mls)) actor["@context"].push(mls);
+  } else if (actor["@context"] !== mls) {
+    actor["@context"] = [actor["@context"], mls];
+  }
   return jsonResponse(c, actor, 200, "application/activity+json");
 });
 
