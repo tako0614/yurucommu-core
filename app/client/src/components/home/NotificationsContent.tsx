@@ -1,31 +1,47 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createEffect, createResource, createSignal, For, Show } from "solid-js";
 import type { Notification } from "./types.ts";
 import { apiFetch } from "../../utils/config.ts";
 import { Button, Card, EmptyState, Spinner } from "../ui";
-
-const fetchNotifications = async (): Promise<Notification[]> => {
-  try {
-    const res = await apiFetch("/api/notifications");
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    return res.json();
-  } catch (error) {
-    console.error("Failed to fetch notifications:", error);
-    throw error;
-  }
-};
+import { useAtom } from "solid-jotai";
+import { selectedAppState } from "../../states/app.ts";
+import { selectedRoomState } from "../../states/chat.ts";
+import { activeAccount } from "../../states/account.ts";
 
 const NotificationsContent: Component = () => {
+  const [, setApp] = useAtom(selectedAppState);
+  const [, setRoom] = useAtom(selectedRoomState);
+  const [account] = useAtom(activeAccount);
   const [notifications, { mutate, refetch }] = createResource(
-    fetchNotifications,
+    async () => {
+      const acc = account();
+      if (!acc) return [] as Notification[];
+      try {
+        const res = await apiFetch(`/api/notifications?owner=${encodeURIComponent(acc.id)}`);
+        if (!res.ok) throw new Error("failed to load notifications");
+        return await res.json();
+      } catch (e) {
+        console.error("Failed to fetch notifications:", e);
+        return [] as Notification[];
+      }
+    },
   );
   const [deletingIds, setDeletingIds] = createSignal<Set<string>>(new Set());
+  // アカウント変更時に再取得
+  createEffect(() => { account(); void refetch(); });
+  // ページ表示中は一定間隔で通知を再取得（WSに依存しない）
+  let timer: number | undefined;
+  createEffect(() => {
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => { void refetch(); }, 30_000) as unknown as number;
+  });
+  // 簡易クリーンアップ（Solidでは自動で破棄されるが明示）
+  // deno-lint-ignore no-window prefix
+  addEventListener("beforeunload", () => { if (timer) clearInterval(timer); });
 
   const markAsRead = async (id: string) => {
     try {
       const res = await apiFetch(`/api/notifications/${id}/read`, {
-        method: "PATCH",
+        method: "PUT",
       });
       if (!res.ok) throw new Error("Failed to mark as read");
 
@@ -140,6 +156,15 @@ const NotificationsContent: Component = () => {
             <For each={notifications()}>
               {(n) => {
                 const isDeleting = deletingIds().has(n.id);
+                // chat-invite の場合は message をJSONとしてパースして操作ボタンを出す
+                let invite: { kind?: string; roomId?: string; sender?: string } | null = null;
+                if (n.type === "chat-invite") {
+                  try {
+                    const obj = JSON.parse(n.message);
+                    if (obj && obj.kind === "chat-invite") invite = obj;
+                  } catch {/* ignore */}
+                }
+
                 return (
                   <div class="py-4 flex items-start gap-3">
                     <div class="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center flex-shrink-0">
@@ -151,12 +176,38 @@ const NotificationsContent: Component = () => {
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                           <h4 class="text-base font-semibold text-gray-100 truncate">{n.title}</h4>
-                          <p class="text-sm text-gray-400 mt-1 leading-relaxed">{n.message}</p>
+                          <p class="text-sm text-gray-400 mt-1 leading-relaxed">
+                            {invite
+                              ? `${invite.sender ?? "不明"} からの会話招待です。参加しますか？`
+                              : n.message}
+                          </p>
                         </div>
                         <span class="text-xs text-gray-500 whitespace-nowrap">{new Date(n.createdAt).toLocaleString()}</span>
                       </div>
                       <div class="mt-2 flex items-center gap-2">
-                        <Show when={!n.read}>
+                        <Show when={invite}>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={async () => {
+                              const rid = invite?.roomId;
+                              if (!rid) return;
+                              // チャットへ遷移し、Chat 側のリスナーに参加処理を委譲
+                              setApp("chat");
+                              setRoom(rid);
+                              globalThis.dispatchEvent(new CustomEvent("app:accept-invite", { detail: { roomId: rid, sender: invite?.sender } }));
+                              // 通知は削除
+                              await deleteNotification(n.id);
+                            }}
+                          >参加する</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteNotification(n.id)}
+                            disabled={isDeleting}
+                          >後で</Button>
+                        </Show>
+                        <Show when={!n.read && !invite}>
                           <Button variant="secondary" size="sm" onClick={() => markAsRead(n.id)}>
                             既読にする
                           </Button>

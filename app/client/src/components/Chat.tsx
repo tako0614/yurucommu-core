@@ -10,7 +10,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
+import { fetchUserInfo, fetchUserInfoBatch, fetchFollowing } from "./microblog/api.ts";
 import {
   addKeyPackage,
   addRoom,
@@ -18,6 +18,7 @@ import {
   fetchHandshakes,
   fetchKeepMessages,
   fetchKeyPackages,
+  fetchPendingInvites,
   importRosterEvidence,
   searchRooms,
   sendEncryptedMessage,
@@ -474,6 +475,8 @@ export function Chat() {
   );
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
+  // 受信した Welcome を保留し、ユーザーに参加可否を尋ねる
+  const [pendingWelcomes, setPendingWelcomes] = createSignal<Record<string, Uint8Array>>({});
 
   const actorUrl = createMemo(() => {
     const user = account();
@@ -651,6 +654,7 @@ export function Chat() {
   };
   let textareaRef: HTMLTextAreaElement | undefined;
   let wsCleanup: (() => void) | undefined;
+  let acceptCleanup: (() => void) | undefined;
 
   const loadGroupStates = async () => {
     const user = account();
@@ -816,29 +820,8 @@ export function Chat() {
                 }),
               );
             } else {
-              let joined: StoredGroupState | null = null;
-              const me = account();
-              const pairs = me ? await loadAllMLSKeyPairs(me.id) : [];
-              if (pairs.length === 0) {
-                const single = await ensureKeyPair();
-                if (single) pairs.push(single);
-              }
-              for (const p of pairs) {
-                try {
-                  const st = await joinWithWelcome(wBytes, p);
-                  joined = st;
-                  break;
-                } catch (e) {
-                  console.warn("welcome apply failed", e);
-                  continue;
-                }
-              }
-              if (joined) {
-                group = joined;
-                updated = true;
-              } else {
-                console.warn("welcome apply failed for all key pairs");
-              }
+              // 参加はユーザーの同意後に行うため保留に入れる
+              setPendingWelcomes((prev) => ({ ...prev, [room.id]: wBytes }));
             }
             lastHandshakeId.set(room.id, String(h.createdAt));
             continue;
@@ -1973,6 +1956,48 @@ export function Chat() {
     };
 
     const handler = async (msg: unknown) => {
+      // WS 経由で送られる pendingInvite は isIncomingMessage に含まれないため
+      // 先に専用に処理する（チャット一覧へプレースホルダを作成して同期する）
+      try {
+        if (typeof msg === "object" && msg !== null) {
+          const m = msg as Record<string, unknown>;
+          if (typeof m.type === "string" && m.type === "pendingInvite") {
+            const payload = m.payload as Record<string, unknown> | undefined;
+            if (payload && typeof payload.roomId === "string") {
+              const user = account();
+              if (!user) return;
+              const self = `${user.userName}@${getDomain()}`;
+              // 既に一覧にあれば同期処理だけ行う
+              let room = chatRooms().find((r) => r.id === payload.roomId);
+              if (!room) {
+                const maybeFrom = typeof payload.from === "string" ? payload.from : undefined;
+                const others = Array.from(new Set(( [maybeFrom].filter((m): m is string => typeof m === "string" && m !== self) )));
+                const newRoom = {
+                  id: payload.roomId,
+                  name: "",
+                  userName: user.userName,
+                  domain: getDomain(),
+                  avatar: "",
+                  unreadCount: 0,
+                  type: "group",
+                  members: others,
+                  lastMessage: "...",
+                  lastMessageTime: undefined,
+                };
+                upsertRoom(newRoom);
+                try { await applyDisplayFallback([newRoom]); } catch {/* ignore */}
+                await initGroupState(newRoom.id);
+                room = newRoom;
+              }
+              if (room) await syncHandshakes(room);
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("failed to handle pendingInvite message", e);
+      }
+
       if (!isIncomingMessage(msg)) {
         // 想定外のメッセージは無視
         return;
@@ -1986,9 +2011,46 @@ export function Chat() {
         if (!(data.recipients.includes(self) || data.sender === self)) {
           return;
         }
+
+        // 招待元がフォロー中かどうかを先に判定
+        let isFollowing = false;
+        try {
+          const me = account();
+          if (me) {
+            const following = await fetchFollowing(me.userName);
+            isFollowing = Array.isArray(following)
+              ? following.some((u: string) =>
+                  u === data.sender || u === normalizeActor(data.sender)
+                )
+              : false;
+          }
+        } catch {
+          // 判定失敗時はフォロー外として扱う
+          isFollowing = false;
+        }
+        // 自分が送信者（招待した側）の場合は通知しない
+        if (data.sender === self) {
+          isFollowing = true;
+        }
+
+        if (!isFollowing) {
+          // フォロー外の招待はサーバー側で通知化（ここでは案内のみ）
+          globalThis.dispatchEvent(new CustomEvent("app:toast", {
+            detail: {
+              type: "info",
+              title: "会話招待",
+              description:
+                `${data.sender} から会話招待が届きました（フォロー外）。通知に表示します。`,
+              duration: 5000,
+            },
+          }));
+          // フォロー外の場合は自動参加・同期しない
+          return;
+        }
+
+        // フォロー中ならチャット一覧にプレースホルダを作成して同期
         let room = chatRooms().find((r) => r.id === data.roomId);
         if (!room) {
-          // 受信側に部屋が無い場合はプレースホルダを作成して一覧に出す
           const others = Array.from(new Set([
             ...data.recipients,
             data.sender,
@@ -2171,11 +2233,137 @@ export function Chat() {
         updateRoomLast(room.id, last);
       }
     };
+    // 通知画面からの「参加する」操作を受信して処理
+    const onAcceptInvite = async (ev: Event) => {
+      const e = ev as CustomEvent<{ roomId: string; sender?: string }>;
+      const targetRoomId = e.detail?.roomId;
+      if (!targetRoomId) return;
+      const user = account();
+      if (!user) return;
+      // 一覧になければプレースホルダを作成
+      let room = chatRooms().find((r) => r.id === targetRoomId);
+      if (!room) {
+        room = {
+          id: targetRoomId,
+          name: "",
+          userName: user.userName,
+          domain: getDomain(),
+          avatar: "",
+          unreadCount: 0,
+          type: "group",
+          members: [],
+          lastMessage: "...",
+          lastMessageTime: undefined,
+        };
+        upsertRoom(room);
+        await initGroupState(room.id);
+      }
+      try {
+        await syncHandshakes(room);
+        const w = pendingWelcomes()[room.id];
+        if (w) {
+          const pairs = await loadAllMLSKeyPairs(user.id);
+          let joined: StoredGroupState | null = null;
+          const list = pairs.length > 0
+            ? pairs
+            : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
+          for (const p of list) {
+            try {
+              const st = await joinWithWelcome(w, p);
+              joined = st;
+              break;
+            } catch {/* try next */}
+          }
+          if (joined) {
+            // 参加成功: 自分の chatrooms に登録
+            try { await addRoom(user.id, { id: room.id }); } catch {/* ignore */}
+            setGroups({ ...groups(), [room.id]: joined });
+            await saveGroupStates();
+            setPendingWelcomes((prev) => { const n = { ...prev }; delete n[room!.id]; return n; });
+            await loadMessages(room, true);
+            setSelectedRoom(room.id);
+            // 招待のACK（任意）
+            try { await apiFetch(`/api/users/${encodeURIComponent(user.userName)}/pendingInvites/ack`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId: room.id, deviceId: "" }) }); } catch {/* ignore */}
+            // サーバー側の chatrooms 登録反映を一覧に再取得
+            try { await loadRooms(); } catch {/* ignore */}
+            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "success", title: "参加しました", description: "会話に参加しました" } }));
+          } else {
+            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: "Welcomeの適用に失敗しました" } }));
+          }
+        } else {
+          // Welcome がまだ無い場合はルームを開いて手動参加に委ねる
+          setSelectedRoom(room.id);
+        }
+      } catch (err) {
+        globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: String(err) } }));
+      }
+    };
+
+    globalThis.addEventListener("app:accept-invite", onAcceptInvite as EventListener);
+    acceptCleanup = () => globalThis.removeEventListener("app:accept-invite", onAcceptInvite as EventListener);
+
     addMessageHandler(handler);
     wsCleanup = () => removeMessageHandler(handler);
     // 初期表示時のメッセージ読み込みも
     // selectedRoom 監視の createEffect に任せる
     adjustHeight(textareaRef);
+  });
+
+  // WS非依存運用に向けたポーリング: 保留中招待を定期チェックし、部屋のプレースホルダとハンドシェイク同期を実行
+  let invitePoller: number | undefined;
+  createEffect(() => {
+    const user = account();
+    if (!user) return;
+    if (invitePoller) clearInterval(invitePoller);
+    invitePoller = setInterval(async () => {
+      try {
+        const list = await fetchPendingInvites(user.userName);
+        for (const it of list) {
+          const rid = it.roomId;
+          if (!rid) continue;
+          let room = chatRooms().find((r) => r.id === rid);
+          if (!room) {
+            room = {
+              id: rid,
+              name: "",
+              userName: user.userName,
+              domain: getDomain(),
+              avatar: "",
+              unreadCount: 0,
+              type: "group",
+              members: [],
+              lastMessage: "...",
+              lastMessageTime: undefined,
+            };
+            upsertRoom(room);
+            await initGroupState(room.id);
+          }
+          await syncHandshakes(room);
+        }
+      } catch {/* ignore */}
+    }, 25_000) as unknown as number;
+  });
+
+  // 一覧のプレビュー更新を緩やかにポーリング（最大10件）
+  let previewPoller: number | undefined;
+  createEffect(() => {
+    const user = account();
+    if (!user) return;
+    if (previewPoller) clearInterval(previewPoller);
+    previewPoller = setInterval(async () => {
+      try {
+        const rooms = chatRooms();
+        const targets = rooms
+          .filter((r) => r.type !== "memo")
+          .slice(0, 10);
+        for (const r of targets) {
+          try {
+            const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+            if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
+          } catch {/* ignore one */}
+        }
+      } catch {/* ignore all */}
+    }, 60_000) as unknown as number;
   });
 
   // ルーム一覧の読み込みはアカウント変更時と初期表示時のみ実行
@@ -2311,121 +2499,11 @@ export function Chat() {
     ),
   );
 
-  // WSがなくても成立するよう、選択中ルームは定期ポーリングで差分取得
-  createEffect(
-    on(
-      () => selectedRoom(),
-      (roomId, prev) => {
-        let timer: number | undefined;
-        let running = false;
-        const run = async () => {
-          if (running) return;
-          running = true;
-          try {
-            const r = chatRooms().find((x) => x.id === roomId);
-            if (!r) return;
-            const cached = messagesByRoom()[roomCacheKey(r.id)] ?? messages();
-            const lastTs = cached.length > 0
-              ? cached[cached.length - 1].timestamp.toISOString()
-              : undefined;
-            const fetched = await fetchMessagesForRoom(
-              r,
-              lastTs ? { after: lastTs } : { limit: messageLimit },
-            );
-            if (fetched.length > 0) {
-              setMessages((old) => {
-                const ids = new Set(old.map((m) => m.id));
-                const add = fetched.filter((m) => !ids.has(m.id));
-                const next = [...old, ...add];
-                setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(r.id)]: next });
-                const user = account();
-                if (user) void saveDecryptedMessages(user.id, r.id, next);
-                return next;
-              });
-              const last = fetched[fetched.length - 1];
-              updateRoomLast(r.id, last);
-            }
-          } catch {
-            // ignore
-          } finally {
-            running = false;
-          }
-        };
-        if (roomId) {
-          // 8秒間隔
-          // deno-lint-ignore no-explicit-any
-          timer = setInterval(run, 8000) as any as number;
-          void run();
-        }
-        onCleanup(() => {
-          if (timer) clearInterval(timer as unknown as number);
-        });
-      },
-    ),
-  );
+  // WS通知に反応して差分取得する方式へ移行（定期ポーリングは廃止）
 
-  // 非選択ルームのプレビューをWSなしでも更新（軽量ポーリング、dryRunで非破壊）
-  onMount(() => {
-    let timer: number | undefined;
-    const tick = async () => {
-      const rooms = chatRooms();
-      const sel = selectedRoom();
-      for (const r of rooms) {
-        if (!r || r.id === sel || r.type === "memo") continue; // メモは対象外
-        try {
-          const fetched = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
-          if (fetched.length > 0) updateRoomLast(r.id, fetched[fetched.length - 1]);
-        } catch {
-          // ignore
-        }
-      }
-    };
-    // 20秒ごと
-    // deno-lint-ignore no-explicit-any
-    timer = setInterval(tick, 20000) as any as number;
-    void tick();
-    onCleanup(() => {
-      if (timer) clearInterval(timer as unknown as number);
-    });
-  });
+  // 非選択ルームのプレビュー更新もWS通知時のみ（定期ポーリングは廃止）
 
-  // RESTオンリーでも新規ルームが検出されるように定期的にサーチ
-  onMount(() => {
-    let timer: number | undefined;
-    const discover = async () => {
-      try {
-        const user = account();
-        if (!user) return;
-        const serverRooms = await searchRooms(user.id, { implicit: "include" });
-        const existing = new Set(chatRooms().map((r) => r.id));
-        for (const item of serverRooms) {
-          if (!item?.id || existing.has(item.id)) continue;
-          const r: Room = {
-            id: item.id,
-            name: "",
-            userName: user.userName,
-            domain: getDomain(),
-            avatar: "",
-            unreadCount: 0,
-            type: "group",
-            members: [],
-            lastMessage: "...",
-            lastMessageTime: undefined,
-          };
-          upsertRoom(r);
-          try { await applyDisplayFallback([r]); } catch { /* ignore */ }
-          await initGroupState(r.id);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    // 30秒ごとに確認
-    // deno-lint-ignore no-explicit-any
-    timer = setInterval(discover, 30000) as any as number;
-    void discover();
-    onCleanup(() => { if (timer) clearInterval(timer as unknown as number); });
-  });
+  // 新規ルーム検出はWS handshake通知時と手動同期に限定（定期サーチは廃止）
 
   // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
   createEffect(() => {
@@ -2463,6 +2541,87 @@ export function Chat() {
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
     wsCleanup?.();
+    acceptCleanup?.();
+    if (invitePoller) clearInterval(invitePoller);
+    if (previewPoller) clearInterval(previewPoller);
+  });
+
+  // APIベースのイベントで更新（WS不要運用向け）
+  onMount(async () => {
+    try {
+      const user = account();
+      if (user) {
+        const cur = await getCacheItem(user.id, "eventsCursor");
+        if (typeof cur === "string") setEventsCursor(cur);
+      }
+    } catch {/* ignore */}
+
+    const processEvents = async (evs: { id: string; type: string; roomId?: string; from?: string; to?: string[]; createdAt?: string }[]) => {
+      const user = account(); if (!user) return;
+      let maxTs = eventsCursor();
+      const byRoom = new Map<string, { handshake: boolean; message: boolean }>();
+      for (const ev of evs) {
+        const rid = ev.roomId; if (!rid) continue;
+        const cur = byRoom.get(rid) || { handshake: false, message: false };
+        if (ev.type === "handshake") cur.handshake = true;
+        if (ev.type === "encryptedMessage" || ev.type === "publicMessage") cur.message = true;
+        byRoom.set(rid, cur);
+        if (ev.createdAt && (!maxTs || ev.createdAt > maxTs)) maxTs = ev.createdAt;
+      }
+      for (const [rid, flg] of byRoom) {
+        let room = chatRooms().find((r) => r.id === rid);
+        if (!room) {
+          room = { id: rid, name: "", userName: account()?.userName || "", domain: getDomain(), avatar: "", unreadCount: 0, type: "group", members: [], lastMessage: "...", lastMessageTime: undefined };
+          upsertRoom(room);
+          try { await applyDisplayFallback([room]); } catch {/* ignore */}
+          await initGroupState(rid);
+        }
+        if (room && flg.handshake) await syncHandshakes(room);
+        if (room && flg.message) {
+          const isSel = selectedRoom() === rid;
+          if (isSel) {
+            const prev = messages();
+            const lastTs = prev.length > 0 ? prev[prev.length - 1].timestamp.toISOString() : undefined;
+            const fetched = await fetchMessagesForRoom(room, lastTs ? { after: lastTs } : { limit: 1 });
+            if (fetched.length > 0) {
+              setMessages((old) => {
+                const ids = new Set(old.map((m) => m.id));
+                const add = fetched.filter((m) => !ids.has(m.id));
+                const next = [...old, ...add];
+                setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(rid)]: next });
+                const user2 = account(); if (user2) void saveDecryptedMessages(user2.id, rid, next);
+                return next;
+              });
+              updateRoomLast(rid, fetched[fetched.length - 1]);
+            }
+          } else {
+            const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+            if (fetched.length > 0) updateRoomLast(rid, fetched[fetched.length - 1]);
+          }
+        }
+      }
+      if (maxTs) {
+        setEventsCursor(maxTs);
+        try { const user2 = account(); if (user2) await setCacheItem(user2.id, "eventsCursor", maxTs); } catch {/* ignore */}
+      }
+    };
+
+    const syncOnce = async () => {
+      try {
+        const evs = await fetchEvents({ since: eventsCursor() ?? undefined, limit: 100 });
+        if (evs.length > 0) await processEvents(evs);
+      } catch {/* ignore */}
+    };
+
+    await syncOnce();
+    const onFocus = () => void syncOnce();
+    globalThis.addEventListener("focus", onFocus);
+    globalThis.addEventListener("online", onFocus);
+    globalThis.addEventListener("visibilitychange", () => { if (!document.hidden) void syncOnce(); });
+    onCleanup(() => {
+      globalThis.removeEventListener("focus", onFocus);
+      globalThis.removeEventListener("online", onFocus);
+    });
   });
 
   return (
@@ -2576,6 +2735,58 @@ export function Chat() {
                     }
                   }}
                 />
+                {/* Welcome 受信時の参加確認バナー */}
+                <Show when={(function(){ const id = selectedRoom(); return id ? pendingWelcomes()[id] : undefined; })()}>
+                  <div class="px-3 py-2 bg-amber-900/40 border-t border-amber-600/40 text-amber-100 flex items-center justify-between">
+                    <div class="text-sm">この会話に招待されています。参加しますか？</div>
+                    <div class="flex gap-2">
+                      <button
+                        class="px-3 py-1 rounded bg-amber-600/80 hover:bg-amber-600 text-white text-sm"
+                        onClick={async () => {
+                          const id = selectedRoom();
+                          const user = account();
+                          if (!id || !user) return;
+                          const w = pendingWelcomes()[id];
+                          if (!w) return;
+                          try {
+                            const pairs = await loadAllMLSKeyPairs(user.id);
+                            let joined: StoredGroupState | null = null;
+                            const list = pairs.length > 0 ? pairs : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
+                            for (const p of list) {
+                              try {
+                                const st = await joinWithWelcome(w, p);
+                                joined = st;
+                                break;
+                              } catch {/* try next */}
+                            }
+                            if (joined) {
+                              try { await addRoom(user.id, { id }); } catch {/* ignore */}
+                              setGroups({ ...groups(), [id]: joined });
+                              await saveGroupStates();
+                              setPendingWelcomes((prev) => { const n = { ...prev }; delete n[id]; return n; });
+                              const room = chatRooms().find((r) => r.id === id);
+                              if (room) await loadMessages(room, true);
+                              try { await apiFetch(`/api/users/${encodeURIComponent(user.userName)}/pendingInvites/ack`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId: id, deviceId: "" }) }); } catch {/* ignore */}
+                              try { await loadRooms(); } catch {/* ignore */}
+                            } else {
+                              globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: "Welcomeの適用に失敗しました" } }));
+                            }
+                          } catch (e) {
+                            globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: "error", title: "参加に失敗", description: String(e) } }));
+                          }
+                        }}
+                      >参加する</button>
+                      <button
+                        class="px-3 py-1 rounded bg-transparent border border-amber-500/60 text-amber-100 text-sm hover:bg-amber-500/20"
+                        onClick={() => {
+                          const id = selectedRoom();
+                          if (!id) return;
+                          setPendingWelcomes((prev) => { const n = { ...prev }; delete n[id]; return n; });
+                        }}
+                      >後で</button>
+                    </div>
+                  </div>
+                </Show>
                 <ChatSendForm
                   newMessage={newMessage()}
                   setNewMessage={setNewMessage}

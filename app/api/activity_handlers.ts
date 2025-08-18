@@ -164,7 +164,24 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             recipients,
             createdAt: msg.createdAt,
           };
-          sendToUser(selfHandle, { type: "publicMessage", payload: newMsg });
+          // Handshake系（Commit/Proposal/Welcome）は WS では "handshake" 種別で通知
+          sendToUser(selfHandle, { type: "handshake", payload: newMsg });
+          // Welcome オブジェクトを受信した場合はサーバー側で通知を作成（ローカル受信者のみ）
+          if (objTypes.includes("Welcome")) {
+            try {
+              const acc = await db.findAccountByUserName(username);
+              if (acc && acc._id) {
+                await db.createNotification(
+                  String(acc._id),
+                  "会話招待",
+                  JSON.stringify({ kind: "chat-invite", roomId: msg.roomId, sender: from }),
+                  "chat-invite",
+                );
+              }
+            } catch (e) {
+              console.error("failed to create welcome notification", e);
+            }
+          }
         }
         return;
       }

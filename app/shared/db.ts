@@ -183,8 +183,9 @@ export interface DB {
     userName: string,
     deviceId: string,
   ): Promise<void>;
-  listNotifications(): Promise<unknown[]>;
+  listNotifications(owner: string): Promise<unknown[]>;
   createNotification(
+    owner: string,
     title: string,
     message: string,
     type: string,

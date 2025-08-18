@@ -576,6 +576,62 @@ export const fetchEncryptedKeyPair = async (
   }
 };
 
+// ローカルユーザー向けの保留中招待一覧を取得
+export const fetchPendingInvites = async (
+  user: string,
+): Promise<{ roomId: string; deviceId?: string; expiresAt?: string; acked?: boolean }[]> => {
+  try {
+    const res = await apiFetch(`/api/users/${encodeURIComponent(user)}/pendingInvites`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data
+          .map((d: unknown) => {
+            const o = d as Record<string, unknown>;
+            return {
+              roomId: typeof o.roomId === "string" ? o.roomId : "",
+              deviceId: typeof o.deviceId === "string" ? o.deviceId : undefined,
+              expiresAt: typeof o.expiresAt === "string" ? o.expiresAt : undefined,
+              acked: typeof o.acked === "boolean" ? o.acked : undefined,
+            };
+          })
+          .filter((x) => x.roomId !== "")
+      : [];
+  } catch (err) {
+    console.error("Error fetching pending invites:", err);
+    return [];
+  }
+};
+
+// 統合イベントAPI（ActivityPub前提のサーバ側集約を想定）
+export interface UnifiedEvent {
+  id: string;
+  type: "handshake" | "encryptedMessage" | "publicMessage";
+  roomId: string;
+  from: string;
+  to: string[];
+  createdAt: string;
+}
+
+export const fetchEvents = async (
+  params?: { since?: string; limit?: number; types?: string[] },
+): Promise<UnifiedEvent[]> => {
+  try {
+    const search = new URLSearchParams();
+    if (params?.since) search.set("since", params.since);
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.types?.length) search.set("types", params.types.join(","));
+    const url = `/api/events${search.toString() ? `?${search.toString()}` : ""}`;
+    const res = await apiFetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data as UnifiedEvent[] : [];
+  } catch (err) {
+    console.error("Error fetching events:", err);
+    return [];
+  }
+};
+
 export const saveEncryptedKeyPair = async (
   user: string,
   deviceId: string,

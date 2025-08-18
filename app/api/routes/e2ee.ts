@@ -232,7 +232,7 @@ async function handleHandshake(
   }
   const envelope = decodeMlsEnvelope(content);
   const localTargets = envelope && envelope.type === "Welcome"
-    ? recipients.filter((m) => m.endsWith(`@${domain}`))
+    ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
   const msg = await db.createHandshakeMessage({
@@ -300,6 +300,20 @@ async function handleHandshake(
       const uname = lm.split("@")[0];
       await db.savePendingInvite(roomId, uname, "", expiresAt);
       sendToUser(lm, { type: "pendingInvite", payload: { roomId, from } });
+      try {
+        // ローカルユーザー向けにサーバー側で通知を作成
+        const acc = await db.findAccountByUserName(uname);
+        if (acc && acc._id) {
+          await db.createNotification(
+            String(acc._id),
+            "会話招待",
+            JSON.stringify({ kind: "chat-invite", roomId, sender: from }),
+            "chat-invite",
+          );
+        }
+      } catch (e) {
+        console.error("failed to create invite notification", e);
+      }
     }
   }
 
@@ -325,6 +339,22 @@ async function handleHandshake(
         welcomeObj,
       );
       (welcomeActivity as ActivityPubActivity)["@context"] = context;
+      // 配送対象を to にも明示し、受信側でターゲット分解できるようにする
+      const toIris: string[] = [];
+      for (const mem of remoteMembers) {
+        try {
+          const actor = await resolveActorCached(mem, env);
+          if (actor?.id) toIris.push(actor.id);
+          else {
+            const [n, h] = mem.split("@");
+            if (n && h) toIris.push(`https://${h}/users/${n}`);
+          }
+        } catch {
+          const [n, h] = mem.split("@");
+          if (n && h) toIris.push(`https://${h}/users/${n}`);
+        }
+      }
+      (welcomeActivity as ActivityPubActivity).to = toIris;
       try {
         await deliverActivityPubObject(
           remoteMembers,

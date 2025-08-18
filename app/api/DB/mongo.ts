@@ -806,14 +806,21 @@ export class MongoDB implements DB {
     return list as unknown[];
   }
 
-  async listNotifications() {
+  async listNotifications(owner: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = this.withTenant(Notification.find({ tenant_id: tenantId }));
+    const query = this.withTenant(
+      Notification.find({ tenant_id: tenantId, owner }),
+    );
     return await query.sort({ createdAt: -1 }).lean();
   }
 
-  async createNotification(title: string, message: string, type: string) {
-    const doc = new Notification({ title, message, type });
+  async createNotification(
+    owner: string,
+    title: string,
+    message: string,
+    type: string,
+  ) {
+    const doc = new Notification({ owner, title, message, type });
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = {
