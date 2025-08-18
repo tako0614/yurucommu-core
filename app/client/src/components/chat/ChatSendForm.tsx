@@ -8,6 +8,7 @@ interface ChatSendFormProps {
   mediaPreview: string | null;
   setMediaPreview: (url: string | null) => void;
   sendMessage: () => void;
+  allowMedia?: boolean;
 }
 
 export function ChatSendForm(props: ChatSendFormProps) {
@@ -22,6 +23,11 @@ export function ChatSendForm(props: ChatSendFormProps) {
   };
 
   const [showMenu, setShowMenu] = createSignal(false);
+  const canSend = () => {
+    const hasText = props.newMessage.trim().length > 0;
+    const hasMedia = props.allowMedia !== false && !!props.mediaFile;
+    return hasText || hasMedia;
+  };
 
   return (
     <div class="relative bg-[#1e1e1e]">
@@ -29,7 +35,8 @@ export function ChatSendForm(props: ChatSendFormProps) {
         class="flex items-end gap-[6px] bg-[#252526] h-full py-1"
         onSubmit={(e) => e.preventDefault()}
       >
-        <div class="relative">
+        <Show when={props.allowMedia !== false}>
+          <div class="relative">
           <div
             class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
             onClick={() => setShowMenu(!showMenu())}
@@ -82,13 +89,15 @@ export function ChatSendForm(props: ChatSendFormProps) {
               </button>
             </div>
           </Show>
-        </div>
-        <div
-          class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
-          onClick={() => fileInputImage?.click()}
-          title="画像・動画を送信"
-          style="min-height:28px;"
-        >
+          </div>
+        </Show>
+        <Show when={props.allowMedia !== false}>
+          <div
+            class="p-2 cursor-pointer hover:bg-[#2e2e2e] rounded-full transition-colors"
+            onClick={() => fileInputImage?.click()}
+            title="画像・動画を送信"
+            style="min-height:28px;"
+          >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
@@ -122,7 +131,8 @@ export function ChatSendForm(props: ChatSendFormProps) {
               reader.readAsDataURL(f);
             }}
           />
-        </div>
+          </div>
+        </Show>
         <div class="flex flex-col flex-1 pr-1">
           <Show when={props.mediaPreview}>
             <div class="mb-2">
@@ -180,13 +190,13 @@ export function ChatSendForm(props: ChatSendFormProps) {
           </div>
         </div>
         <div
-          class={props.newMessage.trim() || props.mediaFile
+          class={canSend()
             ? "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-[#e63535] cursor-pointer hover:bg-[#c52d2d] text-white"
             : "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent cursor-default text-white"}
           style="min-height:28px;opacity:1;color:#ffffff;position:relative;z-index:10;display:flex;align-items:center;justify-content:center;"
           title=""
           onClick={() => {
-            if (props.newMessage.trim() || props.mediaFile) {
+            if (canSend()) {
               props.sendMessage();
             } else {
               globalThis.dispatchEvent(new CustomEvent("app:toast", {
@@ -196,7 +206,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
           }}
         >
           <Show
-            when={props.newMessage.trim() || props.mediaFile}
+            when={canSend()}
             fallback={
               <svg
                 xmlns="http://www.w3.org/2000/svg"

@@ -1,4 +1,4 @@
-import { Accessor, JSX, createSignal, onCleanup } from "solid-js";
+import { Accessor, JSX, createSignal, onCleanup, children } from "solid-js";
 
 type SwipeTabsProps = {
   index: number | Accessor<number>;
@@ -78,8 +78,11 @@ export function SwipeTabs(props: SwipeTabsProps) {
     if (next !== idx) props.onIndexChange(next);
   };
 
-  const getChildren = () => {
-    const ch = props.children as unknown as JSX.Element[];
+  // 子要素の解決は children() ヘルパ経由で行い、
+  // コンポーネントのオーナー配下に計算をぶら下げる（イベント時評価でも安全）
+  const resolved = children(() => props.children);
+  const getChildren = (): JSX.Element[] => {
+    const ch = resolved() as unknown as JSX.Element[];
     return Array.isArray(ch) ? ch : [ch];
   };
 

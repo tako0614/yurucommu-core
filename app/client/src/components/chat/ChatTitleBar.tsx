@@ -11,6 +11,7 @@ interface ChatTitleBarProps {
   selectedRoom: Room | null;
   onBack: () => void;
   onOpenSettings: () => void; // 右上設定メニュー表示
+  showSettings?: boolean;
   bindingStatus?: BindingStatus | null;
   bindingInfo?: { label: string; caution?: string } | null;
   ktInfo?: { included: boolean } | null;
@@ -105,6 +106,7 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
         </Show>
       </div>
       <div class="ml-auto pr-4 flex items-center gap-3">
+        <Show when={props.showSettings !== false}>
         <button
           type="button"
           aria-label="Chat settings"
@@ -128,6 +130,7 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
         </button>
+        </Show>
       </div>
     </div>
   );

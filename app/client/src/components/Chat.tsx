@@ -954,6 +954,12 @@ export function Chat() {
         console.error("decryptMessage failed", err, { id: m.id, room: room.id });
       }
       if (!res) {
+        const isMe = m.from === `${user.userName}@${getDomain()}`;
+        // 自分発の暗号文で復号に失敗した場合はプレースホルダを表示せずスキップ
+        // （送信直後の世代ズレなど一時的要因で発生し得るが、後続の差分取得で解消される）
+        if (isMe) {
+          continue;
+        }
         try {
           const peek2 = decodeMlsMessage(b64ToBuf(m.content), 0)?.[0];
           console.warn("[decrypt] failed -> placeholder", {
@@ -968,7 +974,6 @@ export function Chat() {
         } catch (e) {
           console.warn("[decrypt] failed -> placeholder (peek failed)", { id: m.id, room: room.id, err: e });
         }
-        const isMe = m.from === `${user.userName}@${getDomain()}`;
         if (!isMe) updatePeerHandle(room.id, m.from);
         const selfH = `${user.userName}@${getDomain()}`;
         const baseName = room.displayName ?? room.name;
@@ -1149,7 +1154,7 @@ export function Chat() {
     const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (
       user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined
     );
-    if (cached && isSelectedRoom) {
+    if (cached && selectedRoom() === room.id) {
       setMessages(cached);
       if (cached.length > 0) {
         setCursor(cached[0].timestamp.toISOString());
@@ -1188,7 +1193,7 @@ export function Chat() {
       setCursor(null);
     }
     setHasMore(msgs.length === messageLimit);
-    if (isSelectedRoom) {
+    if (selectedRoom() === room.id) {
       setMessages(msgs);
     }
     const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
@@ -1211,7 +1216,7 @@ export function Chat() {
       limit: messageLimit,
       before: cursor() ?? undefined,
     });
-    if (msgs.length > 0) {
+    if (msgs.length > 0 && selectedRoom() === room.id) {
       setCursor(msgs[0].timestamp.toISOString());
       setMessages((prev) => {
         const next = [...msgs, ...prev];
@@ -1640,7 +1645,19 @@ export function Chat() {
         isMe: true,
         avatar: room.avatar,
       };
-      setMessages((prev) => [...prev, msg]);
+      // まだメモが選択中かを確認してからUIに反映
+      if (selectedRoom() === room.id) {
+        setMessages((prev) => [...prev, msg]);
+      }
+      // 部屋ごとのキャッシュと永続化を更新
+      setMessagesByRoom((prev) => {
+        const key = roomCacheKey(room.id);
+        const list = (prev[key] ?? []).concat(msg);
+        const next = { ...prev, [key]: list };
+        const user2 = account();
+        if (user2) void saveDecryptedMessages(user2.id, room.id, list);
+        return next;
+      });
       setNewMessage("");
       setMediaFile(null);
       setMediaPreview(null);
@@ -2079,7 +2096,8 @@ export function Chat() {
           return;
         }
         const isSelected = selectedRoom() === room.id;
-        if (isSelected) {
+        if (room.type === "memo") return; // メモはWS対象外
+        if (selectedRoom() === room.id) {
           const prev = messages();
           const lastTs = prev.length > 0
             ? prev[prev.length - 1].timestamp.toISOString()
@@ -2088,7 +2106,7 @@ export function Chat() {
             room,
             lastTs ? { after: lastTs } : { limit: 1 },
           );
-          if (fetched.length > 0) {
+          if (fetched.length > 0 && selectedRoom() === room.id) {
             setMessages((old) => {
               const ids = new Set(old.map((m) => m.id));
               const add = fetched.filter((m) => !ids.has(m.id));
@@ -2112,11 +2130,11 @@ export function Chat() {
       }
 
       // publicMessage 等の将来拡張が来た場合はRESTで取得する
+      if (room.type === "memo") return; // メモはWS対象外
       const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
       if (fetched.length > 0) {
         const last = fetched[fetched.length - 1];
-        const isSelected = selectedRoom() === room.id;
-        if (isSelected) {
+        if (selectedRoom() === room.id) {
           setMessages((prev) => {
             if (prev.some((x) => x.id === last.id)) return prev;
             const next = [...prev, last];
@@ -2329,7 +2347,7 @@ export function Chat() {
       const rooms = chatRooms();
       const sel = selectedRoom();
       for (const r of rooms) {
-        if (!r || r.id === sel) continue;
+        if (!r || r.id === sel || r.type === "memo") continue; // メモは対象外
         try {
           const fetched = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
           if (fetched.length > 0) updateRoomLast(r.id, fetched[fetched.length - 1]);
@@ -2477,9 +2495,13 @@ export function Chat() {
                   })()}
                   onBack={backToRoomList}
                   onOpenSettings={() => setShowSettings(true)}
-                  bindingStatus={bindingStatus()}
-                  bindingInfo={bindingInfo()}
-                  ktInfo={ktInfo()}
+                  showSettings={(function () {
+                    const r = selectedRoomInfo();
+                    return r ? r.type !== "memo" : true;
+                  })()}
+                  bindingStatus={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? bindingStatus() : null;})()}
+                  bindingInfo={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? bindingInfo() : null;})()}
+                  ktInfo={(function(){const r=selectedRoomInfo();return r && r.type!=="memo" ? ktInfo() : null;})()}
                 />
                 {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
@@ -2500,6 +2522,10 @@ export function Chat() {
                   mediaPreview={mediaPreview()}
                   setMediaPreview={setMediaPreview}
                   sendMessage={sendMessage}
+                  allowMedia={(function() {
+                    const r = selectedRoomInfo();
+                    return r ? r.type !== "memo" : true;
+                  })()}
                 />
               </div>
             </Show>

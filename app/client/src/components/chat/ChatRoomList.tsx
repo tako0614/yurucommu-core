@@ -14,7 +14,8 @@ import { isFriendRoom, isGroupRoom } from "./types.ts";
 import { FriendList } from "./FriendList.tsx";
 import { FriendRoomList } from "./FriendRoomList.tsx";
 import { Button, EmptyState, Input, Skeleton } from "../ui/index.ts";
-import { createDelayedVisibility } from "../../utils/ui.ts";
+// ローディング表示の点滅を抑えるための簡易ディレイ表示フック
+// コンポーネント配下（createRoot/render配下）でのみ使うこと
 import SwipeTabs from "../ui/SwipeTabs.tsx";
 import { activeAccount } from "../../states/account.ts";
 import { getDomain } from "../../utils/config.ts";
@@ -31,16 +32,63 @@ interface ChatRoomListProps {
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
+  const useDelayedVisibility = (
+    visible: () => boolean,
+    delay = 250,
+    min = 300,
+  ) => {
+    const [shown, setShown] = createSignal(false);
+    let delayTimer: number | undefined;
+    let minTimer: number | undefined;
+    let shownAt = 0;
+
+    const clearTimers = () => {
+      if (delayTimer) clearTimeout(delayTimer);
+      if (minTimer) clearTimeout(minTimer);
+      delayTimer = undefined;
+      minTimer = undefined;
+    };
+
+    createEffect(() => {
+      const v = visible();
+      if (v) {
+        if (!shown()) {
+          clearTimers();
+          delayTimer = setTimeout(() => {
+            setShown(true);
+            shownAt = Date.now();
+          }, delay) as unknown as number;
+        }
+      } else {
+        if (shown()) {
+          const elapsed = Date.now() - shownAt;
+          const rest = Math.max(0, min - elapsed);
+          clearTimers();
+          minTimer = setTimeout(() => setShown(false), rest) as unknown as number;
+        } else {
+          clearTimers();
+          setShown(false);
+        }
+      }
+    });
+
+    onMount(() => {
+      // マウント時にクリア状態を保証
+      clearTimers();
+    });
+
+    return shown;
+  };
   const [query, setQuery] = createSignal("");
   const [selectedFriend, setSelectedFriend] = createSignal<string | null>(null);
   const [account] = useAtom(activeAccount);
   // リストが空のときだけ、遅延してスケルトンを表示する（点滅防止）
-  const showAllSkeleton = createDelayedVisibility(
+  const showAllSkeleton = useDelayedVisibility(
     () => getFilteredRoomsFor("all").length === 0 && query().trim() === "",
     250,
     250,
   );
-  const showGroupSkeleton = createDelayedVisibility(
+  const showGroupSkeleton = useDelayedVisibility(
     () => getFilteredRoomsFor("groups").length === 0 && query().trim() === "",
     250,
     250,
