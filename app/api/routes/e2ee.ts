@@ -311,7 +311,8 @@ async function handleHandshake(
   }
   const envelope = decodeMlsEnvelope(content);
   const localTargets = envelope &&
-      (envelope.originalType === "Welcome" || envelope.originalType === "Commit")
+      (envelope.originalType === "Welcome" ||
+        envelope.originalType === "Commit")
     ? recipients.filter((m) => m.endsWith(`@${domain}`) && m !== from)
     : [];
 
@@ -342,8 +343,8 @@ async function handleHandshake(
   const activityObj = buildActivityFromStored(
     {
       ...saved,
-  // 公開用タイプのみ利用（Commit / Proposal は decode 時点で PrivateMessage に正規化済み）
-  type: envelope?.type ?? "PublicMessage",
+      // 公開用タイプのみ利用（Commit / Proposal は decode 時点で PrivateMessage に正規化済み）
+      type: envelope?.type ?? "PublicMessage",
     } as {
       _id: unknown;
       type: string;
@@ -417,7 +418,8 @@ async function handleHandshake(
 
   // Welcome/Commit/Proposal などのハンドシェイクはリモートメンバーへ個別配送
   if (
-    envelope && ["Welcome", "Commit", "Proposal"].includes(envelope.originalType)
+    envelope &&
+    ["Welcome", "Commit", "Proposal"].includes(envelope.originalType)
   ) {
     const remoteMembers = recipients.filter((m) => !m.endsWith(`@${domain}`));
     if (remoteMembers.length > 0) {
@@ -448,7 +450,18 @@ async function handleHandshake(
           type: ["Object", envelope.type],
           attributedTo: `https://${domain}/users/${sender}`,
           content,
+          mediaType: "message/mls",
+          encoding: "base64",
         };
+
+        if (hsObj.mediaType !== "message/mls" || hsObj.encoding !== "base64") {
+          return {
+            ok: false,
+            status: 500,
+            error:
+              "ハンドシェイクオブジェクトに必要なフィールドが不足しています",
+          };
+        }
 
         const hsActivity = createCreateActivity(
           domain,
@@ -733,7 +746,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
       "https://purl.archive.org/socialweb/mls",
     ],
     id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
-  type: ["Object", "KeyPackage"],
+    type: ["Object", "KeyPackage"],
     attributedTo: actorId,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     mediaType: pkg.mediaType,
