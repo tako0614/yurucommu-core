@@ -803,7 +803,14 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   } catch (err) {
     console.error("KT append failed", err);
   }
-  const addActivity = createAddActivity(domain, actorId, keyObj);
+  const createActivity = createCreateActivity(domain, actorId, keyObj);
+  await deliverToFollowers(getEnv(c), user, createActivity, domain);
+  const addActivity = createAddActivity(
+    domain,
+    actorId,
+    createActivity.id,
+    `https://${domain}/users/${user}/keyPackages`,
+  );
   await deliverToFollowers(getEnv(c), user, addActivity, domain);
   return c.json({
     result: "ok",

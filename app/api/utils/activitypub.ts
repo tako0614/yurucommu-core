@@ -804,6 +804,7 @@ export function createAddActivity(
   domain: string,
   actor: string,
   object: unknown,
+  target?: string,
 ) {
   return {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -811,6 +812,7 @@ export function createAddActivity(
     type: "Add",
     actor,
     object,
+    ...(target ? { target } : {}),
   };
 }
 
