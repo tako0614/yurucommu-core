@@ -103,16 +103,18 @@ export const addKeyPackage = async (
     encoding?: string;
     groupInfo?: string;
     expiresAt?: string;
-  lastResort?: boolean;
+    lastResort?: boolean;
   },
-): Promise<{ keyId: string | null; groupInfo?: string; keyPackageRef?: string }> => {
+): Promise<
+  { keyId: string | null; groupInfo?: string; keyPackageRef?: string }
+> => {
   try {
     const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/keyPackages`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(pkg),
+        body: JSON.stringify(pkg),
       },
     );
     if (!res.ok) {
@@ -138,7 +140,9 @@ export const addKeyPackage = async (
     return {
       keyId: typeof data.keyId === "string" ? data.keyId : null,
       groupInfo: gi,
-      keyPackageRef: typeof data.keyPackageRef === "string" ? data.keyPackageRef : undefined,
+      keyPackageRef: typeof data.keyPackageRef === "string"
+        ? data.keyPackageRef
+        : undefined,
     };
   } catch (err) {
     console.error("Error adding key package:", err);
@@ -257,8 +261,10 @@ export const fetchVerifiedKeyPackage = async (
       // KT 検証に失敗しても致命的ではない
     }
     let fpr: string | undefined;
-  const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as { keyPackage?: unknown };
-  const key = (decoded?.keyPackage as {
+    const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as {
+      keyPackage?: unknown;
+    };
+    const key = (decoded?.keyPackage as {
       leafNode?: { signaturePublicKey?: Uint8Array };
     })?.leafNode?.signaturePublicKey;
     if (key) fpr = `p256:${toHex(key)}`;
@@ -343,8 +349,10 @@ export const importRosterEvidence = async (
       Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
     const hashHex = toHex(new Uint8Array(hashBuffer));
     if (`sha256:${hashHex}` !== evidence.keyPackageHash) return false;
-  const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as { keyPackage?: unknown };
-  const key = (decoded?.keyPackage as {
+    const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as {
+      keyPackage?: unknown;
+    };
+    const key = (decoded?.keyPackage as {
       leafNode?: { signaturePublicKey?: Uint8Array };
     })?.leafNode?.signaturePublicKey;
     if (!key || `p256:${toHex(key)}` !== evidence.leafSignatureKeyFpr) {
@@ -439,12 +447,35 @@ export const fetchEncryptedMessages = async (
       throw new Error("Failed to fetch messages");
     }
     const data = await res.json();
-    console.debug("[fetchEncryptedMessages]", { roomId, member, params, count: Array.isArray(data) ? data.length : undefined, raw: data });
-    return Array.isArray(data) ? data : [];
-    } catch (err) {
-      console.error("Error fetching messages:", err);
-      return [];
+    console.debug("[fetchEncryptedMessages]", {
+      roomId,
+      member,
+      params,
+      count: Array.isArray(data) ? data.length : undefined,
+      raw: data,
+    });
+    if (!Array.isArray(data)) return [];
+    const result: EncryptedMessage[] = [];
+    for (const msg of data) {
+      if (
+        msg &&
+        typeof msg === "object" &&
+        (msg as { mediaType?: unknown }).mediaType === "message/mls" &&
+        (msg as { encoding?: unknown }).encoding === "base64"
+      ) {
+        result.push(msg as EncryptedMessage);
+      } else {
+        console.warn(
+          "[fetchEncryptedMessages] 不正なメッセージを破棄しました",
+          msg,
+        );
+      }
     }
+    return result;
+  } catch (err) {
+    console.error("Error fetching messages:", err);
+    return [];
+  }
 };
 
 export interface HandshakeMessage {
@@ -602,23 +633,29 @@ export const fetchEncryptedKeyPair = async (
 // ローカルユーザー向けの保留中招待一覧を取得
 export const fetchPendingInvites = async (
   user: string,
-): Promise<{ roomId: string; deviceId?: string; expiresAt?: string; acked?: boolean }[]> => {
+): Promise<
+  { roomId: string; deviceId?: string; expiresAt?: string; acked?: boolean }[]
+> => {
   try {
-    const res = await apiFetch(`/api/users/${encodeURIComponent(user)}/pendingInvites`);
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/pendingInvites`,
+    );
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data)
       ? data
-          .map((d: unknown) => {
-            const o = d as Record<string, unknown>;
-            return {
-              roomId: typeof o.roomId === "string" ? o.roomId : "",
-              deviceId: typeof o.deviceId === "string" ? o.deviceId : undefined,
-              expiresAt: typeof o.expiresAt === "string" ? o.expiresAt : undefined,
-              acked: typeof o.acked === "boolean" ? o.acked : undefined,
-            };
-          })
-          .filter((x) => x.roomId !== "")
+        .map((d: unknown) => {
+          const o = d as Record<string, unknown>;
+          return {
+            roomId: typeof o.roomId === "string" ? o.roomId : "",
+            deviceId: typeof o.deviceId === "string" ? o.deviceId : undefined,
+            expiresAt: typeof o.expiresAt === "string"
+              ? o.expiresAt
+              : undefined,
+            acked: typeof o.acked === "boolean" ? o.acked : undefined,
+          };
+        })
+        .filter((x) => x.roomId !== "")
       : [];
   } catch (err) {
     console.error("Error fetching pending invites:", err);
@@ -644,7 +681,9 @@ export const fetchEvents = async (
     if (params?.since) search.set("since", params.since);
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.types?.length) search.set("types", params.types.join(","));
-    const url = `/api/events${search.toString() ? `?${search.toString()}` : ""}`;
+    const url = `/api/events${
+      search.toString() ? `?${search.toString()}` : ""
+    }`;
     const res = await apiFetch(url);
     if (!res.ok) return [];
     const data = await res.json();
@@ -789,7 +828,7 @@ export const searchRooms = async (
           return { id: String((r as any).id) };
         }
         return { id: "" };
-  }).filter((r: RoomsSearchItem) => r.id !== "")
+      }).filter((r: RoomsSearchItem) => r.id !== "")
       : [];
   } catch (err) {
     console.error("Error searching rooms:", err);
@@ -805,18 +844,22 @@ export const addRoom = async (
     content: string;
     mediaType?: string;
     encoding?: string;
-  to?: string[]; // recipients (ハンドシェイク時必須)
+    to?: string[]; // recipients (ハンドシェイク時必須)
   },
 ): Promise<boolean> => {
   try {
-  const body: Record<string, unknown> = { owner: id, id: room.id };
+    const body: Record<string, unknown> = { owner: id, id: room.id };
     if (handshake) {
       body.handshake = {
         from: handshake.from,
         content: handshake.content,
         mediaType: handshake.mediaType ?? "message/mls",
         encoding: handshake.encoding ?? "base64",
-    to: Array.isArray(handshake.to) ? handshake.to : (room.members ?? []).filter((m): m is string => typeof m === "string"),
+        to: Array.isArray(handshake.to)
+          ? handshake.to
+          : (room.members ?? []).filter((m): m is string =>
+            typeof m === "string"
+          ),
       };
     }
     const res = await apiFetch(`/api/ap/rooms`, {
