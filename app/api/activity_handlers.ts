@@ -351,8 +351,17 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       : typeof (obj as { cipher_suite?: number }).cipher_suite === "number"
       ? (obj as { cipher_suite: number }).cipher_suite
       : undefined;
-    const generator = typeof obj.generator === "string"
-      ? obj.generator
+    const generator = typeof obj.generator === "object" && obj.generator &&
+        typeof (obj.generator as { id?: unknown }).id === "string" &&
+        typeof (obj.generator as { type?: unknown }).type === "string" &&
+        typeof (obj.generator as { name?: unknown }).name === "string"
+      ? {
+        id: (obj.generator as { id: string }).id,
+        type: (obj.generator as { type: string }).type,
+        name: (obj.generator as { name: string }).name,
+      }
+      : typeof obj.generator === "string"
+      ? { id: obj.generator, type: "Application", name: obj.generator }
       : undefined;
     const keyId = typeof obj.id === "string"
       ? obj.id.split("/").pop()

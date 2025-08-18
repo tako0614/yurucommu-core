@@ -164,7 +164,7 @@ export interface DB {
     deviceId?: string,
     version?: string,
     cipherSuite?: number,
-    generator?: string,
+    generator?: string | { id: string; type: string; name: string },
     id?: string,
     lastResort?: boolean,
   ): Promise<unknown>;

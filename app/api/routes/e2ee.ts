@@ -35,6 +35,12 @@ interface RemoteActorCache {
 }
 
 // KeyPackage 情報の簡易的な型定義
+interface GeneratorInfo {
+  id: string;
+  type: string;
+  name: string;
+}
+
 export interface KeyPackageDoc {
   _id?: unknown;
   content: string;
@@ -45,7 +51,7 @@ export interface KeyPackageDoc {
   used?: boolean;
   version?: string;
   cipherSuite?: number;
-  generator?: string;
+  generator?: string | GeneratorInfo;
   deviceId?: string;
   createdAt: string | number | Date;
 }
@@ -190,13 +196,34 @@ export function selectKeyPackages(
       return db - da;
     })
     .reduce((acc: KeyPackageDoc[], kp) => {
-      if (kp.generator && acc.some((v) => v.generator === kp.generator)) {
+      const g = typeof kp.generator === "string"
+        ? kp.generator
+        : kp.generator?.id;
+      if (
+        g &&
+        acc.some((v) => {
+          const vg = typeof v.generator === "string"
+            ? v.generator
+            : v.generator?.id;
+          return vg === g;
+        })
+      ) {
         return acc;
       }
       acc.push(kp);
       return acc;
     }, [])
     .slice(0, M);
+}
+
+function normalizeGenerator(
+  gen?: string | GeneratorInfo,
+): GeneratorInfo | undefined {
+  if (!gen) return undefined;
+  if (typeof gen === "string") {
+    return { id: gen, type: "Application", name: gen };
+  }
+  return gen;
 }
 
 const app = new Hono();
@@ -617,7 +644,7 @@ app.get(
         expiresAt: doc.expiresAt,
         version: doc.version,
         cipherSuite: doc.cipherSuite,
-        generator: doc.generator,
+        generator: normalizeGenerator(doc.generator),
         createdAt: doc.createdAt,
         keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
       }));
@@ -703,7 +730,7 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     expiresAt: doc.expiresAt,
     version: doc.version,
     cipherSuite: doc.cipherSuite,
-    generator: doc.generator,
+    generator: normalizeGenerator(doc.generator),
     keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
   };
   return c.json(object);
@@ -758,6 +785,17 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   }
   const db = createDB(getEnv(c));
   const gi = typeof groupInfo === "string" ? groupInfo : undefined;
+  let genObj: GeneratorInfo | undefined;
+  if (
+    typeof generator === "object" && generator &&
+    typeof generator.id === "string" &&
+    typeof generator.type === "string" &&
+    typeof generator.name === "string"
+  ) {
+    genObj = { id: generator.id, type: generator.type, name: generator.name };
+  } else if (typeof generator === "string") {
+    genObj = { id: generator, type: "Application", name: generator };
+  }
   const pkg = await db.createKeyPackage(
     user,
     content,
@@ -768,7 +806,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     typeof deviceId === "string" ? deviceId : undefined,
     typeof version === "string" ? version : undefined,
     typeof cipherSuite === "number" ? cipherSuite : undefined,
-    typeof generator === "string" ? generator : undefined,
+    genObj,
     undefined,
     typeof lastResort === "boolean" ? lastResort : undefined,
   ) as KeyPackageDoc;
@@ -791,7 +829,7 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     expiresAt: pkg.expiresAt,
     version: pkg.version,
     cipherSuite: pkg.cipherSuite,
-    generator: pkg.generator,
+    generator: normalizeGenerator(pkg.generator),
     keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
     lastResort: (pkg as { lastResort?: boolean }).lastResort,
   };

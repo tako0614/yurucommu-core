@@ -17,7 +17,7 @@ const keyPackageSchema = new mongoose.Schema({
   groupInfo: { type: String },
   version: { type: String },
   cipherSuite: { type: Number },
-  generator: { type: String },
+  generator: { type: mongoose.Schema.Types.Mixed },
   used: { type: Boolean, default: false },
   expiresAt: { type: Date },
   tenant_id: { type: String, index: true },

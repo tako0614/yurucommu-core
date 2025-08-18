@@ -635,7 +635,7 @@ export class MongoDB implements DB {
     deviceId?: string,
     version?: string,
     cipherSuite?: number,
-    generator?: string,
+    generator?: string | { id: string; type: string; name: string },
     id?: string,
     lastResort?: boolean,
   ) {
