@@ -13,6 +13,7 @@ const keyPackageSchema = new mongoose.Schema({
   encoding: { type: String, default: "base64" },
   // MLS KeyPackageRef (SHA-256 hash hex of the raw KeyPackage bytes)
   keyPackageRef: { type: String, index: true },
+  lastResort: { type: Boolean, default: false },
   groupInfo: { type: String },
   version: { type: String },
   cipherSuite: { type: Number },

@@ -558,8 +558,8 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     groupInfo: doc.groupInfo,
     expiresAt: doc.expiresAt,
     version: doc.version,
-    cipherSuite: doc.cipherSuite,
-    generator: doc.generator,
+  cipherSuite: doc.cipherSuite,
+  generator: doc.generator,
   keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
   };
   return c.json(object);
@@ -576,7 +576,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     deviceId,
     version,
     cipherSuite,
-    generator,
+  generator,
+  lastResort,
   } = await c.req.json();
   if (typeof content !== "string") {
     return c.json({ error: "content is required" }, 400);
@@ -611,7 +612,9 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     typeof deviceId === "string" ? deviceId : undefined,
     typeof version === "string" ? version : undefined,
     typeof cipherSuite === "number" ? cipherSuite : undefined,
-    typeof generator === "string" ? generator : undefined,
+  typeof generator === "string" ? generator : undefined,
+  undefined,
+  typeof lastResort === "boolean" ? lastResort : undefined,
   ) as KeyPackageDoc;
   await db.cleanupKeyPackages(user);
   const keyObj = {
@@ -629,9 +632,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     groupInfo: pkg.groupInfo,
     expiresAt: pkg.expiresAt,
     version: pkg.version,
-    cipherSuite: pkg.cipherSuite,
-    generator: pkg.generator,
+  cipherSuite: pkg.cipherSuite,
+  generator: pkg.generator,
   keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
+  lastResort: (pkg as { lastResort?: boolean }).lastResort,
   };
   // Key Transparency ログへの追記
   try {

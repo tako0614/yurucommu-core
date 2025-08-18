@@ -86,7 +86,7 @@ function bufToUrl(buf: ArrayBuffer, type: string): string {
 }
 
 // ActivityPub の Note 形式のテキストから content を取り出す
-function parseActivityPubContent(text: string): string {
+function _parseActivityPubContent(text: string): string {
   try {
     const obj = JSON.parse(text);
     if (obj && typeof obj === "object" && typeof obj.content === "string") {
@@ -1132,7 +1132,7 @@ export function Chat() {
     return msgs;
   };
 
-  const loadMessages = async (room: Room, isSelectedRoom: boolean) => {
+  const loadMessages = async (room: Room, _isSelectedRoom: boolean) => {
     const user = account();
     const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (
       user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined
@@ -2138,7 +2138,7 @@ export function Chat() {
                 avatar: info.authorAvatar ||
                   info.userName.charAt(0).toUpperCase(),
                 unreadCount: 0,
-                type: "group",
+                type: "group" as const,
                 members: [normalizedPartner],
                 lastMessage: "...",
                 lastMessageTime: undefined,
@@ -2161,19 +2161,19 @@ export function Chat() {
           baseName3 === user.userName || baseName3 === selfH3)
         ? data.from
         : baseName3;
-      const displayName = isMe
+  const _displayName = isMe
         ? (user.displayName || user.userName)
         : otherName;
-      let text: string = "";
-      let attachments:
+  const _text: string = "";
+      const _attachments:
         | {
           data?: string;
           url?: string;
           mediaType: string;
           preview?: { url?: string; data?: string; mediaType?: string };
         }[]
-        | undefined;
-      let localId: string | undefined;
+        | undefined = undefined;
+  const _localId: string | undefined = undefined;
 
       // WSは通知のみ: RESTから取得して反映
       if (msg.type === "encryptedMessage") {
@@ -2181,7 +2181,7 @@ export function Chat() {
         if (msg.payload.from === self) {
           return;
         }
-        const isSelected = selectedRoom() === room.id;
+  const _isSelected = selectedRoom() === room.id;
         if (room.type === "memo") return; // メモはWS対象外
         if (selectedRoom() === room.id) {
           const prev = messages();
@@ -2269,6 +2269,7 @@ export function Chat() {
             : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
           for (const p of list) {
             try {
+              if (!p) throw new Error("key pair not prepared");
               const st = await joinWithWelcome(w, p);
               joined = st;
               break;
@@ -2754,6 +2755,7 @@ export function Chat() {
                             const list = pairs.length > 0 ? pairs : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
                             for (const p of list) {
                               try {
+                                if (!p) throw new Error("key pair not prepared");
                                 const st = await joinWithWelcome(w, p);
                                 joined = st;
                                 break;
@@ -2912,15 +2914,20 @@ function pickUsableKeyPackage(
     expiresAt?: string;
     used?: boolean;
     deviceId?: string;
+    lastResort?: boolean;
   }[],
 ):
-  | { content: string; expiresAt?: string; used?: boolean; deviceId?: string }
+  | { content: string; expiresAt?: string; used?: boolean; deviceId?: string; lastResort?: boolean }
   | null {
   const now = Date.now();
-  const usable = list.filter((k) =>
-    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
-  );
-  if (usable.length > 0) return usable[0];
+  const normal = list.filter((k) => !k.lastResort);
+  const lastResort = list.filter((k) => k.lastResort);
+  const usableNormal = normal.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  if (usableNormal.length > 0) return usableNormal[0];
+  // 通常キーが無い場合のみ lastResort を候補にする（unused/未期限切れ優先）
+  const usableLR = lastResort.filter((k) => !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now));
+  if (usableLR.length > 0) return usableLR[0];
+  // それでも無ければ全体から最初
   return list[0] ?? null;
 }
 
@@ -2931,8 +2938,20 @@ async function topUpSelfKeyPackages(userName: string, accountId: string) {
     const selfKps = await fetchKeyPackages(userName);
     const now = Date.now();
     const usable = (selfKps ?? []).filter((k) =>
-      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
+      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) && !k.lastResort
     );
+    // lastResort が存在しない場合は 1 個だけ作る（target にはカウントしない）
+    const hasLastResort = (selfKps ?? []).some((k) => k.lastResort);
+    if (!hasLastResort) {
+      try {
+        const actor = new URL(`/users/${userName}`, globalThis.location.origin).href;
+        const kp = await generateKeyPair(actor);
+        await saveMLSKeyPair(accountId, { public: kp.public, private: kp.private, encoded: kp.encoded });
+        await addKeyPackage(userName, { content: kp.encoded, lastResort: true });
+      } catch (e) {
+        console.warn("lastResort KeyPackage 生成に失敗", e);
+      }
+    }
     const need = target - usable.length;
     if (need <= 0) return;
     // actor URL for identity

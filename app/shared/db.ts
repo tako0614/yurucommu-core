@@ -165,7 +165,8 @@ export interface DB {
     version?: string,
     cipherSuite?: number,
     generator?: string,
-    id?: string,
+  id?: string,
+  lastResort?: boolean,
   ): Promise<unknown>;
   markKeyPackageUsed(userName: string, id: string): Promise<void>;
   markKeyPackageUsedByRef(userName: string, keyPackageRef: string): Promise<void>;

@@ -258,7 +258,9 @@ export class MongoDB implements DB {
   }
 
   async listChatroomsByMember(_member: string) {
-    return Promise.resolve([] as ChatroomInfo[]);
+  // 現状未実装: 空配列。lint 対策のため await を挿入。
+  await Promise.resolve();
+  return [] as ChatroomInfo[];
   }
 
   async addChatroom(
@@ -634,7 +636,8 @@ export class MongoDB implements DB {
     version?: string,
     cipherSuite?: number,
     generator?: string,
-    id?: string,
+  id?: string,
+  lastResort?: boolean,
   ) {
     // keyPackageRef: sha256 of decoded content (raw KeyPackage bytes)
     let keyPackageRef: string | undefined;
@@ -660,6 +663,7 @@ export class MongoDB implements DB {
       cipherSuite,
       generator,
       keyPackageRef,
+      lastResort: lastResort ?? false,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     if (this.env["DB_MODE"] === "host") {
@@ -709,9 +713,10 @@ export class MongoDB implements DB {
       userName,
       tenant_id: tenantId,
       $or: [
-        { used: true },
-        { expiresAt: { $lt: new Date() } },
-        { deviceId: { $nin: devices } },
+  { used: true },
+  { expiresAt: { $lt: new Date() } },
+  // lastResort かつ未使用は保持
+  { $and: [{ deviceId: { $nin: devices } }, { $or: [{ lastResort: { $ne: true } }, { used: true }] }] },
       ],
     });
     this.withTenant(query);

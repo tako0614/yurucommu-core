@@ -36,6 +36,7 @@ export interface KeyPackage {
   attributedTo?: string;
   deviceId?: string;
   keyPackageRef?: string;
+  lastResort?: boolean;
 }
 
 export interface EncryptedMessage {
@@ -102,6 +103,7 @@ export const addKeyPackage = async (
     encoding?: string;
     groupInfo?: string;
     expiresAt?: string;
+  lastResort?: boolean;
   },
 ): Promise<{ keyId: string | null; groupInfo?: string; keyPackageRef?: string }> => {
   try {
@@ -110,7 +112,7 @@ export const addKeyPackage = async (
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pkg),
+  body: JSON.stringify(pkg),
       },
     );
     if (!res.ok) {
