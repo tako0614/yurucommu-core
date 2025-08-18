@@ -47,17 +47,19 @@ import {
 } from "./e2ee/mls_message.ts";
 import { decodeMlsMessage } from "ts-mls";
 import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
-import {
-  appendRosterEvidence,
-  getCacheItem,
-  loadAllMLSKeyPairs,
-  loadKeyPackageRecords,
-  loadMLSGroupStates,
-  loadMLSKeyPair,
-  saveMLSGroupStates,
-  saveMLSKeyPair,
-  setCacheItem,
-} from "./e2ee/storage.ts";
+  import {
+    appendRosterEvidence,
+    getCacheItem,
+    loadDecryptedMessages,
+    loadAllMLSKeyPairs,
+    loadKeyPackageRecords,
+    loadMLSGroupStates,
+    loadMLSKeyPair,
+    saveDecryptedMessages,
+    saveMLSGroupStates,
+    saveMLSKeyPair,
+    setCacheItem,
+  } from "./e2ee/storage.ts";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
@@ -437,6 +439,10 @@ export function Chat() {
   const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
+  // ルームごとの復号済みメッセージキャッシュ（再選択時の再復号を回避）
+  const [messagesByRoom, setMessagesByRoom] = createSignal<
+    Record<string, ChatMessage[]>
+  >({});
   const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
     {},
   );
@@ -1126,7 +1132,43 @@ export function Chat() {
   };
 
   const loadMessages = async (room: Room, isSelectedRoom: boolean) => {
+    const user = account();
+    const cached = messagesByRoom()[room.id] ?? (
+      user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined
+    );
+    if (cached && isSelectedRoom) {
+      setMessages(cached);
+      if (cached.length > 0) {
+        setCursor(cached[0].timestamp.toISOString());
+        updateRoomLast(room.id, cached[cached.length - 1]);
+      } else {
+        setCursor(null);
+      }
+      // 差分のみ取得（最新のタイムスタンプ以降）
+      const lastTs = cached.length > 0
+        ? cached[cached.length - 1].timestamp.toISOString()
+        : undefined;
+      const fetched = await fetchMessagesForRoom(
+        room,
+        lastTs ? { after: lastTs } : { limit: messageLimit },
+      );
+      if (fetched.length > 0) {
+        const ids = new Set(cached.map((m) => m.id));
+        const add = fetched.filter((m) => !ids.has(m.id));
+        if (add.length > 0) {
+          const next = [...cached, ...add];
+          setMessages(next);
+          setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+          if (user) await saveDecryptedMessages(user.id, room.id, next);
+          updateRoomLast(room.id, next[next.length - 1]);
+        }
+      }
+      setHasMore(cached.length >= messageLimit);
+      return;
+    }
     const msgs = await fetchMessagesForRoom(room, { limit: messageLimit });
+    setMessagesByRoom({ ...messagesByRoom(), [room.id]: msgs });
+    if (user) await saveDecryptedMessages(user.id, room.id, msgs);
     if (msgs.length > 0) {
       setCursor(msgs[0].timestamp.toISOString());
     } else {
@@ -1149,7 +1191,13 @@ export function Chat() {
     });
     if (msgs.length > 0) {
       setCursor(msgs[0].timestamp.toISOString());
-      setMessages((prev) => [...msgs, ...prev]);
+      setMessages((prev) => {
+        const next = [...msgs, ...prev];
+        setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+        const user = account();
+        if (user) void saveDecryptedMessages(user.id, room.id, next);
+        return next;
+      });
     }
     setHasMore(msgs.length === messageLimit);
     setLoadingOlder(false);
@@ -1760,7 +1808,13 @@ export function Chat() {
         isMe: true,
         avatar: room.avatar,
       };
-      setMessages((old) => [...old, optimistic]);
+      setMessages((old) => {
+        const next = [...old, optimistic];
+        setMessagesByRoom({ ...messagesByRoom(), [roomId]: next });
+        const user2 = account();
+        if (user2) void saveDecryptedMessages(user2.id, roomId, next);
+        return next;
+      });
       updateRoomLast(roomId, optimistic);
     } catch (e) {
       console.warn("楽観表示の反映に失敗しました", e);
@@ -2017,7 +2071,11 @@ export function Chat() {
             setMessages((old) => {
               const ids = new Set(old.map((m) => m.id));
               const add = fetched.filter((m) => !ids.has(m.id));
-              return [...old, ...add];
+              const next = [...old, ...add];
+              setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+              const user = account();
+              if (user) void saveDecryptedMessages(user.id, room.id, next);
+              return next;
             });
             const last = fetched[fetched.length - 1];
             updateRoomLast(room.id, last);
@@ -2040,7 +2098,11 @@ export function Chat() {
         if (isSelected) {
           setMessages((prev) => {
             if (prev.some((x) => x.id === last.id)) return prev;
-            return [...prev, last];
+            const next = [...prev, last];
+            setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+            const user = account();
+            if (user) void saveDecryptedMessages(user.id, room.id, next);
+            return next;
           });
         }
         updateRoomLast(room.id, last);
@@ -2182,6 +2244,59 @@ export function Chat() {
         } else {
           setMessages([]);
         }
+      },
+    ),
+  );
+
+  // WSがなくても成立するよう、選択中ルームは定期ポーリングで差分取得
+  createEffect(
+    on(
+      () => selectedRoom(),
+      (roomId, prev) => {
+        let timer: number | undefined;
+        let running = false;
+        const run = async () => {
+          if (running) return;
+          running = true;
+          try {
+            const r = chatRooms().find((x) => x.id === roomId);
+            if (!r) return;
+            const cached = messagesByRoom()[r.id] ?? messages();
+            const lastTs = cached.length > 0
+              ? cached[cached.length - 1].timestamp.toISOString()
+              : undefined;
+            const fetched = await fetchMessagesForRoom(
+              r,
+              lastTs ? { after: lastTs } : { limit: messageLimit },
+            );
+            if (fetched.length > 0) {
+              setMessages((old) => {
+                const ids = new Set(old.map((m) => m.id));
+                const add = fetched.filter((m) => !ids.has(m.id));
+                const next = [...old, ...add];
+                setMessagesByRoom({ ...messagesByRoom(), [r.id]: next });
+                const user = account();
+                if (user) void saveDecryptedMessages(user.id, r.id, next);
+                return next;
+              });
+              const last = fetched[fetched.length - 1];
+              updateRoomLast(r.id, last);
+            }
+          } catch {
+            // ignore
+          } finally {
+            running = false;
+          }
+        };
+        if (roomId) {
+          // 8秒間隔
+          // deno-lint-ignore no-explicit-any
+          timer = setInterval(run, 8000) as any as number;
+          void run();
+        }
+        onCleanup(() => {
+          if (timer) clearInterval(timer as unknown as number);
+        });
       },
     ),
   );

@@ -5,6 +5,7 @@ import type {
 } from "./mls_wrapper.ts";
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
+import type { ChatMessage } from "../chat/types.ts";
 
 // 新実装に伴い保存形式を変更
 const DB_VERSION = 8;
@@ -391,6 +392,46 @@ export const saveCacheEntry = async <T>(
     tx.oncomplete = () => resolve(undefined);
     tx.onerror = () => reject(tx.error);
   });
+};
+
+// 復号済みメッセージの永続化（ブラウザ/tauri 両対応）
+type SerializableChatMessage = Omit<ChatMessage, "timestamp"> & { timestamp: string };
+
+function serializeMessages(list: ChatMessage[]): SerializableChatMessage[] {
+  return list.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }));
+}
+
+function deserializeMessages(list: SerializableChatMessage[]): ChatMessage[] {
+  return list.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }));
+}
+
+export const loadDecryptedMessages = async (
+  accountId: string,
+  roomId: string,
+): Promise<ChatMessage[] | null> => {
+  const key = `roomMsgs:${roomId}`;
+  const entry = await loadCacheEntry<SerializableChatMessage[]>(accountId, key);
+  if (!entry || !Array.isArray(entry.value)) return null;
+  try {
+    return deserializeMessages(entry.value);
+  } catch {
+    return null;
+  }
+};
+
+export const saveDecryptedMessages = async (
+  accountId: string,
+  roomId: string,
+  messages: ChatMessage[],
+  opts?: { max?: number },
+): Promise<void> => {
+  const key = `roomMsgs:${roomId}`;
+  const max = opts?.max ?? 500;
+  // 新しいものから最大 max 件を保存
+  const trimmed = messages
+    .slice(-max)
+    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  await saveCacheEntry(accountId, key, serializeMessages(trimmed));
 };
 
 export const deleteMLSDatabase = async (accountId: string): Promise<void> => {
