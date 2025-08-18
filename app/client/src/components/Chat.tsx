@@ -443,6 +443,10 @@ export function Chat() {
   const [messagesByRoom, setMessagesByRoom] = createSignal<
     Record<string, ChatMessage[]>
   >({});
+  const roomCacheKey = (roomId: string): string => {
+    const user = account();
+    return user ? `${user.id}:${roomId}` : roomId;
+  };
   const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
     {},
   );
@@ -908,6 +912,15 @@ export function Chat() {
     }
     await syncHandshakes(room);
     group = groups()[room.id];
+    const selfHandle = `${user.userName}@${getDomain()}`;
+    const participantsNow = extractMembers(group)
+      .map((x) => normalizeHandle(x) ?? x)
+      .filter((v): v is string => !!v);
+    const isJoined = participantsNow.includes(selfHandle);
+    if (!isJoined && room.type !== "memo") {
+      // 未参加（招待のみ）の場合は復号を試みず空で返す（UI側で招待状態を表示）
+      return [];
+    }
     const list = await fetchEncryptedMessages(
       room.id,
       `${user.userName}@${getDomain()}`,
@@ -1133,7 +1146,7 @@ export function Chat() {
 
   const loadMessages = async (room: Room, isSelectedRoom: boolean) => {
     const user = account();
-    const cached = messagesByRoom()[room.id] ?? (
+    const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (
       user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined
     );
     if (cached && isSelectedRoom) {
@@ -1158,7 +1171,7 @@ export function Chat() {
         if (add.length > 0) {
           const next = [...cached, ...add];
           setMessages(next);
-          setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+          setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
           if (user) await saveDecryptedMessages(user.id, room.id, next);
           updateRoomLast(room.id, next[next.length - 1]);
         }
@@ -1167,7 +1180,7 @@ export function Chat() {
       return;
     }
     const msgs = await fetchMessagesForRoom(room, { limit: messageLimit });
-    setMessagesByRoom({ ...messagesByRoom(), [room.id]: msgs });
+    setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: msgs });
     if (user) await saveDecryptedMessages(user.id, room.id, msgs);
     if (msgs.length > 0) {
       setCursor(msgs[0].timestamp.toISOString());
@@ -1180,6 +1193,15 @@ export function Chat() {
     }
     const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
     updateRoomLast(room.id, lastMessage);
+    // 招待のみで未参加なら送信を抑止（参加後に自動解除）
+    try {
+      const g = groups()[room.id];
+      if (g && user) {
+        const selfHandle = `${user.userName}@${getDomain()}`;
+        const members = extractMembers(g).map((x) => normalizeHandle(x) ?? x).filter((v): v is string => !!v);
+        setPartnerHasKey(members.includes(selfHandle));
+      }
+    } catch {/* ignore */}
   };
 
   const loadOlderMessages = async (room: Room) => {
@@ -1193,7 +1215,7 @@ export function Chat() {
       setCursor(msgs[0].timestamp.toISOString());
       setMessages((prev) => {
         const next = [...msgs, ...prev];
-        setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+        setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
         const user = account();
         if (user) void saveDecryptedMessages(user.id, room.id, next);
         return next;
@@ -1810,7 +1832,7 @@ export function Chat() {
       };
       setMessages((old) => {
         const next = [...old, optimistic];
-        setMessagesByRoom({ ...messagesByRoom(), [roomId]: next });
+        setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(roomId)]: next });
         const user2 = account();
         if (user2) void saveDecryptedMessages(user2.id, roomId, next);
         return next;
@@ -1834,7 +1856,6 @@ export function Chat() {
   // モバイルでの部屋選択時の動作
   const selectRoom = (roomId: string) => {
     console.log("selected room:", roomId); // for debug
-    setPartnerHasKey(true);
     setSelectedRoom(roomId);
     if (isMobile()) {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
@@ -2072,7 +2093,7 @@ export function Chat() {
               const ids = new Set(old.map((m) => m.id));
               const add = fetched.filter((m) => !ids.has(m.id));
               const next = [...old, ...add];
-              setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+              setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
               const user = account();
               if (user) void saveDecryptedMessages(user.id, room.id, next);
               return next;
@@ -2099,7 +2120,7 @@ export function Chat() {
           setMessages((prev) => {
             if (prev.some((x) => x.id === last.id)) return prev;
             const next = [...prev, last];
-            setMessagesByRoom({ ...messagesByRoom(), [room.id]: next });
+            setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room.id)]: next });
             const user = account();
             if (user) void saveDecryptedMessages(user.id, room.id, next);
             return next;
@@ -2261,7 +2282,7 @@ export function Chat() {
           try {
             const r = chatRooms().find((x) => x.id === roomId);
             if (!r) return;
-            const cached = messagesByRoom()[r.id] ?? messages();
+            const cached = messagesByRoom()[roomCacheKey(r.id)] ?? messages();
             const lastTs = cached.length > 0
               ? cached[cached.length - 1].timestamp.toISOString()
               : undefined;
@@ -2274,7 +2295,7 @@ export function Chat() {
                 const ids = new Set(old.map((m) => m.id));
                 const add = fetched.filter((m) => !ids.has(m.id));
                 const next = [...old, ...add];
-                setMessagesByRoom({ ...messagesByRoom(), [r.id]: next });
+                setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(r.id)]: next });
                 const user = account();
                 if (user) void saveDecryptedMessages(user.id, r.id, next);
                 return next;
@@ -2300,6 +2321,31 @@ export function Chat() {
       },
     ),
   );
+
+  // 非選択ルームのプレビューをWSなしでも更新（軽量ポーリング、dryRunで非破壊）
+  onMount(() => {
+    let timer: number | undefined;
+    const tick = async () => {
+      const rooms = chatRooms();
+      const sel = selectedRoom();
+      for (const r of rooms) {
+        if (!r || r.id === sel) continue;
+        try {
+          const fetched = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+          if (fetched.length > 0) updateRoomLast(r.id, fetched[fetched.length - 1]);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    // 20秒ごと
+    // deno-lint-ignore no-explicit-any
+    timer = setInterval(tick, 20000) as any as number;
+    void tick();
+    onCleanup(() => {
+      if (timer) clearInterval(timer as unknown as number);
+    });
+  });
 
   // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
   createEffect(() => {
