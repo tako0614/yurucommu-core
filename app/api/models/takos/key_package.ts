@@ -11,6 +11,8 @@ const keyPackageSchema = new mongoose.Schema({
   content: { type: String, required: true },
   mediaType: { type: String, default: "message/mls" },
   encoding: { type: String, default: "base64" },
+  // MLS KeyPackageRef (SHA-256 hash hex of the raw KeyPackage bytes)
+  keyPackageRef: { type: String, index: true },
   groupInfo: { type: String },
   version: { type: String },
   cipherSuite: { type: Number },

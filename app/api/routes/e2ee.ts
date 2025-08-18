@@ -502,6 +502,7 @@ app.get("/users/:user/keyPackages", authRequired, async (c) => {
       cipherSuite: doc.cipherSuite,
       generator: doc.generator,
       createdAt: doc.createdAt,
+  keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
     }));
     return c.json({ type: "Collection", items });
   }
@@ -556,10 +557,10 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
     content: doc.content,
     groupInfo: doc.groupInfo,
     expiresAt: doc.expiresAt,
-    deviceId: doc.deviceId,
     version: doc.version,
     cipherSuite: doc.cipherSuite,
     generator: doc.generator,
+  keyPackageRef: (doc as { keyPackageRef?: string }).keyPackageRef,
   };
   return c.json(object);
 });
@@ -627,10 +628,10 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     content: pkg.content,
     groupInfo: pkg.groupInfo,
     expiresAt: pkg.expiresAt,
-    deviceId: pkg.deviceId,
     version: pkg.version,
     cipherSuite: pkg.cipherSuite,
     generator: pkg.generator,
+  keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
   };
   // Key Transparency ログへの追記
   try {
@@ -659,7 +660,24 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
     result: "ok",
     keyId: String(pkg._id),
     groupInfo: pkg.groupInfo,
+    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
   });
+});
+
+// KeyPackageRef で使用済みにマーキング: Welcome 消費後にクライアントがまとめて通知
+app.post("/users/:user/keyPackages/markUsed", authRequired, async (c) => {
+  const user = c.req.param("user");
+  const body = await c.req.json().catch(() => ({}));
+  const refs = Array.isArray(body.keyPackageRefs) ? body.keyPackageRefs : [];
+  if (refs.length === 0) return c.json({ ok: false, error: "keyPackageRefs required" }, 400);
+  const db = createDB(getEnv(c));
+  for (const ref of refs) {
+    if (typeof ref === "string" && /^[0-9a-fA-F]{64}$/.test(ref)) {
+      await db.markKeyPackageUsedByRef(user, ref.toLowerCase());
+    }
+  }
+  await db.cleanupKeyPackages(user);
+  return c.json({ ok: true });
 });
 
 app.delete("/users/:user/keyPackages/:keyId", authRequired, async (c) => {

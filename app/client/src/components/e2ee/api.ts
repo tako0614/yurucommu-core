@@ -35,6 +35,7 @@ export interface KeyPackage {
   createdAt: string;
   attributedTo?: string;
   deviceId?: string;
+  keyPackageRef?: string;
 }
 
 export interface EncryptedMessage {
@@ -102,7 +103,7 @@ export const addKeyPackage = async (
     groupInfo?: string;
     expiresAt?: string;
   },
-): Promise<{ keyId: string | null; groupInfo?: string }> => {
+): Promise<{ keyId: string | null; groupInfo?: string; keyPackageRef?: string }> => {
   try {
     const res = await apiFetch(
       `/api/users/${encodeURIComponent(user)}/keyPackages`,
@@ -135,6 +136,7 @@ export const addKeyPackage = async (
     return {
       keyId: typeof data.keyId === "string" ? data.keyId : null,
       groupInfo: gi,
+      keyPackageRef: typeof data.keyPackageRef === "string" ? data.keyPackageRef : undefined,
     };
   } catch (err) {
     console.error("Error adding key package:", err);
@@ -171,6 +173,25 @@ export const fetchKeyPackage = async (
   } catch (err) {
     console.error("Error fetching key package:", err);
     return null;
+  }
+};
+
+export const markKeyPackagesUsedByRef = async (
+  user: string,
+  refs: string[],
+): Promise<void> => {
+  if (!refs.length) return;
+  try {
+    await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keyPackages/markUsed`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keyPackageRefs: refs }),
+      },
+    );
+  } catch (e) {
+    console.warn("markKeyPackagesUsedByRef failed", e);
   }
 };
 
@@ -234,8 +255,8 @@ export const fetchVerifiedKeyPackage = async (
       // KT 検証に失敗しても致命的ではない
     }
     let fpr: string | undefined;
-    const decoded = decodeMlsMessage(bytes, 0)?.[0];
-    const key = (decoded?.keyPackage as {
+  const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as { keyPackage?: unknown };
+  const key = (decoded?.keyPackage as {
       leafNode?: { signaturePublicKey?: Uint8Array };
     })?.leafNode?.signaturePublicKey;
     if (key) fpr = `p256:${toHex(key)}`;
@@ -320,8 +341,8 @@ export const importRosterEvidence = async (
       Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
     const hashHex = toHex(new Uint8Array(hashBuffer));
     if (`sha256:${hashHex}` !== evidence.keyPackageHash) return false;
-    const decoded = decodeMlsMessage(bytes, 0)?.[0];
-    const key = (decoded?.keyPackage as {
+  const decoded = decodeMlsMessage(bytes, 0)?.[0] as unknown as { keyPackage?: unknown };
+  const key = (decoded?.keyPackage as {
       leafNode?: { signaturePublicKey?: Uint8Array };
     })?.leafNode?.signaturePublicKey;
     if (!key || `p256:${toHex(key)}` !== evidence.leafSignatureKeyFpr) {

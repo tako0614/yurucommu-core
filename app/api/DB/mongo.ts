@@ -636,6 +636,17 @@ export class MongoDB implements DB {
     generator?: string,
     id?: string,
   ) {
+    // keyPackageRef: sha256 of decoded content (raw KeyPackage bytes)
+    let keyPackageRef: string | undefined;
+    try {
+      const bin = atob(content);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
+      keyPackageRef = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    } catch (_e) {
+      // ignore hash errors (content may be invalid base64) – validation happens elsewhere
+    }
     const doc = new KeyPackage({
       _id: id,
       userName,
@@ -648,6 +659,7 @@ export class MongoDB implements DB {
       version,
       cipherSuite,
       generator,
+      keyPackageRef,
       tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
     });
     if (this.env["DB_MODE"] === "host") {
@@ -670,6 +682,18 @@ export class MongoDB implements DB {
       used: true,
     });
     this.withTenant(query);
+    await query;
+  }
+
+  async markKeyPackageUsedByRef(userName: string, keyPackageRef: string) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const query = KeyPackage.updateOne({
+      userName,
+      keyPackageRef,
+      tenant_id: tenantId,
+      used: false,
+    }, { used: true });
+    this.withTenant(query as unknown as mongoose.Query<unknown, unknown>);
     await query;
   }
 

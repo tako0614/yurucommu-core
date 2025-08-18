@@ -168,6 +168,7 @@ export interface DB {
     id?: string,
   ): Promise<unknown>;
   markKeyPackageUsed(userName: string, id: string): Promise<void>;
+  markKeyPackageUsedByRef(userName: string, keyPackageRef: string): Promise<void>;
   cleanupKeyPackages(userName: string): Promise<void>;
   deleteKeyPackage(userName: string, id: string): Promise<void>;
   deleteKeyPackagesByUser(userName: string): Promise<void>;
