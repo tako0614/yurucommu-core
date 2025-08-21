@@ -8,7 +8,7 @@ import { isTauri } from "../../utils/config.ts";
 import type { ChatMessage } from "../chat/types.ts";
 
 // 新実装に伴い保存形式を変更
-const DB_VERSION = 8;
+const DB_VERSION = 10;
 const STORE_NAME = "mlsGroups";
 const KEY_STORE = "mlsKeyPairs";
 const CACHE_STORE = "cache";
