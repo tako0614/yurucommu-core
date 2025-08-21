@@ -689,13 +689,23 @@ export function Chat() {
   const initGroupState = async (roomId: string) => {
     try {
       if (groups()[roomId]) return;
+      const user = account();
+      if (!user) return;
+      // 保存済みの状態があればそれを復元
+      try {
+        const stored = await loadMLSGroupStates(user.id);
+        if (stored[roomId]) {
+          setGroups((prev) => ({ ...prev, [roomId]: stored[roomId] }));
+          return;
+        }
+      } catch (err) {
+        console.error("グループ状態の読み込みに失敗しました", err);
+      }
       const pair = await ensureKeyPair();
       if (!pair) return;
       let initState: StoredGroupState | undefined;
       try {
         // アクターURLを identity に用いた正しい Credential で生成
-        const user = account();
-        if (!user) return;
         const actor =
           new URL(`/users/${user.userName}`, globalThis.location.origin).href;
         const created = await createMLSGroup(actor);

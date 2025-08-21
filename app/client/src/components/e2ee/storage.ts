@@ -6,6 +6,22 @@ import type {
 import { load as loadStore, type Store } from "@tauri-apps/plugin-store";
 import { isTauri } from "../../utils/config.ts";
 import type { ChatMessage } from "../chat/types.ts";
+import {
+  type ClientConfig,
+  defaultAuthenticationService,
+  defaultKeyPackageEqualityConfig,
+  defaultKeyRetentionConfig,
+  defaultLifetimeConfig,
+  defaultPaddingConfig,
+} from "ts-mls";
+
+const defaultClientConfig: ClientConfig = {
+  keyRetentionConfig: defaultKeyRetentionConfig,
+  lifetimeConfig: defaultLifetimeConfig,
+  keyPackageEqualityConfig: defaultKeyPackageEqualityConfig,
+  paddingConfig: defaultPaddingConfig,
+  authService: defaultAuthenticationService,
+};
 
 // 新実装に伴い保存形式を変更
 const DB_VERSION = 10;
@@ -72,6 +88,57 @@ function openDB(accountId: string): Promise<IDBDatabase> {
   });
 }
 
+// StoredGroupState をシリアライズ/デシリアライズするユーティリティ
+function serializeGroupState(state: StoredGroupState): ArrayBuffer {
+  const replacer = (_key: string, value: unknown): unknown => {
+    if (typeof value === "bigint") {
+      return { $type: "bigint", data: value.toString() };
+    }
+    if (value instanceof Map) {
+      return { $type: "Map", data: Array.from(value.entries()) };
+    }
+    if (ArrayBuffer.isView(value)) {
+      return {
+        $type: value.constructor.name,
+        data: Array.from(value as Uint8Array),
+      };
+    }
+    return value;
+  };
+  const plain = { ...state, clientConfig: undefined } as Record<
+    string,
+    unknown
+  >;
+  const json = JSON.stringify(plain, replacer);
+  return new TextEncoder().encode(json).buffer;
+}
+
+function deserializeGroupState(buf: ArrayBuffer): StoredGroupState {
+  const reviver = (_key: string, value: unknown): unknown => {
+    if (value && typeof value === "object" && "$type" in value) {
+      const v = value as { $type: string; data: unknown };
+      switch (v.$type) {
+        case "bigint":
+          return BigInt(v.data as string);
+        case "Map":
+          return new Map(v.data as Iterable<unknown[]>);
+        default: {
+          const ctor = (globalThis as Record<string, unknown>)[v.$type] as
+            | { new (data: unknown): unknown }
+            | undefined;
+          if (ctor) {
+            return new ctor(v.data as unknown);
+          }
+        }
+      }
+    }
+    return value;
+  };
+  const json = new TextDecoder().decode(new Uint8Array(buf));
+  const obj = JSON.parse(json, reviver);
+  return { ...obj, clientConfig: defaultClientConfig } as StoredGroupState;
+}
+
 export const loadMLSGroupStates = async (
   accountId: string,
 ): Promise<Record<string, StoredGroupState>> => {
@@ -88,7 +155,8 @@ export const loadMLSGroupStates = async (
     req.onsuccess = () => {
       const cursor = req.result;
       if (cursor) {
-        result[cursor.key as string] = cursor.value as StoredGroupState;
+        const buf = cursor.value as ArrayBuffer;
+        result[cursor.key as string] = deserializeGroupState(buf);
         cursor.continue();
       } else {
         resolve(result);
@@ -108,10 +176,17 @@ export const saveMLSGroupStates = async (
     await store.save();
     return;
   }
-  // ブラウザ環境では ts-mls の ClientState に関数など非クローン要素が含まれ
-  // IndexedDB の structured clone で DataCloneError になるため、保存はスキップする。
-  // 将来的にシリアライズAPIが追加されたらここで永続化に切り替える。
-  return;
+  const db = await openDB(accountId);
+  const tx = db.transaction(STORE_NAME, "readwrite");
+  const store = tx.objectStore(STORE_NAME);
+  store.clear();
+  for (const [roomId, state] of Object.entries(states)) {
+    store.put(serializeGroupState(state), roomId);
+  }
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
 };
 
 export const loadMLSKeyPair = async (
