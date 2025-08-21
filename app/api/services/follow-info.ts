@@ -2,6 +2,16 @@ import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
 
 /**
+ * ユーザーが存在しない場合のエラー
+ */
+export class UserNotFoundError extends Error {
+  constructor(message = "User not found") {
+    super(message);
+    this.name = "UserNotFoundError";
+  }
+}
+
+/**
  * 指定したユーザーのフォロー/フォロワー一覧を取得
  */
 export async function getFollowList(
@@ -13,7 +23,7 @@ export async function getFollowList(
   const db = dbInst ?? createDB(env);
   const account = await db.findAccountByUserName(username);
   if (!account) {
-    throw new Error("User not found");
+    throw new UserNotFoundError();
   }
   return (account[type] ?? []) as string[];
 }

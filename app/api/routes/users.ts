@@ -5,7 +5,10 @@ import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
-import { formatFollowList } from "../services/follow-info.ts";
+import {
+  formatFollowList,
+  UserNotFoundError,
+} from "../services/follow-info.ts";
 import { getActivityPubFollowCollection } from "./activitypub.ts";
 import authRequired from "../utils/auth.ts";
 
@@ -87,9 +90,9 @@ app.post(
 
 // フォロワー一覧取得
 app.get("/users/:username/followers", async (c) => {
+  const username = c.req.param("username");
   try {
     const domain = getDomain(c);
-    const username = c.req.param("username");
     const env = getEnv(c);
     const collection = await getActivityPubFollowCollection(
       username,
@@ -104,19 +107,20 @@ app.get("/users/:username/followers", async (c) => {
     const data = await formatFollowList(list, domain, env);
     return c.json(data);
   } catch (error) {
-    console.error("Error fetching followers:", error);
-    if (error instanceof Error && error.message === "User not found") {
+    if (error instanceof UserNotFoundError) {
+      console.warn("User not found", username);
       return c.json({ error: "User not found" }, 404);
     }
+    console.error("Error fetching followers:", error);
     return c.json({ error: "Failed to fetch followers" }, 500);
   }
 });
 
 // フォロイング一覧取得
 app.get("/users/:username/following", async (c) => {
+  const username = c.req.param("username");
   try {
     const domain = getDomain(c);
-    const username = c.req.param("username");
     const env = getEnv(c);
     const collection = await getActivityPubFollowCollection(
       username,
@@ -131,10 +135,11 @@ app.get("/users/:username/following", async (c) => {
     const data = await formatFollowList(list, domain, env);
     return c.json(data);
   } catch (error) {
-    console.error("Error fetching following:", error);
-    if (error instanceof Error && error.message === "User not found") {
+    if (error instanceof UserNotFoundError) {
+      console.warn("User not found", username);
       return c.json({ error: "User not found" }, 404);
     }
+    console.error("Error fetching following:", error);
     return c.json({ error: "Failed to fetch following" }, 500);
   }
 });

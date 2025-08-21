@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
-import { buildActivityPubFollowCollection } from "../services/follow-info.ts";
+import {
+  buildActivityPubFollowCollection,
+  UserNotFoundError,
+} from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
 import { getSystemKey } from "../services/system_actor.ts";
@@ -365,8 +368,13 @@ app.get("/ap/users/:username/followers", async (c) => {
       domain,
       env,
     );
-  } catch {
-    return jsonResponse(c, { error: "Not found" }, 404);
+  } catch (error) {
+    if (error instanceof UserNotFoundError) {
+      console.warn("User not found", username);
+      return jsonResponse(c, { error: "Not found" }, 404);
+    }
+    console.error("Error fetching followers:", error);
+    return jsonResponse(c, { error: "Failed to fetch followers" }, 500);
   }
   return jsonResponse(c, data, 200, "application/activity+json");
 });
@@ -401,8 +409,13 @@ app.get("/ap/users/:username/following", async (c) => {
       domain,
       env,
     );
-  } catch {
-    return jsonResponse(c, { error: "Not found" }, 404);
+  } catch (error) {
+    if (error instanceof UserNotFoundError) {
+      console.warn("User not found", username);
+      return jsonResponse(c, { error: "Not found" }, 404);
+    }
+    console.error("Error fetching following:", error);
+    return jsonResponse(c, { error: "Failed to fetch following" }, 500);
   }
   return jsonResponse(c, data, 200, "application/activity+json");
 });
