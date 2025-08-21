@@ -78,10 +78,9 @@ export async function createTakosApp(env?: Record<string, string>) {
     app.route("/api", r);
   }
 
-  // ActivityPub ルートは / のみにマウントする
+  // ActivityPub や公開エンドポイントは / にマウントする
 
-  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp];
-  // e2ee ルートは /api のみで提供し、ActivityPub ルートと競合しないようにする
+  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, e2ee];
   for (const r of rootRoutes) {
     app.route("/", r);
   }
