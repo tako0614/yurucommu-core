@@ -29,17 +29,6 @@ import {
 } from "ts-mls";
 import "@noble/curves/p256";
 import { encodePublicMessage } from "./mls_message.ts";
-import { encodeGroupMetadata, type GroupMetadata } from "./group_metadata.ts";
-
-// ApplicationId 拡張の定義
-const APPLICATION_ID_EXTENSION_TYPE = 0x0001;
-
-function encodeApplicationId(id: string) {
-  return {
-    extensionType: APPLICATION_ID_EXTENSION_TYPE,
-    extensionData: new TextEncoder().encode(id),
-  };
-}
 // ts-mls does not publish some internal helpers via package exports; use local fallbacks/types
 type PublicMessage = {
   content: { commit?: unknown; proposal?: unknown } & Record<string, unknown>;
@@ -302,7 +291,6 @@ export async function verifyPrivateMessage(
 export async function createMLSGroup(
   identity: string,
   suite: CiphersuiteName = DEFAULT_SUITE,
-  metadata?: GroupMetadata,
 ): Promise<{
   state: StoredGroupState;
   keyPair: GeneratedKeyPair;
@@ -311,15 +299,12 @@ export async function createMLSGroup(
   const keyPair = await generateKeyPair(identity, suite);
   const gid = new TextEncoder().encode(crypto.randomUUID());
   const cs = await getSuite(suite);
-  const exts = [encodeApplicationId("ap-e2ee/actor-uri-binding-v1")];
-  if (metadata) exts.push(encodeGroupMetadata(metadata));
-  // ts-mls v1.0.4 以降では RequiredCapabilities を渡す引数が
-  // clientConfig に置き換えられたため、デフォルト設定を使用する
+  // 可能な限り拡張を使用しないため、拡張一覧は空とする
   const state = await createGroup(
     gid,
     keyPair.public,
     keyPair.private,
-    exts,
+    [],
     cs,
   );
   return { state, keyPair, gid };

@@ -51,7 +51,6 @@ import {
   encodePublicMessage,
 } from "./e2ee/mls_message.ts";
 import { decodeMlsMessage } from "ts-mls";
-import { decodeGroupMetadata } from "./e2ee/group_metadata.ts";
 import {
   appendRosterEvidence,
   getCacheItem,
@@ -1285,44 +1284,8 @@ export function Chat() {
     const serverRooms = await searchRooms(user.id, { implicit: "include" });
     for (const item of serverRooms) {
       const state = groups()[item.id];
-      const meta = state
-        // 拡張の型適合 (extensionType を number に) ※ ts-mls の型差異吸収
-        ? decodeGroupMetadata(
-          (() => {
-            type RawExt = {
-              extensionType: number | string;
-              extensionData: Uint8Array;
-            } | unknown;
-            const arr: RawExt[] = state.groupContext
-              .extensions as unknown as RawExt[];
-            return arr.flatMap((e) => {
-              if (
-                typeof e === "object" && e !== null &&
-                "extensionType" in e && "extensionData" in e
-              ) {
-                const et =
-                  (e as { extensionType: number | string }).extensionType;
-                const ed = (e as { extensionData: unknown }).extensionData;
-                if (ed instanceof Uint8Array) {
-                  return [{
-                    extensionType: typeof et === "string" ? Number(et) : et,
-                    extensionData: ed,
-                  }];
-                }
-              }
-              return [] as {
-                extensionType: number;
-                extensionData: Uint8Array;
-              }[];
-            });
-          })(),
-        ) || {
-          name: "",
-          icon: undefined,
-        }
-        : { name: "", icon: undefined };
-      const name = meta.name ?? "";
-      const icon = meta.icon ?? "";
+      const name = "";
+      const icon = "";
       // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
       let members = state
         ? extractMembers(state)
@@ -1347,8 +1310,8 @@ export function Chat() {
         unreadCount: 0,
         type: "group",
         members,
-        hasName: name.trim() !== "",
-        hasIcon: icon.trim() !== "",
+        hasName: false,
+        hasIcon: false,
         lastMessage: "...",
         lastMessageTime: undefined,
       });
@@ -2945,6 +2908,7 @@ export function Chat() {
                     </div>
                     <div class="flex gap-2">
                       <button
+                        type="button"
                         class="px-3 py-1 rounded bg-amber-600/80 hover:bg-amber-600 text-white text-sm"
                         onClick={async () => {
                           const id = selectedRoom();
@@ -3030,6 +2994,7 @@ export function Chat() {
                         参加する
                       </button>
                       <button
+                        type="button"
                         class="px-3 py-1 rounded bg-transparent border border-amber-500/60 text-amber-100 text-sm hover:bg-amber-500/20"
                         onClick={() => {
                           const id = selectedRoom();
