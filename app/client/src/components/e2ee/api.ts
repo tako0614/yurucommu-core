@@ -11,7 +11,7 @@ import {
   verifyGroupInfo,
   verifyKeyPackage,
 } from "./mls_wrapper.ts";
-import { bufToB64 } from "../../../shared/buffer.ts";
+import { bufToB64 } from "../../../../shared/buffer.ts";
 import {
   appendKeyPackageRecords,
   appendRosterEvidence,
