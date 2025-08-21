@@ -88,6 +88,146 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+async function registerKeyPackage(
+  env: Record<string, string>,
+  domain: string,
+  db: ReturnType<typeof createDB>,
+  user: string,
+  data: Record<string, unknown>,
+): Promise<
+  | { keyId: string; groupInfo?: string; keyPackageRef?: string }
+  | { error: string }
+> {
+  const {
+    content,
+    mediaType,
+    encoding,
+    groupInfo,
+    expiresAt,
+    deviceId,
+    version,
+    cipherSuite,
+    generator,
+    lastResort,
+  } = data;
+
+  if (typeof content !== "string") {
+    return { error: "content is required" };
+  }
+  const mt = typeof mediaType === "string" && mediaType === "message/mls"
+    ? mediaType
+    : null;
+  if (!mt) {
+    return { error: 'mediaType must be "message/mls"' };
+  }
+  const enc = typeof encoding === "string" && encoding === "base64"
+    ? encoding
+    : null;
+  if (!enc) {
+    return { error: 'encoding must be "base64"' };
+  }
+  const actorId = `https://${domain}/users/${user}`;
+  try {
+    const id = extractBasicCredentialIdentity(b64ToBytes(content));
+    if (!id) {
+      return { error: "ap_mls.binding.policy_violation" };
+    }
+    if (id !== actorId) {
+      return { error: "ap_mls.binding.identity_mismatch" };
+    }
+  } catch (_err) {
+    return { error: "ap_mls.binding.policy_violation" };
+  }
+  const gi = typeof groupInfo === "string" ? groupInfo : undefined;
+  let genObj: GeneratorInfo | undefined;
+  if (
+    typeof generator === "object" && generator &&
+    typeof (generator as { id?: unknown }).id === "string" &&
+    typeof (generator as { type?: unknown }).type === "string" &&
+    typeof (generator as { name?: unknown }).name === "string"
+  ) {
+    genObj = {
+      id: (generator as { id: string }).id,
+      type: (generator as { type: string }).type,
+      name: (generator as { name: string }).name,
+    };
+  } else if (typeof generator === "string") {
+    genObj = { id: generator, type: "Application", name: generator };
+  }
+  const pkg = await db.createKeyPackage(
+    user,
+    content,
+    mt,
+    enc,
+    gi,
+    typeof expiresAt === "string" ? new Date(expiresAt) : undefined,
+    typeof deviceId === "string" ? deviceId : undefined,
+    typeof version === "string" ? version : undefined,
+    typeof cipherSuite === "number" ? cipherSuite : undefined,
+    genObj,
+    undefined,
+    typeof lastResort === "boolean" ? lastResort : undefined,
+  ) as KeyPackageDoc;
+  await db.cleanupKeyPackages(user);
+  const keyObj = {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://purl.archive.org/socialweb/mls",
+    ],
+    id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
+    type: ["Object", "KeyPackage"],
+    attributedTo: actorId,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    mediaType: pkg.mediaType,
+    encoding: pkg.encoding,
+    summary:
+      "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …",
+    content: pkg.content,
+    groupInfo: pkg.groupInfo,
+    expiresAt: pkg.expiresAt,
+    version: pkg.version,
+    cipherSuite: pkg.cipherSuite,
+    generator: normalizeGenerator(pkg.generator),
+    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
+    lastResort: (pkg as { lastResort?: boolean }).lastResort,
+  };
+  try {
+    const bin = atob(pkg.content);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const buf = await crypto.subtle.digest("SHA-256", bytes);
+    const toHex = (arr: Uint8Array) =>
+      Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hash = toHex(new Uint8Array(buf));
+    await fetch(`https://${domain}/.well-known/key-transparency/append`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor: actorId,
+        keyPackageUrl: keyObj.id,
+        keyPackageHash: hash,
+      }),
+    });
+  } catch (err) {
+    console.error("KT append failed", err);
+  }
+  const createActivity = createCreateActivity(domain, actorId, keyObj);
+  (createActivity as ActivityPubActivity).cc = [];
+  await deliverToFollowers(env, user, createActivity, domain);
+  const addActivity = createAddActivity(
+    domain,
+    actorId,
+    createActivity.id,
+    `https://${domain}/users/${user}/keyPackages`,
+  );
+  await deliverToFollowers(env, user, addActivity, domain);
+  return {
+    keyId: String(pkg._id),
+    groupInfo: pkg.groupInfo,
+    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
+  };
+}
+
 async function resolveActorCached(
   acct: string,
   env: Record<string, string>,
@@ -738,138 +878,47 @@ app.get("/users/:user/keyPackages/:keyId", async (c) => {
 
 app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const user = c.req.param("user");
-  const {
-    content,
-    mediaType,
-    encoding,
-    groupInfo,
-    expiresAt,
-    deviceId,
-    version,
-    cipherSuite,
-    generator,
-    lastResort,
-  } = await c.req.json();
-  if (typeof content !== "string") {
-    return c.json({ error: "content is required" }, 400);
-  }
-  const mt = typeof mediaType === "string" && mediaType === "message/mls"
-    ? mediaType
-    : null;
-  if (!mt) {
-    return c.json({ error: 'mediaType must be "message/mls"' }, 400);
-  }
-  const enc = typeof encoding === "string" && encoding === "base64"
-    ? encoding
-    : null;
-  if (!enc) {
-    return c.json({ error: 'encoding must be "base64"' }, 400);
-  }
+  const body = await c.req.json();
+  const env = getEnv(c);
   const domain = getDomain(c);
-  const actorId = `https://${domain}/users/${user}`;
-  // BasicCredential.identity と Actor の URL を照合
-  try {
-    const id = extractBasicCredentialIdentity(b64ToBytes(content));
-    if (!id) {
-      return c.json(
-        { error: "ap_mls.binding.policy_violation" },
-        400,
-      );
-    }
-    if (id !== actorId) {
-      return c.json({ error: "ap_mls.binding.identity_mismatch" }, 400);
-    }
-  } catch (err) {
-    console.error("KeyPackage verification failed", err);
-    return c.json({ error: "ap_mls.binding.policy_violation" }, 400);
+  const db = createDB(env);
+  const result = await registerKeyPackage(env, domain, db, user, body);
+  if ("error" in result) {
+    return c.json({ error: result.error }, 400);
   }
-  const db = createDB(getEnv(c));
-  const gi = typeof groupInfo === "string" ? groupInfo : undefined;
-  let genObj: GeneratorInfo | undefined;
-  if (
-    typeof generator === "object" && generator &&
-    typeof generator.id === "string" &&
-    typeof generator.type === "string" &&
-    typeof generator.name === "string"
-  ) {
-    genObj = { id: generator.id, type: generator.type, name: generator.name };
-  } else if (typeof generator === "string") {
-    genObj = { id: generator, type: "Application", name: generator };
-  }
-  const pkg = await db.createKeyPackage(
-    user,
-    content,
-    mt,
-    enc,
-    gi,
-    expiresAt ? new Date(expiresAt) : undefined,
-    typeof deviceId === "string" ? deviceId : undefined,
-    typeof version === "string" ? version : undefined,
-    typeof cipherSuite === "number" ? cipherSuite : undefined,
-    genObj,
-    undefined,
-    typeof lastResort === "boolean" ? lastResort : undefined,
-  ) as KeyPackageDoc;
-  await db.cleanupKeyPackages(user);
-  const keyObj = {
-    "@context": [
-      "https://www.w3.org/ns/activitystreams",
-      "https://purl.archive.org/socialweb/mls",
-    ],
-    id: `https://${domain}/users/${user}/keyPackages/${pkg._id}`,
-    type: ["Object", "KeyPackage"],
-    attributedTo: actorId,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    mediaType: pkg.mediaType,
-    encoding: pkg.encoding,
-    summary:
-      "This is binary-encoded cryptographic key package. See https://swicg.github.io/activitypub-e2ee/ …",
-    content: pkg.content,
-    groupInfo: pkg.groupInfo,
-    expiresAt: pkg.expiresAt,
-    version: pkg.version,
-    cipherSuite: pkg.cipherSuite,
-    generator: normalizeGenerator(pkg.generator),
-    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
-    lastResort: (pkg as { lastResort?: boolean }).lastResort,
-  };
-  // Key Transparency ログへの追記
-  try {
-    const bin = atob(pkg.content);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const buf = await crypto.subtle.digest("SHA-256", bytes);
-    const toHex = (arr: Uint8Array) =>
-      Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const hash = toHex(new Uint8Array(buf));
-    await fetch(`https://${domain}/.well-known/key-transparency/append`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actor: actorId,
-        keyPackageUrl: keyObj.id,
-        keyPackageHash: hash,
-      }),
-    });
-  } catch (err) {
-    console.error("KT append failed", err);
-  }
-  const createActivity = createCreateActivity(domain, actorId, keyObj);
-  (createActivity as ActivityPubActivity).cc = [];
-  await deliverToFollowers(getEnv(c), user, createActivity, domain);
-  const addActivity = createAddActivity(
-    domain,
-    actorId,
-    createActivity.id,
-    `https://${domain}/users/${user}/keyPackages`,
-  );
-  await deliverToFollowers(getEnv(c), user, addActivity, domain);
   return c.json({
     result: "ok",
-    keyId: String(pkg._id),
-    groupInfo: pkg.groupInfo,
-    keyPackageRef: (pkg as { keyPackageRef?: string }).keyPackageRef,
+    keyId: result.keyId,
+    groupInfo: result.groupInfo,
+    keyPackageRef: result.keyPackageRef,
   });
+});
+
+app.post("/keyPackages/bulk", authRequired, async (c) => {
+  const body = await c.req.json();
+  if (!Array.isArray(body)) {
+    return c.json({ error: "array required" }, 400);
+  }
+  const env = getEnv(c);
+  const domain = getDomain(c);
+  const db = createDB(env);
+  const results: unknown[] = [];
+  for (const item of body) {
+    if (
+      !item || typeof item.user !== "string" ||
+      !Array.isArray(item.keyPackages)
+    ) {
+      continue;
+    }
+    const user = item.user as string;
+    const resList: unknown[] = [];
+    for (const kp of item.keyPackages) {
+      const r = await registerKeyPackage(env, domain, db, user, kp);
+      resList.push(r);
+    }
+    results.push({ user, results: resList });
+  }
+  return c.json({ results });
 });
 
 // KeyPackageRef で使用済みにマーキング: Welcome 消費後にクライアントがまとめて通知

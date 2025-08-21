@@ -180,6 +180,7 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 - `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
 - `POST /api/users/:user/keyPackages` – KeyPackage 登録（GroupInfo
   や有効期限を付与可能）
+- `POST /api/keyPackages/bulk` – 複数ユーザーの KeyPackage を一括登録
 - `GET /api/users/:user/keyPackages/:keyId` – KeyPackage 取得
 - `DELETE /api/users/:user/keyPackages/:keyId` – KeyPackage 削除
 - `GET /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア取得

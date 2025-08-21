@@ -1,8 +1,9 @@
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, getKpPoolSize } from "../../utils/config.ts";
 import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
   encryptMessage,
   type GeneratedKeyPair,
+  generateKeyPair,
   joinWithGroupInfo,
   type RawKeyPackageInput,
   type RosterEvidence,
@@ -16,6 +17,7 @@ import {
   appendKeyPackageRecords,
   appendRosterEvidence,
   loadKeyPackageRecords,
+  saveMLSKeyPair,
 } from "./storage.ts";
 import { decodeMlsMessage } from "ts-mls";
 
@@ -150,6 +152,92 @@ export const addKeyPackage = async (
     console.error("Error adding key package:", err);
     if (err instanceof Error) throw err;
     throw new Error("KeyPackageの登録に失敗しました");
+  }
+};
+
+export const addKeyPackagesBulk = async (
+  items: {
+    user: string;
+    keyPackages: {
+      content: string;
+      mediaType?: string;
+      encoding?: string;
+      groupInfo?: string;
+      expiresAt?: string;
+      lastResort?: boolean;
+    }[];
+  }[],
+): Promise<unknown[]> => {
+  try {
+    const res = await apiFetch("/api/keyPackages/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(items),
+    });
+    if (!res.ok) {
+      throw new Error("KeyPackageの登録に失敗しました");
+    }
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  } catch (err) {
+    console.error("Error adding key packages in bulk:", err);
+    if (err instanceof Error) throw err;
+    throw new Error("KeyPackageの登録に失敗しました");
+  }
+};
+
+export const topUpKeyPackages = async (
+  userName: string,
+  accountId: string,
+): Promise<void> => {
+  try {
+    const target = getKpPoolSize();
+    if (!target || target <= 1) return;
+    const selfKps = await fetchKeyPackages(userName);
+    const now = Date.now();
+    const usable = (selfKps ?? []).filter((k) =>
+      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) &&
+      !k.lastResort
+    );
+    const uploads: { content: string; lastResort?: boolean }[] = [];
+    const actor =
+      new URL(`/users/${userName}`, globalThis.location.origin).href;
+    const hasLastResort = (selfKps ?? []).some((k) => k.lastResort);
+    if (!hasLastResort) {
+      try {
+        const kp = await generateKeyPair(actor);
+        await saveMLSKeyPair(accountId, {
+          public: kp.public,
+          private: kp.private,
+          encoded: kp.encoded,
+        });
+        uploads.push({ content: kp.encoded, lastResort: true });
+      } catch (e) {
+        console.warn("lastResort KeyPackage 生成に失敗", e);
+      }
+    }
+    const need = target - usable.length;
+    if (need > 0) {
+      for (let i = 0; i < need; i++) {
+        try {
+          const kp = await generateKeyPair(actor);
+          await saveMLSKeyPair(accountId, {
+            public: kp.public,
+            private: kp.private,
+            encoded: kp.encoded,
+          });
+          uploads.push({ content: kp.encoded });
+        } catch (e) {
+          console.warn("KeyPackage 補充に失敗しました", e);
+          break;
+        }
+      }
+    }
+    if (uploads.length > 0) {
+      await addKeyPackagesBulk([{ user: userName, keyPackages: uploads }]);
+    }
+  } catch (e) {
+    console.warn("KeyPackage プール確認に失敗しました", e);
   }
 };
 

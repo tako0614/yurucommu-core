@@ -29,9 +29,10 @@ import {
   sendGroupMetadata,
   sendHandshake,
   sendKeepMessage,
+  topUpKeyPackages,
   uploadFile,
 } from "./e2ee/api.ts";
-import { apiFetch, getDomain, getKpPoolSize } from "../utils/config.ts";
+import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import {
   createCommitAndWelcomes,
@@ -743,7 +744,7 @@ export function Chat() {
           await saveMLSKeyPair(user.id, pair);
           await addKeyPackage(user.userName, { content: kp.encoded });
           // 目標プール数まで補充
-          await topUpSelfKeyPackages(user.userName, user.id);
+          await topUpKeyPackages(user.userName, user.id);
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           setIsGeneratingKeyPair(false);
@@ -3180,61 +3181,6 @@ function pickUsableKeyPackage(
   if (usableLR.length > 0) return usableLR[0];
   // それでも無ければ全体から最初
   return list[0] ?? null;
-}
-
-async function topUpSelfKeyPackages(userName: string, accountId: string) {
-  try {
-    const target = getKpPoolSize();
-    if (!target || target <= 1) return;
-    const selfKps = await fetchKeyPackages(userName);
-    const now = Date.now();
-    const usable = (selfKps ?? []).filter((k) =>
-      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) &&
-      !k.lastResort
-    );
-    // lastResort が存在しない場合は 1 個だけ作る（target にはカウントしない）
-    const hasLastResort = (selfKps ?? []).some((k) => k.lastResort);
-    if (!hasLastResort) {
-      try {
-        const actor =
-          new URL(`/users/${userName}`, globalThis.location.origin).href;
-        const kp = await generateKeyPair(actor);
-        await saveMLSKeyPair(accountId, {
-          public: kp.public,
-          private: kp.private,
-          encoded: kp.encoded,
-        });
-        await addKeyPackage(userName, {
-          content: kp.encoded,
-          lastResort: true,
-        });
-      } catch (e) {
-        console.warn("lastResort KeyPackage 生成に失敗", e);
-      }
-    }
-    const need = target - usable.length;
-    if (need <= 0) return;
-    // actor URL for identity
-    const actor =
-      new URL(`/users/${userName}`, globalThis.location.origin).href;
-    for (let i = 0; i < need; i++) {
-      try {
-        const kp = await generateKeyPair(actor);
-        // 保存（複数保存可能: KEY_STORE は autoIncrement）
-        await saveMLSKeyPair(accountId, {
-          public: kp.public,
-          private: kp.private,
-          encoded: kp.encoded,
-        });
-        await addKeyPackage(userName, { content: kp.encoded });
-      } catch (e) {
-        console.warn("KeyPackage 補充に失敗しました", e);
-        break;
-      }
-    }
-  } catch (e) {
-    console.warn("KeyPackage プール確認に失敗しました", e);
-  }
 }
 
 function normalizeHandle(actor: ActorID): string | null {
