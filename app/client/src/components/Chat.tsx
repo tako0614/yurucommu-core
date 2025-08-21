@@ -954,6 +954,15 @@ export function Chat() {
           updatedState: !!res?.state,
         });
       } catch (err) {
+        if (err instanceof DOMException && err.name === "OperationError") {
+          // DOMException(OperationError) は対象メッセージをスキップ
+          console.error("decryptMessage OperationError", err, {
+            id: m.id,
+            room: room.id,
+            message: err.message,
+          });
+          continue;
+        }
         console.error("decryptMessage failed", err, {
           id: m.id,
           room: room.id,
