@@ -15,6 +15,7 @@ import { fetchUserInfo } from "../microblog/api.ts";
 import {
   fetchEncryptedMessages,
   fetchKeyPackages,
+  sendGroupMetadata,
   sendHandshake,
 } from "../e2ee/api.ts";
 import { createCommitAndWelcomes } from "../e2ee/mls_wrapper.ts";
@@ -432,6 +433,13 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
         );
         if (!wk) throw new Error("Welcomeの送信に失敗しました");
       }
+      await sendGroupMetadata(
+        props.room.id,
+        `${user.userName}@${getDomain()}`,
+        res.state,
+        toList,
+        { name: props.room.name, icon: props.room.avatar ?? undefined },
+      );
       // 招待中に登録（Join済みになれば自動でmembers側に移動）
       const target = normalizeHandle(ident.user);
       if (target) await addPending(props.room.id, [target]);

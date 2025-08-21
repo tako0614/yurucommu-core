@@ -1,6 +1,7 @@
 import { apiFetch } from "../../utils/config.ts";
 import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
+  encryptMessage,
   type GeneratedKeyPair,
   joinWithGroupInfo,
   type RawKeyPackageInput,
@@ -10,6 +11,7 @@ import {
   verifyGroupInfo,
   verifyKeyPackage,
 } from "./mls_wrapper.ts";
+import { bufToB64 } from "../../../shared/buffer.ts";
 import {
   appendKeyPackageRecords,
   appendRosterEvidence,
@@ -424,6 +426,44 @@ export const sendEncryptedMessage = async (
   } catch (err) {
     console.error("Error sending message:", err);
     return false;
+  }
+};
+
+// グループ設定（名前・アイコン）を application_data で送信
+export const sendGroupMetadata = async (
+  roomId: string,
+  from: string,
+  state: StoredGroupState,
+  to: string[],
+  info: { name?: string; icon?: string },
+): Promise<StoredGroupState | null> => {
+  try {
+    const obj: Record<string, unknown> = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Object",
+    };
+    if (info.name) obj.name = info.name;
+    if (info.icon?.startsWith("data:")) {
+      const m = info.icon.match(/^data:(.+);base64,(.+)$/);
+      if (m) {
+        obj.icon = {
+          type: "Image",
+          mediaType: m[1],
+          encoding: "base64",
+          content: m[2],
+        };
+      }
+    }
+    const enc = await encryptMessage(state, JSON.stringify(obj));
+    const ok = await sendEncryptedMessage(roomId, from, to, {
+      content: bufToB64(enc.message),
+      mediaType: "message/mls",
+      encoding: "base64",
+    });
+    return ok ? enc.state : null;
+  } catch (err) {
+    console.error("Error sending group metadata:", err);
+    return null;
   }
 };
 

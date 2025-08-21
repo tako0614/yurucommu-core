@@ -26,6 +26,7 @@ import {
   importRosterEvidence,
   searchRooms,
   sendEncryptedMessage,
+  sendGroupMetadata,
   sendHandshake,
   sendKeepMessage,
   uploadFile,
@@ -1537,7 +1538,16 @@ export function Chat() {
               );
               if (!wk) break;
             }
-            setGroups({ ...groups(), [room.id]: resAdd.state });
+            let gstate: StoredGroupState = resAdd.state;
+            const meta = await sendGroupMetadata(
+              room.id,
+              `${user.userName}@${getDomain()}`,
+              gstate,
+              members,
+              { name: room.name, icon: room.avatar },
+            );
+            if (meta) gstate = meta;
+            setGroups({ ...groups(), [room.id]: gstate });
             saveGroupStates();
             // 招待中として登録（Join後に設定画面で自動的にメンバー側へ移動）
             await addPendingInvites(user.id, room.id, others);
@@ -1733,7 +1743,16 @@ export function Chat() {
             );
             if (!wk) throw new Error("Welcome送信に失敗しました");
           }
-          group = resAdd.state;
+          let gstate: StoredGroupState = resAdd.state;
+          const meta = await sendGroupMetadata(
+            roomId,
+            `${user.userName}@${getDomain()}`,
+            gstate,
+            toList,
+            { name: room.name, icon: room.avatar },
+          );
+          if (meta) gstate = meta;
+          group = gstate;
           setGroups({ ...groups(), [roomId]: group });
           saveGroupStates();
           try {
