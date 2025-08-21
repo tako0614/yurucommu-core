@@ -537,9 +537,14 @@ const AccountSettingsContent: Component<{
                             username={u.userName}
                             size="w-8 h-8"
                           />
-                          <span class="text-sm text-white">
-                            {u.displayName}
-                          </span>
+                          <div class="min-w-0">
+                            <div class="text-sm text-white truncate">
+                              {u.displayName}
+                            </div>
+                            <div class="text-xs text-gray-400 truncate">
+                              {`${u.userName}@${getDomain()}`}
+                            </div>
+                          </div>
                         </div>
                       )}
                     </For>
@@ -576,9 +581,14 @@ const AccountSettingsContent: Component<{
                             username={u.userName}
                             size="w-8 h-8"
                           />
-                          <span class="text-sm text-white">
-                            {u.displayName}
-                          </span>
+                          <div class="min-w-0">
+                            <div class="text-sm text-white truncate">
+                              {u.displayName}
+                            </div>
+                            <div class="text-xs text-gray-400 truncate">
+                              {`${u.userName}@${getDomain()}`}
+                            </div>
+                          </div>
                         </div>
                       )}
                     </For>
