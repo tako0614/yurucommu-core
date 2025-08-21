@@ -178,15 +178,19 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             encoding: string;
             createdAt: unknown;
           };
-          // WSはトリガーのみ（本文等は送らない）
-          const newMsg = {
+          // REST-first: WS は本文を送らず「更新あり」の最小通知のみ送る
+          const newMsgMeta = {
             id: String(msg._id),
             roomId: msg.roomId,
             from,
             to: recipients,
             createdAt: msg.createdAt,
           };
-          sendToUser(selfHandle, { type: "encryptedMessage", payload: newMsg });
+          // 通知は軽量化: 種別と参照IDのみ送る
+          sendToUser(selfHandle, {
+            type: "hasUpdate",
+            payload: { kind: "encryptedMessage", id: newMsgMeta.id },
+          });
         } else {
           const msg = await db.createHandshakeMessage({
             roomId,
@@ -201,23 +205,27 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             message: string;
             createdAt: unknown;
           };
-          const newMsg = {
+          const newMsgMeta = {
             id: String(msg._id),
             roomId: msg.roomId,
             sender: from,
             recipients,
             createdAt: msg.createdAt,
           };
-          // Handshake系（Commit/Proposal/Welcome）は WS では "handshake" 種別で通知
-          sendToUser(selfHandle, { type: "handshake", payload: newMsg });
+          // Handshake系は minimal notification
+          sendToUser(selfHandle, {
+            type: "hasUpdate",
+            payload: { kind: "handshake", id: newMsgMeta.id },
+          });
           // Welcome オブジェクトを受信した場合はサーバー側で通知を作成（ローカル受信者のみ）
           if (objTypes.includes("Welcome")) {
             if (roomId) {
               const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
               await db.savePendingInvite(roomId, username, "", expiresAt);
+              // pending invite の存在を最小通知で送る
               sendToUser(selfHandle, {
-                type: "pendingInvite",
-                payload: { roomId, from },
+                type: "hasUpdate",
+                payload: { kind: "pendingInvite", roomId },
               });
             }
             try {
@@ -233,7 +241,11 @@ export const activityHandlers: Record<string, ActivityHandler> = {
                   }),
                   "chat-invite",
                 );
-                sendToUser(selfHandle, { type: "notification" });
+                // 通知作成の存在を最小通知で送る（詳細は /api/notifications で取得する想定）
+                sendToUser(selfHandle, {
+                  type: "hasUpdate",
+                  payload: { kind: "notification", type: "chat-invite" },
+                });
               }
             } catch (e) {
               console.error("failed to create welcome notification", e);

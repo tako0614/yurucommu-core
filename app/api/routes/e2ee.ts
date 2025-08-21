@@ -560,9 +560,16 @@ async function handleHandshake(
     recipients: recipients,
     createdAt: msg.createdAt,
   };
-  sendToUser(from, { type: "handshake", payload: newMsg });
+  // REST-first: WebSocket は本文を渡さず軽量通知のみ送る
+  sendToUser(from, {
+    type: "hasUpdate",
+    payload: { kind: "handshake", id: newMsg.id },
+  });
   for (const t of recipients) {
-    sendToUser(t, { type: "handshake", payload: newMsg });
+    sendToUser(t, {
+      type: "hasUpdate",
+      payload: { kind: "handshake", id: newMsg.id },
+    });
   }
 
   if (localTargets.length > 0) {
@@ -570,7 +577,11 @@ async function handleHandshake(
     for (const lm of localTargets) {
       const uname = lm.split("@")[0];
       await db.savePendingInvite(roomId, uname, "", expiresAt);
-      sendToUser(lm, { type: "pendingInvite", payload: { roomId, from } });
+      // pending invite の存在を軽量通知で送る
+      sendToUser(lm, {
+        type: "hasUpdate",
+        payload: { kind: "pendingInvite", roomId },
+      });
       try {
         // ローカルユーザー向けにサーバー側で通知を作成
         const acc = await db.findAccountByUserName(uname);
@@ -581,7 +592,11 @@ async function handleHandshake(
             JSON.stringify({ kind: "chat-invite", roomId, sender: from }),
             "chat-invite",
           );
-          sendToUser(lm, { type: "notification" });
+          // 通知作成の存在を軽量通知で送る（詳細は /api/notifications で取得）
+          sendToUser(lm, {
+            type: "hasUpdate",
+            payload: { kind: "notification", subtype: "chat-invite" },
+          });
         }
       } catch (e) {
         console.error("failed to create invite notification", e);
@@ -1174,11 +1189,18 @@ app.post(
       to: recipients,
       createdAt: msg.createdAt,
     };
-    sendToUser(from, { type: "encryptedMessage", payload: newMsg });
+    // 本文は REST (/rooms/:room/messages) で取得させる
+    sendToUser(from, {
+      type: "hasUpdate",
+      payload: { kind: "encryptedMessage", id: newMsg.id },
+    });
     for (const t of recipients) {
-      sendToUser(t, { type: "encryptedMessage", payload: newMsg });
+      sendToUser(t, {
+        type: "hasUpdate",
+        payload: { kind: "encryptedMessage", id: newMsg.id },
+      });
     }
-
+    
     return c.json({ result: "sent", id: String(msg._id) });
   },
 );

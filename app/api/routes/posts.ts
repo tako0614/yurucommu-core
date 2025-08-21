@@ -226,13 +226,15 @@ app.post(
       post as Record<string, unknown>,
     );
 
-    // 新しい投稿を最新タイムライン向けに配信
+    // REST-first: WebSocket は本文を送らず存在通知のみ送る
+    // クライアントはこの通知を受けて REST API (/posts/:id や /posts?...) で本文を取得する
+    const objId = objectId || String((post as Record<string, unknown>)._id ?? "");
     broadcast({
-      type: "newPost",
-      payload: { timeline: "latest", post: formatted },
+      type: "hasUpdate",
+      payload: { kind: "newPost", id: objId },
     });
-
-    // ローカルのフォロワーへ個別に配信
+    
+    // ローカルのフォロワーへ個別に軽量通知
     const account = await db.findAccountByUserName(author);
     const followers = account?.followers ?? [];
     const localFollowers = followers
@@ -252,8 +254,8 @@ app.post(
     localFollowers.push(`${author}@${domain}`);
     for (const f of localFollowers) {
       sendToUser(f, {
-        type: "newPost",
-        payload: { timeline: "following", post: formatted },
+        type: "hasUpdate",
+        payload: { kind: "newPost", id: objId },
       });
     }
 
