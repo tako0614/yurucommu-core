@@ -49,10 +49,17 @@ async function ensureMessaging(): Promise<Messaging> {
   if (!config) throw new Error("firebase config not loaded");
   const app = initializeApp(config as Record<string, string>);
   messaging = getMessaging(app);
-  const reg = await navigator.serviceWorker.register(swUrl, {
-    type: "module",
-  });
-  reg.active?.postMessage({ type: "config", config });
+  // During local development Vite serves TS files directly and the browser
+  // may try to fetch the `.ts` service worker script which can fail under
+  // some host/config setups (CORS, unknown content type). Skip registering
+  // the service worker in dev to avoid that error. In Tauri or production
+  // we register normally.
+  if (!import.meta.env.DEV && !isTauri && 'serviceWorker' in navigator) {
+    const reg = await navigator.serviceWorker.register(swUrl, {
+      type: "module",
+    });
+    reg.active?.postMessage({ type: "config", config });
+  }
   return messaging;
 }
 
