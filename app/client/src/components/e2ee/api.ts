@@ -165,14 +165,29 @@ export const addKeyPackagesBulk = async (
       groupInfo?: string;
       expiresAt?: string;
       lastResort?: boolean;
+      deviceId?: string;
     }[];
   }[],
 ): Promise<unknown[]> => {
   try {
+    // Normalize each keyPackage to include required fields expected by the server.
+    // Server requires mediaType === "message/mls" and encoding === "base64".
+    const normalized = items.map((it) => ({
+      user: it.user,
+      keyPackages: it.keyPackages.map((kp) => ({
+        content: kp.content,
+        mediaType: kp.mediaType ?? "message/mls",
+        encoding: kp.encoding ?? "base64",
+        groupInfo: kp.groupInfo,
+        expiresAt: kp.expiresAt,
+        lastResort: kp.lastResort,
+        deviceId: kp.deviceId,
+      })),
+    }));
     const res = await apiFetch("/api/keyPackages/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(items),
+      body: JSON.stringify(normalized),
     });
     if (!res.ok) {
       throw new Error("KeyPackageの登録に失敗しました");
