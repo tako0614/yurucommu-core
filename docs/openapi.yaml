@@ -479,40 +479,52 @@ paths:
         required: true
         schema:
           type: string
+      - name: summary
+        in: query
+        schema:
+          type: boolean
+        description: true を指定すると残数のみを返します
     get:
       summary: KeyPackage一覧取得
-      description: チャット用MLSキーの公開情報を取得します。
+      description: チャット用MLSキーの公開情報を取得します。`summary=true` を指定した場合は残数と lastResort の有無のみを返します。
       responses:
         "200":
-          description: KeyPackageのコレクション
+          description: KeyPackageのコレクションまたはサマリー
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  type:
-                    type: string
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        type:
-                          type: string
-                        content:
-                          type: string
-                        mediaType:
-                          type: string
-                        encoding:
-                          type: string
-                        groupInfo:
-                          type: string
-                        expiresAt:
-                          type: string
-                        createdAt:
-                          type: string
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            type:
+                              type: string
+                            content:
+                              type: string
+                            mediaType:
+                              type: string
+                            encoding:
+                              type: string
+                            groupInfo:
+                              type: string
+                            expiresAt:
+                              type: string
+                            createdAt:
+                              type: string
+                  - type: object
+                    properties:
+                      count:
+                        type: number
+                      hasLastResort:
+                        type: boolean
     post:
       summary: KeyPackage登録
       description: チャット用KeyPackageを登録します。

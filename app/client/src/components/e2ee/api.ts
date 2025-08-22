@@ -186,55 +186,83 @@ export const addKeyPackagesBulk = async (
   }
 };
 
+// KeyPackage 残数と lastResort 有無を取得
+export const fetchKeyPackageSummary = async (
+  user: string,
+): Promise<{ count: number; hasLastResort: boolean }> => {
+  try {
+    const res = await apiFetch(
+      `/api/users/${encodeURIComponent(user)}/keyPackages?summary=1`,
+    );
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    return {
+      count: typeof data.count === "number" ? data.count : 0,
+      hasLastResort: Boolean(data.hasLastResort),
+    };
+  } catch (e) {
+    console.error("Error fetching key package summary:", e);
+    return { count: 0, hasLastResort: false };
+  }
+};
+
 export const topUpKeyPackages = async (
   userName: string,
   accountId: string,
 ): Promise<void> => {
+  await topUpKeyPackagesBulk([{ userName, accountId }]);
+};
+
+// 複数アカウントの KeyPackage をまとめて補充
+export const topUpKeyPackagesBulk = async (
+  accounts: { userName: string; accountId: string }[],
+): Promise<void> => {
   try {
     const target = getKpPoolSize();
-    if (!target || target <= 1) return;
-    const selfKps = await fetchKeyPackages(userName);
-    const now = Date.now();
-    const usable = (selfKps ?? []).filter((k) =>
-      !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now) &&
-      !k.lastResort
-    );
-    const uploads: { content: string; lastResort?: boolean }[] = [];
-    const actor =
-      new URL(`/users/${userName}`, globalThis.location.origin).href;
-    const hasLastResort = (selfKps ?? []).some((k) => k.lastResort);
-    if (!hasLastResort) {
-      try {
-        const kp = await generateKeyPair(actor);
-        await saveMLSKeyPair(accountId, {
-          public: kp.public,
-          private: kp.private,
-          encoded: kp.encoded,
-        });
-        uploads.push({ content: kp.encoded, lastResort: true });
-      } catch (e) {
-        console.warn("lastResort KeyPackage 生成に失敗", e);
-      }
-    }
-    const need = target - usable.length;
-    if (need > 0) {
-      for (let i = 0; i < need; i++) {
+    if (!target || target <= 0) return;
+    const uploads: {
+      user: string;
+      keyPackages: { content: string; lastResort?: boolean }[];
+    }[] = [];
+    for (const acc of accounts) {
+      const sum = await fetchKeyPackageSummary(acc.userName);
+      const actor =
+        new URL(`/users/${acc.userName}`, globalThis.location.origin).href;
+      const kpList: { content: string; lastResort?: boolean }[] = [];
+      if (!sum.hasLastResort) {
         try {
           const kp = await generateKeyPair(actor);
-          await saveMLSKeyPair(accountId, {
+          await saveMLSKeyPair(acc.accountId, {
             public: kp.public,
             private: kp.private,
             encoded: kp.encoded,
           });
-          uploads.push({ content: kp.encoded });
+          kpList.push({ content: kp.encoded, lastResort: true });
+        } catch (e) {
+          console.warn("lastResort KeyPackage 生成に失敗", e);
+        }
+      }
+      const need = target - sum.count;
+      for (let i = 0; i < need; i++) {
+        try {
+          const kp = await generateKeyPair(actor);
+          await saveMLSKeyPair(acc.accountId, {
+            public: kp.public,
+            private: kp.private,
+            encoded: kp.encoded,
+          });
+          kpList.push({ content: kp.encoded });
         } catch (e) {
           console.warn("KeyPackage 補充に失敗しました", e);
           break;
         }
       }
+      if (kpList.length > 0) {
+        uploads.push({ user: acc.userName, keyPackages: kpList });
+      }
     }
     if (uploads.length > 0) {
-      await addKeyPackagesBulk([{ user: userName, keyPackages: uploads }]);
+      await addKeyPackagesBulk(uploads);
     }
   } catch (e) {
     console.warn("KeyPackage プール確認に失敗しました", e);

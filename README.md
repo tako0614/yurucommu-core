@@ -177,7 +177,8 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 に関する暗号化・復号・状態管理はすべてクライアント側で行い、サーバーは
 暗号化済みデータの保存と配送だけを担います。
 
-- `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得
+- `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得（`?summary=true`
+  で残数のみ取得）
 - `POST /api/users/:user/keyPackages` – KeyPackage 登録（GroupInfo
   や有効期限を付与可能）
 - `POST /api/keyPackages/bulk` – 複数ユーザーの KeyPackage を一括登録

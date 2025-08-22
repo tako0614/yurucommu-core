@@ -617,6 +617,22 @@ export class MongoDB implements DB {
     return await query.lean();
   }
 
+  // KeyPackage の残数と lastResort の有無を取得
+  async summaryKeyPackages(userName: string) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    await this.cleanupKeyPackages(userName);
+    const base = { userName, tenant_id: tenantId, used: false };
+    const countQuery = this.withTenant(
+      KeyPackage.countDocuments({ ...base, lastResort: { $ne: true } }),
+    );
+    const count = await countQuery;
+    const lastResortQuery = this.withTenant(
+      KeyPackage.exists({ ...base, lastResort: true }),
+    );
+    const hasLastResort = await lastResortQuery;
+    return { count, hasLastResort: !!hasLastResort };
+  }
+
   async findKeyPackage(userName: string, id: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
     const query = this.withTenant(

@@ -777,11 +777,16 @@ app.get(
   async (c) => {
     const identifier = c.req.param("user");
     const domain = getDomain(c);
+    const summary = c.req.query("summary");
 
     const [user, host] = identifier.split("@");
     if (!host || host === domain) {
       const username = user ?? identifier;
       const db = createDB(getEnv(c));
+      if (summary === "1" || summary === "true") {
+        const info = await db.summaryKeyPackages(username);
+        return c.json(info);
+      }
       const list = await db.listKeyPackages(username) as KeyPackageDoc[];
       const items = list.map((doc) => ({
         "@context": [
@@ -1200,7 +1205,7 @@ app.post(
         payload: { kind: "encryptedMessage", id: newMsg.id },
       });
     }
-    
+
     return c.json({ result: "sent", id: String(msg._id) });
   },
 );
