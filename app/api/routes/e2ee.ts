@@ -823,7 +823,21 @@ app.get(
         return c.json(info);
       }
       const list = await db.listKeyPackages(username) as KeyPackageDoc[];
-      const items = list.map((doc) => ({
+      // Reduce to at most one KeyPackage per deviceId (choose newest per device).
+      const packagesByDevice = new Map<string, KeyPackageDoc>();
+      for (const doc of list) {
+        const key = typeof doc.deviceId === "string" ? doc.deviceId : `__nodevice__:${String(doc._id)}`;
+        const prev = packagesByDevice.get(key);
+        if (!prev) {
+          packagesByDevice.set(key, doc);
+          continue;
+        }
+        const prevTime = new Date(prev.createdAt).getTime();
+        const curTime = new Date(doc.createdAt).getTime();
+        if (curTime > prevTime) packagesByDevice.set(key, doc);
+      }
+      const published = Array.from(packagesByDevice.values());
+      const items = published.map((doc) => ({
         "@context": [
           "https://www.w3.org/ns/activitystreams",
           "https://purl.archive.org/socialweb/mls",

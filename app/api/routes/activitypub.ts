@@ -125,11 +125,30 @@ app.get("/users/:username", async (c) => {
     publicKey: account.publicKey,
   });
   const packages = await db.listKeyPackages(username) as KeyPackageDoc[];
+  // Reduce packages to at most one per deviceId (choose the newest per device).
+  // If deviceId is missing, treat each package as coming from a unique source.
+  const packagesByDevice = new Map<string, KeyPackageDoc>();
+  for (const p of packages) {
+    const pp = p as unknown as Record<string, unknown>;
+    const key = typeof pp.deviceId === "string" ? (pp.deviceId as string) : `__nodevice__:${String(pp._id)}`;
+    const prev = packagesByDevice.get(key) as Record<string, unknown> | undefined;
+    if (!prev) {
+      packagesByDevice.set(key, p);
+      continue;
+    }
+    const prevCreated = prev.createdAt as string | number | Date | undefined;
+    const curCreated = pp.createdAt as string | number | Date | undefined;
+    const prevTime = prevCreated ? new Date(prevCreated).getTime() : 0;
+    const curTime = curCreated ? new Date(curCreated).getTime() : 0;
+    if (curTime > prevTime) packagesByDevice.set(key, p);
+  }
+  const publishedPackages = Array.from(packagesByDevice.values());
+
   actor.keyPackages = {
     type: "Collection",
     id: `https://${domain}/users/${username}/keyPackages`,
-    totalItems: packages.length,
-    items: packages.map((p) =>
+    totalItems: publishedPackages.length,
+    items: publishedPackages.map((p) =>
       `https://${domain}/users/${username}/keyPackages/${p._id}`
     ),
   };
