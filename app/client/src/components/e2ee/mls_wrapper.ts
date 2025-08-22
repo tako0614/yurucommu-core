@@ -30,25 +30,7 @@ import {
 import "@noble/curves/p256";
 import { encodePublicMessage } from "./mls_message.ts";
 
-// WebCrypto の AES-GCM では additionalData に undefined を指定すると
-// BufferSource 扱いにならず例外が発生するため、undefined を除去する
-if (crypto?.subtle) {
-  const origEncrypt = crypto.subtle.encrypt.bind(crypto.subtle);
-  crypto.subtle.encrypt = (
-    algorithm: AlgorithmIdentifier | AesGcmParams,
-    key: CryptoKey,
-    data: BufferSource,
-  ): Promise<ArrayBuffer> => {
-    if (
-      (algorithm as AesGcmParams).name === "AES-GCM" &&
-      "additionalData" in algorithm &&
-      (algorithm as AesGcmParams).additionalData === undefined
-    ) {
-      delete (algorithm as AesGcmParams).additionalData;
-    }
-    return origEncrypt(algorithm, key, data);
-  };
-}
+
 // ts-mls does not publish some internal helpers via package exports; use local fallbacks/types
 type PublicMessage = {
   content: { commit?: unknown; proposal?: unknown } & Record<string, unknown>;
