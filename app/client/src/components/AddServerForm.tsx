@@ -1,5 +1,5 @@
 import { createSignal, Show } from "solid-js";
-import { Button, Input, Modal } from "./ui";
+import { Button, Input, Modal } from "./ui/index.ts";
 
 interface AddServerFormProps {
   onAdd: (url: string, password: string) => Promise<void>;
@@ -40,7 +40,7 @@ export function AddServerForm(props: AddServerFormProps) {
           label="サーバーURL"
           placeholder="http://example.com"
           value={url()}
-          onInput={(e) => setUrl(e.currentTarget.value)}
+          onInput={(e: Event & { currentTarget: HTMLInputElement }) => setUrl(e.currentTarget.value)}
           disabled={isLoading()}
           required
         />
@@ -50,7 +50,7 @@ export function AddServerForm(props: AddServerFormProps) {
           label="パスワード"
           placeholder="パスワード"
           value={password()}
-          onInput={(e) => setPassword(e.currentTarget.value)}
+          onInput={(e: Event & { currentTarget: HTMLInputElement }) => setPassword(e.currentTarget.value)}
           disabled={isLoading()}
           required
         />
