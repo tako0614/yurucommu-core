@@ -1,4 +1,4 @@
-import { apiFetch, getKpPoolSize } from "../../utils/config.ts";
+import { apiFetch, getKpPoolSize, getDomain } from "../../utils/config.ts";
 import { decodeGroupInfo, encodePublicMessage } from "./mls_message.ts";
 import {
   encryptMessage,
@@ -226,8 +226,7 @@ export const topUpKeyPackagesBulk = async (
     }[] = [];
     for (const acc of accounts) {
       const sum = await fetchKeyPackageSummary(acc.userName);
-      const actor =
-        new URL(`/users/${acc.userName}`, globalThis.location.origin).href;
+      const actor = `https://${getDomain()}/users/${acc.userName}`;
       const kpList: { content: string; lastResort?: boolean }[] = [];
       if (!sum.hasLastResort) {
         try {
