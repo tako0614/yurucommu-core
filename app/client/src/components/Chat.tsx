@@ -29,7 +29,6 @@ import {
   sendGroupMetadata,
   sendHandshake,
   sendKeepMessage,
-  topUpKeyPackages,
   uploadFile,
 } from "./e2ee/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
@@ -753,8 +752,6 @@ export function Chat() {
         try {
           await saveMLSKeyPair(user.id, pair);
           await addKeyPackage(user.userName, { content: kp.encoded });
-          // 目標プール数まで補充
-          await topUpKeyPackages(user.userName, user.id);
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           setIsGeneratingKeyPair(false);

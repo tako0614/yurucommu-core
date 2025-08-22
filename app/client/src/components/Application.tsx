@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
@@ -12,12 +12,14 @@ import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
 import { getDomain } from "../utils/config.ts";
+import { topUpKeyPackages } from "./e2ee/api.ts";
 
 export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [account] = useAtom(activeAccount);
   const [isMobile, setIsMobile] = createSignal(false);
+  let topUpTimer: number | undefined;
 
   // モバイルかどうかを判定
   onMount(() => {
@@ -36,7 +38,19 @@ export function Application() {
     const user = account();
     if (user) {
       registerUser(`${user.userName}@${getDomain()}`);
+      void topUpKeyPackages(user.userName, user.id);
+      if (topUpTimer) clearInterval(topUpTimer);
+      topUpTimer = setInterval(() => {
+        void topUpKeyPackages(user.userName, user.id);
+      }, 300_000);
+    } else if (topUpTimer) {
+      clearInterval(topUpTimer);
+      topUpTimer = undefined;
     }
+  });
+
+  onCleanup(() => {
+    if (topUpTimer) clearInterval(topUpTimer);
   });
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成
