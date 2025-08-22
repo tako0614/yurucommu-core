@@ -79,8 +79,7 @@ export function getDomain(): string {
   return domain;
 }
 
-// KeyPackage プールの目標数（env で指定可能）
-const DEFAULT_KP_POOL = 3;
+const DEFAULT_KP_POOL = 10;
 export function getKpPoolSize(): number {
   const v = Number(
     import.meta.env.VITE_MLS_KP_POOL ||

@@ -204,7 +204,6 @@ export async function registerKeyPackage(
     undefined,
     typeof lastResort === "boolean" ? lastResort : undefined,
   ) as KeyPackageDoc;
-  await db.cleanupKeyPackages(user);
   const keyObj = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
@@ -975,6 +974,27 @@ app.post("/keyPackages/bulk", authRequired, async (c) => {
       resList.push(r);
     }
     results.push({ user, results: resList });
+  }
+  return c.json({ results });
+});
+
+// 一括で複数ユーザーの KeyPackage summary を取得する
+app.post("/keyPackages/summary", authRequired, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const users = Array.isArray(body.users) ? body.users : [];
+  if (users.length === 0) return c.json({ results: [] });
+  const env = getEnv(c);
+  const db = createDB(env);
+  const results: { user: string; count: number; hasLastResort: boolean }[] = [];
+  for (const u of users) {
+    if (typeof u !== "string") continue;
+    try {
+      const info = await db.summaryKeyPackages(u);
+      results.push({ user: u, count: info.count, hasLastResort: info.hasLastResort });
+    } catch (e) {
+      console.error("failed to fetch summary for", u, e);
+      results.push({ user: u, count: 0, hasLastResort: false });
+    }
   }
   return c.json({ results });
 });

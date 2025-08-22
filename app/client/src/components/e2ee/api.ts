@@ -221,26 +221,52 @@ export const fetchKeyPackageSummary = async (
   }
 };
 
+// 一括で複数ユーザーの KeyPackage summary を取得する
+export const fetchKeyPackageSummaries = async (
+  users: string[],
+): Promise<{ user: string; count: number; hasLastResort: boolean }[]> => {
+  try {
+    const res = await apiFetch(`/api/keyPackages/summary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ users }),
+    });
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  } catch (e) {
+    console.error("Error fetching key package summaries:", e);
+    return users.map((u) => ({ user: u, count: 0, hasLastResort: false }));
+  }
+};
+
 export const topUpKeyPackages = async (
   userName: string,
   accountId: string,
-): Promise<void> => {
-  await topUpKeyPackagesBulk([{ userName, accountId }]);
+): Promise<boolean> => {
+  return await topUpKeyPackagesBulk([{ userName, accountId }]);
 };
 
 // 複数アカウントの KeyPackage をまとめて補充
 export const topUpKeyPackagesBulk = async (
   accounts: { userName: string; accountId: string }[],
-): Promise<void> => {
+): Promise<boolean> => {
   try {
-    const target = getKpPoolSize();
-    if (!target || target <= 0) return;
+  const target = getKpPoolSize();
+  if (!target || target <= 0) return false;
+    // Fetch summaries in bulk to avoid per-account network calls
+    const users = accounts.map((a) => a.userName);
+    const summaries = await fetchKeyPackageSummaries(users);
+    const summaryMap = new Map<string, { user: string; count: number; hasLastResort: boolean }>();
+    for (const s of summaries) summaryMap.set(s.user, s);
+
     const uploads: {
       user: string;
       keyPackages: { content: string; lastResort?: boolean }[];
     }[] = [];
+
     for (const acc of accounts) {
-      const sum = await fetchKeyPackageSummary(acc.userName);
+      const sum = summaryMap.get(acc.userName) ?? { user: acc.userName, count: 0, hasLastResort: false };
       const actor = `https://${getDomain()}/users/${acc.userName}`;
       const kpList: { content: string; lastResort?: boolean }[] = [];
       if (!sum.hasLastResort) {
@@ -277,9 +303,12 @@ export const topUpKeyPackagesBulk = async (
     }
     if (uploads.length > 0) {
       await addKeyPackagesBulk(uploads);
+      return true;
     }
+    return false;
   } catch (e) {
     console.warn("KeyPackage プール確認に失敗しました", e);
+    return false;
   }
 };
 

@@ -2,7 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
-import { activeAccount } from "../states/account.ts";
+import { activeAccount, accounts as accountsAtom } from "../states/account.ts";
 import { Home } from "./Home.tsx";
 import Profile from "./Profile.tsx";
 import { Microblog } from "./Microblog.tsx";
@@ -12,12 +12,13 @@ import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
 import { getDomain } from "../utils/config.ts";
-import { topUpKeyPackages } from "./e2ee/api.ts";
+import { topUpKeyPackagesBulk } from "./e2ee/api.ts";
 
 export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [account] = useAtom(activeAccount);
+  const [allAccounts] = useAtom(accountsAtom);
   const [isMobile, setIsMobile] = createSignal(false);
   let topUpTimer: number | undefined;
 
@@ -36,12 +37,30 @@ export function Application() {
 
   createEffect(() => {
     const user = account();
+    // Ensure active user's presence is registered for websocket etc.
     if (user) {
       registerUser(`${user.userName}@${getDomain()}`);
-      void topUpKeyPackages(user.userName, user.id);
+    }
+
+    // Top up KeyPackages for all configured accounts (bulk) instead of only the active one.
+    const accs = allAccounts();
+    if (accs && accs.length > 0) {
+      const payload = accs.map((a) => ({ userName: a.userName, accountId: a.id }));
+      // Run immediately and stop periodic top-up if uploads were performed.
+      void (async () => {
+        try {
+          const uploaded = await topUpKeyPackagesBulk(payload);
+          if (uploaded && topUpTimer) {
+            clearInterval(topUpTimer);
+            topUpTimer = undefined;
+          }
+        } catch (e) {
+          console.warn("topUpKeyPackagesBulk failed:", e);
+        }
+      })();
       if (topUpTimer) clearInterval(topUpTimer);
       topUpTimer = setInterval(() => {
-        void topUpKeyPackages(user.userName, user.id);
+        void topUpKeyPackagesBulk(payload);
       }, 300_000);
     } else if (topUpTimer) {
       clearInterval(topUpTimer);

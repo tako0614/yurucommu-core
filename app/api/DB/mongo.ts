@@ -608,7 +608,6 @@ export class MongoDB implements DB {
 
   async listKeyPackages(userName: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    await this.cleanupKeyPackages(userName);
     const query = this.withTenant(KeyPackage.find({
       userName,
       tenant_id: tenantId,
@@ -620,7 +619,6 @@ export class MongoDB implements DB {
   // KeyPackage の残数と lastResort の有無を取得
   async summaryKeyPackages(userName: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    await this.cleanupKeyPackages(userName);
     const base = { userName, tenant_id: tenantId, used: false };
     const countQuery = this.withTenant(
       KeyPackage.countDocuments({ ...base, lastResort: { $ne: true } }),
