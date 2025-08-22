@@ -2440,13 +2440,11 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-  // WS非依存運用に向けたポーリング: 保留中招待を定期チェックし、部屋のプレースホルダとハンドシェイク同期を実行
-  let invitePoller: number | undefined;
+  // 保留中招待の同期: 初期ロード時に取得し、その後は WS 通知に任せる
   createEffect(() => {
     const user = account();
     if (!user) return;
-    if (invitePoller) clearInterval(invitePoller);
-    invitePoller = setInterval(async () => {
+    void (async () => {
       try {
         const list = await fetchPendingInvites(user.userName);
         for (const it of list) {
@@ -2472,7 +2470,7 @@ export function Chat() {
           await syncHandshakes(room);
         }
       } catch { /* ignore */ }
-    }, 25_000) as unknown as number;
+    })();
   });
 
   // 一覧のプレビュー更新を緩やかにポーリング（最大10件）
@@ -2676,7 +2674,6 @@ export function Chat() {
     globalThis.removeEventListener("resize", checkMobile);
     wsCleanup?.();
     acceptCleanup?.();
-    if (invitePoller) clearInterval(invitePoller);
     if (previewPoller) clearInterval(previewPoller);
   });
 
