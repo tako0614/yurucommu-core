@@ -29,6 +29,26 @@ import {
 } from "ts-mls";
 import "@noble/curves/p256";
 import { encodePublicMessage } from "./mls_message.ts";
+
+// WebCrypto の AES-GCM では additionalData に undefined を指定すると
+// BufferSource 扱いにならず例外が発生するため、undefined を除去する
+if (crypto?.subtle) {
+  const origEncrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+  crypto.subtle.encrypt = (
+    algorithm: AlgorithmIdentifier | AesGcmParams,
+    key: CryptoKey,
+    data: BufferSource,
+  ): Promise<ArrayBuffer> => {
+    if (
+      (algorithm as AesGcmParams).name === "AES-GCM" &&
+      "additionalData" in algorithm &&
+      (algorithm as AesGcmParams).additionalData === undefined
+    ) {
+      delete (algorithm as AesGcmParams).additionalData;
+    }
+    return origEncrypt(algorithm, key, data);
+  };
+}
 // ts-mls does not publish some internal helpers via package exports; use local fallbacks/types
 type PublicMessage = {
   content: { commit?: unknown; proposal?: unknown } & Record<string, unknown>;
@@ -513,16 +533,24 @@ export async function decryptMessage(
   if (!decoded || decoded.wireformat !== "mls_private_message") {
     return null;
   }
-  const res = await processPrivateMessage(
-    state,
-    decoded.privateMessage,
-    buildPskIndex(state, psks),
-    cs,
-  );
-  if (res.kind !== "applicationMessage") {
-    return { plaintext: new Uint8Array(), state: res.newState };
+  try {
+    const res = await processPrivateMessage(
+      state,
+      decoded.privateMessage,
+      buildPskIndex(state, psks),
+      cs,
+    );
+    if (res.kind !== "applicationMessage") {
+      return { plaintext: new Uint8Array(), state: res.newState };
+    }
+    return { plaintext: res.message, state: res.newState };
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("Desired gen in the past")) {
+      // 過去に処理済みのメッセージは無視する
+      return null;
+    }
+    throw e;
   }
-  return { plaintext: res.message, state: res.newState };
 }
 
 export async function exportGroupInfo(
