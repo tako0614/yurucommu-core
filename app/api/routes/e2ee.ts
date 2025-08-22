@@ -20,7 +20,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { sendToUser } from "./ws.ts";
-import { extractBasicCredentialIdentity } from "../utils/basic_credential.ts";
+import { decodeMlsMessage } from "https://esm.sh/ts-mls@1.1.0"
 // MLS関連処理はクライアント側で完結するが、最低限の検証は行う
 
 interface ActivityPubActivity {
@@ -88,13 +88,14 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-async function registerKeyPackage(
+export async function registerKeyPackage(
   env: Record<string, string>,
   domain: string,
   db: ReturnType<typeof createDB>,
   user: string,
   data: Record<string, unknown>,
   sessionId?: string,
+  deliver: typeof deliverToFollowers = deliverToFollowers,
 ): Promise<
   | { keyId: string; groupInfo?: string; keyPackageRef?: string }
   | { error: string }
@@ -129,10 +130,30 @@ async function registerKeyPackage(
   }
   const actorId = `https://${domain}/users/${user}`;
   try {
-    const id = extractBasicCredentialIdentity(b64ToBytes(content));
-    if (!id) {
+    const decoded = decodeMlsMessage(b64ToBytes(content), 0)?.[0] as
+      | {
+        wireformat?: string;
+        keyPackage?: {
+          leafNode?: {
+            credential?: {
+              credentialType?: string;
+              identity?: Uint8Array;
+            };
+          };
+        };
+      }
+      | undefined;
+    if (
+      !decoded ||
+      decoded.wireformat !== "mls_key_package" ||
+      decoded.keyPackage?.leafNode?.credential?.credentialType !== "basic" ||
+      !decoded.keyPackage?.leafNode?.credential?.identity
+    ) {
       return { error: "ap_mls.binding.policy_violation" };
     }
+    const id = new TextDecoder().decode(
+      decoded.keyPackage.leafNode.credential.identity,
+    );
     if (id !== actorId) {
       return { error: "ap_mls.binding.identity_mismatch" };
     }
@@ -156,8 +177,9 @@ async function registerKeyPackage(
     genObj = { id: generator, type: "Application", name: generator };
   }
   // Resolve deviceId: prefer server-stored session.deviceId when sessionId is present.
-  let deviceIdToUse: string | undefined =
-    typeof deviceId === "string" ? deviceId : undefined;
+  let deviceIdToUse: string | undefined = typeof deviceId === "string"
+    ? deviceId
+    : undefined;
   if (typeof sessionId === "string") {
     try {
       const sess = await db.findSessionById(sessionId);
@@ -227,14 +249,14 @@ async function registerKeyPackage(
   }
   const createActivity = createCreateActivity(domain, actorId, keyObj);
   (createActivity as ActivityPubActivity).cc = [];
-  await deliverToFollowers(env, user, createActivity, domain);
+  await deliver(env, user, createActivity, domain);
   const addActivity = createAddActivity(
     domain,
     actorId,
     createActivity.id,
     `https://${domain}/users/${user}/keyPackages`,
   );
-  await deliverToFollowers(env, user, addActivity, domain);
+  await deliver(env, user, addActivity, domain);
   return {
     keyId: String(pkg._id),
     groupInfo: pkg.groupInfo,

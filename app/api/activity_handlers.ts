@@ -8,7 +8,7 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
-import { extractBasicCredentialIdentity } from "./utils/basic_credential.ts";
+import { decodeMlsMessage } from "https://esm.sh/ts-mls@1.1.0"
 // MLS関連データは検証せずそのまま保持する
 
 function iriToHandle(iri: string): string {
@@ -378,10 +378,32 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     const keyId = typeof obj.id === "string"
       ? obj.id.split("/").pop()
       : undefined;
-    // BasicCredential.identity と actor の URL を照合
+    // KeyPackage の BasicCredential.identity を検証
     let identity: string | null = null;
     try {
-      identity = extractBasicCredentialIdentity(b64ToBytes(obj.content));
+      const decoded = decodeMlsMessage(b64ToBytes(obj.content), 0)?.[0] as
+        | {
+          wireformat?: string;
+          keyPackage?: {
+            leafNode?: {
+              credential?: {
+                credentialType?: string;
+                identity?: Uint8Array;
+              };
+            };
+          };
+        }
+        | undefined;
+      if (
+        decoded &&
+        decoded.wireformat === "mls_key_package" &&
+        decoded.keyPackage?.leafNode?.credential?.credentialType === "basic" &&
+        decoded.keyPackage?.leafNode?.credential?.identity
+      ) {
+        identity = new TextDecoder().decode(
+          decoded.keyPackage.leafNode.credential.identity,
+        );
+      }
     } catch (err) {
       console.error("KeyPackage verification failed", err);
       return;

@@ -20,6 +20,7 @@
     "npm:mongoose@^8.16.4": "8.17.1",
     "npm:nodemailer@^6.9.11": "6.10.1",
     "npm:solid-app-router@~0.4.2": "0.4.2_solid-js@1.9.7__seroval@1.3.2",
+    "npm:ts-mls@1.0.4": "1.0.4",
     "npm:zod@^3.25.56": "3.25.76"
   },
   "jsr": {
@@ -58,6 +59,15 @@
       "dependencies": [
         "hono",
         "zod"
+      ]
+    },
+    "@hpke/common@1.8.1": {
+      "integrity": "sha512-PSI4QSxH8XDli0TqAsWycVfrLLCM/bBe+hVlJwtuJJiKIvCaFS3CXX/WtRfJceLJye9NHc2J7GvHVCY9B1BEbA=="
+    },
+    "@hpke/core@1.7.4": {
+      "integrity": "sha512-1BfPQB7unq/tNx7eznmoFgmJlMFnymdLNNt2CQX/L8oYOfmc1+cFEItpXZ90mgthW7tB2oksy/G7Xh1t569qzA==",
+      "dependencies": [
+        "@hpke/common"
       ]
     },
     "@mongodb-js/saslprep@1.3.0": {
@@ -272,6 +282,12 @@
         "punycode"
       ]
     },
+    "ts-mls@1.0.4": {
+      "integrity": "sha512-JYwcIrCv399G0LmXl+hhcegAH3HjWv/V68/ueGQBC3VslbuqL5H0hN+/cIqQeWhD0ttqJ4xGzhjwAmQ12iipsQ==",
+      "dependencies": [
+        "@hpke/core"
+      ]
+    },
     "tslib@2.8.1": {
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
     },
@@ -291,6 +307,21 @@
     "zod@3.25.76": {
       "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     }
+  },
+  "redirects": {
+    "https://esm.sh/@hpke/common@^1.8.1?target=denonext": "https://esm.sh/@hpke/common@1.8.1?target=denonext",
+    "https://esm.sh/@hpke/core@^1.7.3?target=denonext": "https://esm.sh/@hpke/core@1.7.4?target=denonext",
+    "https://esm.sh/@hpke/dhkem-x25519@^1.6.4?target=denonext": "https://esm.sh/@hpke/dhkem-x25519@1.6.4?target=denonext",
+    "https://esm.sh/@noble/ciphers/chacha?target=denonext": "https://esm.sh/@noble/ciphers@1.3.0/chacha?target=denonext",
+    "https://esm.sh/@noble/ciphers/utils?target=denonext": "https://esm.sh/@noble/ciphers@1.3.0/utils?target=denonext",
+    "https://esm.sh/@noble/curves@^1.9.2/ed25519?target=denonext": "https://esm.sh/@noble/curves@1.9.7/ed25519?target=denonext",
+    "https://esm.sh/@noble/curves@^1.9.2/ed448?target=denonext": "https://esm.sh/@noble/curves@1.9.7/ed448?target=denonext",
+    "https://esm.sh/@noble/curves@^1.9.2/nist?target=denonext": "https://esm.sh/@noble/curves@1.9.7/nist?target=denonext",
+    "https://esm.sh/mlkem@^2.5.0?target=denonext": "https://esm.sh/mlkem@2.5.0?target=denonext",
+    "https://esm.sh/ts-mls": "https://esm.sh/ts-mls@1.1.0",
+    "https://esm.sh/ts-mls@": "https://esm.sh/ts-mls@1.1.0",
+    "https://esm.sh/ts-mls@1": "https://esm.sh/ts-mls@1.1.0",
+    "https://esm.sh/ts-mls@1.1": "https://esm.sh/ts-mls@1.1.0"
   },
   "remote": {
     "https://deno.land/x/bcrypt@v0.4.1/mod.ts": "ff09bdae282583cf5f7d87efe37ddcecef7f14f6d12e8b8066a3058db8c6c2f7",
@@ -324,7 +355,49 @@
     "https://deno.land/x/deno_dom@v0.1.53/src/dom/string-cache.ts": "8e935804f7bac244cc70cec90a28c9f6d30fea14c61c2c4ea48fca274376d786",
     "https://deno.land/x/deno_dom@v0.1.53/src/dom/utils-types.ts": "96db30e3e4a75b194201bb9fa30988215da7f91b380fca6a5143e51ece2a8436",
     "https://deno.land/x/deno_dom@v0.1.53/src/dom/utils.ts": "bc429635e9204051ba1ecc1b212031b5ee7c6bcd95120c91bef696804aa67e74",
-    "https://deno.land/x/deno_dom@v0.1.53/src/parser.ts": "e06b2300d693e6ae7564e53dfa5c9a9e97fdb8c044c39c52c8b93b5d60860be3"
+    "https://deno.land/x/deno_dom@v0.1.53/src/parser.ts": "e06b2300d693e6ae7564e53dfa5c9a9e97fdb8c044c39c52c8b93b5d60860be3",
+    "https://esm.sh/": "a467aff52eab120b03a3732e528166cafcf1837c69b7d8914bcb1ae39ef3bd51",
+    "https://esm.sh/@hpke/chacha20poly1305@1.7.1/denonext/chacha20poly1305.mjs": "627eb0f566fceca4657c9a6b0c9eb1c2acc8fdf51b1087e47a231e8c7dab1f59",
+    "https://esm.sh/@hpke/common@1.8.1/denonext/common.mjs": "bb536e05f5f659c494a2e12e4809b5ca2f1335a70adc4c17ca21fcf01389a942",
+    "https://esm.sh/@hpke/common@1.8.1?target=denonext": "f32107d78d7ce3e79f5f9b0dc9554732c7e2b2446b42f4ffff9e2b5c3578c1f3",
+    "https://esm.sh/@hpke/core@1.7.4/denonext/core.mjs": "2f00e944e43bc99e81c72d8f0818320bcd91c6fcf99203bafb4a61f8bfd507b3",
+    "https://esm.sh/@hpke/core@1.7.4?target=denonext": "32b6c9f3853f1b239d3fe5ec24ce7e98a4818fd989b2316a2005dfb4baded2bd",
+    "https://esm.sh/@hpke/dhkem-x25519@1.6.4/denonext/dhkem-x25519.mjs": "f68927807bcf7437e23afa8813318f1fed8087cc8ebd51aa501f69cb540fe577",
+    "https://esm.sh/@hpke/dhkem-x25519@1.6.4?target=denonext": "914671d2d535577f0a97da102c20376dca6ee211f1b4e45a56597944d408f950",
+    "https://esm.sh/@hpke/hybridkem-x-wing@0.6.1/denonext/hybridkem-x-wing.mjs": "01ac46df6cbc614293f3435e7b35f5de34138818026b755eaf2c6532815fec8f",
+    "https://esm.sh/@hpke/ml-kem@0.2.1/denonext/ml-kem.mjs": "377cd52bb3fb39ebacb1dfd9fbbc2be2d4563e789b05ea0f6742e1a694c762f6",
+    "https://esm.sh/@noble/ciphers@1.3.0/chacha?target=denonext": "be3605f9e7295d06ab0b98967aa83b6d5a5013519f2101e92ac7f15c203421ed",
+    "https://esm.sh/@noble/ciphers@1.3.0/denonext/_poly1305.mjs": "c3ac39d7a259da7758d6bdc6968b483525e9db9bdd23d5874b665b8838b8e8b0",
+    "https://esm.sh/@noble/ciphers@1.3.0/denonext/chacha.mjs": "5a833ff1f2e5d2ba25685132ea2d1e322c023d426618d12778383d85cdb16bff",
+    "https://esm.sh/@noble/ciphers@1.3.0/denonext/utils.mjs": "c982111fd9c0ef2f1d993deca5907ac627c1769d446d1c64eb0c0550fac00e7b",
+    "https://esm.sh/@noble/ciphers@1.3.0/utils?target=denonext": "c6fee320fbb5c7083ecaabbebd8cc926ffb968c2a2e765c606c5b397027c94fe",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/_shortw_utils.mjs": "d62ddfbe9cb2215269d9b56447c5aecc342999419cb9f6bd66e991ee7bc28d35",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/curve.mjs": "ca7c724c2cf4e0cd5f9d0c3eed4b3081cdb8c017e12638a2722fd76922ff9c44",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/edwards.mjs": "fe845b2bdfff5b8d4977fe301c1724d712b7f58774406dbf4f0c41b63fa40db8",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/hash-to-curve.mjs": "bac93e692bd50bb338d104a59b841acb2a6246d131122914b9e78e029abb0d63",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/modular.mjs": "cfa09121cbd673d611b9f696ed8119c10df4fa0fbaecbca19233909f7c6f504d",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/montgomery.mjs": "3223cab61395f5b89d3ca6d7af0909d48852fe4a02cb284743d81fff2e113f88",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/abstract/weierstrass.mjs": "28c5cbd946e5dfed647201f66148c1c383c26185c35434872c2b9b512c7e3957",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/ed25519.mjs": "ed008d9d2fc17a600a28b75d16149beb56631bce38f1adee1338018926c5d5da",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/ed448.mjs": "476d71b254b071c9435d108bdcfe8e8d0678a8a56824799aeab063190a7f30c9",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/nist.mjs": "235e7e9002fda632292709284783e3265444c90b19fedb1a9a48d121d979bd08",
+    "https://esm.sh/@noble/curves@1.9.7/denonext/utils.mjs": "78800caea02fb59f99fe68775bcde329357138874dcdb4e6d2f56e76b4eeeaf0",
+    "https://esm.sh/@noble/curves@1.9.7/ed25519?target=denonext": "355f172ca4e57dd1a7eaff0061c6d0220130b65dc4c23434eacef25ae4354312",
+    "https://esm.sh/@noble/curves@1.9.7/ed448?target=denonext": "227804d4cc272c3fec9c8a6a5ddb7fb3ce9b184ddef9069f1ebeb485b9e5d6d2",
+    "https://esm.sh/@noble/curves@1.9.7/nist?target=denonext": "04a84535258fb157b59b6e2aa5ce29deaac4b62cf69b61effcfb1e75b3a82701",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/_md.mjs": "e30debbd8e964d8bd4ae9c807c75601e3ef7ec73eaed005f703709f64a4b2257",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/crypto.mjs": "cabc4468470c6f6d15891c4a6037aebed19289e1a12eb9905c5579c26767a721",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/hmac.mjs": "f6e5f679509f87084ebfc0e0334a8ce28788cf94868a61807420618dfc392325",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/sha2.mjs": "1bf8c30d97f7fe1546e2fed6777a0da85e78d6e961eeae0e0b4437dabf016b7a",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/sha3.mjs": "026506a4a95d1c7d8088c285de5723914e70e9d1fdda4bc7749108b9278d368c",
+    "https://esm.sh/@noble/hashes@1.8.0/denonext/utils.mjs": "18b15a49e98c9e136e4bfcdce69b9461630b7dc3389ba932f535ad4a47221b08",
+    "https://esm.sh/@noble/post-quantum@0.4.1/denonext/_crystals.mjs": "1f2e5cc14713db945da8b9e3fc0027fee8de337ae18fe079a2e315af609319df",
+    "https://esm.sh/@noble/post-quantum@0.4.1/denonext/ml-dsa.mjs": "8941f2818e975eb150f6ab1684f0a9fdf91016bd9dcc46afaca368dab9193dc2",
+    "https://esm.sh/@noble/post-quantum@0.4.1/denonext/utils.mjs": "ae9816210bbddc80575107fb49f95cb8ef967c5f8e2c065e8775b97d6c204e25",
+    "https://esm.sh/mlkem@2.5.0/denonext/mlkem.mjs": "eb11ce36395384fe01c17c290b2f52e1b9dd2c4fdd63400f85b4cfb9862125e5",
+    "https://esm.sh/mlkem@2.5.0?target=denonext": "80fb7be6c3e9e45d755ca12efb3003834ab56685ccdc9cac2c04f5e9d8c29f75",
+    "https://esm.sh/ts-mls@1.1.0": "736040719faff07256db94f912330abecfcd46df1364970b0bb3d1e5e7724b8a",
+    "https://esm.sh/ts-mls@1.1.0/denonext/ts-mls.mjs": "80d785347d53f5181a57b0b90f8ca18b40ce9068293cf4067756feb35169fe14"
   },
   "workspace": {
     "dependencies": [
