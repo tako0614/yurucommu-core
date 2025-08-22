@@ -94,6 +94,7 @@ async function registerKeyPackage(
   db: ReturnType<typeof createDB>,
   user: string,
   data: Record<string, unknown>,
+  sessionId?: string,
 ): Promise<
   | { keyId: string; groupInfo?: string; keyPackageRef?: string }
   | { error: string }
@@ -154,6 +155,19 @@ async function registerKeyPackage(
   } else if (typeof generator === "string") {
     genObj = { id: generator, type: "Application", name: generator };
   }
+  // Resolve deviceId: prefer server-stored session.deviceId when sessionId is present.
+  let deviceIdToUse: string | undefined =
+    typeof deviceId === "string" ? deviceId : undefined;
+  if (typeof sessionId === "string") {
+    try {
+      const sess = await db.findSessionById(sessionId);
+      if (sess && typeof sess.deviceId === "string") {
+        deviceIdToUse = sess.deviceId;
+      }
+    } catch (e) {
+      console.error("failed to resolve session for deviceId:", e);
+    }
+  }
   const pkg = await db.createKeyPackage(
     user,
     content,
@@ -161,7 +175,7 @@ async function registerKeyPackage(
     enc,
     gi,
     typeof expiresAt === "string" ? new Date(expiresAt) : undefined,
-    typeof deviceId === "string" ? deviceId : undefined,
+    deviceIdToUse,
     typeof version === "string" ? version : undefined,
     typeof cipherSuite === "number" ? cipherSuite : undefined,
     genObj,
@@ -902,7 +916,8 @@ app.post("/users/:user/keyPackages", authRequired, async (c) => {
   const env = getEnv(c);
   const domain = getDomain(c);
   const db = createDB(env);
-  const result = await registerKeyPackage(env, domain, db, user, body);
+  const sid = getCookie(c, "sessionId");
+  const result = await registerKeyPackage(env, domain, db, user, body, sid);
   if ("error" in result) {
     return c.json({ error: result.error }, 400);
   }
@@ -922,6 +937,7 @@ app.post("/keyPackages/bulk", authRequired, async (c) => {
   const env = getEnv(c);
   const domain = getDomain(c);
   const db = createDB(env);
+  const sid = getCookie(c, "sessionId");
   const results: unknown[] = [];
   for (const item of body) {
     if (
@@ -933,7 +949,7 @@ app.post("/keyPackages/bulk", authRequired, async (c) => {
     const user = item.user as string;
     const resList: unknown[] = [];
     for (const kp of item.keyPackages) {
-      const r = await registerKeyPackage(env, domain, db, user, kp);
+      const r = await registerKeyPackage(env, domain, db, user, kp, sid);
       resList.push(r);
     }
     results.push({ user, results: resList });

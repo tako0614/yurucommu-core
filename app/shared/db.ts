@@ -153,6 +153,8 @@ export interface DB {
   deleteEncryptedKeyPair(userName: string, deviceId: string): Promise<void>;
   deleteEncryptedKeyPairsByUser(userName: string): Promise<void>;
   listKeyPackages(userName: string): Promise<unknown[]>;
+  // Summary of key packages (count excluding lastResort, and whether lastResort exists)
+  summaryKeyPackages(userName: string): Promise<{ count: number; hasLastResort: boolean }>;
   findKeyPackage(userName: string, id: string): Promise<unknown | null>;
   createKeyPackage(
     userName: string,
@@ -277,6 +279,7 @@ export interface DB {
   createSession(
     sessionId: string,
     expiresAt: Date,
+    deviceId: string,
   ): Promise<SessionDoc>;
   findSessionById(sessionId: string): Promise<SessionDoc | null>;
   deleteSessionById(sessionId: string): Promise<void>;

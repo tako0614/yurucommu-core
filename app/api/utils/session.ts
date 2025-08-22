@@ -8,7 +8,8 @@ export async function issueSession(c: Context): Promise<void> {
   const sessionId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const db = createDB(env);
-  await db.createSession(sessionId, expiresAt);
+  const deviceId = crypto.randomUUID();
+  await db.createSession(sessionId, expiresAt, deviceId);
   setCookie(c, "sessionId", sessionId, {
     path: "/",
     httpOnly: true,

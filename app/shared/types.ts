@@ -12,6 +12,7 @@ export interface AccountDoc {
 export interface SessionDoc {
   _id?: string;
   sessionId: string;
+  deviceId: string;
   expiresAt: Date;
   createdAt?: Date;
   lastDecryptAt?: Date;

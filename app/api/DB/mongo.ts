@@ -1162,13 +1162,16 @@ export class MongoDB implements DB {
 
   /**
    * セッションを保存します。tenant_id はプラグインで自動付与されます。
+   * @param deviceId 永続的なデバイス識別子（サーバーで生成）
    */
   async createSession(
     sessionId: string,
     expiresAt: Date,
+    deviceId: string,
   ): Promise<SessionDoc> {
     const doc = new Session({
       sessionId,
+      deviceId,
       expiresAt,
       lastDecryptAt: new Date(),
     });
@@ -1293,16 +1296,16 @@ export function startInactiveSessionJob(
         { lastDecryptAt: { $lt: threshold } },
         { lastDecryptAt: { $exists: false } },
       ],
-    }).lean<{ sessionId: string }[]>();
+    }).lean<{ sessionId: string; deviceId: string }[]>();
     for (const s of sessions) {
       const pair = await EncryptedKeyPair.findOne({
-        deviceId: s.sessionId,
+        deviceId: s.deviceId,
         tenant_id: tenantId,
       }).lean<{ userName: string } | null>();
       const user = pair?.userName;
       if (!user) continue;
       // chatroom メンバー参照は廃止
-      await db.deleteEncryptedKeyPair(user, s.sessionId).catch(() => {});
+      await db.deleteEncryptedKeyPair(user, s.deviceId).catch(() => {});
       await db.deleteSessionById(s.sessionId).catch(() => {});
     }
   }
