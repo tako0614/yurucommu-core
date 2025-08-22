@@ -731,7 +731,6 @@ export function createActor(
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       "https://w3id.org/security/v1",
-      "https://purl.archive.org/socialweb/mls",
     ],
     id: `https://${domain}/users/${account.userName}`,
     type: "Person",
@@ -753,8 +752,6 @@ export function createActor(
       owner: `https://${domain}/users/${account.userName}`,
       publicKeyPem: ensurePem(account.publicKey, "PUBLIC KEY"),
     },
-    // 任意の拡張プロパティ
-    keyPackages: undefined as unknown,
   };
   if (!includeIcon) delete actor.icon;
   return actor;

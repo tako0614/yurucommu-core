@@ -15,7 +15,6 @@ import follow from "./routes/follow.ts";
 import keep from "./routes/keep.ts";
 import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
-import e2ee from "./routes/e2ee.ts";
 import fasp from "./routes/fasp.ts";
 import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
@@ -25,6 +24,7 @@ import placeholder from "./routes/placeholder.ts";
 import image from "./routes/image.ts";
 import trends from "./routes/trends.ts";
 import systemSetup from "./routes/system_setup.ts";
+import dm from "./routes/dm.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
@@ -33,7 +33,7 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import { migrateFaspCollections } from "./services/fasp_migration.ts";
-import { startKeyPackageCleanupJob, startPendingInviteJob } from "./DB/mod.ts";
+import { startPendingInviteJob } from "./DB/mod.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -72,7 +72,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     files,
     search,
     users,
-    e2ee,
+    dm,
   ];
   for (const r of apiRoutes) {
     app.route("/api", r);
@@ -80,7 +80,7 @@ export async function createTakosApp(env?: Record<string, string>) {
 
   // ActivityPub や公開エンドポイントは / にマウントする
 
-  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, e2ee];
+  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp];
   for (const r of rootRoutes) {
     app.route("/", r);
   }
@@ -206,7 +206,6 @@ if (import.meta.main) {
     // 起動を妨げない
   }
   startPendingInviteJob(env);
-  startKeyPackageCleanupJob(env);
   const app = await createTakosApp(env);
   const hostname = env["SERVER_HOST"];
   const port = Number(env["SERVER_PORT"] ?? "80");

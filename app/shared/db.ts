@@ -9,12 +9,6 @@ export interface ListOpts {
   before?: Date;
 }
 
-/** チャットルーム情報（MLS 状態は含まない） */
-export interface ChatroomInfo {
-  id: string;
-  // name, icon, members はサーバーでは保持しない
-}
-
 /** DB 抽象インターフェース */
 export interface DB {
   getObject(id: string): Promise<unknown | null>;
@@ -35,32 +29,6 @@ export interface DB {
   removeFollower(id: string, follower: string): Promise<string[]>;
   addFollowing(id: string, target: string): Promise<string[]>;
   removeFollowing(id: string, target: string): Promise<string[]>;
-  listChatrooms(
-    id: string,
-  ): Promise<ChatroomInfo[]>;
-  listChatroomsByMember(
-    member: string,
-  ): Promise<ChatroomInfo[]>;
-  addChatroom(
-    id: string,
-    room: ChatroomInfo,
-  ): Promise<ChatroomInfo[]>;
-  removeChatroom(
-    id: string,
-    roomId: string,
-  ): Promise<ChatroomInfo[]>;
-  findChatroom(
-    roomId: string,
-  ): Promise<
-    {
-      owner: string;
-      room: ChatroomInfo;
-    } | null
-  >;
-  updateChatroom(
-    owner: string,
-    room: ChatroomInfo,
-  ): Promise<void>;
   updateSessionActivity(
     sessionId: string,
     date?: Date,
@@ -98,6 +66,8 @@ export interface DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ): Promise<unknown[]>;
+  saveDMMessage(from: string, to: string, content: string): Promise<unknown>;
+  listDMsBetween(user1: string, user2: string): Promise<unknown[]>;
   findObjects(
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
@@ -119,28 +89,6 @@ export interface DB {
   ): Promise<void>;
   findAccountsByUserNames(usernames: string[]): Promise<AccountDoc[]>;
   countAccounts(): Promise<number>;
-  createEncryptedMessage(data: {
-    roomId?: string;
-    from: string;
-    to: string[];
-    content: string;
-    mediaType?: string;
-    encoding?: string;
-  }): Promise<unknown>;
-  findEncryptedMessages(
-    condition: Record<string, unknown>,
-    opts?: { before?: string; after?: string; limit?: number },
-  ): Promise<unknown[]>;
-  createHandshakeMessage(data: {
-    roomId?: string;
-    sender: string;
-    recipients: string[];
-    message: string;
-  }): Promise<unknown>;
-  findHandshakeMessages(
-    condition: Record<string, unknown>,
-    opts?: { before?: string; after?: string; limit?: number },
-  ): Promise<unknown[]>;
   findEncryptedKeyPair(
     userName: string,
     deviceId: string,
@@ -152,32 +100,6 @@ export interface DB {
   ): Promise<void>;
   deleteEncryptedKeyPair(userName: string, deviceId: string): Promise<void>;
   deleteEncryptedKeyPairsByUser(userName: string): Promise<void>;
-  listKeyPackages(userName: string): Promise<unknown[]>;
-  // Summary of key packages (count excluding lastResort, and whether lastResort exists)
-  summaryKeyPackages(userName: string): Promise<{ count: number; hasLastResort: boolean }>;
-  findKeyPackage(userName: string, id: string): Promise<unknown | null>;
-  createKeyPackage(
-    userName: string,
-    content: string,
-    mediaType?: string,
-    encoding?: string,
-    groupInfo?: string,
-    expiresAt?: Date,
-    deviceId?: string,
-    version?: string,
-    cipherSuite?: number,
-    generator?: string | { id: string; type: string; name: string },
-    id?: string,
-    lastResort?: boolean,
-  ): Promise<unknown>;
-  markKeyPackageUsed(userName: string, id: string): Promise<void>;
-  markKeyPackageUsedByRef(
-    userName: string,
-    keyPackageRef: string,
-  ): Promise<void>;
-  cleanupKeyPackages(userName: string): Promise<void>;
-  deleteKeyPackage(userName: string, id: string): Promise<void>;
-  deleteKeyPackagesByUser(userName: string): Promise<void>;
   savePendingInvite(
     roomId: string,
     userName: string,
