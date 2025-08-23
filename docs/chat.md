@@ -1,10 +1,5 @@
-# ActivityPubグループ会話仕様（方式2: Group Actor）v0.2
+# ActivityPubグループ会話仕様（方式2: Group Actor）v0.3
 
-最終更新: 2025-08-24
-
-> **本更新の主旨**: 「Announceで受信者秘匿を維持」「Objectの推測困難化／認証付きフェッチ」「Group中継時の偽造防止（作者署名の検証）」を明確化し、最低相互運用要件として盛り込む。
-
----
 
 ## 1. 目的・範囲
 
@@ -35,7 +30,7 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
   1. メンバーが自分の`outbox`へ`Create{Note}`（宛先`to: group.id`）を出す。
   2. それを受け取ったグループが\*\*`Announce`\*\*でメンバーへ再配信（fan-out）する。
 * 公開範囲はASの受信者フィールド（`to`/`cc`/`bto`/`bcc`/`audience`）で制御。
-* **秘匿グループの最低要件**（本更新で追加）：
+* **秘匿グループの最低要件**：
 
   * グループの`Announce`は\*\*`bto`に実メンバー列を入れて配送前に剥がす\*\*（受信者のみが自分宛であることを知る）。
   * `Announce.object`は\*\*埋め込み（by value）\*\*を第一選択とする。URL露出を避け、追加フェッチを不要化。
@@ -149,10 +144,43 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 * メンバーは `Undo{ object: Follow }` を自分の`outbox`に投げて退出。
 * 強制退出はグループが `Remove{ object: user, target: group.followers }` を発行（実装任意）。
 
-### 6.3 招待（任意拡張）
+### 6.3 招待（Invite: 非保有Actorからの送信を含む）
 
-* `Invite{ actor: group-admin, object: user, target: group }` を許容。
-* 参加は**最終的にFollow/Acceptへ収束**させる（相互運用のため）。
+* **誰でも**自分のActorから\*\*`Invite`**を送って「このGroupに来て」と**通知\*\*できる（Group所有は不要）。
+* **Invite自体に加入効力はない**。受け手は **`Join` または `Follow`** をGroupへ送り、必要ならGroupが`Accept`して初めてメンバーになる。
+* 最小相互運用のため、**最終的にFollow/Acceptへ収束**させること（`Join`は受理して内部でFollowへ写像してもよい）。
+* 招待通知は **`to: 招待相手`**、任意で **`cc: group`** としてGroupにも知らせてよい（Group側でのUX補助）。
+* 乱用対策として、Groupは**招待の存在を加入要件にしない**（招待が無くてもJoin/Followを受け付ける）。
+
+#### 例: 非保有ActorからのInvite
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Invite",
+  "id": "https://user.example/acts/inv-1",
+  "actor": "https://user.example/@alice",
+  "object": "https://remote.example/@bob",
+  "target": "https://groups.example/@cats",
+  "to": ["https://remote.example/@bob"],
+  "cc": ["https://groups.example/@cats"]
+}
+```
+
+#### 例: 受け手のJoin（またはFollow）
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Join",
+  "id": "https://remote.example/acts/join-1",
+  "actor": "https://remote.example/@bob",
+  "object": "https://groups.example/@cats",
+  "to": ["https://groups.example/@cats"]
+}
+```
+
+> セキュリティ注: Inviteの有無・送信者は**加入判定に影響させない**。招待スパムはレート制限・ブロックで対処。
 
 ---
 
@@ -161,7 +189,7 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 ### 7.1 メンバーの投稿（作者署名＋オーディエンスバインディング）
 
 * メンバーは自分の`outbox`に`Create{Note}`をPOST。`to`は\*\*グループActorの`id`\*\*を指定。
-* `Note`には\*\*作者署名（例: `proof`フィールドにJWS等）\*\*を含めることを推奨/準必須化。
+* `Note`には**作者署名**（例: `proof`フィールドにJWS等）を含めることを推奨/準必須化。
 * 署名対象には少なくとも`id`/`attributedTo`/`content`/`published`/`audience`（=`group.id`）等を含め、**このグループ向けであることを暗号学的に結び付ける**。
 
 #### 例: メンバーのCreate（グループ宛、署名付き）
@@ -335,9 +363,10 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 
 * 署名対象に`audience: group.id`を含め、**オーディエンス・バインディング**を行う。
 * 上記(1)がOKでも(2)がNGなら**偽造/改ざん**として破棄（またはモデレーションキューへ）。
+* **メンバー整合性チェック**（推奨）: `Note.attributedTo` が **配送時点でのグループメンバー**であることを確認。そうでない場合、ポリシーに応じて拒否（外部なりすまし防止）。
 * `Public`混入や想定外の宛先がある場合は破棄またはモデレーション。
 * 認証付きフェッチを有効化し、**Group/メンバー以外のフェッチを拒否**。
-* リプレイ対策（`id`の一意・`published`時刻の受容範囲・署名の有効期限）を実装。
+* リプレイ対策（`id`の一意・`published`時刻の受容範囲・署名の有効期限）。
 * 添付サイズ上限、HTMLサニタイズ、ドメインブロック/キュー制御、レート制限。
 
 ---
@@ -386,6 +415,7 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 * [ ] DM: 単一宛先・Public禁止の検証に通る（違反は400）
 * [ ] DM: 返信時に受信者集合（単一）が自動継承される
 * [ ] DM: 可能な限り**個別inbox**へ配送（共有Inboxのみの場合は許容）
+* [ ] **Inviteは誰でも送れるが加入はFollow/Acceptでのみ成立**
 
 ---
 
