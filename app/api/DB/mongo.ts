@@ -368,7 +368,11 @@ export class MongoDB implements DB {
   ) {
     const extra: Record<string, unknown> = { type };
     if (attachments) extra.attachments = attachments;
+    const id = this.env["ACTIVITYPUB_DOMAIN"]
+      ? createObjectId(this.env["ACTIVITYPUB_DOMAIN"])
+      : undefined;
     const doc = new Message({
+      _id: id,
       attributedTo: from,
       actor_id: from,
       content: content ?? "",
@@ -382,7 +386,7 @@ export class MongoDB implements DB {
     await doc.save();
     const obj = doc.toObject();
     return {
-      id: obj._id as string,
+      id: (id ?? obj._id) as string,
       from,
       to,
       type,
