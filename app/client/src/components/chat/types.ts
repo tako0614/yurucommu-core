@@ -35,7 +35,7 @@ export interface Room {
   unreadCount: number;
   isOnline?: boolean;
   avatar?: string;
-  type: "group" | "memo";
+  type: "group" | "memo" | "dm";
   members: ActorID[];
   hasName?: boolean;
   hasIcon?: boolean;
@@ -43,20 +43,16 @@ export interface Room {
 
 // トークルームの種類を判定するユーティリティ関数
 export function isFriendRoom(room: Room): boolean {
+  // 明示的に dm タイプならフレンドルームとみなす
+  if (room.type === "dm") return true;
   // メモは除外
   if (room.type === "memo") return false;
-  const count = room.members?.length ?? 0; // 自分を除いた他参加者数（Chat 側で self を除去して格納）
-  // 1 名（自分以外）がいる＝1:1 ルームとみなす（名称/アイコン有無に依らず友だち扱い）
-  if (count === 1) return true;
-  // 未同期で members がまだ空でも、ID が @ を含む（= actor handle 形式）なら暫定的に 1:1 とする
-  if (count === 0 && typeof room.id === "string" && room.id.includes("@")) {
-    return true;
-  }
   return false;
 }
 
 export function isGroupRoom(room: Room): boolean {
-  return room.type !== "memo" && !isFriendRoom(room);
+  // group は type が明示的に group のもののみ
+  return room.type === "group";
 }
 
 export function isMemoRoom(room: Room): boolean {

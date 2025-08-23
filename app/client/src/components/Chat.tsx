@@ -540,9 +540,8 @@ export function Chat() {
           }
           return m;
         });
-        // 1対1・未命名のとき、タイトルがローカル名等に上書きされていたらハンドルに補正
-        const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
-          !(r.hasName || r.hasIcon);
+  // 1対1 (dm) のときは explicit な type を確認して補正
+  const isDm = r.type === "dm";
         let displayName = r.displayName;
         if (
           isDm &&
@@ -580,7 +579,7 @@ export function Chat() {
   // 1対1ルームで、選択時に相手の情報と members を補正する
   const ensureDmPartnerInfo = async (room: Room) => {
     const user = account();
-    if (!user || room.type === "memo") return;
+    if (!user || room.type === "memo" || room.type === "group") return;
     const selfHandle = `${user.userName}@${getDomain()}`;
     // UUID のルームはグループとみなし、DM用の名称/アイコン補完は行わない
     const uuidRe =
@@ -1321,7 +1320,7 @@ export function Chat() {
                 avatar: (normPartner.split("@")[0] || "?").charAt(0)
                   .toUpperCase(),
                 unreadCount: 0,
-                type: "group",
+                type: "dm",
                 members: [normPartner],
                 lastMessage: "...",
                 lastMessageTime: undefined,
@@ -1333,7 +1332,7 @@ export function Chat() {
             }
             if (!room) return;
             // 選択中なら差分取得して追記、未選択ならプレビュー更新のみ
-            if (selectedRoom() === room.id) {
+              if (selectedRoom() === room.id) {
               const fetched = await fetchMessagesForRoom(room, {
                 limit: 1,
                 dryRun: true,
@@ -1401,6 +1400,13 @@ export function Chat() {
       const [partnerName] = splitActor(normalizedPartner);
       const uuidRe =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+      // 優先: 明示的に type === 'dm' のルームを探す（ID一致または members に含まれる）
+      if (!room && normalizedPartner) {
+        room = chatRooms().find((r) => r.type === "dm" && (r.id === normalizedPartner || (r.members ?? []).includes(normalizedPartner)));
+      }
+
+      // それ以外は既存のグループ/名前ベース検索にフォールバック
       if (!room) room = chatRooms().find((r) => r.id === partnerName);
       if (!room) {
         for (const t of data.to) {
@@ -1413,12 +1419,9 @@ export function Chat() {
           }
         }
       }
-      // 名前付き1:1ルームなど、IDがパートナーと一致しない場合のフォールバック
+      // 名前付き1:1ルーム（members に normalizedPartner を含む dm を探す）
       if (!room) {
-        room = chatRooms().find((r) =>
-          (r.members?.length ?? 0) === 1 &&
-          r.members.includes(normalizedPartner)
-        );
+        room = chatRooms().find((r) => (r.members ?? []).includes(normalizedPartner));
       }
       if (!room && uuidRe.test(partnerName)) {
         // グループIDと推測されるがまだ一覧に存在しない場合はルームを作成しない
@@ -1600,7 +1603,7 @@ export function Chat() {
               avatar: info.authorAvatar ||
                 info.userName.charAt(0).toUpperCase(),
               unreadCount: 0,
-              type: "group",
+              type: "dm",
               members: [normalizedRoomId],
               lastMessage: "...",
               lastMessageTime: undefined,
@@ -1874,7 +1877,7 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     const me = account();
                     if (!r) return r;
-                    const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
+                    const isDm = r.type === "dm";
                     const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
                       if (isDm || looksLikeSelf) {
                         // 選択時に相手ハンドルや自分の名前で上書きしない。
