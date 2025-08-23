@@ -12,6 +12,7 @@ import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
 import { getDomain } from "../utils/config.ts";
+import { GroupAdmin } from "./Admin/GroupAdmin.tsx";
 
 export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
@@ -82,6 +83,9 @@ export function Application() {
         </Show>
         <Show when={selectedApp() === "notifications"}>
           <Notifications />
+        </Show>
+        <Show when={selectedApp() === "admin"}>
+          <GroupAdmin />
         </Show>
       </main>
     </>

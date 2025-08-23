@@ -6,6 +6,7 @@ import {
 import { loginState } from "../../states/session.ts";
 import { apiFetch } from "../../utils/config.ts";
 import { FaspProviders } from "./FaspProviders.tsx";
+import { GroupSettingsForm } from "./GroupSettingsForm.tsx";
 
 export function Setting() {
   const [language, setLanguage] = useAtom(languageState);
@@ -52,6 +53,10 @@ export function Setting() {
       <div>
         <h3 class="font-bold mb-1">FASP 設定</h3>
         <FaspProviders />
+      </div>
+      <div>
+        <h3 class="font-bold mb-1">グループ設定</h3>
+        <GroupSettingsForm />
       </div>
       <div class="flex justify-end space-x-2">
         <button

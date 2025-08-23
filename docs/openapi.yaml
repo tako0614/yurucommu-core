@@ -61,7 +61,7 @@ paths:
       summary: クライアント設定取得
       responses:
         "200":
-          description: OAuth 情報に加え firebase、vapidKey、Google AdSense 設定を含む JSON を返します。
+          description: OAuth 情報に加え firebase、vapidKey、Google AdSense 設定、グループ設定を含む JSON を返します。
   /api/setup/status:
     get:
       summary: 初期設定状態取得
@@ -657,6 +657,100 @@ paths:
       responses:
         "200":
           description: 送信結果
+  /api/groups:
+    post:
+      summary: グループ作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - groupName
+                - displayName
+              properties:
+                groupName:
+                  type: string
+                  description: グループの識別名
+                displayName:
+                  type: string
+                  description: 表示名
+                summary:
+                  type: string
+                  description: 概要
+                membershipPolicy:
+                  type: string
+                  description: 参加承認方式
+                visibility:
+                  type: string
+                  description: 公開範囲
+                allowInvites:
+                  type: boolean
+                  description: メンバーによる招待の可否
+      responses:
+        "201":
+          description: 作成成功時はグループ ID を返します。
+  /api/groups/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: グループ設定更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                summary:
+                  type: string
+                icon:
+                  description: アイコン
+                image:
+                  description: ヘッダー画像
+                membershipPolicy:
+                  type: string
+                visibility:
+                  type: string
+                allowInvites:
+                  type: boolean
+      responses:
+        "200":
+          description: 更新結果
+  /api/groups/{name}/actor:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: グループActor編集（管理者）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                summary:
+                  type: string
+                icon:
+                  description: アイコン
+                image:
+                  description: ヘッダー画像
+      responses:
+        "200":
+          description: 更新結果
   /api/files:
     post:
       summary: ファイルアップロード（HTTP のみ、要ログイン）

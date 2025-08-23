@@ -4,6 +4,7 @@ import { type Accessor, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
+import { loginState } from "../../states/session.ts";
 
 const HeaderButton = (
   props: {
@@ -36,6 +37,7 @@ const HeaderButton = (
 export default function ChatHeader() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
+  const [isLoggedIn] = useAtom(loginState);
   const [isMobile, setIsMobile] = createSignal(false);
 
   // モバイルかどうかを判定
@@ -192,6 +194,31 @@ export default function ChatHeader() {
               </svg>
             )}
           </HeaderButton>
+          <Show when={isLoggedIn()}>
+            <HeaderButton page="admin" isMobile={isMobile}>
+              {(active) => (
+                <svg
+                  role="img"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="100%"
+                  height="100%"
+                  viewBox="0 0 24 24"
+                  aria-labelledby="adminIconTitle"
+                  class={`w-full h-full stroke-white ${
+                    active ? "fill-[#ff6060]" : ""
+                  }`}
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                >
+                  <title id="adminIconTitle">Admin</title>
+                  <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .7.4 1.34 1.03 1.64z" />
+                </svg>
+              )}
+            </HeaderButton>
+          </Show>
         </ul>
       </header>
     </Show>
