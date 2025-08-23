@@ -3,6 +3,8 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import Group from "../models/takos/group.ts";
+import Invite from "../models/takos/invite.ts";
+import Approval from "../models/takos/approval.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -11,6 +13,7 @@ import {
 import { sendActivityPubObject } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
+import { createDB } from "../DB/mod.ts";
 
 const app = new Hono();
 
@@ -22,9 +25,23 @@ interface GroupDoc {
   summary?: string;
   icon?: ActivityPubObject | null;
   image?: ActivityPubObject | null;
+  membershipPolicy?: string;
+  visibility?: string;
+  allowInvites?: boolean;
   followers: string[];
   outbox: ActivityPubObject[];
   save: () => Promise<void>;
+}
+
+function isOwnedGroup(
+  group: GroupDoc & { tenant_id?: string },
+  domain: string,
+  name: string,
+): boolean {
+  const tenant = (group as { tenant_id?: string }).tenant_id;
+  if (tenant && tenant !== domain) return false;
+  const id = `https://${domain}/groups/${group.groupName}`;
+  return id === `https://${domain}/groups/${name}`;
 }
 
 app.use("/api/groups/*", authRequired);
@@ -37,17 +54,37 @@ app.post(
       groupName: z.string().min(1),
       displayName: z.string().min(1),
       summary: z.string().optional(),
+      membershipPolicy: z.string().optional(),
+      visibility: z.string().optional(),
+      allowInvites: z.boolean().optional(),
     }),
   ),
   async (c) => {
-    const { groupName, displayName, summary } = c.req.valid("json") as {
+    const {
+      groupName,
+      displayName,
+      summary,
+      membershipPolicy,
+      visibility,
+      allowInvites,
+    } = c.req.valid("json") as {
       groupName: string;
       displayName: string;
       summary?: string;
+      membershipPolicy?: string;
+      visibility?: string;
+      allowInvites?: boolean;
     };
     const exists = await Group.findOne({ groupName }).lean();
     if (exists) return c.json({ error: "既に存在します" }, 400);
-    const group = new Group({ groupName, displayName, summary });
+    const group = new Group({
+      groupName,
+      displayName,
+      summary,
+      membershipPolicy,
+      visibility,
+      allowInvites,
+    });
     await group.save();
     const domain = getDomain(c);
     return c.json({ id: `https://${domain}/groups/${groupName}` }, 201);
@@ -63,6 +100,9 @@ app.patch(
       summary: z.string().optional(),
       icon: z.any().optional(),
       image: z.any().optional(),
+      membershipPolicy: z.string().optional(),
+      visibility: z.string().optional(),
+      allowInvites: z.boolean().optional(),
     }),
   ),
   async (c) => {
@@ -76,9 +116,174 @@ app.patch(
   },
 );
 
+app.patch(
+  "/api/groups/:name/actor",
+  zValidator(
+    "json",
+    z.object({
+      displayName: z.string().optional(),
+      summary: z.string().optional(),
+      icon: z.any().optional(),
+      image: z.any().optional(),
+    }),
+  ),
+  async (c) => {
+    const name = c.req.param("name");
+    const domain = getDomain(c);
+    const group = await Group.findOne({ groupName: name }) as
+      | (GroupDoc & { tenant_id?: string })
+      | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!isOwnedGroup(group, domain, name)) {
+      return c.json({ error: "他ホストのグループです" }, 403);
+    }
+    const update = c.req.valid("json") as Record<string, unknown>;
+    if (update.displayName !== undefined) {
+      group.displayName = String(update.displayName);
+    }
+    if (update.summary !== undefined) {
+      group.summary = String(update.summary);
+    }
+    if (update.icon !== undefined) {
+      group.icon = update.icon as ActivityPubObject;
+    }
+    if (update.image !== undefined) {
+      group.image = update.image as ActivityPubObject;
+    }
+    await group.save();
+    const actor: Record<string, unknown> = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Group",
+      id: `https://${domain}/groups/${name}`,
+      name: group.displayName,
+      preferredUsername: name,
+      summary: group.summary,
+    };
+    if (group.icon) actor.icon = group.icon;
+    if (group.image) actor.image = group.image;
+    const activity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/activities/${crypto.randomUUID()}`,
+      type: "Update" as const,
+      actor: actor.id,
+      to: [`https://${domain}/groups/${name}/followers`],
+      object: actor,
+    };
+    const env = getEnv(c);
+    await deliverActivityPubObject(
+      group.followers,
+      activity,
+      "system",
+      domain,
+      env,
+    );
+    return c.json({ ok: true });
+  },
+);
+
+app.post(
+  "/api/groups/:name/invite",
+  zValidator("json", z.object({ actor: z.string().url() })),
+  async (c) => {
+    const name = c.req.param("name");
+    const { actor } = c.req.valid("json") as { actor: string };
+    const group = await Group.findOne({ groupName: name }) as GroupDoc | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (group.allowInvites === false) {
+      return c.json({ error: "招待が禁止されています" }, 400);
+    }
+    const domain = getDomain(c);
+    const groupId = `https://${domain}/groups/${name}`;
+    const activity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/activities/${crypto.randomUUID()}`,
+      type: "Invite" as const,
+      actor: groupId,
+      object: actor,
+      target: groupId,
+      to: [actor],
+    };
+    const env = getEnv(c);
+    await sendActivityPubObject(actor, activity, "system", domain, env);
+    const inv = new Invite({ groupName: name, actor, inviter: groupId });
+    await inv.save().catch(() => {});
+    if (actor.startsWith(`https://${domain}/@`)) {
+      const username = actor.substring(`https://${domain}/@`.length);
+      const db = createDB(env);
+      const acc = await db.findAccountByUserName(username);
+      if (acc) {
+        await db.createNotification(
+          acc._id!,
+          "グループ招待",
+          `${group.displayName ?? name} に招待されました`,
+          "group-invite",
+        );
+      }
+    }
+    return c.json({ ok: true });
+  },
+);
+
+app.post(
+  "/api/groups/:name/approvals",
+  zValidator(
+    "json",
+    z.object({ actor: z.string().url(), accept: z.boolean() }),
+  ),
+  async (c) => {
+    const name = c.req.param("name");
+    const { actor, accept } = c.req.valid("json") as {
+      actor: string;
+      accept: boolean;
+    };
+    const domain = getDomain(c);
+    const groupId = `https://${domain}/groups/${name}`;
+    const group = await Group.findOne({ groupName: name }) as
+      | (GroupDoc & { tenant_id?: string })
+      | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!isOwnedGroup(group, domain, name)) {
+      return c.json({ error: "他ホストのグループです" }, 403);
+    }
+    const approval = await Approval.findOne({
+      groupName: name,
+      actor,
+    });
+    if (!approval) return c.json({ error: "見つかりません" }, 404);
+    if (accept) {
+      if (!group.followers.includes(actor)) {
+        group.followers.push(actor);
+        await group.save();
+      }
+      const acc = createAcceptActivity(domain, groupId, approval.activity);
+      await deliverActivityPubObject([actor], acc, "system", domain, getEnv(c));
+    } else {
+      const reject = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/activities/${crypto.randomUUID()}`,
+        type: "Reject" as const,
+        actor: groupId,
+        object: approval.activity,
+        to: [actor],
+      };
+      await deliverActivityPubObject(
+        [actor],
+        reject,
+        "system",
+        domain,
+        getEnv(c),
+      );
+    }
+    await approval.deleteOne();
+    return c.json({ ok: true });
+  },
+);
+
 app.get("/groups/:name", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
+  const group = await Group.findOne({ groupName: name }).lean() as
+    | GroupDoc
+    | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   const actor: Record<string, unknown> = {
@@ -99,7 +304,9 @@ app.get("/groups/:name", async (c) => {
 
 app.get("/groups/:name/followers", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
+  const group = await Group.findOne({ groupName: name }).lean() as
+    | GroupDoc
+    | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -117,7 +324,9 @@ app.get("/groups/:name/followers", async (c) => {
 
 app.get("/groups/:name/outbox", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
+  const group = await Group.findOne({ groupName: name }).lean() as
+    | GroupDoc
+    | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -142,17 +351,76 @@ app.post("/groups/:name/inbox", async (c) => {
   const parsed = await parseActivityRequest(c);
   if (!parsed) return c.json({ error: "署名エラー" }, 401);
   const { activity } = parsed;
+  const groupId = `https://${domain}/groups/${name}`;
 
-  if (activity.type === "Follow" && typeof activity.actor === "string") {
+  if (
+    activity.type === "Invite" &&
+    typeof (activity as { target?: unknown }).target === "string" &&
+    (activity as { target: string }).target === groupId
+  ) {
+    const invited = typeof activity.object === "string" ? activity.object : "";
+    const inviter = typeof activity.actor === "string" ? activity.actor : "";
+    if (invited) {
+      await Invite.findOneAndUpdate(
+        { groupName: name, actor: invited },
+        { inviter },
+        { upsert: true },
+      ).catch(() => {});
+    }
+    return c.json({ ok: true });
+  }
+
+  if (
+    activity.type === "Join" &&
+    typeof activity.actor === "string" &&
+    typeof activity.object === "string" &&
+    activity.object === groupId
+  ) {
+    if (group.membershipPolicy === "approval") {
+      await Approval.findOneAndUpdate(
+        { groupName: name, actor: activity.actor },
+        { activity },
+        { upsert: true },
+      ).catch(() => {});
+      return c.json({ ok: true });
+    }
     if (!group.followers.includes(activity.actor)) {
       group.followers.push(activity.actor);
       await group.save();
     }
-    const accept = createAcceptActivity(
+    await Invite.findOneAndUpdate(
+      { groupName: name, actor: activity.actor },
+      { accepted: true },
+    ).catch(() => {});
+    const accept = createAcceptActivity(domain, groupId, activity);
+    await deliverActivityPubObject(
+      [activity.actor],
+      accept,
+      "system",
       domain,
-      `https://${domain}/groups/${name}`,
-      activity,
+      env,
     );
+    return c.json({ ok: true });
+  }
+
+  if (activity.type === "Follow" && typeof activity.actor === "string") {
+    if (group.membershipPolicy === "approval") {
+      await Approval.findOneAndUpdate(
+        { groupName: name, actor: activity.actor },
+        { activity },
+        { upsert: true },
+      ).catch(() => {});
+      return c.json({ ok: true });
+    }
+    if (!group.followers.includes(activity.actor)) {
+      group.followers.push(activity.actor);
+      await group.save();
+    }
+    await Invite.findOneAndUpdate(
+      { groupName: name, actor: activity.actor },
+      { accepted: true },
+    ).catch(() => {});
+    const accept = createAcceptActivity(domain, groupId, activity);
     await deliverActivityPubObject(
       [activity.actor],
       accept,
@@ -174,9 +442,10 @@ app.post("/groups/:name/inbox", async (c) => {
     // - Announce は object を埋め込み（by value）で持ち、to/cc/Public は付与しない
     // - 実配送は fan-out で各メンバーの個別 inbox へ送る（bto相当は配送前に剥離）
 
-    const groupId = `https://${domain}/groups/${name}`;
     const getSet = (v: unknown): string[] =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === "string")
+        : [];
     const activityRecipients = [
       ...getSet((activity as Record<string, unknown>).to),
       ...getSet((activity as Record<string, unknown>).cc),
@@ -194,7 +463,10 @@ app.post("/groups/:name/inbox", async (c) => {
       ...getSet(obj.bcc),
       ...(typeof obj.audience === "string" ? [String(obj.audience)] : []),
     ];
-    const allRecipients = new Set<string>([...activityRecipients, ...objectRecipients]);
+    const allRecipients = new Set<string>([
+      ...activityRecipients,
+      ...objectRecipients,
+    ]);
     // Public 禁止
     if (allRecipients.has("https://www.w3.org/ns/activitystreams#Public")) {
       return c.json({ error: "Public 宛は許可されていません" }, 400);
@@ -219,9 +491,10 @@ app.post("/groups/:name/inbox", async (c) => {
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
     await Promise.all(
       group.followers.map((recipient: string) =>
-        sendActivityPubObject(recipient, announceBase, "system", domain, env).catch(
-          (err) => console.error("deliver failed", recipient, err),
-        )
+        sendActivityPubObject(recipient, announceBase, "system", domain, env)
+          .catch(
+            (err) => console.error("deliver failed", recipient, err),
+          )
       ),
     );
     return c.json({ ok: true });
@@ -232,7 +505,8 @@ app.post("/groups/:name/inbox", async (c) => {
     activity.type === "Undo" &&
     activity.object && typeof activity.object === "object" &&
     (activity.object as { type?: string }).type === "Follow" &&
-    (activity.object as { object?: string }).object === `https://${domain}/groups/${name}` &&
+    (activity.object as { object?: string }).object ===
+      `https://${domain}/groups/${name}` &&
     typeof activity.actor === "string"
   ) {
     const idx = group.followers.indexOf(activity.actor);

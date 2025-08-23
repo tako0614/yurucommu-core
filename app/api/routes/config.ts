@@ -15,6 +15,10 @@ app.get("/config", (c) => {
   const adsenseSlot = env["ADSENSE_SLOT"] ?? null;
   const adsenseAccount = env["ADSENSE_ACCOUNT"] ?? null;
   const domain = env["ACTIVITYPUB_DOMAIN"] ?? null;
+  const groupConfig = {
+    membershipPolicies: ["open", "approval"],
+    visibilities: ["public", "private"],
+  };
   return c.json({
     oauthHost: host,
     oauthClientId: clientId,
@@ -25,6 +29,7 @@ app.get("/config", (c) => {
     adsenseSlot,
     adsenseAccount,
     domain,
+    groupConfig,
   });
 });
 

@@ -142,6 +142,15 @@ const NotificationsContent: Component = () => {
             d="M6 18L18 6M6 6l12 12"
           />
         );
+      case "group-invite":
+        return (
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 4v16m8-8H4"
+          />
+        );
       default:
         return (
           <path

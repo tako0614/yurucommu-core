@@ -7,6 +7,9 @@ const groupSchema = new mongoose.Schema({
   summary: { type: String, default: "" },
   icon: { type: mongoose.Schema.Types.Mixed, default: null },
   image: { type: mongoose.Schema.Types.Mixed, default: null },
+  membershipPolicy: { type: String, default: "open" },
+  visibility: { type: String, default: "public" },
+  allowInvites: { type: Boolean, default: true },
   followers: { type: [String], default: [] },
   outbox: { type: [mongoose.Schema.Types.Mixed], default: [] },
 });

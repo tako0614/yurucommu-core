@@ -7,7 +7,8 @@ export type AppPage =
   | "microblog"
   | "chat"
   | "tools"
-  | "notifications";
+  | "notifications"
+  | "admin";
 
 // 選択中のアプリケーションページを管理する状態
 // 初期値を"home"にしてホーム画面を表示
