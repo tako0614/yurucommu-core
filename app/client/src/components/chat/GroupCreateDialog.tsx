@@ -20,7 +20,6 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const [searchTerm, setSearchTerm] = createSignal("");
   const [selectedMembers, setSelectedMembers] = createSignal<string[]>([]);
   const [memberInput, setMemberInput] = createSignal("");
-  const [showFollowing, setShowFollowing] = createSignal(false);
   const [followingUsers, setFollowingUsers] = createSignal<
     Array<{ id: string; name: string; avatar?: string }>
   >([]);
@@ -172,31 +171,8 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     }
     const members = membersArr.join(",");
 
-    if (props.mode === "create" && selectedMembers().length < 1) {
-      globalThis.dispatchEvent(
-        new CustomEvent("app:toast", {
-          detail: {
-            type: "warning",
-            title: "追加してください",
-            description: "最低1人のメンバーを追加してください",
-          },
-        }),
-      );
-      return;
-    }
-
-    if (props.mode === "create" && !groupName && selectedMembers().length > 1) {
-      globalThis.dispatchEvent(
-        new CustomEvent("app:toast", {
-          detail: {
-            type: "warning",
-            title: "入力が必要です",
-            description: "グループ名を入力してください",
-          },
-        }),
-      );
-      return;
-    }
+  // Allow creating a group even if no members or name specified.
+  // The server-side will accept optional members; the client still adds the current user to membersArr below.
 
     if (props.mode === "invite") {
       if (props.onInvite) props.onInvite(members);
@@ -216,7 +192,6 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     setSelectedMembers([]);
     setMemberInput("");
     setSearchTerm("");
-    setShowFollowing(false);
   };
 
   createEffect(() => {
@@ -235,223 +210,89 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   return (
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center">
-        {/* 背景オーバーレイ（ぼかし効果付き） */}
-        <div
-          class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
-          onClick={props.onClose}
-        />
+        {/* 背景オーバーレイ（薄くして背景が見えるように） */}
+        <div class="absolute inset-0 bg-black/40 z-40" onClick={props.onClose} />
 
-        {/* ダイアログコンテンツ */}
-        <div class="relative bg-[#2a2a2a] rounded-lg p-6 w-[90%] max-w-md mx-4 max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-bold text-white">
-              <Show when={props.mode === "create"} fallback="メンバー招待">
-                ルーム作成
-              </Show>
-            </h2>
-            <button
-              type="button"
-              onClick={props.onClose}
-              class="text-gray-400 hover:text-white text-xl font-bold w-8 h-8 flex items-center justify-center"
-            >
-              ×
-            </button>
+        {/* ダイアログコンテンツ（DM と同じ見た目に統一） */}
+        <div class="relative w-[min(560px,95%)] bg-[#1e1e1e] rounded-lg p-4 border border-[#333] z-50">
+          <h3 class="text-lg font-semibold text-white mb-3">新しいグループを作成</h3>
+
+          <Show when={props.mode === "create" && selectedMembers().length > 1}>
+            <div class="mb-3">
+              <label class="text-sm text-gray-300">グループ名</label>
+              <input
+                type="text"
+                class="w-full mt-1 p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
+                value={name()}
+                onInput={(e) => setName(e.currentTarget.value)}
+                placeholder="グループ名"
+              />
+            </div>
+          </Show>
+
+          <div class="mb-3">
+            <label class="text-sm text-gray-300">メンバー（改行・カンマで複数）</label>
+            <div class="flex gap-2 mt-2">
+              <input
+                type="text"
+                class="flex-1 p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
+                value={memberInput()}
+                onInput={(e) => setMemberInput(e.currentTarget.value)}
+                placeholder="alice@example.com または alice"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMemberFromInput(); } }}
+              />
+              <button type="button" class="px-4 py-2 bg-blue-600 text-white rounded" onClick={addMemberFromInput} disabled={!memberInput().trim()}>追加</button>
+            </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto">
-            <Show
-              when={props.mode === "create" && selectedMembers().length > 1}
-            >
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  グループ名
-                </label>
-                <input
-                  type="text"
-                  value={name()}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                  placeholder="グループ名を入力..."
-                  class="w-full px-3 py-2 bg-[#3a3a3a] border border-[#4a4a4a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </Show>
-
-            <div class="mb-4">
-              <div class="flex items-center justify-between mb-2">
-                <label class="block text-sm font-medium text-gray-300">
-                  メンバーを追加
-                </label>
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowFollowing(false)}
-                    class={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                      !showFollowing()
-                        ? "bg-blue-600 text-white"
-                        : "bg-[#3a3a3a] text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    手動入力
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowFollowing(true)}
-                    class={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                      showFollowing()
-                        ? "bg-blue-600 text-white"
-                        : "bg-[#3a3a3a] text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    フォロー中
-                  </button>
-                </div>
-              </div>
-
-              <Show when={!showFollowing()}>
-                <div class="flex gap-2">
-                  <input
-                    type="text"
-                    value={memberInput()}
-                    onInput={(e) => setMemberInput(e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addMemberFromInput();
-                      }
-                    }}
-                    placeholder="@username@domain.com"
-                    class="flex-1 px-3 py-2 bg-[#3a3a3a] border border-[#4a4a4a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={addMemberFromInput}
-                    disabled={!memberInput().trim()}
-                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm font-medium"
-                  >
-                    追加
-                  </button>
-                </div>
-              </Show>
-
-              <Show when={showFollowing()}>
-                <div class="space-y-2">
-                  <input
-                    type="text"
-                    value={searchTerm()}
-                    onInput={(e) => setSearchTerm(e.currentTarget.value)}
-                    placeholder="フォロー中のユーザーを検索..."
-                    class="w-full px-3 py-2 bg-[#3a3a3a] border border-[#4a4a4a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
-                  />
-                  <div class="max-h-40 overflow-y-auto space-y-1">
-                    <For each={filteredFollowing()}>
-                      {(user) => (
-                        <div
-                          class={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                            selectedMembers().includes(user.id)
-                              ? "bg-blue-600 bg-opacity-20 border border-blue-500"
-                              : "bg-[#3a3a3a] hover:bg-[#4a4a4a]"
-                          }`}
-                          onClick={() => addMember(user.id)}
-                        >
-                          <div class="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-sm">
-                            <Show
-                              when={user.avatar}
-                              fallback={user.name.charAt(0).toUpperCase()}
-                            >
-                              <img
-                                src={user.avatar}
-                                class="w-8 h-8 rounded-full object-cover"
-                                alt={user.name}
-                              />
-                            </Show>
-                          </div>
-                          <div class="flex-1 min-w-0">
-                            <div class="text-white text-sm font-medium truncate">
-                              {user.name}
-                            </div>
-                            <div class="text-gray-400 text-xs truncate">
-                              {user.id}
-                            </div>
-                          </div>
-                          <Show when={selectedMembers().includes(user.id)}>
-                            <div class="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                              <svg
-                                class="w-3 h-3 text-white"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path
-                                  fill-rule="evenodd"
-                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                  clip-rule="evenodd"
-                                />
-                              </svg>
-                            </div>
-                          </Show>
-                        </div>
-                      )}
-                    </For>
-                    <Show when={filteredFollowing().length === 0}>
-                      <div class="text-center py-8 text-gray-500">
-                        <Show
-                          when={searchTerm()}
-                          fallback="フォロー中のユーザーがいません"
-                        >
-                          検索結果がありません
-                        </Show>
-                      </div>
-                    </Show>
+          <div class="mb-3">
+            <label class="text-sm text-gray-300">フォロー中（クリックで追加）</label>
+            <input
+              type="text"
+              value={searchTerm()}
+              onInput={(e) => setSearchTerm(e.currentTarget.value)}
+              placeholder="フォロー中のユーザーを検索..."
+              class="w-full mt-1 p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
+            />
+            <div class="max-h-40 overflow-y-auto mt-2 space-y-1">
+              <For each={filteredFollowing()}>
+                {(user) => (
+                  <div class={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${selectedMembers().includes(user.id) ? 'bg-blue-600 bg-opacity-20 border border-blue-500' : 'bg-[#1e1e1e] hover:bg-[#2a2a2a]'}`} onClick={() => addMember(user.id)}>
+                    <div class="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-sm">
+                      <Show when={user.avatar} fallback={user.name.charAt(0).toUpperCase()}>
+                        <img src={user.avatar} class="w-8 h-8 rounded-full object-cover" alt={user.name} />
+                      </Show>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-white text-sm font-medium truncate">{user.name}</div>
+                      <div class="text-gray-400 text-xs truncate">{user.id}</div>
+                    </div>
                   </div>
-                </div>
+                )}
+              </For>
+              <Show when={filteredFollowing().length === 0}>
+                <div class="text-center py-6 text-gray-500">{searchTerm() ? '検索結果がありません' : 'フォロー中のユーザーがいません'}</div>
               </Show>
             </div>
-
-            <Show when={selectedMembers().length > 0}>
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  選択中のメンバー ({selectedMembers().length}人)
-                </label>
-                <div class="flex flex-wrap gap-2">
-                  <For each={selectedMembers()}>
-                    {(member) => (
-                      <div class="flex items-center gap-2 bg-blue-600 bg-opacity-20 border border-blue-500 text-blue-300 px-3 py-1 rounded-full text-sm">
-                        <span>{member}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeMember(member)}
-                          class="text-blue-300 hover:text-white ml-1 text-lg leading-none"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </Show>
           </div>
 
-          <div class="flex justify-end gap-3 pt-4 border-t border-[#4a4a4a]">
-            <button
-              type="button"
-              onClick={props.onClose}
-              class="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              キャンセル
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={selectedMembers().length === 0}
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed font-medium"
-            >
-              <Show when={props.mode === "create"}>
-                グループ作成
-              </Show>
-              <Show when={props.mode === "invite"}>
-                招待
-              </Show>
-            </button>
+          <Show when={selectedMembers().length > 0}>
+            <div class="mb-3">
+              <label class="text-sm text-gray-300 mb-2">選択中のメンバー ({selectedMembers().length}人)</label>
+              <div class="flex flex-wrap gap-2">
+                <For each={selectedMembers()}>{(member) => (
+                  <div class="flex items-center gap-2 bg-blue-600 bg-opacity-20 border border-blue-500 text-blue-300 px-3 py-1 rounded-full text-sm">
+                    <span>{member}</span>
+                    <button type="button" onClick={() => removeMember(member)} class="text-blue-300 hover:text-white ml-1 text-lg leading-none">×</button>
+                  </div>
+                )}</For>
+              </div>
+            </div>
+          </Show>
+
+          <div class="flex justify-end gap-2 mt-4">
+            <button type="button" onClick={props.onClose} class="px-4 py-2 text-gray-400 hover:text-white">キャンセル</button>
+            <button type="button" onClick={handleSubmit} disabled={selectedMembers().length === 0} class="px-4 py-2 bg-blue-600 text-white rounded">{props.mode === 'create' ? 'グループ作成' : '招待'}</button>
           </div>
         </div>
       </div>

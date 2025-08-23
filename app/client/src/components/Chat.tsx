@@ -19,6 +19,8 @@ import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
+import ChatCreateDMDialog from "./chat/ChatCreateDMDialog.tsx";
+import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatSettingsOverlay } from "./chat/ChatSettingsOverlay.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
@@ -501,6 +503,8 @@ export function Chat() {
   );
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
+  const [showCreateDialog, setShowCreateDialog] = createSignal(false);
+  const [createDialogType, setCreateDialogType] = createSignal<"dm" | "group">("dm");
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
     setChatRooms((prev) => {
@@ -1844,17 +1848,14 @@ export function Chat() {
               selectedRoom={selectedRoom()}
               onSelect={selectRoom}
               showAds={showAds()}
-              onCreateRoom={() => {
-                const handle = globalThis.prompt(
-                  "ユーザーIDを入力してください (例: alice@example.com)",
-                );
-                if (handle && handle.trim() !== "") {
-                  const normalized =
-                    handle.includes("@") || handle.startsWith("http")
-                      ? normalizeActor(handle as ActorID)
-                      : `${handle}@${getDomain()}`;
-                  selectRoom(normalized);
-                }
+              onCreateRoom={() => setShowCreateDialog(true)}
+              onCreateDM={() => {
+                setCreateDialogType("dm");
+                setShowCreateDialog(true);
+              }}
+              onCreateGroup={() => {
+                setCreateDialogType("group");
+                setShowCreateDialog(true);
               }}
               segment={segment()}
               onSegmentChange={setSegment}
@@ -1908,24 +1909,15 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     const me = account();
                     if (!r) return r;
-                    const selfHandle = me
-                      ? `${me.userName}@${getDomain()}`
-                      : undefined;
-                    const rawOther = r.members.find((m) => m !== selfHandle) ??
-                      r.members[0];
-                    const isDm = r.type !== "memo" &&
-                      (r.members?.length ?? 0) === 1 &&
-                      !(r.hasName || r.hasIcon);
-                    const looksLikeSelf = me &&
-                      (r.name === me.displayName || r.name === me.userName);
+                    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
+                    const rawOther = r.members.find((m) => m !== selfHandle) ?? r.members[0];
+                    const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
+                    const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle
-                        ? rawOther
-                        : undefined;
+                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
                       return {
                         ...r,
-                        name: (other as string | undefined) ??
-                          (r.name || "不明"),
+                        name: (other as string | undefined) ?? (r.name || "不明"),
                       };
                     }
                     return r;
@@ -1958,7 +1950,7 @@ export function Chat() {
                   setMediaPreview={setMediaPreview}
                   sendMessage={sendMessage}
                   // TAKO KEEP（memo）でも画像・ファイル送信を許可
-                  allowMedia={true}
+                  allowMedia
                 />
               </div>
             </Show>
@@ -1966,6 +1958,34 @@ export function Chat() {
         </div>
       </div>
       {/* GroupCreateDialog removed; room creation handled through sidebar */}
+      <ChatCreateDMDialog
+        isOpen={showCreateDialog() && createDialogType() === "dm"}
+        onClose={() => setShowCreateDialog(false)}
+        onCreate={(handle) => {
+          selectRoom(normalizeActor(handle as ActorID));
+        }}
+      />
+
+      <GroupCreateDialog
+        isOpen={showCreateDialog() && createDialogType() === "group"}
+        mode="create"
+        onClose={() => setShowCreateDialog(false)}
+        onCreate={async (name: string, membersStr: string) => {
+          const user = account();
+          if (!user) return;
+          const owner = `${user.userName}@${getDomain()}`;
+          const id = crypto.randomUUID();
+          // membersStr is comma-separated list
+          const members = membersStr.split(",").map((s) => s.trim()).filter(Boolean);
+          try {
+            await _addRoom(owner, { id, name, members });
+            selectRoom(id);
+          } catch {
+            /* ignore */
+          }
+        }}
+      />
+
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}

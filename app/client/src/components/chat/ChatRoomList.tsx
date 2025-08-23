@@ -24,6 +24,8 @@ interface ChatRoomListProps {
   onSelect: (id: string) => void;
   showAds: boolean;
   onCreateRoom: () => void;
+  onCreateDM?: () => void;
+  onCreateGroup?: () => void;
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
   onCreateFriendRoom?: (friendId: string) => void;
@@ -303,8 +305,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
           チャット
         </div>
         <div class="flex gap-2">
-          <Button size="sm" onClick={props.onCreateRoom}>
-            ＋ 新しいトーク
+          <Button size="sm" onClick={() => props.onCreateDM ? props.onCreateDM() : props.onCreateRoom()}>
+            ＋ DM
+          </Button>
+          <Button size="sm" onClick={() => props.onCreateGroup ? props.onCreateGroup() : props.onCreateRoom()}>
+            ＋ グループ
           </Button>
         </div>
       </div>
