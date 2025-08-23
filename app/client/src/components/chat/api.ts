@@ -30,7 +30,7 @@ export async function fetchDirectMessages(
         }`
       : undefined;
 
-    const filtered = items.filter((it: Record<string, unknown>) => {
+  const filtered = items.filter((it: Record<string, unknown>) => {
       const type = typeof it.type === "string" ? it.type : "";
       if (type !== "Note" && type !== "Message") return false;
       const toField = it.to ?? [];
@@ -62,23 +62,23 @@ export async function fetchDirectMessages(
         ? new Date(String(it.published))
         : new Date();
       // ActivityStreams 互換の添付（attachment）をクライアント内部形式に正規化
+      type Attachment = { url: string; mediaType: string; preview?: { url?: string } };
+
       const attachments = Array.isArray((it as { attachment?: unknown }).attachment)
-        ? (it.attachment as unknown[])
-          // deno-lint-ignore no-explicit-any
-          .map((a: any) => {
-            const url = typeof a?.url === "string" ? a.url : undefined;
-            const mediaType = typeof a?.mediaType === "string"
-              ? a.mediaType
+        ? ((it.attachment as unknown[])
+          .map((a: unknown) => {
+            const obj = a as { [k: string]: unknown } | undefined;
+            const url = typeof obj?.url === "string" ? obj.url : undefined;
+            const mediaType = typeof obj?.mediaType === "string"
+              ? obj.mediaType
               : undefined;
-            const preview = a?.preview && typeof a.preview === "object"
-              ? ({ url: typeof a.preview.url === "string" ? a.preview.url : undefined } as {
-                url?: string;
-              })
+            const preview = obj?.preview && typeof obj.preview === "object"
+              ? { url: typeof (obj.preview as { url?: unknown })?.url === "string" ? (obj.preview as { url?: string }).url : undefined }
               : undefined;
             if (!url || !mediaType) return null;
             return { url, mediaType, preview };
           })
-          .filter((v): v is { url: string; mediaType: string; preview?: { url?: string } } => !!v)
+          .filter(Boolean) as unknown) as Attachment[]
         : undefined;
       return {
         id,
@@ -88,7 +88,7 @@ export async function fetchDirectMessages(
         content,
         attachments,
         timestamp: published,
-        type: "text",
+        type: "note",
         avatar: undefined,
         isMe: false,
       } as ChatMessage;

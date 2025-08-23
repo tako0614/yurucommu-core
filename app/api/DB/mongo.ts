@@ -405,7 +405,14 @@ export class MongoDB implements DB {
         ],
       }),
     );
-    const docs = await query.sort({ published: 1 }).lean();
+    const docs = await query.sort({ published: 1 }).lean<{
+      _id: string;
+      actor_id: string;
+      aud?: { to?: string[]; cc?: string[] };
+      extra?: Record<string, unknown>;
+      content?: string;
+      published?: Date;
+    }[]>();
     return docs.map((d) => ({
       id: d._id as string,
       from: d.actor_id as string,
@@ -530,7 +537,7 @@ export class MongoDB implements DB {
 
   async listDirectMessages(owner: string) {
     const query = this.withTenant(DirectMessage.find({ owner }));
-    return await query.lean();
+    return await query.lean<DirectMessageDoc[]>();
   }
 
   async createDirectMessage(data: DirectMessageDoc) {
@@ -560,15 +567,15 @@ export class MongoDB implements DB {
     const query = DirectMessage.findOneAndUpdate({ owner, id }, update, {
       new: true,
     });
-    this.withTenant(query);
-    return await query.lean();
+  this.withTenant(query);
+  return await query.lean<DirectMessageDoc | null>();
   }
 
   async deleteDirectMessage(owner: string, id: string) {
-    const query = DirectMessage.findOneAndDelete({ owner, id });
-    this.withTenant(query);
-    const res = await query.lean();
-    return res != null;
+  const query = DirectMessage.findOneAndDelete({ owner, id });
+  this.withTenant(query);
+  const res = await query.lean<DirectMessageDoc | null>();
+  return res != null;
   }
 
   async listNotifications(owner: string) {
