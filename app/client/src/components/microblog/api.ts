@@ -1,6 +1,5 @@
 import type { ActivityPubObject, MicroblogPost } from "./types.ts";
 import { apiFetch, getDomain } from "../../utils/config.ts";
-import { loadCacheEntry, saveCacheEntry } from "../e2ee/storage.ts";
 
 /**
  * ActivityPub Object を取得
@@ -329,24 +328,11 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5分
 
 export const getCachedUserInfo = async (
   identifier: string,
-  accountId?: string,
+  _accountId?: string,
 ): Promise<UserInfo | null> => {
   const mem = userInfoCache.get(identifier);
   if (mem && Date.now() - mem.timestamp < CACHE_DURATION) {
     return mem.userInfo;
-  }
-  if (accountId) {
-    const entry = await loadCacheEntry<UserInfo>(
-      accountId,
-      `userInfo:${identifier}`,
-    );
-    if (entry && Date.now() - entry.timestamp < CACHE_DURATION) {
-      userInfoCache.set(identifier, {
-        userInfo: entry.value,
-        timestamp: entry.timestamp,
-      });
-      return entry.value;
-    }
   }
   return null;
 };
@@ -354,15 +340,12 @@ export const getCachedUserInfo = async (
 export const setCachedUserInfo = async (
   identifier: string,
   userInfo: UserInfo,
-  accountId?: string,
+  _accountId?: string,
 ) => {
   userInfoCache.set(identifier, {
     userInfo,
     timestamp: Date.now(),
   });
-  if (accountId) {
-    await saveCacheEntry(accountId, `userInfo:${identifier}`, userInfo);
-  }
 };
 
 // 新しい共通ユーザー情報取得API

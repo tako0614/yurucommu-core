@@ -4,7 +4,6 @@ import { isFriendRoom } from "./types.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
 import { getDomain } from "../../utils/config.ts";
-import type { BindingStatus } from "../e2ee/binding.ts";
 
 interface ChatTitleBarProps {
   isMobile: boolean;
@@ -12,7 +11,7 @@ interface ChatTitleBarProps {
   onBack: () => void;
   onOpenSettings: () => void; // 右上設定メニュー表示
   showSettings?: boolean;
-  bindingStatus?: BindingStatus | null;
+  bindingStatus?: string | null;
   bindingInfo?: { label: string; caution?: string } | null;
   ktInfo?: { included: boolean } | null;
 }

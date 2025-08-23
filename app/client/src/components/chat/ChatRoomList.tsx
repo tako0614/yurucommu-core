@@ -11,8 +11,6 @@ import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
-import { FriendList } from "./FriendList.tsx";
-import { FriendRoomList } from "./FriendRoomList.tsx";
 import { Button, EmptyState, Input, Skeleton } from "../ui/index.ts";
 // ローディング表示の点滅を抑えるための簡易ディレイ表示フック
 // コンポーネント配下（createRoot/render配下）でのみ使うこと
@@ -83,7 +81,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
     return shown;
   };
   const [query, setQuery] = createSignal("");
-  const [selectedFriend, setSelectedFriend] = createSignal<string | null>(null);
   const [account] = useAtom(activeAccount);
   // リストが空のときだけ、遅延してスケルトンを表示する（点滅防止）
   const showAllSkeleton = useDelayedVisibility(
@@ -220,10 +217,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
   };
 
   const changeSeg = (seg: "all" | "people" | "groups") => {
-    if (seg === "people") {
-      // 友だちタブの場合は友達リストにリセット
-      setSelectedFriend(null);
-    }
     if (seg !== props.segment) props.onSegmentChange(seg);
   };
 
@@ -410,28 +403,83 @@ export function ChatRoomList(props: ChatRoomListProps) {
           </ul>
         </div>
 
-        {/* 友だち */}
+        {/* 友だち（people セグメントは単なる絞り込み一覧として表示） */}
         <div class="my-[10px] overflow-y-auto overflow-x-hidden w-full pb-14 scrollbar">
-          <Show when={selectedFriend()}>
-            <FriendRoomList
-              rooms={props.rooms}
-              friendId={selectedFriend()!}
-              friendName={getFriendName(selectedFriend()!)}
-              selectedRoom={props.selectedRoom}
-              onSelectRoom={props.onSelect}
-              onBack={() => setSelectedFriend(null)}
-              onCreateRoom={() => props.onCreateFriendRoom?.(selectedFriend()!)}
-            />
-          </Show>
-          <Show when={!selectedFriend()}>
-            <FriendList
-              rooms={props.rooms}
-              selectedFriend={selectedFriend()}
-              query={query()}
-              showSearch={false}
-              onSelectFriend={(id) => setSelectedFriend(id)}
-            />
-          </Show>
+          <ul
+            id="panel-people"
+            role="tabpanel"
+            aria-labelledby="tab-people"
+            class="w-full h-[calc(100vh-160px)] pb-[70px] scrollbar"
+          >
+            <Show when={getFilteredRoomsFor("people").length === 0}>
+              <li class="px-2 py-2">
+                <EmptyState
+                  title="トークはありません"
+                  description="友だちとのトークを開始しましょう。"
+                />
+              </li>
+            </Show>
+            <For each={getFilteredRoomsFor("people")}>
+              {(room) => (
+                <li
+                  class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
+                    props.selectedRoom === room.id
+                      ? "bg-[#4a4a4a]"
+                      : "hover:bg-[#3c3c3c]"
+                  }`}
+                  onClick={() => props.onSelect(room.id)}
+                >
+                  <div class="flex items-center w-full">
+                    <span class="relative w-[40px] h-[40px] flex items-center justify-center">
+                      {isUrl(room.avatar) ||
+                          (typeof room.avatar === "string" &&
+                            room.avatar.startsWith("data:image/"))
+                        ? (
+                          <img
+                            src={room.avatar}
+                            alt="avatar"
+                            class="w-[40px] h-[40px] object-cover rounded-full"
+                          />
+                        )
+                        : (
+                          <span
+                            class={`w-[40px] h-[40px] flex items-center justify-center rounded-full text-white text-[20px] ${
+                              room.type === "memo"
+                                ? "bg-green-600"
+                                : "bg-[#444]"
+                            }`}
+                          >
+                            {room.avatar ||
+                              displayNameFor(room).charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                    </span>
+                    <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
+                      <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
+                        <span class="font-bold flex-1">
+                          {displayNameFor(room)}
+                        </span>
+                        <span
+                          class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
+                          style="text-align:right;"
+                        >
+                          {room.lastMessageTime
+                            ? room.lastMessageTime.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                            : ""}
+                        </span>
+                      </span>
+                      <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
+                        <p class="truncate">{room.lastMessage}</p>
+                      </span>
+                    </span>
+                  </div>
+                </li>
+              )}
+            </For>
+          </ul>
         </div>
 
         {/* グループ */}

@@ -3,35 +3,19 @@ import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
 import { apiFetch, getDomain } from "../../utils/config.ts";
 import type { Room } from "./types.ts";
-import type { BindingStatus } from "../e2ee/binding.ts";
-import { useMLS } from "../e2ee/useMLS.ts";
-import {
-  getCacheItem,
-  loadMLSGroupStates,
-  setCacheItem,
-} from "../e2ee/storage.ts";
-import type { StoredGroupState } from "../e2ee/mls_wrapper.ts";
 import { fetchUserInfo } from "../microblog/api.ts";
-import {
-  fetchEncryptedMessages,
-  fetchKeyPackages,
-  sendGroupMetadata,
-  sendHandshake,
-} from "../e2ee/api.ts";
-import { createCommitAndWelcomes } from "../e2ee/mls_wrapper.ts";
-import { encodePublicMessage } from "../e2ee/mls_message.ts";
 
 interface ChatSettingsOverlayProps {
   isOpen: boolean;
   room: Room | null;
   onClose: () => void;
   onRoomUpdated?: (partial: Partial<Room>) => void;
-  bindingStatus?: BindingStatus | null;
+  bindingStatus?: string | null;
   bindingInfo?: { label: string; caution?: string } | null;
   ktInfo?: { included: boolean } | null;
   onRemoveMember?: (id: string) => Promise<boolean>;
   // 親(Chat)から渡される現在のグループ状態（ブラウザでは保存されないため）
-  groupState?: StoredGroupState | null;
+  groupState?: unknown | null;
 }
 
 interface MemberItem {
@@ -39,15 +23,23 @@ interface MemberItem {
   display: string;
   avatar?: string;
   actor?: string;
-  leafSignatureKeyFpr: string;
-  bindingStatus: BindingStatus;
+  leafSignatureKeyFpr?: string;
+  bindingStatus: string;
   bindingInfo: { label: string; caution?: string };
   ktIncluded: boolean;
 }
 
 export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const [accountValue] = useAtom(activeAccount);
-  const { assessMemberBinding } = useMLS(accountValue()?.userName ?? "");
+  // E2EE removed: use lightweight evaluator that returns neutral values
+  const assessMemberBinding = async (
+    _accountId?: string,
+    _roomId?: string,
+    _handle?: string,
+    _s?: string,
+  ) => {
+    return { status: "Unknown", info: { label: "N/A" }, kt: { included: false } };
+  };
   const [tab, setTab] = createSignal<"general" | "members" | "appearance">(
     "general",
   );
@@ -83,20 +75,25 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
   // 招待中リストの保存・読込（アカウント/ルーム単位でlocalStorage保持）
-  const cacheKey = (roomId: string) => `pendingInvites:${roomId}`;
+  const cacheKey = (roomId: string) =>
+    `pendingInvites:${accountValue()?.id ?? "anon"}:${roomId}`;
   const readPending = async (roomId: string): Promise<string[]> => {
-    const user = accountValue();
-    if (!user) return [];
-    const raw = await getCacheItem(user.id, cacheKey(roomId));
-    return Array.isArray(raw)
-      ? (raw as unknown[]).filter((v) => typeof v === "string") as string[]
-      : [];
+    try {
+      const raw = localStorage.getItem(cacheKey(roomId));
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+    } catch {
+      return [];
+    }
   };
   const writePending = async (roomId: string, ids: string[]) => {
-    const user = accountValue();
-    if (!user) return;
-    const uniq = Array.from(new Set(ids));
-    await setCacheItem(user.id, cacheKey(roomId), uniq);
+    try {
+      const uniq = Array.from(new Set(ids));
+      localStorage.setItem(cacheKey(roomId), JSON.stringify(uniq));
+    } catch {
+      /* ignore */
+    }
   };
   const addPending = async (roomId: string, ids: string[]) => {
     const cur = await readPending(roomId);
@@ -157,116 +154,42 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     setPending(list);
   };
 
-  const loadMembersFromMLS = async (
-    roomId: string,
-    stateFromParent?: StoredGroupState,
-  ) => {
+  const loadMembersFromMLS = async (roomId: string, _stateFromParent?: unknown) => {
     const user = accountValue();
     if (!user) return setMembers([]);
     try {
-      const state = stateFromParent ?? (await (async () => {
-        const stored = await loadMLSGroupStates(user.id);
-        return stored[roomId] as StoredGroupState | undefined;
-      })());
-      if (!state) {
-        // 最後のフォールバック: props.room.members から推測
-        const self = `${user.userName}@${getDomain()}`;
-        const fallback = (props.room?.members ?? [])
-          .map((id) => normalizeHandle(id))
-          .filter((id): id is string => !!id)
-          .filter((id) => id !== self);
-        const derived = deriveIdsFromRoom(self);
-        const ids = [...new Set([...(fallback ?? []), ...derived])];
-        if (ids.length > 0) {
-          const list = await Promise.all(ids.map(async (id) => {
-            const info = await fetchUserInfo(id);
-            const resEval = await assessMemberBinding(user.id, roomId, id, "");
-            return {
-              id,
-              display: info?.displayName || info?.userName || id,
-              avatar: info?.authorAvatar,
-              actor: id,
-              leafSignatureKeyFpr: "",
-              bindingStatus: resEval.status,
-              bindingInfo: resEval.info,
-              ktIncluded: resEval.kt.included,
-            } as MemberItem;
-          }));
-          setMembers(list);
-          await loadPendingFromStorage(roomId, list.map((m) => m.id));
-          return;
-        }
-        // さらに履歴メッセージから推測
-        return await loadMembersFromMessages(roomId);
-      }
+      // Simplified fallback: use server-provided members list or recent messages.
       const self = `${user.userName}@${getDomain()}`;
-      const raws = extractIdentities(state);
-      const ids = raws
+      const fallback = (props.room?.members ?? [])
         .map((id) => normalizeHandle(id))
-        .filter((id): id is string => !!id);
-      const unknown = raws
-        .filter((raw) => !normalizeHandle(raw))
-        .filter((raw) => !!raw);
-      if (ids.length === 0 && unknown.length === 0) {
-        const derived = deriveIdsFromRoom(self);
-        if (derived.length > 0) {
-          const list = await Promise.all(derived.map(async (id) => {
-            const info = await fetchUserInfo(id);
-            const resEval = await assessMemberBinding(user.id, roomId, id, "");
-            return {
-              id,
-              display: info?.displayName || info?.userName || id,
-              avatar: info?.authorAvatar,
-              actor: id,
-              leafSignatureKeyFpr: "",
-              bindingStatus: resEval.status,
-              bindingInfo: resEval.info,
-              ktIncluded: resEval.kt.included,
-            } as MemberItem;
-          }));
-          setMembers(list);
-          return;
-        }
-        return await loadMembersFromMessages(roomId);
+        .filter((id): id is string => !!id)
+        .filter((id) => id !== self);
+      const derived = deriveIdsFromRoom(self);
+      const ids = Array.from(new Set([...(fallback ?? []), ...derived]));
+      if (ids.length > 0) {
+        const list = await Promise.all(ids.map(async (id) => {
+          const info = await fetchUserInfo(id);
+          const resEval = await assessMemberBinding(user.id, roomId, id, "");
+          return {
+            id,
+            display: info?.displayName || info?.userName || id,
+            avatar: info?.authorAvatar,
+            actor: id,
+            leafSignatureKeyFpr: "",
+            bindingStatus: resEval.status,
+            bindingInfo: resEval.info,
+            ktIncluded: resEval.kt.included,
+          } as MemberItem;
+        }));
+        setMembers(list);
+        await loadPendingFromStorage(roomId, list.map((m) => m.id));
+        return;
       }
-      const list = await Promise.all(ids.map(async (id) => {
-        const info = await fetchUserInfo(id);
-        const resEval = await assessMemberBinding(user.id, roomId, id, "");
-        return {
-          id,
-          display: info?.displayName || info?.userName || id,
-          avatar: info?.authorAvatar,
-          actor: id,
-          leafSignatureKeyFpr: "",
-          bindingStatus: resEval.status,
-          bindingInfo: resEval.info,
-          ktIncluded: resEval.kt.included,
-        } as MemberItem;
-      }));
-      const unknownList = await Promise.all(unknown.map(async (raw) => {
-        const resEval = await assessMemberBinding(
-          user.id,
-          roomId,
-          undefined,
-          "",
-        );
-        return {
-          id: raw,
-          display: "不明",
-          avatar: undefined,
-          actor: undefined,
-          leafSignatureKeyFpr: "",
-          bindingStatus: resEval.status,
-          bindingInfo: resEval.info,
-          ktIncluded: resEval.kt.included,
-        } as MemberItem;
-      }));
-      setMembers([...list, ...unknownList]);
-      await loadPendingFromStorage(roomId, list.map((m) => m.id));
-      await loadPendingFromStorage(roomId, list.map((m) => m.id));
+      // Fallback: derive from recent messages
+      return await loadMembersFromMessages(roomId);
     } catch (err) {
       console.warn("loadMembersFromMLS failed", err);
-      await loadMembersFromMessages(roomId);
+      return await loadMembersFromMessages(roomId);
     }
   };
 
@@ -275,23 +198,26 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     if (!user) return setMembers([]);
     try {
       const self = `${user.userName}@${getDomain()}`;
-      const msgs = await fetchEncryptedMessages(roomId, self, { limit: 100 });
-      const set = new Set<string>();
+      const res = await apiFetch(
+        `/api/rooms/${encodeURIComponent(roomId)}/messages?limit=100`,
+      );
+      const msgs = res.ok ? await res.json() : [];
+      const setIds = new Set<string>();
       for (const m of msgs) {
         if (typeof m.from === "string") {
           const h = normalizeHandle(m.from);
-          if (h && h !== self) set.add(h);
+          if (h && h !== self) setIds.add(h);
         }
         if (Array.isArray(m.to)) {
           for (const t of m.to) {
             if (typeof t === "string") {
               const h = normalizeHandle(t);
-              if (h && h !== self) set.add(h);
+              if (h && h !== self) setIds.add(h);
             }
           }
         }
       }
-      const ids = Array.from(set);
+      const ids = Array.from(setIds);
       const list = await Promise.all(ids.map(async (id) => {
         const info = await fetchUserInfo(id);
         const resEval = await assessMemberBinding(user.id, roomId, id, "");
@@ -313,19 +239,20 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
 
-  const extractIdentities = (state: StoredGroupState): string[] => {
-    const out: string[] = [];
-    const tree = state.ratchetTree as unknown as {
-      nodeType: string;
-      leaf?: { credential?: { identity?: Uint8Array } };
-    }[];
-    for (const node of tree) {
-      if (node?.nodeType === "leaf") {
-        const id = node.leaf?.credential?.identity;
-        if (id) out.push(new TextDecoder().decode(id));
+  const extractIdentities = (state: any): string[] => {
+    try {
+      const out: string[] = [];
+      const tree = (state && state.ratchetTree) || [];
+      for (const node of tree) {
+        if (node && node.nodeType === "leaf") {
+          const id = node.leaf?.credential?.identity;
+          if (id) out.push(new TextDecoder().decode(id));
+        }
       }
+      return out;
+    } catch {
+      return [];
     }
-    return out;
   };
 
   const deriveIdsFromRoom = (self: string): string[] => {
@@ -389,60 +316,19 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       setSaving(true);
       const ident = normalizeActor(value);
       if (!ident) throw new Error("メンバーIDの形式が不正です");
-      // 追加する相手の KeyPackage を取得
-      const [name, dom] = ident.user.includes("@")
-        ? ((): [string, string | undefined] => {
-          const [u, d] = ident.user.split("@");
-          return [u, d];
-        })()
-        : [ident.user, ident.domain];
-      const kps = await fetchKeyPackages(name, dom);
-      if (!kps || kps.length === 0) {
-        throw new Error("相手のKeyPackageが見つかりません");
-      }
-      const kpInput = {
-        content: kps[0].content,
-        actor: dom ? `https://${dom}/users/${name}` : undefined,
-        deviceId: kps[0].deviceId,
-      };
-      const state = props.groupState;
-      if (!state) throw new Error("ルームの暗号状態が未初期化です");
-      // 追加用の Commit/Welcome を生成
-      const res = await createCommitAndWelcomes(state, [kpInput]);
-      // Handshake として送信（commit と welcome）
-      const commitContent = encodePublicMessage(res.commit);
-      // 既知のメンバー（UIが持つ room.members）と自分を宛先に含める
-      const self = `${user.userName}@${getDomain()}`;
-      const toList = Array.from(
-        new Set([...(props.room?.members ?? []), self]),
+      const target = ident.user.includes("@") ? ident.user : `${ident.user}@${ident.domain}`;
+      // Fallback: tell server to create an invite (simple server API)
+      const res = await apiFetch(
+        `/api/rooms/${encodeURIComponent(props.room.id)}/invites`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ members: [target] }),
+        },
       );
-      const ok = await sendHandshake(
-        props.room.id,
-        `${user.userName}@${getDomain()}`,
-        commitContent,
-        toList,
-      );
-      if (!ok) throw new Error("Commitの送信に失敗しました");
-      for (const w of res.welcomes) {
-        const wContent = encodePublicMessage(w.data);
-        const wk = await sendHandshake(
-          props.room.id,
-          `${user.userName}@${getDomain()}`,
-          wContent,
-          toList,
-        );
-        if (!wk) throw new Error("Welcomeの送信に失敗しました");
-      }
-      await sendGroupMetadata(
-        props.room.id,
-        `${user.userName}@${getDomain()}`,
-        res.state,
-        toList,
-        { name: props.room.name, icon: props.room.avatar ?? undefined },
-      );
-      // 招待中に登録（Join済みになれば自動でmembers側に移動）
-      const target = normalizeHandle(ident.user);
-      if (target) await addPending(props.room.id, [target]);
+      if (!res.ok) throw new Error("招待の送信に失敗しました");
+      // local pending store
+      await addPending(props.room.id, [target]);
       await loadMembers();
       setNewMember("");
     } catch (e) {
@@ -459,6 +345,13 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       if (props.onRemoveMember) {
         const ok = await props.onRemoveMember(id);
         if (!ok) throw new Error("remove failed");
+      } else if (props.room) {
+        // Fallback server API
+        await apiFetch(`/api/rooms/${encodeURIComponent(props.room.id)}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "Remove", object: id }),
+        });
       }
       await loadMembers();
     } catch (e) {

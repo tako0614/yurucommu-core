@@ -12,7 +12,6 @@ import UnifiedToolsContent from "./home/UnifiedToolsContent.tsx";
 import Header from "./header/header.tsx";
 import { connectWebSocket, registerUser } from "../utils/ws.ts";
 import { getDomain } from "../utils/config.ts";
-import { topUpKeyPackagesBulk } from "./e2ee/api.ts";
 
 export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
@@ -20,7 +19,6 @@ export function Application() {
   const [account] = useAtom(activeAccount);
   const [allAccounts] = useAtom(accountsAtom);
   const [isMobile, setIsMobile] = createSignal(false);
-  let topUpTimer: number | undefined;
 
   // モバイルかどうかを判定
   onMount(() => {
@@ -41,35 +39,11 @@ export function Application() {
     if (user) {
       registerUser(`${user.userName}@${getDomain()}`);
     }
-
-    // Top up KeyPackages for all configured accounts (bulk) instead of only the active one.
-    const accs = allAccounts();
-    if (accs && accs.length > 0) {
-      const payload = accs.map((a) => ({ userName: a.userName, accountId: a.id }));
-      // Run immediately and stop periodic top-up if uploads were performed.
-      void (async () => {
-        try {
-          const uploaded = await topUpKeyPackagesBulk(payload);
-          if (uploaded && topUpTimer) {
-            clearInterval(topUpTimer);
-            topUpTimer = undefined;
-          }
-        } catch (e) {
-          console.warn("topUpKeyPackagesBulk failed:", e);
-        }
-      })();
-      if (topUpTimer) clearInterval(topUpTimer);
-      topUpTimer = setInterval(() => {
-        void topUpKeyPackagesBulk(payload);
-      }, 300_000);
-    } else if (topUpTimer) {
-      clearInterval(topUpTimer);
-      topUpTimer = undefined;
-    }
+    // Deprecated: KeyPackage top-up removed with E2EE feature rollout.
   });
 
   onCleanup(() => {
-    if (topUpTimer) clearInterval(topUpTimer);
+    /* nothing to cleanup here (topUp removed) */
   });
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成

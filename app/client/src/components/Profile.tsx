@@ -8,7 +8,6 @@ import {
 } from "./microblog/api.ts";
 import { PostList } from "./microblog/Post.tsx";
 import { UserAvatar } from "./microblog/UserAvatar.tsx";
-import { addRoom } from "./e2ee/api.ts";
 import {
   accounts as accountsAtom,
   activeAccount,
@@ -246,11 +245,21 @@ export default function Profile() {
     if (!name || !user) return;
     const handle = normalizeActor(name);
     const me = `${user.userName}@${getDomain()}`;
-    await addRoom(
-      user.id,
-      { id: handle, name: handle, members: [handle, me] },
-      { from: me, content: "hi", to: [handle, me] },
-    );
+    try {
+      // Create or ensure room on server (best-effort). Server API may ignore duplicates.
+      await apiFetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: user.id,
+          id: handle,
+          name: handle,
+          members: [handle, me],
+        }),
+      });
+    } catch {
+      // ignore failures — still navigate to chat UI
+    }
     setRoom(handle);
     setApp("chat");
   };

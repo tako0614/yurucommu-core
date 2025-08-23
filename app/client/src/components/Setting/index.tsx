@@ -9,10 +9,31 @@ import {
   accounts as accountsAtom,
   activeAccount,
 } from "../../states/account.ts";
-import { deleteMLSDatabase } from "../e2ee/storage.ts";
 import { FaspProviders } from "./FaspProviders.tsx";
-import { useMLS } from "../e2ee/useMLS.ts";
 import { Show } from "solid-js";
+
+/* E2EE removed — lightweight fallbacks for settings */
+async function deleteMLSDatabase(_accountId: string) {
+  try {
+    localStorage.removeItem(`mls:${_accountId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+function useMLS(_userName: string) {
+  const status = () => null as string | null;
+  const error = () => null as string | null;
+  const generateKeys = async () => {
+    try {
+      // best-effort: call server endpoint if available, otherwise no-op
+      await apiFetch("/api/keypairs/generate", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+  };
+  return { generateKeys, status, error };
+}
 
 export function Setting() {
   const [language, setLanguage] = useAtom(languageState);
