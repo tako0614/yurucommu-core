@@ -5,6 +5,7 @@ import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
 import { sendToUser } from "./ws.ts";
+import { getUserInfo } from "../services/user-info.ts";
 
 // DM 用のシンプルな REST エンドポイント
 
@@ -36,10 +37,12 @@ app.post(
       content?: string;
       attachments?: Record<string, unknown>[];
     };
-    const db = createDB(getEnv(c));
-    const [fromAcc, toAcc] = await Promise.all([
-      db.findAccountByUserName(from.split("@")[0]),
-      db.findAccountByUserName(to.split("@")[0]),
+    const env = getEnv(c);
+    const db = createDB(env);
+    const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const [fromInfo, toInfo] = await Promise.all([
+      getUserInfo(from, domain, env).catch(() => null),
+      getUserInfo(to, domain, env).catch(() => null),
     ]);
     const payload = await db.saveDMMessage(
       from,
@@ -52,15 +55,15 @@ app.post(
       db.createDirectMessage({
         owner: from,
         id: to,
-        name: toAcc?.displayName || toAcc?.userName || to,
-        icon: toAcc?.avatarInitial,
+        name: toInfo?.displayName || toInfo?.userName || to,
+        icon: toInfo?.authorAvatar,
         members: [from, to],
       }),
       db.createDirectMessage({
         owner: to,
         id: from,
-        name: fromAcc?.displayName || fromAcc?.userName || from,
-        icon: fromAcc?.avatarInitial,
+        name: fromInfo?.displayName || fromInfo?.userName || from,
+        icon: fromInfo?.authorAvatar,
         members: [from, to],
       }),
     ]);
