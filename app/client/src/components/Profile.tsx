@@ -18,6 +18,7 @@ import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { isDataUrl } from "./home/types.ts";
+import { sendDirectMessage } from "./chat/api.ts";
 
 export default function Profile() {
   const [username, setUsername] = useAtom(profileUserState);
@@ -246,19 +247,12 @@ export default function Profile() {
     const handle = normalizeActor(name);
     const me = `${user.userName}@${getDomain()}`;
     try {
-      // Create or ensure room on server (best-effort). Server API may ignore duplicates.
-      await apiFetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountId: user.id,
-          id: handle,
-          name: handle,
-          members: [handle, me],
-        }),
-      });
-    } catch {
-      // ignore failures — still navigate to chat UI
+      // DM を開始するためにサーバーの /dm を呼び出す（サーバーが必要に応じて部屋を作成する）。
+      // ここでは最初の空メッセージとして短い導入文を送るため sendDirectMessage を利用する。
+      await sendDirectMessage(me, [handle], "こんにちは。メッセージを送信します。");
+    } catch (err) {
+      // 送信に失敗してもチャット画面へ遷移する
+      console.error("send DM failed:", err);
     }
     setRoom(handle);
     setApp("chat");

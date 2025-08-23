@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
@@ -35,15 +35,9 @@ export function Application() {
 
   createEffect(() => {
     const user = account();
-    // Ensure active user's presence is registered for websocket etc.
     if (user) {
       registerUser(`${user.userName}@${getDomain()}`);
     }
-    // Deprecated: KeyPackage top-up removed with E2EE feature rollout.
-  });
-
-  onCleanup(() => {
-    /* nothing to cleanup here (topUp removed) */
   });
 
   // チャットページかつスマホ版かつチャンネルが選択されている場合にヘッダーが非表示の場合のクラス名を生成
