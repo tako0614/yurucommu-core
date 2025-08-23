@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import type { Notification } from "./types.ts";
 import { apiFetch } from "../../utils/config.ts";
-import { Button, Card, EmptyState, Spinner } from "../ui";
+import { Button, Card, EmptyState, Spinner } from "../ui/index.ts";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
@@ -41,14 +41,7 @@ const NotificationsContent: Component = () => {
     account();
     void refetch();
   });
-  // ページ表示中は一定間隔で通知を再取得（WSに依存しない）
-  let timer: number | undefined;
-  createEffect(() => {
-    if (timer) clearInterval(timer);
-    timer = setInterval(() => {
-      void refetch();
-    }, 30_000) as unknown as number;
-  });
+  // ページ表示中の定期ポーリングは廃止。WSハンドラで即時 refetch() を呼ぶ。
   // WS通知を受信したら即時再取得
   createEffect(() => {
     const handler = (msg: unknown) => {
@@ -65,7 +58,7 @@ const NotificationsContent: Component = () => {
   });
   // 簡易クリーンアップ（Solidでは自動で破棄されるが明示）
   addEventListener("beforeunload", () => {
-    if (timer) clearInterval(timer);
+    // no-op: polling removed
   });
 
   const markAsRead = async (id: string) => {

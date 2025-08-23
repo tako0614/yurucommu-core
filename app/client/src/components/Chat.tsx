@@ -1038,9 +1038,8 @@ export function Chat() {
         const info = infos[i];
         const r = twoNoName[i];
         if (info) {
+          // 表示名のみ補完。アイコンは置き換えない
           r.displayName = info.displayName || info.userName;
-          r.avatar = info.authorAvatar || r.avatar;
-          // 参加者リストはサーバー由来を保持し、表示名のみ補完
         }
       }
     }
@@ -1579,27 +1578,7 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-  // 一覧のプレビュー更新ポーリングは簡素化（DMのみ）
-  let previewPoller: number | undefined;
-  createEffect(() => {
-    const user = account();
-    if (!user) return;
-    if (previewPoller) clearInterval(previewPoller);
-    previewPoller = setInterval(async () => {
-      const targets = chatRooms().filter((r) => r.type !== "memo").slice(0, 10);
-      for (const r of targets) {
-        try {
-          const msgs = await fetchMessagesForRoom(r, {
-            limit: 1,
-            dryRun: true,
-          });
-          if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
-        } catch { /* ignore */ }
-      }
-    }, 60_000) as unknown as number;
-  });
 
-  // ルーム一覧の読み込みはアカウント変更時と初期表示時のみ実行
   onMount(() => {
     void loadRooms();
   });
@@ -1612,7 +1591,6 @@ export function Chat() {
     ),
   );
 
-  // グループ同期はサーバー提供のメンバーと保留中の招待を利用
 
   createEffect(
     on(
@@ -1696,7 +1674,7 @@ export function Chat() {
     globalThis.removeEventListener("resize", checkMobile);
     wsCleanup?.();
     acceptCleanup?.();
-    if (previewPoller) clearInterval(previewPoller);
+  // no-op: preview poller removed in favor of WS-driven updates
   });
 
   // APIベースのイベントで更新（WS不要運用向け）
@@ -1704,7 +1682,8 @@ export function Chat() {
     try {
       const user = account();
       if (user) {
-        const cur = await getCacheItem(user.id, "eventsCursor");
+        const key = `cache:${user.id}:eventsCursor`;
+        const cur = globalThis.localStorage.getItem(key);
         if (typeof cur === "string") setEventsCursor(cur);
       }
     } catch { /* ignore */ }
@@ -1800,7 +1779,12 @@ export function Chat() {
         setEventsCursor(maxTs);
         try {
           const user2 = account();
-          if (user2) await setCacheItem(user2.id, "eventsCursor", maxTs);
+          if (user2) {
+            try {
+              const key = `cache:${user2.id}:eventsCursor`;
+              globalThis.localStorage.setItem(key, maxTs);
+            } catch { /* ignore */ }
+          }
         } catch { /* ignore */ }
       }
     };

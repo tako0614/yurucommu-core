@@ -8,6 +8,7 @@ import {
   Show,
 } from "solid-js";
 import { apiFetch } from "../../utils/config.ts";
+import { addMessageHandler, removeMessageHandler } from "../../utils/ws.ts";
 import { Button } from "../ui/index.ts";
 
 interface CapabilityInfo {
@@ -140,40 +141,26 @@ export function FaspProviders() {
     loadSettings();
   });
 
-  // 自動承認の反映: 承認待ちのプロバイダがある間は定期的に再取得
-  let pollTimer: number | undefined;
-  const startPolling = () => {
-    if (pollTimer) return;
-    pollTimer = setInterval(() => {
-      const list = providers();
-      const hasPending = Array.isArray(list) &&
-        list.some((p) => p.status !== "approved");
-      if (hasPending) {
-        refetch();
-      } else {
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = undefined;
-        }
-      }
-    }, 5000) as unknown as number;
-  };
-  const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = undefined;
-    }
-  };
-
+  // 自動承認の反映は WebSocket での通知を優先します。
+  // サーバーが承認状態変更の通知を WS で送る想定で、受信時に再取得します。
   createEffect(() => {
-    const list = providers();
-    if (!Array.isArray(list)) return;
-    const hasPending = list.some((p) => p.status !== "approved");
-    if (hasPending) startPolling();
-    else stopPolling();
+    const handler = (msg: unknown) => {
+      try {
+        if (typeof msg === "object" && msg !== null) {
+          const o = msg as Record<string, unknown>;
+          // Accept several possible event type names from server
+          const t = typeof o.type === "string" ? o.type : "";
+          if (t === "fasp:provider:update" || t === "provider:update" || t === "fasp") {
+            refetch();
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    addMessageHandler(handler);
+    onCleanup(() => removeMessageHandler(handler));
   });
-
-  onCleanup(() => stopPolling());
 
   return (
     <div class="space-y-4">
