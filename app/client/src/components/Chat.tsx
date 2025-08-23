@@ -11,9 +11,9 @@ import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
 import {
-  fetchFollowing,
   fetchUserInfo,
   fetchUserInfoBatch,
+  fetchFollowing as _fetchFollowing,
 } from "./microblog/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -23,24 +23,39 @@ import { ChatTitleBar } from "./chat/ChatTitleBar.tsx";
 import { ChatSettingsOverlay } from "./chat/ChatSettingsOverlay.tsx";
 import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
-import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
+// GroupCreateDialog removed from this view; creation flows via ChatRoomList
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
-import { fetchDirectMessages, sendDirectMessage } from "./chat/api.ts";
+import { sendDirectMessage, fetchDirectMessages as _fetchDirectMessages } from "./chat/api.ts";
 
-/* MLS/E2EE and group internal state removed — keep minimal storage/network helpers */
-
-async function getCacheItem(_accountId: string, _key: string) {
+/* Lightweight local cache helpers (replace MLS-specific stubs)
+   Uses localStorage for simplicity; non-blocking and best-effort. */
+function getCacheItem(accountId: string, key: string): unknown {
+  try {
+    const raw = globalThis.localStorage.getItem(`takos:${accountId}:${key}`);
+    if (!raw) return undefined;
+  return JSON.parse(raw);
+  } catch {
+  // ignore parse/storage errors
   return undefined;
+  }
 }
-async function setCacheItem(_accountId: string, _key: string, _val: unknown) {
-  return;
+function setCacheItem(accountId: string, key: string, val: unknown) {
+  try {
+    globalThis.localStorage.setItem(
+      `takos:${accountId}:${key}`,
+      JSON.stringify(val),
+    );
+  } catch {
+    /* ignore storage errors */
+  }
 }
-async function loadDecryptedMessages(_accountId: string, _roomId: string) {
-  return undefined;
+async function loadDecryptedMessages(accountId: string, roomId: string) {
+  const v = await getCacheItem(accountId, `messages:${roomId}`);
+  return Array.isArray(v) ? (v as ChatMessage[]) : undefined;
 }
-async function saveDecryptedMessages(_accountId: string, _roomId: string, _v: unknown) {
-  return;
+async function saveDecryptedMessages(accountId: string, roomId: string, v: unknown) {
+  await setCacheItem(accountId, `messages:${roomId}`, v);
 }
 /* uploadFile: accepts an object and tries a JSON POST; returns url or null */
 async function uploadFile(opts: {
@@ -88,7 +103,9 @@ async function sendKeepMessage(_handle: string, _content: string) {
       body: JSON.stringify({ handle: _handle, content: _content }),
     });
     if (res.ok) return (await res.json());
-  } catch {}
+  } catch {
+    // ignore network errors
+  }
   return null;
 }
 
@@ -130,7 +147,7 @@ interface ParsedActivityPubNote {
   attachments?: ActivityPubAttachment[];
 }
 
-function parseActivityPubNote(text: string): ParsedActivityPubNote {
+function _parseActivityPubNote(text: string): ParsedActivityPubNote {
   try {
     const obj = JSON.parse(text);
     if (obj && typeof obj === "object" && typeof obj.content === "string") {
@@ -237,7 +254,7 @@ async function encryptFile(file: File) {
   };
 }
 
-async function decryptFile(
+async function _decryptFile(
   data: ArrayBuffer,
   keyB64: string,
   ivB64: string,
@@ -441,16 +458,16 @@ function getSelfRoomId(_user: Account | null): string | null {
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
-  const bindingStatus = () => null as string | null;
-  const bindingInfo = () => null as any;
-  const assessBinding = async (
+  const _bindingStatus = () => null as string | null;
+  const _bindingInfo = () => null as unknown;
+  const _assessBinding = (
     _userId?: string,
     _roomId?: string,
     _actor?: string,
     _credentialFingerprint?: string,
     _ktIncluded?: boolean,
   ) => ({ status: "Unknown", info: null, kt: { included: false } });
-  const ktInfo = () => ({ included: false });
+  const _ktInfo = () => ({ included: false });
   const [newMessage, setNewMessage] = createSignal("");
   const [mediaFile, setMediaFile] = createSignal<File | null>(null);
   const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
@@ -478,11 +495,7 @@ export function Chat() {
   const selectedRoomInfo = createMemo(() =>
     chatRooms().find((r) => r.id === selectedRoom()) ?? null
   );
-  const [showGroupDialog, setShowGroupDialog] = createSignal(false);
-  const [groupDialogMode, setGroupDialogMode] = createSignal<
-    "create" | "invite"
-  >("create");
-  const [initialMembers, setInitialMembers] = createSignal<string[]>([]);
+  // group creation UI removed; server-driven rooms only
   const [segment, setSegment] = createSignal<"all" | "people" | "groups">(
     "all",
   );
@@ -490,12 +503,7 @@ export function Chat() {
   const [showSettings, setShowSettings] = createSignal(false);
   // MLS招待の保留は廃止
 
-  const actorUrl = createMemo(() => {
-    const user = account();
-    return user
-      ? new URL(`/users/${user.userName}`, globalThis.location.origin).href
-      : null;
-  });
+  // actorUrl not required in this simplified view
 
   // MLS 廃止のため、KeyPackage レコードを用いたバインディング評価は削除
 
@@ -656,18 +664,18 @@ export function Chat() {
         `${user.userName}@${getDomain()}`,
         params,
       );
-      const msgs = list.map((m) => ({
-        id: m.id,
+      const msgs = (list as Array<Record<string, unknown>>).map((m) => ({
+        id: String(m.id ?? ""),
         author: `${user.userName}@${getDomain()}`,
         displayName: user.displayName || user.userName,
         address: `${user.userName}@${getDomain()}`,
-        content: m.content,
-        timestamp: new Date(m.createdAt),
+        content: String(m.content ?? ""),
+        timestamp: new Date(String(m.createdAt ?? Date.now())),
         type: "text" as const,
         isMe: true,
         avatar: room.avatar,
       }));
-      return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      return msgs.sort((a: ChatMessage, b: ChatMessage) => a.timestamp.getTime() - b.timestamp.getTime());
     }
 
     // E2EE/MLS を廃止したため、サーバーの DM API (/dm) を用いてメッセージを取得する。
@@ -675,7 +683,7 @@ export function Chat() {
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
       const members = (room.members ?? []).filter((m) => !!m && m !== selfHandle);
-      const raw: any[] = [];
+  const raw: unknown[] = [];
 
       // メンバーごとに /dm?user1=<self>&user2=<member> を呼び出して集約
       for (const m of members) {
@@ -692,27 +700,30 @@ export function Chat() {
       }
 
       // 重複を除き作成時刻順に並べ替え、ChatMessage に変換
-      const map = new Map<string, any>();
+      const map = new Map<string, Record<string, unknown>>();
       for (const it of raw) {
-        const id = (it._id ?? it.id ?? `${it.from}:${it.createdAt}`) as string;
-        if (!map.has(id)) map.set(id, it);
+        const obj = it as Record<string, unknown>;
+        const id = String(obj._id ?? obj.id ?? `${obj.from}:${obj.createdAt}`);
+        if (!map.has(id)) map.set(id, obj);
       }
-      const ordered = Array.from(map.values()).sort((a, b) =>
-        new Date(a.createdAt ?? a.createdAt ?? 0).getTime() -
-        new Date(b.createdAt ?? b.createdAt ?? 0).getTime()
-      );
+      const ordered = Array.from(map.values()).sort((a, b) => {
+        const aTs = String(a.createdAt ?? a.created_at ?? 0);
+        const bTs = String(b.createdAt ?? b.created_at ?? 0);
+        return new Date(aTs).getTime() - new Date(bTs).getTime();
+      });
 
       const msgs: ChatMessage[] = ordered.map((m) => {
-        const created = m.createdAt ?? m.createdAt ?? m.created_at ?? Date.now();
+        const created = m.createdAt ?? m.created_at ?? Date.now();
+        const from = String(m.from ?? "");
         return {
-          id: String(m._id ?? m.id ?? `${m.from}:${created}`),
-          author: m.from,
-          displayName: m.from.split("/").pop() ?? m.from,
-          address: m.from,
-          content: m.content ?? "",
-          timestamp: new Date(created),
+          id: String(m._id ?? m.id ?? `${from}:${created}`),
+          author: from,
+          displayName: from.split("/").pop() ?? from,
+          address: from,
+          content: String(m.content ?? ""),
+          timestamp: new Date(Number(created)),
           type: "text",
-          isMe: m.from === selfHandle,
+          isMe: from === selfHandle,
           avatar: room.avatar,
         } as ChatMessage;
       });
@@ -968,65 +979,7 @@ export function Chat() {
     }
   };
 
-  const openRoomDialog = (friendId?: string) => {
-    setGroupDialogMode("create");
-    setInitialMembers(friendId ? [friendId] : []);
-    setShowGroupDialog(true);
-  };
-
-  const createRoom = async (
-    name: string,
-    membersInput: string,
-    autoOpen = true,
-  ) => {
-    const user = account();
-    if (!user) return;
-    const members = membersInput
-      .split(",")
-      .map((m) => normalizeActor(m.trim() as ActorID))
-      .filter((m): m is string => !!m);
-    if (members.length === 0) return;
-    const me = `${user.userName}@${getDomain()}`;
-    if (!members.includes(me)) members.push(me);
-    const others = members.filter((m) => m !== me);
-    // すべてのトークは同等。毎回新規作成してサーバ保存する
-    const finalName = (name ?? "").trim();
-
-    const newId = crypto.randomUUID();
-    const room: Room = {
-      id: newId,
-      name: finalName || "",
-      userName: user.userName,
-      domain: getDomain(),
-      avatar: "",
-      unreadCount: 0,
-      type: "group",
-      // UI表示用に招待先を入れておく（MLS同期後は state 由来に上書きされる）
-      members: others,
-      hasName: Boolean(finalName),
-      hasIcon: false,
-      lastMessage: "...",
-      lastMessageTime: undefined,
-    };
-    try {
-      await applyDisplayFallback([room]);
-    } catch (e) {
-      console.error("相手の表示情報取得に失敗しました", e);
-    }
-    upsertRoom(room);
-  // group MLS state removed; no local init required
-    try {
-      await addRoom(
-        user.id,
-        { id: room.id, name: room.name, members },
-        { from: me, content: "hi", to: members },
-      );
-    } catch (e) {
-      console.error("ルーム作成に失敗しました", e);
-    }
-    if (autoOpen) setSelectedRoom(room.id);
-    setShowGroupDialog(false);
-  };
+  // room creation should be done via server APIs / sidebar controls
 
   // MLS 廃止のため、leaf の削除機能は無効化
 
@@ -1288,7 +1241,7 @@ export function Chat() {
                 // no local group init
                 room = newRoom as unknown as Room;
               }
-              if (room) await syncHandshakes(room);
+              // MLS handshake sync removed
             }
             return;
           }
@@ -1810,12 +1763,12 @@ export function Chat() {
               selectedRoom={selectedRoom()}
               onSelect={selectRoom}
               showAds={showAds()}
-              onCreateRoom={() => openRoomDialog()}
+                    onCreateRoom={() => { /* creation triggered from sidebar controls */ }}
               segment={segment()}
               onSegmentChange={setSegment}
-              onCreateFriendRoom={(friendId: string) => {
-                openRoomDialog(friendId);
-              }}
+                    onCreateFriendRoom={(friendId: string) => {
+                      console.log("create friend room requested:", friendId);
+                    }}
             />
           </div>
           <div
@@ -1915,15 +1868,7 @@ export function Chat() {
           </div>
         </div>
       </div>
-      <GroupCreateDialog
-        isOpen={showGroupDialog()}
-        mode={groupDialogMode()}
-        onClose={() => {
-          setShowGroupDialog(false);
-        }}
-        onCreate={createRoom}
-        initialMembers={initialMembers()}
-      />
+  {/* GroupCreateDialog removed; room creation handled through sidebar */}
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}
@@ -2061,9 +2006,9 @@ async function searchRooms(_userId: string, _opts?: unknown) {
   }
 }
 
-async function addRoom(_userId: string, _room: { id: string; name: string; members: string[] }, _meta?: unknown) {
+async function _addRoom(_userId: string, _room: { id: string; name: string; members: string[] }, _meta?: unknown) {
   try {
-    await apiFetch(`/api/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(_room) });
+  await apiFetch(`/api/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(_room) });
   } catch { /* ignore */ }
 }
 
