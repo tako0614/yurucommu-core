@@ -96,13 +96,13 @@ export async function fetchDirectMessages(
  * @param from 送信者ハンドル (例: "alice@example.com" か "alice")
  * @param to 受信者ハンドル配列 (ローカル/リモート問わず "user@domain" 形式を期待)
  * @param content 本文
- * @param attachments 省略。将来拡張用
+ * @param attachments 添付ファイル
  */
 export async function sendDirectMessage(
   from: string,
   to: string[],
   content: string,
-  attachments?: { url: string; mediaType?: string }[],
+  attachments?: Record<string, unknown>[],
 ): Promise<boolean> {
   try {
     // サーバー側 /api/dm は単一 recipient (to) を想定しているため複数送信先がある場合はそれぞれ送信する

@@ -24,7 +24,7 @@ app.post(
         z.object({
           url: z.string(),
           mediaType: z.string().optional(),
-        }),
+        }).passthrough(),
       ).optional(),
     }),
   ),
@@ -34,7 +34,7 @@ app.post(
       to: string;
       type: string;
       content?: string;
-      attachments?: { url: string; mediaType?: string }[];
+      attachments?: Record<string, unknown>[];
     };
     const db = createDB(getEnv(c));
     const [fromAcc, toAcc] = await Promise.all([

@@ -710,12 +710,62 @@ export function Chat() {
         const created = m.createdAt ?? m.created_at ?? Date.now();
         const ts = new Date(created as string | number | Date);
         const from = String(m.from ?? "");
+        const attachments =
+          Array.isArray((m as { attachments?: unknown }).attachments)
+            ? (m.attachments as unknown[])
+              .map((a) => {
+                if (!a || typeof a !== "object") return null;
+                const url = typeof (a as { url?: unknown }).url === "string"
+                  ? (a as { url: string }).url
+                  : undefined;
+                const data = typeof (a as { data?: unknown }).data === "string"
+                  ? (a as { data: string }).data
+                  : undefined;
+                const mediaType =
+                  typeof (a as { mediaType?: unknown }).mediaType === "string"
+                    ? (a as { mediaType: string }).mediaType
+                    : "application/octet-stream";
+                const rawPrev = (a as { preview?: unknown }).preview;
+                let preview:
+                  | { url?: string; data?: string; mediaType?: string }
+                  | undefined;
+                if (rawPrev && typeof rawPrev === "object") {
+                  const pUrl =
+                    typeof (rawPrev as { url?: unknown }).url === "string"
+                      ? (rawPrev as { url: string }).url
+                      : undefined;
+                  const pData =
+                    typeof (rawPrev as { data?: unknown }).data === "string"
+                      ? (rawPrev as { data: string }).data
+                      : undefined;
+                  const pMediaType =
+                    typeof (rawPrev as { mediaType?: unknown }).mediaType ===
+                        "string"
+                      ? (rawPrev as { mediaType: string }).mediaType
+                      : undefined;
+                  if (pUrl || pData) {
+                    preview = { url: pUrl, data: pData, mediaType: pMediaType };
+                  }
+                }
+                if (url || data) {
+                  return { url, data, mediaType, preview };
+                }
+                return null;
+              })
+              .filter((a): a is {
+                url?: string;
+                data?: string;
+                mediaType: string;
+                preview?: { url?: string; data?: string; mediaType?: string };
+              } => !!a)
+            : undefined;
         return {
           id: String(m._id ?? m.id ?? `${from}:${created}`),
           author: from,
           displayName: from.split("/").pop() ?? from,
           address: from,
           content: String(m.content ?? ""),
+          attachments,
           timestamp: isNaN(ts.getTime()) ? new Date() : ts,
           type: String(m.type ?? "text"),
           isMe: from === selfHandle,
@@ -1043,16 +1093,21 @@ export function Chat() {
         ? others
         : (fallbackPeer ? [fallbackPeer] : []);
       if (targets.length > 0) {
-        let body = text;
+        let attachmentsParam: Record<string, unknown>[] | undefined;
         if (mediaFile()) {
           try {
             const att = await buildAttachment(mediaFile()!);
             if (att && typeof att.url === "string") {
-              body = body ? `${body}\n${att.url}` : att.url;
+              attachmentsParam = [att];
             }
           } catch { /* ignore */ }
         }
-        const ok = await sendDirectMessage(selfHandle, targets, body);
+        const ok = await sendDirectMessage(
+          selfHandle,
+          targets,
+          text,
+          attachmentsParam,
+        );
         if (!ok) {
           alert("メッセージの送信に失敗しました");
           return;
