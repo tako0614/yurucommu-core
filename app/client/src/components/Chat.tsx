@@ -615,13 +615,13 @@ export function Chat() {
       try {
         const info = await fetchUserInfo(partner as ActorID);
         if (info) {
+          // displayName を補完するが、avatar は相手の authorAvatar を流用しない
           setChatRooms((prev) =>
             prev.map((r) =>
               r.id === room.id
                 ? {
                   ...r,
                   displayName: info.displayName || info.userName,
-                  avatar: info.authorAvatar || r.avatar,
                 }
                 : r
             )
@@ -1032,17 +1032,8 @@ export function Chat() {
     const ids = twoNoName
       .map((r) => uniqueOthers(r)[0])
       .filter((v): v is string => !!v);
-    if (ids.length > 0) {
-      const infos = await fetchUserInfoBatch(ids, user.id);
-      for (let i = 0; i < twoNoName.length; i++) {
-        const info = infos[i];
-        const r = twoNoName[i];
-        if (info) {
-          // 表示名のみ補完。アイコンは置き換えない
-          r.displayName = info.displayName || info.userName;
-        }
-      }
-    }
+  // 2人ルームの自動 displayName 補完は行わない（ユーザーが明示的に名前を付けるべき）
+  // したがってここでは何もしない
     // 3人以上の自動生成（簡易）
     const multi = rooms.filter((r) =>
       r.type !== "memo" && totalMembers(r) >= 3 && !(r.hasName)
@@ -1459,8 +1450,8 @@ export function Chat() {
                 displayName: info.displayName || info.userName,
                 userName: info.userName,
                 domain: info.domain,
-                avatar: info.authorAvatar ||
-                  info.userName.charAt(0).toUpperCase(),
+                // avatar は外部の authorAvatar を直接流用しない。既存の方式に任せる
+                avatar: info.userName.charAt(0).toUpperCase(),
                 unreadCount: 0,
                 type: "group" as const,
                 members: [normalizedPartner],
@@ -1894,16 +1885,13 @@ export function Chat() {
                     const me = account();
                     if (!r) return r;
                     const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
-                    const rawOther = r.members.find((m) => m !== selfHandle) ?? r.members[0];
                     const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
                     const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
-                    if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
-                      return {
-                        ...r,
-                        name: (other as string | undefined) ?? (r.name || "不明"),
-                      };
-                    }
+                      if (isDm || looksLikeSelf) {
+                        // 選択時に相手ハンドルや自分の名前で上書きしない。
+                        // 表示名が明示的にある場合はそれを使い、なければ空文字にしてタイトルを非表示にする。
+                        return { ...r, name: r.displayName || "" };
+                      }
                     return r;
                   })()}
                   onBack={backToRoomList}
