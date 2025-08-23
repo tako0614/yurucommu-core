@@ -19,13 +19,52 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const [uploading, setUploading] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [members, setMembers] = createSignal<string[]>([]);
+  const [pendingInvites, setPendingInvites] = createSignal<string[]>([]);
+  const [inviteActor, setInviteActor] = createSignal("");
+  const [inviteMsg, setInviteMsg] = createSignal("");
 
   createEffect(() => {
     if (props.isOpen && props.room) {
       setRoomName(props.room.name ?? "");
       setRoomIcon(props.room.avatar || null);
+      setMembers(props.room.members ?? []);
     }
   });
+
+  // try to read pending invites for the room or current user
+  const loadPendingInvites = async () => {
+    setPendingInvites([]);
+    if (!props.room) return;
+    try {
+      try {
+        const rres = await apiFetch(`/api/rooms/${encodeURIComponent(props.room.id)}/pendingInvites`);
+        if (rres.ok) {
+          const jr = await rres.json();
+          if (Array.isArray(jr)) {
+            setPendingInvites(jr.map(String).filter(Boolean));
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      // fallback to user-scoped pending invites
+      try {
+        const me = accountValue();
+        if (!me) return;
+        const ures = await apiFetch(`/api/users/${encodeURIComponent(me.userName + '@' + getDomain())}/pendingInvites`);
+        if (ures.ok) {
+          const ju = await ures.json();
+          if (Array.isArray(ju)) setPendingInvites(ju.map(String).filter(Boolean));
+        }
+      } catch {
+        // ignore
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleIconChange = async (file: File) => {
     if (!props.room) return;
@@ -107,6 +146,71 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const sendInvite = async () => {
+    if (!props.room) {
+      setInviteMsg("ルームが選択されていません");
+      return;
+    }
+    setInviteMsg("");
+    const actor = inviteActor().trim();
+    if (!actor) {
+      setInviteMsg("招待先 Actor を入力してください");
+      return;
+    }
+    try {
+      // prefer room-scoped invite endpoint
+      const tryRoom = await apiFetch(`/api/rooms/${encodeURIComponent(props.room.id)}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actor }),
+      });
+      if (tryRoom.ok) {
+        setInviteMsg("送信しました");
+        await loadPendingInvites();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      // fallback: try group invite if room has a name
+      if (props.room.name) {
+        const gres = await apiFetch(`/api/groups/${encodeURIComponent(props.room.name)}/invite`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ actor }),
+        });
+        if (gres.ok) {
+          setInviteMsg("送信しました");
+          await loadPendingInvites();
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      // last resort: DM API
+      const dres = await apiFetch(`/api/dms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner: accountValue() ? `${accountValue()!.userName}@${getDomain()}` : "", id: props.room.id, name: props.room.name || "", members: [actor] }),
+      });
+      if (dres.ok) {
+        setInviteMsg("送信しました");
+        await loadPendingInvites();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    setInviteMsg("送信に失敗しました");
+  };
+
+  createEffect(() => {
+    if (props.isOpen) loadPendingInvites();
+  });
 
   return (
     <Show when={props.isOpen}>
@@ -192,6 +296,50 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                   >
                     削除
                   </button>
+                </div>
+              </section>
+              <section class="space-y-4">
+                <h3 class="font-bold text-white">メンバー</h3>
+                <div class="bg-[#151515] border border-[#2a2a2a] rounded p-3 text-sm text-gray-300">
+                  <Show when={(props.room && props.room.members && props.room.members.length > 0) || pendingInvites().length > 0}>
+                    <div class="space-y-2">
+                      <Show when={props.room && props.room.members && props.room.members.length > 0}>
+                        <div>
+                          <div class="text-xs text-gray-400 mb-1">参加者</div>
+                          <ul class="list-disc list-inside">
+                            {props.room?.members?.map((m) => (
+                              <li>{m}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </Show>
+                      <Show when={pendingInvites().length > 0}>
+                        <div>
+                          <div class="text-xs text-gray-400 mb-1">保留中の招待</div>
+                          <ul class="list-disc list-inside text-sm text-yellow-200">
+                            {pendingInvites().map((p) => (
+                              <li>{p}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </Show>
+                      <div class="mt-2 flex gap-2">
+                        <input
+                          class="flex-1 bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
+                          placeholder="招待先 Actor (例: user@host.tld)"
+                          value={inviteActor()}
+                          onInput={(e) => setInviteActor(e.currentTarget.value)}
+                        />
+                        <button type="button" class="px-3 py-2 bg-blue-600 text-white rounded text-sm" onClick={sendInvite}>招待</button>
+                      </div>
+                      <Show when={inviteMsg()}>
+                        <div class="text-sm text-green-300">{inviteMsg()}</div>
+                      </Show>
+                    </div>
+                  </Show>
+                  <Show when={!((props.room && props.room.members && props.room.members.length > 0) || pendingInvites().length > 0)}>
+                    <div class="text-sm text-gray-500">参加者情報がありません</div>
+                  </Show>
                 </div>
               </section>
             </div>
