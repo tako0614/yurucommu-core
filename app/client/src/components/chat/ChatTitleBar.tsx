@@ -15,21 +15,6 @@ interface ChatTitleBarProps {
 
 export function ChatTitleBar(props: ChatTitleBarProps) {
   const [account] = useAtom(activeAccount);
-  const normalizeHandle = (id?: string): string | undefined => {
-    if (!id) return undefined;
-    if (id.startsWith("http")) {
-      try {
-        const u = new URL(id);
-        const name = u.pathname.split("/").pop() || "";
-        if (!name) return undefined;
-        return `${name}@${u.hostname}`;
-      } catch {
-        return undefined;
-      }
-    }
-    if (id.includes("@")) return id;
-    return undefined;
-  };
   const titleFor = (room: Room | null): string => {
     if (!room) return "";
     if (room.type === "memo") return room.name;
@@ -40,30 +25,19 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
       return room.displayName;
     }
     const selfHandle = `${me.userName}@${getDomain()}`;
-    if (isFriendRoom(room)) {
-      const other = (room.members ?? []).find((m) => m !== selfHandle) ??
-        room.members?.[0];
-      const otherId = normalizeHandle(
-        typeof other === "string" ? other : undefined,
-      );
-      if (
-        !room.name || room.name === me.displayName ||
-        room.name === me.userName || room.name === selfHandle
-      ) {
-        if (otherId && otherId !== selfHandle) return otherId;
-        // 何も推定できない場合は空文字
-        return "";
-      }
-    }
     // グループで自分名/自分ハンドルがタイトルに入ってしまっている場合は空で返す
     if (
-      room.name === me.displayName || room.name === me.userName ||
-      room.name === selfHandle
+      !isFriendRoom(room) &&
+      (room.name === me.displayName || room.name === me.userName ||
+        room.name === selfHandle)
     ) return "";
-    const name = (room.displayName || room.name || "").trim();
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!name || uuidRe.test(name) || uuidRe.test(String(room.id))) {
-      return "無題のグループ";
+    if (!isFriendRoom(room)) {
+      const name = (room.displayName || room.name || "").trim();
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!name || uuidRe.test(name) || uuidRe.test(String(room.id))) {
+        return "無題のグループ";
+      }
     }
     return room.name;
   };

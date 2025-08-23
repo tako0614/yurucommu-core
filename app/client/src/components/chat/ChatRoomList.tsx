@@ -107,59 +107,21 @@ export function ChatRoomList(props: ChatRoomListProps) {
     globalThis.localStorage.setItem("chat.seg", props.segment);
   });
 
-  // 1対1（未命名）トークの表示名を補正（自分の名前で表示されないように）
-  // かつ、招待中で自分しか居ないグループはプレースホルダーを表示
+  // トークルームの表示名を決定（未設定グループにはプレースホルダーを表示）
   const displayNameFor = (room: Room): string => {
-    // 明示的な displayName があれば最優先
     if (room.displayName && room.displayName.trim() !== "") {
       return room.displayName;
     }
-    const me = account();
-    if (!me) return room.name;
     if (room.type === "memo") return room.name;
-    const selfHandle = `${me.userName}@${getDomain()}`;
-    // グループ（1:1以外）はそのまま。ただし名前が未設定や UUID の場合はプレースホルダーを返す
     if (!isFriendRoom(room)) {
       const name = (room.displayName || room.name || "").trim();
-      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!name || uuidRe.test(name) || uuidRe.test(String(room.id))) {
         return "無題のグループ";
       }
-      return room.name;
-    }
-    if (isFriendRoom(room)) {
-      const rawOther = room.members.find((m) => m !== selfHandle) ??
-        room.members[0];
-      const other = normalizeHandle(rawOther);
-      if (
-        room.name === "" || room.name === me.displayName ||
-        room.name === me.userName || room.name === selfHandle
-      ) {
-        // 自分名や空のときは相手のハンドルを優先
-        if (other && other !== selfHandle) return other;
-        // 何も推定できない場合は空文字（表示は空のまま）
-        return "";
-      }
-      return room.name;
     }
     return room.name;
-  };
-
-  const normalizeHandle = (id?: string): string | undefined => {
-    if (!id) return undefined;
-    if (id.startsWith("http")) {
-      try {
-        const u = new URL(id);
-        const name = u.pathname.split("/").pop() || "";
-        if (!name) return undefined;
-        return `${name}@${u.hostname}`;
-      } catch {
-        return undefined;
-      }
-    }
-    if (id.includes("@")) return id;
-    // 裸の文字列（displayName/uuid等）はハンドルとみなさない
-    return undefined;
   };
 
   // ハンドル正規化ユーティリティ（members の比較に使う）
@@ -312,10 +274,20 @@ export function ChatRoomList(props: ChatRoomListProps) {
           チャット
         </div>
         <div class="flex gap-2">
-          <Button size="sm" onClick={() => props.onCreateDM ? props.onCreateDM() : props.onCreateRoom()}>
+          <Button
+            size="sm"
+            onClick={() =>
+              props.onCreateDM ? props.onCreateDM() : props.onCreateRoom()}
+          >
             ＋ DM
           </Button>
-          <Button size="sm" onClick={() => props.onCreateGroup ? props.onCreateGroup() : props.onCreateRoom()}>
+          <Button
+            size="sm"
+            onClick={() =>
+              props.onCreateGroup
+                ? props.onCreateGroup()
+                : props.onCreateRoom()}
+          >
             ＋ グループ
           </Button>
         </div>
