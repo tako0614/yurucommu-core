@@ -172,6 +172,11 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
   としてGroupにも知らせてよい（Group側でのUX補助）。
 - 乱用対策として、Groupは**招待の存在を加入要件にしない**（招待が無くてもJoin/Followを受け付ける）。
 
+Takos では管理エンドポイント `/api/groups/:name/invite` に招待したい Actor の ID
+を指定して POST することで、グループから招待を送信できま す。受け手が `Join`
+または `Follow` を返送するとサーバーは自動で `Accept`
+を返し、メンバーに追加されます。
+
 #### 例: 非保有ActorからのInvite
 
 ```json

@@ -11,6 +11,8 @@ export function GroupAdmin() {
   const [icon, setIcon] = createSignal("");
   const [image, setImage] = createSignal("");
   const [message, setMessage] = createSignal("");
+  const [inviteActor, setInviteActor] = createSignal("");
+  const [inviteMsg, setInviteMsg] = createSignal("");
 
   const loadGroup = async () => {
     setMessage("");
@@ -43,6 +45,20 @@ export function GroupAdmin() {
       setMessage("保存しました");
     } catch (_err) {
       setMessage("保存に失敗しました");
+    }
+  };
+
+  const sendInvite = async () => {
+    setInviteMsg("");
+    try {
+      await apiFetch(`/api/groups/${name()}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: inviteActor() }),
+      });
+      setInviteMsg("送信しました");
+    } catch (_err) {
+      setInviteMsg("送信に失敗しました");
     }
   };
 
@@ -107,6 +123,23 @@ export function GroupAdmin() {
           保存
         </button>
         <p>{message()}</p>
+        <hr class="my-4" />
+        <div>
+          <label class="block mb-1">招待先 Actor</label>
+          <input
+            class="w-full bg-gray-700 text-white p-2 rounded"
+            value={inviteActor()}
+            onInput={(e) => setInviteActor(e.currentTarget.value)}
+          />
+        </div>
+        <button
+          type="button"
+          class="bg-purple-600 text-white px-4 py-2 rounded"
+          onClick={sendInvite}
+        >
+          招待送信
+        </button>
+        <p>{inviteMsg()}</p>
       </div>
     </Show>
   );

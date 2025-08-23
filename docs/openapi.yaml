@@ -751,6 +751,30 @@ paths:
       responses:
         "200":
           description: 更新結果
+  /api/groups/{name}/invite:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: グループへの招待送信
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor:
+                  type: string
+                  description: 招待先Actor ID
+              required:
+                - actor
+      responses:
+        "200":
+          description: 送信結果
   /api/files:
     post:
       summary: ファイルアップロード（HTTP のみ、要ログイン）
