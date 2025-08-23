@@ -9,6 +9,7 @@ interface ChatSettingsOverlayProps {
   room: Room | null;
   onClose: () => void;
   onRoomUpdated?: (partial: Partial<Room>) => void;
+  onRoomDeleted?: (id: string) => void;
 }
 
 export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
@@ -32,8 +33,11 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     try {
       const form = new FormData();
       form.append("file", file);
+      const owner = accountValue()?.id || "";
       const res = await apiFetch(
-        `/api/rooms/${encodeURIComponent(props.room.id)}/icon`,
+        `/api/dms/${encodeURIComponent(props.room.id)}/icon?owner=${
+          encodeURIComponent(owner)
+        }`,
         { method: "POST", body: form },
       );
       if (!res.ok) throw new Error("icon upload failed");
@@ -55,12 +59,13 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
     try {
       setSaving(true);
+      const owner = accountValue()?.id || "";
       const res = await apiFetch(
-        `/api/rooms/${encodeURIComponent(props.room.id)}`,
+        `/api/dms/${encodeURIComponent(props.room.id)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: roomName() }),
+          body: JSON.stringify({ owner, name: roomName() }),
         },
       );
       if (!res.ok) throw new Error("update failed");
@@ -77,6 +82,24 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     setError(null);
     setRoomName("");
     props.onClose();
+  };
+
+  const handleDelete = async () => {
+    if (!props.room) return;
+    try {
+      const owner = accountValue()?.id || "";
+      const res = await apiFetch(
+        `/api/dms/${encodeURIComponent(props.room.id)}?owner=${
+          encodeURIComponent(owner)
+        }`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("delete failed");
+      props.onRoomDeleted?.(props.room.id);
+      close();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -106,7 +129,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
             <div class="p-6 space-y-6">
               <section class="space-y-6">
                 <div>
-                  <label class="block text-sm text-gray-400 mb-1">ルーム名</label>
+                  <label class="block text-sm text-gray-400 mb-1">
+                    ルーム名
+                  </label>
                   <input
                     value={roomName()}
                     onInput={(e) => setRoomName(e.currentTarget.value)}
@@ -115,12 +140,18 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                   />
                 </div>
                 <div>
-                  <label class="block text-sm text-gray-400 mb-1">アイコン</label>
+                  <label class="block text-sm text-gray-400 mb-1">
+                    アイコン
+                  </label>
                   <div class="flex items-center gap-4">
                     <div class="w-16 h-16 rounded-lg bg-[#2b2b2b] flex items-center justify-center overflow-hidden border border-[#3a3a3a]">
                       {roomIcon()
                         ? (
-                          <img src={roomIcon()!} alt="room icon" class="w-full h-full object-cover" />
+                          <img
+                            src={roomIcon()!}
+                            alt="room icon"
+                            class="w-full h-full object-cover"
+                          />
                         )
                         : <span class="text-gray-500 text-xs">なし</span>}
                     </div>
@@ -139,7 +170,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                     </label>
                   </div>
                 </div>
-                <div>
+                <div class="flex gap-2">
                   <button
                     type="button"
                     disabled={saving()}
@@ -147,6 +178,13 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                     class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded text-sm font-medium"
                   >
                     保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium"
+                  >
+                    削除
                   </button>
                 </div>
               </section>

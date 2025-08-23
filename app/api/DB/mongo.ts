@@ -4,22 +4,25 @@ import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
 import { createObjectId } from "../utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
-import EncryptedKeyPair from "../models/takos/encrypted_keypair.ts";
 import Notification from "../models/takos/notification.ts";
 import SystemKey from "../models/takos/system_key.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
 import HostFcmToken from "../models/takos_host/fcm_token.ts";
-import PendingInvite from "../models/takos/pending_invite.ts";
 import DMMessage from "../models/takos/dm_message.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
+import DirectMessage from "../models/takos/direct_message.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
-import type { AccountDoc, SessionDoc } from "../../shared/types.ts";
+import type {
+  AccountDoc,
+  DirectMessageDoc,
+  SessionDoc,
+} from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
@@ -488,81 +491,38 @@ export class MongoDB implements DB {
     return await query;
   }
 
-  async findEncryptedKeyPair(userName: string, deviceId: string) {
-    const query = this.withTenant(
-      EncryptedKeyPair.findOne({ userName, deviceId }),
-    );
+  async listDirectMessages(owner: string) {
+    const query = this.withTenant(DirectMessage.find({ owner }));
     return await query.lean();
   }
 
-  async upsertEncryptedKeyPair(
-    userName: string,
-    deviceId: string,
-    content: string,
-  ) {
-    const query = EncryptedKeyPair.findOneAndUpdate(
-      { userName, deviceId },
-      { content },
-      { upsert: true },
-    );
-    this.withTenant(query);
-    await query;
-  }
-
-  async deleteEncryptedKeyPair(userName: string, deviceId: string) {
-    const query = EncryptedKeyPair.deleteOne({ userName, deviceId });
-    this.withTenant(query);
-    await query;
-  }
-
-  async deleteEncryptedKeyPairsByUser(userName: string) {
-    const query = EncryptedKeyPair.deleteMany({ userName });
-    this.withTenant(query);
-    await query;
-  }
-
-  async savePendingInvite(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-    expiresAt: Date,
-  ) {
-    const doc = new PendingInvite({
-      roomId,
-      userName,
-      deviceId,
-      expiresAt,
-      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
-    });
+  async createDirectMessage(data: DirectMessageDoc) {
+    const doc = new DirectMessage(data);
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = { env: this.env };
     }
     await doc.save();
+    return doc.toObject();
   }
 
-  async findPendingInvites(condition: Record<string, unknown>) {
-    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = this.withTenant(
-      PendingInvite.find({ ...condition, tenant_id: tenantId }),
-    );
+  async updateDirectMessage(
+    owner: string,
+    id: string,
+    update: Record<string, unknown>,
+  ) {
+    const query = DirectMessage.findOneAndUpdate({ owner, id }, update, {
+      new: true,
+    });
+    this.withTenant(query);
     return await query.lean();
   }
 
-  async markInviteAcked(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-  ) {
-    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = PendingInvite.updateOne({
-      roomId,
-      userName,
-      deviceId,
-      tenant_id: tenantId,
-    }, { acked: true });
+  async deleteDirectMessage(owner: string, id: string) {
+    const query = DirectMessage.findOneAndDelete({ owner, id });
     this.withTenant(query);
-    await query;
+    const res = await query.lean();
+    return res != null;
   }
 
   async listNotifications(owner: string) {
@@ -939,64 +899,4 @@ export class MongoDB implements DB {
     await connectDatabase(this.env);
     return mongoose.connection.db as Db;
   }
-}
-
-/**
- * PendingInvite コレクションを定期的にチェックし、
- * 有効期限切れの招待を除外して再招待します。
- */
-export function startPendingInviteJob(env: Record<string, string>) {
-  // 期限切れの招待をクリーンアップするジョブ
-  async function job() {
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const list = await PendingInvite.find({
-      tenant_id: tenantId,
-      acked: false,
-      expiresAt: { $lt: new Date() },
-    }).lean<
-      { _id: string; roomId: string; userName: string }[]
-    >();
-    for (const inv of list) {
-      await PendingInvite.deleteOne({ _id: inv._id });
-      // chatroom メンバー同期機能は廃止したため追加処理なし
-    }
-  }
-  setInterval(job, 60 * 60 * 1000);
-}
-
-/**
- * セッションの最終利用日時を監視し、長期間活動のない端末を
- * チャットルームから除籍して再招待します。
- *
- * @param env 環境変数
- * @param days 閾値となる非活動期間（日数）
- */
-export function startInactiveSessionJob(
-  env: Record<string, string>,
-  days = 30,
-) {
-  const db = new MongoDB(env);
-  async function job() {
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const sessions = await Session.find({
-      tenant_id: tenantId,
-      $or: [
-        { lastDecryptAt: { $lt: threshold } },
-        { lastDecryptAt: { $exists: false } },
-      ],
-    }).lean<{ sessionId: string; deviceId: string }[]>();
-    for (const s of sessions) {
-      const pair = await EncryptedKeyPair.findOne({
-        deviceId: s.deviceId,
-        tenant_id: tenantId,
-      }).lean<{ userName: string } | null>();
-      const user = pair?.userName;
-      if (!user) continue;
-      // chatroom メンバー参照は廃止
-      await db.deleteEncryptedKeyPair(user, s.deviceId).catch(() => {});
-      await db.deleteSessionById(s.sessionId).catch(() => {});
-    }
-  }
-  setInterval(job, 24 * 60 * 60 * 1000);
 }

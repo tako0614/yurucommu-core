@@ -52,10 +52,6 @@ export function FriendList(props: FriendListProps) {
       } catch { /* ignore */ }
       return false;
     };
-    const isUuid = (v?: string) =>
-      !!v &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-        .test(v);
     const friendMap = new Map<string, Friend>();
     // フレンド候補: members に自分以外の要素がちょうど1名いるルームを厳密に扱う
     const candidateRooms = props.rooms.filter((r) => {
@@ -64,14 +60,14 @@ export function FriendList(props: FriendListProps) {
         typeof m === "string" && !!m
       );
       const normalized = Array.from(
-        new Set(membersOnly.map((m) => normalizeHandle(m) || m))
+        new Set(membersOnly.map((m) => normalizeHandle(m) || m)),
       ).filter((m) => !!m && !isSelf(m));
       return normalized.length === 1;
     });
     for (const room of candidateRooms) {
-      const membersOnly = (room.members ?? []).filter((m: unknown): m is string =>
-        typeof m === "string" && !!m
-      );
+      const membersOnly = (room.members ?? []).filter((
+        m: unknown,
+      ): m is string => typeof m === "string" && !!m);
       const normalized = membersOnly
         .map((m) => normalizeHandle(m) || m)
         .filter((m) => !!m && !isSelf(m));
@@ -80,7 +76,9 @@ export function FriendList(props: FriendListProps) {
       const friendId = raw;
       if (selfHandle && friendId === selfHandle) continue;
       if (!friendMap.has(friendId)) {
-        const short = friendId.includes("@") ? friendId.split("@")[0] : friendId;
+        const short = friendId.includes("@")
+          ? friendId.split("@")[0]
+          : friendId;
         const fallbackName = short || friendId;
         friendMap.set(friendId, {
           id: friendId,
@@ -95,16 +93,13 @@ export function FriendList(props: FriendListProps) {
     const unreadSum = (fid: string) =>
       props.rooms
         .filter((r) => r.type !== "memo" && !(r.hasName || r.hasIcon))
-        .filter((r) =>
-          (r.members?.includes(fid)) || (r.pendingInvites?.includes(fid))
-        )
+        .filter((r) => r.members?.includes(fid))
         .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const lastTime = (fid: string) => {
       let t = 0;
       for (const r of props.rooms) {
         if (r.type === "memo") continue;
-        const match = (r.members?.includes(fid)) ||
-          (r.pendingInvites?.includes(fid));
+        const match = r.members?.includes(fid);
         if (!match) continue;
         const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
         if (ts > t) t = ts;

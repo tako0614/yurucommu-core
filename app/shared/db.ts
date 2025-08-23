@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
-import type { AccountDoc, SessionDoc } from "./types.ts";
+import type { AccountDoc, DirectMessageDoc, SessionDoc } from "./types.ts";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -89,29 +89,14 @@ export interface DB {
   ): Promise<void>;
   findAccountsByUserNames(usernames: string[]): Promise<AccountDoc[]>;
   countAccounts(): Promise<number>;
-  findEncryptedKeyPair(
-    userName: string,
-    deviceId: string,
-  ): Promise<unknown | null>;
-  upsertEncryptedKeyPair(
-    userName: string,
-    deviceId: string,
-    content: string,
-  ): Promise<void>;
-  deleteEncryptedKeyPair(userName: string, deviceId: string): Promise<void>;
-  deleteEncryptedKeyPairsByUser(userName: string): Promise<void>;
-  savePendingInvite(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-    expiresAt: Date,
-  ): Promise<void>;
-  findPendingInvites(condition: Record<string, unknown>): Promise<unknown[]>;
-  markInviteAcked(
-    roomId: string,
-    userName: string,
-    deviceId: string,
-  ): Promise<void>;
+  listDirectMessages(owner: string): Promise<DirectMessageDoc[]>;
+  createDirectMessage(data: DirectMessageDoc): Promise<DirectMessageDoc>;
+  updateDirectMessage(
+    owner: string,
+    id: string,
+    update: Record<string, unknown>,
+  ): Promise<DirectMessageDoc | null>;
+  deleteDirectMessage(owner: string, id: string): Promise<boolean>;
   listNotifications(owner: string): Promise<unknown[]>;
   createNotification(
     owner: string,

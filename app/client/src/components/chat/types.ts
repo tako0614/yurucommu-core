@@ -32,8 +32,6 @@ export interface Room {
   avatar?: string;
   type: "group" | "memo";
   members: ActorID[];
-  // サーバー未同期時などに使用される招待者リスト（存在しない場合がある）
-  pendingInvites?: ActorID[];
   hasName?: boolean;
   hasIcon?: boolean;
 }

@@ -51,16 +51,6 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
         room.name === me.userName || room.name === selfHandle
       ) {
         if (otherId && otherId !== selfHandle) return otherId;
-        // 相手未確定なら pendingInvites から推定（接尾辞は付けない）
-        const cand = (room.pendingInvites && room.pendingInvites[0]) ||
-          undefined;
-        const guess = normalizeHandle(
-          typeof cand === "string" ? cand : undefined,
-        );
-        if (guess && guess !== selfHandle) {
-          const short = guess.includes("@") ? guess.split("@")[0] : guess;
-          return short;
-        }
         // 何も推定できない場合は空文字
         return "";
       }

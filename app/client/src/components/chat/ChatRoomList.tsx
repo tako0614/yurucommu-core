@@ -116,7 +116,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
     if (!me) return room.name;
     if (room.type === "memo") return room.name;
     const selfHandle = `${me.userName}@${getDomain()}`;
-    const members = room.members ?? [];
     // グループ（1:1以外）はそのまま（後段の補完で名前が入る想定）
     if (!isFriendRoom(room)) return room.name;
     if (isFriendRoom(room)) {
@@ -129,14 +128,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
       ) {
         // 自分名や空のときは相手のハンドルを優先
         if (other && other !== selfHandle) return other;
-        // 相手未確定なら pendingInvites から推測（接尾辞は付けない）
-        const cand = (room.pendingInvites && room.pendingInvites[0]) ||
-          undefined;
-        const guess = normalizeHandle(cand);
-        if (guess && guess !== selfHandle) {
-          const short = guess.includes("@") ? guess.split("@")[0] : guess;
-          return short;
-        }
         // 何も推定できない場合は空文字（表示は空のまま）
         return "";
       }
@@ -188,7 +179,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
       typeof m === "string" && !!m
     );
     const normalized = Array.from(
-      new Set(membersOnly.map((m) => normalizeHandleLocal(m) || m))
+      new Set(membersOnly.map((m) => normalizeHandleLocal(m) || m)),
     ).filter((m) => !!m && m !== selfHandle);
     return normalized.length === 1;
   };
@@ -238,14 +229,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
     const groups = all - people;
     return { all, people, groups };
   });
-
-  const getFriendName = (friendId: string) => {
-    const room = props.rooms.find((r) =>
-      isFriendRoom(r) && r.members.includes(friendId)
-    );
-    return room?.displayName || room?.name || friendId.split("@")[0] ||
-      friendId;
-  };
 
   const changeSeg = (seg: "all" | "people" | "groups") => {
     if (seg !== props.segment) props.onSegmentChange(seg);

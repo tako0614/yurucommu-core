@@ -1204,52 +1204,9 @@ export function Chat() {
     };
 
     const handler = async (msg: unknown) => {
-      // WS 経由で送られる pendingInvite は isIncomingMessage に含まれないため
-      // 先に専用に処理する（チャット一覧へプレースホルダを作成して同期する）
       try {
         if (typeof msg === "object" && msg !== null) {
           const m = msg as Record<string, unknown>;
-          if (typeof m.type === "string" && m.type === "pendingInvite") {
-            const payload = m.payload as Record<string, unknown> | undefined;
-            if (payload && typeof payload.roomId === "string") {
-              const user = account();
-              if (!user) return;
-              const self = `${user.userName}@${getDomain()}`;
-              // 既に一覧にあれば同期処理だけ行う
-              let room = chatRooms().find((r) => r.id === payload.roomId);
-              if (!room) {
-                const maybeFrom = typeof payload.from === "string"
-                  ? payload.from
-                  : undefined;
-                const others = Array.from(
-                  new Set(
-                    [maybeFrom].filter((m): m is string =>
-                      typeof m === "string" && m !== self
-                    ),
-                  ),
-                );
-                const newRoom = {
-                  id: payload.roomId,
-                  name: "",
-                  userName: user.userName,
-                  domain: getDomain(),
-                  avatar: "",
-                  unreadCount: 0,
-                  type: "group",
-                  members: others,
-                  lastMessage: "...",
-                  lastMessageTime: undefined,
-                };
-                upsertRoom(newRoom as unknown as Room);
-                try {
-                  await applyDisplayFallback([newRoom as unknown as Room]);
-                } catch { /* ignore */ }
-                // no local group init
-                room = newRoom as unknown as Room;
-              }
-            }
-            return;
-          }
           // DM 通知（/dm 経由）を先に処理
           if (typeof m.type === "string" && m.type === "dm") {
             const p = m.payload as Record<string, unknown> | undefined;
@@ -1328,7 +1285,7 @@ export function Chat() {
           }
         }
       } catch (e) {
-        console.warn("failed to handle pendingInvite message", e);
+        console.warn("failed to handle message", e);
       }
 
       if (!isIncomingMessage(msg)) {
@@ -1915,6 +1872,10 @@ export function Chat() {
             prev.map((r) => r.id === id ? { ...r, ...partial } : r)
           );
         }}
+        onRoomDeleted={(id) => {
+          setChatRooms((prev) => prev.filter((r) => r.id !== id));
+          if (selectedRoom() === id) setSelectedRoom(null);
+        }}
       />
     </>
   );
@@ -1943,48 +1904,6 @@ function normalizeActor(actor: ActorID): string {
     }
   }
   return actor;
-}
-
-// 招待中のローカル管理（設定オーバーレイが参照）
-const cacheKeyPending = (roomId: string) => `pendingInvites:${roomId}`;
-async function readPending(
-  accountId: string,
-  roomId: string,
-): Promise<string[]> {
-  const raw = await getCacheItem(accountId, cacheKeyPending(roomId));
-  return Array.isArray(raw)
-    ? (raw as unknown[]).filter((v) => typeof v === "string") as string[]
-    : [];
-}
-async function writePending(accountId: string, roomId: string, ids: string[]) {
-  const uniq = Array.from(new Set(ids));
-  await setCacheItem(accountId, cacheKeyPending(roomId), uniq);
-}
-async function _addPendingInvites(
-  accountId: string,
-  roomId: string,
-  ids: string[],
-) {
-  const cur = await readPending(accountId, roomId);
-  await writePending(accountId, roomId, [...cur, ...ids]);
-}
-async function _removePendingInvite(
-  accountId: string,
-  roomId: string,
-  id: string,
-) {
-  const cur = (await readPending(accountId, roomId)).filter((v) => v !== id);
-  await writePending(accountId, roomId, cur);
-}
-async function _syncPendingWithParticipants(
-  accountId: string,
-  roomId: string,
-  participants: string[],
-) {
-  const present = new Set(participants);
-  const cur = await readPending(accountId, roomId);
-  const next = cur.filter((v) => !present.has(v));
-  await writePending(accountId, roomId, next);
 }
 
 // fetchEvents stub used by syncOnce
@@ -2033,7 +1952,9 @@ async function fetchKeepMessages(_handle: string, _params?: unknown) {
 
 async function searchRooms(_userId: string, _opts?: unknown) {
   try {
-    const res = await apiFetch(`/api/rooms`);
+    const res = await apiFetch(
+      `/api/dms?owner=${encodeURIComponent(_userId)}`,
+    );
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -2047,10 +1968,10 @@ async function _addRoom(
   _meta?: unknown,
 ) {
   try {
-    await apiFetch(`/api/rooms`, {
+    await apiFetch(`/api/dms`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(_room),
+      body: JSON.stringify({ owner: _userId, ..._room }),
     });
   } catch { /* ignore */ }
 }

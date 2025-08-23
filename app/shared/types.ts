@@ -17,3 +17,23 @@ export interface SessionDoc {
   createdAt?: Date;
   lastDecryptAt?: Date;
 }
+
+export interface DirectMessageDoc {
+  _id?: string;
+  owner: string;
+  id: string;
+  name: string;
+  icon?: string;
+  members: string[];
+}
+
+export interface GroupDoc {
+  _id?: string;
+  groupName: string;
+  displayName: string;
+  summary?: string;
+  icon?: unknown;
+  image?: unknown;
+  followers: string[];
+  outbox: unknown[];
+}

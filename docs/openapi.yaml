@@ -472,62 +472,39 @@ paths:
       responses:
         "200":
           description: OGPデータ
-  /api/users/{user}/keyPackages:
-    parameters:
-      - name: user
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: summary
-        in: query
-        schema:
-          type: boolean
-        description: true を指定すると残数のみを返します
+  /api/dms:
     get:
-      summary: KeyPackage一覧取得
-      description: チャット用MLSキーの公開情報を取得します。`summary=true` を指定した場合は残数と lastResort の有無のみを返します。
+      summary: DM一覧取得
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: KeyPackageのコレクションまたはサマリー
+          description: DMの配列
           content:
             application/json:
               schema:
-                oneOf:
-                  - type: object
-                    properties:
-                      type:
-                        type: string
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    owner:
+                      type: string
+                    name:
+                      type: string
+                    icon:
+                      type: string
+                    members:
+                      type: array
                       items:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                            type:
-                              type: string
-                            content:
-                              type: string
-                            mediaType:
-                              type: string
-                            encoding:
-                              type: string
-                            groupInfo:
-                              type: string
-                            expiresAt:
-                              type: string
-                            createdAt:
-                              type: string
-                  - type: object
-                    properties:
-                      count:
-                        type: number
-                      hasLastResort:
-                        type: boolean
+                        type: string
     post:
-      summary: KeyPackage登録
-      description: チャット用KeyPackageを登録します。
+      summary: DM作成
       requestBody:
         required: true
         content:
@@ -535,113 +512,95 @@ paths:
             schema:
               type: object
               properties:
-                content:
+                owner:
                   type: string
-                mediaType:
+                id:
                   type: string
-                encoding:
+                name:
                   type: string
-                groupInfo:
+                members:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - owner
+                - id
+                - name
+      responses:
+        "200":
+          description: 作成されたDM
+  /api/dms/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: DM更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner:
                   type: string
-                expiresAt:
+                name:
                   type: string
               required:
-                - content
+                - owner
       responses:
         "200":
-          description: 登録結果
-  /api/users/{user}/keyPackages/{keyId}:
+          description: 更新後のDM
+    delete:
+      summary: DM削除
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 削除結果
+  /api/dms/{id}/icon:
     parameters:
-      - name: user
+      - name: id
         in: path
         required: true
         schema:
           type: string
-      - name: keyId
-        in: path
+      - name: owner
+        in: query
         required: true
         schema:
           type: string
-    get:
-      summary: KeyPackage取得
-      description: 指定IDのKeyPackageを取得します。
+    post:
+      summary: DMアイコンアップロード
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
       responses:
         "200":
-          description: KeyPackage
+          description: アップロードされたアイコンのURL
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  id:
+                  url:
                     type: string
-                  type:
-                    type: string
-                  mediaType:
-                    type: string
-                  encoding:
-                    type: string
-                  content:
-                    type: string
-                  groupInfo:
-                    type: string
-                  expiresAt:
-                    type: string
-    delete:
-      summary: KeyPackage削除
-      description: KeyPackageを削除します。
-      responses:
-        "200":
-          description: 成功
-  /api/users/{user}/encryptedKeyPair:
-    parameters:
-      - name: user
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      summary: 暗号化鍵ペア取得
-      description: クライアント側で復号するための鍵ペアを取得します。
-      responses:
-        "200":
-          description: 鍵ペア
-    post:
-      summary: 暗号化鍵ペア保存
-      description: 鍵ペアを保存します。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                content:
-                  type: string
-              required:
-                - content
-      responses:
-        "200":
-          description: 保存結果
-    delete:
-      summary: 暗号化鍵ペア削除
-      description: 保存済みの鍵ペアを削除します。
-      responses:
-        "200":
-          description: 成功
-  /api/users/{user}/resetKeys:
-    parameters:
-      - name: user
-        in: path
-        required: true
-        schema:
-          type: string
-    post:
-      summary: 鍵情報リセット
-      description: 既存のKeyPackageと鍵ペアをすべて削除します。
-      responses:
-        "200":
-          description: リセット結果
   /api/users/{user}/messages:
     parameters:
       - name: user
