@@ -829,7 +829,7 @@ export function Chat() {
     ];
     const handle = `${user.userName}@${getDomain()}` as ActorID;
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
-    const serverRooms = await searchRooms(user.id, { implicit: "include" });
+    const serverRooms = await searchRooms(handle, { implicit: "include" });
     for (const item of serverRooms) {
       const name = "";
       const icon = "";
@@ -1941,10 +1941,10 @@ async function fetchKeepMessages(_handle: string, _params?: unknown) {
   }
 }
 
-async function searchRooms(_userId: string, _opts?: unknown) {
+async function searchRooms(_handle: string, _opts?: unknown) {
   try {
     const res = await apiFetch(
-      `/api/dms?owner=${encodeURIComponent(_userId)}`,
+      `/api/dms?owner=${encodeURIComponent(_handle)}`,
     );
     if (!res.ok) return [];
     return await res.json();
@@ -1954,7 +1954,7 @@ async function searchRooms(_userId: string, _opts?: unknown) {
 }
 
 async function _addRoom(
-  _userId: string,
+  _handle: string,
   _room: { id: string; name: string; members: string[] },
   _meta?: unknown,
 ) {
@@ -1962,9 +1962,11 @@ async function _addRoom(
     await apiFetch(`/api/dms`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ owner: _userId, ..._room }),
+      body: JSON.stringify({ owner: _handle, ..._room }),
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // event cursor state (local only)

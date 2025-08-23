@@ -1,7 +1,7 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, getDomain } from "../../utils/config.ts";
 import type { Room } from "./types.ts";
 
 interface ChatSettingsOverlayProps {
@@ -33,7 +33,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     try {
       const form = new FormData();
       form.append("file", file);
-      const owner = accountValue()?.id || "";
+      const owner = accountValue()
+        ? `${accountValue()!.userName}@${getDomain()}`
+        : "";
       const res = await apiFetch(
         `/api/dms/${encodeURIComponent(props.room.id)}/icon?owner=${
           encodeURIComponent(owner)
@@ -59,7 +61,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
     try {
       setSaving(true);
-      const owner = accountValue()?.id || "";
+      const owner = accountValue()
+        ? `${accountValue()!.userName}@${getDomain()}`
+        : "";
       const res = await apiFetch(
         `/api/dms/${encodeURIComponent(props.room.id)}`,
         {
@@ -87,7 +91,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const handleDelete = async () => {
     if (!props.room) return;
     try {
-      const owner = accountValue()?.id || "";
+      const owner = accountValue()
+        ? `${accountValue()!.userName}@${getDomain()}`
+        : "";
       const res = await apiFetch(
         `/api/dms/${encodeURIComponent(props.room.id)}?owner=${
           encodeURIComponent(owner)
