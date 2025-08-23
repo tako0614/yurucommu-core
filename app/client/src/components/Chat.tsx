@@ -86,9 +86,7 @@ async function loadMLSGroupStates(_accountId: string) {
 async function saveMLSGroupStates(_accountId: string, _v: Record<string, StoredGroupState>) {
   return;
 }
-async function loadKeyPackageRecords(_accountId: string, _roomId: string) {
-  return [] as unknown[];
-}
+// KeyPackage 関連は廃止
 async function loadMLSKeyPair(_accountId: string) {
   return null as GeneratedKeyPair | null;
 }
@@ -237,9 +235,7 @@ async function sendGroupMetadata(
   // best-effort noop
   return true;
 }
-async function addKeyPackage(_userName?: string, _kp?: { content: string }) {
-  return true;
-}
+// KeyPackage 登録は廃止
 
 /* uploadFile: accepts an object and tries a JSON POST; returns url or null */
 async function uploadFile(opts: {
@@ -278,12 +274,7 @@ async function uploadFile(opts: {
 
 /* simple fetch stubs that prefer server endpoints but return safe defaults */
 async function fetchHandshakes(_roomId: string, _opts?: any) {
-  try {
-    const res = await apiFetch(`/api/rooms/${encodeURIComponent(_roomId)}/handshakes`, {
-      method: "GET",
-    });
-    if (res.ok) return (await res.json()) as any[];
-  } catch { /* ignore */ }
+  // MLS 廃止: ハンドシェイクは常に空
   return [] as any[];
 }
 async function fetchKeepMessages(_handle: string, _opts?: any) {
@@ -305,31 +296,14 @@ async function fetchEncryptedMessages(_roomId: string, _userHandle: string, _opt
   } catch {}
   return [] as any[];
 }
-async function fetchKeyPackages(_user: string, _domain?: string) {
-  try {
-    const url = _domain ? `https://${_domain}/.well-known/keypackages/${_user}` : `/api/keypackages/${encodeURIComponent(_user)}`;
-    const res = await apiFetch(url, { method: "GET" });
-    if (res.ok) return (await res.json()) as any[];
-  } catch {}
-  return [] as any[];
-}
+// KeyPackage 取得は廃止
 async function searchRooms(_accountId: string, _opts?: any) {
-  try {
-    const res = await apiFetch(`/api/rooms?accountId=${encodeURIComponent(_accountId)}`, { method: "GET" });
-    if (res.ok) return (await res.json()) as any[];
-  } catch {}
+  // グループ未実装のため、空を返す
   return [] as any[];
 }
-async function addRoom(accountId: string, room: any, _signal?: any) {
-  try {
-    await apiFetch("/api/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId, ...room }),
-    });
-  } catch {
-    /* ignore */
-  }
+async function addRoom(_accountId: string, _room: any, _signal?: any) {
+  // グループ未実装のため、何もしない
+  return;
 }
 async function fetchPendingInvites(_userName: string) {
   try {
@@ -355,7 +329,7 @@ async function fetchEvents(_opts?: { since?: string; limit?: number }) {
   return [] as any[];
 }
 
-/* helper used elsewhere */
+/* helper used elsewhere (廃止済み): 何もしない */
 async function fetchKeyPackageRecords() { return []; }
 
 function adjustHeight(el?: HTMLTextAreaElement) {
@@ -745,7 +719,6 @@ export function Chat() {
     {},
   );
   const [keyPair, setKeyPair] = createSignal<GeneratedKeyPair | null>(null);
-  const [partnerHasKey, setPartnerHasKey] = createSignal(true);
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
   onMount(async () => {
@@ -768,10 +741,7 @@ export function Chat() {
   );
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
-  // 受信した Welcome を保留し、ユーザーに参加可否を尋ねる
-  const [pendingWelcomes, setPendingWelcomes] = createSignal<
-    Record<string, Uint8Array>
-  >({});
+  // MLS招待の保留は廃止
 
   const actorUrl = createMemo(() => {
     const user = account();
@@ -780,25 +750,7 @@ export function Chat() {
       : null;
   });
 
-  createEffect(() => {
-    const user = account();
-    const roomId = selectedRoom();
-    const actor = actorUrl();
-    if (!user || !roomId || !actor) return;
-    void (async () => {
-      const records = await loadKeyPackageRecords(user.id, roomId);
-      const last = records[records.length - 1];
-      if (last) {
-        await assessBinding(
-          user.id,
-          roomId,
-          actor,
-          (last as any).credentialFingerprint,
-          (last as any).ktIncluded,
-        );
-      }
-    })();
-  });
+  // MLS 廃止のため、KeyPackage レコードを用いたバインディング評価は削除
 
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
@@ -1039,7 +991,6 @@ export function Chat() {
         pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
         try {
           await saveMLSKeyPair(user.id, pair);
-          await addKeyPackage(user.userName, { content: kp.encoded });
         } catch (err) {
           console.error("鍵ペアの保存に失敗しました", err);
           setIsGeneratingKeyPair(false);
@@ -1052,117 +1003,9 @@ export function Chat() {
     return pair;
   };
 
-  // Handshake の再取得カーソルは ID ではなく時刻ベースで管理（APIが createdAt を after に使うため）
+  // MLS 廃止: ハンドシェイク同期は無効
   const lastHandshakeId = new Map<string, string>();
-
-  async function syncHandshakes(room: Room) {
-    const user = account();
-    if (!user) return;
-    let group = groups()[room.id];
-    if (!group) {
-      await initGroupState(room.id);
-      group = groups()[room.id];
-      if (!group) return;
-    }
-    const after = lastHandshakeId.get(room.id);
-    const hs = await fetchHandshakes(
-      room.id,
-      after ? { limit: 100, after } : { limit: 100 },
-    );
-    if (hs.length === 0) return;
-    const ordered = [...hs].sort((a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    let updated = false;
-    for (const h of ordered) {
-      const body = decodePublicMessage(h.message);
-      if (!body) continue;
-      try {
-        try {
-          const dec = decodeMlsMessage(body, 0)?.[0];
-          if (dec && dec.wireformat === "mls_public_message") {
-            group = await processCommit(
-              group,
-              dec.publicMessage as unknown as never,
-            );
-            updated = true;
-            lastHandshakeId.set(room.id, String(h.createdAt));
-            continue;
-          }
-        } catch {
-          /* not a commit */
-        }
-        try {
-          const dec = decodeMlsMessage(body, 0)?.[0];
-          if (dec && dec.wireformat === "mls_public_message") {
-            group = await processProposal(
-              group,
-              dec.publicMessage as unknown as never,
-            );
-            updated = true;
-            lastHandshakeId.set(room.id, String(h.createdAt));
-            continue;
-          }
-        } catch {
-          /* not a proposal */
-        }
-        try {
-          const obj = JSON.parse(new TextDecoder().decode(body));
-          if (obj?.type === "welcome" && Array.isArray(obj.data)) {
-            const wBytes = new Uint8Array(obj.data as number[]);
-            const ok = await verifyWelcome(wBytes);
-            if (!ok) {
-              globalThis.dispatchEvent(
-                new CustomEvent("app:toast", {
-                  detail: {
-                    type: "warning",
-                    title: "無視しました",
-                    description:
-                      "不正なWelcomeメッセージを受信したため無視しました",
-                  },
-                }),
-              );
-            } else {
-              // 参加はユーザーの同意後に行うため保留に入れる
-              setPendingWelcomes((prev) => ({ ...prev, [room.id]: wBytes }));
-            }
-            lastHandshakeId.set(room.id, String(h.createdAt));
-            continue;
-          }
-          if (obj?.type === "RosterEvidence") {
-            const ev = obj as RosterEvidence;
-            const okEv = await importRosterEvidence(
-              user.id,
-              room.id,
-              ev,
-            );
-            if (okEv) {
-              await appendRosterEvidence(user.id, room.id, [ev]);
-              const actor = actorUrl();
-              if (actor && ev.actor === actor) {
-                await assessBinding(
-                  user.id,
-                  room.id,
-                  actor,
-                  ev.leafSignatureKeyFpr,
-                );
-              }
-            }
-            lastHandshakeId.set(room.id, String(h.createdAt));
-            continue;
-          }
-        } catch {
-          /* not a JSON handshake */
-        }
-      } catch (e) {
-        console.warn("handshake apply failed", e);
-      }
-    }
-    if (updated) {
-      setGroups({ ...groups(), [room.id]: group });
-      await saveGroupStates();
-    }
-  }
+  async function syncHandshakes(_room: Room) { return; }
 
   const fetchMessagesForRoom = async (
     room: Room,
@@ -1305,15 +1148,7 @@ export function Chat() {
     const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
     updateRoomLast(room.id, lastMessage);
     // 招待のみで未参加なら送信を抑止（参加後に自動解除）
-    try {
-      const g = groups()[room.id];
-      if (g && user) {
-        const selfHandle = `${user.userName}@${getDomain()}`;
-        const members = extractMembers(g).map((x) => normalizeHandle(x) ?? x)
-          .filter((v): v is string => !!v);
-        setPartnerHasKey(members.includes(selfHandle));
-      }
-    } catch { /* ignore */ }
+    // MLS廃止のため、鍵有無チェックは不要
   };
 
   const loadOlderMessages = async (room: Room) => {
@@ -1580,122 +1415,11 @@ export function Chat() {
     } catch (e) {
       console.error("ルーム作成に失敗しました", e);
     }
-    // MLS 即時開始: 可能なら相手の KeyPackage を取得して Add→Commit→Welcome を送信
-    try {
-      const group = groups()[room.id];
-      if (group) {
-        const kpInputs: {
-          content: string;
-          actor?: string;
-          deviceId?: string;
-        }[] = [];
-        for (const h of others) {
-          const [uname, dom] = splitActor(h as ActorID);
-          const kps = await fetchKeyPackages(uname, dom);
-          if (kps && kps.length > 0) {
-            const kp = pickUsableKeyPackage(
-              kps as unknown as {
-                content: string;
-                expiresAt?: string;
-                used?: boolean;
-                deviceId?: string;
-              }[],
-            );
-            if (!kp) continue;
-            const actor = dom ? `https://${dom}/users/${uname}` : undefined;
-            kpInputs.push({
-              content: kp.content,
-              actor,
-              deviceId: kp.deviceId,
-            });
-          }
-        }
-        if (kpInputs.length > 0) {
-          const resAdd = await createCommitAndWelcomes(group, kpInputs);
-          const commitContent = encodePublicMessage(resAdd.commit);
-          const ok = await sendHandshake(
-            room.id,
-            `${user.userName}@${getDomain()}`,
-            commitContent,
-            // ルーム作成時は members が最新のロスター
-            members,
-          );
-          if (ok) {
-            for (const w of resAdd.welcomes) {
-              const wContent = encodePublicMessage(w.data);
-              const wk = await sendHandshake(
-                room.id,
-                `${user.userName}@${getDomain()}`,
-                wContent,
-                members,
-              );
-              if (!wk) break;
-            }
-            let gstate: StoredGroupState = resAdd.state;
-            const meta = await sendGroupMetadata(
-              room.id,
-              `${user.userName}@${getDomain()}`,
-              gstate,
-              members,
-              { name: room.name, icon: room.avatar },
-            );
-            if (meta) gstate = meta;
-            setGroups({ ...groups(), [room.id]: gstate });
-            saveGroupStates();
-            // 招待中として登録（Join後に設定画面で自動的にメンバー側へ移動）
-            await addPendingInvites(user.id, room.id, others);
-          }
-        }
-        // UI上は常に招待中として表示（Joinしたら自動的にメンバーへ移動）
-        await addPendingInvites(user.id, room.id, others);
-      }
-    } catch (e) {
-      console.warn("作成時のAdd/Welcome送信に失敗しました", e);
-    }
     if (autoOpen) setSelectedRoom(room.id);
     setShowGroupDialog(false);
   };
 
-  const removeActorLeaves = async (actorId: string): Promise<boolean> => {
-    const roomId = selectedRoom();
-    const user = account();
-    if (!roomId || !user) return false;
-    const group = groups()[roomId];
-    if (!group) return false;
-    try {
-      const records = await loadKeyPackageRecords(user.id, roomId);
-      const indices = Array.from(
-        new Set(
-          records.filter((r: any) => r.actorId === actorId).map((r: any) => r.leafIndex),
-        ),
-      );
-      if (indices.length === 0) return false;
-      const res = await removeMembers(group, indices);
-      const content = encodePublicMessage(res.commit);
-      const room = chatRooms().find((r) => r.id === roomId);
-      const toList = participantsFromState(roomId).length > 0
-        ? participantsFromState(roomId)
-        : (room?.members ?? []).filter((m) => !!m);
-      const ok = await sendHandshake(
-        roomId,
-        `${user.userName}@${getDomain()}`,
-        content,
-        toList,
-      );
-      if (!ok) return false;
-      setGroups({ ...groups(), [roomId]: res.state });
-      await saveGroupStates();
-      await apiFetch(`/ap/rooms/${encodeURIComponent(roomId)}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "Remove", object: actorId }),
-      });
-      return true;
-    } catch (e) {
-      console.error("メンバー削除に失敗しました", e);
-      return false;
-    }
-  };
+  // MLS 廃止のため、leaf の削除機能は無効化
 
   const sendMessage = async () => {
     const text = newMessage().trim();
@@ -1750,232 +1474,59 @@ export function Chat() {
       setMediaPreview(null);
       return;
     }
-    if (!partnerHasKey()) {
-      alert("このユーザーは暗号化された会話に対応していません。");
-      return;
-    }
-    // クライアント側で仮のメッセージIDを生成しておく
-    const localId = crypto.randomUUID();
-    const note: Record<string, unknown> = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      type: "Note",
-      id: `urn:uuid:${localId}`,
-      content: text,
-    };
-    if (mediaFile()) {
-      const file = mediaFile()!;
-      const att = await buildAttachment(file);
-      if (att) note.attachment = [att];
-    }
-    let group = groups()[roomId];
-    if (!group) {
-      await initGroupState(roomId);
-      group = groups()[roomId];
-      if (!group) {
-        alert("グループ初期化に失敗したため送信できません");
+    // --- DM 送信 (MLS 廃止) ---
+    try {
+      const selfHandle = `${user.userName}@${getDomain()}`;
+      const others = (room.members ?? []).filter((m) => m && m !== selfHandle);
+      const fallbackPeer = room.id.includes("@") ? normalizeActor(room.id as unknown as ActorID) : undefined;
+      const targets = others.length > 0 ? others : (fallbackPeer ? [fallbackPeer] : []);
+      if (targets.length > 0) {
+        let body = text;
+        if (mediaFile()) {
+          try {
+            const att = await buildAttachment(mediaFile()!);
+            if (att && typeof att.url === "string") {
+              body = body ? `${body}\n${att.url}` : att.url;
+            }
+          } catch { /* ignore */ }
+        }
+        const ok = await sendDirectMessage(selfHandle, targets, body);
+        if (!ok) {
+          alert("メッセージの送信に失敗しました");
+          return;
+        }
+        const optimistic: ChatMessage = {
+          id: crypto.randomUUID(),
+          author: selfHandle,
+          displayName: user.displayName || user.userName,
+          address: selfHandle,
+          content: body,
+          timestamp: new Date(),
+          type: mediaFile() ? (mediaFile()!.type.startsWith("image/") ? "image" : "file") : "text",
+          isMe: true,
+          avatar: room.avatar,
+        };
+        if (selectedRoom() === room.id) {
+          setMessages((old) => {
+            const next = [...old, optimistic];
+            setMessagesByRoom({
+              ...messagesByRoom(),
+              [roomCacheKey(room.id)]: next,
+            });
+            const user2 = account();
+            if (user2) void saveDecryptedMessages(user2.id, room.id, next);
+            return next;
+          });
+        }
+        updateRoomLast(room.id, optimistic);
+        setNewMessage("");
+        setMediaFile(null);
+        setMediaPreview(null);
         return;
       }
-    }
-    // 必要であれば、相手の KeyPackage を使って Add→Commit→Welcome を先行送信
-    try {
-      const self = `${user.userName}@${getDomain()}`;
-      const current = participantsFromState(roomId);
-      const targets = (room.members ?? []).filter((m) => m && m !== self);
-      const need = targets.filter((t) => !current.includes(t));
-      if (need.length > 0) {
-        const kpInputs: {
-          content: string;
-          actor?: string;
-          deviceId?: string;
-        }[] = [];
-        for (const h of need) {
-          const [uname, dom] = splitActor(h as ActorID);
-          const kps = await fetchKeyPackages(uname, dom);
-          if (kps && kps.length > 0) {
-            const kp = pickUsableKeyPackage(
-              kps as unknown as {
-                content: string;
-                expiresAt?: string;
-                used?: boolean;
-                deviceId?: string;
-              }[],
-            );
-            if (!kp) continue;
-            const actor = dom ? `https://${dom}/users/${uname}` : undefined;
-            kpInputs.push({
-              content: kp.content,
-              actor,
-              deviceId: kp.deviceId,
-            });
-          }
-        }
-        if (kpInputs.length > 0) {
-          const resAdd = await createCommitAndWelcomes(group, kpInputs);
-          const commitContent = encodePublicMessage(resAdd.commit);
-          const toList = Array.from(
-            new Set([
-              ...current,
-              ...need,
-              self,
-            ]),
-          );
-          const ok = await sendHandshake(
-            roomId,
-            `${user.userName}@${getDomain()}`,
-            commitContent,
-            toList,
-          );
-          if (!ok) throw new Error("Commit送信に失敗しました");
-          for (const w of resAdd.welcomes) {
-            const wContent = encodePublicMessage(w.data);
-            const wk = await sendHandshake(
-              roomId,
-              `${user.userName}@${getDomain()}`,
-              wContent,
-              toList,
-            );
-            if (!wk) throw new Error("Welcome送信に失敗しました");
-          }
-          let gstate: StoredGroupState = resAdd.state;
-          const meta = await sendGroupMetadata(
-            roomId,
-            `${user.userName}@${getDomain()}`,
-            gstate,
-            toList,
-            { name: room.name, icon: room.avatar },
-          );
-          if (meta) gstate = meta;
-          group = gstate;
-          setGroups({ ...groups(), [roomId]: group });
-          saveGroupStates();
-          try {
-            const acc = account();
-            if (acc) {
-              const participants = extractMembers(group).map((x) =>
-                normalizeHandle(x) ?? x
-              ).filter((v): v is string => !!v);
-              await syncPendingWithParticipants(acc.id, roomId, participants);
-            }
-          } catch {
-            console.error("参加メンバーの同期に失敗しました");
-          }
-          // 招待中に登録
-          await addPendingInvites(user.id, roomId, need);
-        }
-        // UI上は常に招待中として表示
-        await addPendingInvites(user.id, roomId, need);
-      }
-    } catch (e) {
-      console.warn("初回Add/Welcome処理に失敗しました", e);
-    }
-    // joinAck をルーム/端末ごとに一度だけ送る（永続化して再送を防止）
-    const ackCacheKey = `ackSent:${roomId}`;
-    try {
-      const sent = await getCacheItem(user.id, ackCacheKey);
-      if (!sent) {
-        const ackBody = JSON.stringify({
-          type: "joinAck",
-          roomId,
-          deviceId: user.id,
-        });
-        const ack = await encryptMessage(group, ackBody);
-        const ok = await sendEncryptedMessage(
-          roomId,
-          `${user.userName}@${getDomain()}`,
-          participantsFromState(roomId).length > 0
-            ? participantsFromState(roomId)
-            : (room.members ?? []).map((m) => m || "").filter((v) => !!v),
-          {
-            content: bufToB64(ack.message),
-            mediaType: "message/mls",
-            encoding: "base64",
-          },
-        );
-        if (ok) {
-          group = ack.state;
-          setGroups({ ...groups(), [roomId]: group });
-          saveGroupStates();
-          await setCacheItem(user.id, ackCacheKey, true);
-        }
-      }
-    } catch (e) {
-      console.warn("joinAck の送信または永続化に失敗しました", e);
-    }
-    const msgEnc = await encryptMessage(group, JSON.stringify(note));
-    let success = true;
-    {
-      const ok = await sendEncryptedMessage(
-        roomId,
-        `${user.userName}@${getDomain()}`,
-        participantsFromState(roomId).length > 0
-          ? participantsFromState(roomId)
-          : (room.members ?? []).map((m) => m || "").filter((v) => !!v),
-        {
-          content: bufToB64(msgEnc.message),
-          mediaType: "message/mls",
-          encoding: "base64",
-        },
-      );
-      if (!ok) success = false;
-    }
-    if (!success) {
-      alert("メッセージの送信に失敗しました");
-      return;
-    }
-    setGroups({ ...groups(), [roomId]: msgEnc.state });
-    saveGroupStates();
-
-    // 楽観的に自分の送信メッセージをUIへ即時反映（再取得は行わない）
-    try {
-      const meHandle = `${user.userName}@${getDomain()}`;
-      const dispName = user.displayName || user.userName;
-      let attachmentsUi: {
-        data?: string;
-        url?: string;
-        mediaType: string;
-        preview?: { url?: string; data?: string; mediaType?: string };
-      }[] | undefined;
-      if (mediaFile()) {
-        const file = mediaFile()!;
-        const purl = mediaPreview();
-        attachmentsUi = [{
-          mediaType: file.type || "application/octet-stream",
-          ...(purl ? { url: purl } : {}),
-        }];
-      }
-      const optimistic: ChatMessage = {
-        id: localId,
-        author: meHandle,
-        displayName: dispName,
-        address: meHandle,
-        content: text,
-        attachments: attachmentsUi,
-        timestamp: new Date(),
-        type: attachmentsUi && attachmentsUi.length > 0
-          ? attachmentsUi[0].mediaType.startsWith("image/") ? "image" : "file"
-          : "text",
-        isMe: true,
-        avatar: room.avatar,
-      };
-      setMessages((old) => {
-        const next = [...old, optimistic];
-        setMessagesByRoom({
-          ...messagesByRoom(),
-          [roomCacheKey(roomId)]: next,
-        });
-        const user2 = account();
-        if (user2) void saveDecryptedMessages(user2.id, roomId, next);
-        return next;
-      });
-      updateRoomLast(roomId, optimistic);
-    } catch (e) {
-      console.warn("楽観表示の反映に失敗しました", e);
-    }
-
-    // 入力欄と選択中のメディアをクリア
-    setNewMessage("");
-    setMediaFile(null);
-    setMediaPreview(null);
+    } catch { /* fallback to legacy path if needed */ }
+    // DMのみ対応。ここには通常到達しません。
+    return;
   };
 
   // 画面サイズ検出
@@ -2132,6 +1683,59 @@ export function Chat() {
             }
             return;
           }
+          // DM 通知（/dm 経由）を先に処理
+          if (typeof m.type === "string" && m.type === "dm") {
+            const p = m.payload as Record<string, unknown> | undefined;
+            if (!p) return;
+            const user = account();
+            if (!user) return;
+            const self = `${user.userName}@${getDomain()}`;
+            const from = typeof p.from === "string" ? p.from : "";
+            const to = typeof p.to === "string" ? [p.to] : Array.isArray(p.to) ? (p.to as string[]) : [];
+            if (!(to.includes(self) || from === self)) return;
+            const partnerId = from === self ? (to.find((v) => v !== self) ?? to[0]) : from;
+            if (!partnerId) return;
+            const normPartner = normalizeActor(partnerId as ActorID);
+            let room = chatRooms().find((r) => r.type !== "memo" && ((r.members ?? []).includes(normPartner) || r.id === normPartner));
+            if (!room) {
+              room = {
+                id: normPartner,
+                name: "",
+                displayName: normPartner.split("@")[0],
+                userName: user.userName,
+                domain: getDomain(),
+                avatar: (normPartner.split("@")[0] || "?").charAt(0).toUpperCase(),
+                unreadCount: 0,
+                type: "group",
+                members: [normPartner],
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              };
+              upsertRoom(room);
+              try { await applyDisplayFallback([room]); } catch { /* ignore */ }
+            }
+            if (!room) return;
+            // 選択中なら差分取得して追記、未選択ならプレビュー更新のみ
+            if (selectedRoom() === room.id) {
+              const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+              if (fetched.length > 0) {
+                const last = fetched[fetched.length - 1];
+                setMessages((prev) => {
+                  if (prev.some((x) => x.id === last.id)) return prev;
+                  const next = [...prev, last];
+                  setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room!.id)]: next });
+                  const u2 = account();
+                  if (u2) void saveDecryptedMessages(u2.id, room!.id, next);
+                  return next;
+                });
+                updateRoomLast(room.id, last);
+              }
+            } else {
+              const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+              if (fetched.length > 0) updateRoomLast(room.id, fetched[fetched.length - 1]);
+            }
+            return;
+          }
         }
       } catch (e) {
         console.warn("failed to handle pendingInvite message", e);
@@ -2146,77 +1750,7 @@ export function Chat() {
       const self = `${user.userName}@${getDomain()}`;
 
       if (msg.type === "handshake") {
-        const data = msg.payload;
-        if (!(data.recipients.includes(self) || data.sender === self)) {
-          return;
-        }
-
-        // 招待元がフォロー中かどうかを先に判定
-        let isFollowing = false;
-        try {
-          const me = account();
-          if (me) {
-            const following = await fetchFollowing(me.userName);
-            isFollowing = Array.isArray(following)
-              ? following.some((u: string) =>
-                u === data.sender || u === normalizeActor(data.sender)
-              )
-              : false;
-          }
-        } catch {
-          // 判定失敗時はフォロー外として扱う
-          isFollowing = false;
-        }
-        // 自分が送信者（招待した側）の場合は通知しない
-        if (data.sender === self) {
-          isFollowing = true;
-        }
-
-        if (!isFollowing) {
-          // フォロー外の招待はサーバー側で通知化（ここでは案内のみ）
-          globalThis.dispatchEvent(
-            new CustomEvent("app:toast", {
-              detail: {
-                type: "info",
-                title: "会話招待",
-                description:
-                  `${data.sender} から会話招待が届きました（フォロー外）。通知に表示します。`,
-                duration: 5000,
-              },
-            }),
-          );
-          // フォロー外の場合は自動参加・同期しない
-          return;
-        }
-
-        // フォロー中ならチャット一覧にプレースホルダを作成して同期
-        let room = chatRooms().find((r) => r.id === data.roomId);
-        if (!room) {
-          const others = Array.from(
-            new Set([
-              ...data.recipients,
-              data.sender,
-            ].filter((m) => m && m !== self)),
-          );
-          room = {
-            id: data.roomId,
-            name: "",
-            userName: user.userName,
-            domain: getDomain(),
-            avatar: "",
-            unreadCount: 0,
-            type: "group",
-            members: others,
-            lastMessage: "...",
-            lastMessageTime: undefined,
-          };
-          upsertRoom(room);
-          try {
-            await applyDisplayFallback([room]);
-          } catch { /* ignore */ }
-          await initGroupState(room.id);
-        }
-        if (room) await syncHandshakes(room);
+        // MLS 廃止: ハンドシェイク通知は無視
         return;
       }
 
@@ -2388,125 +1922,8 @@ export function Chat() {
         updateRoomLast(room.id, last);
       }
     };
-    // 通知画面からの「参加する」操作を受信して処理
-    const onAcceptInvite = async (ev: Event) => {
-      const e = ev as CustomEvent<{ roomId: string; sender?: string }>;
-      const targetRoomId = e.detail?.roomId;
-      if (!targetRoomId) return;
-      const user = account();
-      if (!user) return;
-      // 一覧になければプレースホルダを作成
-      let room = chatRooms().find((r) => r.id === targetRoomId);
-      if (!room) {
-        room = {
-          id: targetRoomId,
-          name: "",
-          userName: user.userName,
-          domain: getDomain(),
-          avatar: "",
-          unreadCount: 0,
-          type: "group",
-          members: [],
-          lastMessage: "...",
-          lastMessageTime: undefined,
-        };
-        upsertRoom(room);
-        await initGroupState(room.id);
-      }
-      try {
-        await syncHandshakes(room);
-        const w = pendingWelcomes()[room.id];
-        if (w) {
-          const pairs = await loadAllMLSKeyPairs(user.id);
-          let joined: StoredGroupState | null = null;
-          const list = pairs.length > 0
-            ? pairs
-            : (await ensureKeyPair() ? [await ensureKeyPair()!] : []);
-          for (const p of list) {
-            try {
-              if (!p) throw new Error("key pair not prepared");
-              const st = await joinWithWelcome(w, p);
-              joined = st;
-              break;
-            } catch { /* try next */ }
-          }
-          if (joined) {
-            // 参加成功: 自分の chatrooms に登録
-            try {
-              await addRoom(user.id, { id: room.id });
-            } catch { /* ignore */ }
-            setGroups({ ...groups(), [room.id]: joined });
-            await saveGroupStates();
-            setPendingWelcomes((prev) => {
-              const n = { ...prev };
-              delete n[room!.id];
-              return n;
-            });
-            await loadMessages(room, true);
-            setSelectedRoom(room.id);
-            // 招待のACK（任意）
-            try {
-              await apiFetch(
-                `/api/users/${
-                  encodeURIComponent(user.userName)
-                }/pendingInvites/ack`,
-                {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ roomId: room.id, deviceId: "" }),
-                },
-              );
-            } catch { /* ignore */ }
-            // サーバー側の chatrooms 登録反映を一覧に再取得
-            try {
-              await loadRooms();
-            } catch { /* ignore */ }
-            globalThis.dispatchEvent(
-              new CustomEvent("app:toast", {
-                detail: {
-                  type: "success",
-                  title: "参加しました",
-                  description: "会話に参加しました",
-                },
-              }),
-            );
-          } else {
-            globalThis.dispatchEvent(
-              new CustomEvent("app:toast", {
-                detail: {
-                  type: "error",
-                  title: "参加に失敗",
-                  description: "Welcomeの適用に失敗しました",
-                },
-              }),
-            );
-          }
-        } else {
-          // Welcome がまだ無い場合はルームを開いて手動参加に委ねる
-          setSelectedRoom(room.id);
-        }
-      } catch (err) {
-        globalThis.dispatchEvent(
-          new CustomEvent("app:toast", {
-            detail: {
-              type: "error",
-              title: "参加に失敗",
-              description: String(err),
-            },
-          }),
-        );
-      }
-    };
-
-    globalThis.addEventListener(
-      "app:accept-invite",
-      onAcceptInvite as EventListener,
-    );
-    acceptCleanup = () =>
-      globalThis.removeEventListener(
-        "app:accept-invite",
-        onAcceptInvite as EventListener,
-      );
+    // MLS招待の受諾イベントは廃止
+    acceptCleanup = () => {};
 
     addMessageHandler(handler);
     wsCleanup = () => removeMessageHandler(handler);
@@ -2515,61 +1932,22 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-  // 保留中招待の同期: 初期ロード時に取得し、その後は WS 通知に任せる
-  createEffect(() => {
-    const user = account();
-    if (!user) return;
-    void (async () => {
-      try {
-        const list = await fetchPendingInvites(user.userName);
-        for (const it of list) {
-          const rid = it.roomId;
-          if (!rid) continue;
-          let room = chatRooms().find((r) => r.id === rid);
-          if (!room) {
-            room = {
-              id: rid,
-              name: "",
-              userName: user.userName,
-              domain: getDomain(),
-              avatar: "",
-              unreadCount: 0,
-              type: "group",
-              members: [],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            };
-            upsertRoom(room);
-            await initGroupState(room.id);
-          }
-          await syncHandshakes(room);
-        }
-      } catch { /* ignore */ }
-    })();
-  });
+  // MLS 招待の同期は廃止
 
-  // 一覧のプレビュー更新を緩やかにポーリング（最大10件）
+  // 一覧のプレビュー更新ポーリングは簡素化（DMのみ）
   let previewPoller: number | undefined;
   createEffect(() => {
     const user = account();
     if (!user) return;
     if (previewPoller) clearInterval(previewPoller);
     previewPoller = setInterval(async () => {
-      try {
-        const rooms = chatRooms();
-        const targets = rooms
-          .filter((r) => r.type !== "memo")
-          .slice(0, 10);
-        for (const r of targets) {
-          try {
-            const msgs = await fetchMessagesForRoom(r, {
-              limit: 1,
-              dryRun: true,
-            });
-            if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
-          } catch { /* ignore one */ }
-        }
-      } catch { /* ignore all */ }
+      const targets = chatRooms().filter((r) => r.type !== "memo").slice(0, 10);
+      for (const r of targets) {
+        try {
+          const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+          if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
+        } catch { /* ignore */ }
+      }
     }, 60_000) as unknown as number;
   });
 
@@ -2737,11 +2115,7 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-  createEffect(() => {
-    if (!partnerHasKey()) {
-      alert("このユーザーは暗号化された会話に対応していません。");
-    }
-  });
+  // 暗号対応チェックは廃止
 
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
@@ -2965,8 +2339,6 @@ export function Chat() {
                       (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
                       const other = rawOther && rawOther !== selfHandle
-                        ? (normalizeHandle(rawOther) ?? null)
-                        : null;
                       return { ...r, name: other ?? (r.name || "不明") };
                     }
                     return r;
@@ -2989,122 +2361,7 @@ export function Chat() {
                     }
                   }}
                 />
-                {/* Welcome 受信時の参加確認バナー */}
-                <Show
-                  when={(function () {
-                    const id = selectedRoom();
-                    return id ? pendingWelcomes()[id] : undefined;
-                  })()}
-                >
-                  <div class="px-3 py-2 bg-amber-900/40 border-t border-amber-600/40 text-amber-100 flex items-center justify-between">
-                    <div class="text-sm">
-                      この会話に招待されています。参加しますか？
-                    </div>
-                    <div class="flex gap-2">
-                      <button
-                        type="button"
-                        class="px-3 py-1 rounded bg-amber-600/80 hover:bg-amber-600 text-white text-sm"
-                        onClick={async () => {
-                          const id = selectedRoom();
-                          const user = account();
-                          if (!id || !user) return;
-                          const w = pendingWelcomes()[id];
-                          if (!w) return;
-                          try {
-                            const pairs = await loadAllMLSKeyPairs(user.id);
-                            let joined: StoredGroupState | null = null;
-                            const list = pairs.length > 0
-                              ? pairs
-                              : (await ensureKeyPair()
-                                ? [await ensureKeyPair()!]
-                                : []);
-                            for (const p of list) {
-                              try {
-                                if (!p) {
-                                  throw new Error("key pair not prepared");
-                                }
-                                const st = await joinWithWelcome(w, p);
-                                joined = st;
-                                break;
-                              } catch { /* try next */ }
-                            }
-                            if (joined) {
-                              try {
-                                await addRoom(user.id, { id });
-                              } catch { /* ignore */ }
-                              setGroups({ ...groups(), [id]: joined });
-                              await saveGroupStates();
-                              setPendingWelcomes((prev) => {
-                                const n = { ...prev };
-                                delete n[id];
-                                return n;
-                              });
-                              const room = chatRooms().find((r) => r.id === id);
-                              if (room) await loadMessages(room, true);
-                              try {
-                                await apiFetch(
-                                  `/api/users/${
-                                    encodeURIComponent(user.userName)
-                                  }/pendingInvites/ack`,
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "content-type": "application/json",
-                                    },
-                                    body: JSON.stringify({
-                                      roomId: id,
-                                      deviceId: "",
-                                    }),
-                                  },
-                                );
-                              } catch { /* ignore */ }
-                              try {
-                                await loadRooms();
-                              } catch { /* ignore */ }
-                            } else {
-                              globalThis.dispatchEvent(
-                                new CustomEvent("app:toast", {
-                                  detail: {
-                                    type: "error",
-                                    title: "参加に失敗",
-                                    description: "Welcomeの適用に失敗しました",
-                                  },
-                                }),
-                              );
-                            }
-                          } catch (e) {
-                            globalThis.dispatchEvent(
-                              new CustomEvent("app:toast", {
-                                detail: {
-                                  type: "error",
-                                  title: "参加に失敗",
-                                  description: String(e),
-                                },
-                              }),
-                            );
-                          }
-                        }}
-                      >
-                        参加する
-                      </button>
-                      <button
-                        type="button"
-                        class="px-3 py-1 rounded bg-transparent border border-amber-500/60 text-amber-100 text-sm hover:bg-amber-500/20"
-                        onClick={() => {
-                          const id = selectedRoom();
-                          if (!id) return;
-                          setPendingWelcomes((prev) => {
-                            const n = { ...prev };
-                            delete n[id];
-                            return n;
-                          });
-                        }}
-                      >
-                        後で
-                      </button>
-                    </div>
-                  </div>
-                </Show>
+                {/* WelcomeバナーはMLS廃止のため削除 */}
                 <ChatSendForm
                   newMessage={newMessage()}
                   setNewMessage={setNewMessage}
@@ -3215,50 +2472,4 @@ async function syncPendingWithParticipants(
   await writePending(accountId, roomId, next);
 }
 
-function pickUsableKeyPackage(
-  list: {
-    content: string;
-    expiresAt?: string;
-    used?: boolean;
-    deviceId?: string;
-    lastResort?: boolean;
-  }[],
-):
-  | {
-    content: string;
-    expiresAt?: string;
-    used?: boolean;
-    deviceId?: string;
-    lastResort?: boolean;
-  }
-  | null {
-  const now = Date.now();
-  const normal = list.filter((k) => !k.lastResort);
-  const lastResort = list.filter((k) => k.lastResort);
-  const usableNormal = normal.filter((k) =>
-    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
-  );
-  if (usableNormal.length > 0) return usableNormal[0];
-  // 通常キーが無い場合のみ lastResort を候補にする（unused/未期限切れ優先）
-  const usableLR = lastResort.filter((k) =>
-    !k.used && (!k.expiresAt || Date.parse(k.expiresAt) > now)
-  );
-  if (usableLR.length > 0) return usableLR[0];
-  // それでも無ければ全体から最初
-  return list[0] ?? null;
-}
-
-function normalizeHandle(actor: ActorID): string | null {
-  if (actor.startsWith("http")) {
-    try {
-      const url = new URL(actor);
-      const name = url.pathname.split("/").pop()!;
-      return `${name}@${url.hostname}`;
-    } catch {
-      return null;
-    }
-  }
-  if (actor.includes("@")) return actor;
-  // 裸の文字列（displayName/uuid等）はハンドルとみなさない
-  return null;
-}
+// KeyPackage 選択ロジックは廃止

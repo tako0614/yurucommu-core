@@ -171,31 +171,16 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 ## チャット API
 
-エンドツーエンド暗号化に対応したチャット機能の API です。 `/api/users/*`
-プレフィックスには公開ユーザー情報取得用のエンドポイントも含まれますが、
-アカウント管理機能は `/api/accounts/*` で提供されます。 MLS
-に関する暗号化・復号・状態管理はすべてクライアント側で行い、サーバーは
-暗号化済みデータの保存と配送だけを担います。
+チャット機能は「グループ（未実装）」と「DM（ダイレクトメッセージ）」に分かれます。
+現在は DM のみ提供します（UI は将来のグループ対応を見据えて残しています）。
 
-- `GET /api/users/:user/keyPackages` – KeyPackage 一覧取得（`?summary=true`
-  で残数のみ取得）
-- `POST /api/users/:user/keyPackages` – KeyPackage 登録（GroupInfo
-  や有効期限を付与可能）
-- `POST /api/keyPackages/bulk` – 複数ユーザーの KeyPackage を一括登録
-- `GET /api/users/:user/keyPackages/:keyId` – KeyPackage 取得
-- `DELETE /api/users/:user/keyPackages/:keyId` – KeyPackage 削除
-- `GET /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア取得
-- `POST /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア保存
-- `DELETE /api/users/:user/encryptedKeyPair` – 暗号化鍵ペア削除
-- `POST /api/users/:user/resetKeys` – 鍵情報リセット
-- `GET /api/users/:user/messages` – メッセージ一覧取得
-- `POST /api/users/:user/messages` – メッセージ送信
+- `GET /dm?user1=<handle>&user2=<handle>` – 2者間 DM の一覧取得
+- `POST /dm` – DM 送信（body: `{ from, to, content }`）
 - `GET /api/users/:user/keep` – TAKO Keep に保存したメモ一覧を取得
 - `POST /api/users/:user/keep` – TAKO Keep へメモを保存
 - `POST /api/files` – ファイルアップロード（HTTP のみ、要ログイン）
 - `GET /api/files/:id` – ファイル取得（認証不要）
-- `GET /api/files/messages/:messageId/:index` –
-  メッセージ添付ファイル取得（認証不要）
+- `GET /api/files/messages/:messageId/:index` – メッセージ添付ファイル取得（認証不要）
 
 ### ファイルアップロード設定
 
@@ -216,12 +201,8 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 ## クライアントでのデータ保存
 
-チャット機能で利用する MLS 関連データはブラウザの IndexedDB に保存されます。
-暗号化やグループ状態の更新もクライアント内で完結し、サーバーは暗号化済みデータを
-そのまま中継します。データベースはアカウントごとに分割され、別アカウントの情報が混在しないようになっています。
-
-鍵共有の仕組みについては [docs/key-sharing.md](docs/key-sharing.md)
-を参照してください。
+DM はサーバーに平文で保存され、WebSocket により新着通知が配信されます（`type: "dm"`）。
+フロントエンドはローカルにメッセージ一覧のキャッシュを保持します。将来的なグループ機能に向けた UI は残っていますが、MLS/E2EE は廃止されています。
 
 ## OpenAPI仕様
 
