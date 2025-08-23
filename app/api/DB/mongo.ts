@@ -360,8 +360,14 @@ export class MongoDB implements DB {
     return await query.sort(sort ?? {}).lean();
   }
 
-  async saveDMMessage(from: string, to: string, content: string) {
-    const doc = new DMMessage({ from, to, content });
+  async saveDMMessage(
+    from: string,
+    to: string,
+    type: string,
+    content?: string,
+    attachments?: Record<string, unknown>[],
+  ) {
+    const doc = new DMMessage({ from, to, type, content, attachments });
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = { env: this.env };

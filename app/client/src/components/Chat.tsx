@@ -55,7 +55,15 @@ function setCacheItem(accountId: string, key: string, val: unknown) {
 }
 async function loadDecryptedMessages(accountId: string, roomId: string) {
   const v = await getCacheItem(accountId, `messages:${roomId}`);
-  return Array.isArray(v) ? (v as ChatMessage[]) : undefined;
+  if (!Array.isArray(v)) return undefined;
+  return (v as Record<string, unknown>[]).map((m) => {
+    const rawTs = m.timestamp ?? Date.now();
+    const ts = new Date(rawTs as string | number | Date);
+    return {
+      ...m,
+      timestamp: isNaN(ts.getTime()) ? new Date() : ts,
+    } as ChatMessage;
+  });
 }
 async function saveDecryptedMessages(
   accountId: string,
@@ -673,7 +681,7 @@ export function Chat() {
       );
     }
 
-    // サーバーの DM API (/dm) を用いてメッセージを取得する。
+    // サーバーの DM API (/api/dm) を用いてメッセージを取得する。
     // friends グループは単なる actor リストとして扱い、各メンバーとの DM をマージして返す。
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
@@ -682,11 +690,11 @@ export function Chat() {
       );
       const raw: unknown[] = [];
 
-      // メンバーごとに /dm?user1=<self>&user2=<member> を呼び出して集約
+      // メンバーごとに /api/dm?user1=<self>&user2=<member> を呼び出して集約
       for (const m of members) {
         try {
           const res = await apiFetch(
-            `/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
+            `/api/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
               encodeURIComponent(m)
             }`,
           );
@@ -713,6 +721,7 @@ export function Chat() {
 
       const msgs: ChatMessage[] = ordered.map((m) => {
         const created = m.createdAt ?? m.created_at ?? Date.now();
+        const ts = new Date(created as string | number | Date);
         const from = String(m.from ?? "");
         return {
           id: String(m._id ?? m.id ?? `${from}:${created}`),
@@ -720,8 +729,8 @@ export function Chat() {
           displayName: from.split("/").pop() ?? from,
           address: from,
           content: String(m.content ?? ""),
-          timestamp: new Date(Number(created)),
-          type: "text",
+          timestamp: isNaN(ts.getTime()) ? new Date() : ts,
+          type: String(m.type ?? "text"),
           isMe: from === selfHandle,
           avatar: room.avatar,
         } as ChatMessage;
@@ -873,7 +882,7 @@ export function Chat() {
     const unique = rooms.filter(
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
-    setChatRooms(unique);
+    upsertRooms(unique);
     // 初期表示のため、各ルームの最新メッセージをバックグラウンドで取得し一覧のプレビューを更新
     // （選択中ルーム以外は本文状態には反映せず、lastMessage/lastMessageTime のみ更新）
     void (async () => {
@@ -1061,35 +1070,30 @@ export function Chat() {
           alert("メッセージの送信に失敗しました");
           return;
         }
-        const optimistic: ChatMessage = {
-          id: crypto.randomUUID(),
-          author: selfHandle,
-          displayName: user.displayName || user.userName,
-          address: selfHandle,
-          content: body,
-          timestamp: new Date(),
-          type: mediaFile()
-            ? (mediaFile()!.type.startsWith("image/") ? "image" : "file")
-            : "text",
-          isMe: true,
-          avatar: room.avatar,
-        };
-        if (selectedRoom() === room.id) {
-          setMessages((old) => {
-            const next = [...old, optimistic];
-            setMessagesByRoom({
-              ...messagesByRoom(),
-              [roomCacheKey(room.id)]: next,
-            });
-            const user2 = account();
-            if (user2) void saveDecryptedMessages(user2.id, room.id, next);
-            return next;
-          });
-        }
-        updateRoomLast(room.id, optimistic);
         setNewMessage("");
         setMediaFile(null);
         setMediaPreview(null);
+        const fetched = await fetchMessagesForRoom(room, {
+          limit: 1,
+          dryRun: true,
+        });
+        if (fetched.length > 0) {
+          const last = fetched[fetched.length - 1];
+          if (selectedRoom() === room.id) {
+            setMessages((old) => {
+              if (old.some((x) => x.id === last.id)) return old;
+              const next = [...old, last];
+              setMessagesByRoom({
+                ...messagesByRoom(),
+                [roomCacheKey(room.id)]: next,
+              });
+              const user2 = account();
+              if (user2) void saveDecryptedMessages(user2.id, room.id, next);
+              return next;
+            });
+          }
+          updateRoomLast(room.id, last);
+        }
         return;
       }
     } catch { /* fallback to legacy path if needed */ }
@@ -1207,7 +1211,7 @@ export function Chat() {
       try {
         if (typeof msg === "object" && msg !== null) {
           const m = msg as Record<string, unknown>;
-          // DM 通知（/dm 経由）を先に処理
+          // DM 通知（/api/dm 経由）を先に処理
           if (typeof m.type === "string" && m.type === "dm") {
             const p = m.payload as Record<string, unknown> | undefined;
             if (!p) return;

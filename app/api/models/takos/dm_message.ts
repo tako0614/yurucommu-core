@@ -4,7 +4,9 @@ import tenantScope from "../plugins/tenant_scope.ts";
 const dmMessageSchema = new mongoose.Schema({
   from: { type: String, required: true, index: true },
   to: { type: String, required: true, index: true },
-  content: { type: String, required: true },
+  type: { type: String, required: true },
+  content: { type: String },
+  attachments: { type: [mongoose.Schema.Types.Mixed] },
   createdAt: { type: Date, default: Date.now },
 });
 

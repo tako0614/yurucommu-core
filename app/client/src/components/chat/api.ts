@@ -21,7 +21,13 @@ export async function fetchDirectMessages(
     // peer が与えられた場合、Activity の to/cc に peer の actor URI が含まれるものを抽出
     // 指定がない場合は to が自分のみ (to が配列で長さ1か、文字列で自Handle と等しい) のものを抽出
     const peerActorUri = peer
-      ? peer.startsWith("http") ? peer : `https://${peer.includes("@") ? peer.split("@")[1] : getDomain()}/users/${encodeURIComponent(peer.includes("@") ? peer.split("@")[0] : peer)}`
+      ? peer.startsWith("http")
+        ? peer
+        : `https://${
+          peer.includes("@") ? peer.split("@")[1] : getDomain()
+        }/users/${
+          encodeURIComponent(peer.includes("@") ? peer.split("@")[0] : peer)
+        }`
       : undefined;
 
     const filtered = items.filter((it: Record<string, unknown>) => {
@@ -42,7 +48,9 @@ export async function fetchDirectMessages(
         return recipients.includes(peerActorUri);
       } else {
         // 自分のみ向け: recipients がちょうど自Handle のみ
-        if (recipients.length === 1 && recipients[0] === selfHandle) return true;
+        if (recipients.length === 1 && recipients[0] === selfHandle) {
+          return true;
+        }
         // または to が "https://www.w3.org/ns/activitystreams#Public" のような public は除外
         return false;
       }
@@ -50,12 +58,17 @@ export async function fetchDirectMessages(
       const id = String(it.id ?? it._id ?? "");
       const author = typeof it.attributedTo === "string" ? it.attributedTo : "";
       const content = typeof it.content === "string" ? it.content : "";
-      const published = it.published ? new Date(String(it.published)) : new Date();
-      const attachments = Array.isArray(it.attachment) ? it.attachment.map((a: any) => ({
-        url: a.url ?? a.mediaType ?? undefined,
-        mediaType: a.mediaType ?? undefined,
-        preview: a.preview ? { url: a.preview.url } : undefined,
-      })) : undefined;
+      const published = it.published
+        ? new Date(String(it.published))
+        : new Date();
+      const attachments = Array.isArray(it.attachment)
+        // deno-lint-ignore no-explicit-any
+        ? it.attachment.map((a: any) => ({
+          url: a.url ?? a.mediaType ?? undefined,
+          mediaType: a.mediaType ?? undefined,
+          preview: a.preview ? { url: a.preview.url } : undefined,
+        }))
+        : undefined;
       return {
         id,
         author,
@@ -79,7 +92,7 @@ export async function fetchDirectMessages(
 
 /**
  * 暗号化なしで DM を送信する
- * サーバーの /dm エンドポイントへ POST する。
+ * サーバーの /api/dm エンドポイントへ POST する。
  * @param from 送信者ハンドル (例: "alice@example.com" か "alice")
  * @param to 受信者ハンドル配列 (ローカル/リモート問わず "user@domain" 形式を期待)
  * @param content 本文
@@ -92,15 +105,16 @@ export async function sendDirectMessage(
   attachments?: { url: string; mediaType?: string }[],
 ): Promise<boolean> {
   try {
-    // サーバー側 /dm は単一 recipient (to) を想定しているため複数送信先がある場合はそれぞれ送信する
+    // サーバー側 /api/dm は単一 recipient (to) を想定しているため複数送信先がある場合はそれぞれ送信する
     for (const t of to) {
       const payload = {
         from,
         to: t,
+        type: "text",
         content,
         attachments,
       };
-      const res = await apiFetch("/dm", {
+      const res = await apiFetch("/api/dm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

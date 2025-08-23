@@ -66,7 +66,13 @@ export interface DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ): Promise<unknown[]>;
-  saveDMMessage(from: string, to: string, content: string): Promise<unknown>;
+  saveDMMessage(
+    from: string,
+    to: string,
+    type: string,
+    content?: string,
+    attachments?: Record<string, unknown>[],
+  ): Promise<unknown>;
   listDMsBetween(user1: string, user2: string): Promise<unknown[]>;
   findObjects(
     filter: Record<string, unknown>,

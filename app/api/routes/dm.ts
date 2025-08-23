@@ -18,18 +18,33 @@ app.post(
     z.object({
       from: z.string(),
       to: z.string(),
-      content: z.string(),
+      type: z.string(),
+      content: z.string().optional(),
+      attachments: z.array(
+        z.object({
+          url: z.string(),
+          mediaType: z.string().optional(),
+        }),
+      ).optional(),
     }),
   ),
   async (c) => {
-    const { from, to, content } = c.req.valid("json") as {
+    const { from, to, type, content, attachments } = c.req.valid("json") as {
       from: string;
       to: string;
-      content: string;
+      type: string;
+      content?: string;
+      attachments?: { url: string; mediaType?: string }[];
     };
     const db = createDB(getEnv(c));
-    const doc = await db.saveDMMessage(from, to, content) as { _id: string };
-    const payload = { id: doc._id, from, to, content };
+    const doc = await db.saveDMMessage(
+      from,
+      to,
+      type,
+      content,
+      attachments,
+    ) as { _id: string };
+    const payload = { id: doc._id, from, to, type, content, attachments };
     sendToUser(to, { type: "dm", payload });
     sendToUser(from, { type: "dm", payload });
     return c.json(payload);
