@@ -73,12 +73,13 @@ async function uploadFile(opts: {
       ? opts.content
       : new Uint8Array(opts.content as ArrayBuffer);
     const payload = {
-      data: bufToB64(asUint8),
+      // サーバーは JSON ボディでは `content` を期待
+      content: bufToB64(asUint8),
       mediaType: opts.mediaType,
       key: opts.key,
       iv: opts.iv,
       name: opts.name,
-    };
+    } as Record<string, unknown>;
     const res = await apiFetch("/api/files", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -94,12 +95,20 @@ async function uploadFile(opts: {
   return null;
 }
 
-async function sendKeepMessage(_handle: string, _content: string) {
+async function sendKeepMessage(
+  _handle: string,
+  _content: string,
+  _attachments?: Record<string, unknown>[],
+) {
   try {
     const res = await apiFetch(`/api/keeps`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: _handle, content: _content }),
+      body: JSON.stringify({
+        handle: _handle,
+        content: _content,
+        attachments: Array.isArray(_attachments) ? _attachments : undefined,
+      }),
     });
     if (res.ok) return (await res.json());
   } catch {
@@ -384,20 +393,17 @@ async function buildAttachment(file: File) {
   if (file.type.startsWith("image/")) {
     const p = await generateImagePreview(file);
     if (p) {
-      const pEnc = await encryptFile(p.file);
+      // プレビューは平文で保存し、クライアントで直接表示できるようにする
+      const pBuf = await p.file.arrayBuffer();
       const pUrl = await uploadFile({
-        content: pEnc.data,
-        mediaType: pEnc.mediaType,
-        key: pEnc.key,
-        iv: pEnc.iv,
+        content: pBuf,
+        mediaType: p.file.type || "image/jpeg",
         name: p.file.name,
       });
       if (pUrl) {
         preview = {
           url: pUrl,
-          mediaType: pEnc.mediaType,
-          key: pEnc.key,
-          iv: pEnc.iv,
+          mediaType: p.file.type || "image/jpeg",
           width: p.width,
           height: p.height,
         };
@@ -406,20 +412,17 @@ async function buildAttachment(file: File) {
   } else if (file.type.startsWith("video/")) {
     const p = await generateVideoPreview(file);
     if (p) {
-      const pEnc = await encryptFile(p.file);
+      // 動画のプレビューも平文で保存して表示に用いる
+      const pBuf = await p.file.arrayBuffer();
       const pUrl = await uploadFile({
-        content: pEnc.data,
-        mediaType: pEnc.mediaType,
-        key: pEnc.key,
-        iv: pEnc.iv,
+        content: pBuf,
+        mediaType: p.file.type || "image/jpeg",
         name: p.file.name,
       });
       if (pUrl) {
         preview = {
           url: pUrl,
-          mediaType: pEnc.mediaType,
-          key: pEnc.key,
-          iv: pEnc.iv,
+          mediaType: p.file.type || "image/jpeg",
           width: p.width,
           height: p.height,
         };
@@ -646,23 +649,42 @@ export function Chat() {
     const user = account();
     if (!user) return [];
 
-    // メモは既存の keep API を利用
+    // メモは既存の keep API を利用（添付対応）
     if (room.type === "memo") {
       const list = await fetchKeepMessages(
         `${user.userName}@${getDomain()}`,
         params,
       );
-      const msgs = (list as Array<Record<string, unknown>>).map((m) => ({
-        id: String(m.id ?? ""),
-        author: `${user.userName}@${getDomain()}`,
-        displayName: user.displayName || user.userName,
-        address: `${user.userName}@${getDomain()}`,
-        content: String(m.content ?? ""),
-        timestamp: new Date(String(m.createdAt ?? Date.now())),
-        type: "text" as const,
-        isMe: true,
-        avatar: room.avatar,
-      }));
+      const msgs = (list as Array<Record<string, unknown>>).map((m) => {
+        const attachments = Array.isArray((m as { attachments?: unknown[] })
+          .attachments)
+          ? (m as { attachments?: unknown[] }).attachments as unknown[]
+          : [];
+        const firstType = (attachments[0] as { mediaType?: string })?.
+          mediaType || "";
+        const msgType = attachments.length > 0
+          ? (firstType.startsWith("image/")
+            ? ("image" as const)
+            : (firstType.startsWith("video/") ? ("video" as const) : ("file" as const)))
+          : ("note" as const);
+        return {
+          id: String(m.id ?? ""),
+          author: `${user.userName}@${getDomain()}`,
+          displayName: user.displayName || user.userName,
+          address: `${user.userName}@${getDomain()}`,
+          content: String(m.content ?? ""),
+          attachments: attachments as {
+            data?: string;
+            url?: string;
+            mediaType: string;
+            preview?: { url?: string; data?: string; mediaType?: string };
+          }[],
+          timestamp: new Date(String(m.createdAt ?? Date.now())),
+          type: msgType,
+          isMe: true,
+          avatar: room.avatar,
+        } as ChatMessage;
+      });
       return msgs.sort((a: ChatMessage, b: ChatMessage) =>
         a.timestamp.getTime() - b.timestamp.getTime()
       );
@@ -710,55 +732,56 @@ export function Chat() {
         const created = m.createdAt ?? m.created_at ?? Date.now();
         const ts = new Date(created as string | number | Date);
         const from = String(m.from ?? "");
-        const attachments =
-          Array.isArray((m as { attachments?: unknown }).attachments)
-            ? (m.attachments as unknown[])
-              .map((a) => {
-                if (!a || typeof a !== "object") return null;
-                const url = typeof (a as { url?: unknown }).url === "string"
-                  ? (a as { url: string }).url
+        // attachments/attachment の両方に対応し、URL がない場合は
+        // /api/files/messages/:messageId/:index をフォールバックとして構築
+        const messageId = String(m._id ?? m.id ?? `${from}:${created}`);
+        const rawAtt = (m as { attachments?: unknown; attachment?: unknown })
+          .attachments ?? (m as { attachment?: unknown }).attachment;
+        const attachments = Array.isArray(rawAtt)
+          ? rawAtt
+            .map((a, idx) => {
+              if (!a || typeof a !== "object") return null;
+              const url = typeof (a as { url?: unknown }).url === "string"
+                ? (a as { url: string }).url
+                : undefined;
+              const data = typeof (a as { data?: unknown }).data === "string"
+                ? (a as { data: string }).data
+                : undefined;
+              const mediaType =
+                typeof (a as { mediaType?: unknown }).mediaType === "string"
+                  ? (a as { mediaType: string }).mediaType
+                  : "application/octet-stream";
+              const rawPrev = (a as { preview?: unknown }).preview;
+              let preview:
+                | { url?: string; data?: string; mediaType?: string }
+                | undefined;
+              if (rawPrev && typeof rawPrev === "object") {
+                const pUrl = typeof (rawPrev as { url?: unknown }).url === "string"
+                  ? (rawPrev as { url: string }).url
                   : undefined;
-                const data = typeof (a as { data?: unknown }).data === "string"
-                  ? (a as { data: string }).data
+                const pData = typeof (rawPrev as { data?: unknown }).data === "string"
+                  ? (rawPrev as { data: string }).data
                   : undefined;
-                const mediaType =
-                  typeof (a as { mediaType?: unknown }).mediaType === "string"
-                    ? (a as { mediaType: string }).mediaType
-                    : "application/octet-stream";
-                const rawPrev = (a as { preview?: unknown }).preview;
-                let preview:
-                  | { url?: string; data?: string; mediaType?: string }
-                  | undefined;
-                if (rawPrev && typeof rawPrev === "object") {
-                  const pUrl =
-                    typeof (rawPrev as { url?: unknown }).url === "string"
-                      ? (rawPrev as { url: string }).url
-                      : undefined;
-                  const pData =
-                    typeof (rawPrev as { data?: unknown }).data === "string"
-                      ? (rawPrev as { data: string }).data
-                      : undefined;
-                  const pMediaType =
-                    typeof (rawPrev as { mediaType?: unknown }).mediaType ===
-                        "string"
-                      ? (rawPrev as { mediaType: string }).mediaType
-                      : undefined;
-                  if (pUrl || pData) {
-                    preview = { url: pUrl, data: pData, mediaType: pMediaType };
-                  }
-                }
-                if (url || data) {
-                  return { url, data, mediaType, preview };
-                }
-                return null;
-              })
-              .filter((a): a is {
-                url?: string;
-                data?: string;
-                mediaType: string;
-                preview?: { url?: string; data?: string; mediaType?: string };
-              } => !!a)
-            : undefined;
+                const pMediaType =
+                  typeof (rawPrev as { mediaType?: unknown }).mediaType === "string"
+                    ? (rawPrev as { mediaType: string }).mediaType
+                    : undefined;
+                if (pUrl || pData) preview = { url: pUrl, data: pData, mediaType: pMediaType };
+              }
+              // URL がない場合のフォールバック
+              const fallbackUrl = url || (data ? undefined : `/api/files/messages/${encodeURIComponent(messageId)}/${idx}`);
+              if (fallbackUrl || data) {
+                return { url: fallbackUrl, data, mediaType, preview };
+              }
+              return null;
+            })
+            .filter((a): a is {
+              url?: string;
+              data?: string;
+              mediaType: string;
+              preview?: { url?: string; data?: string; mediaType?: string };
+            } => !!a)
+          : [];
         return {
           id: String(m._id ?? m.id ?? `${from}:${created}`),
           author: from,
@@ -767,7 +790,20 @@ export function Chat() {
           content: String(m.content ?? ""),
           attachments,
           timestamp: isNaN(ts.getTime()) ? new Date() : ts,
-          type: String(m.type ?? "text"),
+          type: attachments.length > 0
+            ? (((attachments[0].mediaType || "").startsWith("image/")) ? "image" : "file")
+            : (() => {
+              const t = String(m.type ?? "").toLowerCase();
+              if (t === "note" || t === "image" || t === "video" || t === "file") return t as typeof t;
+              if (attachments.length > 0) {
+                const mt = (attachments[0]?.mediaType || "").toLowerCase();
+                if (mt.startsWith("image/")) return "image" as const;
+                if (mt.startsWith("video/")) return "video" as const;
+                return "file" as const;
+              }
+              // 既定は Note
+              return "note" as const;
+            })(),
           isMe: from === selfHandle,
           avatar: room.avatar,
         } as ChatMessage;
@@ -1037,9 +1073,17 @@ export function Chat() {
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
     if (room.type === "memo") {
+      let attachmentsParam: Record<string, unknown>[] | undefined;
+      if (mediaFile()) {
+        try {
+          const att = await buildAttachment(mediaFile()!);
+          if (att && typeof att.url === "string") attachmentsParam = [att];
+        } catch { /* ignore */ }
+      }
       const res = await sendKeepMessage(
         `${user.userName}@${getDomain()}`,
         text,
+        attachmentsParam,
       );
       if (!res) {
         globalThis.dispatchEvent(
@@ -1059,8 +1103,15 @@ export function Chat() {
         displayName: user.displayName || user.userName,
         address: `${user.userName}@${getDomain()}`,
         content: res.content,
+        attachments: Array.isArray(res.attachments) ? res.attachments : [],
         timestamp: new Date(res.createdAt),
-        type: "text",
+        type: (Array.isArray(res.attachments) && res.attachments.length > 0)
+          ? (((res.attachments[0]?.mediaType || "").startsWith("image/"))
+            ? "image"
+            : ((res.attachments[0]?.mediaType || "").startsWith("video/")
+              ? "video"
+              : "file"))
+          : "note",
         isMe: true,
         avatar: room.avatar,
       };
@@ -1906,10 +1957,8 @@ export function Chat() {
                   mediaPreview={mediaPreview()}
                   setMediaPreview={setMediaPreview}
                   sendMessage={sendMessage}
-                  allowMedia={(function () {
-                    const r = selectedRoomInfo();
-                    return r ? r.type !== "memo" : true;
-                  })()}
+                  // TAKO KEEP（memo）でも画像・ファイル送信を許可
+                  allowMedia={true}
                 />
               </div>
             </Show>

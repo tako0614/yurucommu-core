@@ -61,13 +61,24 @@ export async function fetchDirectMessages(
       const published = it.published
         ? new Date(String(it.published))
         : new Date();
-      const attachments = Array.isArray(it.attachment)
-        // deno-lint-ignore no-explicit-any
-        ? it.attachment.map((a: any) => ({
-          url: a.url ?? a.mediaType ?? undefined,
-          mediaType: a.mediaType ?? undefined,
-          preview: a.preview ? { url: a.preview.url } : undefined,
-        }))
+      // ActivityStreams 互換の添付（attachment）をクライアント内部形式に正規化
+      const attachments = Array.isArray((it as { attachment?: unknown }).attachment)
+        ? (it.attachment as unknown[])
+          // deno-lint-ignore no-explicit-any
+          .map((a: any) => {
+            const url = typeof a?.url === "string" ? a.url : undefined;
+            const mediaType = typeof a?.mediaType === "string"
+              ? a.mediaType
+              : undefined;
+            const preview = a?.preview && typeof a.preview === "object"
+              ? ({ url: typeof a.preview.url === "string" ? a.preview.url : undefined } as {
+                url?: string;
+              })
+              : undefined;
+            if (!url || !mediaType) return null;
+            return { url, mediaType, preview };
+          })
+          .filter((v): v is { url: string; mediaType: string; preview?: { url?: string } } => !!v)
         : undefined;
       return {
         id,
@@ -107,10 +118,23 @@ export async function sendDirectMessage(
   try {
     // サーバー側 /api/dm は単一 recipient (to) を想定しているため複数送信先がある場合はそれぞれ送信する
     for (const t of to) {
+      // ActivityPub準拠の type を決定
+      let apType: "note" | "image" | "video" | "file" = "note";
+      const hasText = typeof content === "string" && content.trim().length > 0;
+      const firstMediaType = Array.isArray(attachments) && attachments.length > 0
+        ? String((attachments[0] as { mediaType?: string }).mediaType || "")
+        : "";
+      if (!hasText && firstMediaType) {
+        if (firstMediaType.startsWith("image/")) apType = "image";
+        else if (firstMediaType.startsWith("video/")) apType = "video";
+        else apType = "file";
+      } else {
+        apType = "note"; // 本文がある場合は Note とする（添付は許容）
+      }
       const payload = {
         from,
         to: t,
-        type: "text",
+        type: apType,
         content,
         attachments,
       };

@@ -13,7 +13,12 @@ export interface ChatMessage {
     preview?: { url?: string; data?: string; mediaType?: string };
   }[];
   timestamp: Date;
-  type: "text" | "image" | "file";
+  // ActivityPubのオブジェクト種別に準拠（簡易）
+  // note: Note（本文中心、添付も可）
+  // image: Image（本文なしでも可）
+  // video: Video（本文なしでも可）
+  // file: 汎用ファイル（Document相当、本文なしでも可）
+  type: "note" | "image" | "video" | "file";
   avatar?: string;
   isMe?: boolean;
 }

@@ -1,6 +1,10 @@
-# ActivityPubグループ会話仕様（方式2: Group Actor）v0.1
+# ActivityPubグループ会話仕様（方式2: Group Actor）v0.2
 
-最終更新: 2025-08-23
+最終更新: 2025-08-24
+
+> **本更新の主旨**: 「Announceで受信者秘匿を維持」「Objectの推測困難化／認証付きフェッチ」「Group中継時の偽造防止（作者署名の検証）」を明確化し、最低相互運用要件として盛り込む。
+
+---
 
 ## 1. 目的・範囲
 
@@ -17,6 +21,8 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 * **Actor**: ASで定義される主体。ここでは `type: Group` を主対象とする。
 * **メンバー**: グループの`followers`コレクションに含まれるActor。
 * **管理者/モデレーター**: グループのロール。実装固有。
+* **作者署名（object-signature）**: 投稿Object（例: Note）自体に付与するJWS等の整合性・真正性証明。
+* **認証付きフェッチ（Authenticated/Authorized Fetch）**: 取得要求に署名等の認可を要求するフェッチ方式。
 
 ---
 
@@ -27,8 +33,13 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 * メンバーの投稿は、
 
   1. メンバーが自分の`outbox`へ`Create{Note}`（宛先`to: group.id`）を出す。
-  2. それを受け取ったグループが\*\*`Announce`\*\*で自グループの`followers`へ配送する（推奨）。
+  2. それを受け取ったグループが\*\*`Announce`\*\*でメンバーへ再配信（fan-out）する。
 * 公開範囲はASの受信者フィールド（`to`/`cc`/`bto`/`bcc`/`audience`）で制御。
+* **秘匿グループの最低要件**（本更新で追加）：
+
+  * グループの`Announce`は\*\*`bto`に実メンバー列を入れて配送前に剥がす\*\*（受信者のみが自分宛であることを知る）。
+  * `Announce.object`は\*\*埋め込み（by value）\*\*を第一選択とする。URL露出を避け、追加フェッチを不要化。
+  * 埋め込まれた`Note`には**作者署名**を含め、受信側は検証する（Groupの偽造・改ざん対策）。
 
 ---
 
@@ -147,12 +158,13 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 
 ## 7. 投稿と配送
 
-### 7.1 メンバーの投稿
+### 7.1 メンバーの投稿（作者署名＋オーディエンスバインディング）
 
 * メンバーは自分の`outbox`に`Create{Note}`をPOST。`to`は\*\*グループActorの`id`\*\*を指定。
-* 受け取ったグループは\*\*`Announce`\*\*で自グループの`followers`へ配送（推奨）。
+* `Note`には\*\*作者署名（例: `proof`フィールドにJWS等）\*\*を含めることを推奨/準必須化。
+* 署名対象には少なくとも`id`/`attributedTo`/`content`/`published`/`audience`（=`group.id`）等を含め、**このグループ向けであることを暗号学的に結び付ける**。
 
-#### 例: メンバーのCreate（グループ宛）
+#### 例: メンバーのCreate（グループ宛、署名付き）
 
 ```json
 {
@@ -163,15 +175,34 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
   "to": ["https://groups.example/@cats"],
   "object": {
     "type": "Note",
-    "id": "https://user.example/notes/xyz",
+    "id": "urn:uuid:3b19b6a9-6d1a-4a7d-9f7b-b6a9c3f8d1e2",
     "attributedTo": "https://user.example/@alice",
+    "audience": "https://groups.example/@cats",
     "content": "はじめまして！",
+    "published": "2025-08-24T10:00:00Z",
+    "proof": {
+      "type": "DataIntegrityProof",
+      "created": "2025-08-24T10:00:01Z",
+      "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+      "jws": "eyJ..."
+    },
     "to": ["https://groups.example/@cats"]
   }
 }
 ```
 
-#### 例: グループのAnnounce（メンバー投稿の配布）
+> `id`は\*\*非推測（UUID等）\*\*を推奨。`audience`にグループIDを入れることで“別オーディエンスへの流用”を受信側で弾きやすくする。
+
+### 7.2 グループの再配信（Announce, bto＋埋め込み）
+
+* グループは受信後、\*\*`Announce`\*\*でメンバーへ再配信する。
+* **秘匿性重視**の既定動作：
+
+  * 宛先は\*\*`bto: [<member1>, <member2>, ...]`（実メンバー列）\*\*とし、**配送前に剥がす**。
+  * `object`は\*\*埋め込み（by value）\*\*を第一選択。
+  * `to`/`cc`/`Public`は付けない（外部露出の最小化）。
+
+#### 例: グループのAnnounce（bto＋埋め込み）
 
 ```json
 {
@@ -179,27 +210,51 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
   "type": "Announce",
   "id": "https://groups.example/acts/345",
   "actor": "https://groups.example/@cats",
-  "object": "https://user.example/notes/xyz",
-  "to": ["https://groups.example/@cats/followers"]
+  "bto": [
+    "https://bob.example/@bob",
+    "https://carol.example/@carol"
+  ],
+  "object": {
+    "type": "Note",
+    "id": "urn:uuid:3b19b6a9-6d1a-4a7d-9f7b-b6a9c3f8d1e2",
+    "attributedTo": "https://user.example/@alice",
+    "audience": "https://groups.example/@cats",
+    "content": "はじめまして！",
+    "published": "2025-08-24T10:00:00Z",
+    "proof": {
+      "type": "DataIntegrityProof",
+      "created": "2025-08-24T10:00:01Z",
+      "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+      "jws": "eyJ..."
+    }
+  }
 }
 ```
 
-### 7.2 非公開グループ
+> 実装メモ: `bto`/`bcc`は**保存・再配布前に除去**すること。相手実装が`bto`を理解しない場合に備え、**自サーバ側でfan-outして各相手の個別`inbox`にPOST**するのが安全。
 
-* グループが非公開の場合、Announceの宛先は\*\*`to: group.followers`のみ\*\*とし、`Public`は含めない。
-* メンバーのCreate時点でも`Public`を含めないのが望ましい。
+### 7.3 非公開グループ
 
-### 7.3 返信/スレッド
+* 非公開グループでは、`Announce`に`Public`を含めない。`to`/`cc`も使わず`bto`のみで配送し、宛先実体を秘匿。
+* メンバーの`Create`時点でも`Public`を含めない（C2S検証により拒否可能）。
 
-* `inReplyTo`に対象Noteの`id`を入れる。グループは必要に応じて同様にAnnounce。
+### 7.4 返信/スレッド
+
+* `inReplyTo`に対象Noteの`id`を入れる。グループは同様に`Announce(bto＋埋め込み)`で再配信。
+* クライアントは**オーディエンス継承**（前メッセージの受信者＝グループ）を既定にして誤配送を防ぐ。
+
+### 7.5 URL推測困難化と追加フェッチ
+
+* 追加フェッチが必要な場合でも、Objectの`id`は**非推測ID**を推奨（UUID等）。
+* **認証付きフェッチ**を有効化し、**グループ・メンバーの要求のみ許可**する（署名付きHTTPリクエスト等）。
+* 可能な限り**埋め込み**で追加フェッチ自体を不要化。
 
 ---
 
 ## 8. 可視性・プライバシー
 
 * 宛先制御は`to`/`cc`/`bto`/`bcc`/`audience`で行う。
-* クライアント→サーバ投稿時、存在する`bto`/`bcc`は配送前にサーバが除去する（内部で受信者に反映）。
-* **E2E暗号化はAP標準外**。機密情報の共有は非推奨。必要なら別プロトコルを併用。
+* サーバはC2S受付時、存在する`bto`/`bcc`を保存用表現から**除去し、配送のみ**に用いる（ストレージ表示でも隠す）。
 * `followers`コレクションの閲覧可否は実装で制御（非公開グループでは非公開推奨）。
 
 ---
@@ -246,7 +301,7 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 }
 ```
 
-> 注: 互換実装に追随させるため、`Update`を配送（少なくとも既知のメンバー）することを推奨。
+> 互換実装に追随させるため、`Update`を配送（少なくとも既知のメンバー）することを推奨。
 
 ---
 
@@ -265,15 +320,25 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 * メンバー参加は**Follow/Accept**を必須とし、`Join/Leave`は受理しても内部的にFollowへ写像（任意拡張）。
 * 配送最適化のため`sharedInbox`を活用。
 * `Announce`を用いた再配布を第一選択とする（再作成より互換性が高い）。
+* followers IRIをそのまま宛先に使うのではなく、**実メンバー列へ展開**してfan-outする実装を推奨（秘匿性・到達性の両面で有利）。
 
 ---
 
-## 12. セキュリティ/配送の実装注意
+## 12. セキュリティ/配送の実装注意（更新強化）
 
-* **HTTP署名**（サーバ間リクエスト署名）を必須化（実装選択）。
-* 受信側は署名検証・Actor鍵の取得・リプレイ対策・レート制限を行う。
-* スパム対策（ドメインブロック/フィルタ）、添付のサイズ上限、HTMLサニタイズ。
-* `bto`/`bcc`はストレージ表示でも隠す。
+**受信側サーバは、以下の“二段階検証”を原則とする：**
+
+1. **配送経路の検証**: S2S HTTP署名が`Announce.actor`（Group）の公開鍵で正当であること。
+2. **内容の作者検証**: 埋め込まれた`Note`等の**作者署名**が`attributedTo`の公開鍵で検証OKであること。
+
+追加の推奨事項:
+
+* 署名対象に`audience: group.id`を含め、**オーディエンス・バインディング**を行う。
+* 上記(1)がOKでも(2)がNGなら**偽造/改ざん**として破棄（またはモデレーションキューへ）。
+* `Public`混入や想定外の宛先がある場合は破棄またはモデレーション。
+* 認証付きフェッチを有効化し、**Group/メンバー以外のフェッチを拒否**。
+* リプレイ対策（`id`の一意・`published`時刻の受容範囲・署名の有効期限）を実装。
+* 添付サイズ上限、HTMLサニタイズ、ドメインブロック/キュー制御、レート制限。
 
 ---
 
@@ -296,32 +361,39 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 ```
 参加: user -> Follow -> group
 承認: group -> Accept(Follow) -> user
-投稿: user -> Create(Note, to: group) -> group
-配布: group -> Announce(object: note, to: group.followers) -> 各メンバー
+投稿: user -> Create(Note, to: group, proof付き) -> group
+配布: group -> Announce(object: embedded Note, bto: [members]) -> 各メンバー（btoは配送前に剥がす）
+検証: 受信側 -> HTTP署名(=group) + Object作者署名(=attributedTo) の双方を検証
 ```
 
 ---
 
-## 16. 実装チェックリスト
+## 16. 実装チェックリスト（更新）
 
 * [ ] Group ActorのGETで`icon`/`image`が返る
 * [ ] /mediaアップロードが動作しURLを返す
 * [ ] Update(Group.icon)を配送し他実装で反映される
 * [ ] Follow/Acceptでfollowersが更新される
 * [ ] Create→Announceの配送が届く（公開/非公開）
-* [ ] bto/bccの除去
-* [ ] 署名検証と失敗時の拒否
+* [ ] **Announce(bto)の宛先が配送前に剥がされる**
+* [ ] **Announce.objectが埋め込みで配布される**
+* [ ] **Noteに作者署名が含まれ、受信側で検証される**
+* [ ] **audience=group.idが署名対象に含まれている**
+* [ ] 認証付きフェッチが有効（必要時のみ許可）
+* [ ] followers IRIを実メンバー列へ展開してfan-outできる
+* [ ] 署名検証失敗時の拒否ポリシーがある
 * [ ] レート制限/バックオフ
-* [ ] **DM**: 単一宛先・Public禁止の検証に通る（違反は400）
-* [ ] **DM**: 返信時に受信者集合（単一）が自動継承される
-* [ ] **DM**: 可能な限り**個別inbox**へ配送（共有Inboxのみの場合は許容）
+* [ ] DM: 単一宛先・Public禁止の検証に通る（違反は400）
+* [ ] DM: 返信時に受信者集合（単一）が自動継承される
+* [ ] DM: 可能な限り**個別inbox**へ配送（共有Inboxのみの場合は許容）
 
 ---
 
-## 17. 互換性メモ 互換性メモ
+## 17. 互換性メモ
 
 * 一部実装はグループ参加に`Join/Leave`を用いるが、APの相互運用の観点では**Follow/Accept**のサポートを必須とする。
 * メディアアップロードはAPの範囲外のため、RESTでの拡張を用意する。
+* `bto`/`bcc`の取り扱いは実装差があるため、**自サーバでfan-out＋剥離**する方が確実。
 
 ---
 
@@ -413,7 +485,7 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 
 ---
 
-## 付録A: 追加例（非公開グループ配送）
+## 付録A: 追加例（非公開グループ配送・参照式）
 
 ```json
 {
@@ -421,7 +493,8 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
   "type": "Announce",
   "actor": "https://groups.example/@cats",
   "object": "https://user.example/notes/xyz",
-  "to": ["https://groups.example/@cats/followers"]
+  "bto": ["https://bob.example/@bob"],
+  "_note": "参照式。可能な限り埋め込みを推奨。参照式の場合はidを非推測化し、認証付きフェッチを要求すること。"
 }
 ```
 
@@ -457,3 +530,24 @@ ActivityPub/ActivityStreams 2.0の語彙・配送モデルの範囲内で、\*\*
 4. `to=[bob, carol]` にするとDM要件違反 → 400
 5. `to=[bob]` かつ `Public` を含める → 400
 6. ブロック時: 403または破棄（実装依存）
+
+## 付録D: 作者署名付きNoteの最小構造（例）
+
+```json
+{
+  "type": "Note",
+  "id": "urn:uuid:0226f4c9-6c3e-48c5-9e6c-8d9e9e7b8c1a",
+  "attributedTo": "https://user.example/@alice",
+  "audience": "https://groups.example/@cats",
+  "content": "署名検証テスト",
+  "published": "2025-08-24T10:00:00Z",
+  "proof": {
+    "type": "DataIntegrityProof",
+    "created": "2025-08-24T10:00:01Z",
+    "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+    "jws": "eyJ..."
+  }
+}
+```
+
+> 受信側は、`verificationMethod`の鍵解決→署名検証→`audience`が自グループであることの確認、の順で処理する。
