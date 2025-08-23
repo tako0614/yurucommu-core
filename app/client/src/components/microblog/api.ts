@@ -364,10 +364,10 @@ const userInfoCache = new Map<string, {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5分
 
-export const getCachedUserInfo = async (
+export const getCachedUserInfo =  (
   identifier: string,
   _accountId?: string,
-): Promise<UserInfo | null> => {
+): UserInfo | null => {
   const mem = userInfoCache.get(identifier);
   if (mem && Date.now() - mem.timestamp < CACHE_DURATION) {
     return mem.userInfo;
@@ -375,7 +375,7 @@ export const getCachedUserInfo = async (
   return null;
 };
 
-export const setCachedUserInfo = async (
+export const setCachedUserInfo = (
   identifier: string,
   userInfo: UserInfo,
   _accountId?: string,

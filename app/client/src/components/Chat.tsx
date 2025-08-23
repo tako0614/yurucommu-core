@@ -780,10 +780,10 @@ export function Chat() {
               return null;
             })
             .filter((a): a is {
-              url?: string;
-              data?: string;
+              url: string | undefined;
+              data: string | undefined;
               mediaType: string;
-              preview?: { url?: string; data?: string; mediaType?: string };
+              preview: { url?: string; data?: string; mediaType?: string } | undefined;
             } => !!a)
           : [];
         return {
@@ -928,7 +928,7 @@ export function Chat() {
       if (members.length === 0) {
         try {
           const pend = await readPending(user.id, item.id);
-          const others = (pend || []).filter((m) => m && m !== handle);
+          const others = (pend || []).filter((m: string | undefined) => !!m && m !== handle) as string[];
           if (others.length > 0) members = others;
         } catch {
           /* ignore */
@@ -993,7 +993,7 @@ export function Chat() {
       try {
         if ((r.members?.length ?? 0) === 0 && r.type !== "memo") {
           const pend = await readPending(user.id, r.id);
-          const cand = (pend || []).filter((m) => m && m !== selfHandle);
+          const cand = (pend || []).filter((m: string | undefined) => !!m && m !== selfHandle) as string[];
           if (cand.length > 0) {
             r.members = [cand[0]];
           }
@@ -1874,7 +1874,6 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     const me = account();
                     if (!r) return r;
-                    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
                     const isDm = r.type !== "memo" && (r.members?.length ?? 0) === 1 && !(r.hasName || r.hasIcon);
                     const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
                       if (isDm || looksLikeSelf) {
@@ -2047,6 +2046,34 @@ async function searchRooms(_handle: string, _opts?: unknown) {
   } catch {
     return [];
   }
+}
+
+// try to read pending invites for a given room or user
+async function readPending(userId: string, roomId: string): Promise<string[] | undefined> {
+  try {
+    // prefer room-scoped endpoint if available
+    try {
+      const rres = await apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/pendingInvites`);
+      if (rres.ok) {
+        const jr = await rres.json();
+        if (Array.isArray(jr)) return jr.map(String).filter(Boolean);
+      }
+    } catch {
+      /* ignore */
+    }
+    // fallback to user-scoped pending invites
+    try {
+      const ures = await apiFetch(`/api/users/${encodeURIComponent(userId)}/pendingInvites`);
+      if (!ures.ok) return undefined;
+      const ju = await ures.json();
+      if (Array.isArray(ju)) return ju.map(String).filter(Boolean);
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
 }
 
 async function _addRoom(

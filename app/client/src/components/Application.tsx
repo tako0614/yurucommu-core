@@ -2,7 +2,7 @@ import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../states/app.ts";
 import { selectedRoomState } from "../states/chat.ts";
-import { activeAccount, accounts as accountsAtom } from "../states/account.ts";
+import { activeAccount } from "../states/account.ts";
 import { Home } from "./Home.tsx";
 import Profile from "./Profile.tsx";
 import { Microblog } from "./Microblog.tsx";
@@ -17,7 +17,6 @@ export function Application() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [account] = useAtom(activeAccount);
-  const [allAccounts] = useAtom(accountsAtom);
   const [isMobile, setIsMobile] = createSignal(false);
 
   // モバイルかどうかを判定

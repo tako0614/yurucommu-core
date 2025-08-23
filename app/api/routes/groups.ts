@@ -14,6 +14,19 @@ import { getEnv } from "../../shared/config.ts";
 
 const app = new Hono();
 
+type ActivityPubObject = unknown; // minimal placeholder for mixed fields
+
+interface GroupDoc {
+  groupName: string;
+  displayName?: string;
+  summary?: string;
+  icon?: ActivityPubObject | null;
+  image?: ActivityPubObject | null;
+  followers: string[];
+  outbox: ActivityPubObject[];
+  save: () => Promise<void>;
+}
+
 app.use("/api/groups/*", authRequired);
 
 app.post(
@@ -65,10 +78,10 @@ app.patch(
 
 app.get("/groups/:name", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean();
+  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
-  const actor = {
+  const actor: Record<string, unknown> = {
     "@context": "https://www.w3.org/ns/activitystreams",
     type: "Group",
     id: `https://${domain}/groups/${name}`,
@@ -81,12 +94,12 @@ app.get("/groups/:name", async (c) => {
   };
   if (group.icon) actor.icon = group.icon;
   if (group.image) actor.image = group.image;
-  return c.json(actor, 200, "application/activity+json");
+  return c.json(actor, 200, { "content-type": "application/activity+json" });
 });
 
 app.get("/groups/:name/followers", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean();
+  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -98,13 +111,13 @@ app.get("/groups/:name/followers", async (c) => {
       orderedItems: group.followers,
     },
     200,
-    "application/activity+json",
+    { "content-type": "application/activity+json" },
   );
 });
 
 app.get("/groups/:name/outbox", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean();
+  const group = await Group.findOne({ groupName: name }).lean() as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -116,13 +129,13 @@ app.get("/groups/:name/outbox", async (c) => {
       orderedItems: group.outbox,
     },
     200,
-    "application/activity+json",
+    { "content-type": "application/activity+json" },
   );
 });
 
 app.post("/groups/:name/inbox", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name });
+  const group = await Group.findOne({ groupName: name }) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   const env = getEnv(c);
@@ -169,9 +182,9 @@ app.post("/groups/:name/inbox", async (c) => {
       ...getSet((activity as Record<string, unknown>).cc),
       ...getSet((activity as Record<string, unknown>).bto),
       ...getSet((activity as Record<string, unknown>).bcc),
-      typeof (activity as Record<string, unknown>).audience === "string"
+      ...(typeof (activity as Record<string, unknown>).audience === "string"
         ? [String((activity as Record<string, unknown>).audience)]
-        : [],
+        : []),
     ];
     const obj = activity.object as Record<string, unknown>;
     const objectRecipients = [
@@ -179,7 +192,7 @@ app.post("/groups/:name/inbox", async (c) => {
       ...getSet(obj.cc),
       ...getSet(obj.bto),
       ...getSet(obj.bcc),
-      typeof obj.audience === "string" ? [String(obj.audience)] : [],
+      ...(typeof obj.audience === "string" ? [String(obj.audience)] : []),
     ];
     const allRecipients = new Set<string>([...activityRecipients, ...objectRecipients]);
     // Public 禁止
@@ -205,7 +218,7 @@ app.post("/groups/:name/inbox", async (c) => {
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
     await Promise.all(
-      group.followers.map((recipient) =>
+      group.followers.map((recipient: string) =>
         sendActivityPubObject(recipient, announceBase, "system", domain, env).catch(
           (err) => console.error("deliver failed", recipient, err),
         )

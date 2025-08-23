@@ -73,7 +73,7 @@ export function TauriLogin(props: TauriLoginProps) {
     }
   };
 
-  const handleAddServer = async (
+  const handleAddServer = (
     url: string,
     password: string,
   ): Promise<void> => {
@@ -82,6 +82,7 @@ export function TauriLogin(props: TauriLoginProps) {
     setServers(updated);
     localStorage.setItem("servers", JSON.stringify(updated));
     setShowAdd(false);
+    return Promise.resolve();
   };
 
   /* --- view ----------------------------------------------------------------- */
@@ -178,7 +179,7 @@ export function TauriLogin(props: TauriLoginProps) {
 /* -------------------------------------------------------------------------*/
 function ServerButton(
   props: ServerInfo & {
-    onClick: (url: string, pw: string) => void;
+  onClick: (url: string, pw: string) => Promise<void>;
     loading: boolean;
   },
 ) {
