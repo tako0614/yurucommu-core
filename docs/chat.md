@@ -97,6 +97,9 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 
 - `membershipPolicy`:
   参加承認方式。`open`（誰でも参加可）や`approval`（承認制）などを想定。
+  `approval` の場合、`Follow` や `Join`
+  は即時承認されず承認待ちキューに蓄積され、 管理者が後述の API で `Accept`
+  もしくは `Reject` を返す。
 - `visibility`: 公開範囲。`public` や `private` などサーバー実装に依存。
 - `allowInvites`: メンバーが招待を送れるかどうかの真偽値。
 
@@ -207,6 +210,15 @@ Takos では管理エンドポイント `/api/groups/:name/invite` に招待し�
 
 > セキュリティ注:
 > Inviteの有無・送信者は**加入判定に影響させない**。招待スパムはレート制限・ブロックで対処。
+
+### 6.4 承認待ち処理
+
+- `membershipPolicy` が `approval` のグループでは、`Follow` や `Join`
+  は承認待ちとして保存される。
+- 管理エンドポイント `POST /api/groups/:name/approvals` に `{ actor, accept }`
+  を送信すると、該当リクエストを承認 (`accept: true`) または拒否
+  (`accept: false`) できる。
+- 承認時は `Accept` が、拒否時は `Reject` が申請者へ返送される。
 
 ---
 

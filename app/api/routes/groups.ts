@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import Group from "../models/takos/group.ts";
 import Invite from "../models/takos/invite.ts";
+import Approval from "../models/takos/approval.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -223,6 +224,61 @@ app.post(
   },
 );
 
+app.post(
+  "/api/groups/:name/approvals",
+  zValidator(
+    "json",
+    z.object({ actor: z.string().url(), accept: z.boolean() }),
+  ),
+  async (c) => {
+    const name = c.req.param("name");
+    const { actor, accept } = c.req.valid("json") as {
+      actor: string;
+      accept: boolean;
+    };
+    const domain = getDomain(c);
+    const groupId = `https://${domain}/groups/${name}`;
+    const group = await Group.findOne({ groupName: name }) as
+      | (GroupDoc & { tenant_id?: string })
+      | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!isOwnedGroup(group, domain, name)) {
+      return c.json({ error: "他ホストのグループです" }, 403);
+    }
+    const approval = await Approval.findOne({
+      groupName: name,
+      actor,
+    });
+    if (!approval) return c.json({ error: "見つかりません" }, 404);
+    if (accept) {
+      if (!group.followers.includes(actor)) {
+        group.followers.push(actor);
+        await group.save();
+      }
+      const acc = createAcceptActivity(domain, groupId, approval.activity);
+      await deliverActivityPubObject([actor], acc, "system", domain, getEnv(c));
+    } else {
+      const reject = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/activities/${crypto.randomUUID()}`,
+        type: "Reject" as const,
+        actor: groupId,
+        object: approval.activity,
+        to: [actor],
+      };
+      await deliverActivityPubObject(
+        [actor],
+        reject,
+        "system",
+        domain,
+        getEnv(c),
+      );
+    }
+    await approval.deleteOne();
+    return c.json({ ok: true });
+  },
+);
+
 app.get("/groups/:name", async (c) => {
   const name = c.req.param("name");
   const group = await Group.findOne({ groupName: name }).lean() as
@@ -320,6 +376,14 @@ app.post("/groups/:name/inbox", async (c) => {
     typeof activity.object === "string" &&
     activity.object === groupId
   ) {
+    if (group.membershipPolicy === "approval") {
+      await Approval.findOneAndUpdate(
+        { groupName: name, actor: activity.actor },
+        { activity },
+        { upsert: true },
+      ).catch(() => {});
+      return c.json({ ok: true });
+    }
     if (!group.followers.includes(activity.actor)) {
       group.followers.push(activity.actor);
       await group.save();
@@ -340,6 +404,14 @@ app.post("/groups/:name/inbox", async (c) => {
   }
 
   if (activity.type === "Follow" && typeof activity.actor === "string") {
+    if (group.membershipPolicy === "approval") {
+      await Approval.findOneAndUpdate(
+        { groupName: name, actor: activity.actor },
+        { activity },
+        { upsert: true },
+      ).catch(() => {});
+      return c.json({ ok: true });
+    }
     if (!group.followers.includes(activity.actor)) {
       group.followers.push(activity.actor);
       await group.save();

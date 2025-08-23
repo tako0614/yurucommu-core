@@ -681,7 +681,7 @@ paths:
                   description: 概要
                 membershipPolicy:
                   type: string
-                  description: 参加承認方式
+                  description: 参加承認方式（`approval` で承認制）
                 visibility:
                   type: string
                   description: 公開範囲
@@ -717,6 +717,7 @@ paths:
                   description: ヘッダー画像
                 membershipPolicy:
                   type: string
+                  description: 参加承認方式（`approval` で承認制）
                 visibility:
                   type: string
                 allowInvites:
@@ -775,6 +776,34 @@ paths:
       responses:
         "200":
           description: 送信結果
+  /api/groups/{name}/approvals:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 承認待ちリクエストの処理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor:
+                  type: string
+                  description: 申請者のActor ID
+                accept:
+                  type: boolean
+                  description: 承認する場合は true、拒否は false
+              required:
+                - actor
+                - accept
+      responses:
+        "200":
+          description: 処理結果
   /api/files:
     post:
       summary: ファイルアップロード（HTTP のみ、要ログイン）
