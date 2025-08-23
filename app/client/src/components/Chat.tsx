@@ -32,29 +32,15 @@ import {
 } from "./chat/api.ts";
 
 /* ローカルキャッシュ用の軽量ヘルパー
-   localStorage を用いた簡易実装 */
-function getCacheItem(accountId: string, key: string): unknown {
-  try {
-    const raw = globalThis.localStorage.getItem(`takos:${accountId}:${key}`);
-    if (!raw) return undefined;
-    return JSON.parse(raw);
-  } catch {
-    // ignore parse/storage errors
-    return undefined;
-  }
+   メモリ上の Map を用いた実装 */
+const messageCache = new Map<string, unknown[]>();
+
+function cacheKey(accountId: string, roomId: string) {
+  return `${accountId}:${roomId}`;
 }
-function setCacheItem(accountId: string, key: string, val: unknown) {
-  try {
-    globalThis.localStorage.setItem(
-      `takos:${accountId}:${key}`,
-      JSON.stringify(val),
-    );
-  } catch {
-    /* ignore storage errors */
-  }
-}
-async function loadDecryptedMessages(accountId: string, roomId: string) {
-  const v = await getCacheItem(accountId, `messages:${roomId}`);
+
+function loadDecryptedMessages(accountId: string, roomId: string) {
+  const v = messageCache.get(cacheKey(accountId, roomId));
   if (!Array.isArray(v)) return undefined;
   return (v as Record<string, unknown>[]).map((m) => {
     const rawTs = m.timestamp ?? Date.now();
@@ -65,12 +51,13 @@ async function loadDecryptedMessages(accountId: string, roomId: string) {
     } as ChatMessage;
   });
 }
-async function saveDecryptedMessages(
+
+function saveDecryptedMessages(
   accountId: string,
   roomId: string,
   v: unknown,
 ) {
-  await setCacheItem(accountId, `messages:${roomId}`, v);
+  if (Array.isArray(v)) messageCache.set(cacheKey(accountId, roomId), v);
 }
 /* uploadFile: accepts an object and tries a JSON POST; returns url or null */
 async function uploadFile(opts: {

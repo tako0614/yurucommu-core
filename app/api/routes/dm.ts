@@ -37,14 +37,27 @@ app.post(
       attachments?: { url: string; mediaType?: string }[];
     };
     const db = createDB(getEnv(c));
-    const doc = await db.saveDMMessage(
+    const payload = await db.saveDMMessage(
       from,
       to,
       type,
       content,
       attachments,
-    ) as { _id: string };
-    const payload = { id: doc._id, from, to, type, content, attachments };
+    );
+    await Promise.all([
+      db.createDirectMessage({
+        owner: from,
+        id: to,
+        name: "",
+        members: [from, to],
+      }),
+      db.createDirectMessage({
+        owner: to,
+        id: from,
+        name: "",
+        members: [from, to],
+      }),
+    ]);
     sendToUser(to, { type: "dm", payload });
     sendToUser(from, { type: "dm", payload });
     return c.json(payload);

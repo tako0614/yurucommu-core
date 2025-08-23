@@ -10,7 +10,6 @@ import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
 import HostFcmToken from "../models/takos_host/fcm_token.ts";
-import DMMessage from "../models/takos/dm_message.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
@@ -367,25 +366,53 @@ export class MongoDB implements DB {
     content?: string,
     attachments?: Record<string, unknown>[],
   ) {
-    const doc = new DMMessage({ from, to, type, content, attachments });
+    const extra: Record<string, unknown> = { type };
+    if (attachments) extra.attachments = attachments;
+    const doc = new Message({
+      attributedTo: from,
+      actor_id: from,
+      content: content ?? "",
+      extra,
+      aud: { to: [to], cc: [] },
+    });
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })
         .$locals = { env: this.env };
     }
     await doc.save();
-    return doc.toObject();
+    const obj = doc.toObject();
+    return {
+      id: obj._id as string,
+      from,
+      to,
+      type,
+      content: content ?? "",
+      attachments,
+      createdAt: obj.published as Date,
+    };
   }
 
   async listDMsBetween(user1: string, user2: string) {
     const query = this.withTenant(
-      DMMessage.find({
+      Message.find({
         $or: [
-          { from: user1, to: user2 },
-          { from: user2, to: user1 },
+          { actor_id: user1, "aud.to": user2 },
+          { actor_id: user2, "aud.to": user1 },
         ],
       }),
     );
-    return await query.sort({ createdAt: 1 }).lean();
+    const docs = await query.sort({ published: 1 }).lean();
+    return docs.map((d) => ({
+      id: d._id as string,
+      from: d.actor_id as string,
+      to: Array.isArray(d.aud?.to) ? String(d.aud.to[0]) : "",
+      type: d.extra?.type as string ?? "text",
+      content: d.content as string,
+      attachments: d.extra?.attachments as
+        | Record<string, unknown>[]
+        | undefined,
+      createdAt: d.published as Date ?? new Date(),
+    }));
   }
 
   async findObjects(
@@ -503,12 +530,13 @@ export class MongoDB implements DB {
   }
 
   async createDirectMessage(data: DirectMessageDoc) {
-    const doc = new DirectMessage(data);
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
-    await doc.save();
+    const query = DirectMessage.findOneAndUpdate(
+      { owner: data.owner, id: data.id },
+      { $setOnInsert: data },
+      { upsert: true, new: true },
+    );
+    this.withTenant(query);
+    const doc = await query;
     return doc.toObject();
   }
 
