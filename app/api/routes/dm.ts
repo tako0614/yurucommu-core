@@ -37,6 +37,10 @@ app.post(
       attachments?: { url: string; mediaType?: string }[];
     };
     const db = createDB(getEnv(c));
+    const [fromAcc, toAcc] = await Promise.all([
+      db.findAccountByUserName(from.split("@")[0]),
+      db.findAccountByUserName(to.split("@")[0]),
+    ]);
     const payload = await db.saveDMMessage(
       from,
       to,
@@ -48,13 +52,15 @@ app.post(
       db.createDirectMessage({
         owner: from,
         id: to,
-        name: "",
+        name: toAcc?.displayName || toAcc?.userName || to,
+        icon: toAcc?.avatarInitial,
         members: [from, to],
       }),
       db.createDirectMessage({
         owner: to,
         id: from,
-        name: "",
+        name: fromAcc?.displayName || fromAcc?.userName || from,
+        icon: fromAcc?.avatarInitial,
         members: [from, to],
       }),
     ]);

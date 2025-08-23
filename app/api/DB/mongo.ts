@@ -534,9 +534,17 @@ export class MongoDB implements DB {
   }
 
   async createDirectMessage(data: DirectMessageDoc) {
+    const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
     const query = DirectMessage.findOneAndUpdate(
       { owner: data.owner, id: data.id },
-      { $setOnInsert: data },
+      {
+        $set: {
+          name: data.name,
+          icon: data.icon,
+          members: data.members,
+        },
+        $setOnInsert: { tenant_id: tenantId },
+      },
       { upsert: true, new: true },
     );
     this.withTenant(query);

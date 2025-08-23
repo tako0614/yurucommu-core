@@ -831,10 +831,10 @@ export function Chat() {
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
     const serverRooms = await searchRooms(handle, { implicit: "include" });
     for (const item of serverRooms) {
-      const name = "";
-      const icon = "";
+      const name = item.name ?? "";
+      const icon = item.icon ?? "";
       // server may not populate members fully; use pending invites as fallback
-      let members = [] as string[];
+      let members = item.members ?? [] as string[];
       if (members.length === 0) {
         try {
           const pend = await readPending(user.id, item.id);
@@ -857,8 +857,8 @@ export function Chat() {
         unreadCount: 0,
         type: "group",
         members,
-        hasName: false,
-        hasIcon: false,
+        hasName: name !== "",
+        hasIcon: icon !== "",
         lastMessage: "...",
         lastMessageTime: undefined,
       });
