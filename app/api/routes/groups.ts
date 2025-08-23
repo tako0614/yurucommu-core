@@ -8,6 +8,7 @@ import {
   deliverActivityPubObject,
   getDomain,
 } from "../utils/activitypub.ts";
+import { sendActivityPubObject } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
 
@@ -154,23 +155,78 @@ app.post("/groups/:name/inbox", async (c) => {
     if (actor && !group.followers.includes(actor)) {
       return c.json({ error: "フォロワーではありません" }, 403);
     }
-    const announce = {
+    // docs/chat.md の要件に沿って以下を行う：
+    // - Public 宛の混入を拒否
+    // - 宛先に当該グループが含まれているか検証（Activity または Object）
+    // - Announce は object を埋め込み（by value）で持ち、to/cc/Public は付与しない
+    // - 実配送は fan-out で各メンバーの個別 inbox へ送る（bto相当は配送前に剥離）
+
+    const groupId = `https://${domain}/groups/${name}`;
+    const getSet = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    const activityRecipients = [
+      ...getSet((activity as Record<string, unknown>).to),
+      ...getSet((activity as Record<string, unknown>).cc),
+      ...getSet((activity as Record<string, unknown>).bto),
+      ...getSet((activity as Record<string, unknown>).bcc),
+      typeof (activity as Record<string, unknown>).audience === "string"
+        ? [String((activity as Record<string, unknown>).audience)]
+        : [],
+    ];
+    const obj = activity.object as Record<string, unknown>;
+    const objectRecipients = [
+      ...getSet(obj.to),
+      ...getSet(obj.cc),
+      ...getSet(obj.bto),
+      ...getSet(obj.bcc),
+      typeof obj.audience === "string" ? [String(obj.audience)] : [],
+    ];
+    const allRecipients = new Set<string>([...activityRecipients, ...objectRecipients]);
+    // Public 禁止
+    if (allRecipients.has("https://www.w3.org/ns/activitystreams#Public")) {
+      return c.json({ error: "Public 宛は許可されていません" }, 400);
+    }
+    // グループ宛であること（Activity or Object 側の何れか）
+    const isToGroup = allRecipients.has(groupId);
+    if (!isToGroup) {
+      return c.json({ error: "宛先に当該グループが含まれていません" }, 400);
+    }
+    // 保存用（公開用）Outbox には宛先情報を含めない Announce を格納
+    const announceBase = {
       "@context": "https://www.w3.org/ns/activitystreams",
       id: `https://${domain}/activities/${crypto.randomUUID()}`,
-      type: "Announce",
-      actor: `https://${domain}/groups/${name}`,
+      type: "Announce" as const,
+      actor: groupId,
       object: activity.object,
-      to: [`https://${domain}/groups/${name}/followers`],
     };
-    group.outbox.push(announce);
+    group.outbox.push(announceBase);
     await group.save();
-    await deliverActivityPubObject(
-      group.followers,
-      announce,
-      "system",
-      domain,
-      env,
+
+    // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
+    // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
+    await Promise.all(
+      group.followers.map((recipient) =>
+        sendActivityPubObject(recipient, announceBase, "system", domain, env).catch(
+          (err) => console.error("deliver failed", recipient, err),
+        )
+      ),
     );
+    return c.json({ ok: true });
+  }
+
+  // Undo(Follow) の取り扱い: フォロワーからの解除
+  if (
+    activity.type === "Undo" &&
+    activity.object && typeof activity.object === "object" &&
+    (activity.object as { type?: string }).type === "Follow" &&
+    (activity.object as { object?: string }).object === `https://${domain}/groups/${name}` &&
+    typeof activity.actor === "string"
+  ) {
+    const idx = group.followers.indexOf(activity.actor);
+    if (idx >= 0) {
+      group.followers.splice(idx, 1);
+      await group.save();
+    }
     return c.json({ ok: true });
   }
 
