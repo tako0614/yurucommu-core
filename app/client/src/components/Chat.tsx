@@ -206,6 +206,17 @@ function parseActivityPubNote(text: string): ParsedActivityPubNote {
   return { content: text };
 }
 
+// テキストエリアの自動高さ調整ユーティリティ
+function adjustHeight(el?: HTMLTextAreaElement) {
+  if (!el) return;
+  try {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  } catch {
+    // ignore styling errors in unusual environments
+  }
+}
+
 
 async function encryptFile(file: File) {
   const buf = await file.arrayBuffer();
