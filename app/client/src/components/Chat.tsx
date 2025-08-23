@@ -32,37 +32,32 @@ import {
 } from "./chat/api.ts";
 
 /* ローカルキャッシュ用の軽量ヘルパー
-   localStorage を用いた簡易実装 */
-function getCacheItem(accountId: string, key: string): unknown {
-  try {
-    const raw = globalThis.localStorage.getItem(`takos:${accountId}:${key}`);
-    if (!raw) return undefined;
-    return JSON.parse(raw);
-  } catch {
-    // ignore parse/storage errors
-    return undefined;
-  }
+   メモリ上の Map を用いた実装 */
+const messageCache = new Map<string, unknown[]>();
+
+function cacheKey(accountId: string, roomId: string) {
+  return `${accountId}:${roomId}`;
 }
-function setCacheItem(accountId: string, key: string, val: unknown) {
-  try {
-    globalThis.localStorage.setItem(
-      `takos:${accountId}:${key}`,
-      JSON.stringify(val),
-    );
-  } catch {
-    /* ignore storage errors */
-  }
+
+function loadDecryptedMessages(accountId: string, roomId: string) {
+  const v = messageCache.get(cacheKey(accountId, roomId));
+  if (!Array.isArray(v)) return undefined;
+  return (v as Record<string, unknown>[]).map((m) => {
+    const rawTs = m.timestamp ?? Date.now();
+    const ts = new Date(rawTs as string | number | Date);
+    return {
+      ...m,
+      timestamp: isNaN(ts.getTime()) ? new Date() : ts,
+    } as ChatMessage;
+  });
 }
-async function loadDecryptedMessages(accountId: string, roomId: string) {
-  const v = await getCacheItem(accountId, `messages:${roomId}`);
-  return Array.isArray(v) ? (v as ChatMessage[]) : undefined;
-}
-async function saveDecryptedMessages(
+
+function saveDecryptedMessages(
   accountId: string,
   roomId: string,
   v: unknown,
 ) {
-  await setCacheItem(accountId, `messages:${roomId}`, v);
+  if (Array.isArray(v)) messageCache.set(cacheKey(accountId, roomId), v);
 }
 /* uploadFile: accepts an object and tries a JSON POST; returns url or null */
 async function uploadFile(opts: {
@@ -673,7 +668,7 @@ export function Chat() {
       );
     }
 
-    // サーバーの DM API (/dm) を用いてメッセージを取得する。
+    // サーバーの DM API (/api/dm) を用いてメッセージを取得する。
     // friends グループは単なる actor リストとして扱い、各メンバーとの DM をマージして返す。
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
@@ -682,11 +677,11 @@ export function Chat() {
       );
       const raw: unknown[] = [];
 
-      // メンバーごとに /dm?user1=<self>&user2=<member> を呼び出して集約
+      // メンバーごとに /api/dm?user1=<self>&user2=<member> を呼び出して集約
       for (const m of members) {
         try {
           const res = await apiFetch(
-            `/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
+            `/api/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
               encodeURIComponent(m)
             }`,
           );
@@ -713,15 +708,66 @@ export function Chat() {
 
       const msgs: ChatMessage[] = ordered.map((m) => {
         const created = m.createdAt ?? m.created_at ?? Date.now();
+        const ts = new Date(created as string | number | Date);
         const from = String(m.from ?? "");
+        const attachments =
+          Array.isArray((m as { attachments?: unknown }).attachments)
+            ? (m.attachments as unknown[])
+              .map((a) => {
+                if (!a || typeof a !== "object") return null;
+                const url = typeof (a as { url?: unknown }).url === "string"
+                  ? (a as { url: string }).url
+                  : undefined;
+                const data = typeof (a as { data?: unknown }).data === "string"
+                  ? (a as { data: string }).data
+                  : undefined;
+                const mediaType =
+                  typeof (a as { mediaType?: unknown }).mediaType === "string"
+                    ? (a as { mediaType: string }).mediaType
+                    : "application/octet-stream";
+                const rawPrev = (a as { preview?: unknown }).preview;
+                let preview:
+                  | { url?: string; data?: string; mediaType?: string }
+                  | undefined;
+                if (rawPrev && typeof rawPrev === "object") {
+                  const pUrl =
+                    typeof (rawPrev as { url?: unknown }).url === "string"
+                      ? (rawPrev as { url: string }).url
+                      : undefined;
+                  const pData =
+                    typeof (rawPrev as { data?: unknown }).data === "string"
+                      ? (rawPrev as { data: string }).data
+                      : undefined;
+                  const pMediaType =
+                    typeof (rawPrev as { mediaType?: unknown }).mediaType ===
+                        "string"
+                      ? (rawPrev as { mediaType: string }).mediaType
+                      : undefined;
+                  if (pUrl || pData) {
+                    preview = { url: pUrl, data: pData, mediaType: pMediaType };
+                  }
+                }
+                if (url || data) {
+                  return { url, data, mediaType, preview };
+                }
+                return null;
+              })
+              .filter((a): a is {
+                url?: string;
+                data?: string;
+                mediaType: string;
+                preview?: { url?: string; data?: string; mediaType?: string };
+              } => !!a)
+            : undefined;
         return {
           id: String(m._id ?? m.id ?? `${from}:${created}`),
           author: from,
           displayName: from.split("/").pop() ?? from,
           address: from,
           content: String(m.content ?? ""),
-          timestamp: new Date(Number(created)),
-          type: "text",
+          attachments,
+          timestamp: isNaN(ts.getTime()) ? new Date() : ts,
+          type: String(m.type ?? "text"),
           isMe: from === selfHandle,
           avatar: room.avatar,
         } as ChatMessage;
@@ -833,12 +879,12 @@ export function Chat() {
     ];
     const handle = `${user.userName}@${getDomain()}` as ActorID;
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
-    const serverRooms = await searchRooms(user.id, { implicit: "include" });
+    const serverRooms = await searchRooms(handle, { implicit: "include" });
     for (const item of serverRooms) {
-      const name = "";
-      const icon = "";
+      const name = item.name ?? "";
+      const icon = item.icon ?? "";
       // server may not populate members fully; use pending invites as fallback
-      let members = [] as string[];
+      let members = item.members ?? [] as string[];
       if (members.length === 0) {
         try {
           const pend = await readPending(user.id, item.id);
@@ -861,8 +907,8 @@ export function Chat() {
         unreadCount: 0,
         type: "group",
         members,
-        hasName: false,
-        hasIcon: false,
+        hasName: name !== "",
+        hasIcon: icon !== "",
         lastMessage: "...",
         lastMessageTime: undefined,
       });
@@ -873,7 +919,7 @@ export function Chat() {
     const unique = rooms.filter(
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
-    setChatRooms(unique);
+    upsertRooms(unique);
     // 初期表示のため、各ルームの最新メッセージをバックグラウンドで取得し一覧のプレビューを更新
     // （選択中ルーム以外は本文状態には反映せず、lastMessage/lastMessageTime のみ更新）
     void (async () => {
@@ -1047,49 +1093,49 @@ export function Chat() {
         ? others
         : (fallbackPeer ? [fallbackPeer] : []);
       if (targets.length > 0) {
-        let body = text;
+        let attachmentsParam: Record<string, unknown>[] | undefined;
         if (mediaFile()) {
           try {
             const att = await buildAttachment(mediaFile()!);
             if (att && typeof att.url === "string") {
-              body = body ? `${body}\n${att.url}` : att.url;
+              attachmentsParam = [att];
             }
           } catch { /* ignore */ }
         }
-        const ok = await sendDirectMessage(selfHandle, targets, body);
+        const ok = await sendDirectMessage(
+          selfHandle,
+          targets,
+          text,
+          attachmentsParam,
+        );
         if (!ok) {
           alert("メッセージの送信に失敗しました");
           return;
         }
-        const optimistic: ChatMessage = {
-          id: crypto.randomUUID(),
-          author: selfHandle,
-          displayName: user.displayName || user.userName,
-          address: selfHandle,
-          content: body,
-          timestamp: new Date(),
-          type: mediaFile()
-            ? (mediaFile()!.type.startsWith("image/") ? "image" : "file")
-            : "text",
-          isMe: true,
-          avatar: room.avatar,
-        };
-        if (selectedRoom() === room.id) {
-          setMessages((old) => {
-            const next = [...old, optimistic];
-            setMessagesByRoom({
-              ...messagesByRoom(),
-              [roomCacheKey(room.id)]: next,
-            });
-            const user2 = account();
-            if (user2) void saveDecryptedMessages(user2.id, room.id, next);
-            return next;
-          });
-        }
-        updateRoomLast(room.id, optimistic);
         setNewMessage("");
         setMediaFile(null);
         setMediaPreview(null);
+        const fetched = await fetchMessagesForRoom(room, {
+          limit: 1,
+          dryRun: true,
+        });
+        if (fetched.length > 0) {
+          const last = fetched[fetched.length - 1];
+          if (selectedRoom() === room.id) {
+            setMessages((old) => {
+              if (old.some((x) => x.id === last.id)) return old;
+              const next = [...old, last];
+              setMessagesByRoom({
+                ...messagesByRoom(),
+                [roomCacheKey(room.id)]: next,
+              });
+              const user2 = account();
+              if (user2) void saveDecryptedMessages(user2.id, room.id, next);
+              return next;
+            });
+          }
+          updateRoomLast(room.id, last);
+        }
         return;
       }
     } catch { /* fallback to legacy path if needed */ }
@@ -1207,7 +1253,7 @@ export function Chat() {
       try {
         if (typeof msg === "object" && msg !== null) {
           const m = msg as Record<string, unknown>;
-          // DM 通知（/dm 経由）を先に処理
+          // DM 通知（/api/dm 経由）を先に処理
           if (typeof m.type === "string" && m.type === "dm") {
             const p = m.payload as Record<string, unknown> | undefined;
             if (!p) return;
@@ -1748,12 +1794,22 @@ export function Chat() {
               onSelect={selectRoom}
               showAds={showAds()}
               onCreateRoom={() => {
-                /* creation triggered from sidebar controls */
+                const handle = globalThis.prompt(
+                  "ユーザーIDを入力してください (例: alice@example.com)",
+                );
+                if (handle && handle.trim() !== "") {
+                  const normalized =
+                    handle.includes("@") || handle.startsWith("http")
+                      ? normalizeActor(handle as ActorID)
+                      : `${handle}@${getDomain()}`;
+                  selectRoom(normalized);
+                }
               }}
               segment={segment()}
               onSegmentChange={setSegment}
               onCreateFriendRoom={(friendId: string) => {
-                console.log("create friend room requested:", friendId);
+                const normalized = normalizeActor(friendId as ActorID);
+                selectRoom(normalized);
               }}
             />
           </div>
@@ -1950,10 +2006,10 @@ async function fetchKeepMessages(_handle: string, _params?: unknown) {
   }
 }
 
-async function searchRooms(_userId: string, _opts?: unknown) {
+async function searchRooms(_handle: string, _opts?: unknown) {
   try {
     const res = await apiFetch(
-      `/api/dms?owner=${encodeURIComponent(_userId)}`,
+      `/api/dms?owner=${encodeURIComponent(_handle)}`,
     );
     if (!res.ok) return [];
     return await res.json();
@@ -1963,7 +2019,7 @@ async function searchRooms(_userId: string, _opts?: unknown) {
 }
 
 async function _addRoom(
-  _userId: string,
+  _handle: string,
   _room: { id: string; name: string; members: string[] },
   _meta?: unknown,
 ) {
@@ -1971,9 +2027,11 @@ async function _addRoom(
     await apiFetch(`/api/dms`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ owner: _userId, ..._room }),
+      body: JSON.stringify({ owner: _handle, ..._room }),
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // event cursor state (local only)
