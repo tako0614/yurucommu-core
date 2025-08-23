@@ -11,9 +11,9 @@ import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
 import {
+  fetchFollowing as _fetchFollowing,
   fetchUserInfo,
   fetchUserInfoBatch,
-  fetchFollowing as _fetchFollowing,
 } from "./microblog/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -26,18 +26,21 @@ import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 // GroupCreateDialog removed from this view; creation flows via ChatRoomList
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
-import { sendDirectMessage, fetchDirectMessages as _fetchDirectMessages } from "./chat/api.ts";
+import {
+  fetchDirectMessages as _fetchDirectMessages,
+  sendDirectMessage,
+} from "./chat/api.ts";
 
-/* Lightweight local cache helpers (replace MLS-specific stubs)
-   Uses localStorage for simplicity; non-blocking and best-effort. */
+/* ローカルキャッシュ用の軽量ヘルパー
+   localStorage を用いた簡易実装 */
 function getCacheItem(accountId: string, key: string): unknown {
   try {
     const raw = globalThis.localStorage.getItem(`takos:${accountId}:${key}`);
     if (!raw) return undefined;
-  return JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
-  // ignore parse/storage errors
-  return undefined;
+    // ignore parse/storage errors
+    return undefined;
   }
 }
 function setCacheItem(accountId: string, key: string, val: unknown) {
@@ -54,7 +57,11 @@ async function loadDecryptedMessages(accountId: string, roomId: string) {
   const v = await getCacheItem(accountId, `messages:${roomId}`);
   return Array.isArray(v) ? (v as ChatMessage[]) : undefined;
 }
-async function saveDecryptedMessages(accountId: string, roomId: string, v: unknown) {
+async function saveDecryptedMessages(
+  accountId: string,
+  roomId: string,
+  v: unknown,
+) {
   await setCacheItem(accountId, `messages:${roomId}`, v);
 }
 /* uploadFile: accepts an object and tries a JSON POST; returns url or null */
@@ -92,9 +99,6 @@ async function uploadFile(opts: {
   return null;
 }
 
-
-
-
 async function sendKeepMessage(_handle: string, _content: string) {
   try {
     const res = await apiFetch(`/api/keeps`, {
@@ -108,8 +112,6 @@ async function sendKeepMessage(_handle: string, _content: string) {
   }
   return null;
 }
-
-
 
 // ActivityPub の Note 形式のテキストから content を取り出す
 function _parseActivityPubContent(text: string): string {
@@ -233,7 +235,6 @@ function adjustHeight(el?: HTMLTextAreaElement) {
     // ignore styling errors in unusual environments
   }
 }
-
 
 async function encryptFile(file: File) {
   const buf = await file.arrayBuffer();
@@ -477,12 +478,13 @@ export function Chat() {
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   // ルームごとの復号済みメッセージキャッシュ（再選択時の再復号を回避）
-  const [messagesByRoom, setMessagesByRoom] = createSignal<Record<string, ChatMessage[]>>({});
+  const [messagesByRoom, setMessagesByRoom] = createSignal<
+    Record<string, ChatMessage[]>
+  >({});
   const roomCacheKey = (roomId: string): string => {
     const user = account();
     return user ? `${user.id}:${roomId}` : roomId;
   };
-  // groups state and MLS removed — group membership is driven from server/pending invites
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
   onMount(async () => {
@@ -501,12 +503,6 @@ export function Chat() {
   );
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
-  // MLS招待の保留は廃止
-
-  // actorUrl not required in this simplified view
-
-  // MLS 廃止のため、KeyPackage レコードを用いたバインディング評価は削除
-
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
     setChatRooms((prev) => {
@@ -588,11 +584,12 @@ export function Chat() {
     const uuidRe =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const isUuidRoom = uuidRe.test(room.id);
-  // determine partner from room.members (server-provided) or fallback to first member
-  const partner = (room.members ?? []).find((m) => m !== selfHandle) ?? (room.members ?? [])[0];
-  if (!partner) return;
+    // determine partner from room.members (server-provided) or fallback to first member
+    const partner = (room.members ?? []).find((m) => m !== selfHandle) ??
+      (room.members ?? [])[0];
+    if (!partner) return;
 
-  // 画面表示用に client 側で members を補完（サーバーから返らない想定）
+    // 画面表示用に client 側で members を補完（サーバーから返らない想定）
     setChatRooms((prev) =>
       prev.map((r) => {
         if (r.id !== room.id) return r;
@@ -642,10 +639,6 @@ export function Chat() {
 
   // group initialization removed
 
-  // keypair / MLS helpers removed
-
-  // MLS handshake/sync removed
-
   const fetchMessagesForRoom = async (
     room: Room,
     params?: {
@@ -675,21 +668,27 @@ export function Chat() {
         isMe: true,
         avatar: room.avatar,
       }));
-      return msgs.sort((a: ChatMessage, b: ChatMessage) => a.timestamp.getTime() - b.timestamp.getTime());
+      return msgs.sort((a: ChatMessage, b: ChatMessage) =>
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
     }
 
-    // E2EE/MLS を廃止したため、サーバーの DM API (/dm) を用いてメッセージを取得する。
+    // サーバーの DM API (/dm) を用いてメッセージを取得する。
     // friends グループは単なる actor リストとして扱い、各メンバーとの DM をマージして返す。
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
-      const members = (room.members ?? []).filter((m) => !!m && m !== selfHandle);
-  const raw: unknown[] = [];
+      const members = (room.members ?? []).filter((m) =>
+        !!m && m !== selfHandle
+      );
+      const raw: unknown[] = [];
 
       // メンバーごとに /dm?user1=<self>&user2=<member> を呼び出して集約
       for (const m of members) {
         try {
           const res = await apiFetch(
-            `/dm?user1=${encodeURIComponent(selfHandle)}&user2=${encodeURIComponent(m)}`,
+            `/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
+              encodeURIComponent(m)
+            }`,
           );
           if (!res.ok) continue;
           const list = await res.json();
@@ -737,7 +736,10 @@ export function Chat() {
 
   const loadMessages = async (room: Room, _isSelectedRoom: boolean) => {
     const user = account();
-  const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined);
+    const cached = messagesByRoom()[roomCacheKey(room.id)] ??
+      (user
+        ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined
+        : undefined);
     if (cached && selectedRoom() === room.id) {
       setMessages(cached);
       if (cached.length > 0) {
@@ -786,7 +788,6 @@ export function Chat() {
     const lastMessage = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
     updateRoomLast(room.id, lastMessage);
     // 招待のみで未参加なら送信を抑止（参加後に自動解除）
-    // MLS廃止のため、鍵有無チェックは不要
   };
 
   const loadOlderMessages = async (room: Room) => {
@@ -812,8 +813,6 @@ export function Chat() {
     setHasMore(msgs.length === messageLimit);
     setLoadingOlder(false);
   };
-
-  // MLS ratchet-tree parsing removed
 
   const loadRooms = async () => {
     const user = account();
@@ -855,7 +854,10 @@ export function Chat() {
         userName: user.userName,
         domain: getDomain(),
         // normalize via String() to avoid 'never' typing and safely compute initial
-        avatar: icon || (String(name).length > 0 ? String(name).charAt(0).toUpperCase() : "👥"),
+        avatar: icon ||
+          (String(name).length > 0
+            ? String(name).charAt(0).toUpperCase()
+            : "👥"),
         unreadCount: 0,
         type: "group",
         members,
@@ -896,11 +898,11 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-  // 参加者は server の room.members を優先し、pending を補完として利用
+    // 参加者は server の room.members を優先し、pending を補完として利用
     const uniqueOthers = (r: Room): string[] =>
       (r.members ?? []).filter((m) => m && m !== selfHandle);
 
-  // 暫定表示: members が空のルームは pending 招待から1名だけでも補完
+    // 暫定表示: members が空のルームは pending 招待から1名だけでも補完
     for (const r of rooms) {
       try {
         if ((r.members?.length ?? 0) === 0 && r.type !== "memo") {
@@ -952,7 +954,7 @@ export function Chat() {
         if (info) {
           r.displayName = info.displayName || info.userName;
           r.avatar = info.authorAvatar || r.avatar;
-          // 参加者リストは MLS 由来を保持する（表示名のみ補完）
+          // 参加者リストはサーバー由来を保持し、表示名のみ補完
         }
       }
     }
@@ -980,8 +982,6 @@ export function Chat() {
   };
 
   // room creation should be done via server APIs / sidebar controls
-
-  // MLS 廃止のため、leaf の削除機能は無効化
 
   const sendMessage = async () => {
     const text = newMessage().trim();
@@ -1036,12 +1036,16 @@ export function Chat() {
       setMediaPreview(null);
       return;
     }
-    // --- DM 送信 (MLS 廃止) ---
+    // --- DM 送信 ---
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
       const others = (room.members ?? []).filter((m) => m && m !== selfHandle);
-      const fallbackPeer = room.id.includes("@") ? normalizeActor(room.id as unknown as ActorID) : undefined;
-      const targets = others.length > 0 ? others : (fallbackPeer ? [fallbackPeer] : []);
+      const fallbackPeer = room.id.includes("@")
+        ? normalizeActor(room.id as unknown as ActorID)
+        : undefined;
+      const targets = others.length > 0
+        ? others
+        : (fallbackPeer ? [fallbackPeer] : []);
       if (targets.length > 0) {
         let body = text;
         if (mediaFile()) {
@@ -1064,7 +1068,9 @@ export function Chat() {
           address: selfHandle,
           content: body,
           timestamp: new Date(),
-          type: mediaFile() ? (mediaFile()!.type.startsWith("image/") ? "image" : "file") : "text",
+          type: mediaFile()
+            ? (mediaFile()!.type.startsWith("image/") ? "image" : "file")
+            : "text",
           isMe: true,
           avatar: room.avatar,
         };
@@ -1117,7 +1123,7 @@ export function Chat() {
     checkMobile();
     globalThis.addEventListener("resize", checkMobile);
     // ルーム情報はアカウント取得後の createEffect で読み込む
-    // MLS/E2EE 関連の初期化は廃止（DM はサーバー経由で扱う）
+    // DM はサーバー経由で扱う
 
     // WebSocket からのメッセージを安全に型ガードして処理する
     interface IncomingAttachment {
@@ -1241,7 +1247,6 @@ export function Chat() {
                 // no local group init
                 room = newRoom as unknown as Room;
               }
-              // MLS handshake sync removed
             }
             return;
           }
@@ -1253,12 +1258,21 @@ export function Chat() {
             if (!user) return;
             const self = `${user.userName}@${getDomain()}`;
             const from = typeof p.from === "string" ? p.from : "";
-            const to = typeof p.to === "string" ? [p.to] : Array.isArray(p.to) ? (p.to as string[]) : [];
+            const to = typeof p.to === "string"
+              ? [p.to]
+              : Array.isArray(p.to)
+              ? (p.to as string[])
+              : [];
             if (!(to.includes(self) || from === self)) return;
-            const partnerId = from === self ? (to.find((v) => v !== self) ?? to[0]) : from;
+            const partnerId = from === self
+              ? (to.find((v) => v !== self) ?? to[0])
+              : from;
             if (!partnerId) return;
             const normPartner = normalizeActor(partnerId as ActorID);
-            let room = chatRooms().find((r) => r.type !== "memo" && ((r.members ?? []).includes(normPartner) || r.id === normPartner));
+            let room = chatRooms().find((r) =>
+              r.type !== "memo" &&
+              ((r.members ?? []).includes(normPartner) || r.id === normPartner)
+            );
             if (!room) {
               room = {
                 id: normPartner,
@@ -1266,7 +1280,8 @@ export function Chat() {
                 displayName: normPartner.split("@")[0],
                 userName: user.userName,
                 domain: getDomain(),
-                avatar: (normPartner.split("@")[0] || "?").charAt(0).toUpperCase(),
+                avatar: (normPartner.split("@")[0] || "?").charAt(0)
+                  .toUpperCase(),
                 unreadCount: 0,
                 type: "group",
                 members: [normPartner],
@@ -1274,18 +1289,26 @@ export function Chat() {
                 lastMessageTime: undefined,
               };
               upsertRoom(room);
-              try { await applyDisplayFallback([room]); } catch { /* ignore */ }
+              try {
+                await applyDisplayFallback([room]);
+              } catch { /* ignore */ }
             }
             if (!room) return;
             // 選択中なら差分取得して追記、未選択ならプレビュー更新のみ
             if (selectedRoom() === room.id) {
-              const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
+              const fetched = await fetchMessagesForRoom(room, {
+                limit: 1,
+                dryRun: true,
+              });
               if (fetched.length > 0) {
                 const last = fetched[fetched.length - 1];
                 setMessages((prev) => {
                   if (prev.some((x) => x.id === last.id)) return prev;
                   const next = [...prev, last];
-                  setMessagesByRoom({ ...messagesByRoom(), [roomCacheKey(room!.id)]: next });
+                  setMessagesByRoom({
+                    ...messagesByRoom(),
+                    [roomCacheKey(room!.id)]: next,
+                  });
                   const u2 = account();
                   if (u2) void saveDecryptedMessages(u2.id, room!.id, next);
                   return next;
@@ -1293,8 +1316,13 @@ export function Chat() {
                 updateRoomLast(room.id, last);
               }
             } else {
-              const fetched = await fetchMessagesForRoom(room, { limit: 1, dryRun: true });
-              if (fetched.length > 0) updateRoomLast(room.id, fetched[fetched.length - 1]);
+              const fetched = await fetchMessagesForRoom(room, {
+                limit: 1,
+                dryRun: true,
+              });
+              if (fetched.length > 0) {
+                updateRoomLast(room.id, fetched[fetched.length - 1]);
+              }
             }
             return;
           }
@@ -1312,7 +1340,7 @@ export function Chat() {
       const self = `${user.userName}@${getDomain()}`;
 
       if (msg.type === "handshake") {
-        // MLS 廃止: ハンドシェイク通知は無視
+        // ハンドシェイク通知は無視
         return;
       }
 
@@ -1484,7 +1512,6 @@ export function Chat() {
         updateRoomLast(room.id, last);
       }
     };
-    // MLS招待の受諾イベントは廃止
     acceptCleanup = () => {};
 
     addMessageHandler(handler);
@@ -1493,8 +1520,6 @@ export function Chat() {
     // selectedRoom 監視の createEffect に任せる
     adjustHeight(textareaRef);
   });
-
-  // MLS 招待の同期は廃止
 
   // 一覧のプレビュー更新ポーリングは簡素化（DMのみ）
   let previewPoller: number | undefined;
@@ -1506,7 +1531,10 @@ export function Chat() {
       const targets = chatRooms().filter((r) => r.type !== "memo").slice(0, 10);
       for (const r of targets) {
         try {
-          const msgs = await fetchMessagesForRoom(r, { limit: 1, dryRun: true });
+          const msgs = await fetchMessagesForRoom(r, {
+            limit: 1,
+            dryRun: true,
+          });
           if (msgs.length > 0) updateRoomLast(r.id, msgs[msgs.length - 1]);
         } catch { /* ignore */ }
       }
@@ -1526,7 +1554,7 @@ export function Chat() {
     ),
   );
 
-  // MLS group-sync removed; rely on server-provided members and pending invites
+  // グループ同期はサーバー提供のメンバーと保留中の招待を利用
 
   createEffect(
     on(
@@ -1599,7 +1627,6 @@ export function Chat() {
     account();
   });
 
-
   createEffect(() => {
     newMessage();
     adjustHeight(textareaRef);
@@ -1657,23 +1684,23 @@ export function Chat() {
       for (const [rid, flg] of byRoom) {
         let room = chatRooms().find((r) => r.id === rid);
         if (!room) {
-            room = {
-              id: rid,
-              name: "",
-              userName: account()?.userName || "",
-              domain: getDomain(),
-              avatar: "",
-              unreadCount: 0,
-              type: "group",
-              members: [],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            };
-            upsertRoom(room);
-            try {
-              await applyDisplayFallback([room]);
-            } catch { /* ignore */ }
-          }
+          room = {
+            id: rid,
+            name: "",
+            userName: account()?.userName || "",
+            domain: getDomain(),
+            avatar: "",
+            unreadCount: 0,
+            type: "group",
+            members: [],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          };
+          upsertRoom(room);
+          try {
+            await applyDisplayFallback([room]);
+          } catch { /* ignore */ }
+        }
         if (room && flg.message) {
           const isSel = selectedRoom() === rid;
           if (isSel) {
@@ -1763,12 +1790,14 @@ export function Chat() {
               selectedRoom={selectedRoom()}
               onSelect={selectRoom}
               showAds={showAds()}
-                    onCreateRoom={() => { /* creation triggered from sidebar controls */ }}
+              onCreateRoom={() => {
+                /* creation triggered from sidebar controls */
+              }}
               segment={segment()}
               onSegmentChange={setSegment}
-                    onCreateFriendRoom={(friendId: string) => {
-                      console.log("create friend room requested:", friendId);
-                    }}
+              onCreateFriendRoom={(friendId: string) => {
+                console.log("create friend room requested:", friendId);
+              }}
             />
           </div>
           <div
@@ -1826,8 +1855,14 @@ export function Chat() {
                     const looksLikeSelf = me &&
                       (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
-                      return { ...r, name: (other as string | undefined) ?? (r.name || "不明") };
+                      const other = rawOther && rawOther !== selfHandle
+                        ? rawOther
+                        : undefined;
+                      return {
+                        ...r,
+                        name: (other as string | undefined) ??
+                          (r.name || "不明"),
+                      };
                     }
                     return r;
                   })()}
@@ -1849,7 +1884,7 @@ export function Chat() {
                     }
                   }}
                 />
-                {/* WelcomeバナーはMLS廃止のため削除 */}
+                {/* Welcomeバナーは削除 */}
                 <ChatSendForm
                   newMessage={newMessage()}
                   setNewMessage={setNewMessage}
@@ -1868,7 +1903,7 @@ export function Chat() {
           </div>
         </div>
       </div>
-  {/* GroupCreateDialog removed; room creation handled through sidebar */}
+      {/* GroupCreateDialog removed; room creation handled through sidebar */}
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}
@@ -1966,9 +2001,7 @@ async function fetchEvents(opts?: { since?: string; limit?: number }) {
   }
 }
 
-// KeyPackage 選択ロジックは廃止
-
-// --- lightweight local helpers/stubs for removed MLS infra ---
+// --- ローカル補助関数 ---
 function normalizeHandle(id?: string): string | undefined {
   if (!id) return undefined;
   if (id.startsWith("http")) {
@@ -1988,7 +2021,9 @@ function normalizeHandle(id?: string): string | undefined {
 async function fetchKeepMessages(_handle: string, _params?: unknown) {
   // delegate to server keep API if available; stub returns empty
   try {
-    const res = await apiFetch(`/api/keeps?handle=${encodeURIComponent(_handle)}`);
+    const res = await apiFetch(
+      `/api/keeps?handle=${encodeURIComponent(_handle)}`,
+    );
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -2006,14 +2041,25 @@ async function searchRooms(_userId: string, _opts?: unknown) {
   }
 }
 
-async function _addRoom(_userId: string, _room: { id: string; name: string; members: string[] }, _meta?: unknown) {
+async function _addRoom(
+  _userId: string,
+  _room: { id: string; name: string; members: string[] },
+  _meta?: unknown,
+) {
   try {
-  await apiFetch(`/api/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(_room) });
+    await apiFetch(`/api/rooms`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(_room),
+    });
   } catch { /* ignore */ }
 }
 
 // event cursor state (local only)
 const _eventsCursor = createSignal<string | null>(null);
-function eventsCursor() { return _eventsCursor[0](); }
-function setEventsCursor(v?: string | null) { _eventsCursor[1](v ?? null); }
-
+function eventsCursor() {
+  return _eventsCursor[0]();
+}
+function setEventsCursor(v?: string | null) {
+  _eventsCursor[1](v ?? null);
+}

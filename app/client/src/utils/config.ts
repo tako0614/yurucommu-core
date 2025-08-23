@@ -79,8 +79,6 @@ export function getDomain(): string {
   return domain;
 }
 
-// MLS KeyPackage pool 設定は廃止（互換のためキーは残さない）
-
 // --- 複数サーバー管理 ---
 
 const SERVERS_KEY = "takos-servers";

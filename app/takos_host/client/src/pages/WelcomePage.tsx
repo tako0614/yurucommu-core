@@ -128,23 +128,6 @@ const Globe = () => (
   </svg>
 );
 
-const Lock = () => (
-  <svg
-    class="w-8 h-8 text-indigo-400 mb-4"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    viewBox="0 0 24 24"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-    <circle cx="12" cy="16" r="1" />
-    <path d="M7 11V7a5 5 0 0110 0v4" />
-  </svg>
-);
-
 const Smartphone = () => (
   <svg
     class="w-8 h-8 text-indigo-400 mb-4"
@@ -194,13 +177,6 @@ const FEATURES = [
     highlight: "自由度",
   },
   {
-    icon: Lock,
-    title: "ac",
-    desc:
-      "activitypub-e2eeを利用したエンドツーエンド暗号化。プライバシーを最優先に考えた設計。",
-    highlight: "セキュア",
-  },
-  {
     icon: Smartphone,
     title: "マルチプラットフォーム",
     desc:
@@ -227,16 +203,6 @@ const COMPARISON = [
     others: {
       Mastodon: "○",
       Misskey: "○",
-      Twitter: "×",
-      Facebook: "×",
-    },
-  },
-  {
-    label: "E2EE (エンドツーエンド暗号化)",
-    takos: "○",
-    others: {
-      Mastodon: "×",
-      Misskey: "×",
       Twitter: "×",
       Facebook: "×",
     },

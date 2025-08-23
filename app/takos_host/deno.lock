@@ -20,7 +20,6 @@
     "npm:mongoose@^8.16.4": "8.17.1",
     "npm:nodemailer@^6.9.11": "6.10.1",
     "npm:solid-app-router@~0.4.2": "0.4.2_solid-js@1.9.7__seroval@1.3.2",
-    "npm:ts-mls@1.0.4": "1.0.4",
     "npm:zod@^3.25.56": "3.25.76"
   },
   "jsr": {
@@ -282,12 +281,6 @@
         "punycode"
       ]
     },
-    "ts-mls@1.0.4": {
-      "integrity": "sha512-JYwcIrCv399G0LmXl+hhcegAH3HjWv/V68/ueGQBC3VslbuqL5H0hN+/cIqQeWhD0ttqJ4xGzhjwAmQ12iipsQ==",
-      "dependencies": [
-        "@hpke/core"
-      ]
-    },
     "tslib@2.8.1": {
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
     },
@@ -317,11 +310,7 @@
     "https://esm.sh/@noble/curves@^1.9.2/ed25519?target=denonext": "https://esm.sh/@noble/curves@1.9.7/ed25519?target=denonext",
     "https://esm.sh/@noble/curves@^1.9.2/ed448?target=denonext": "https://esm.sh/@noble/curves@1.9.7/ed448?target=denonext",
     "https://esm.sh/@noble/curves@^1.9.2/nist?target=denonext": "https://esm.sh/@noble/curves@1.9.7/nist?target=denonext",
-    "https://esm.sh/mlkem@^2.5.0?target=denonext": "https://esm.sh/mlkem@2.5.0?target=denonext",
-    "https://esm.sh/ts-mls": "https://esm.sh/ts-mls@1.1.0",
-    "https://esm.sh/ts-mls@": "https://esm.sh/ts-mls@1.1.0",
-    "https://esm.sh/ts-mls@1": "https://esm.sh/ts-mls@1.1.0",
-    "https://esm.sh/ts-mls@1.1": "https://esm.sh/ts-mls@1.1.0"
+    "https://esm.sh/mlkem@^2.5.0?target=denonext": "https://esm.sh/mlkem@2.5.0?target=denonext"
   },
   "remote": {
     "https://deno.land/x/bcrypt@v0.4.1/mod.ts": "ff09bdae282583cf5f7d87efe37ddcecef7f14f6d12e8b8066a3058db8c6c2f7",
@@ -395,9 +384,7 @@
     "https://esm.sh/@noble/post-quantum@0.4.1/denonext/ml-dsa.mjs": "8941f2818e975eb150f6ab1684f0a9fdf91016bd9dcc46afaca368dab9193dc2",
     "https://esm.sh/@noble/post-quantum@0.4.1/denonext/utils.mjs": "ae9816210bbddc80575107fb49f95cb8ef967c5f8e2c065e8775b97d6c204e25",
     "https://esm.sh/mlkem@2.5.0/denonext/mlkem.mjs": "eb11ce36395384fe01c17c290b2f52e1b9dd2c4fdd63400f85b4cfb9862125e5",
-    "https://esm.sh/mlkem@2.5.0?target=denonext": "80fb7be6c3e9e45d755ca12efb3003834ab56685ccdc9cac2c04f5e9d8c29f75",
-    "https://esm.sh/ts-mls@1.1.0": "736040719faff07256db94f912330abecfcd46df1364970b0bb3d1e5e7724b8a",
-    "https://esm.sh/ts-mls@1.1.0/denonext/ts-mls.mjs": "80d785347d53f5181a57b0b90f8ca18b40ce9068293cf4067756feb35169fe14"
+    "https://esm.sh/mlkem@2.5.0?target=denonext": "80fb7be6c3e9e45d755ca12efb3003834ab56685ccdc9cac2c04f5e9d8c29f75"
   },
   "workspace": {
     "dependencies": [
