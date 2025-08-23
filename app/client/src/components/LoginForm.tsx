@@ -8,7 +8,7 @@ import {
   setActiveServer,
   setApiBase,
 } from "../utils/config.ts";
-import { Button, Card, Input } from "./ui";
+import { Button, Card, Input } from "./ui/index.ts";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;

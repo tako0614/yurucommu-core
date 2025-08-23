@@ -162,12 +162,43 @@ export function ChatRoomList(props: ChatRoomListProps) {
     return undefined;
   };
 
+  // ハンドル正規化ユーティリティ（members の比較に使う）
+  const normalizeHandleLocal = (id?: string): string | undefined => {
+    if (!id) return undefined;
+    if (id.startsWith("http")) {
+      try {
+        const u = new URL(id);
+        const name = u.pathname.split("/").pop() || "";
+        if (!name) return undefined;
+        return `${name}@${u.hostname}`;
+      } catch {
+        return undefined;
+      }
+    }
+    if (id.includes("@")) return id;
+    return undefined;
+  };
+
+  // 厳密な「友だちルーム」判定: members 配列に自分以外がちょうど1名存在するルーム
+  const isStrictFriendRoom = (r: Room) => {
+    if (r.type === "memo") return false;
+    const me = account();
+    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
+    const membersOnly = (r.members ?? []).filter((m: unknown): m is string =>
+      typeof m === "string" && !!m
+    );
+    const normalized = Array.from(
+      new Set(membersOnly.map((m) => normalizeHandleLocal(m) || m))
+    ).filter((m) => !!m && m !== selfHandle);
+    return normalized.length === 1;
+  };
+
   const getFilteredRoomsFor = (seg: "all" | "people" | "groups") => {
     const q = query().toLowerCase().trim();
     let base = props.rooms;
 
     if (seg === "people") {
-      base = base.filter((r) => isFriendRoom(r));
+      base = base.filter((r) => isStrictFriendRoom(r));
     } else if (seg === "groups") {
       const memoRoom = base.find((r) => r.type === "memo");
       const rest = base.filter((r) => isGroupRoom(r));
@@ -202,7 +233,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
 
   const segUnread = createMemo(() => {
     const all = props.rooms.reduce((a, r) => a + (r.unreadCount || 0), 0);
-    const people = props.rooms.filter((r) => isFriendRoom(r))
+    const people = props.rooms.filter((r) => isStrictFriendRoom(r))
       .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const groups = all - people;
     return { all, people, groups };

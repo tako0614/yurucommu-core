@@ -8,7 +8,7 @@ import {
   setActiveServer,
   setApiBase,
 } from "../utils/config.ts";
-import { Button, EmptyState } from "./ui";
+import { Button, EmptyState } from "./ui/index.ts";
 
 interface TauriLoginProps {
   onLoginSuccess: () => void;
@@ -73,7 +73,7 @@ export function TauriLogin(props: TauriLoginProps) {
     }
   };
 
-  const handleAddServer = (
+  const handleAddServer = async (
     url: string,
     password: string,
   ): Promise<void> => {

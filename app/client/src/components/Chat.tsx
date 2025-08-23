@@ -26,6 +26,7 @@ import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 import { GroupCreateDialog } from "./chat/GroupCreateDialog.tsx";
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
+import { fetchDirectMessages, sendDirectMessage } from "./chat/api.ts";
 
 /* E2EE removed — provide lightweight stubs to keep UI functional without MLS/E2EE */
 
@@ -714,9 +715,16 @@ function getSelfRoomId(_user: Account | null): string | null {
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
   const [account] = useAtom(activeAccount);
-  const { bindingStatus, bindingInfo, assessBinding, ktInfo } = useMLS(
-    account()?.userName ?? "",
-  );
+  const bindingStatus = () => null as string | null;
+  const bindingInfo = () => null as any;
+  const assessBinding = async (
+    _userId?: string,
+    _roomId?: string,
+    _actor?: string,
+    _credentialFingerprint?: string,
+    _ktIncluded?: boolean,
+  ) => ({ status: "Unknown", info: null, kt: { included: false } });
+  const ktInfo = () => ({ included: false });
   const [newMessage, setNewMessage] = createSignal("");
   const [mediaFile, setMediaFile] = createSignal<File | null>(null);
   const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
@@ -1167,6 +1175,8 @@ export function Chat() {
   ): Promise<ChatMessage[]> => {
     const user = account();
     if (!user) return [];
+
+    // メモは既存の keep API を利用
     if (room.type === "memo") {
       const list = await fetchKeepMessages(
         `${user.userName}@${getDomain()}`,
@@ -1185,275 +1195,59 @@ export function Chat() {
       }));
       return msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     }
-    const encryptedMsgs: ChatMessage[] = [];
-    const isDryRun = Boolean(params?.dryRun);
-    let group = groups()[room.id];
-    if (!group) {
-      await initGroupState(room.id);
-      group = groups()[room.id];
-      if (!group) return [];
-    }
-    await syncHandshakes(room);
-    group = groups()[room.id];
-    const selfHandle = `${user.userName}@${getDomain()}`;
-    const participantsNow = extractMembers(group)
-      .map((x) => normalizeHandle(x) ?? x)
-      .filter((v): v is string => !!v);
-    const isJoined = participantsNow.includes(selfHandle);
-    // cast room.type to string to avoid narrow literal union comparison warning
-    if (!isJoined && (room.type as string) !== "memo") {
-      // 未参加（招待のみ）の場合は復号を試みず空で返す（UI側で招待状態を表示）
+
+    // E2EE/MLS を廃止したため、サーバーの DM API (/dm) を用いてメッセージを取得する。
+    // friends グループは単なる actor リストとして扱い、各メンバーとの DM をマージして返す。
+    try {
+      const selfHandle = `${user.userName}@${getDomain()}`;
+      const members = (room.members ?? []).filter((m) => !!m && m !== selfHandle);
+      const raw: any[] = [];
+
+      // メンバーごとに /dm?user1=<self>&user2=<member> を呼び出して集約
+      for (const m of members) {
+        try {
+          const res = await apiFetch(
+            `/dm?user1=${encodeURIComponent(selfHandle)}&user2=${encodeURIComponent(m)}`,
+          );
+          if (!res.ok) continue;
+          const list = await res.json();
+          if (Array.isArray(list)) raw.push(...list);
+        } catch {
+          // ignore per-peer failures
+        }
+      }
+
+      // 重複を除き作成時刻順に並べ替え、ChatMessage に変換
+      const map = new Map<string, any>();
+      for (const it of raw) {
+        const id = (it._id ?? it.id ?? `${it.from}:${it.createdAt}`) as string;
+        if (!map.has(id)) map.set(id, it);
+      }
+      const ordered = Array.from(map.values()).sort((a, b) =>
+        new Date(a.createdAt ?? a.createdAt ?? 0).getTime() -
+        new Date(b.createdAt ?? b.createdAt ?? 0).getTime()
+      );
+
+      const msgs: ChatMessage[] = ordered.map((m) => {
+        const created = m.createdAt ?? m.createdAt ?? m.created_at ?? Date.now();
+        return {
+          id: String(m._id ?? m.id ?? `${m.from}:${created}`),
+          author: m.from,
+          displayName: m.from.split("/").pop() ?? m.from,
+          address: m.from,
+          content: m.content ?? "",
+          timestamp: new Date(created),
+          type: "text",
+          isMe: m.from === selfHandle,
+          avatar: room.avatar,
+        } as ChatMessage;
+      });
+
+      return msgs;
+    } catch (err) {
+      console.error("fetchMessagesForRoom (DM) error:", err);
       return [];
     }
-    const list = await fetchEncryptedMessages(
-      room.id,
-      `${user.userName}@${getDomain()}`,
-      params,
-    );
-    // 復号は古い順に処理しないとラチェットが進まず失敗するため昇順で処理
-    const ordered = [...list].sort((a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    for (const m of ordered) {
-      const data = b64ToBuf(m.content);
-      let res: { plaintext: Uint8Array; state: StoredGroupState } | null = null;
-      try {
-        console.debug("[decrypt] attempt", {
-          id: m.id,
-          room: room.id,
-          from: m.from,
-          mediaType: m.mediaType,
-          encoding: m.encoding,
-          contentLen: m.content ? m.content.length : 0,
-        });
-        try {
-          const peek = decodeMlsMessage(data, 0)?.[0];
-          console.debug("[decrypt] peekWireformat", {
-            id: m.id,
-            wireformat: peek?.wireformat,
-          });
-        } catch (e) {
-          console.debug("[decrypt] peek failed", { id: m.id, err: e });
-        }
-        res = await decryptMessage(group, data);
-        console.debug("[decrypt] result", {
-          id: m.id,
-          ok: !!res,
-          updatedState: !!res?.state,
-        });
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "OperationError") {
-          // DOMException(OperationError) は対象メッセージをスキップ
-          console.error("decryptMessage OperationError", err, {
-            id: m.id,
-            room: room.id,
-            message: err.message,
-          });
-          continue;
-        }
-        console.error("decryptMessage failed", err, {
-          id: m.id,
-          room: room.id,
-        });
-      }
-      if (!res) {
-        const isMe = m.from === `${user.userName}@${getDomain()}`;
-        // 自分発の暗号文で復号に失敗した場合はプレースホルダを表示せずスキップ
-        // （送信直後の世代ズレなど一時的要因で発生し得るが、後続の差分取得で解消される）
-        if (isMe) {
-          continue;
-        }
-        try {
-          const peek2 = decodeMlsMessage(b64ToBuf(m.content), 0)?.[0];
-          console.warn("[decrypt] failed -> placeholder", {
-            id: m.id,
-            room: room.id,
-            from: m.from,
-            mediaType: m.mediaType,
-            encoding: m.encoding,
-            contentLen: m.content ? m.content.length : 0,
-            peekWireformat: peek2?.wireformat,
-          });
-        } catch (e) {
-          console.warn("[decrypt] failed -> placeholder (peek failed)", {
-            id: m.id,
-            room: room.id,
-            err: e,
-          });
-        }
-        if (!isMe) updatePeerHandle(room.id, m.from);
-        const selfH = `${user.userName}@${getDomain()}`;
-        const baseName = room.displayName ?? room.name;
-        const otherName = (!baseName || baseName === user.displayName ||
-            baseName === user.userName || baseName === selfH)
-          ? m.from
-          : baseName;
-        const displayName = isMe
-          ? (user.displayName || user.userName)
-          : otherName;
-        // 復号できない暗号文はプレースホルダ表示 (後で再同期時に再取得対象)
-        encryptedMsgs.push({
-          id: m.id,
-          author: m.from,
-          displayName,
-          address: m.from,
-          content: "[未復号]", // m.content そのまま出さない
-          timestamp: new Date(m.createdAt),
-          type: "text",
-          isMe,
-          avatar: room.avatar,
-        });
-        continue;
-      }
-      group = res.state;
-      const plaintextStr = new TextDecoder().decode(res.plaintext);
-      // joinAck は UI に表示しない
-      if (isJoinAckText(plaintextStr)) {
-        continue;
-      }
-      const note = parseActivityPubNote(plaintextStr);
-      const text = note.content;
-      const listAtt = Array.isArray(m.attachments)
-        ? m.attachments
-        : note.attachments;
-      let attachments:
-        | {
-          data?: string;
-          url?: string;
-          mediaType: string;
-          preview?: {
-            url?: string;
-            data?: string;
-            mediaType?: string;
-            key?: string;
-            iv?: string;
-          };
-        }[]
-        | undefined;
-      if (Array.isArray(listAtt)) {
-        attachments = [];
-        for (const at of listAtt) {
-          if (typeof at.url === "string") {
-            const attachmentItem = at as typeof at & {
-              preview?: ActivityPubPreview;
-            };
-            const mt = typeof attachmentItem.mediaType === "string"
-              ? attachmentItem.mediaType
-              : "application/octet-stream";
-            let preview;
-            if (
-              attachmentItem.preview &&
-              typeof attachmentItem.preview.url === "string"
-            ) {
-              const previewItem = attachmentItem.preview;
-              const pmt = typeof previewItem.mediaType === "string"
-                ? previewItem.mediaType
-                : "image/jpeg";
-              try {
-                const pres = await fetch(previewItem.url);
-                let pbuf = await pres.arrayBuffer();
-                if (
-                  typeof previewItem.key === "string" &&
-                  typeof previewItem.iv === "string"
-                ) {
-                  pbuf = await decryptFile(
-                    pbuf,
-                    previewItem.key,
-                    previewItem.iv,
-                  );
-                }
-                preview = { url: bufToUrl(pbuf, pmt), mediaType: pmt };
-              } catch {
-                preview = { url: previewItem.url, mediaType: pmt };
-              }
-            }
-            try {
-              const res = await fetch(attachmentItem.url);
-              let buf = await res.arrayBuffer();
-              if (
-                typeof attachmentItem.key === "string" &&
-                typeof attachmentItem.iv === "string"
-              ) {
-                buf = await decryptFile(
-                  buf,
-                  attachmentItem.key,
-                  attachmentItem.iv,
-                );
-              }
-              if (
-                mt.startsWith("video/") ||
-                mt.startsWith("audio/") ||
-                buf.byteLength > 1024 * 1024
-              ) {
-                attachments.push({
-                  url: bufToUrl(buf, mt),
-                  mediaType: mt,
-                  preview,
-                });
-              } else {
-                attachments.push({
-                  data: bufToB64(buf),
-                  mediaType: mt,
-                  preview,
-                });
-              }
-            } catch {
-              attachments.push({
-                url: attachmentItem.url,
-                mediaType: mt,
-                preview,
-              });
-            }
-          }
-        }
-      }
-      const fullId = `${user.userName}@${getDomain()}`;
-      const isMe = m.from === fullId;
-      if (!isMe) updatePeerHandle(room.id, m.from);
-      const selfH2 = `${user.userName}@${getDomain()}`;
-      const baseName2 = room.displayName ?? room.name;
-      const otherName = (!baseName2 || baseName2 === user.displayName ||
-          baseName2 === user.userName || baseName2 === selfH2)
-        ? m.from
-        : baseName2;
-      const displayName = isMe
-        ? (user.displayName || user.userName)
-        : otherName;
-      encryptedMsgs.push({
-        id: m.id,
-        author: m.from,
-        displayName,
-        address: m.from,
-        content: text,
-        attachments,
-        timestamp: new Date(m.createdAt),
-        type: attachments && attachments.length > 0
-          ? attachments[0].mediaType.startsWith("image/") ? "image" : "file"
-          : "text",
-        isMe,
-        avatar: room.avatar,
-      });
-    }
-    const msgs = encryptedMsgs.sort((a, b) =>
-      a.timestamp.getTime() - b.timestamp.getTime()
-    );
-    if (!isDryRun) {
-      setGroups({ ...groups(), [room.id]: group });
-      saveGroupStates();
-      // 参加メンバーに合わせて招待中を整流化
-      try {
-        const acc = account();
-        if (acc) {
-          const participants = extractMembers(group).map((x) =>
-            normalizeHandle(x) ?? x
-          ).filter((v): v is string => !!v);
-          await syncPendingWithParticipants(acc.id, room.id, participants);
-        }
-      } catch {
-        console.error("参加メンバーの同期に失敗しました");
-      }
-    }
-    return msgs;
   };
 
   const loadMessages = async (room: Room, _isSelectedRoom: boolean) => {
@@ -2210,8 +2004,7 @@ export function Chat() {
     checkMobile();
     globalThis.addEventListener("resize", checkMobile);
     // ルーム情報はアカウント取得後の createEffect で読み込む
-    loadGroupStates();
-    ensureKeyPair();
+    // MLS/E2EE 関連の初期化は廃止（DM はサーバー経由で扱う）
 
     // WebSocket からのメッセージを安全に型ガードして処理する
     interface IncomingAttachment {
@@ -2932,8 +2725,6 @@ export function Chat() {
 
   createEffect(() => {
     account();
-    loadGroupStates();
-    ensureKeyPair();
   });
 
   createEffect(() => {
@@ -3186,18 +2977,6 @@ export function Chat() {
                     const r = selectedRoomInfo();
                     return r ? r.type !== "memo" : true;
                   })()}
-                  bindingStatus={(function () {
-                    const r = selectedRoomInfo();
-                    return r && r.type !== "memo" ? bindingStatus() : null;
-                  })()}
-                  bindingInfo={(function () {
-                    const r = selectedRoomInfo();
-                    return r && r.type !== "memo" ? bindingInfo() : null;
-                  })()}
-                  ktInfo={(function () {
-                    const r = selectedRoomInfo();
-                    return r && r.type !== "memo" ? ktInfo() : null;
-                  })()}
                 />
                 {/* 旧 group 操作UIは削除（イベントソース派生に移行） */}
                 <ChatMessageList
@@ -3356,11 +3135,6 @@ export function Chat() {
       <ChatSettingsOverlay
         isOpen={showSettings()}
         room={selectedRoomInfo()}
-        groupState={(function () {
-          const id = selectedRoom();
-          if (!id) return null;
-          return groups()[id] ?? null;
-        })()}
         onClose={() => setShowSettings(false)}
         onRoomUpdated={(partial) => {
           const id = selectedRoom();
@@ -3369,10 +3143,6 @@ export function Chat() {
             prev.map((r) => r.id === id ? { ...r, ...partial } : r)
           );
         }}
-        bindingStatus={bindingStatus()}
-        bindingInfo={bindingInfo()}
-        ktInfo={ktInfo()}
-        onRemoveMember={removeActorLeaves}
       />
     </>
   );

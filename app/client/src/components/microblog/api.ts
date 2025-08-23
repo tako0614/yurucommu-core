@@ -193,6 +193,44 @@ export const createPost = async (
   }
 };
 
+/**
+ * 投稿を作成する（to 指定版）
+ * to にアクター URI もしくはハンドル ("user@domain") を指定できます。
+ * サーバーが to を受け付けない場合でもクライアント側から送信するためのラッパーです。
+ */
+export const createPostWithTo = async (
+  content: string,
+  author: string,
+  to?: string | string[],
+  attachments?: { url: string; type: "image" | "video" | "audio" }[],
+  parentId?: string,
+  quoteId?: string,
+  faspShare?: boolean,
+): Promise<boolean> => {
+  try {
+    const payload: Record<string, unknown> = {
+      author,
+      content,
+      attachments,
+      parentId,
+      quoteId,
+      faspShare,
+    };
+    if (typeof to !== "undefined") payload.to = to;
+    const response = await apiFetch("/api/posts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Error creating post with to:", error);
+    return false;
+  }
+};
+
 export const updatePost = async (
   id: string,
   content: string,

@@ -15,17 +15,14 @@ interface FriendRoomListProps {
 export function FriendRoomList(props: FriendRoomListProps) {
   const [query, setQuery] = createSignal("");
 
-  // 選択された友達とのトークルームを取得
+  // 選択された友達とのトークルームを取得（members の正規化ハンドルのみを比較）
   const friendRooms = createMemo(() => {
+    const fid = normalizeHandle(props.friendId) ?? props.friendId;
     return props.rooms.filter((room) => {
       const members = (room.members ?? []).map(normalizeHandle).filter((
         v,
       ): v is string => !!v);
-      if (members.includes(props.friendId)) return true;
-      // members が未補完のときは、ID が friendId と一致する 1:1 とみなす
-      const rid = normalizeHandle(room.id);
-      if (members.length === 0 && rid && rid === props.friendId) return true;
-      return false;
+      return members.includes(fid);
     });
   });
 

@@ -57,62 +57,34 @@ export function FriendList(props: FriendListProps) {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
         .test(v);
     const friendMap = new Map<string, Friend>();
-    // フレンド候補: 自分以外の候補がちょうど1名のルーム（名前の有無は問わない）
+    // フレンド候補: members に自分以外の要素がちょうど1名いるルームを厳密に扱う
     const candidateRooms = props.rooms.filter((r) => {
       if (r.type === "memo") return false;
-      const base = [
-        ...((r.members ?? []).filter((m: unknown): m is string =>
-          typeof m === "string" && !!m
-        )),
-        ...((r.pendingInvites ?? []).filter((m: unknown): m is string =>
-          typeof m === "string" && !!m
-        )),
-      ];
-      let normalized = base.map((m) => normalizeHandle(m) || m);
-      normalized = normalized.filter((m) => !!m && !isSelf(m));
-      // members/pending が空なら room.id を候補に（1:1の actor id ルーム想定）
-      if (normalized.length === 0) {
-        const rid = normalizeHandle(r.id) || r.id;
-        if (rid && !isSelf(rid) && !isUuid(rid)) normalized = [rid];
-      }
-      const uniqueOthers = Array.from(new Set(normalized));
-      return uniqueOthers.length === 1;
+      const membersOnly = (r.members ?? []).filter((m: unknown): m is string =>
+        typeof m === "string" && !!m
+      );
+      const normalized = Array.from(
+        new Set(membersOnly.map((m) => normalizeHandle(m) || m))
+      ).filter((m) => !!m && !isSelf(m));
+      return normalized.length === 1;
     });
     for (const room of candidateRooms) {
-      const base = [
-        ...((room.members ?? []).filter((m: unknown): m is string =>
-          typeof m === "string" && !!m
-        )),
-        ...((room.pendingInvites ?? []).filter((m: unknown): m is string =>
-          typeof m === "string" && !!m
-        )),
-      ];
-      let normalized = base.map((m) => normalizeHandle(m) || m);
-      normalized = normalized.filter((m) => !!m && !isSelf(m));
-      // 自分以外が見つからない場合は room.id を使用（1:1の actor id ルーム想定）
-      if (normalized.length === 0) {
-        const rid = normalizeHandle(room.id) || room.id;
-        if (rid && !isSelf(rid) && !isUuid(rid)) normalized = [rid];
-      }
+      const membersOnly = (room.members ?? []).filter((m: unknown): m is string =>
+        typeof m === "string" && !!m
+      );
+      const normalized = membersOnly
+        .map((m) => normalizeHandle(m) || m)
+        .filter((m) => !!m && !isSelf(m));
       const raw = normalized[0];
       if (!raw) continue;
       const friendId = raw;
       if (selfHandle && friendId === selfHandle) continue;
       if (!friendMap.has(friendId)) {
-        const isSelfLikeName = me &&
-          (room.name === me.displayName || room.name === me.userName ||
-            room.name === selfHandle);
-        const short = friendId.includes("@")
-          ? friendId.split("@")[0]
-          : friendId;
+        const short = friendId.includes("@") ? friendId.split("@")[0] : friendId;
         const fallbackName = short || friendId;
         friendMap.set(friendId, {
           id: friendId,
-          name: (room.displayName && !isSelfLikeName)
-            ? room.displayName
-            : (room.name && !isSelfLikeName)
-            ? room.name
-            : fallbackName,
+          name: fallbackName,
           avatar: room.avatar,
           domain: friendId.includes("@") ? friendId.split("@")[1] : undefined,
         });

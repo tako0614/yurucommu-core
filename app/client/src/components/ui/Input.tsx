@@ -27,7 +27,7 @@ export function Input(props: InputProps) {
         id={id}
         {...rest}
         class={"w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-gray-100 placeholder-gray-500 focus-visible:border-cyan-500 " +
-          (rest.class ? rest.class : "")}
+          (local.class ?? "")}
         aria-invalid={local.error ? "true" : "false"}
         aria-describedby={local.hint ? `${id}-hint` : undefined}
       />

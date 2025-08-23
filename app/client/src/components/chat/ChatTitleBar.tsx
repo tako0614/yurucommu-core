@@ -11,9 +11,6 @@ interface ChatTitleBarProps {
   onBack: () => void;
   onOpenSettings: () => void; // 右上設定メニュー表示
   showSettings?: boolean;
-  bindingStatus?: string | null;
-  bindingInfo?: { label: string; caution?: string } | null;
-  ktInfo?: { included: boolean } | null;
 }
 
 export function ChatTitleBar(props: ChatTitleBarProps) {
@@ -101,22 +98,6 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
           </button>
         </Show>
         <h2>{titleFor(props.selectedRoom)}</h2>
-        <Show when={props.bindingInfo}>
-          <span class="ml-2 px-2 py-0.5 text-xs bg-[#444] rounded">
-            {props.bindingInfo!.label}
-          </span>
-        </Show>
-        <Show
-          when={props.bindingStatus !== "Verified" &&
-            props.bindingInfo?.caution}
-        >
-          <span class="ml-2 text-xs text-yellow-400">
-            {props.bindingInfo!.caution}
-          </span>
-        </Show>
-        <Show when={props.ktInfo && !props.ktInfo.included}>
-          <span class="ml-2 text-xs text-yellow-400">監査未検証</span>
-        </Show>
       </div>
       <div class="ml-auto pr-4 flex items-center gap-3">
         <Show when={props.showSettings !== false}>
