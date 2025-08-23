@@ -460,17 +460,12 @@ export function Chat() {
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   // ルームごとの復号済みメッセージキャッシュ（再選択時の再復号を回避）
-  const [messagesByRoom, setMessagesByRoom] = createSignal<
-    Record<string, ChatMessage[]>
-  >({});
+  const [messagesByRoom, setMessagesByRoom] = createSignal<Record<string, ChatMessage[]>>({});
   const roomCacheKey = (roomId: string): string => {
     const user = account();
     return user ? `${user.id}:${roomId}` : roomId;
   };
-  const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
-    {},
-  );
-  const [keyPair, setKeyPair] = createSignal<GeneratedKeyPair | null>(null);
+  // groups state and MLS removed — group membership is driven from server/pending invites
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
   onMount(async () => {
@@ -518,27 +513,7 @@ export function Chat() {
     upsertRooms([room]);
   }
 
-  // MLSの状態から参加者（自分以外）を抽出（actor URL / handle を正規化しつつ重複除去）
-  const participantsFromState = (roomId: string): string[] => {
-    const user = account();
-    if (!user) return [];
-    const state = groups()[roomId];
-    if (!state) return [];
-    const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    try {
-      const raws = extractMembers(state);
-      const normed = raws
-        .map((m) => normalizeHandle(m as ActorID) ?? m)
-        .filter((m): m is string => !!m);
-      const withoutSelf = normed.filter((m) => {
-        const h = normalizeHandle(m as ActorID) ?? m;
-        return h !== selfHandle;
-      });
-      return Array.from(new Set(withoutSelf));
-    } catch {
-      return [];
-    }
-  };
+  // derive participants directly from room.members when needed
 
   // 受信メッセージの送信者ハンドルから、メンバーIDをフルハンドル形式に補正
   const updatePeerHandle = (roomId: string, fromHandle: string) => {
@@ -605,11 +580,11 @@ export function Chat() {
     const uuidRe =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const isUuidRoom = uuidRe.test(room.id);
-    // MLSの状態から相手を特定（自分以外）
-    const partner = participantsFromState(room.id)[0];
-    if (!partner) return;
+  // determine partner from room.members (server-provided) or fallback to first member
+  const partner = (room.members ?? []).find((m) => m !== selfHandle) ?? (room.members ?? [])[0];
+  if (!partner) return;
 
-    // 画面表示用に client 側で members を補完（サーバーから返らない想定）
+  // 画面表示用に client 側で members を補完（サーバーから返らない想定）
     setChatRooms((prev) =>
       prev.map((r) => {
         if (r.id !== room.id) return r;
@@ -655,109 +630,13 @@ export function Chat() {
   let wsCleanup: (() => void) | undefined;
   let acceptCleanup: (() => void) | undefined;
 
-  const loadGroupStates = async () => {
-    const user = account();
-    if (!user) return;
-    try {
-      const stored = await loadMLSGroupStates(user.id);
-      setGroups(stored);
-    } catch (err) {
-      console.error("Failed to load group states", err);
-    }
-  };
+  // group state persistence removed
 
-  const saveGroupStates = async () => {
-    const user = account();
-    if (!user) return;
-    try {
-      await saveMLSGroupStates(user.id, groups());
-    } catch (e) {
-      console.error("グループ状態の保存に失敗しました", e);
-    }
-  };
+  // group initialization removed
 
-  // グループ状態が存在しなければ初期化して保存
-  const initGroupState = async (roomId: string) => {
-    try {
-      if (groups()[roomId]) return;
-      const user = account();
-      if (!user) return;
-      // 保存済みの状態があればそれを復元
-      try {
-        const stored = await loadMLSGroupStates(user.id);
-        if (stored[roomId]) {
-          setGroups((prev) => ({ ...prev, [roomId]: stored[roomId] }));
-          return;
-        }
-      } catch (err) {
-        console.error("グループ状態の読み込みに失敗しました", err);
-      }
-      const pair = await ensureKeyPair();
-      if (!pair) return;
-      let initState: StoredGroupState | undefined;
-      try {
-        // アクターURLを identity に用いた正しい Credential で生成
-        const actor =
-          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
-        const created = await createMLSGroup(actor);
-        initState = created.state;
-      } catch (e) {
-        console.error(
-          "グループ初期化時にキーからの初期化に失敗しました",
-          e,
-        );
-      }
-      if (initState) {
-        setGroups((prev) => ({
-          ...prev,
-          [roomId]: initState,
-        }));
-        await saveGroupStates();
-      }
-    } catch (e) {
-      console.error("ローカルグループ初期化に失敗しました", e);
-    }
-  };
+  // keypair / MLS helpers removed
 
-  const [isGeneratingKeyPair, setIsGeneratingKeyPair] = createSignal(false);
-
-  const ensureKeyPair = async (): Promise<GeneratedKeyPair | null> => {
-    if (isGeneratingKeyPair()) return null;
-
-    let pair: GeneratedKeyPair | null = keyPair();
-    const user = account();
-    if (!user) return null;
-    if (!pair) {
-      setIsGeneratingKeyPair(true);
-      try {
-        pair = await loadMLSKeyPair(user.id);
-      } catch (err) {
-        console.error("鍵ペアの読み込みに失敗しました", err);
-        pair = null;
-      }
-      if (!pair) {
-        // MLS の identity はアクターURLを用いる（外部連合との整合性維持）
-        const actor =
-          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
-        const kp = await generateKeyPair(actor);
-        pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
-        try {
-          await saveMLSKeyPair(user.id, pair);
-        } catch (err) {
-          console.error("鍵ペアの保存に失敗しました", err);
-          setIsGeneratingKeyPair(false);
-          return null;
-        }
-      }
-      setKeyPair(pair);
-      setIsGeneratingKeyPair(false);
-    }
-    return pair;
-  };
-
-  // MLS 廃止: ハンドシェイク同期は無効
-  const lastHandshakeId = new Map<string, string>();
-  async function syncHandshakes(_room: Room) { return; }
+  // MLS handshake/sync removed
 
   const fetchMessagesForRoom = async (
     room: Room,
@@ -847,11 +726,7 @@ export function Chat() {
 
   const loadMessages = async (room: Room, _isSelectedRoom: boolean) => {
     const user = account();
-    const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (
-      user
-        ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined
-        : undefined
-    );
+  const cached = messagesByRoom()[roomCacheKey(room.id)] ?? (user ? (await loadDecryptedMessages(user.id, room.id)) ?? undefined : undefined);
     if (cached && selectedRoom() === room.id) {
       setMessages(cached);
       if (cached.length > 0) {
@@ -927,20 +802,7 @@ export function Chat() {
     setLoadingOlder(false);
   };
 
-  const extractMembers = (state: StoredGroupState): string[] => {
-    const list: string[] = [];
-    const tree = state.ratchetTree as unknown as {
-      nodeType: string;
-      leaf?: { credential?: { identity?: Uint8Array } };
-    }[];
-    for (const node of tree) {
-      if (node?.nodeType === "leaf") {
-        const id = node.leaf?.credential?.identity;
-        if (id) list.push(new TextDecoder().decode(id));
-      }
-    }
-    return list;
-  };
+  // MLS ratchet-tree parsing removed
 
   const loadRooms = async () => {
     const user = account();
@@ -963,15 +825,10 @@ export function Chat() {
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
     const serverRooms = await searchRooms(user.id, { implicit: "include" });
     for (const item of serverRooms) {
-      const state = groups()[item.id];
       const name = "";
       const icon = "";
-      // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
-      let members = state
-        ? extractMembers(state)
-          .map((m) => normalizeHandle(m as ActorID) ?? m)
-          .filter((m) => (normalizeHandle(m as ActorID) ?? m) !== handle)
-        : [] as string[];
+      // server may not populate members fully; use pending invites as fallback
+      let members = [] as string[];
       if (members.length === 0) {
         try {
           const pend = await readPending(user.id, item.id);
@@ -1028,11 +885,11 @@ export function Chat() {
     const user = account();
     if (!user) return;
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    // 参加者は MLS の leaf から導出済みの room.members のみを信頼（APIやpendingは使わない）
+  // 参加者は server の room.members を優先し、pending を補完として利用
     const uniqueOthers = (r: Room): string[] =>
       (r.members ?? []).filter((m) => m && m !== selfHandle);
 
-    // MLS 同期前の暫定表示: members が空のルームは pending 招待から1名だけでも補完
+  // 暫定表示: members が空のルームは pending 招待から1名だけでも補完
     for (const r of rooms) {
       try {
         if ((r.members?.length ?? 0) === 0 && r.type !== "memo") {
@@ -1157,7 +1014,7 @@ export function Chat() {
       console.error("相手の表示情報取得に失敗しました", e);
     }
     upsertRoom(room);
-    await initGroupState(room.id);
+  // group MLS state removed; no local init required
     try {
       await addRoom(
         user.id,
@@ -1428,7 +1285,7 @@ export function Chat() {
                 try {
                   await applyDisplayFallback([newRoom as unknown as Room]);
                 } catch { /* ignore */ }
-                await initGroupState(newRoom.id);
+                // no local group init
                 room = newRoom as unknown as Room;
               }
               if (room) await syncHandshakes(room);
@@ -1716,75 +1573,7 @@ export function Chat() {
     ),
   );
 
-  // MLS グループ状態の更新に合わせてメンバー/表示名を補正
-  createEffect(
-    on(
-      () => groups(),
-      async () => {
-        const user = account();
-        if (!user) return;
-        const list = chatRooms();
-        if (list.length === 0) return;
-
-        // members を MLS 由来に同期（変更がある場合のみ更新）
-        let changed = false;
-        const nextA = list.map((r) => {
-          if (r.type === "memo") return r;
-          const parts = participantsFromState(r.id);
-          if (parts.length === 0) return r;
-          const cur = r.members ?? [];
-          const equals = cur.length === parts.length &&
-            cur.every((v, i) => v === parts[i]);
-          if (!equals) {
-            changed = true;
-            return { ...r, members: parts };
-          }
-          return r;
-        });
-        if (changed) setChatRooms(nextA);
-
-        // 1対1・未命名の表示名補完（変更がある場合のみ更新）
-        // ただし UUID などグループIDのルームは対象外（誤ってDM扱いしない）
-        const base = changed ? nextA : list;
-        const uuidRe =
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        const candidates = base.filter((r) =>
-          r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
-          !(r.hasName || r.hasIcon) && !uuidRe.test(r.id)
-        );
-        const ids = candidates.map((r) => r.members[0]).filter((
-          v,
-        ): v is string => !!v);
-        if (ids.length === 0) return;
-        try {
-          const infos = await fetchUserInfoBatch(ids, user.id);
-          const map = new Map<string, typeof infos[number]>();
-          for (let i = 0; i < ids.length; i++) map.set(ids[i], infos[i]);
-          let nameChanged = false;
-          const nextB = base.map((r) => {
-            if (
-              r.type === "memo" || !(r.members?.length === 1) ||
-              (r.hasName || r.hasIcon)
-            ) return r;
-            const info = map.get(r.members[0]);
-            if (!info) return r;
-            const newName = info.displayName || info.userName;
-            const newAvatar = info.authorAvatar || r.avatar;
-            if (
-              (r.displayName ?? r.name) !== newName || r.avatar !== newAvatar
-            ) {
-              nameChanged = true;
-              return { ...r, displayName: newName, avatar: newAvatar };
-            }
-            return r;
-          });
-          if (nameChanged) setChatRooms(nextB);
-        } catch {
-          // ignore
-        }
-      },
-    ),
-  );
+  // MLS group-sync removed; rely on server-provided members and pending invites
 
   createEffect(
     on(
@@ -1857,10 +1646,6 @@ export function Chat() {
     account();
   });
 
-  createEffect(() => {
-    groups();
-    saveGroupStates();
-  });
 
   createEffect(() => {
     newMessage();
@@ -1919,25 +1704,23 @@ export function Chat() {
       for (const [rid, flg] of byRoom) {
         let room = chatRooms().find((r) => r.id === rid);
         if (!room) {
-          room = {
-            id: rid,
-            name: "",
-            userName: account()?.userName || "",
-            domain: getDomain(),
-            avatar: "",
-            unreadCount: 0,
-            type: "group",
-            members: [],
-            lastMessage: "...",
-            lastMessageTime: undefined,
-          };
-          upsertRoom(room);
-          try {
-            await applyDisplayFallback([room]);
-          } catch { /* ignore */ }
-          await initGroupState(rid);
-        }
-        if (room && flg.handshake) await syncHandshakes(room);
+            room = {
+              id: rid,
+              name: "",
+              userName: account()?.userName || "",
+              domain: getDomain(),
+              avatar: "",
+              unreadCount: 0,
+              type: "group",
+              members: [],
+              lastMessage: "...",
+              lastMessageTime: undefined,
+            };
+            upsertRoom(room);
+            try {
+              await applyDisplayFallback([room]);
+            } catch { /* ignore */ }
+          }
         if (room && flg.message) {
           const isSel = selectedRoom() === rid;
           if (isSel) {
@@ -2090,8 +1873,8 @@ export function Chat() {
                     const looksLikeSelf = me &&
                       (r.name === me.displayName || r.name === me.userName);
                     if (isDm || looksLikeSelf) {
-                      const other = rawOther && rawOther !== selfHandle
-                      return { ...r, name: other ?? (r.name || "不明") };
+                      const other = rawOther && rawOther !== selfHandle ? rawOther : undefined;
+                      return { ...r, name: (other as string | undefined) ?? (r.name || "不明") };
                     }
                     return r;
                   })()}
@@ -2197,7 +1980,7 @@ async function writePending(accountId: string, roomId: string, ids: string[]) {
   const uniq = Array.from(new Set(ids));
   await setCacheItem(accountId, cacheKeyPending(roomId), uniq);
 }
-async function addPendingInvites(
+async function _addPendingInvites(
   accountId: string,
   roomId: string,
   ids: string[],
@@ -2213,7 +1996,7 @@ async function _removePendingInvite(
   const cur = (await readPending(accountId, roomId)).filter((v) => v !== id);
   await writePending(accountId, roomId, cur);
 }
-async function syncPendingWithParticipants(
+async function _syncPendingWithParticipants(
   accountId: string,
   roomId: string,
   participants: string[],
@@ -2224,4 +2007,68 @@ async function syncPendingWithParticipants(
   await writePending(accountId, roomId, next);
 }
 
+// fetchEvents stub used by syncOnce
+async function fetchEvents(opts?: { since?: string; limit?: number }) {
+  try {
+    const qs = new URLSearchParams();
+    if (opts?.since) qs.set("since", opts.since);
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    const res = await apiFetch(`/api/events?${qs.toString()}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
 // KeyPackage 選択ロジックは廃止
+
+// --- lightweight local helpers/stubs for removed MLS infra ---
+function normalizeHandle(id?: string): string | undefined {
+  if (!id) return undefined;
+  if (id.startsWith("http")) {
+    try {
+      const u = new URL(id);
+      const name = u.pathname.split("/").pop() || "";
+      if (!name) return undefined;
+      return `${name}@${u.hostname}`;
+    } catch {
+      return undefined;
+    }
+  }
+  if (id.includes("@")) return id;
+  return undefined;
+}
+
+async function fetchKeepMessages(_handle: string, _params?: unknown) {
+  // delegate to server keep API if available; stub returns empty
+  try {
+    const res = await apiFetch(`/api/keeps?handle=${encodeURIComponent(_handle)}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+async function searchRooms(_userId: string, _opts?: unknown) {
+  try {
+    const res = await apiFetch(`/api/rooms`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+async function addRoom(_userId: string, _room: { id: string; name: string; members: string[] }, _meta?: unknown) {
+  try {
+    await apiFetch(`/api/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(_room) });
+  } catch { /* ignore */ }
+}
+
+// event cursor state (local only)
+const _eventsCursor = createSignal<string | null>(null);
+function eventsCursor() { return _eventsCursor[0](); }
+function setEventsCursor(v?: string | null) { _eventsCursor[1](v ?? null); }
+
