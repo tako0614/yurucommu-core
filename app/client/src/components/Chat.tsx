@@ -1025,16 +1025,6 @@ export function Chat() {
         }
       }
     }
-
-    const twoNoName = rooms.filter((r) =>
-      r.type !== "memo" && totalMembers(r) === 2 && !(r.hasName || r.hasIcon)
-    );
-    const ids = twoNoName
-      .map((r) => uniqueOthers(r)[0])
-      .filter((v): v is string => !!v);
-  // 2人ルームの自動 displayName 補完は行わない（ユーザーが明示的に名前を付けるべき）
-  // したがってここでは何もしない
-    // 3人以上の自動生成（簡易）
     const multi = rooms.filter((r) =>
       r.type !== "memo" && totalMembers(r) >= 3 && !(r.hasName)
     );
