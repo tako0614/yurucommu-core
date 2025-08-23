@@ -60,6 +60,11 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
       room.name === me.displayName || room.name === me.userName ||
       room.name === selfHandle
     ) return "";
+    const name = (room.displayName || room.name || "").trim();
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!name || uuidRe.test(name) || uuidRe.test(String(room.id))) {
+      return "無題のグループ";
+    }
     return room.name;
   };
   return (

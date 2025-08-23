@@ -118,8 +118,15 @@ export function ChatRoomList(props: ChatRoomListProps) {
     if (!me) return room.name;
     if (room.type === "memo") return room.name;
     const selfHandle = `${me.userName}@${getDomain()}`;
-    // グループ（1:1以外）はそのまま（後段の補完で名前が入る想定）
-    if (!isFriendRoom(room)) return room.name;
+    // グループ（1:1以外）はそのまま。ただし名前が未設定や UUID の場合はプレースホルダーを返す
+    if (!isFriendRoom(room)) {
+      const name = (room.displayName || room.name || "").trim();
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!name || uuidRe.test(name) || uuidRe.test(String(room.id))) {
+        return "無題のグループ";
+      }
+      return room.name;
+    }
     if (isFriendRoom(room)) {
       const rawOther = room.members.find((m) => m !== selfHandle) ??
         room.members[0];
