@@ -1739,12 +1739,22 @@ export function Chat() {
               onSelect={selectRoom}
               showAds={showAds()}
               onCreateRoom={() => {
-                /* creation triggered from sidebar controls */
+                const handle = globalThis.prompt(
+                  "ユーザーIDを入力してください (例: alice@example.com)",
+                );
+                if (handle && handle.trim() !== "") {
+                  const normalized =
+                    handle.includes("@") || handle.startsWith("http")
+                      ? normalizeActor(handle as ActorID)
+                      : `${handle}@${getDomain()}`;
+                  selectRoom(normalized);
+                }
               }}
               segment={segment()}
               onSegmentChange={setSegment}
               onCreateFriendRoom={(friendId: string) => {
-                console.log("create friend room requested:", friendId);
+                const normalized = normalizeActor(friendId as ActorID);
+                selectRoom(normalized);
               }}
             />
           </div>
