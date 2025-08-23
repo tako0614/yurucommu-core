@@ -5,21 +5,12 @@ import {
 } from "../../states/settings.ts";
 import { loginState } from "../../states/session.ts";
 import { apiFetch } from "../../utils/config.ts";
-import {
-  accounts as accountsAtom,
-  activeAccount,
-} from "../../states/account.ts";
 import { FaspProviders } from "./FaspProviders.tsx";
-import { Show } from "solid-js";
-
-/* E2EE および MLS 機能は廃止されました */
 
 export function Setting() {
   const [language, setLanguage] = useAtom(languageState);
   const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [, setIsLoggedIn] = useAtom(loginState);
-  const [accs] = useAtom(accountsAtom);
-  const [account] = useAtom(activeAccount);
 
   const handleLogout = async () => {
     try {
@@ -28,7 +19,6 @@ export function Setting() {
       console.error("logout failed", err);
     } finally {
       setIsLoggedIn(false);
-      localStorage.removeItem("encryptionKey");
     }
   };
 
@@ -62,10 +52,6 @@ export function Setting() {
       <div>
         <h3 class="font-bold mb-1">FASP 設定</h3>
         <FaspProviders />
-      </div>
-      <div>
-        <h3 class="font-bold mb-1">MLS 鍵管理</h3>
-        <p class="text-sm text-gray-400">MLS 鍵生成機能は廃止されました。</p>
       </div>
       <div class="flex justify-end space-x-2">
         <button
