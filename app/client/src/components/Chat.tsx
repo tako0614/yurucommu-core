@@ -28,23 +28,6 @@ import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
 import { fetchDirectMessages, sendDirectMessage } from "./chat/api.ts";
 
-// normalizeHandle: local helper (matches other chat components)
-function normalizeHandle(id?: string): string | undefined {
-  if (!id) return undefined;
-  if (id.startsWith("http")) {
-    try {
-      const u = new URL(id);
-      const name = u.pathname.split("/").pop() || "";
-      if (!name) return undefined;
-      return `${name}@${u.hostname}`;
-    } catch {
-      return undefined;
-    }
-  }
-  if (id.includes("@")) return id;
-  return undefined;
-}
-
 /* E2EE removed — provide lightweight stubs to keep UI functional without MLS/E2EE */
 
 /* types */
@@ -732,7 +715,10 @@ export function Chat() {
     const user = account();
     return user ? `${user.id}:${roomId}` : roomId;
   };
-  // MLS/groups state removed — use room.members and pending invites instead
+  const [groups, setGroups] = createSignal<Record<string, StoredGroupState>>(
+    {},
+  );
+  const [keyPair, setKeyPair] = createSignal<GeneratedKeyPair | null>(null);
   const messageLimit = 30;
   const [showAds, setShowAds] = createSignal(false);
   onMount(async () => {
@@ -781,18 +767,25 @@ export function Chat() {
   }
 
   // MLSの状態から参加者（自分以外）を抽出（actor URL / handle を正規化しつつ重複除去）
-  // derive participants from the room.members fallback (server / pending invites)
   const participantsFromState = (roomId: string): string[] => {
     const user = account();
     if (!user) return [];
+    const state = groups()[roomId];
+    if (!state) return [];
     const selfHandle = `${user.userName}@${getDomain()}` as ActorID;
-    const room = chatRooms().find((r) => r.id === roomId);
-    if (!room) return [];
-    const normed = (room.members ?? [])
-      .map((m) => normalizeHandle(m as ActorID) ?? m)
-      .filter((m): m is string => !!m);
-    const withoutSelf = normed.filter((m) => m !== selfHandle);
-    return Array.from(new Set(withoutSelf));
+    try {
+      const raws = extractMembers(state);
+      const normed = raws
+        .map((m) => normalizeHandle(m as ActorID) ?? m)
+        .filter((m): m is string => !!m);
+      const withoutSelf = normed.filter((m) => {
+        const h = normalizeHandle(m as ActorID) ?? m;
+        return h !== selfHandle;
+      });
+      return Array.from(new Set(withoutSelf));
+    } catch {
+      return [];
+    }
   };
 
   // 受信メッセージの送信者ハンドルから、メンバーIDをフルハンドル形式に補正
@@ -910,12 +903,105 @@ export function Chat() {
   let wsCleanup: (() => void) | undefined;
   let acceptCleanup: (() => void) | undefined;
 
-  // MLS/group persistence removed: no-op placeholders to keep call sites safe
-  const loadGroupStates = async () => {};
-  const saveGroupStates = async () => {};
-  const initGroupState = async (_roomId: string) => {};
+  const loadGroupStates = async () => {
+    const user = account();
+    if (!user) return;
+    try {
+      const stored = await loadMLSGroupStates(user.id);
+      setGroups(stored);
+    } catch (err) {
+      console.error("Failed to load group states", err);
+    }
+  };
 
-  // Keypair generation/storage removed
+  const saveGroupStates = async () => {
+    const user = account();
+    if (!user) return;
+    try {
+      await saveMLSGroupStates(user.id, groups());
+    } catch (e) {
+      console.error("グループ状態の保存に失敗しました", e);
+    }
+  };
+
+  // グループ状態が存在しなければ初期化して保存
+  const initGroupState = async (roomId: string) => {
+    try {
+      if (groups()[roomId]) return;
+      const user = account();
+      if (!user) return;
+      // 保存済みの状態があればそれを復元
+      try {
+        const stored = await loadMLSGroupStates(user.id);
+        if (stored[roomId]) {
+          setGroups((prev) => ({ ...prev, [roomId]: stored[roomId] }));
+          return;
+        }
+      } catch (err) {
+        console.error("グループ状態の読み込みに失敗しました", err);
+      }
+      const pair = await ensureKeyPair();
+      if (!pair) return;
+      let initState: StoredGroupState | undefined;
+      try {
+        // アクターURLを identity に用いた正しい Credential で生成
+        const actor =
+          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+        const created = await createMLSGroup(actor);
+        initState = created.state;
+      } catch (e) {
+        console.error(
+          "グループ初期化時にキーからの初期化に失敗しました",
+          e,
+        );
+      }
+      if (initState) {
+        setGroups((prev) => ({
+          ...prev,
+          [roomId]: initState,
+        }));
+        await saveGroupStates();
+      }
+    } catch (e) {
+      console.error("ローカルグループ初期化に失敗しました", e);
+    }
+  };
+
+  const [isGeneratingKeyPair, setIsGeneratingKeyPair] = createSignal(false);
+
+  const ensureKeyPair = async (): Promise<GeneratedKeyPair | null> => {
+    if (isGeneratingKeyPair()) return null;
+
+    let pair: GeneratedKeyPair | null = keyPair();
+    const user = account();
+    if (!user) return null;
+    if (!pair) {
+      setIsGeneratingKeyPair(true);
+      try {
+        pair = await loadMLSKeyPair(user.id);
+      } catch (err) {
+        console.error("鍵ペアの読み込みに失敗しました", err);
+        pair = null;
+      }
+      if (!pair) {
+        // MLS の identity はアクターURLを用いる（外部連合との整合性維持）
+        const actor =
+          new URL(`/users/${user.userName}`, globalThis.location.origin).href;
+        const kp = await generateKeyPair(actor);
+        pair = { public: kp.public, private: kp.private, encoded: kp.encoded };
+        try {
+          await saveMLSKeyPair(user.id, pair);
+        } catch (err) {
+          console.error("鍵ペアの保存に失敗しました", err);
+          setIsGeneratingKeyPair(false);
+          return null;
+        }
+      }
+      setKeyPair(pair);
+      setIsGeneratingKeyPair(false);
+    }
+    return pair;
+  };
 
   // MLS 廃止: ハンドシェイク同期は無効
   const lastHandshakeId = new Map<string, string>();
@@ -1089,9 +1175,20 @@ export function Chat() {
     setLoadingOlder(false);
   };
 
-  // extractMembers: legacy MLS extractor replaced by safe no-op that returns []
-  // (we now derive participants from room.members / pending invites)
-  const extractMembers = (_state: StoredGroupState): string[] => [];
+  const extractMembers = (state: StoredGroupState): string[] => {
+    const list: string[] = [];
+    const tree = state.ratchetTree as unknown as {
+      nodeType: string;
+      leaf?: { credential?: { identity?: Uint8Array } };
+    }[];
+    for (const node of tree) {
+      if (node?.nodeType === "leaf") {
+        const id = node.leaf?.credential?.identity;
+        if (id) list.push(new TextDecoder().decode(id));
+      }
+    }
+    return list;
+  };
 
   const loadRooms = async () => {
     const user = account();
@@ -1114,12 +1211,15 @@ export function Chat() {
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
     const serverRooms = await searchRooms(user.id, { implicit: "include" });
     for (const item of serverRooms) {
+      const state = groups()[item.id];
       const name = "";
       const icon = "";
-      // 参加者はサーバーが返す room.members を優先。MLSがないため pending 招待から暫定補完（UI表示用）
-      let members = (item.members ?? [])
-        .map((m: unknown) => (typeof m === "string" ? normalizeHandle(m as string) ?? m : ""))
-        .filter((m: unknown) => typeof m === "string") as string[];
+      // 参加者は MLS の leaf から導出。MLS が未同期の場合は pending 招待から暫定的に補完（UI表示用）
+      let members = state
+        ? extractMembers(state)
+          .map((m) => normalizeHandle(m as ActorID) ?? m)
+          .filter((m) => (normalizeHandle(m as ActorID) ?? m) !== handle)
+        : [] as string[];
       if (members.length === 0) {
         try {
           const pend = await readPending(user.id, item.id);
@@ -1864,7 +1964,75 @@ export function Chat() {
     ),
   );
 
-  // MLS removed: member/display-name sync now driven by room.members and existing effects
+  // MLS グループ状態の更新に合わせてメンバー/表示名を補正
+  createEffect(
+    on(
+      () => groups(),
+      async () => {
+        const user = account();
+        if (!user) return;
+        const list = chatRooms();
+        if (list.length === 0) return;
+
+        // members を MLS 由来に同期（変更がある場合のみ更新）
+        let changed = false;
+        const nextA = list.map((r) => {
+          if (r.type === "memo") return r;
+          const parts = participantsFromState(r.id);
+          if (parts.length === 0) return r;
+          const cur = r.members ?? [];
+          const equals = cur.length === parts.length &&
+            cur.every((v, i) => v === parts[i]);
+          if (!equals) {
+            changed = true;
+            return { ...r, members: parts };
+          }
+          return r;
+        });
+        if (changed) setChatRooms(nextA);
+
+        // 1対1・未命名の表示名補完（変更がある場合のみ更新）
+        // ただし UUID などグループIDのルームは対象外（誤ってDM扱いしない）
+        const base = changed ? nextA : list;
+        const uuidRe =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const candidates = base.filter((r) =>
+          r.type !== "memo" && (r.members?.length ?? 0) === 1 &&
+          !(r.hasName || r.hasIcon) && !uuidRe.test(r.id)
+        );
+        const ids = candidates.map((r) => r.members[0]).filter((
+          v,
+        ): v is string => !!v);
+        if (ids.length === 0) return;
+        try {
+          const infos = await fetchUserInfoBatch(ids, user.id);
+          const map = new Map<string, typeof infos[number]>();
+          for (let i = 0; i < ids.length; i++) map.set(ids[i], infos[i]);
+          let nameChanged = false;
+          const nextB = base.map((r) => {
+            if (
+              r.type === "memo" || !(r.members?.length === 1) ||
+              (r.hasName || r.hasIcon)
+            ) return r;
+            const info = map.get(r.members[0]);
+            if (!info) return r;
+            const newName = info.displayName || info.userName;
+            const newAvatar = info.authorAvatar || r.avatar;
+            if (
+              (r.displayName ?? r.name) !== newName || r.avatar !== newAvatar
+            ) {
+              nameChanged = true;
+              return { ...r, displayName: newName, avatar: newAvatar };
+            }
+            return r;
+          });
+          if (nameChanged) setChatRooms(nextB);
+        } catch {
+          // ignore
+        }
+      },
+    ),
+  );
 
   createEffect(
     on(
@@ -1937,7 +2105,10 @@ export function Chat() {
     account();
   });
 
-  // MLS persistence removed
+  createEffect(() => {
+    groups();
+    saveGroupStates();
+  });
 
   createEffect(() => {
     newMessage();
