@@ -74,8 +74,8 @@ export function Application() {
           <Chat />
         </Show>
         <Show when={selectedApp() === "tools"}>
-          <div class="text-gray-100">
-            <div class="p-6">
+          <div class="text-gray-100 h-screen bg-[#1e1e1e]">
+            <div class="p-6 pt-12 m-auto">
               <UnifiedToolsContent />
             </div>
           </div>

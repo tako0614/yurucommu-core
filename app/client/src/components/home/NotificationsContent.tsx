@@ -245,7 +245,7 @@ const NotificationsContent: Component = () => {
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between gap-3">
-                        <div class="min-w-0">
+                          <div class="min-w-0 flex flex-col justify-center">
                           <h4 class="text-base font-semibold text-gray-100 truncate">
                             {n.title}
                           </h4>

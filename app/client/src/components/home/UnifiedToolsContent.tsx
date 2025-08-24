@@ -937,7 +937,7 @@ export default function UnifiedToolsContent() {
       </div>
 
       <div class="max-w-4xl mx-auto">
-        <div class="bg-[#181818]/50 rounded-xl p-6 mb-6">
+        <div class="bg-[#131818]/50 rounded-xl p-6 mb-6">
           <div class="relative">
             <input
               type="text"
