@@ -282,8 +282,8 @@ export class MongoDB implements DB {
     const actor = normalizeActorUrl(author, domain);
     const doc = new Note({
       _id: id,
-      attributedTo: actorId,
-      actor_id: actorId,
+      attributedTo: actor,
+      actor_id: actor,
       content,
       extra,
       published: new Date(),
@@ -342,8 +342,8 @@ export class MongoDB implements DB {
     const actor = normalizeActorUrl(author, domain);
     const doc = new Message({
       _id: id,
-      attributedTo: actorId,
-      actor_id: actorId,
+      attributedTo: actor,
+      actor_id: actor,
       content,
       extra,
       published: new Date(),
