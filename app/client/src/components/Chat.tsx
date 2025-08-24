@@ -2143,14 +2143,28 @@ async function searchRooms(
         `/api/groups?owner=${encodeURIComponent(_handle)}`,
       );
       if (!gres.ok) return [];
-      return await gres.json();
+      const j = await gres.json();
+      if (!Array.isArray(j)) return [];
+      return j.map((r) => ({
+        id: String(r.id ?? ""),
+        name: String(r.name ?? ""),
+        icon: typeof r.icon === "string" ? r.icon : undefined,
+        members: Array.isArray(r.members) ? r.members.map(String) : [],
+      }));
     }
     if (roomType === "dm" || roomType === undefined) {
       const dres = await apiFetch(
         `/api/dms?owner=${encodeURIComponent(_handle)}`,
       );
       if (!dres.ok) return [];
-      return await dres.json();
+      const j = await dres.json();
+      if (!Array.isArray(j)) return [];
+      return j.map((r) => ({
+        id: String(r.id ?? ""),
+        name: String(r.name ?? ""),
+        icon: typeof r.icon === "string" ? r.icon : undefined,
+        members: Array.isArray(r.members) ? r.members.map(String) : [],
+      }));
     }
     return [];
   } catch {

@@ -46,6 +46,27 @@ function isOwnedGroup(
 
 app.use("/api/groups/*", authRequired);
 
+app.get("/api/groups", async (c) => {
+  const owner = c.req.query("owner");
+  if (!owner) return c.json({ error: "owner is required" }, 400);
+  const groups = await Group.find({ followers: owner }).lean() as GroupDoc[];
+  const domain = getDomain(c);
+  const formatted = groups.map((g) => {
+    const icon = typeof g.icon === "string"
+      ? g.icon
+      : g.icon && typeof (g.icon as { url?: string }).url === "string"
+      ? (g.icon as { url: string }).url
+      : undefined;
+    return {
+      id: `https://${domain}/groups/${g.groupName}`,
+      name: g.groupName,
+      icon,
+      members: g.followers ?? [],
+    };
+  });
+  return c.json(formatted);
+});
+
 app.post(
   "/api/groups",
   zValidator(
