@@ -1,12 +1,13 @@
-import { createSignal, Match, Show, Switch } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 interface ChatSendFormProps {
   newMessage: string;
   setNewMessage: (v: string) => void;
-  mediaFile: File | null;
-  setMediaFile: (f: File | null) => void;
-  mediaPreview: string | null;
-  setMediaPreview: (url: string | null) => void;
+  // 複数ファイル対応: 添付ファイルの配列とそれに対応するデータURLプレビューの配列
+  mediaFiles: File[];
+  setMediaFiles: (f: File[]) => void;
+  mediaPreviews: string[];
+  setMediaPreviews: (urls: string[]) => void;
   sendMessage: () => void;
   allowMedia?: boolean;
 }
@@ -25,7 +26,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
   const [showMenu, setShowMenu] = createSignal(false);
   const canSend = () => {
     const hasText = props.newMessage.trim().length > 0;
-    const hasMedia = props.allowMedia !== false && !!props.mediaFile;
+    const hasMedia = props.allowMedia !== false && props.mediaFiles.length > 0;
     return hasText || hasMedia;
   };
 
@@ -119,53 +120,61 @@ export function ChatSendForm(props: ChatSendFormProps) {
               ref={(el) => (fileInputImage = el)}
               type="file"
               accept="image/*,video/*"
+              multiple
               class="hidden"
               style="display:none;"
               onChange={(e) => {
-                const f = (e.currentTarget as HTMLInputElement).files?.[0];
-                if (!f) return;
-                props.setMediaFile(f);
-                const reader = new FileReader();
-                reader.onload = () => {
-                  props.setMediaPreview(reader.result as string);
-                };
-                reader.readAsDataURL(f);
+                const files = Array.from((e.currentTarget as HTMLInputElement).files || []);
+                if (files.length === 0) return;
+                // プレビューを生成して配列で保持
+                const previews = props.mediaPreviews.slice();
+                const mediaFiles = props.mediaFiles.slice();
+                files.forEach((f) => {
+                  mediaFiles.push(f);
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    previews.push(reader.result as string);
+                    props.setMediaPreviews(previews);
+                    props.setMediaFiles(mediaFiles);
+                  };
+                  reader.readAsDataURL(f);
+                });
               }}
             />
           </div>
         </Show>
         <div class="flex flex-col flex-1 pr-1">
-          <Show when={props.mediaPreview}>
-            <div class="mb-2">
-              <Switch
-                fallback={
-                  <a
-                    href={props.mediaPreview!}
-                    download={props.mediaFile?.name || ""}
-                    class="text-blue-400 underline"
+          <Show when={props.mediaPreviews && props.mediaPreviews.length > 0}>
+            <div class="mb-2 flex gap-3 flex-wrap">
+              {props.mediaPreviews.map((src, idx) => (
+                <div class="relative" style="width:160px;height:120px;">
+                  {/* image/video/audio の簡易判定 */}
+                  {props.mediaFiles[idx] && props.mediaFiles[idx].type.startsWith("image/") && (
+                    <img src={src} alt="preview" style={{ width: "160px", height: "120px", "object-fit": "cover", "border-radius": "8px" }} />
+                  )}
+                  {props.mediaFiles[idx] && props.mediaFiles[idx].type.startsWith("video/") && (
+                    <video src={src} style={{ width: "160px", height: "120px", "object-fit": "cover", "border-radius": "8px" }} muted />
+                  )}
+                  {(!props.mediaFiles[idx] || props.mediaFiles[idx].type.startsWith("audio/")) && (
+                    <a href={src} download={props.mediaFiles[idx]?.name || "file"} class="text-sm underline">{props.mediaFiles[idx]?.name || 'ファイル'}</a>
+                  )}
+                  <button
+                    type="button"
+                    class="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"
+                    onClick={() => {
+                      const newFiles = props.mediaFiles.slice();
+                      const newPreviews = props.mediaPreviews.slice();
+                      newFiles.splice(idx, 1);
+                      newPreviews.splice(idx, 1);
+                      props.setMediaFiles(newFiles);
+                      props.setMediaPreviews(newPreviews);
+                    }}
+                    title="削除"
                   >
-                    {props.mediaFile?.name || "ファイル"}
-                  </a>
-                }
-              >
-                <Match when={props.mediaFile?.type.startsWith("image/")}>
-                  <img
-                    src={props.mediaPreview!}
-                    alt="preview"
-                    style={{ "max-width": "80px", "max-height": "80px" }}
-                  />
-                </Match>
-                <Match when={props.mediaFile?.type.startsWith("video/")}>
-                  <video
-                    src={props.mediaPreview!}
-                    controls
-                    style={{ "max-width": "80px", "max-height": "80px" }}
-                  />
-                </Match>
-                <Match when={props.mediaFile?.type.startsWith("audio/")}>
-                  <audio src={props.mediaPreview!} controls />
-                </Match>
-              </Switch>
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           </Show>
           <div class="relative flex items-center gap-1 flex-1 border border-[#333333] bg-[#3c3c3c] rounded-[16px] shadow-[1px_1px_10px_rgba(0,0,0,0.2)] pr-2">
@@ -196,7 +205,7 @@ export function ChatSendForm(props: ChatSendFormProps) {
             : "h-11 w-11 p-[6px] flex-shrink-0 rounded-full bg-transparent cursor-default text-white"}
           style="min-height:28px;opacity:1;color:#ffffff;position:relative;z-index:10;display:flex;align-items:center;justify-content:center;"
           title=""
-          onClick={() => {
+            onClick={() => {
             if (canSend()) {
               props.sendMessage();
             } else {
@@ -259,17 +268,24 @@ export function ChatSendForm(props: ChatSendFormProps) {
           ref={(el) => (fileInputFile = el)}
           type="file"
           accept="*/*"
+          multiple
           class="hidden"
           style="display:none;"
           onChange={(e) => {
-            const f = (e.currentTarget as HTMLInputElement).files?.[0];
-            if (!f) return;
-            props.setMediaFile(f);
-            const reader = new FileReader();
-            reader.onload = () => {
-              props.setMediaPreview(reader.result as string);
-            };
-            reader.readAsDataURL(f);
+            const files = Array.from((e.currentTarget as HTMLInputElement).files || []);
+            if (files.length === 0) return;
+            const previews = props.mediaPreviews.slice();
+            const mediaFiles = props.mediaFiles.slice();
+            files.forEach((f) => {
+              mediaFiles.push(f);
+              const reader = new FileReader();
+              reader.onload = () => {
+                previews.push(reader.result as string);
+                props.setMediaPreviews(previews);
+                props.setMediaFiles(mediaFiles);
+              };
+              reader.readAsDataURL(f);
+            });
           }}
         />
       </form>

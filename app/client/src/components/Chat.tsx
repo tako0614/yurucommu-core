@@ -471,8 +471,9 @@ export function Chat() {
   ) => ({ status: "Unknown", info: null, kt: { included: false } });
   const _ktInfo = () => ({ included: false });
   const [newMessage, setNewMessage] = createSignal("");
-  const [mediaFile, setMediaFile] = createSignal<File | null>(null);
-  const [mediaPreview, setMediaPreview] = createSignal<string | null>(null);
+  // 添付を複数扱えるように配列で保持
+  const [mediaFiles, setMediaFiles] = createSignal<File[]>([]);
+  const [mediaPreviews, setMediaPreviews] = createSignal<string[]>([]);
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
   const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
@@ -1175,19 +1176,25 @@ export function Chat() {
   // room creation should be done via server APIs / sidebar controls
 
   const sendMessage = async () => {
-    const text = newMessage().trim();
+  const text = newMessage().trim();
     const roomId = selectedRoom();
     const user = account();
-    if (!text && !mediaFile() || !roomId || !user) return;
+  if ((!text && mediaFiles().length === 0) || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
     if (room.type === "memo") {
       let attachmentsParam: Record<string, unknown>[] | undefined;
-      if (mediaFile()) {
-        try {
-          const att = await buildAttachment(mediaFile()!);
-          if (att && typeof att.url === "string") attachmentsParam = [att];
-        } catch { /* ignore */ }
+        if (mediaFiles().length > 0) {
+          const built: Record<string, unknown>[] = [];
+          for (const f of mediaFiles()) {
+            try {
+              const att = await buildAttachment(f);
+              if (att && typeof att.url === "string") built.push(att);
+            } catch {
+              // 個別失敗は無視して続行
+            }
+          }
+          if (built.length > 0) attachmentsParam = built;
       }
       const res = await sendKeepMessage(
         `${user.userName}@${getDomain()}`,
@@ -1237,9 +1244,9 @@ export function Chat() {
         if (user2) void saveDecryptedMessages(user2.id, room.id, list);
         return next;
       });
-      setNewMessage("");
-      setMediaFile(null);
-      setMediaPreview(null);
+  setNewMessage("");
+  setMediaFiles([]);
+  setMediaPreviews([]);
       return;
     }
 
@@ -1259,13 +1266,17 @@ export function Chat() {
         : (fallbackPeer ? [fallbackPeer] : []);
       if (targets.length > 0) {
         let attachmentsParam: Record<string, unknown>[] | undefined;
-        if (mediaFile()) {
-          try {
-            const att = await buildAttachment(mediaFile()!);
-            if (att && typeof att.url === "string") {
-              attachmentsParam = [att];
+        if (mediaFiles().length > 0) {
+          const built: Record<string, unknown>[] = [];
+          for (const f of mediaFiles()) {
+            try {
+              const att = await buildAttachment(f);
+              if (att && typeof att.url === "string") built.push(att);
+            } catch {
+              // ignore individual failures
             }
-          } catch { /* ignore */ }
+          }
+          if (built.length > 0) attachmentsParam = built;
         }
         const ok = await sendDirectMessage(
           selfHandle,
@@ -1277,9 +1288,9 @@ export function Chat() {
           alert("メッセージの送信に失敗しました");
           return;
         }
-        setNewMessage("");
-        setMediaFile(null);
-        setMediaPreview(null);
+  setNewMessage("");
+  setMediaFiles([]);
+  setMediaPreviews([]);
         const fetched = await fetchMessagesForRoom(room, {
           limit: 1,
           dryRun: true,
@@ -1934,10 +1945,10 @@ export function Chat() {
                 <ChatSendForm
                   newMessage={newMessage()}
                   setNewMessage={setNewMessage}
-                  mediaFile={mediaFile()}
-                  setMediaFile={setMediaFile}
-                  mediaPreview={mediaPreview()}
-                  setMediaPreview={setMediaPreview}
+                  mediaFiles={mediaFiles()}
+                  setMediaFiles={setMediaFiles}
+                  mediaPreviews={mediaPreviews()}
+                  setMediaPreviews={setMediaPreviews}
                   sendMessage={sendMessage}
                   // TAKO KEEP（memo）でも画像・ファイル送信を許可
                   allowMedia
