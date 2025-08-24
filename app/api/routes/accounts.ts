@@ -5,9 +5,7 @@ import { createDB } from "../DB/mod.ts";
 import { getEnv } from "../../shared/config.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
 import type { AccountDoc } from "../../shared/types.ts";
-import { b64ToBuf } from "../../shared/buffer.ts";
 import { isUrl } from "../../shared/url.ts";
-import { saveFile } from "../services/file.ts";
 import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
 
 function formatAccount(doc: AccountDoc) {
@@ -22,32 +20,14 @@ function formatAccount(doc: AccountDoc) {
   };
 }
 
-// 画像データURLやURL文字列を処理して保存し、URLまたはデフォルトを返す
-async function resolveAvatar(
-  value: unknown,
-  env: Record<string, string>,
-): Promise<string> {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    // data URL の場合はファイルとして保存する
-    if (trimmed.startsWith("data:image/")) {
-      const match = trimmed.match(/^data:(image\/[^;]+);base64,(.+)$/);
-      if (match) {
-        const [, type, data] = match;
-        const bytes = b64ToBuf(data);
-        const ext = type.split("/")[1]?.split("+")[0];
-        const saved = await saveFile(bytes, env, {
-          mediaType: type,
-          ext: ext ? `.${ext}` : ".png",
-        });
-        return saved.url;
-      }
-    }
-    // 既にURLで渡された場合はそのまま利用
-    if (isUrl(trimmed) || trimmed.startsWith("/")) return trimmed;
+function isFilesUrl(url: string): boolean {
+  if (!isUrl(url)) return false;
+  try {
+    const u = new URL(url);
+    return u.pathname.startsWith("/api/files/");
+  } catch {
+    return false;
   }
-  // 画像が指定されない場合はデフォルトアイコンを返す
-  return "/api/image/people.png";
 }
 
 const app = new Hono();
@@ -88,13 +68,20 @@ app.post("/accounts", async (c) => {
   const keys = privateKey && publicKey
     ? { privateKey, publicKey }
     : await generateKeyPair();
+  let avatar = "/api/image/people.png";
+  if (icon !== undefined) {
+    if (typeof icon === "string" && isFilesUrl(icon)) {
+      avatar = icon.trim();
+    } else {
+      return jsonResponse(c, {
+        error: "icon は /api/files で取得した URL を指定してください",
+      }, 400);
+    }
+  }
   const account = await db.createAccount({
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
-    avatarInitial: await resolveAvatar(
-      icon,
-      env,
-    ),
+    avatarInitial: avatar,
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
@@ -133,15 +120,15 @@ app.put("/accounts/:id", async (c) => {
   // userName is immutable after creation - removed from update logic
   if (updates.displayName) data.displayName = updates.displayName;
   if (updates.avatarInitial !== undefined) {
-    data.avatarInitial = await resolveAvatar(updates.avatarInitial, env);
-  } else if (updates.displayName) {
-    const cur = orig.avatarInitial;
-    // 現在の値がデータURL/URL/パスでない場合はデフォルトのエンドポイントに揃える
     if (
-      !cur ||
-      (!cur.startsWith("data:image/") && !isUrl(cur) && !cur.startsWith("/"))
+      typeof updates.avatarInitial === "string" &&
+      isFilesUrl(updates.avatarInitial)
     ) {
-      data.avatarInitial = "/api/image/people.png";
+      data.avatarInitial = updates.avatarInitial.trim();
+    } else {
+      return jsonResponse(c, {
+        error: "avatarInitial は /api/files で取得した URL を指定してください",
+      }, 400);
     }
   }
   if (updates.privateKey) data.privateKey = updates.privateKey;

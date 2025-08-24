@@ -169,6 +169,10 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 - `PUT /api/accounts/:id` – アカウント更新
 - `DELETE /api/accounts/:id` – アカウント削除
 
+アバター画像を設定する場合は、まず `/api/files` で画像をアップロードし、
+取得した URL を `icon`（作成時）または
+`avatarInitial`（更新時）に指定してください。 それ以外の形式は受理されません。
+
 ## チャット API
 
 チャット機能は「グループ（未実装）」と「DM（ダイレクトメッセージ）」に分かれます。

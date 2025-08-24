@@ -151,6 +151,9 @@ paths:
                   type: string
                 displayName:
                   type: string
+                icon:
+                  type: string
+                  description: "/api/files でアップロードした画像の URL"
               required:
                 - username
       responses:
@@ -178,6 +181,12 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                displayName:
+                  type: string
+                avatarInitial:
+                  type: string
+                  description: "/api/files でアップロードした画像の URL"
       responses:
         "200":
           description: 更新後のアカウント

@@ -7,7 +7,6 @@ import {
 } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
-import { b64ToBuf } from "../../shared/buffer.ts";
 
 // 未設定時に返すデフォルトアイコン
 const DEFAULT_AVATAR = await Deno.readFile(
@@ -94,38 +93,14 @@ app.get("/users/:username/avatar", async (c) => {
   if (!account) return c.body("Not Found", 404);
 
   const icon = account.avatarInitial;
-  // 未設定またはテキストのみの場合はデフォルトアイコンを返す
   if (
-    !icon ||
-    (!icon.startsWith("http://") &&
-      !icon.startsWith("https://") &&
-      !icon.startsWith("/") &&
-      !icon.startsWith("data:image/"))
+    !icon || (
+      !icon.startsWith("http://") && !icon.startsWith("https://")
+    )
   ) {
-    return c.body(DEFAULT_AVATAR, 200, {
-      "content-type": "image/png",
-    });
+    return c.body(DEFAULT_AVATAR, 200, { "content-type": "image/png" });
   }
-  // 保存されている値がURLの場合はリダイレクトする
-  if (icon.startsWith("http://") || icon.startsWith("https://")) {
-    return c.redirect(icon);
-  }
-  if (icon.startsWith("/")) {
-    const domain = getDomain(c);
-    return c.redirect(`https://${domain}${icon}`);
-  }
-  // データURLの場合はデコードして返す
-  if (icon.startsWith("data:image/")) {
-    const match = icon.match(/^data:(image\/[^;]+);base64,(.+)$/);
-    if (match) {
-      const [, type, data] = match;
-      const bytes = b64ToBuf(data);
-      return c.body(bytes, 200, { "content-type": type });
-    }
-  }
-
-  // 上記に該当しない場合もデフォルトアイコンを返す
-  return c.body(DEFAULT_AVATAR, 200, { "content-type": "image/png" });
+  return c.redirect(icon);
 });
 
 app.get("/users/:username/outbox", async (c) => {
