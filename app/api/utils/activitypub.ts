@@ -351,8 +351,8 @@ export async function verifyHttpSignature(
       params.headers,
       params.params,
     );
+    console.log("Signing String:", signingString);
     if (!signingString) return false;
-
     // 公開鍵の正規化（すでにPEM形式の場合はそのまま使用）
     const normalizedPublicKey = publicKeyPem.includes("BEGIN PUBLIC KEY")
       ? publicKeyPem
