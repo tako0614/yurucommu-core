@@ -166,38 +166,44 @@ export async function deliverActivityPubObject(
   };
   const deliveryPromises = targets.map(async (addr) => {
     if (!addr.startsWith("http")) {
-      console.error(`Invalid target URI ${addr}`);
+      console.error(`deliverActivityPubObject: invalid actor IRI ${addr}`);
       return Promise.resolve();
     }
     const iri = addr;
     if (isCollection(iri)) {
-      console.error(`Skip delivery to non-actor URI ${iri}`);
+      console.error(
+        `deliverActivityPubObject: skip non-actor IRI ${iri}`,
+      );
       return Promise.resolve();
     }
-    // 受信箱URLが直に渡ってきた場合はそのままPOST
     if (iri.endsWith("/inbox") || iri.endsWith("/sharedInbox")) {
-      return sendActivityPubObject(iri, object, actor, domain, env).catch(
-        (err) => {
-          console.error(`Failed to deliver to inbox URL ${iri}`, err);
-        },
+      console.error(
+        `deliverActivityPubObject: actor IRI expected but inbox URL provided ${iri}`,
       );
+      return Promise.resolve();
     }
-
-    // それ以外はActor IRIとして解決
     try {
       const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
       const target = sharedInbox ?? inbox;
       if (!target) {
-        console.error(`Target ${iri} has no inbox`);
+        console.error(
+          `deliverActivityPubObject: actor ${iri} has no inbox`,
+        );
         return Promise.resolve();
       }
       return sendActivityPubObject(target, object, actor, domain, env).catch(
         (err) => {
-          console.error(`Failed to deliver to ${iri}`, err);
+          console.error(
+            `deliverActivityPubObject: failed to deliver to ${iri}`,
+            err,
+          );
         },
       );
     } catch (err) {
-      console.error(`Failed to resolve remote actor for ${iri}`, err);
+      console.error(
+        `deliverActivityPubObject: failed to resolve ${iri}`,
+        err,
+      );
     }
     return Promise.resolve();
   });

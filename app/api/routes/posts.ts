@@ -14,7 +14,6 @@ import {
   createCreateActivity,
   createLikeActivity,
   deliverActivityPubObject,
-  fetchActorInbox,
   getDomain,
   iriToHandle,
   isLocalActor,
@@ -184,19 +183,13 @@ app.post(
         typeof (parent as PostDoc).actor_id === "string" &&
         !isLocalActor((parent as PostDoc).actor_id as string, domain)
       ) {
-        const inbox = await fetchActorInbox(
-          (parent as PostDoc).actor_id as string,
+        deliverActivityPubObject(
+          [(parent as PostDoc).actor_id as string],
+          createActivity,
+          author,
+          domain,
           env,
         );
-        if (inbox) {
-          deliverActivityPubObject(
-            [inbox],
-            createActivity,
-            author,
-            domain,
-            env,
-          );
-        }
       } else if (
         parent &&
         typeof (parent as PostDoc).actor_id === "string"
@@ -370,24 +363,23 @@ app.post(
 
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${postData._id}`;
-      let inboxes: string[] = [];
+      let targets: string[] = [];
       if (
         typeof postData.actor_id === "string" &&
         !isLocalActor(postData.actor_id as string, domain)
       ) {
-        const inbox = await fetchActorInbox(postData.actor_id as string, env);
-        if (inbox) inboxes.push(inbox);
+        targets.push(postData.actor_id as string);
       } else if (typeof postData.actor_id === "string") {
         const url = new URL(postData.actor_id);
         const db = createDB(env);
         const account = await db.findAccountByUserName(
           url.pathname.split("/")[2],
         );
-        inboxes = account?.followers ?? [];
+        targets = account?.followers ?? [];
       }
-      if (inboxes.length > 0) {
+      if (targets.length > 0) {
         const like = createLikeActivity(domain, actorId, objectUrl);
-        deliverActivityPubObject(inboxes, like, username, domain, env).catch(
+        deliverActivityPubObject(targets, like, username, domain, env).catch(
           (err) => {
             console.error("Delivery failed:", err);
           },
@@ -457,21 +449,20 @@ app.post(
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${postData._id}`;
 
-      let inboxes: string[] = [];
+      let targets: string[] = [];
       const account = await db.findAccountByUserName(username);
-      inboxes = account?.followers ?? [];
+      targets = account?.followers ?? [];
 
       if (
         typeof postData.actor_id === "string" &&
         !isLocalActor(postData.actor_id, domain)
       ) {
-        const inbox = await fetchActorInbox(postData.actor_id as string, env);
-        if (inbox) inboxes.push(inbox);
+        targets.push(postData.actor_id as string);
       }
 
-      if (inboxes.length > 0) {
+      if (targets.length > 0) {
         const announce = createAnnounceActivity(domain, actorId, objectUrl);
-        deliverActivityPubObject(inboxes, announce, username, domain, env)
+        deliverActivityPubObject(targets, announce, username, domain, env)
           .catch(
             (err) => {
               console.error("Delivery failed:", err);

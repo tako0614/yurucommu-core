@@ -1,5 +1,5 @@
 import { createDB } from "../DB/mod.ts";
-import { deliverActivityPubObject, fetchActorInbox } from "./activitypub.ts";
+import { deliverActivityPubObject } from "./activitypub.ts";
 
 export async function deliverToFollowers(
   env: Record<string, string>,
@@ -11,25 +11,17 @@ export async function deliverToFollowers(
   const account = await db.findAccountByUserName(user);
   if (!account || !account.followers) return;
 
-  const inboxes = await Promise.all(
-    account.followers.map(async (actorUrl) => {
-      try {
-        const url = new URL(actorUrl);
-        if (url.host === domain && url.pathname.startsWith("/users/")) {
-          return null;
-        }
-        return await fetchActorInbox(actorUrl, env);
-      } catch {
-        return null;
-      }
-    }),
-  );
+  const targets = account.followers.filter((actorUrl) => {
+    try {
+      const url = new URL(actorUrl);
+      return !(url.host === domain && url.pathname.startsWith("/users/"));
+    } catch {
+      return false;
+    }
+  });
 
-  const valid = inboxes.filter((i): i is string =>
-    typeof i === "string" && !!i
-  );
-  if (valid.length > 0) {
-    deliverActivityPubObject(valid, activity, user, domain, env).catch(
+  if (targets.length > 0) {
+    deliverActivityPubObject(targets, activity, user, domain, env).catch(
       (err) => {
         console.error("Delivery failed:", err);
       },

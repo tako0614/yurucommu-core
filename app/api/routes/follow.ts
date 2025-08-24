@@ -9,7 +9,6 @@ import {
   createFollowActivity,
   createUndoFollowActivity,
   deliverActivityPubObject,
-  fetchActorInbox,
   getDomain,
   jsonResponse,
 } from "../utils/activitypub.ts";
@@ -104,19 +103,16 @@ async function processFollow(c: Context, remove: boolean) {
         ).catch((err) => console.error("Delivery failed:", err));
       }
     } else if (account) {
-      const inbox = await fetchActorInbox(targetUrl, env);
-      if (inbox) {
-        const activity = remove
-          ? createUndoFollowActivity(domain, actorId, targetUrl)
-          : createFollowActivity(domain, actorId, targetUrl);
-        deliverActivityPubObject(
-          [inbox],
-          activity,
-          account.userName,
-          domain,
-          env,
-        ).catch((err) => console.error("Delivery failed:", err));
-      }
+      const activity = remove
+        ? createUndoFollowActivity(domain, actorId, targetUrl)
+        : createFollowActivity(domain, actorId, targetUrl);
+      deliverActivityPubObject(
+        [targetUrl],
+        activity,
+        account.userName,
+        domain,
+        env,
+      ).catch((err) => console.error("Delivery failed:", err));
       if (remove) {
         if (db.unfollow) await db.unfollow(account.userName, targetUrl);
       } else {
