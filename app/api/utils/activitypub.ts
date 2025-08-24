@@ -600,6 +600,17 @@ export async function resolveActorFromAcct(
   return await actorRes.json();
 }
 
+export function iriToHandle(iri: string): string {
+  try {
+    const u = new URL(iri);
+    const segments = u.pathname.split("/").filter(Boolean);
+    const name = segments[segments.length - 1];
+    return `${name}@${u.hostname}`;
+  } catch {
+    return iri;
+  }
+}
+
 export function getDomain(c: Context): string {
   const env = getEnv(c);
   return env["ACTIVITYPUB_DOMAIN"];

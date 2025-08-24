@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import {
   createActor,
   getDomain,
+  iriToHandle,
   jsonResponse,
 } from "../api/utils/activitypub.ts";
 import { getSystemKey } from "../api/services/system_actor.ts";
@@ -64,7 +65,8 @@ export function createRootActivityPubApp(env: Record<string, string>) {
     if (storedInfo) {
       const { stored, actorId } = storedInfo;
       const domain = getDomain(c);
-      const userInfo = await getUserInfo(actorId, domain, env);
+      const handle = iriToHandle(actorId);
+      const userInfo = await getUserInfo(handle, domain, env);
       const formatted = formatUserInfoForPost(
         userInfo,
         stored,

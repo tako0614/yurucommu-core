@@ -5,20 +5,10 @@ import {
   deliverActivityPubObject,
   extractAttachments,
   getDomain,
+  iriToHandle,
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
-
-function iriToHandle(iri: string): string {
-  try {
-    const u = new URL(iri);
-    const segments = u.pathname.split("/").filter(Boolean);
-    const name = segments[segments.length - 1];
-    return `${name}@${u.hostname}`;
-  } catch {
-    return iri;
-  }
-}
 
 export type ActivityHandler = (
   activity: Record<string, unknown>,
@@ -251,7 +241,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     );
     const domain = getDomain(c as Context);
     const userInfo = await getUserInfo(
-      (saved.actor_id as string) ?? actor,
+      iriToHandle((saved.actor_id as string) ?? actor),
       domain,
       env,
     );

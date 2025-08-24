@@ -1,7 +1,5 @@
 import { createDB } from "../DB/mod.ts";
-import type { DB } from "../../shared/db.ts";
 import { resolveActorFromAcct } from "../utils/activitypub.ts";
-import { isUrl } from "../../shared/url.ts";
 
 export interface UserInfo {
   userName: string;
@@ -15,100 +13,33 @@ export interface UserInfoCache {
   [key: string]: UserInfo;
 }
 
-interface RemoteActorCache {
-  actorUrl?: string;
-  name?: string;
-  preferredUsername?: string;
-  icon?: unknown;
-  summary?: string;
-}
-
-async function fetchExternalActorInfo(actorUrl: string, db: DB) {
-  let actor = await db.findRemoteActorByUrl(actorUrl) as
-    | RemoteActorCache
-    | null;
-  if (!actor || !(actor.name || actor.preferredUsername) || !actor.icon) {
-    try {
-      const res = await fetch(actorUrl, {
-        headers: {
-          "Accept":
-            'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-          "User-Agent": "Takos ActivityPub Client/1.0",
-        },
-      });
-      if (res.ok) {
-        interface ActorApiResponse {
-          name?: string;
-          preferredUsername?: string;
-          icon?: unknown;
-          summary?: string;
-        }
-        const data = await res.json() as ActorApiResponse;
-        await db.upsertRemoteActor({
-          actorUrl,
-          name: data.name || "",
-          preferredUsername: data.preferredUsername || "",
-          icon: data.icon || null,
-          summary: data.summary || "",
-        });
-        actor = await db.findRemoteActorByUrl(actorUrl) as
-          | RemoteActorCache
-          | null;
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!actor) return null;
-  const avatar = actor.icon
-    ? typeof actor.icon === "object" && actor.icon !== null
-      ? (actor.icon as Record<string, string>).url ?? ""
-      : (actor.icon as string)
-    : "";
-  return {
-    displayName: (actor.name as string) ||
-      (actor.preferredUsername as string) ||
-      "",
-    avatar,
-  };
-}
-
 /**
  * 単一のユーザー情報を取得する
  */
 export async function getUserInfo(
-  identifier: string,
+  acct: string,
   domain: string,
   env: Record<string, string>,
   cache?: UserInfoCache,
 ): Promise<UserInfo> {
-  // キャッシュチェック
-  if (cache && cache[identifier]) {
-    return cache[identifier];
+  if (cache && cache[acct]) {
+    return cache[acct];
   }
 
   const db = createDB(env);
-
-  let userName = identifier;
+  const [userName, userDomain] = acct.split("@");
   let displayName = userName;
   let authorAvatar = "";
-  let userDomain = domain;
-  let isLocal = true;
+  const isLocal = userDomain === domain;
 
-  // ローカルユーザーかどうかを判定
-  const account = await db.findAccountByUserName(identifier);
-
-  if (account) {
-    // ローカルユーザーの場合
-    displayName = account.displayName || userName;
-    authorAvatar = account.avatarInitial || "/api/image/people.png";
-  } else if (identifier.includes("@") && !isUrl(identifier)) {
-    // user@domain 形式の外部ユーザー
-    isLocal = false;
-    const [name, host] = identifier.split("@");
-    userName = name;
-    userDomain = host;
-    const actor = await resolveActorFromAcct(`${name}@${host}`);
+  if (isLocal) {
+    const account = await db.findAccountByUserName(userName);
+    if (account) {
+      displayName = account.displayName || userName;
+      authorAvatar = account.avatarInitial || "/api/image/people.png";
+    }
+  } else {
+    const actor = await resolveActorFromAcct(acct).catch(() => null);
     if (actor) {
       displayName = actor.name ?? actor.preferredUsername ?? userName;
       const icon = actor.icon;
@@ -127,44 +58,6 @@ export async function getUserInfo(
         summary: actor.summary || "",
       });
     }
-  } else if (typeof identifier === "string" && isUrl(identifier)) {
-    try {
-      const url = new URL(identifier);
-      const pathParts = url.pathname.split("/");
-      const extractedUsername = pathParts[pathParts.length - 1] ||
-        pathParts[pathParts.length - 2] ||
-        "external_user";
-
-      userName = extractedUsername;
-
-      if (url.hostname === domain && url.pathname.startsWith("/users/")) {
-        // ローカルユーザーを URL で指定した場合
-        const localAccount = await db.findAccountByUserName(extractedUsername);
-        if (localAccount) {
-          displayName = localAccount.displayName || extractedUsername;
-          authorAvatar = localAccount.avatarInitial || "/api/image/people.png";
-        } else {
-          displayName = extractedUsername;
-        }
-        userDomain = domain;
-        isLocal = true;
-      } else {
-        // 外部ユーザーの場合（ActivityPub URL）
-        userDomain = url.hostname;
-        isLocal = false;
-
-        const info = await fetchExternalActorInfo(identifier, db);
-        if (info) {
-          displayName = info.displayName || extractedUsername;
-          authorAvatar = info.avatar || "/api/image/people.png";
-        } else {
-          displayName = extractedUsername;
-        }
-      }
-    } catch {
-      userDomain = "external";
-      isLocal = false;
-    }
   }
 
   const userInfo: UserInfo = {
@@ -175,9 +68,8 @@ export async function getUserInfo(
     isLocal,
   };
 
-  // キャッシュに保存
   if (cache) {
-    cache[identifier] = userInfo;
+    cache[acct] = userInfo;
   }
 
   return userInfo;
@@ -187,131 +79,49 @@ export async function getUserInfo(
  * 複数のユーザー情報をバッチで取得する
  */
 export async function getUserInfoBatch(
-  identifiers: string[],
+  accts: string[],
   domain: string,
   env: Record<string, string>,
 ): Promise<UserInfo[]> {
   const cache: UserInfoCache = {};
   const results: UserInfo[] = [];
-
   const db = createDB(env);
 
-  // 重複を除去
-  const uniqueIdentifiers = [...new Set(identifiers)];
+  const uniqueAccts = [...new Set(accts)];
+  const localNames = uniqueAccts
+    .filter((a) => a.endsWith(`@${domain}`))
+    .map((a) => a.split("@")[0]);
 
-  // ローカルユーザーをバッチで取得
-  const localIds: { id: string; username: string }[] = [];
-  for (const id of uniqueIdentifiers) {
-    if (!isUrl(id) && !id.includes("@")) {
-      localIds.push({ id, username: id });
-    } else if (isUrl(id)) {
-      try {
-        const urlObj = new URL(id);
-        if (
-          urlObj.hostname === domain && urlObj.pathname.startsWith("/users/")
-        ) {
-          const parts = urlObj.pathname.split("/");
-          const uname = parts[parts.length - 1] || parts[parts.length - 2];
-          if (uname) localIds.push({ id, username: uname });
-        }
-      } catch {
-        /* ignore */
-      }
+  if (localNames.length > 0) {
+    const accounts = await db.findAccountsByUserNames(localNames);
+    for (const acc of accounts) {
+      const acct = `${acc.userName}@${domain}`;
+      cache[acct] = {
+        userName: acc.userName,
+        displayName: acc.displayName || acc.userName,
+        authorAvatar: acc.avatarInitial || "/api/image/people.png",
+        domain,
+        isLocal: true,
+      };
     }
   }
 
-  if (localIds.length > 0) {
-    const accounts = await db.findAccountsByUserNames(
-      localIds.map((l) => l.username),
-    );
-    const accountMap = new Map(accounts.map((acc) => [acc.userName, acc]));
-
-    for (const entry of localIds) {
-      const account = accountMap.get(entry.username);
-      if (account) {
-        const userInfo: UserInfo = {
-          userName: entry.username,
-          displayName: account.displayName || entry.username,
-          authorAvatar: account.avatarInitial || "/api/image/people.png",
-          domain,
-          isLocal: true,
-        };
-        cache[entry.id] = userInfo;
-      }
+  for (const acct of uniqueAccts) {
+    if (!cache[acct]) {
+      const info = await getUserInfo(acct, domain, env, cache);
+      cache[acct] = info;
     }
   }
 
-  // 外部ユーザーをバッチで取得
-  const processedLocalIds = new Set(localIds.map((l) => l.id));
-  const externalUrls = uniqueIdentifiers.filter((id) =>
-    isUrl(id) && !processedLocalIds.has(id)
-  );
-  if (externalUrls.length > 0) {
-    const remoteActors = await db.findRemoteActorsByUrls(
-      externalUrls,
-    ) as RemoteActorCache[];
-    const actorMap = new Map(
-      remoteActors.map((actor) => [actor.actorUrl, actor]),
-    );
-
-    for (const url of externalUrls) {
-      const actor = actorMap.get(url);
-      if (actor) {
-        try {
-          const urlObj = new URL(url);
-          const pathParts = urlObj.pathname.split("/");
-          const extractedUsername = pathParts[pathParts.length - 1] ||
-            pathParts[pathParts.length - 2] ||
-            "external_user";
-
-          const avatar = actor.icon
-            ? typeof actor.icon === "object" && actor.icon !== null
-              ? (actor.icon as Record<string, string>).url ?? ""
-              : (actor.icon as string)
-            : "/api/image/people.png";
-
-          const userInfo: UserInfo = {
-            userName: extractedUsername,
-            displayName: (actor.name as string) ||
-              (actor.preferredUsername as string) ||
-              extractedUsername,
-            authorAvatar: avatar || "/api/image/people.png",
-            domain: urlObj.hostname,
-            isLocal: false,
-          };
-          cache[url] = userInfo;
-        } catch {
-          // URLパースエラーの場合はデフォルト値を設定
-          const userInfo: UserInfo = {
-            userName: "external_user",
-            displayName: "external_user",
-            authorAvatar: "/api/image/people.png",
-            domain: "external",
-            isLocal: false,
-          };
-          cache[url] = userInfo;
-        }
-      }
-    }
-  }
-
-  // 結果を順序通りに並べる
-  for (const identifier of identifiers) {
-    if (cache[identifier]) {
-      results.push(cache[identifier]);
-    } else {
-      // キャッシュにない場合は個別に取得
-      const userInfo = await getUserInfo(identifier, domain, env, cache);
-      results.push(userInfo);
+  for (const acct of accts) {
+    if (cache[acct]) {
+      results.push(cache[acct]);
     }
   }
 
   return results;
 }
 
-/**
- * ユーザー情報をフォーマットしてレスポンス形式に変換する
- */
 export function formatUserInfoForPost(
   userInfo: UserInfo,
   postData: Record<string, unknown>,

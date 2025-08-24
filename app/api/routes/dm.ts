@@ -82,20 +82,15 @@ app.post(
     const env = getEnv(c);
     const db = createDB(env);
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const fromUserName = (() => {
-      if (from.includes("@")) {
-        const [name, host] = from.split("@");
-        return host === domain ? name : "";
-      }
-      return from;
-    })();
-    const fromHandle = `${fromUserName}@${domain}`;
+    const [fromUserName, fromDomain] = from.split("@");
+    const fromHandle = from;
+    const localName = fromDomain === domain ? fromUserName : "";
     const [fromInfo, toInfo] = await Promise.all([
-      getUserInfo(fromUserName, domain, env).catch(() => null),
+      getUserInfo(fromHandle, domain, env).catch(() => null),
       getUserInfo(to, domain, env).catch(() => null),
     ]);
     const payload = await db.saveDMMessage(
-      fromUserName,
+      localName,
       to,
       type,
       content,
@@ -129,22 +124,13 @@ app.post(
     // 外部宛てなら ActivityPub で配送する
     try {
       const localDomain = apGetDomain(c);
-      // 宛先のホスト名を推定（URL か user@host）
-      const toHost = (() => {
-        try {
-          if (to.startsWith("http")) return new URL(to).hostname;
-          if (to.includes("@")) return to.split("@")[1];
-        } catch {
-          /* noop */
-        }
-        return "";
-      })();
+      const toHost = to.split("@")[1] ?? "";
 
       // 送信者はローカルユーザーのみを許可（鍵を使って署名するため）
-      if (toHost && toHost !== localDomain && fromUserName) {
+      if (toHost && toHost !== localDomain && localName) {
         // ActivityPub Create(Object) を構築
         const actorId = `https://${localDomain}/users/${
-          encodeURIComponent(fromUserName)
+          encodeURIComponent(localName)
         }`;
         const objectId = createObjectId(localDomain);
         const activityId = createActivityId(localDomain);

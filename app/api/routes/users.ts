@@ -16,14 +16,14 @@ const app = new Hono();
 app.use("/users/*", authRequired);
 
 // ユーザー詳細取得
-app.get("/users/:identifier", async (c) => {
+app.get("/users/:acct", async (c) => {
   try {
     const domain = getDomain(c);
-    const identifier = c.req.param("identifier");
+    const acct = c.req.param("acct");
     const env = getEnv(c);
     const db = createDB(env);
 
-    const info = await getUserInfo(identifier, domain, env);
+    const info = await getUserInfo(acct, domain, env);
 
     const user = info.isLocal
       ? await db.findAccountByUserName(info.userName)
@@ -66,17 +66,17 @@ app.get("/users/:identifier", async (c) => {
 // ユーザー情報バッチ取得
 app.post(
   "/users/batch",
-  zValidator("json", z.object({ identifiers: z.array(z.string()).min(1) })),
+  zValidator("json", z.object({ accts: z.array(z.string()).min(1) })),
   async (c) => {
     try {
       const domain = getDomain(c);
-      const { identifiers } = c.req.valid("json") as { identifiers: string[] };
+      const { accts } = c.req.valid("json") as { accts: string[] };
 
-      if (identifiers.length > 100) {
-        return c.json({ error: "Too many identifiers (max 100)" }, 400);
+      if (accts.length > 100) {
+        return c.json({ error: "Too many accts (max 100)" }, 400);
       }
 
-      const infos = await getUserInfoBatch(identifiers, domain, getEnv(c));
+      const infos = await getUserInfoBatch(accts, domain, getEnv(c));
       return c.json(infos);
     } catch (error) {
       console.error("Error fetching user info batch:", error);

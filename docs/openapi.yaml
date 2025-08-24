@@ -425,9 +425,9 @@ paths:
       responses:
         "200":
           description: 成功
-  /api/users/{identifier}:
+  /api/users/{acct}:
     parameters:
-      - name: identifier
+      - name: acct
         in: path
         required: true
         schema:
@@ -435,15 +435,14 @@ paths:
     get:
       summary: ユーザー情報取得
       description: |
-        ローカルユーザー名、`user@domain` 形式、または ActivityPub URL を指定して
-        公開プロフィールを取得します。
+        `user@domain` 形式のハンドルを指定して公開プロフィールを取得します。
       responses:
         "200":
           description: ユーザー情報
   /api/users/batch:
     post:
       summary: ユーザー情報バッチ取得
-      description: 複数の識別子からユーザーの公開情報をまとめて取得します。
+      description: 複数のハンドルからユーザーの公開情報をまとめて取得します。
       requestBody:
         required: true
         content:
@@ -451,12 +450,12 @@ paths:
             schema:
               type: object
               properties:
-                identifiers:
+                accts:
                   type: array
                   items:
                     type: string
               required:
-                - identifiers
+                - accts
       responses:
         "200":
           description: ユーザー情報の配列

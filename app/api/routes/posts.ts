@@ -16,6 +16,7 @@ import {
   deliverActivityPubObject,
   fetchActorInbox,
   getDomain,
+  iriToHandle,
   isLocalActor,
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
@@ -66,9 +67,9 @@ app.get("/posts", async (c) => {
     ) as ActivityObject[];
   }
 
-  const identifiers = list.map((doc) => doc.actor_id as string);
+  const accts = list.map((doc) => iriToHandle(doc.actor_id as string));
   const userInfos = await getUserInfoBatch(
-    identifiers as string[],
+    accts as string[],
     domain,
     env,
   );
@@ -217,7 +218,7 @@ app.post(
 
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      postData.actor_id as string,
+      iriToHandle(postData.actor_id as string),
       domain,
       env,
     );
@@ -228,12 +229,13 @@ app.post(
 
     // REST-first: WebSocket は本文を送らず存在通知のみ送る
     // クライアントはこの通知を受けて REST API (/posts/:id や /posts?...) で本文を取得する
-    const objId = objectId || String((post as Record<string, unknown>)._id ?? "");
+    const objId = objectId ||
+      String((post as Record<string, unknown>)._id ?? "");
     broadcast({
       type: "hasUpdate",
       payload: { kind: "newPost", id: objId },
     });
-    
+
     // ローカルのフォロワーへ個別に軽量通知
     const account = await db.findAccountByUserName(author);
     const followers = account?.followers ?? [];
@@ -272,7 +274,11 @@ app.get("/posts/:id", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const postData = post as PostDoc;
-  const userInfo = await getUserInfo(postData.actor_id as string, domain, env);
+  const userInfo = await getUserInfo(
+    iriToHandle(postData.actor_id as string),
+    domain,
+    env,
+  );
   const data = {
     _id: postData._id,
     content: postData.content,
@@ -290,7 +296,9 @@ app.get("/posts/:id/replies", async (c) => {
   const list = await db.findNotes({ "extra.inReplyTo": id }, {
     published: 1,
   }) as ActivityObject[];
-  const ids = list.map((doc) => (doc as PostDoc).actor_id as string);
+  const ids = list.map((doc) =>
+    iriToHandle((doc as PostDoc).actor_id as string)
+  );
   const infos = await getUserInfoBatch(ids, domain, env);
   const formatted = list.map((doc, i) =>
     formatUserInfoForPost(infos[i], doc as Record<string, unknown>)
@@ -313,7 +321,7 @@ app.put(
     // 共通ユーザー情報取得サービスを使用
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
-      postData.actor_id as string,
+      iriToHandle(postData.actor_id as string),
       domain,
       env,
     );

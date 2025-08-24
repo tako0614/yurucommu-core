@@ -332,10 +332,10 @@ export const _replyToPost = async (
 };
 
 // ユーザー情報を取得
-export const fetchUserProfile = async (username: string) => {
+export const fetchUserProfile = async (acct: string) => {
   try {
     const response = await apiFetch(
-      `/api/users/${encodeURIComponent(username)}`,
+      `/api/users/${encodeURIComponent(acct)}`,
     );
     if (!response.ok) {
       throw new Error("Failed to fetch user profile");
@@ -364,11 +364,11 @@ const userInfoCache = new Map<string, {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5分
 
-export const getCachedUserInfo =  (
-  identifier: string,
+export const getCachedUserInfo = (
+  acct: string,
   _accountId?: string,
 ): UserInfo | null => {
-  const mem = userInfoCache.get(identifier);
+  const mem = userInfoCache.get(acct);
   if (mem && Date.now() - mem.timestamp < CACHE_DURATION) {
     return mem.userInfo;
   }
@@ -376,11 +376,11 @@ export const getCachedUserInfo =  (
 };
 
 export const setCachedUserInfo = (
-  identifier: string,
+  acct: string,
   userInfo: UserInfo,
   _accountId?: string,
 ) => {
-  userInfoCache.set(identifier, {
+  userInfoCache.set(acct, {
     userInfo,
     timestamp: Date.now(),
   });
@@ -388,18 +388,18 @@ export const setCachedUserInfo = (
 
 // 新しい共通ユーザー情報取得API
 export const fetchUserInfo = async (
-  identifier: string,
+  acct: string,
   accountId?: string,
 ): Promise<UserInfo | null> => {
   try {
     // まずキャッシュから確認
-    const cached = await getCachedUserInfo(identifier, accountId);
+    const cached = await getCachedUserInfo(acct, accountId);
     if (cached) {
       return cached;
     }
 
     const response = await apiFetch(
-      `/api/users/${encodeURIComponent(identifier)}`,
+      `/api/users/${encodeURIComponent(acct)}`,
     );
     if (!response.ok) {
       throw new Error("Failed to fetch user info");
@@ -408,7 +408,7 @@ export const fetchUserInfo = async (
     const userInfo = await response.json();
 
     // キャッシュに保存
-    await setCachedUserInfo(identifier, userInfo, accountId);
+    await setCachedUserInfo(acct, userInfo, accountId);
 
     return userInfo;
   } catch (error) {
@@ -419,19 +419,19 @@ export const fetchUserInfo = async (
 
 // バッチでユーザー情報を取得
 export const fetchUserInfoBatch = async (
-  identifiers: string[],
+  accts: string[],
   accountId?: string,
 ): Promise<UserInfo[]> => {
   try {
     const cachedMap: Record<string, UserInfo> = {};
     const uncached: string[] = [];
 
-    for (const identifier of identifiers) {
-      const cachedInfo = await getCachedUserInfo(identifier, accountId);
+    for (const acct of accts) {
+      const cachedInfo = await getCachedUserInfo(acct, accountId);
       if (cachedInfo) {
-        cachedMap[identifier] = cachedInfo;
+        cachedMap[acct] = cachedInfo;
       } else {
-        uncached.push(identifier);
+        uncached.push(acct);
       }
     }
 
@@ -442,7 +442,7 @@ export const fetchUserInfoBatch = async (
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ identifiers: uncached }),
+        body: JSON.stringify({ accts: uncached }),
       });
 
       if (response.ok) {
@@ -460,7 +460,7 @@ export const fetchUserInfoBatch = async (
       }
     }
 
-    return identifiers.map((id) => cachedMap[id] ?? fetchedMap[id]);
+    return accts.map((id) => cachedMap[id] ?? fetchedMap[id]);
   } catch (error) {
     console.error("Error fetching user info batch:", error);
     return [];
