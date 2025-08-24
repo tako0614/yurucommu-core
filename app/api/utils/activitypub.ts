@@ -5,19 +5,6 @@ import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function parseRetryAfter(value: string | null): number | null {
-  if (!value) return null;
-  const sec = Number(value);
-  if (!Number.isNaN(sec)) return sec * 1000;
-  const date = Date.parse(value);
-  if (!Number.isNaN(date)) return date - Date.now();
-  return null;
-}
-
 async function applySignature(
   method: string,
   url: string,
@@ -542,15 +529,17 @@ export function createUndoLikeActivity(
 
 export async function fetchActorInbox(
   actorUrl: string,
-  env: Record<string, string> = {},
+  _env: Record<string, string> = {},
 ): Promise<string | null> {
   try {
-    const data = await fetchJson<{ inbox?: string }>(
-      actorUrl,
-      {},
-      undefined,
-      env,
-    );
+    const res = await fetch(actorUrl, {
+      headers: {
+        Accept:
+          'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { inbox?: string };
     if (typeof data.inbox === "string") return data.inbox;
   } catch {
     /* ignore */
@@ -829,61 +818,6 @@ export function createAnnounceActivity(
 /* ===== ActivityPub主要実装互換ユーティリティ ===== */
 
 /**
- * Acceptヘッダーを必ず付与してJSON取得
- * Misskey/Mastodon/Pleroma等の404/406対策
- * @param url 取得先URL
- * @param init fetch初期化オプション
- */
-export async function fetchJson<T = unknown>(
-  url: string,
-  init: RequestInit = {},
-  signer?: { id: string; privateKey: string },
-  env: Record<string, string> = {},
-): Promise<T> {
-  if (!signer) {
-    const domain = env["ACTIVITYPUB_DOMAIN"] || "localhost";
-    const sys = await getSystemKey(createDB(env), domain);
-    signer = {
-      id: `https://${domain}/users/system`,
-      privateKey: sys.privateKey,
-    };
-  }
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const headers = new Headers(init.headers);
-    if (!headers.has("Accept")) {
-      headers.set(
-        "Accept",
-        'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-      );
-    }
-    await applySignature(
-      "GET",
-      url,
-      "",
-      signer!,
-      ["@method", "@target-uri", "host", "date"],
-      headers,
-    );
-    res = await fetch(url, { ...init, headers });
-    if (res.status === 429) {
-      const wait = parseRetryAfter(res.headers.get("Retry-After")) ?? 1000;
-      await delay(wait);
-      continue;
-    }
-    break;
-  }
-  if (!res) res = await fetch(url, init);
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `fetchJson: ${url} ${res.status} ${res.statusText} ${text}`,
-    );
-  }
-  return await res.json();
-}
-
-/**
  * ActivityPubリモートアクター情報
  */
 export interface RemoteActor {
@@ -908,14 +842,20 @@ interface RemoteActorDocument {
 }
 export async function resolveRemoteActor(
   actorIri: string,
-  env: Record<string, string> = {},
+  _env: Record<string, string> = {},
 ): Promise<RemoteActor> {
-  const actor = await fetchJson<RemoteActorDocument>(
-    actorIri,
-    {},
-    undefined,
-    env,
-  );
+  const res = await fetch(actorIri, {
+    headers: {
+      Accept:
+        'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+    },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `resolveRemoteActor: ${res.status} ${res.statusText}`,
+    );
+  }
+  const actor: RemoteActorDocument = await res.json();
 
   const inbox = actor.endpoints?.sharedInbox ??
     actor.inbox ?? actor["ldp:inbox"];
