@@ -745,9 +745,11 @@ export function Chat() {
         const created = m.createdAt ?? m.created_at ?? Date.now();
         const ts = new Date(created as string | number | Date);
         const from = String(m.from ?? "");
+        // 正規化されたハンドルを使って自分/他者判定を安定化する
+        const normalizedFrom = normalizeActor(from) || from;
         // attachments/attachment の両方に対応し、URL がない場合は
         // /api/files/messages/:messageId/:index をフォールバックとして構築
-        const messageId = String(m._id ?? m.id ?? `${from}:${created}`);
+  const messageId = String(m._id ?? m.id ?? `${normalizedFrom}:${created}`);
         const rawAtt = (m as { attachments?: unknown; attachment?: unknown })
           .attachments ?? (m as { attachment?: unknown }).attachment;
         const attachments = Array.isArray(rawAtt)
@@ -807,9 +809,9 @@ export function Chat() {
             } => !!a)
           : [];
         return {
-          id: String(m._id ?? m.id ?? `${from}:${created}`),
-          author: from,
-          displayName: from.split("/").pop() ?? from,
+          id: String(m._id ?? m.id ?? `${normalizedFrom}:${created}`),
+          author: normalizedFrom,
+          displayName: normalizedFrom.split("/").pop() ?? normalizedFrom,
           address: from,
           content: String(m.content ?? ""),
           attachments,
@@ -832,7 +834,7 @@ export function Chat() {
               // 既定は Note
               return "note" as const;
             })(),
-          isMe: from === selfHandle,
+          isMe: normalizedFrom === selfHandle,
           avatar: room.avatar,
         } as ChatMessage;
       });
@@ -1378,10 +1380,14 @@ export function Chat() {
               : Array.isArray(p.to)
               ? (p.to as string[])
               : [];
-            if (!(to.includes(self) || from === self)) return;
-            const partnerId = from === self
-              ? (to.find((v) => v !== self) ?? to[0])
-              : from;
+            // normalize handles for reliable comparison
+            const normTo = to.map((t) => normalizeActor(t) ?? t);
+            const normFrom = normalizeActor(from) ?? from;
+            const normSelf = normalizeActor(self) ?? self;
+            if (!(normTo.includes(normSelf) || normFrom === normSelf)) return;
+            const partnerId = normFrom === normSelf
+              ? (normTo.find((v) => v !== normSelf) ?? normTo[0])
+              : normFrom;
             if (!partnerId) return;
             const normPartner = normalizeActor(partnerId as ActorID);
             let room = chatRooms().find((r) =>
@@ -1461,7 +1467,11 @@ export function Chat() {
 
       const data = msg.payload;
       // フィルタ: 自分宛て/自分発でないメッセージは無視
-      if (!(data.to.includes(self) || data.from === self)) {
+      // normalize to/from for stable comparison
+      const normTo2 = data.to.map((t) => normalizeActor(t) ?? t);
+      const normFrom2 = normalizeActor(data.from) ?? data.from;
+      const normSelf2 = normalizeActor(self) ?? self;
+      if (!(normTo2.includes(normSelf2) || normFrom2 === normSelf2)) {
         return;
       }
 
@@ -1470,9 +1480,9 @@ export function Chat() {
         ? chatRooms().find((r) => r.type === "group" && r.id === data.roomId)
         : undefined;
 
-      const partnerId = data.from === self
-        ? (data.to.find((v) => v !== self) ?? data.to[0])
-        : data.from;
+      const partnerId = normFrom2 === normSelf2
+        ? (normTo2.find((v) => v !== normSelf2) ?? normTo2[0])
+        : normFrom2;
 
       const normalizedPartner = normalizeActor(partnerId);
       const [partnerName] = splitActor(normalizedPartner);
@@ -1553,7 +1563,7 @@ export function Chat() {
         }
       }
 
-      const isMe = data.from === self;
+  const isMe = normFrom2 === normSelf2;
       if (!isMe) updatePeerHandle(room.id, data.from);
       const selfH3 = `${user.userName}@${getDomain()}`;
       const baseName3 = room.displayName ?? room.name;
