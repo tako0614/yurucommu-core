@@ -91,45 +91,35 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       return;
     }
     const obj = activity.object as Record<string, unknown>;
-    // 宛先集合を Activity と Object の両方から収集
+    // オブジェクトの宛先を収集
     const collect = (v: unknown): string[] => {
       const out: string[] = [];
-      if (Array.isArray(v)) { for (const x of v) out.push(...collect(x)); }
-      else if (typeof v === "string") out.push(v);
+      if (Array.isArray(v)) {
+        for (const x of v) out.push(...collect(x));
+      } else if (typeof v === "string") {
+        out.push(v);
+      }
       return out;
     };
-    const activityTo = collect((activity as { to?: unknown }).to);
-    const activityCc = collect((activity as { cc?: unknown }).cc);
-    const activityBto = collect((activity as { bto?: unknown }).bto);
-    const activityBcc = collect((activity as { bcc?: unknown }).bcc);
-    const activityAudience = collect(
-      (activity as { audience?: unknown }).audience,
-    );
-    const objectTo = collect(obj.to);
-    const objectCc = collect((obj as { cc?: unknown }).cc);
-    const objectBto = collect((obj as { bto?: unknown }).bto);
-    const objectBcc = collect((obj as { bcc?: unknown }).bcc);
-    const objectAudience = collect((obj as { audience?: unknown }).audience);
+    // obj.to は以降も使うので保持
+    const toList = collect(obj.to);
+    const ccList = collect((obj as { cc?: unknown }).cc);
+    const btoList = collect((obj as { bto?: unknown }).bto);
+    const bccList = collect((obj as { bcc?: unknown }).bcc);
+    const audienceList = collect((obj as { audience?: unknown }).audience);
 
-    const allRecipients = [
-      ...activityTo,
-      ...activityCc,
-      ...activityBto,
-      ...activityBcc,
-      ...activityAudience,
-      ...objectTo,
-      ...objectCc,
-      ...objectBto,
-      ...objectBcc,
-      ...objectAudience,
+    const objectRecipients = [
+      ...toList,
+      ...ccList,
+      ...btoList,
+      ...bccList,
+      ...audienceList,
     ];
-    // Object.to は以降も使うので保持
-    const toList = objectTo;
     const extra = typeof obj.extra === "object" && obj.extra !== null
       ? obj.extra as Record<string, unknown>
       : {};
 
-    // extra.dm が true または、宛先集合が「単一のActorのみ（Public禁止）」の場合は DM とみなす
+    // extra.dm が true または、オブジェクトの宛先が「単一のActorのみ（Public禁止）」の場合は DM とみなす
     const isCollection = (url: string): boolean => {
       if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
       try {
@@ -151,7 +141,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     // Public/コレクションを除外し、送信者自身も除外
     const recipientCandidates = Array.from(
       new Set(
-        allRecipients.filter((x): x is string => typeof x === "string"),
+        objectRecipients.filter((x): x is string => typeof x === "string"),
       ),
     ).filter((u) => !isCollection(u) && u !== actor);
     const inferredDmTarget = recipientCandidates.length === 1
