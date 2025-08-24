@@ -1715,14 +1715,6 @@ export function Chat() {
       },
     ),
   );
-
-  // WS通知に反応して差分取得する方式へ移行（定期ポーリングは廃止）
-
-  // 非選択ルームのプレビュー更新もWS通知時のみ（定期ポーリングは廃止）
-
-  // 新規ルーム検出はWS handshake通知時と手動同期に限定（定期サーチは廃止）
-
-  // URLから直接チャットを開いた場合、モバイルでは自動的にルーム表示を切り替える
   createEffect(() => {
     if (!isMobile()) return;
     const roomId = selectedRoom();
@@ -1736,156 +1728,16 @@ export function Chat() {
   createEffect(() => {
     account();
   });
-
   createEffect(() => {
     newMessage();
     adjustHeight(textareaRef);
   });
-
-  // 暗号対応チェックは廃止
-
   onCleanup(() => {
     globalThis.removeEventListener("resize", checkMobile);
     wsCleanup?.();
     acceptCleanup?.();
     // no-op: preview poller removed in favor of WS-driven updates
   });
-
-  // APIベースのイベントで更新（WS不要運用向け）
-  onMount(async () => {
-    try {
-      const user = account();
-      if (user) {
-        const key = `cache:${user.id}:eventsCursor`;
-        const cur = globalThis.localStorage.getItem(key);
-        if (typeof cur === "string") setEventsCursor(cur);
-      }
-    } catch { /* ignore */ }
-
-    const processEvents = async (
-      evs: {
-        id: string;
-        type: string;
-        roomId?: string;
-        from?: string;
-        to?: string[];
-        createdAt?: string;
-      }[],
-    ) => {
-      const user = account();
-      if (!user) return;
-      let maxTs = eventsCursor();
-      const byRoom = new Map<
-        string,
-        { handshake: boolean; message: boolean }
-      >();
-      for (const ev of evs) {
-        const rid = ev.roomId;
-        if (!rid) continue;
-        const cur = byRoom.get(rid) || { handshake: false, message: false };
-        if (ev.type === "handshake") cur.handshake = true;
-        if (ev.type === "encryptedMessage" || ev.type === "publicMessage") {
-          cur.message = true;
-        }
-        byRoom.set(rid, cur);
-        if (ev.createdAt && (!maxTs || ev.createdAt > maxTs)) {
-          maxTs = ev.createdAt;
-        }
-      }
-      for (const [rid, flg] of byRoom) {
-        let room = chatRooms().find((r) => r.id === rid);
-        if (!room) {
-          room = {
-            id: rid,
-            name: "",
-            userName: account()?.userName || "",
-            domain: getDomain(),
-            avatar: "",
-            unreadCount: 0,
-            type: "group",
-            members: [],
-            lastMessage: "...",
-            lastMessageTime: undefined,
-          };
-          upsertRoom(room);
-          try {
-            await applyDisplayFallback([room]);
-          } catch { /* ignore */ }
-        }
-        if (room && flg.message) {
-          const isSel = selectedRoom() === rid;
-          if (isSel) {
-            const prev = messages();
-            const lastTs = prev.length > 0
-              ? prev[prev.length - 1].timestamp.toISOString()
-              : undefined;
-            const fetched = await fetchMessagesForRoom(
-              room,
-              lastTs ? { after: lastTs } : { limit: 1 },
-            );
-            if (fetched.length > 0) {
-              setMessages((old) => {
-                const ids = new Set(old.map((m) => m.id));
-                const add = fetched.filter((m) => !ids.has(m.id));
-                const next = [...old, ...add];
-                setMessagesByRoom({
-                  ...messagesByRoom(),
-                  [roomCacheKey(rid)]: next,
-                });
-                const user2 = account();
-                if (user2) void saveDecryptedMessages(user2.id, rid, next);
-                return next;
-              });
-              updateRoomLast(rid, fetched[fetched.length - 1]);
-            }
-          } else {
-            const fetched = await fetchMessagesForRoom(room, {
-              limit: 1,
-              dryRun: true,
-            });
-            if (fetched.length > 0) {
-              updateRoomLast(rid, fetched[fetched.length - 1]);
-            }
-          }
-        }
-      }
-      if (maxTs) {
-        setEventsCursor(maxTs);
-        try {
-          const user2 = account();
-          if (user2) {
-            try {
-              const key = `cache:${user2.id}:eventsCursor`;
-              globalThis.localStorage.setItem(key, maxTs);
-            } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      }
-    };
-
-    const syncOnce = async () => {
-      try {
-        const evs = await fetchEvents({
-          since: eventsCursor() ?? undefined,
-          limit: 100,
-        });
-        if (evs.length > 0) await processEvents(evs);
-      } catch { /* ignore */ }
-    };
-
-    await syncOnce();
-    const onFocus = () => void syncOnce();
-    globalThis.addEventListener("focus", onFocus);
-    globalThis.addEventListener("online", onFocus);
-    globalThis.addEventListener("visibilitychange", () => {
-      if (!document.hidden) void syncOnce();
-    });
-    onCleanup(() => {
-      globalThis.removeEventListener("focus", onFocus);
-      globalThis.removeEventListener("online", onFocus);
-    });
-  });
-
   return (
     <>
       <div class="w-full h-screen overflow-hidden">
@@ -2087,21 +1939,6 @@ function normalizeActor(actor: ActorID): string {
   }
   return actor;
 }
-
-// fetchEvents stub used by syncOnce
-async function fetchEvents(opts?: { since?: string; limit?: number }) {
-  try {
-    const qs = new URLSearchParams();
-    if (opts?.since) qs.set("since", opts.since);
-    if (opts?.limit) qs.set("limit", String(opts.limit));
-    const res = await apiFetch(`/api/events?${qs.toString()}`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch {
-    return [];
-  }
-}
-
 // --- ローカル補助関数 ---
 function normalizeHandle(id?: string): string | undefined {
   if (!id) return undefined;
@@ -2241,7 +2078,10 @@ async function _addRoom(
       await apiFetch(`/api/groups`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner: _handle, ..._room }),
+        body: JSON.stringify({
+          groupName: _room.name,
+          displayName: _room.name,
+        }),
       });
     }
   } catch {
