@@ -117,26 +117,42 @@ async function signAndSend(
 export async function sendActivityPubObject(
   inboxUrl: string,
   object: unknown,
-  actor: string,
+  actor: string | { actorId: string; privateKey: string },
   domain: string,
   env: Record<string, string> = {},
 ): Promise<Response> {
   const body = JSON.stringify(object);
-  let key: { userName: string; privateKey: string };
-  if (actor === "system") {
-    const sys = await getSystemKey(createDB(env), domain);
-    key = { userName: "system", privateKey: sys.privateKey };
-  } else {
-    const db = createDB(env);
-    const account = await db.findAccountByUserName(actor);
-    if (!account || !account.privateKey) {
-      throw new Error("actor not found or private key missing");
+  if (typeof actor === "string") {
+    let key: { userName: string; privateKey: string };
+    if (actor === "system") {
+      const sys = await getSystemKey(createDB(env), domain);
+      key = { userName: "system", privateKey: sys.privateKey };
+    } else {
+      const db = createDB(env);
+      const account = await db.findAccountByUserName(actor);
+      if (!account || !account.privateKey) {
+        throw new Error("actor not found or private key missing");
+      }
+      key = { userName: actor, privateKey: account.privateKey };
     }
-    key = { userName: actor, privateKey: account.privateKey };
-  }
 
+    try {
+      return await signAndSend(inboxUrl, body, key, domain);
+    } catch (err) {
+      console.error(
+        `Failed to send ActivityPub object to ${inboxUrl}:`,
+        err,
+      );
+      throw err;
+    }
+  }
   try {
-    return await signAndSend(inboxUrl, body, key, domain);
+    return await signAndPostAsActor(
+      inboxUrl,
+      body,
+      actor.actorId,
+      actor.privateKey,
+    );
   } catch (err) {
     console.error(`Failed to send ActivityPub object to ${inboxUrl}:`, err);
     throw err;
@@ -146,7 +162,7 @@ export async function sendActivityPubObject(
 export async function deliverActivityPubObject(
   targets: string[],
   object: unknown,
-  actor: string,
+  actor: string | { actorId: string; privateKey: string },
   domain: string,
   env: Record<string, string> = {},
 ): Promise<void> {

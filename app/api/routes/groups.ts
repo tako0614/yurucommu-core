@@ -239,7 +239,7 @@ app.post(
           await deliverActivityPubObject(
             [target],
             activity,
-            "system",
+            { actorId: groupId, privateKey: keys.privateKey },
             domain,
             env,
           );
@@ -351,7 +351,7 @@ app.patch(
     await deliverActivityPubObject(
       targets.filter((t): t is string => typeof t === "string"),
       activity,
-      "system",
+      { actorId: actor.id as string, privateKey: updated.privateKey },
       domain,
       env,
     );
@@ -393,7 +393,13 @@ app.post(
       target: groupId,
       to: [target],
     };
-    await deliverActivityPubObject([target], activity, "system", domain, env);
+    await deliverActivityPubObject(
+      [target],
+      activity,
+      { actorId: groupId, privateKey: group.privateKey },
+      domain,
+      env,
+    );
     const inv = new Invite({
       groupName: name,
       actor: acct,
@@ -449,7 +455,13 @@ app.post(
         await db.addGroupFollower(name, actor);
       }
       const acc = createAcceptActivity(domain, groupId, approval.activity);
-      await deliverActivityPubObject([actor], acc, "system", domain, env);
+      await deliverActivityPubObject(
+        [actor],
+        acc,
+        { actorId: groupId, privateKey: group.privateKey },
+        domain,
+        env,
+      );
     } else {
       const reject = {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -462,7 +474,7 @@ app.post(
       await deliverActivityPubObject(
         [actor],
         reject,
-        "system",
+        { actorId: groupId, privateKey: group.privateKey },
         domain,
         env,
       );
@@ -594,7 +606,7 @@ app.post("/groups/:name/inbox", async (c) => {
     await deliverActivityPubObject(
       [activity.actor],
       accept,
-      "system",
+      { actorId: groupId, privateKey: group.privateKey },
       domain,
       env,
     );
@@ -621,7 +633,7 @@ app.post("/groups/:name/inbox", async (c) => {
     await deliverActivityPubObject(
       [activity.actor],
       accept,
-      "system",
+      { actorId: groupId, privateKey: group.privateKey },
       domain,
       env,
     );
@@ -687,7 +699,13 @@ app.post("/groups/:name/inbox", async (c) => {
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
     await Promise.all(
       group.followers.map((recipient: string) =>
-        sendActivityPubObject(recipient, announceBase, "system", domain, env)
+        sendActivityPubObject(
+          recipient,
+          announceBase,
+          { actorId: groupId, privateKey: group.privateKey },
+          domain,
+          env,
+        )
           .catch(
             (err) => console.error("deliver failed", recipient, err),
           )
