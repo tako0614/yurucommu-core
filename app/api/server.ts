@@ -32,8 +32,6 @@ import { rateLimit } from "./utils/rate_limit.ts";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
-import { migrateFaspCollections } from "./services/fasp_migration.ts";
-import { migrateAttributedTo } from "./services/attributed_to_migration.ts";
 import dms from "./routes/dms.ts";
 import rooms from "./routes/rooms.ts";
 
@@ -196,18 +194,6 @@ export async function createTakosApp(env?: Record<string, string>) {
 if (import.meta.main) {
   const env = await loadConfig();
   await connectDatabase(env);
-  // 旧 -> 新コレクションへの安全な片道移行
-  try {
-    await migrateFaspCollections(env).catch(() => {});
-  } catch (_) {
-    // 起動は継続させる
-  }
-  // Note.attributedTo の正規化
-  try {
-    await migrateAttributedTo(env).catch(() => {});
-  } catch (_) {
-    // 起動は継続させる
-  }
   // 既定の FASP が設定されていれば、起動時に自動登録/承認し provider_info を取得
   try {
     await bootstrapDefaultFasp(env).catch(() => {});
