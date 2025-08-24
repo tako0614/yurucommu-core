@@ -8,10 +8,8 @@ import {
   createAcceptActivity,
   deliverActivityPubObject,
   getDomain,
-  resolveActorFromAcct,
   sendActivityPubObject,
 } from "../utils/activitypub.ts";
-import { isUrl } from "../../shared/url.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
@@ -51,7 +49,6 @@ app.get("/api/groups", async (c) => {
       id: `https://${domain}/groups/${g.groupName}`,
       name: g.groupName,
       icon,
-      members: g.followers ?? [],
     };
   });
   return c.json(formatted);
@@ -129,8 +126,9 @@ app.post(
       visibility: z.string().optional(),
       allowInvites: z.boolean().optional(),
       member: z.string(),
-      invites: z.array(z.string()).optional(),
-      members: z.array(z.string()).optional(),
+      invites: z.array(
+        z.string().regex(/^[^@\s]+@[^@\s]+$/),
+      ).optional(),
     }),
   ),
   async (c) => {
@@ -195,59 +193,39 @@ app.post(
       followers: [member],
     });
     const domain = getDomain(c);
-    // 追加: 初期招待（invites/members があれば送信）
+    // 追加: 初期招待（invites があれば送信）
     try {
       const rawInv = Array.isArray((body as { invites?: unknown }).invites)
         ? (body as { invites: string[] }).invites
-        : Array.isArray((body as { members?: unknown }).members)
-        ? (body as { members: string[] }).members
         : [];
       if (rawInv.length > 0) {
         const groupId = `https://${domain}/groups/${groupName}`;
-        const toHandle = (v: string): string => {
-          if (v.startsWith("http")) {
-            try {
-              const u = new URL(v);
-              const n = u.pathname.split("/").pop() || "";
-              return `${n}@${u.hostname}`;
-            } catch {
-              return v;
-            }
-          }
-          if (v.includes("@")) return v;
-          return `${v}@${domain}`;
-        };
-        const creator = toHandle(member);
-        const candidates = [...new Set(rawInv.map((x) => x).filter(Boolean))];
+        const creator = member;
+        const candidates = [
+          ...new Set(rawInv.filter((x) => x && x.includes("@"))),
+        ];
         for (const cand of candidates) {
-          const h = toHandle(cand);
-          if (h.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
-          // URL 解決
-          let actorUrl = cand;
-          if (!isUrl(cand)) {
-            const [user, host] = h.split("@");
-            if (host === domain) {
-              actorUrl = `https://${domain}/users/${user}`;
-            } else {
-              const resolved = await resolveActorFromAcct(h).catch(() => null);
-              if (!resolved || typeof resolved.id !== "string") continue;
-              actorUrl = resolved.id as string;
-            }
-          }
+          if (cand.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
           const activity = {
             "@context": "https://www.w3.org/ns/activitystreams",
             id: `https://${domain}/activities/${crypto.randomUUID()}`,
             type: "Invite" as const,
             actor: groupId,
-            object: actorUrl,
+            object: cand,
             target: groupId,
-            to: [actorUrl],
+            to: [cand],
           };
-          await sendActivityPubObject(actorUrl, activity, "system", domain, env)
+          await deliverActivityPubObject(
+            [cand],
+            activity,
+            "system",
+            domain,
+            env,
+          )
             .catch(() => {});
           const inv = new Invite({
             groupName,
-            actor: actorUrl,
+            actor: cand,
             inviter: groupId,
           });
           await inv.save().catch(() => {});
@@ -342,7 +320,12 @@ app.patch(
 
 app.post(
   "/api/groups/:name/invite",
-  zValidator("json", z.object({ acct: z.string().min(1) })),
+  zValidator(
+    "json",
+    z.object({
+      acct: z.string().regex(/^[^@\s]+@[^@\s]+$/),
+    }),
+  ),
   async (c) => {
     const name = c.req.param("name");
     const { acct } = c.req.valid("json") as { acct: string };
@@ -353,14 +336,6 @@ app.post(
     if (group.allowInvites === false) {
       return c.json({ error: "招待が禁止されています" }, 400);
     }
-    let actorUrl = acct;
-    if (!isUrl(acct)) {
-      const resolved = await resolveActorFromAcct(acct).catch(() => null);
-      if (!resolved || typeof resolved.id !== "string") {
-        return c.json({ error: "Invalid actor" }, 400);
-      }
-      actorUrl = resolved.id as string;
-    }
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
     const activity = {
@@ -368,20 +343,20 @@ app.post(
       id: `https://${domain}/activities/${crypto.randomUUID()}`,
       type: "Invite" as const,
       actor: groupId,
-      object: actorUrl,
+      object: acct,
       target: groupId,
-      to: [actorUrl],
+      to: [acct],
     };
-    await sendActivityPubObject(actorUrl, activity, "system", domain, env);
+    await deliverActivityPubObject([acct], activity, "system", domain, env);
     const inv = new Invite({
       groupName: name,
-      actor: actorUrl,
+      actor: acct,
       inviter: groupId,
     });
     await inv.save().catch(() => {});
-    if (actorUrl.startsWith(`https://${domain}/@`)) {
-      const username = actorUrl.substring(`https://${domain}/@`.length);
-      const acc = await db.findAccountByUserName(username);
+    const [user, host] = acct.split("@");
+    if (host === domain) {
+      const acc = await db.findAccountByUserName(user);
       if (acc) {
         await db.createNotification(
           acc._id!,
