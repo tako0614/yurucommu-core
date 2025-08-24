@@ -399,7 +399,9 @@ paths:
             enum: [all, users, posts]
       responses:
         "200":
-          description: 検索結果の配列
+          description: |
+            検索結果の配列。
+            リモートサーバーに問い合わせて結果が得られなかった場合は空配列を返します。
   /api/notifications:
     get:
       summary: 通知一覧
