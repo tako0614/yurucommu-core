@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "../../shared/config.ts";
-import { b64ToBuf } from "../../shared/buffer.ts";
 import {
   getFile,
   getMessageAttachment,
@@ -106,83 +105,29 @@ const app = new Hono();
 
 app.post("/files", authRequired, async (c) => {
   const env = getEnv(c);
-  const contentType = c.req.header("content-type") || "";
-  let bytes: Uint8Array | null = null;
-  let mediaType = "application/octet-stream";
-  let key: string | undefined;
-  let iv: string | undefined;
-  let filename: string | undefined;
   const MAX_FILE_SIZE = getMaxFileSize(env);
 
-  let ext = "";
-  if (contentType.includes("multipart/form-data")) {
-    const form = await c.req.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
-      return c.json({ error: "invalid body" }, 400);
-    }
-
-    // ファイルサイズのチェック（設定がある場合のみ）
-    if (typeof MAX_FILE_SIZE === "number" && file.size > MAX_FILE_SIZE) {
-      return c.json({
-        error: `File too large. Maximum size is ${
-          Math.round(MAX_FILE_SIZE / 1024 / 1024)
-        }MB`,
-      }, 400);
-    }
-
-    bytes = new Uint8Array(await file.arrayBuffer());
-    mediaType = file.type || mediaType;
-    filename = file.name;
-    key = form.get("key")?.toString();
-    iv = form.get("iv")?.toString();
-    ext = extname(file.name);
-  } else if (contentType === "application/octet-stream") {
-    const arrayBuffer = await c.req.arrayBuffer();
-
-    // ファイルサイズのチェック（設定がある場合のみ）
-    if (
-      typeof MAX_FILE_SIZE === "number" &&
-      arrayBuffer.byteLength > MAX_FILE_SIZE
-    ) {
-      return c.json({
-        error: `File too large. Maximum size is ${
-          Math.round(MAX_FILE_SIZE / 1024 / 1024)
-        }MB`,
-      }, 400);
-    }
-
-    bytes = new Uint8Array(arrayBuffer);
-    mediaType = c.req.header("x-media-type") || mediaType;
-    filename = c.req.header("x-filename");
-    key = c.req.header("x-enc-key") || undefined;
-    iv = c.req.header("x-enc-iv") || undefined;
-  } else {
-    const { content, mediaType: mt, key: k, iv: i } = await c.req.json();
-    if (typeof content !== "string") {
-      return c.json({ error: "invalid body" }, 400);
-    }
-    bytes = b64ToBuf(content);
-
-    // ファイルサイズのチェック（設定がある場合のみ）
-    if (typeof MAX_FILE_SIZE === "number" && bytes.byteLength > MAX_FILE_SIZE) {
-      return c.json({
-        error: `File too large. Maximum size is ${
-          Math.round(MAX_FILE_SIZE / 1024 / 1024)
-        }MB`,
-      }, 400);
-    }
-
-    mediaType = typeof mt === "string" ? mt : mediaType;
-    key = typeof k === "string" ? k : undefined;
-    iv = typeof i === "string" ? i : undefined;
-  }
-
-  if (!bytes) {
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) {
     return c.json({ error: "invalid body" }, 400);
   }
 
-  // ファイルタイプの検証
+  if (typeof MAX_FILE_SIZE === "number" && file.size > MAX_FILE_SIZE) {
+    return c.json({
+      error: `File too large. Maximum size is ${
+        Math.round(MAX_FILE_SIZE / 1024 / 1024)
+      }MB`,
+    }, 400);
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const mediaType = file.type || "application/octet-stream";
+  const filename = file.name;
+  const key = form.get("key")?.toString();
+  const iv = form.get("iv")?.toString();
+  const ext = extname(file.name);
+
   if (!isAllowedFileType(mediaType, filename, env)) {
     return c.json({ error: "File type not allowed" }, 400);
   }

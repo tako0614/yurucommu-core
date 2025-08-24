@@ -385,12 +385,8 @@ export async function verifyHttpSignature(
     const publicKeyPem = await fetchPublicKeyPem(params.keyId);
     if (!publicKeyPem) return false;
 
-    // レスポンス側は Digest/Content-Digest を必須にしない
-    // （一部の FASP 実装がレスポンスにダイジェストを付けないため）
-    const hasDigestHeader = !!msg.headers.get("content-digest");
-    if (hasDigestHeader) {
-      if (!await verifyDigest(msg, body)) return false;
-    }
+    // Content-Digest の検証
+    if (!await verifyDigest(msg, body)) return false;
     if (!params.params) return false;
     const signingString = buildSigningString(
       msg,

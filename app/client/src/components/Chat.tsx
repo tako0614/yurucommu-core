@@ -62,31 +62,16 @@ function saveDecryptedMessages(
 ) {
   if (Array.isArray(v)) messageCache.set(cacheKey(accountId, roomId), v);
 }
-/* uploadFile: accepts an object and tries a JSON POST; returns url or null */
-async function uploadFile(opts: {
-  content: ArrayBuffer | Uint8Array;
-  mediaType?: string;
-  key?: string;
-  iv?: string;
-  name?: string;
-}) {
+/* uploadFile: ファイルを multipart/form-data で送信し、URL または null を返す */
+async function uploadFile(opts: { file: File; key?: string; iv?: string }) {
   try {
-    // normalize to Uint8Array to avoid SharedArrayBuffer / ArrayBufferLike issues
-    const asUint8 = opts.content instanceof Uint8Array
-      ? opts.content
-      : new Uint8Array(opts.content as ArrayBuffer);
-    const payload = {
-      // サーバーは JSON ボディでは `content` を期待
-      content: bufToB64(asUint8),
-      mediaType: opts.mediaType,
-      key: opts.key,
-      iv: opts.iv,
-      name: opts.name,
-    } as Record<string, unknown>;
+    const fd = new FormData();
+    fd.append("file", opts.file);
+    if (opts.key) fd.append("key", opts.key);
+    if (opts.iv) fd.append("iv", opts.iv);
     const res = await apiFetch("/api/files", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: fd,
     });
     if (res.ok) {
       const j = await res.json();
@@ -398,12 +383,11 @@ async function generateVideoPreview(
 // 添付ファイルをアップロードし、必要ならプレビューも付与
 async function buildAttachment(file: File) {
   const enc = await encryptFile(file);
+  const encFile = new File([enc.data], file.name, { type: enc.mediaType });
   const url = await uploadFile({
-    content: enc.data,
-    mediaType: enc.mediaType,
+    file: encFile,
     key: enc.key,
     iv: enc.iv,
-    name: file.name,
   });
   if (!url) return undefined;
   let preview: ActivityPubPreview | undefined;
@@ -411,12 +395,7 @@ async function buildAttachment(file: File) {
     const p = await generateImagePreview(file);
     if (p) {
       // プレビューは平文で保存し、クライアントで直接表示できるようにする
-      const pBuf = await p.file.arrayBuffer();
-      const pUrl = await uploadFile({
-        content: pBuf,
-        mediaType: p.file.type || "image/jpeg",
-        name: p.file.name,
-      });
+      const pUrl = await uploadFile({ file: p.file });
       if (pUrl) {
         preview = {
           url: pUrl,
@@ -430,12 +409,7 @@ async function buildAttachment(file: File) {
     const p = await generateVideoPreview(file);
     if (p) {
       // 動画のプレビューも平文で保存して表示に用いる
-      const pBuf = await p.file.arrayBuffer();
-      const pUrl = await uploadFile({
-        content: pBuf,
-        mediaType: p.file.type || "image/jpeg",
-        name: p.file.name,
-      });
+      const pUrl = await uploadFile({ file: p.file });
       if (pUrl) {
         preview = {
           url: pUrl,

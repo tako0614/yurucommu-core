@@ -275,7 +275,7 @@ fasp:
   - `POST /fasp/data_sharing/v0/backfill_requests`
   - `POST /fasp/data_sharing/v0/backfill_requests/{id}/continuation`
   - 認証・保全: HTTP Message Signatures（RFC 9421）と `Content-Digest`（RFC
-    9530）または旧 `Digest`（互換）による検証を必須。
+    9530）による検証を必須。`Content-Digest` が無いリクエストは 401 を返す。
 
 - 管理（takos の通常 API 配下、要ログイン）
   - `GET /api/fasp/providers`（一覧）

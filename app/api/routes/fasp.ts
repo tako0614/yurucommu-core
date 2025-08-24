@@ -28,10 +28,8 @@ app.use("/api/fasp/*", authRequired);
 // deno-lint-ignore no-explicit-any
 async function requireSignedJson(c: any): Promise<{ ok: boolean; body?: any }> {
   const bodyText = await c.req.text();
-  const hasDigest = !!(
-    c.req.header("content-digest") || c.req.header("digest")
-  );
-  if (!hasDigest) return { ok: false };
+  const hasContentDigest = !!c.req.header("content-digest");
+  if (!hasContentDigest) return { ok: false };
   const okDigest = await verifyDigest(c.req.raw, bodyText);
   const okSig = await verifyHttpSignature(c.req.raw, bodyText);
   if (!okDigest || !okSig) {
