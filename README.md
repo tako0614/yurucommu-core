@@ -35,8 +35,8 @@ MongoDB にはセッション自動削除用の TTL インデックスが必要�
 特に `ACTIVITYPUB_DOMAIN` は Mastodon など外部からアクセスされる公開ドメインを
 設定してください。未設定の場合はリクエストされたホスト名が利用されます。 以前の
 `TENANT_ID` 変数は廃止され、ドメイン名そのものがテナント ID として扱われます。
-`getEnv(c)` で取得した環境変数を `fetchJson` や `deliverActivityPubObject`
-へ渡すことで マルチテナント環境でも正しいドメインが利用されます。
+`getEnv(c)` で取得した環境変数を `deliverActivityPubObject` へ渡すことで
+マルチテナント環境でも正しいドメインが利用されます。
 
 ### 初期設定
 
