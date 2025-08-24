@@ -194,6 +194,8 @@ export async function continueBackfill(
     .setOptions({ $locals: { env } });
 }
 
+// /fasp/registration で必須となる登録情報の保存ヘルパー
+// この関数が実装されていない場合、FASP との登録処理は動作しない
 export async function registrationUpsert(env: Record<string, string>, data: {
   name: string;
   baseUrl: string;

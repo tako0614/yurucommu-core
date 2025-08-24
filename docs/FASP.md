@@ -104,8 +104,9 @@
    ```
 
    takosは FASP登録要求を保存し、自身の公開鍵と
-   `faspId`、`registrationCompletionUri` を返す。 `registrationCompletionUri` は
-   takos 側の管理 API `https://{takos-instance}/api/fasp/providers`
+   `faspId`、`registrationCompletionUri` を返す。登録情報の保存には
+   `registrationUpsert` ヘルパーの実装が必須であり、`registrationCompletionUri`
+   は takos 側の管理 API `https://{takos-instance}/api/fasp/providers`
    を指し、管理者はここから承認・capability 設定を実施する。
 3. 管理者は takos 管理UIで**指紋（FASP公開鍵のSHA-256
    Base64）**を確認し、受理/拒否を決定。

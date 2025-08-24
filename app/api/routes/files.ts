@@ -49,13 +49,7 @@ function getListFromEnv(
 }
 
 function getMaxFileSize(env: Record<string, string>): number | undefined {
-  return (
-    parseSizeToBytes(env["FILE_MAX_SIZE"]) ??
-      parseSizeToBytes(env["FILE_MAX_SIZE_BYTES"]) ??
-      (env["FILE_MAX_SIZE_MB"]
-        ? Number(env["FILE_MAX_SIZE_MB"]) * 1024 * 1024
-        : undefined)
-  );
+  return parseSizeToBytes(env["FILE_MAX_SIZE"]);
 }
 
 function getAllowedMimeTypes(

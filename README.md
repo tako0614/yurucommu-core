@@ -195,15 +195,14 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 アップロードの容量や許可/拒否ルールは環境変数で制御できます。
 
 - `FILE_MAX_SIZE`: 最大サイズ（例: `10MB`, `512KB`, `10485760`）
-- `FILE_MAX_SIZE_BYTES`: バイト数を数値で指定
-- `FILE_MAX_SIZE_MB`: MB を数値で指定
 - `FILE_ALLOWED_MIME_TYPES`: 許可する MIME
   タイプ（カンマ区切り）。未設定なら許可リストなし＝全 MIME 許可
 - `FILE_BLOCKED_MIME_TYPES`: 拒否する MIME
   タイプ（カンマ区切り、未設定なら制限なし）
 - `FILE_BLOCKED_EXTENSIONS`:
-  拒否する拡張子（カンマ区切り、未設定なら制限なし。例: `.exe,.bat`） 備考:
-  `FILE_MAX_SIZE*` を未設定の場合、サイズ制限はありません。
+  拒否する拡張子（カンマ区切り、未設定なら制限なし。例: `.exe,.bat`）
+
+備考: `FILE_MAX_SIZE` を未設定の場合、サイズ制限はありません。
 
 .env の例は `app/api/.env.example` を参照してください。
 
