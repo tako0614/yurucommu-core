@@ -194,50 +194,75 @@ app.post(
       followers: [member],
     });
     const domain = getDomain(c);
+    const groupId = `https://${domain}/groups/${groupName}`;
     // 追加: 初期招待（invites があれば送信）
-    try {
-      const rawInv = Array.isArray((body as { invites?: unknown }).invites)
-        ? (body as { invites: string[] }).invites
-        : [];
-      if (rawInv.length > 0) {
-        const groupId = `https://${domain}/groups/${groupName}`;
-        const creator = member;
-        const candidates = [
-          ...new Set(rawInv.filter((x) => x && x.includes("@"))),
-        ];
-        for (const cand of candidates) {
-          if (cand.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
-          const actor = await resolveActorFromAcct(cand).catch(() => null);
-          if (!actor?.id) continue;
-          const target = actor.id;
-          const activity = {
-            "@context": "https://www.w3.org/ns/activitystreams",
-            id: `https://${domain}/activities/${crypto.randomUUID()}`,
-            type: "Invite" as const,
-            actor: groupId,
-            object: target,
-            target: groupId,
-            to: [target],
-          };
+    const rawInv = Array.isArray((body as { invites?: unknown }).invites)
+      ? (body as { invites: string[] }).invites
+      : [];
+    const failed: string[] = [];
+    if (rawInv.length > 0) {
+      const creator = member;
+      const candidates = [
+        ...new Set(rawInv.filter((x) => x && x.includes("@"))),
+      ];
+      for (const cand of candidates) {
+        if (cand.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
+        let actor: { id?: string } | null = null;
+        try {
+          actor = await resolveActorFromAcct(cand);
+        } catch (err) {
+          console.error("招待先アカウントの解決に失敗しました", err);
+          failed.push(cand);
+          continue;
+        }
+        if (!actor?.id) {
+          failed.push(cand);
+          continue;
+        }
+        const target = actor.id;
+        const activity = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: `https://${domain}/activities/${crypto.randomUUID()}`,
+          type: "Invite" as const,
+          actor: groupId,
+          object: target,
+          target: groupId,
+          to: [target],
+        };
+        try {
           await deliverActivityPubObject(
             [target],
             activity,
             "system",
             domain,
             env,
-          ).catch(() => {});
-          const inv = new Invite({
-            groupName,
-            actor: cand,
-            inviter: groupId,
-          });
-          await inv.save().catch(() => {});
+          );
+        } catch (err) {
+          console.error("招待の配信に失敗しました", err);
+          failed.push(cand);
+          continue;
+        }
+        const inv = new Invite({
+          groupName,
+          actor: cand,
+          inviter: groupId,
+        });
+        try {
+          await inv.save();
+        } catch (err) {
+          console.error("招待の保存に失敗しました", err);
+          failed.push(cand);
         }
       }
-    } catch {
-      // 初期招待は失敗してもグループ作成自体は成功扱い
     }
-    return c.json({ id: `https://${domain}/groups/${groupName}` }, 201);
+    if (failed.length > 0) {
+      return c.json({
+        id: groupId,
+        error: "一部または全ての招待に失敗しました",
+        failedInvites: failed,
+      }, 500);
+    }
+    return c.json({ id: groupId }, 201);
   },
 );
 

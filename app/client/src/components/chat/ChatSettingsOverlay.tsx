@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, For } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
 import { apiFetch, getDomain } from "../../utils/config.ts";
@@ -230,30 +230,13 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       }
     } else if (props.room.type === "group") {
       try {
-        const tryRoom = await apiFetch(
-          `/api/rooms/${encodeURIComponent(props.room.id)}/invite`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ actor }),
-          },
-        );
-        if (tryRoom.ok) {
-          setInviteMsg("送信しました");
-          await loadPendingInvites();
-          return;
-        }
-      } catch {
-        // ignore
-      }
-      try {
         if (props.room.name) {
           const gres = await apiFetch(
             `/api/groups/${encodeURIComponent(props.room.name)}/invite`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ actor }),
+              body: JSON.stringify({ acct: actor }),
             },
           );
           if (gres.ok) {
@@ -386,11 +369,11 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           <div class="text-xs text-gray-400 mb-1">
                             保留中の招待
                           </div>
-                            <ul class="list-disc list-inside text-sm text-yellow-200">
-                              <For each={pendingInvites()}>
-                                {(p) => <li>{p}</li>}
-                              </For>
-                            </ul>
+                          <ul class="list-disc list-inside text-sm text-yellow-200">
+                            <For each={pendingInvites()}>
+                              {(p) => <li>{p}</li>}
+                            </For>
+                          </ul>
                         </div>
                       </Show>
                       <div class="mt-2 flex gap-2">
