@@ -157,7 +157,8 @@ app.post(
     } catch (err) {
       console.error("/api/dm ActivityPub delivery error:", err);
     }
-    return c.json(payload);
+  // payload can be an arbitrary object/structure from DB; cast to a generic record to satisfy Hono's c.json typing
+  return c.json(payload as Record<string, unknown>);
   },
 );
 

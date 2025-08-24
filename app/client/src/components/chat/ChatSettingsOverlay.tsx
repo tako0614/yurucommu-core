@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show, For } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../../states/account.ts";
 import { apiFetch, getDomain } from "../../utils/config.ts";
@@ -375,9 +375,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                         <div>
                           <div class="text-xs text-gray-400 mb-1">参加者</div>
                           <ul class="list-disc list-inside">
-                            {props.room?.members?.map((m) => (
-                              <li key={m}>{m}</li>
-                            ))}
+                            <For each={props.room?.members} fallback={null}>
+                              {(m) => <li>{m}</li>}
+                            </For>
                           </ul>
                         </div>
                       </Show>
@@ -386,9 +386,11 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           <div class="text-xs text-gray-400 mb-1">
                             保留中の招待
                           </div>
-                          <ul class="list-disc list-inside text-sm text-yellow-200">
-                            {pendingInvites().map((p) => <li key={p}>{p}</li>)}
-                          </ul>
+                            <ul class="list-disc list-inside text-sm text-yellow-200">
+                              <For each={pendingInvites()}>
+                                {(p) => <li>{p}</li>}
+                              </For>
+                            </ul>
                         </div>
                       </Show>
                       <div class="mt-2 flex gap-2">

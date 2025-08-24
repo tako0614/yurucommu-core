@@ -2091,9 +2091,3 @@ async function _addRoom(
 
 // event cursor state (local only)
 const _eventsCursor = createSignal<string | null>(null);
-function eventsCursor() {
-  return _eventsCursor[0]();
-}
-function setEventsCursor(v?: string | null) {
-  _eventsCursor[1](v ?? null);
-}
