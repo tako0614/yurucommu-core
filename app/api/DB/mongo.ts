@@ -678,8 +678,8 @@ export class MongoDB implements DB {
     return res != null;
   }
 
-  async listGroups(owner: string) {
-    const query = this.withTenant(Group.find({ followers: owner }));
+  async listGroups(member: string) {
+    const query = this.withTenant(Group.find({ followers: member }));
     return await query.lean<GroupDoc[]>();
   }
 

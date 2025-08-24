@@ -33,11 +33,11 @@ function isOwnedGroup(
 app.use("/api/groups/*", authRequired);
 
 app.get("/api/groups", async (c) => {
-  const owner = c.req.query("owner");
-  if (!owner) return c.json({ error: "owner is required" }, 400);
+  const member = c.req.query("member");
+  if (!member) return c.json({ error: "member is required" }, 400);
   const env = getEnv(c);
   const db = createDB(env);
-  const groups = await db.listGroups(owner) as GroupDoc[];
+  const groups = await db.listGroups(member) as GroupDoc[];
   const domain = getDomain(c);
   const formatted = groups.map((g) => {
     const icon = typeof g.icon === "string"
@@ -67,6 +67,7 @@ app.post(
       membershipPolicy: z.string().optional(),
       visibility: z.string().optional(),
       allowInvites: z.boolean().optional(),
+      member: z.string(),
     }),
   ),
   async (c) => {
@@ -119,6 +120,8 @@ app.post(
     const allowInvites = typeof body.allowInvites === "boolean"
       ? body.allowInvites
       : undefined;
+    const member = typeof body.member === "string" ? body.member : "";
+    if (!member) return c.json({ error: "member is required" }, 400);
     await db.createGroup({
       groupName,
       displayName,
@@ -126,6 +129,7 @@ app.post(
       membershipPolicy,
       visibility,
       allowInvites,
+      followers: [member],
     });
     const domain = getDomain(c);
     return c.json({ id: `https://${domain}/groups/${groupName}` }, 201);
@@ -539,7 +543,20 @@ app.post("/groups/:name/inbox", async (c) => {
       `https://${domain}/groups/${name}` &&
     typeof activity.actor === "string"
   ) {
-    await db.removeGroupFollower(name, activity.actor);
+    const actor = activity.actor;
+    const localPrefix = `https://${domain}/@`;
+    if (
+      isOwnedGroup(group, domain, name) &&
+      actor.startsWith(localPrefix)
+    ) {
+      const localMembers = group.followers.filter((f) =>
+        f.startsWith(localPrefix)
+      );
+      if (localMembers.length <= 1) {
+        return c.json({ error: "最後のメンバーは退出できません" }, 400);
+      }
+    }
+    await db.removeGroupFollower(name, actor);
     return c.json({ ok: true });
   }
 

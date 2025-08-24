@@ -113,7 +113,7 @@ export interface DB {
     update: Record<string, unknown>,
   ): Promise<DirectMessageDoc | null>;
   deleteDirectMessage(owner: string, id: string): Promise<boolean>;
-  listGroups(owner: string): Promise<GroupDoc[]>;
+  listGroups(member: string): Promise<GroupDoc[]>;
   findGroupByName(name: string): Promise<GroupDoc | null>;
   createGroup(data: Record<string, unknown>): Promise<GroupDoc>;
   updateGroupByName(
