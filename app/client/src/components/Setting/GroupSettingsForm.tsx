@@ -1,5 +1,7 @@
 import { createSignal, For, onMount } from "solid-js";
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, getDomain } from "../../utils/config.ts";
+import { useAtom } from "solid-jotai";
+import { activeAccount } from "../../states/account.ts";
 
 interface GroupOptions {
   membershipPolicies: string[];
@@ -7,6 +9,7 @@ interface GroupOptions {
 }
 
 export function GroupSettingsForm() {
+  const [account] = useAtom(activeAccount);
   const [options, setOptions] = createSignal<GroupOptions>({
     membershipPolicies: [],
     visibilities: [],
@@ -34,6 +37,7 @@ export function GroupSettingsForm() {
   const createGroup = async () => {
     setMessage("");
     try {
+      const handle = account() ? `${account()!.userName}@${getDomain()}` : "";
       const res = await apiFetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,6 +48,7 @@ export function GroupSettingsForm() {
           membershipPolicy: membershipPolicy() || undefined,
           visibility: visibility() || undefined,
           allowInvites: allowInvites(),
+          member: handle,
         }),
       });
       setMessage(res.ok ? "作成しました" : "作成に失敗しました");

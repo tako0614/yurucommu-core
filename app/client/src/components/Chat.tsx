@@ -1949,14 +1949,14 @@ export function Chat() {
         onCreate={async (name: string, membersStr: string) => {
           const user = account();
           if (!user) return;
-          const owner = `${user.userName}@${getDomain()}`;
+          const handle = `${user.userName}@${getDomain()}`;
           const id = crypto.randomUUID();
           // membersStr is comma-separated list
           const members = membersStr.split(",").map((s) => s.trim()).filter(
             Boolean,
           );
           try {
-            await _addRoom(owner, { id, name, members, type: "group" });
+            await _addRoom(handle, { id, name, members, type: "group" });
             selectRoom(id);
           } catch {
             /* ignore */
@@ -2053,7 +2053,7 @@ async function searchRooms(
     const roomType = _opts?.type;
     if (roomType === "group") {
       const gres = await apiFetch(
-        `/api/groups?owner=${encodeURIComponent(_handle)}`,
+        `/api/groups?member=${encodeURIComponent(_handle)}`,
       );
       if (!gres.ok) return [];
       const j = await gres.json();
@@ -2157,6 +2157,7 @@ async function _addRoom(
         body: JSON.stringify({
           groupName: _room.name,
           displayName: _room.name,
+          member: _handle,
         }),
       });
     }
