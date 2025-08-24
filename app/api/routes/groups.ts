@@ -7,6 +7,7 @@ import Approval from "../models/takos/approval.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
+  ensurePem,
   getDomain,
   resolveActorFromAcct,
   sendActivityPubObject,
@@ -15,6 +16,7 @@ import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
 import type { GroupDoc } from "../../shared/types.ts";
+import { generateKeyPair } from "../../shared/crypto.ts";
 
 const app = new Hono();
 
@@ -185,6 +187,7 @@ app.post(
       : undefined;
     const member = typeof body.member === "string" ? body.member : "";
     if (!member) return c.json({ error: "member is required" }, 400);
+    const keys = await generateKeyPair();
     await db.createGroup({
       groupName,
       displayName,
@@ -193,6 +196,8 @@ app.post(
       visibility,
       allowInvites,
       followers: [member],
+      privateKey: keys.privateKey,
+      publicKey: keys.publicKey,
     });
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${groupName}`;
@@ -484,6 +489,11 @@ app.get("/groups/:name", async (c) => {
     inbox: `https://${domain}/groups/${name}/inbox`,
     outbox: `https://${domain}/groups/${name}/outbox`,
     followers: `https://${domain}/groups/${name}/followers`,
+    publicKey: {
+      id: `https://${domain}/groups/${name}#main-key`,
+      owner: `https://${domain}/groups/${name}`,
+      publicKeyPem: ensurePem(group.publicKey, "PUBLIC KEY"),
+    },
   };
   if (group.icon) actor.icon = group.icon;
   if (group.image) actor.image = group.image;

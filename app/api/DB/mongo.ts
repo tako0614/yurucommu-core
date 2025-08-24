@@ -27,6 +27,7 @@ import type {
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
+import { generateKeyPair } from "../../shared/crypto.ts";
 
 function normalizeActorUrl(id: string, defaultDomain?: string): string {
   try {
@@ -689,6 +690,14 @@ export class MongoDB implements DB {
   }
 
   async createGroup(data: Record<string, unknown>) {
+    if (
+      !(typeof data.publicKey === "string" &&
+        typeof data.privateKey === "string")
+    ) {
+      const keys = await generateKeyPair();
+      data.privateKey = keys.privateKey;
+      data.publicKey = keys.publicKey;
+    }
     const doc = new Group({ ...data });
     if (this.env["DB_MODE"] === "host") {
       (doc as unknown as { $locals?: { env?: Record<string, string> } })

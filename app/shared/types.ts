@@ -39,4 +39,6 @@ export interface GroupDoc {
   allowInvites?: boolean;
   followers: string[];
   outbox: unknown[];
+  privateKey?: string;
+  publicKey: string;
 }
