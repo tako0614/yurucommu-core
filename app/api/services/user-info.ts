@@ -1,6 +1,6 @@
 import { createDB } from "../DB/mod.ts";
 import type { DB } from "../../shared/db.ts";
-import { resolveActor } from "../utils/activitypub.ts";
+import { resolveActorFromAcct } from "../utils/activitypub.ts";
 import { isUrl } from "../../shared/url.ts";
 
 export interface UserInfo {
@@ -108,7 +108,7 @@ export async function getUserInfo(
     const [name, host] = identifier.split("@");
     userName = name;
     userDomain = host;
-    const actor = await resolveActor(name, host);
+    const actor = await resolveActorFromAcct(`${name}@${host}`);
     if (actor) {
       displayName = actor.name ?? actor.preferredUsername ?? userName;
       const icon = actor.icon;

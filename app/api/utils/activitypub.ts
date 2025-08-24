@@ -600,16 +600,6 @@ export async function resolveActorFromAcct(
   return await actorRes.json();
 }
 
-/**
- * 旧API: username, domain指定のまま残すが内部でacct形式に変換して新APIを利用
- */
-export function resolveActor(
-  username: string,
-  domain: string,
-): Promise<ActivityPubActor | null> {
-  return resolveActorFromAcct(`${username}@${domain}`);
-}
-
 export function getDomain(c: Context): string {
   const env = getEnv(c);
   return env["ACTIVITYPUB_DOMAIN"];

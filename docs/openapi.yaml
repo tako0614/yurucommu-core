@@ -390,15 +390,13 @@ paths:
           required: true
           schema:
             type: string
+          description: |
+            検索クエリ。ユーザー検索では `username@domain` 形式の acct を指定してください。
         - name: type
           in: query
           schema:
             type: string
             enum: [all, users, posts]
-        - name: server
-          in: query
-          schema:
-            type: string
       responses:
         "200":
           description: 検索結果の配列
@@ -796,11 +794,11 @@ paths:
             schema:
               type: object
               properties:
-                actor:
+                acct:
                   type: string
-                  description: 招待先Actor ID
+                  description: 招待先の acct (`username@domain`)
               required:
-                - actor
+                - acct
       responses:
         "200":
           description: 送信結果

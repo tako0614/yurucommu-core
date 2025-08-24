@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createDB } from "../DB/mod.ts";
-import { getDomain, resolveActor } from "../utils/activitypub.ts";
+import { getDomain, resolveActorFromAcct } from "../utils/activitypub.ts";
 import { getEnv } from "../../shared/config.ts";
 import authRequired from "../utils/auth.ts";
 import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
@@ -108,12 +108,19 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
 
 app.get("/search", async (c) => {
   let q = c.req.query("q")?.trim();
+  const acct = c.req.query("acct")?.trim();
   const type = c.req.query("type") ?? "all";
-  let server = c.req.query("server");
   const useFasp = (c.req.query("useFasp") ?? "1") !== "0";
-  if (!q) return c.json([]);
+  if (!q && !acct) return c.json([]);
 
-  if (!server && q.includes("@")) {
+  let server: string | undefined;
+  if (acct) {
+    const parts = acct.split("@");
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      q = parts[0];
+      server = parts[1];
+    }
+  } else if (q?.includes("@")) {
     const parts = q.split("@");
     if (parts.length === 2 && parts[0] && parts[1]) {
       q = parts[0];
@@ -288,7 +295,7 @@ app.get("/search", async (c) => {
       (type === "all" || type === "users") &&
       !remoteResults.some((r) => r.type === "user")
     ) {
-      const actor = await resolveActor(q, server);
+      const actor = await resolveActorFromAcct(`${q}@${server}`);
       if (actor) {
         results.push({
           type: "user",

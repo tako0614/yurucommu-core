@@ -7,7 +7,7 @@ import { createDB } from "../DB/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { sendActivityPubObject } from "../utils/activitypub.ts";
 import { isUrl } from "../../shared/url.ts";
-import { resolveActor } from "../utils/activitypub.ts";
+import { resolveActorFromAcct } from "../utils/activitypub.ts";
 import Invite from "../models/takos/invite.ts";
 
 const app = new Hono();
@@ -33,13 +33,13 @@ function extractGroupName(id: string): string {
 // 互換レイヤー: グループ宛の招待（/api/rooms/:id/invite -> /api/groups/:name/invite 相当）
 app.post(
   "/rooms/:id/invite",
-  zValidator("json", z.object({ actor: z.string().min(1) })),
+  zValidator("json", z.object({ acct: z.string().min(1) })),
   async (c) => {
     const rawId = c.req.param("id");
     const name = extractGroupName(rawId);
     if (!name) return c.json({ error: "invalid room id" }, 400);
 
-    const { actor } = c.req.valid("json") as { actor: string };
+    const { acct } = c.req.valid("json") as { acct: string };
     const env = getEnv(c);
     const db = createDB(env);
 
@@ -52,23 +52,22 @@ app.post(
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
 
-    // actor の正規化（URL or user@host）
-    let actorUrl = actor;
-    if (!isUrl(actor)) {
-      if (actor.includes("@")) {
-        const [user, host] = actor.split("@");
+    // actor の正規化（URL or acct）
+    let actorUrl = acct;
+    if (!isUrl(acct)) {
+      if (acct.includes("@")) {
+        const [user, host] = acct.split("@");
         if (host === domain) {
           actorUrl = `https://${domain}/users/${user}`;
         } else {
-          const resolved = await resolveActor(user, host).catch(() => null);
+          const resolved = await resolveActorFromAcct(acct).catch(() => null);
           if (!resolved || typeof resolved.id !== "string") {
             return c.json({ error: "Invalid actor" }, 400);
           }
           actorUrl = resolved.id as string;
         }
       } else {
-        // ローカルユーザー名のみが来た場合はローカルとして解釈
-        actorUrl = `https://${domain}/users/${actor}`;
+        actorUrl = `https://${domain}/users/${acct}`;
       }
     }
     const activity = {
@@ -82,7 +81,11 @@ app.post(
     };
     await sendActivityPubObject(actorUrl, activity, "system", domain, env);
 
-    const inv = new Invite({ groupName: name, actor: actorUrl, inviter: groupId });
+    const inv = new Invite({
+      groupName: name,
+      actor: actorUrl,
+      inviter: groupId,
+    });
     await inv.save().catch(() => {});
 
     return c.json({ ok: true });
@@ -97,7 +100,9 @@ app.get("/rooms/:id/pendingInvites", async (c) => {
   const list = await Invite.find({ groupName: name, accepted: false })
     .select({ actor: 1 })
     .catch(() => [] as Array<{ actor: string }>);
-  const actors = Array.isArray(list) ? list.map((x: { actor: string }) => x.actor) : [];
+  const actors = Array.isArray(list)
+    ? list.map((x: { actor: string }) => x.actor)
+    : [];
   return c.json(actors);
 });
 
