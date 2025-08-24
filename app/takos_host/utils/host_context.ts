@@ -62,9 +62,7 @@ export async function initHostContext(): Promise<HostContext> {
   hostEnv["DB_MODE"] = "host";
   await connectDatabase(hostEnv);
 
-  const rootDomain =
-    (hostEnv["ROOT_DOMAIN"] ?? hostEnv["ACTIVITYPUB_DOMAIN"] ?? "")
-      .toLowerCase();
+  const rootDomain = (hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   if (rootDomain) {
     const db = createDB(hostEnv);
     await getSystemKey(db, rootDomain);

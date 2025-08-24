@@ -98,7 +98,7 @@ export async function createTakosApp(env?: Record<string, string>) {
       const env = (c as unknown as { get: (k: string) => unknown }).get(
         "env",
       ) as Record<string, string>;
-      const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
+      const host = env["OAUTH_HOST"];
       const clientId = env["OAUTH_CLIENT_ID"];
       const clientSecret = env["OAUTH_CLIENT_SECRET"];
       if (!host || !clientId || !clientSecret) return await next();

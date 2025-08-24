@@ -56,11 +56,10 @@ function copyKeys(
 const base: Record<string, string> = {
   DB_MODE: "host",
   MONGO_URI: hostEnv["MONGO_URI"],
-  ROOT_DOMAIN: hostEnv["ROOT_DOMAIN"] ?? "",
   hashedPassword: "", // 後続で設定される想定
   salt: "", // 後続で設定される想定
   ACTIVITYPUB_DOMAIN: "", // テナント or root ごとに差し替え
-  host: hostEnv["ROOT_DOMAIN"] ? `https://${hostEnv["ROOT_DOMAIN"]}` : "",
+  host: hostEnv["OAUTH_HOST"] ? `https://${hostEnv["OAUTH_HOST"]}` : "",
   OAUTH_CLIENT_ID: "",
   OAUTH_CLIENT_SECRET: "",
   OBJECT_STORAGE_PROVIDER: "gridfs",

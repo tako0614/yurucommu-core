@@ -71,29 +71,14 @@ async function createInstance(
 ) {
   const user = await getUser(userName);
   const col = (await db.getDatabase()).collection("instances");
-  const rootDomain = (cfg["ROOT_DOMAIN"] ?? "").toLowerCase();
+  const oauthHost = (cfg["OAUTH_HOST"] ?? "").toLowerCase();
   const reserved = (cfg["RESERVED_SUBDOMAINS"] ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s);
-  let fullHost = host.toLowerCase();
-  if (rootDomain) {
-    if (host.includes(".")) {
-      if (!host.endsWith(`.${rootDomain}`) || host === rootDomain) {
-        throw new Error("ドメインが不正です");
-      }
-      fullHost = host;
-      const sub = host.slice(0, -rootDomain.length - 1);
-      if (reserved.includes(sub)) {
-        throw new Error("利用できないサブドメインです");
-      }
-    } else {
-      if (reserved.includes(host)) {
-        throw new Error("利用できないサブドメインです");
-      }
-      fullHost = `${host}.${rootDomain}`;
-    }
-  } else if (reserved.includes(host)) {
+  const fullHost = host.toLowerCase();
+  const sub = fullHost.split(".")[0];
+  if (reserved.includes(sub)) {
     throw new Error("利用できないサブドメインです");
   }
 
@@ -101,8 +86,8 @@ async function createInstance(
   if (exists) throw new Error("既に存在します");
 
   const instEnv: Record<string, string> = {};
-  if (rootDomain) {
-    instEnv.OAUTH_HOST = rootDomain;
+  if (oauthHost) {
+    instEnv.OAUTH_HOST = oauthHost;
     const redirect = `https://${fullHost}`;
     const clientId = redirect;
     let clientSecret: string;

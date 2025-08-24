@@ -27,7 +27,7 @@ app.post(
     const env = getEnv(c);
 
     if (accessToken) {
-      const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
+      const host = env["OAUTH_HOST"];
       if (!host) {
         return c.json({ error: "Server configuration error" }, 500);
       }
@@ -142,7 +142,7 @@ function getExternalOrigin(c: Parameters<Hono["get"]>[0]) {
 // Start: redirect user to OAuth host authorize with server-computed redirect_uri
 app.get("/login/oauth/start", (c) => {
   const env = getEnv(c);
-  const host = env["OAUTH_HOST"] ?? env["ROOT_DOMAIN"];
+  const host = env["OAUTH_HOST"];
   const clientId = env["OAUTH_CLIENT_ID"];
   if (!host || !clientId) {
     return c.json({ error: "OAuth not configured" }, 500);

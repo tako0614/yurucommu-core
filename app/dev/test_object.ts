@@ -12,7 +12,7 @@ const env = await loadConfig({
 });
 
 env["DB_MODE"] = "host";
-const domain = env["ROOT_DOMAIN"] ?? "localhost";
+const domain = env["OAUTH_HOST"] ?? "localhost";
 env["ACTIVITYPUB_DOMAIN"] = domain;
 
 await connectDatabase(env);

@@ -266,7 +266,6 @@ app.post(
     const baseUrl = canonicalize(domainOrUrl);
     // 既定FASPかどうか判定
     const defaultBase = env["FASP_DEFAULT_BASE_URL"] ?? "";
-    const hostRoot = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
     const hostOf = (u: string) => {
       try {
         return new URL(canonicalize(u)).hostname.toLowerCase();
@@ -274,10 +273,9 @@ app.post(
         return "";
       }
     };
-    const isDefault = (defaultBase && (
-      canonicalize(defaultBase) === baseUrl ||
-      hostOf(defaultBase) === hostOf(baseUrl)
-    )) || (hostRoot && hostOf(baseUrl) === hostRoot);
+    const isDefault = !!defaultBase &&
+      (canonicalize(defaultBase) === baseUrl ||
+        hostOf(defaultBase) === hostOf(baseUrl));
 
     // provider_info の取得
     let info: unknown;
