@@ -109,6 +109,16 @@ async function sendMemoMessage(
       to: handle,
       content,
     };
+    // zod schema requires `type` field. choose note for text-only or
+    // image/video/file when attachments present (based on mediaType)
+    const computeType = (atts?: Record<string, unknown>[]) => {
+      if (!Array.isArray(atts) || atts.length === 0) return "note";
+      const mt = String(atts[0].mediaType ?? "");
+      if (mt.startsWith("image/")) return "image";
+      if (mt.startsWith("video/")) return "video";
+      return "file";
+    };
+    payload.type = computeType(attachments);
     if (Array.isArray(attachments) && attachments.length > 0) {
       payload.attachments = attachments;
     }
