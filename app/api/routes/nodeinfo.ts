@@ -50,30 +50,4 @@ app.get("/nodeinfo/2.0", async (c) => {
   });
 });
 
-app.get("/api/v1/instance", async (c) => {
-  const env = getEnv(c);
-  const domain = getDomain(c);
-  const { users, posts, version } = await getNodeStats(env);
-  return c.json({
-    uri: domain,
-    title: "Takos Instance",
-    short_description: "分散SNSサーバー",
-    description: "Takosで運用されている分散SNSサーバーです。",
-    email: `info@${domain}`,
-    version,
-    urls: {},
-    stats: { user_count: users, status_count: posts, domain_count: 1 },
-    thumbnail: null,
-    languages: ["ja"],
-    registrations: false,
-    approval_required: false,
-    invites_enabled: false,
-  });
-});
-
-app.get("/.well-known/x-nodeinfo2", (c) => {
-  // Misskey 互換のルート。実体は /nodeinfo/2.0 へ統合したためリダイレクトのみ
-  return c.redirect("/nodeinfo/2.0");
-});
-
 export default app;

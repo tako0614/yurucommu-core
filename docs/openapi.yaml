@@ -893,15 +893,3 @@ paths:
       responses:
         "200":
           description: サーバー情報を返します
-  /.well-known/x-nodeinfo2:
-    get:
-      summary: NodeInfo2 互換リダイレクト
-      responses:
-        "302":
-          description: /nodeinfo/2.0 へリダイレクト
-  /api/v1/instance:
-    get:
-      summary: インスタンス情報
-      responses:
-        "200":
-          description: Mastodon 互換のインスタンス情報

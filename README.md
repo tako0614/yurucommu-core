@@ -99,11 +99,11 @@ deno task build
   Activity をそれぞれの inbox 処理へ振り分けます。
 - `/.well-known/nodeinfo` – NodeInfo へのリンクを返します
 - `/nodeinfo/2.0` – NodeInfo 本体を返します
-- `/.well-known/x-nodeinfo2` – `/nodeinfo/2.0` へリダイレクト
-- `/api/v1/instance` – Mastodon 互換のインスタンス情報 これらのルートは `/`
-  直下に配置されており、`/api` のルートとは競合しません。
-  フォロー一覧用のコレクションは `/ap/users/:username/followers` や
-  `/ap/users/:username/following` から取得できます。
+
+これらのルートは `/` 直下に配置されており、`/api` のルートとは競合しません。
+NodeInfo の取得は `/nodeinfo/2.0` のみを利用してください。
+フォロー一覧用のコレクションは `/ap/users/:username/followers` や
+`/ap/users/:username/following` から取得できます。
 
 `outbox` へ `POST` すると以下の形式でオブジェクトを作成できます。 `Message`
 は投稿できません。
