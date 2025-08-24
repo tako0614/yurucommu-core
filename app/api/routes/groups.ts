@@ -10,6 +10,8 @@ import {
   getDomain,
 } from "../utils/activitypub.ts";
 import { sendActivityPubObject } from "../utils/activitypub.ts";
+import { resolveActor } from "../utils/activitypub.ts";
+import { isUrl } from "../../shared/url.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
@@ -127,6 +129,8 @@ app.post(
       visibility: z.string().optional(),
       allowInvites: z.boolean().optional(),
       member: z.string(),
+      invites: z.array(z.string()).optional(),
+      members: z.array(z.string()).optional(),
     }),
   ),
   async (c) => {
@@ -191,6 +195,63 @@ app.post(
       followers: [member],
     });
     const domain = getDomain(c);
+    // 追加: 初期招待（invites/members があれば送信）
+    try {
+      const rawInv = Array.isArray((body as { invites?: unknown }).invites)
+        ? (body as { invites: string[] }).invites
+        : Array.isArray((body as { members?: unknown }).members)
+        ? (body as { members: string[] }).members
+        : [];
+      if (rawInv.length > 0) {
+        const groupId = `https://${domain}/groups/${groupName}`;
+        const toHandle = (v: string): string => {
+          if (v.startsWith("http")) {
+            try {
+              const u = new URL(v);
+              const n = u.pathname.split("/").pop() || "";
+              return `${n}@${u.hostname}`;
+            } catch {
+              return v;
+            }
+          }
+          if (v.includes("@")) return v;
+          return `${v}@${domain}`;
+        };
+        const creator = toHandle(member);
+        const candidates = [...new Set(rawInv.map((x) => x).filter(Boolean))];
+        for (const cand of candidates) {
+          const h = toHandle(cand);
+          if (h.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
+          // URL 解決
+          let actorUrl = cand;
+          if (!isUrl(cand)) {
+            const [user, host] = h.split("@");
+            if (host === domain) {
+              actorUrl = `https://${domain}/users/${user}`;
+            } else {
+              const resolved = await resolveActor(user, host).catch(() => null);
+              if (!resolved || typeof resolved.id !== "string") continue;
+              actorUrl = resolved.id as string;
+            }
+          }
+          const activity = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: `https://${domain}/activities/${crypto.randomUUID()}`,
+            type: "Invite" as const,
+            actor: groupId,
+            object: actorUrl,
+            target: groupId,
+            to: [actorUrl],
+          };
+          await sendActivityPubObject(actorUrl, activity, "system", domain, env)
+            .catch(() => {});
+          const inv = new Invite({ groupName, actor: actorUrl, inviter: groupId });
+          await inv.save().catch(() => {});
+        }
+      }
+    } catch {
+      // 初期招待は失敗してもグループ作成自体は成功扱い
+    }
     return c.json({ id: `https://${domain}/groups/${groupName}` }, 201);
   },
 );

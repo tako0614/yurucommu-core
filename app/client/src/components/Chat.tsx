@@ -2179,6 +2179,7 @@ async function _addRoom(
           groupName: _room.name,
           displayName: _room.name,
           member: _handle,
+          invites: _room.members || [],
         }),
       });
     }

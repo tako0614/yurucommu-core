@@ -35,6 +35,7 @@ import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import { migrateFaspCollections } from "./services/fasp_migration.ts";
 import { migrateAttributedTo } from "./services/attributed_to_migration.ts";
 import dms from "./routes/dms.ts";
+import rooms from "./routes/rooms.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -74,6 +75,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     users,
     dm,
     dms,
+    rooms,
   ];
   for (const r of apiRoutes) {
     app.route("/api", r);
