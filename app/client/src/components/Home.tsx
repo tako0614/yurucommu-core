@@ -209,25 +209,6 @@ export function Home() {
     <div class="bg-[#1e1e1e] text-gray-100 flex flex-col">
       {/* 右上のフローティングアイコン（ヘッダーは使わない） */}
       <div class="fixed top-3 right-3 z-20 flex items-center gap-2">
-        {/* Current account avatar as small logo */}
-        <button
-          type="button"
-          class="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-sm font-semibold"
-          title={activeAcc() ? activeAcc()!.displayName : "アカウント未選択"}
-          onClick={() => setShowAccountSettings(true)}
-        >
-          {activeAcc() && activeAcc()!.avatarInitial ? (
-            isDataUrl(activeAcc()!.avatarInitial) ? (
-              <img src={activeAcc()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
-            ) : (
-              <span class="text-sm">{activeAcc()!.avatarInitial.substring(0, 2)}</span>
-            )
-          ) : (
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.63 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          )}
-        </button>
         <Button
           variant="primary"
           size="md"
@@ -251,13 +232,26 @@ export function Home() {
         <Button
           variant="secondary"
           size="md"
-          class="rounded-md px-3 py-2 shadow flex items-center gap-2"
+          class="rounded-full px-3 py-1 shadow flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700"
           aria-label="アカウント切り替え"
-          title="アカウント切り替え"
+          title={activeAcc() ? activeAcc()!.displayName : "アカウント切り替え"}
           onClick={() => setShowAccountSettings(true)}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4">
-            <path fill="currentColor" d="M12 5v2a5 5 0 015 5h2a7 7 0 00-7-7zM7 12a5 5 0 015-5V5a7 7 0 00-7 7h2zm5 7v-2a5 5 0 01-5-5H5a7 7 0 007 7zM17 12a5 5 0 00-5 5v2a7 7 0 007-7h-2z" />
+          <span class="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-sm font-semibold overflow-hidden">
+            {activeAcc() && activeAcc()!.avatarInitial ? (
+              isDataUrl(activeAcc()!.avatarInitial) ? (
+                <img src={activeAcc()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
+              ) : (
+                <span class="text-sm">{activeAcc()!.avatarInitial.substring(0, 2)}</span>
+              )
+            ) : (
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.63 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            )}
+          </span>
+          <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
         </Button>
       </div>
