@@ -15,7 +15,7 @@ async function withStubbedKey(
   fn: () => Promise<void>,
 ) {
   const orig = globalThis.fetch;
-  globalThis.fetch = (input: RequestInfo | URL, _init?: RequestInit) => {
+  globalThis.fetch = ((input: RequestInfo | URL, _init?: RequestInit) => {
     if (typeof input === "string" && input === keyId) {
       return Promise.resolve(
         new Response(
@@ -24,8 +24,8 @@ async function withStubbedKey(
         ),
       );
     }
-    return orig(input, _init);
-  };
+  return (orig as unknown as typeof globalThis.fetch)(input, _init);
+  }) as unknown as typeof globalThis.fetch;
   try {
     await fn();
   } finally {

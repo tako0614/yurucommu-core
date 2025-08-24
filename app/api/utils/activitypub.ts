@@ -273,7 +273,10 @@ export async function fetchPublicKeyPem(url: string): Promise<string | null> {
       headers: { accept: "application/activity+json, application/ld+json" },
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await res.json() as {
+      publicKey?: { publicKeyPem?: string };
+      publicKeyPem?: string;
+    };
     return data.publicKey?.publicKeyPem ?? data.publicKeyPem ?? null;
   } catch {
     return null;
@@ -515,8 +518,10 @@ export async function resolveActorFromAcct(
     headers: { Accept: "application/jrd+json" },
   });
   if (!wfRes.ok) return null;
-  const jrd = await wfRes.json();
-  const self = jrd.links?.find((l: { rel?: string; type?: string }) =>
+  const jrd = await wfRes.json() as {
+    links?: Array<{ rel?: string; type?: string; href?: string }>;
+  };
+  const self = jrd.links?.find((l) =>
     l.rel === "self" && l.type === "application/activity+json"
   );
   if (!self?.href) return null;
@@ -587,7 +592,7 @@ export function createActor(
   options?: { includeIcon?: boolean },
 ) {
   const includeIcon = options?.includeIcon ?? true;
-  const actor = {
+  const actor: Record<string, unknown> = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       "https://w3id.org/security/v1",

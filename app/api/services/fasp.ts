@@ -176,7 +176,7 @@ export async function sendAnnouncements(
   const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
     tenant_id: tenantId,
-  })
+  } as unknown as Record<string, unknown>)
     .catch(() => null) as
       | { shareEnabled?: boolean; shareServerIds?: string[] }
       | null;
@@ -202,8 +202,8 @@ export async function sendAnnouncements(
     moreObjectsAvailable: !!ann.moreObjectsAvailable,
   });
   await Promise.all(
-    fasps.map(async (p: { baseUrl?: string }) => {
-      const baseUrl = (p.baseUrl ?? "").replace(/\/$/, "");
+    fasps.map(async (p: unknown) => {
+      const baseUrl = ((p as { baseUrl?: string }).baseUrl ?? "").replace(/\/$/, "");
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
       try {
@@ -250,7 +250,7 @@ export async function getFaspBaseUrl(
   const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
     tenant_id: tenantId,
-  })
+  } as unknown as Record<string, unknown>)
     .catch(() => null) as
       | { _id: string; searchServerId?: string | null }
       | null;
