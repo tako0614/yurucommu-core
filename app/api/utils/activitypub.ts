@@ -32,7 +32,7 @@ async function applySignature(
   const list = headersToSign.map((h) => `"${h}"`).join(" ");
   const keyId = `${key.id}#main-key`;
 
-  const sigParams = `(${list});keyid="${keyId}"`; // alg added later after key detection
+  const sigParams = `(${list});keyid="${keyId}"`; // alg は後で付与
 
   const lines = headersToSign.map((h) => {
     if (h === "@method") {
@@ -53,45 +53,23 @@ async function applySignature(
   let signingString = "";
   const normalizedPrivateKey = ensurePem(key.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
-  const alg = detectKeyAlgorithm(normalizedPrivateKey);
-  let signature: ArrayBuffer;
-  let sigAlg = "ed25519";
-  if (alg === "rsa") {
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      keyData,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    sigAlg = "rsa-sha256";
-    const finalParams = `${sigParams};alg="${sigAlg}"`;
-    lines.push(`"@signature-params": ${finalParams}`);
-    signingString = lines.join("\n");
-    signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      cryptoKey,
-      encoder.encode(signingString),
-    );
-    headers.set("Signature-Input", `sig1=${finalParams}`);
-  } else {
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      keyData,
-      { name: "Ed25519" },
-      false,
-      ["sign"],
-    );
-    const finalParams = `${sigParams};alg="${sigAlg}"`;
-    lines.push(`"@signature-params": ${finalParams}`);
-    signingString = lines.join("\n");
-    signature = await crypto.subtle.sign(
-      "Ed25519",
-      cryptoKey,
-      encoder.encode(signingString),
-    );
-    headers.set("Signature-Input", `sig1=${finalParams}`);
-  }
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyData,
+    { name: "Ed25519" },
+    false,
+    ["sign"],
+  );
+  const sigAlg = "ed25519";
+  const finalParams = `${sigParams};alg="${sigAlg}"`;
+  lines.push(`"@signature-params": ${finalParams}`);
+  signingString = lines.join("\n");
+  const signature = await crypto.subtle.sign(
+    "Ed25519",
+    cryptoKey,
+    encoder.encode(signingString),
+  );
+  headers.set("Signature-Input", `sig1=${finalParams}`);
   const signatureB64 = bufToB64(signature);
   headers.set("Signature", `sig1=:${signatureB64}:`);
 }
@@ -235,41 +213,6 @@ export function ensurePem(
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----`;
 }
 
-function includesSequence(buf: Uint8Array, seq: number[]): boolean {
-  outer:
-  for (let i = 0; i <= buf.length - seq.length; i++) {
-    for (let j = 0; j < seq.length; j++) {
-      if (buf[i + j] !== seq[j]) continue outer;
-    }
-    return true;
-  }
-  return false;
-}
-
-function detectKeyAlgorithm(pem: string): "rsa" | "ed25519" {
-  // PEMのヘッダやOIDからRSAかEd25519かを簡易判別する
-  // RSA-PSSなど鍵に依存しない署名方式はここでは区別できない
-  if (/BEGIN RSA/.test(pem)) return "rsa";
-  const buf = new Uint8Array(pemToArrayBuffer(pem));
-  const rsaOid = [
-    0x06,
-    0x09,
-    0x2a,
-    0x86,
-    0x48,
-    0x86,
-    0xf7,
-    0x0d,
-    0x01,
-    0x01,
-    0x01,
-  ];
-  if (includesSequence(buf, rsaOid)) return "rsa";
-  const edOid = [0x06, 0x03, 0x2b, 0x65, 0x70];
-  if (includesSequence(buf, edOid)) return "ed25519";
-  return "ed25519";
-}
-
 /** `Signature` ヘッダを key=value 形式に変換 */
 interface ParsedSignature {
   headers: string[];
@@ -395,40 +338,21 @@ export async function verifyHttpSignature(
 
     const encoder = new TextEncoder();
     const keyData = pemToArrayBuffer(normalizedPublicKey);
-    const alg = detectKeyAlgorithm(normalizedPublicKey);
     const signatureBytes = b64ToBuf(params.signature);
     const signingStringBytes = encoder.encode(signingString);
-    if (alg === "rsa") {
-      // RSA鍵はRSASSA-PKCS1-v1_5による署名を想定して検証する
-      // RSA-PSS署名には現状対応していない
-      const key = await crypto.subtle.importKey(
-        "spki",
-        keyData,
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-        false,
-        ["verify"],
-      );
-      return await crypto.subtle.verify(
-        "RSASSA-PKCS1-v1_5",
-        key,
-        signatureBytes,
-        signingStringBytes,
-      );
-    } else {
-      const key = await crypto.subtle.importKey(
-        "spki",
-        keyData,
-        { name: "Ed25519" },
-        false,
-        ["verify"],
-      );
-      return await crypto.subtle.verify(
-        "Ed25519",
-        key,
-        signatureBytes,
-        signingStringBytes,
-      );
-    }
+    const key = await crypto.subtle.importKey(
+      "spki",
+      keyData,
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    return await crypto.subtle.verify(
+      "Ed25519",
+      key,
+      signatureBytes,
+      signingStringBytes,
+    );
   } catch (error) {
     console.error("Error in verifyHttpSignature:", error);
     return false;
@@ -817,16 +741,14 @@ export interface RemoteActor {
 
 /**
  * アクターIRIからinbox/sharedInbox等を抽出
- * sharedInbox > inbox > ldp:inbox の順で優先
+ * sharedInbox > inbox の順で優先
  * @param actorIri アクターIRI
  */
 interface RemoteActorDocument {
   id: string;
   inbox?: string;
-  "ldp:inbox"?: string;
   endpoints?: { sharedInbox?: string };
   publicKey?: { id?: string };
-  publicKeyId?: string;
 }
 export async function resolveRemoteActor(
   actorIri: string,
@@ -845,16 +767,17 @@ export async function resolveRemoteActor(
   }
   const actor: RemoteActorDocument = await res.json();
 
-  const inbox = actor.endpoints?.sharedInbox ??
-    actor.inbox ?? actor["ldp:inbox"];
+  const inbox = actor.endpoints?.sharedInbox ?? actor.inbox;
   if (!inbox) {
-    throw new Error("resolveRemoteActor: inbox not found in actor document");
+    throw new Error(
+      "resolveRemoteActor: actorドキュメントにinboxまたはendpoints.sharedInboxが見つかりません",
+    );
   }
 
-  const publicKeyId = actor.publicKey?.id ?? actor.publicKeyId;
+  const publicKeyId = actor.publicKey?.id;
   if (!publicKeyId) {
     throw new Error(
-      "resolveRemoteActor: publicKeyId not found in actor document",
+      "resolveRemoteActor: actorドキュメントにpublicKey.idが見つかりません",
     );
   }
   return {
