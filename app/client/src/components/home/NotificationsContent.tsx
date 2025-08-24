@@ -232,7 +232,7 @@ const NotificationsContent: Component = () => {
                 }
 
                 return (
-                  <div class="py-4 flex items-start gap-3">
+                  <div class="py-4 flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center flex-shrink-0">
                       <svg
                         class="w-4 h-4 text-gray-300"
@@ -244,7 +244,7 @@ const NotificationsContent: Component = () => {
                       </svg>
                     </div>
                     <div class="flex-1 min-w-0">
-                      <div class="flex items-start justify-between gap-3">
+                      <div class="flex items-center justify-between gap-3">
                         <div class="min-w-0">
                           <h4 class="text-base font-semibold text-gray-100 truncate">
                             {n.title}
