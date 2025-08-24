@@ -49,7 +49,7 @@ app.use("/api/groups/*", authRequired);
 app.get("/api/groups", async (c) => {
   const owner = c.req.query("owner");
   if (!owner) return c.json({ error: "owner is required" }, 400);
-  const groups = await Group.find({ followers: owner }).lean() as GroupDoc[];
+  const groups = await Group.find({ followers: owner }).lean() as unknown as GroupDoc[];
   const domain = getDomain(c);
   const formatted = groups.map((g) => {
     const icon = typeof g.icon === "string"
@@ -72,8 +72,9 @@ app.post(
   zValidator(
     "json",
     z.object({
-      groupName: z.string().min(1),
-      displayName: z.string().min(1),
+      // allow missing/empty and fill defaults server-side to avoid Zod too_small errors
+      groupName: z.string().optional(),
+      displayName: z.string().optional(),
       summary: z.string().optional(),
       membershipPolicy: z.string().optional(),
       visibility: z.string().optional(),
@@ -81,23 +82,45 @@ app.post(
     }),
   ),
   async (c) => {
-    const {
-      groupName,
-      displayName,
-      summary,
-      membershipPolicy,
-      visibility,
-      allowInvites,
-    } = c.req.valid("json") as {
-      groupName: string;
-      displayName: string;
-      summary?: string;
-      membershipPolicy?: string;
-      visibility?: string;
-      allowInvites?: boolean;
-    };
-    const exists = await Group.findOne({ groupName }).lean();
-    if (exists) return c.json({ error: "既に存在します" }, 400);
+    const body = c.req.valid("json") as Record<string, unknown>;
+    // sanitize inputs and provide sensible defaults when missing/empty
+    const rawGroupName = typeof body.groupName === "string"
+      ? body.groupName.trim()
+      : "";
+    let groupName = rawGroupName;
+    const provided = rawGroupName.length > 0;
+
+    if (!provided) {
+      // generate a fallback unique-ish groupName when not provided
+      let attempts = 0;
+      let exists = null as unknown;
+      do {
+        groupName = `group-${crypto.randomUUID().slice(0, 8)}`;
+        // check existence
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore: lean() return typing
+        exists = await Group.findOne({ groupName }).lean();
+        attempts++;
+      } while (exists && attempts < 5);
+      if (exists) return c.json({ error: "groupName collision, try again" }, 500);
+    } else {
+      // user provided a name — if it exists, fail with 400 to avoid silently changing it
+      const exists = await Group.findOne({ groupName }).lean();
+      if (exists) return c.json({ error: "既に存在します" }, 400);
+    }
+
+    let displayName = typeof body.displayName === "string"
+      ? body.displayName.trim()
+      : "";
+    if (!displayName) {
+      // fallback to groupName if displayName not provided
+      displayName = groupName;
+    }
+
+  const summary = typeof body.summary === "string" ? body.summary : undefined;
+  const membershipPolicy = typeof body.membershipPolicy === "string" ? body.membershipPolicy : undefined;
+  const visibility = typeof body.visibility === "string" ? body.visibility : undefined;
+  const allowInvites = typeof body.allowInvites === "boolean" ? body.allowInvites : undefined;
     const group = new Group({
       groupName,
       displayName,
