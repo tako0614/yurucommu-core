@@ -10,13 +10,15 @@ import {
   followingListMap,
   setFollowersList,
   setFollowingList,
+  setAccounts,
+  fetchAccounts,
 } from "../../states/account.ts";
 import { fetchFollowers, fetchFollowing } from "../microblog/api.ts";
 
 const AccountSettingsContent: Component<{
   accounts: Account[];
-  selectedAccountId: string;
-  setSelectedAccountId: (id: string) => void;
+  selectedAccountId: string | null;
+  setSelectedAccountId: (id: string | null) => void;
   addNewAccount: (
     username: string,
     displayName?: string,
@@ -27,6 +29,39 @@ const AccountSettingsContent: Component<{
 }> = (props) => {
   const selectedAccount = () =>
     props.accounts.find((account) => account.id === props.selectedAccountId);
+
+  // デバッグ: accounts と選択中IDの変化を追跡
+  createEffect(() => {
+    try {
+      console.debug("[AccountSettingsContent] selectedAccountId=", props.selectedAccountId);
+      console.debug("[AccountSettingsContent] accounts.length=", props.accounts.length);
+      console.debug("[AccountSettingsContent] hasSelected=", props.accounts.some((a) => a.id === props.selectedAccountId));
+    } catch (e) {
+      console.debug("[AccountSettingsContent] debug error", e);
+    }
+  });
+
+  // 選択中アカウントが props.accounts に存在しない場合、サーバーから再取得して復元を試みる
+  const [, setGlobalAccounts] = useAtom(setAccounts);
+  createEffect(() => {
+    const selId = props.selectedAccountId;
+    if (!selId) return;
+    const exists = props.accounts.some((a) => a.id === selId);
+    if (exists) return;
+
+    (async () => {
+      try {
+        const results = await fetchAccounts();
+        if (results && results.length > 0) {
+          // グローバルアカウントを更新（元の順序を保つ）
+          setGlobalAccounts(results);
+          console.debug("[AccountSettingsContent] restored accounts from server, length=", results.length);
+        }
+      } catch (e) {
+        console.error("Failed to fetch accounts for restoration:", e);
+      }
+    })();
+  });
 
   // ローカル編集状態
   const [editingDisplayName, setEditingDisplayName] = createSignal("");
@@ -166,7 +201,7 @@ const AccountSettingsContent: Component<{
         updates.avatarInitial = editingIcon();
       }
 
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length > 0 && props.selectedAccountId) {
         await props.updateAccount(props.selectedAccountId, updates);
         setHasChanges(false);
       }
@@ -179,7 +214,7 @@ const AccountSettingsContent: Component<{
     const account = selectedAccount();
     if (!account) return;
 
-    props.deleteAccount(props.selectedAccountId);
+  if (props.selectedAccountId) props.deleteAccount(props.selectedAccountId);
     setShowDeleteConfirm(false);
   };
 
@@ -691,45 +726,65 @@ const AccountSettingsContent: Component<{
                 </summary>
 
                 <div class="mt-4 space-y-2">
-                  <For
-                    each={props.accounts.filter((a) =>
-                      a.id !== props.selectedAccountId
-                    )}
-                  >
-                    {(account) => (
-                      <button
-                        type="button"
-                        onClick={() => props.setSelectedAccountId(account.id)}
-                        class="w-full flex items-center space-x-3 p-3 rounded-lg bg-gray-900/30 hover:bg-gray-800/50 text-left transition-all duration-200 group border border-gray-800/50 hover:border-gray-700/50"
-                      >
-                        <IconPreview
-                          iconValue={account.avatarInitial}
-                          displayNameValue={account.displayName}
-                          class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <p class="text-sm font-medium text-gray-300 group-hover:text-white transition-colors duration-200 truncate">
-                            {account.displayName}
-                          </p>
-                          <p class="text-xs text-gray-500 truncate">
-                            @{account.userName}
-                          </p>
-                        </div>
-                        <svg
-                          class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors duration-200"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
+                  {/* If the currently selected account is missing from props.accounts, show a placeholder so it doesn't disappear */}
+                  <Show when={props.selectedAccountId && !props.accounts.some((a) => a.id === props.selectedAccountId)}>
+                    <div class="w-full flex items-center space-x-3 p-3 rounded-lg bg-gray-800 text-left transition-all duration-200 group border border-gray-800/50">
+                      <div class="h-8 w-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">?</div>
+                      <div class="min-w-0 flex-1">
+                        <p class="text-sm font-medium text-white truncate">選択中のアカウント</p>
+                        <p class="text-xs text-gray-400 truncate">(不明: {props.selectedAccountId})</p>
+                      </div>
+                      <span class="text-xs text-green-400">選択中</span>
+                    </div>
+                  </Show>
+                  <For each={props.accounts}>
+                    {(account) => {
+                      const isSelected = account.id === props.selectedAccountId;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            console.debug("[AccountSettingsContent] button click, account.id=", account.id, "isSelected=", isSelected);
+                            if (!isSelected) props.setSelectedAccountId(account.id);
+                          }}
+                          disabled={isSelected}
+                          class={`w-full flex items-center space-x-3 p-3 rounded-lg text-left transition-all duration-200 group border border-gray-800/50 hover:border-gray-700/50 ${isSelected ? "bg-gray-800 text-gray-200 cursor-default" : "bg-gray-900/30 hover:bg-gray-800/50"}`}
                         >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 5l7 7-7 7"
+                          <IconPreview
+                            iconValue={account.avatarInitial}
+                            displayNameValue={account.displayName}
+                            class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0"
                           />
-                        </svg>
-                      </button>
-                    )}
+                          <div class="min-w-0 flex-1">
+                            <p class="text-sm font-medium transition-colors duration-200 truncate" classList={{ 'text-gray-300': !isSelected, 'text-white': isSelected }}>
+                              {account.displayName}
+                            </p>
+                            <p class="text-xs" classList={{ 'text-gray-500': !isSelected, 'text-gray-400': isSelected }}>
+                              @{account.userName}
+                            </p>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            {isSelected ? (
+                              <span class="text-xs text-green-400">選択中</span>
+                            ) : (
+                              <svg
+                                class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors duration-200"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M9 5l7 7-7 7"
+                                />
+                              </svg>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    }}
                   </For>
                   <button
                     type="button"

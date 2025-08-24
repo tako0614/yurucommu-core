@@ -5,6 +5,8 @@ import { useAtom } from "solid-jotai";
 import { AppPage, selectedAppState } from "../../states/app.ts";
 import { selectedRoomState } from "../../states/chat.ts";
 import { loginState } from "../../states/session.ts";
+import { activeAccount } from "../../states/account.ts";
+import { isDataUrl, isUrl } from "../home/types.ts";
 
 const HeaderButton = (
   props: {
@@ -38,6 +40,7 @@ export default function ChatHeader() {
   const [selectedApp] = useAtom(selectedAppState);
   const [selectedRoom] = useAtom(selectedRoomState);
   const [_isLoggedIn] = useAtom(loginState);
+  const [activeAcc] = useAtom(activeAccount);
   const [isMobile, setIsMobile] = createSignal(false);
 
   // モバイルかどうかを判定
@@ -79,25 +82,39 @@ export default function ChatHeader() {
         >
           <HeaderButton page="home" isMobile={isMobile}>
             {(active) => (
-              <svg
-                role="img"
-                xmlns="http://www.w3.org/2000/svg"
-                width="100%"
-                height="100%"
-                viewBox="0 0 24 24"
-                aria-labelledby="homeAltIconTitle"
-                class={`w-full h-full stroke-white ${
-                  active ? "fill-[#ff6060]" : ""
-                }`}
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                fill="none"
-              >
-                <title id="homeAltIconTitle">Home</title>{" "}
-                <path d="M3 10.182V22h18V10.182L12 2z" />{" "}
-                <rect width="6" height="8" x="9" y="14" />
-              </svg>
+              <div class={`h-full w-full flex items-center justify-center`}> 
+                {activeAcc() && activeAcc()!.avatarInitial ? (
+                  isDataUrl(activeAcc()!.avatarInitial) || isUrl(activeAcc()!.avatarInitial) ? (
+                    <img
+                      src={activeAcc()!.avatarInitial}
+                      class={`h-full w-full object-cover rounded-full ${active ? "ring-2 ring-[#ff6060]" : ""}`}
+                      alt={activeAcc()!.displayName}
+                    />
+                  ) : (
+                    <div class={`h-full w-full flex items-center justify-center text-sm font-semibold text-white bg-gradient-to-br from-blue-500 to-purple-600 rounded-full ${active ? "ring-2 ring-[#ff6060]" : ""}`}>
+                      <span>{activeAcc()!.avatarInitial.substring(0, 2)}</span>
+                    </div>
+                  )
+                ) : (
+                  <svg
+                    role="img"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="100%"
+                    height="100%"
+                    viewBox="0 0 24 24"
+                    aria-labelledby="homeAltIconTitle"
+                    class={`w-full h-full stroke-white ${active ? "fill-[#ff6060]" : ""}`}
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    fill="none"
+                  >
+                    <title id="homeAltIconTitle">Home</title>{" "}
+                    <path d="M3 10.182V22h18V10.182L12 2z" />{" "}
+                    <rect width="6" height="8" x="9" y="14" />
+                  </svg>
+                )}
+              </div>
             )}
           </HeaderButton>
           <HeaderButton page="chat" isMobile={isMobile}>

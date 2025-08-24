@@ -12,6 +12,7 @@ import { useInitialLoad } from "./utils/initialLoad.ts";
 import { usePathRouter } from "./utils/router.ts";
 import "./App.css";
 import { Spinner, Toaster, ToastProvider } from "./components/ui/index.ts";
+import { accounts as accountsAtom, activeAccountId } from "./states/account.ts";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useAtom(loginState);
@@ -24,6 +25,19 @@ function App() {
   useInitialLoad();
   // URL パスと状態を同期
   usePathRouter();
+
+  // デバッグ: accounts や activeAccountId の変化をログに出す
+  const [accs] = useAtom(accountsAtom);
+  const [actId] = useAtom(activeAccountId);
+  createEffect(() => {
+    try {
+      console.debug("[DEBUG] accounts.length=", accs()?.length ?? 0, accs());
+      console.debug("[DEBUG] activeAccountId=", actId());
+      console.debug("[DEBUG] localStorage active id=", localStorage.getItem("takos-active-account-id"));
+    } catch (e) {
+      console.debug("[DEBUG] error reading debug state", e);
+    }
+  });
 
   // 初期ロード中フラグ（ログイン状態確定までのフラッシュ防止）
   const [initializing, setInitializing] = createSignal(true);

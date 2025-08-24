@@ -1,6 +1,7 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, createEffect } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
+import { activeAccount } from "../states/account.ts";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
@@ -14,13 +15,20 @@ import {
 export function Home() {
   // 設定のモーダル制御
   const [showSettings, setShowSettings] = createSignal(false);
+  const [showAccountSettings, setShowAccountSettings] = createSignal(false);
 
   const [accounts, setAccounts] = useAtom(accountsAtom);
+  const [activeAcc] = useAtom(activeAccount);
 
   // 現在選択中のアカウントIDをグローバル状態として管理
   const [actId, setActId] = useAtom(
     activeAccountId,
   );
+
+  // デバッグ: actId の変化をログ
+  createEffect(() => {
+    console.debug("[Home] actId changed:", actId());
+  });
 
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
@@ -159,7 +167,7 @@ export function Home() {
         if (remainingAccounts.length > 0) {
           setActId(remainingAccounts[0].id);
         } else {
-          setActId("");
+          setActId(null);
         }
       } else {
         console.error("アカウントの削除に失敗しました");
@@ -187,7 +195,7 @@ export function Home() {
   const renderContent = () => (
     <AccountSettingsContent
       accounts={accounts()}
-      selectedAccountId={actId() || ""}
+      selectedAccountId={actId()}
       setSelectedAccountId={setActId}
       addNewAccount={addNewAccount}
       updateAccount={updateAccount}
@@ -199,6 +207,25 @@ export function Home() {
     <div class="bg-[#1e1e1e] text-gray-100 flex flex-col">
       {/* 右上のフローティングアイコン（ヘッダーは使わない） */}
       <div class="fixed top-3 right-3 z-20 flex items-center gap-2">
+        {/* Current account avatar as small logo */}
+        <button
+          type="button"
+          class="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-sm font-semibold"
+          title={activeAcc() ? activeAcc()!.displayName : "アカウント未選択"}
+          onClick={() => setShowAccountSettings(true)}
+        >
+          {activeAcc() && activeAcc()!.avatarInitial ? (
+            isDataUrl(activeAcc()!.avatarInitial) ? (
+              <img src={activeAcc()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
+            ) : (
+              <span class="text-sm">{activeAcc()!.avatarInitial.substring(0, 2)}</span>
+            )
+          ) : (
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.63 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          )}
+        </button>
         <Button
           variant="primary"
           size="md"
@@ -220,6 +247,26 @@ export function Home() {
           <span class="text-base font-semibold">設定</span>
         </Button>
       </div>
+
+        {/* アカウント切替モーダル */}
+        <Show when={showAccountSettings()}>
+          <Modal
+            open={showAccountSettings()}
+            onClose={() => setShowAccountSettings(false)}
+            title="アカウントを切り替え"
+          >
+            <div class="max-w-4xl mx-auto">
+              <AccountSettingsContent
+                accounts={accounts()}
+                selectedAccountId={actId()}
+                setSelectedAccountId={(id) => { setActId(id); setShowAccountSettings(false); }}
+                addNewAccount={addNewAccount}
+                updateAccount={updateAccount}
+                deleteAccount={deleteAccount}
+              />
+            </div>
+          </Modal>
+        </Show>
 
       {/* メインコンテンツ */}
       <main class="flex-1">
