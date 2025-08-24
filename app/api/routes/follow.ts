@@ -12,42 +12,35 @@ import {
   fetchActorInbox,
   getDomain,
   jsonResponse,
-  resolveActorFromAcct,
 } from "../utils/activitypub.ts";
 import { addNotification } from "../services/notification.ts";
 import type { AccountDoc } from "../../shared/types.ts";
 
-async function resolveActorId(
-  input: string,
-  domain: string,
-): Promise<string> {
-  if (input.startsWith("http://") || input.startsWith("https://")) {
-    return input;
-  }
-  if (input.includes("@")) {
-    const acct = input.startsWith("acct:") ? input.slice(5) : input;
-    const actor = await resolveActorFromAcct(acct).catch(() => null);
-    if (actor?.id) return actor.id;
-    const [name, host] = acct.split("@");
-    return `https://${host}/users/${name}`;
-  }
-  return `https://${domain}/users/${input}`;
-}
+const urlValidator = (field: string) =>
+  z.string()
+    .url({ message: `${field} は有効な URL を指定してください` })
+    .refine((v) => v.startsWith("https://"), {
+      message: `${field} は https:// で始まる URL を指定してください`,
+    });
+
+const followSchema = z.object({
+  follower: urlValidator("follower"),
+  target: urlValidator("target"),
+});
 
 const app = new Hono();
 app.use("/follow", authRequired);
 
 async function processFollow(c: Context, remove: boolean) {
-  const { follower, target } = c.req.valid("json") as {
+  const { follower: followerUrl, target: targetUrl } = c.req.valid(
+    "json",
+  ) as {
     follower: string;
     target: string;
   };
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
-
-  const followerUrl = await resolveActorId(follower, domain);
-  const targetUrl = await resolveActorId(target, domain);
 
   // 自分自身をフォローすることは許可しない
   if (followerUrl === targetUrl) {
@@ -141,13 +134,13 @@ async function processFollow(c: Context, remove: boolean) {
 
 app.post(
   "/follow",
-  zValidator("json", z.object({ follower: z.string(), target: z.string() })),
+  zValidator("json", followSchema),
   (c) => processFollow(c, false),
 );
 
 app.delete(
   "/follow",
-  zValidator("json", z.object({ follower: z.string(), target: z.string() })),
+  zValidator("json", followSchema),
   (c) => processFollow(c, true),
 );
 
