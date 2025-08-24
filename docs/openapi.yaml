@@ -497,10 +497,6 @@ paths:
                       type: string
                     icon:
                       type: string
-                    members:
-                      type: array
-                      items:
-                        type: string
     post:
       summary: DM作成
       requestBody:
@@ -552,14 +548,14 @@ paths:
       responses:
         "200":
           description: 更新後のDM
-    delete:
-      summary: DM削除
-      parameters:
-        - name: owner
-          in: query
-          required: true
-          schema:
-            type: string
+      delete:
+        summary: DM削除
+        parameters:
+          - name: owner
+            in: query
+            required: true
+            schema:
+              type: string
       responses:
         "200":
           description: 削除結果
@@ -659,7 +655,7 @@ paths:
     get:
       summary: グループ一覧取得
       parameters:
-        - name: owner
+        - name: member
           in: query
           required: true
           schema:
@@ -673,17 +669,13 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties:
-                    id:
-                      type: string
-                    name:
-                      type: string
-                    icon:
-                      type: string
-                    members:
-                      type: array
-                      items:
-                        type: string
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  icon:
+                    type: string
     post:
       summary: グループ作成
       requestBody:
@@ -714,6 +706,11 @@ paths:
                 allowInvites:
                   type: boolean
                   description: メンバーによる招待の可否
+                invites:
+                  type: array
+                  description: `user@domain` 形式の招待先リスト
+                  items:
+                    type: string
       responses:
         "201":
           description: 作成成功時はグループ ID を返します。
@@ -796,7 +793,7 @@ paths:
               properties:
                 acct:
                   type: string
-                  description: 招待先の acct (`username@domain`)
+                  description: 招待先の acct (`username@domain` をそのまま使用)
               required:
                 - acct
       responses:
