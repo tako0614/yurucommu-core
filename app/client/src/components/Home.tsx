@@ -1,7 +1,6 @@
 import { createSignal, onCleanup, onMount, Show, createEffect } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
-import { activeAccount } from "../states/account.ts";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
 import AccountSwitchList from "./home/AccountSwitchList.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
@@ -19,7 +18,6 @@ export function Home() {
   const [showAccountSettings, setShowAccountSettings] = createSignal(false);
 
   const [accounts, setAccounts] = useAtom(accountsAtom);
-  const [activeAcc] = useAtom(activeAccount);
 
   // 現在選択中のアカウントIDをグローバル状態として管理
   const [actId, setActId] = useAtom(
@@ -30,6 +28,9 @@ export function Home() {
   createEffect(() => {
     console.debug("[Home] actId changed:", actId());
   });
+
+  // selected account object derived from actId
+  const selectedAccountObj = () => accounts().find((a) => a.id === actId()) ?? null;
 
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
@@ -234,15 +235,15 @@ export function Home() {
           size="md"
           class="rounded-full px-3 py-1 shadow flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700"
           aria-label="アカウント切り替え"
-          title={activeAcc() ? activeAcc()!.displayName : "アカウント切り替え"}
+          title={selectedAccountObj() ? selectedAccountObj()!.displayName : "アカウント切り替え"}
           onClick={() => setShowAccountSettings(true)}
         >
           <span class="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-sm font-semibold overflow-hidden">
-            {activeAcc() && activeAcc()!.avatarInitial ? (
-              isDataUrl(activeAcc()!.avatarInitial) ? (
-                <img src={activeAcc()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
+            {selectedAccountObj() && selectedAccountObj()!.avatarInitial ? (
+              isDataUrl(selectedAccountObj()!.avatarInitial) || selectedAccountObj()!.avatarInitial.startsWith("http") ? (
+                <img src={selectedAccountObj()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
               ) : (
-                <span class="text-sm">{activeAcc()!.avatarInitial.substring(0, 2)}</span>
+                <span class="text-sm">{(selectedAccountObj()!.displayName || selectedAccountObj()!.userName).substring(0, 2)}</span>
               )
             ) : (
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
