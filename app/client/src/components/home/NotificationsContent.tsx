@@ -69,7 +69,7 @@ const NotificationsContent: Component = () => {
       if (!res.ok) throw new Error("Failed to mark as read");
 
       mutate((prev) =>
-        prev?.map((n) => n.id === id ? { ...n, read: true } : n) || []
+        prev?.map((n: { id: string; }) => n.id === id ? { ...n, read: true } : n) || []
       );
     } catch (error) {
       console.error("Failed to mark notification as read:", error);
@@ -86,7 +86,7 @@ const NotificationsContent: Component = () => {
       });
       if (!res.ok) throw new Error("Failed to delete notification");
 
-      mutate((prev) => prev?.filter((n) => n.id !== id) || []);
+      mutate((prev) => prev?.filter((n: { id: string; }) => n.id !== id) || []);
     } catch (error) {
       console.error("Failed to delete notification:", error);
     } finally {
@@ -102,7 +102,8 @@ const NotificationsContent: Component = () => {
 
     try {
       await Promise.all(
-        list.map((n) =>
+        // deno-lint-ignore no-explicit-any
+        list.map((n: { id: any; }) =>
           apiFetch(`/api/notifications/${n.id}`, { method: "DELETE" })
         ),
       );
@@ -322,7 +323,7 @@ const NotificationsContent: Component = () => {
         </Show>
 
         <div class="mt-4 text-xs text-gray-500">
-          未読: {notifications()?.filter((n) => !n.read).length || 0}件 / 合計:
+          未読: {notifications()?.filter((n: { read: any; }) => !n.read).length || 0}件 / 合計:
           {" "}
           {notifications()?.length || 0}件
         </div>
