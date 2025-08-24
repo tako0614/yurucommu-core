@@ -82,15 +82,17 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       return;
     }
     const obj = activity.object as Record<string, unknown>;
-    const objTypes = Array.isArray(obj.type) ? obj.type : [obj.type];
     const toList = Array.isArray(obj.to)
       ? obj.to
       : typeof obj.to === "string"
       ? [obj.to]
       : [];
+    const extra = typeof obj.extra === "object" && obj.extra !== null
+      ? obj.extra as Record<string, unknown>
+      : {};
 
-    // to が1件の Note は DM とみなす
-    if (objTypes.includes("Note") && toList.length === 1) {
+    // extra.dm が true の場合は DM とみなす
+    if (extra.dm === true) {
       const target = toList[0];
       const isCollection = (url: string): boolean => {
         if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
@@ -121,9 +123,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         domain,
         actor,
         typeof obj.content === "string" ? obj.content : "",
-        typeof obj.extra === "object" && obj.extra !== null
-          ? obj.extra as Record<string, unknown>
-          : {},
+        extra,
         { to: toList, cc: Array.isArray(obj.cc) ? obj.cc : [] },
       ) as { _id: unknown };
 

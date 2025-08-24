@@ -504,7 +504,9 @@ export function Chat() {
   // 設定オーバーレイ表示状態
   const [showSettings, setShowSettings] = createSignal(false);
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
-  const [createDialogType, setCreateDialogType] = createSignal<"dm" | "group">("dm");
+  const [createDialogType, setCreateDialogType] = createSignal<"dm" | "group">(
+    "dm",
+  );
   // ルーム重複防止ユーティリティ
   function upsertRooms(next: Room[]) {
     setChatRooms((prev) => {
@@ -540,8 +542,8 @@ export function Chat() {
           }
           return m;
         });
-  // 1対1 (dm) のときは explicit な type を確認して補正
-  const isDm = r.type === "dm";
+        // 1対1 (dm) のときは explicit な type を確認して補正
+        const isDm = r.type === "dm";
         let displayName = r.displayName;
         if (
           isDm &&
@@ -659,16 +661,20 @@ export function Chat() {
         params,
       );
       const msgs = (list as Array<Record<string, unknown>>).map((m) => {
-        const attachments = Array.isArray((m as { attachments?: unknown[] })
-          .attachments)
+        const attachments = Array.isArray(
+            (m as { attachments?: unknown[] })
+              .attachments,
+          )
           ? (m as { attachments?: unknown[] }).attachments as unknown[]
           : [];
-        const firstType = (attachments[0] as { mediaType?: string })?.
-          mediaType || "";
+        const firstType = (attachments[0] as { mediaType?: string })
+          ?.mediaType || "";
         const msgType = attachments.length > 0
           ? (firstType.startsWith("image/")
             ? ("image" as const)
-            : (firstType.startsWith("video/") ? ("video" as const) : ("file" as const)))
+            : (firstType.startsWith("video/")
+              ? ("video" as const)
+              : ("file" as const)))
           : ("note" as const);
         return {
           id: String(m.id ?? ""),
@@ -693,8 +699,12 @@ export function Chat() {
       );
     }
 
-    // サーバーの DM API (/api/dm) を用いてメッセージを取得する。
-    // friends グループは単なる actor リストとして扱い、各メンバーとの DM をマージして返す。
+    if (room.type !== "dm") {
+      // グループメッセージ取得は未実装のため、空配列を返す
+      return [];
+    }
+
+    // サーバーの DM API (/api/dm) を用いてメッセージを取得する
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
       const members = (room.members ?? []).filter((m) =>
@@ -759,20 +769,29 @@ export function Chat() {
                 | { url?: string; data?: string; mediaType?: string }
                 | undefined;
               if (rawPrev && typeof rawPrev === "object") {
-                const pUrl = typeof (rawPrev as { url?: unknown }).url === "string"
-                  ? (rawPrev as { url: string }).url
-                  : undefined;
-                const pData = typeof (rawPrev as { data?: unknown }).data === "string"
-                  ? (rawPrev as { data: string }).data
-                  : undefined;
+                const pUrl =
+                  typeof (rawPrev as { url?: unknown }).url === "string"
+                    ? (rawPrev as { url: string }).url
+                    : undefined;
+                const pData =
+                  typeof (rawPrev as { data?: unknown }).data === "string"
+                    ? (rawPrev as { data: string }).data
+                    : undefined;
                 const pMediaType =
-                  typeof (rawPrev as { mediaType?: unknown }).mediaType === "string"
+                  typeof (rawPrev as { mediaType?: unknown }).mediaType ===
+                      "string"
                     ? (rawPrev as { mediaType: string }).mediaType
                     : undefined;
-                if (pUrl || pData) preview = { url: pUrl, data: pData, mediaType: pMediaType };
+                if (pUrl || pData) {
+                  preview = { url: pUrl, data: pData, mediaType: pMediaType };
+                }
               }
               // URL がない場合のフォールバック
-              const fallbackUrl = url || (data ? undefined : `/api/files/messages/${encodeURIComponent(messageId)}/${idx}`);
+              const fallbackUrl = url || (data
+                ? undefined
+                : `/api/files/messages/${
+                  encodeURIComponent(messageId)
+                }/${idx}`);
               if (fallbackUrl || data) {
                 return { url: fallbackUrl, data, mediaType, preview };
               }
@@ -782,7 +801,9 @@ export function Chat() {
               url: string | undefined;
               data: string | undefined;
               mediaType: string;
-              preview: { url?: string; data?: string; mediaType?: string } | undefined;
+              preview:
+                | { url?: string; data?: string; mediaType?: string }
+                | undefined;
             } => !!a)
           : [];
         return {
@@ -794,10 +815,14 @@ export function Chat() {
           attachments,
           timestamp: isNaN(ts.getTime()) ? new Date() : ts,
           type: attachments.length > 0
-            ? (((attachments[0].mediaType || "").startsWith("image/")) ? "image" : "file")
+            ? (((attachments[0].mediaType || "").startsWith("image/"))
+              ? "image"
+              : "file")
             : (() => {
               const t = String(m.type ?? "").toLowerCase();
-              if (t === "note" || t === "image" || t === "video" || t === "file") return t as typeof t;
+              if (
+                t === "note" || t === "image" || t === "video" || t === "file"
+              ) return t as typeof t;
               if (attachments.length > 0) {
                 const mt = (attachments[0]?.mediaType || "").toLowerCase();
                 if (mt.startsWith("image/")) return "image" as const;
@@ -918,7 +943,10 @@ export function Chat() {
     ];
     const handle = `${user.userName}@${getDomain()}` as ActorID;
     // 暗黙のルーム（メッセージ由来）は除外して、明示的に作成されたもののみ取得
-    const serverRooms = await searchRooms(handle, { implicit: "include" });
+    const serverRooms = await searchRooms(handle, {
+      implicit: "include",
+      type: "group",
+    });
     for (const item of serverRooms) {
       const name = item.name ?? "";
       const icon = item.icon ?? "";
@@ -926,8 +954,10 @@ export function Chat() {
       let members = item.members ?? [] as string[];
       if (members.length === 0) {
         try {
-          const pend = await readPending(user.id, item.id);
-          const others = (pend || []).filter((m: string | undefined) => !!m && m !== handle) as string[];
+          const pend = await readPending(user.id, item.id, "group");
+          const others = (pend || []).filter((m: string | undefined) =>
+            !!m && m !== handle
+          ) as string[];
           if (others.length > 0) members = others;
         } catch {
           /* ignore */
@@ -987,12 +1017,14 @@ export function Chat() {
     const uniqueOthers = (r: Room): string[] =>
       (r.members ?? []).filter((m) => m && m !== selfHandle);
 
-    // 暫定表示: members が空のルームは pending 招待から1名だけでも補完
+    // 暫定表示: members が空のグループルームは pending 招待から1名だけでも補完
     for (const r of rooms) {
       try {
-        if ((r.members?.length ?? 0) === 0 && r.type !== "memo") {
-          const pend = await readPending(user.id, r.id);
-          const cand = (pend || []).filter((m: string | undefined) => !!m && m !== selfHandle) as string[];
+        if ((r.members?.length ?? 0) === 0 && r.type === "group") {
+          const pend = await readPending(user.id, r.id, "group");
+          const cand = (pend || []).filter((m: string | undefined) =>
+            !!m && m !== selfHandle
+          ) as string[];
           if (cand.length > 0) {
             r.members = [cand[0]];
           }
@@ -1005,22 +1037,26 @@ export function Chat() {
     // 事前補正: 2人想定で名前が自分の表示名/ユーザー名のときは未命名として扱う
     for (const r of rooms) {
       if (r.type === "memo") continue;
-      const others = uniqueOthers(r);
-      // 自分の名前がタイトルに入ってしまう誤表示を防止（相手1人または未確定0人のとき）
-      if (
-        others.length <= 1 &&
-        (r.name === user.displayName || r.name === user.userName)
-      ) {
-        r.displayName = "";
-        r.hasName = false;
-        // アバターが自分の頭文字（1文字）なら一旦消して再計算に委ねる
-        const selfInitial = (user.displayName || user.userName || "").charAt(0)
-          .toUpperCase();
+      if (r.type === "dm") {
+        const others = uniqueOthers(r);
+        // 自分の名前がタイトルに入ってしまう誤表示を防止
         if (
-          typeof r.avatar === "string" && r.avatar.length === 1 &&
-          r.avatar.toUpperCase() === selfInitial
+          others.length <= 1 &&
+          (r.name === user.displayName || r.name === user.userName)
         ) {
-          r.avatar = "";
+          r.displayName = "";
+          r.hasName = false;
+          // アバターが自分の頭文字（1文字）なら一旦消して再計算に委ねる
+          const selfInitial = (user.displayName || user.userName || "").charAt(
+            0,
+          )
+            .toUpperCase();
+          if (
+            typeof r.avatar === "string" && r.avatar.length === 1 &&
+            r.avatar.toUpperCase() === selfInitial
+          ) {
+            r.avatar = "";
+          }
         }
       }
     }
@@ -1114,6 +1150,11 @@ export function Chat() {
       setNewMessage("");
       setMediaFile(null);
       setMediaPreview(null);
+      return;
+    }
+
+    if (room.type === "group") {
+      alert("グループチャットは未対応です");
       return;
     }
     // --- DM 送信 ---
@@ -1307,7 +1348,7 @@ export function Chat() {
             if (!partnerId) return;
             const normPartner = normalizeActor(partnerId as ActorID);
             let room = chatRooms().find((r) =>
-              r.type !== "memo" &&
+              r.type === "dm" &&
               ((r.members ?? []).includes(normPartner) || r.id === normPartner)
             );
             if (!room) {
@@ -1332,7 +1373,7 @@ export function Chat() {
             }
             if (!room) return;
             // 選択中なら差分取得して追記、未選択ならプレビュー更新のみ
-              if (selectedRoom() === room.id) {
+            if (selectedRoom() === room.id) {
               const fetched = await fetchMessagesForRoom(room, {
                 limit: 1,
                 dryRun: true,
@@ -1389,7 +1430,7 @@ export function Chat() {
 
       // まず roomId が来ていればそれで特定する（UUIDグループ等に強い）
       let room = data.roomId
-        ? chatRooms().find((r) => r.id === data.roomId)
+        ? chatRooms().find((r) => r.type === "group" && r.id === data.roomId)
         : undefined;
 
       const partnerId = data.from === self
@@ -1403,16 +1444,26 @@ export function Chat() {
 
       // 優先: 明示的に type === 'dm' のルームを探す（ID一致または members に含まれる）
       if (!room && normalizedPartner) {
-        room = chatRooms().find((r) => r.type === "dm" && (r.id === normalizedPartner || (r.members ?? []).includes(normalizedPartner)));
+        room = chatRooms().find((r) =>
+          r.type === "dm" &&
+          (r.id === normalizedPartner ||
+            (r.members ?? []).includes(normalizedPartner))
+        );
       }
 
       // それ以外は既存のグループ/名前ベース検索にフォールバック
-      if (!room) room = chatRooms().find((r) => r.id === partnerName);
+      if (!room) {
+        room = chatRooms().find((r) =>
+          r.type === "group" && r.id === partnerName
+        );
+      }
       if (!room) {
         for (const t of data.to) {
           const normalized = normalizeActor(t);
           const [toName] = splitActor(normalized);
-          const g = chatRooms().find((r) => r.id === toName);
+          const g = chatRooms().find((r) =>
+            r.type === "group" && r.id === toName
+          );
           if (g) {
             room = g;
             break;
@@ -1421,14 +1472,18 @@ export function Chat() {
       }
       // 名前付き1:1ルーム（members に normalizedPartner を含む dm を探す）
       if (!room) {
-        room = chatRooms().find((r) => (r.members ?? []).includes(normalizedPartner));
+        room = chatRooms().find((r) =>
+          r.type === "dm" && (r.members ?? []).includes(normalizedPartner)
+        );
       }
       if (!room && uuidRe.test(partnerName)) {
         // グループIDと推測されるがまだ一覧に存在しない場合はルームを作成しない
         return;
       }
       if (!room) {
-        room = chatRooms().find((r) => r.id === normalizedPartner);
+        room = chatRooms().find((r) =>
+          r.type === "group" && r.id === normalizedPartner
+        );
         if (!room) {
           if (
             confirm(
@@ -1490,7 +1545,7 @@ export function Chat() {
           return;
         }
         const _isSelected = selectedRoom() === room.id;
-        if (room.type === "memo") return; // メモはWS対象外
+        if (room.type !== "dm") return; // DM 以外はWS対象外
         if (selectedRoom() === room.id) {
           const prev = messages();
           const lastTs = prev.length > 0
@@ -1530,7 +1585,7 @@ export function Chat() {
       }
 
       // publicMessage 等の将来拡張が来た場合はRESTで取得する
-      if (room.type === "memo") return; // メモはWS対象外
+      if (room.type !== "dm") return; // DM 以外はWS対象外
       const fetched = await fetchMessagesForRoom(room, {
         limit: 1,
         dryRun: true,
@@ -1562,7 +1617,6 @@ export function Chat() {
     adjustHeight(textareaRef);
   });
 
-
   onMount(() => {
     void loadRooms();
   });
@@ -1574,7 +1628,6 @@ export function Chat() {
       },
     ),
   );
-
 
   createEffect(
     on(
@@ -1658,7 +1711,7 @@ export function Chat() {
     globalThis.removeEventListener("resize", checkMobile);
     wsCleanup?.();
     acceptCleanup?.();
-  // no-op: preview poller removed in favor of WS-driven updates
+    // no-op: preview poller removed in favor of WS-driven updates
   });
 
   // APIベースのイベントで更新（WS不要運用向け）
@@ -1878,12 +1931,13 @@ export function Chat() {
                     const me = account();
                     if (!r) return r;
                     const isDm = r.type === "dm";
-                    const looksLikeSelf = me && (r.name === me.displayName || r.name === me.userName);
-                      if (isDm || looksLikeSelf) {
-                        // 選択時に相手ハンドルや自分の名前で上書きしない。
-                        // 表示名が明示的にある場合はそれを使い、なければ空文字にしてタイトルを非表示にする。
-                        return { ...r, name: r.displayName || "" };
-                      }
+                    const looksLikeSelf = me &&
+                      (r.name === me.displayName || r.name === me.userName);
+                    if (isDm || looksLikeSelf) {
+                      // 選択時に相手ハンドルや自分の名前で上書きしない。
+                      // 表示名が明示的にある場合はそれを使い、なければ空文字にしてタイトルを非表示にする。
+                      return { ...r, name: r.displayName || "" };
+                    }
                     return r;
                   })()}
                   onBack={backToRoomList}
@@ -1940,9 +1994,11 @@ export function Chat() {
           const owner = `${user.userName}@${getDomain()}`;
           const id = crypto.randomUUID();
           // membersStr is comma-separated list
-          const members = membersStr.split(",").map((s) => s.trim()).filter(Boolean);
+          const members = membersStr.split(",").map((s) => s.trim()).filter(
+            Boolean,
+          );
           try {
-            await _addRoom(owner, { id, name, members });
+            await _addRoom(owner, { id, name, members, type: "group" });
             selectRoom(id);
           } catch {
             /* ignore */
@@ -2039,34 +2095,68 @@ async function fetchKeepMessages(_handle: string, _params?: unknown) {
   }
 }
 
-async function searchRooms(_handle: string, _opts?: unknown) {
+async function searchRooms(
+  _handle: string,
+  _opts?: { type?: Room["type"]; [key: string]: unknown },
+) {
   try {
-    const res = await apiFetch(
-      `/api/dms?owner=${encodeURIComponent(_handle)}`,
-    );
-    if (!res.ok) return [];
-    return await res.json();
+    const roomType = _opts?.type;
+    if (roomType === "group") {
+      const gres = await apiFetch(
+        `/api/groups?owner=${encodeURIComponent(_handle)}`,
+      );
+      if (!gres.ok) return [];
+      return await gres.json();
+    }
+    if (roomType === "dm" || roomType === undefined) {
+      const dres = await apiFetch(
+        `/api/dms?owner=${encodeURIComponent(_handle)}`,
+      );
+      if (!dres.ok) return [];
+      return await dres.json();
+    }
+    return [];
   } catch {
     return [];
   }
 }
 
 // try to read pending invites for a given room or user
-async function readPending(userId: string, roomId: string): Promise<string[] | undefined> {
+async function readPending(
+  userId: string,
+  roomId: string,
+  type: Room["type"],
+): Promise<string[] | undefined> {
   try {
-    // prefer room-scoped endpoint if available
-    try {
-      const rres = await apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/pendingInvites`);
-      if (rres.ok) {
-        const jr = await rres.json();
-        if (Array.isArray(jr)) return jr.map(String).filter(Boolean);
+    if (type === "group") {
+      try {
+        const rres = await apiFetch(
+          `/api/rooms/${encodeURIComponent(roomId)}/pendingInvites`,
+        );
+        if (rres.ok) {
+          const jr = await rres.json();
+          if (Array.isArray(jr)) return jr.map(String).filter(Boolean);
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
+    } else if (type === "dm") {
+      try {
+        const dres = await apiFetch(
+          `/api/dms/${encodeURIComponent(roomId)}/pendingInvites`,
+        );
+        if (dres.ok) {
+          const jd = await dres.json();
+          if (Array.isArray(jd)) return jd.map(String).filter(Boolean);
+        }
+      } catch {
+        /* ignore */
+      }
     }
-    // fallback to user-scoped pending invites
     try {
-      const ures = await apiFetch(`/api/users/${encodeURIComponent(userId)}/pendingInvites`);
+      const ures = await apiFetch(
+        `/api/users/${encodeURIComponent(userId)}/pendingInvites`,
+      );
       if (!ures.ok) return undefined;
       const ju = await ures.json();
       if (Array.isArray(ju)) return ju.map(String).filter(Boolean);
@@ -2081,15 +2171,28 @@ async function readPending(userId: string, roomId: string): Promise<string[] | u
 
 async function _addRoom(
   _handle: string,
-  _room: { id: string; name: string; members: string[] },
+  _room: {
+    id: string;
+    name: string;
+    members: string[];
+    type: Room["type"];
+  },
   _meta?: unknown,
 ) {
   try {
-    await apiFetch(`/api/dms`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ owner: _handle, ..._room }),
-    });
+    if (_room.type === "dm") {
+      await apiFetch(`/api/dms`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: _handle, ..._room }),
+      });
+    } else if (_room.type === "group") {
+      await apiFetch(`/api/groups`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: _handle, ..._room }),
+      });
+    }
   } catch {
     /* ignore */
   }
