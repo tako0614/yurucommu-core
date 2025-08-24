@@ -133,6 +133,9 @@ export async function sendDirectMessage(
         Array.isArray(attachments) && attachments.length > 0
           ? String((attachments[0] as { mediaType?: string }).mediaType || "")
           : "";
+      const firstAtt = Array.isArray(attachments) && attachments.length > 0
+        ? attachments[0]
+        : undefined;
       if (!hasText && firstMediaType) {
         if (firstMediaType.startsWith("image/")) apType = "image";
         else if (firstMediaType.startsWith("video/")) apType = "video";
@@ -140,13 +143,28 @@ export async function sendDirectMessage(
       } else {
         apType = "note"; // 本文がある場合は Note とする（添付は許容）
       }
-      const payload = {
+      const payload: Record<string, unknown> = {
         from,
         to: t,
         type: apType,
         content,
-        attachments,
       };
+      if (hasText || !firstAtt) {
+        if (attachments && attachments.length > 0) {
+          payload.attachments = attachments;
+        }
+      } else if (firstAtt) {
+        payload.url = (firstAtt as { url?: string }).url;
+        payload.mediaType = (firstAtt as { mediaType?: string }).mediaType;
+        if (typeof (firstAtt as { key?: unknown }).key === "string") {
+          payload.key = (firstAtt as { key: string }).key;
+        }
+        if (typeof (firstAtt as { iv?: unknown }).iv === "string") {
+          payload.iv = (firstAtt as { iv: string }).iv;
+        }
+        const prev = (firstAtt as { preview?: unknown }).preview;
+        if (prev && typeof prev === "object") payload.preview = prev;
+      }
       const res = await apiFetch("/api/dm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

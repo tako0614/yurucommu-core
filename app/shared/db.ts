@@ -77,6 +77,11 @@ export interface DB {
     type: string,
     content?: string,
     attachments?: Record<string, unknown>[],
+    url?: string,
+    mediaType?: string,
+    key?: string,
+    iv?: string,
+    preview?: Record<string, unknown>,
   ): Promise<unknown>;
   listDMsBetween(user1: string, user2: string): Promise<unknown[]>;
   findObjects(

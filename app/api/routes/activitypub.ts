@@ -225,30 +225,51 @@ app.get("/users/:username/outbox", async (c) => {
 app.post("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
   const body = await c.req.json();
-  if (typeof body.type !== "string" || typeof body.content !== "string") {
+  if (typeof body.type !== "string") {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
-  // Message の投稿は outbox では受け付けない
-  if (body.type === "Message") {
+  const allowed = ["Note", "Image", "Video", "Audio", "Document"];
+  if (!allowed.includes(body.type)) {
+    return jsonResponse(c, { error: "Unsupported type" }, 400);
+  }
+  if (body.type === "Note") {
+    if (!(typeof body.content === "string" && body.content.trim())) {
+      return jsonResponse(c, { error: "Invalid body" }, 400);
+    }
+  } else if (
+    !(typeof body.url === "string" && body.url &&
+      typeof body.mediaType === "string" && body.mediaType)
+  ) {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
-  const object = await db.saveObject({
+  const data: Record<string, unknown> = {
     _id: createObjectId(domain),
     type: body.type,
     attributedTo: `https://${domain}/users/${username}`,
-    content: body.content,
     to: body.to ?? [],
     cc: body.cc ?? [],
     extra: body.extra ?? {},
     actor_id: `https://${domain}/users/${username}`,
     aud: { to: body.to ?? [], cc: body.cc ?? [] },
-  }) as {
+  };
+  if (body.type === "Note") {
+    data.content = body.content;
+  } else {
+    data.url = body.url;
+    data.mediaType = body.mediaType;
+    if (typeof body.name === "string") data.name = body.name;
+    if (typeof body.content === "string") data.content = body.content;
+  }
+  const object = await db.saveObject(data) as {
     _id: unknown;
     type?: string;
     content?: string;
+    url?: string;
+    mediaType?: string;
+    name?: string;
     published: unknown;
     extra?: Record<string, unknown>;
     to?: string[];
@@ -262,6 +283,9 @@ app.post("/users/:username/outbox", async (c) => {
       content: object.content ?? "",
       published: object.published,
       extra: object.extra ?? {},
+      url: object.url,
+      mediaType: object.mediaType,
+      name: object.name,
     },
     domain,
     username,

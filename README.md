@@ -176,10 +176,13 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 - `GET /api/dm?user1=<handle>&user2=<handle>` – 2者間 DM の一覧取得
 - `POST /api/dm` – DM 送信（body:
-  `{ from, to, type, content?, attachments? }`。ActivityPub の object
-  はサーバー側で組み立てられます）
+  `{ from, to, type, content?, url?, mediaType?, key?, iv?, preview?, attachments? }`。ActivityPub
+  の object はサーバー側で組み立てられます。本文がない場合は `url` と
+  `mediaType` を指定して画像などをメインコンテンツとして送信できます）
 - `GET /api/users/:user/keep` – TAKO Keep に保存したメモ一覧を取得（添付対応）
-- `POST /api/users/:user/keep` – TAKO Keep へメモを保存（`{ content?, attachments? }`。`attachments` は `/api/files` で取得した URL と mediaType などを配列で指定）
+- `POST /api/users/:user/keep` – TAKO Keep
+  へメモを保存（`{ content?, attachments? }`。`attachments` は `/api/files`
+  で取得した URL と mediaType などを配列で指定）
 - `GET /api/keeps?handle=<user@domain>` – 上記の簡易エイリアス（認証必須）
 - `POST /api/keeps` – 上記の簡易エイリアス（認証必須）
 - `POST /api/files` – ファイルアップロード（HTTP のみ、要ログイン）
