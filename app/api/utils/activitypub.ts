@@ -5,13 +5,6 @@ import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
 
-const SIG_CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
-// ホストごとの署名方式キャッシュ
-const sigCache = new Map<
-  string,
-  { style: "rfc9421" | "cavage"; expires: number }
->();
-
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -32,8 +25,6 @@ async function applySignature(
   key: { id: string; privateKey: string },
   headersToSign: string[],
   headers: Headers,
-  // ActivityPub 実装で広く使われている Cavage 形式を既定にする
-  style: "rfc9421" | "cavage" | "both" = "cavage",
 ): Promise<void> {
   const parsed = new URL(url);
   const host = parsed.hostname;
@@ -42,37 +33,43 @@ async function applySignature(
 
   headers.set("Date", date);
 
-  let digest = "";
-  if (headersToSign.includes("digest")) {
+  let contentDigest = "";
+  if (headersToSign.includes("content-digest")) {
     const digestValue = bufToB64(
       await crypto.subtle.digest("SHA-256", encoder.encode(body)),
     );
-    digest = `SHA-256=${digestValue}`;
-    headers.set("Digest", digest);
+    contentDigest = `sha-256=:${digestValue}:`;
+    headers.set("Content-Digest", contentDigest);
   }
 
-  const fullPath = parsed.pathname + parsed.search;
+  const list = headersToSign.map((h) => `"${h}"`).join(" ");
+  const keyId = `${key.id}#main-key`;
+
+  const sigParams = `(${list});keyid="${keyId}"`; // alg added later after key detection
+
   const lines = headersToSign.map((h) => {
-    if (h === "(request-target)") {
-      return `(request-target): ${method.toLowerCase()} ${fullPath}`;
+    if (h === "@method") {
+      return `"@method": ${method.toLowerCase()}`;
+    }
+    if (h === "@target-uri") {
+      return `"@target-uri": ${url}`;
     }
     if (h === "host") return `host: ${host}`;
     if (h === "date") return `date: ${date}`;
-    if (h === "digest") return `digest: ${digest}`;
+    if (h === "content-digest") return `"content-digest": ${contentDigest}`;
+    if (h === "content-length") {
+      return `"content-length": ${encoder.encode(body).length}`;
+    }
     return `${h}: ${headers.get(h) ?? ""}`;
   });
 
-  const signingString = lines.join("\n");
-
+  let signingString = "";
   const normalizedPrivateKey = ensurePem(key.privateKey, "PRIVATE KEY");
   const keyData = pemToArrayBuffer(normalizedPrivateKey);
   const alg = detectKeyAlgorithm(normalizedPrivateKey);
   let signature: ArrayBuffer;
   let sigAlg = "ed25519";
   if (alg === "rsa") {
-    // ActivityPubで広く利用されているRSA署名は
-    // RSASSA-PKCS1-v1_5（通称 RSA-SHA256）である
-    // RSA-PSSなど他の方式には現状対応していない
     const cryptoKey = await crypto.subtle.importKey(
       "pkcs8",
       keyData,
@@ -80,12 +77,16 @@ async function applySignature(
       false,
       ["sign"],
     );
+    sigAlg = "rsa-sha256";
+    const finalParams = `${sigParams};alg="${sigAlg}"`;
+    lines.push(`"@signature-params": ${finalParams}`);
+    signingString = lines.join("\n");
     signature = await crypto.subtle.sign(
       "RSASSA-PKCS1-v1_5",
       cryptoKey,
       encoder.encode(signingString),
     );
-    sigAlg = "rsa-sha256";
+    headers.set("Signature-Input", `sig1=${finalParams}`);
   } else {
     const cryptoKey = await crypto.subtle.importKey(
       "pkcs8",
@@ -94,29 +95,18 @@ async function applySignature(
       false,
       ["sign"],
     );
+    const finalParams = `${sigParams};alg="${sigAlg}"`;
+    lines.push(`"@signature-params": ${finalParams}`);
+    signingString = lines.join("\n");
     signature = await crypto.subtle.sign(
       "Ed25519",
       cryptoKey,
       encoder.encode(signingString),
     );
+    headers.set("Signature-Input", `sig1=${finalParams}`);
   }
   const signatureB64 = bufToB64(signature);
-  const keyId = `${key.id}#main-key`;
-  if (style === "cavage" || style === "both") {
-    headers.set(
-      "Signature",
-      `keyId="${keyId}",algorithm="${sigAlg}",headers="${
-        headersToSign.join(" ")
-      }",signature="${signatureB64}"`,
-    );
-  }
-  if (style === "rfc9421") {
-    headers.set("Signature", `sig1=:${signatureB64}:`);
-    headers.set(
-      "Signature-Input",
-      `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="${sigAlg}"`,
-    );
-  }
+  headers.set("Signature", `sig1=:${signatureB64}:`);
 }
 
 async function signAndPost(
@@ -133,9 +123,8 @@ async function signAndPost(
     inboxUrl,
     body,
     key,
-    ["(request-target)", "host", "date", "digest"],
+    ["@method", "@target-uri", "host", "date", "content-digest"],
     headers,
-    "cavage",
   );
   return await fetch(inboxUrl, { method: "POST", headers, body });
 }
@@ -303,23 +292,10 @@ function detectKeyAlgorithm(pem: string): "rsa" | "ed25519" {
 }
 
 /** `Signature` ヘッダを key=value 形式に変換 */
-function parseSignatureHeader(header: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  for (const part of header.split(",")) {
-    const eqIndex = part.indexOf("=");
-    if (eqIndex === -1) continue;
-    const k = part.slice(0, eqIndex).trim();
-    const v = part.slice(eqIndex + 1).trim();
-    params[k] = v.replace(/^"|"$/g, "");
-  }
-  return params;
-}
-
 interface ParsedSignature {
   headers: string[];
   signature: string;
   keyId: string;
-  style: "rfc9421" | "cavage";
   params?: string;
 }
 
@@ -327,57 +303,21 @@ interface ParsedSignature {
 export function parseSignature(
   msg: Request | Response,
 ): ParsedSignature | null {
-  const signatureHeader = msg.headers.get("signature");
-  if (signatureHeader && !msg.headers.get("signature-input")) {
-    const parsed = parseSignatureHeader(signatureHeader);
-    if (!parsed.headers || !parsed.signature || !parsed.keyId) return null;
-    return {
-      headers: parsed.headers.split(" "),
-      signature: parsed.signature,
-      keyId: parsed.keyId,
-      style: "cavage",
-    };
-  }
   const sigInput = msg.headers.get("signature-input");
   const sig = msg.headers.get("signature");
   if (!sigInput || !sig) return null;
   const m = sigInput.match(/([^=]+)=\(([^)]+)\)(.*)/);
-  if (!m) {
-    // Signature-Input はあるが形式が不正な場合、Signature ヘッダが cavage 形式で来ている可能性にフォールバック
-    const fallback = parseSignatureHeader(sig);
-    if (!fallback.headers || !fallback.signature || !fallback.keyId) {
-      return null;
-    }
-    return {
-      headers: fallback.headers.split(" "),
-      signature: fallback.signature,
-      keyId: fallback.keyId,
-      style: "cavage",
-    };
-  }
+  if (!m) return null;
   const label = m[1];
   const fields = m[2].split(/\s+/).map((s) => s.replace(/\"/g, ""));
   const rest = m[3];
   const keyIdMatch = rest.match(/keyid=\"([^\"]+)\"/);
   const sigMatch = sig.match(new RegExp(`${label}=:(.+):`));
-  if (!sigMatch || !keyIdMatch) {
-    // Signature-Input があるが Signature が cavage 形式（もしくは label 不一致）の可能性
-    const fallback = parseSignatureHeader(sig);
-    if (!fallback.headers || !fallback.signature || !fallback.keyId) {
-      return null;
-    }
-    return {
-      headers: fallback.headers.split(" "),
-      signature: fallback.signature,
-      keyId: fallback.keyId,
-      style: "cavage",
-    };
-  }
+  if (!sigMatch || !keyIdMatch) return null;
   return {
     headers: fields,
     signature: sigMatch[1],
     keyId: keyIdMatch[1],
-    style: "rfc9421",
     params: `(${m[2]})${rest}`,
   };
 }
@@ -404,12 +344,6 @@ export async function verifyDigest(
   const encoder = new TextEncoder();
   const hash = await crypto.subtle.digest("SHA-256", encoder.encode(body));
   const expectedB64 = bufToB64(hash);
-
-  const legacy = msg.headers.get("digest");
-  if (legacy) {
-    if (legacy === `SHA-256=${expectedB64}`) return true;
-  }
-
   const sf = msg.headers.get("content-digest");
   if (sf) {
     const m = sf.match(/sha-256=:(.+):/i);
@@ -423,40 +357,9 @@ export function buildSigningString(
   msg: Request | Response,
   body: string,
   headers: string[],
-  style: "rfc9421" | "cavage",
-  params?: string,
+  params: string,
 ): string | null {
   const lines: string[] = [];
-  if (style === "cavage") {
-    const url = new URL((msg as Request).url);
-    for (const h of headers) {
-      let value: string | null = null;
-      if (h === "(request-target)") {
-        value = `${
-          (msg as Request).method.toLowerCase()
-        } ${url.pathname}${url.search}`;
-      } else if (h === "host") {
-        value = msg.headers.get("x-forwarded-host") ?? msg.headers.get("host");
-        if (value === null) value = url.host; // プロキシでHostが失われた場合のフォールバック
-      } else if (h === "content-length") {
-        const encoder = new TextEncoder();
-        value = encoder.encode(body).length.toString();
-      } else if (h === "digest") {
-        value = msg.headers.get("digest");
-        if (value === null) {
-          // Content-Digest からのフォールバック（sha-256 のみ対応）
-          const sf = msg.headers.get("content-digest");
-          const m = sf?.match(/sha-256=:(.+):/i);
-          if (m) value = `SHA-256=${m[1]}`;
-        }
-      } else {
-        value = msg.headers.get(h);
-      }
-      if (value === null) return null;
-      lines.push(`${h}: ${value}`);
-    }
-    return lines.join("\n");
-  }
   for (const h of headers) {
     if (h === "@method") {
       if (!(msg instanceof Request)) return null;
@@ -480,7 +383,6 @@ export function buildSigningString(
       lines.push(`${h}: ${v}`);
     }
   }
-  if (!params) return null;
   lines.push(`"@signature-params": ${params}`);
   return lines.join("\n");
 }
@@ -498,17 +400,15 @@ export async function verifyHttpSignature(
 
     // レスポンス側は Digest/Content-Digest を必須にしない
     // （一部の FASP 実装がレスポンスにダイジェストを付けないため）
-    const hasDigestHeader = !!(
-      msg.headers.get("content-digest") || msg.headers.get("digest")
-    );
+    const hasDigestHeader = !!msg.headers.get("content-digest");
     if (hasDigestHeader) {
       if (!await verifyDigest(msg, body)) return false;
     }
+    if (!params.params) return false;
     const signingString = buildSigningString(
       msg,
       body,
       params.headers,
-      params.style,
       params.params,
     );
     if (!signingString) return false;
@@ -947,14 +847,6 @@ export async function fetchJson<T = unknown>(
       privateKey: sys.privateKey,
     };
   }
-  const host = new URL(url).host;
-  const cache = sigCache.get(host);
-  // 既定は Cavage。キャッシュがあれば従う。
-  let style: "rfc9421" | "cavage" = cache && cache.expires > Date.now()
-    ? cache.style
-    : "cavage";
-  let triedRfc = style === "rfc9421";
-  let triedCavage = style === "cavage";
   let res: Response | null = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     const headers = new Headers(init.headers);
@@ -969,27 +861,14 @@ export async function fetchJson<T = unknown>(
       url,
       "",
       signer!,
-      ["(request-target)", "host", "date"],
+      ["@method", "@target-uri", "host", "date"],
       headers,
-      style,
     );
     res = await fetch(url, { ...init, headers });
     if (res.status === 429) {
       const wait = parseRetryAfter(res.headers.get("Retry-After")) ?? 1000;
       await delay(wait);
       continue;
-    }
-    if ((res.status === 401 || res.status === 403)) {
-      if (style === "rfc9421" && !triedCavage) {
-        style = "cavage";
-        triedCavage = true;
-        continue;
-      }
-      if (style === "cavage" && !triedRfc) {
-        style = "rfc9421";
-        triedRfc = true;
-        continue;
-      }
     }
     break;
   }
@@ -1000,7 +879,6 @@ export async function fetchJson<T = unknown>(
       `fetchJson: ${url} ${res.status} ${res.statusText} ${text}`,
     );
   }
-  sigCache.set(host, { style, expires: Date.now() + SIG_CACHE_TTL });
   return await res.json();
 }
 
