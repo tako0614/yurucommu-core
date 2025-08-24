@@ -196,7 +196,7 @@ export function Home() {
   );
 
   return (
-    <div class="bg-[#121212] text-gray-100 flex flex-col">
+    <div class="bg-[#1e1e1e] text-gray-100 flex flex-col">
       {/* 右上のフローティングアイコン（ヘッダーは使わない） */}
       <div class="fixed top-3 right-3 z-20 flex items-center gap-2">
         <Button
