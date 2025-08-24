@@ -672,18 +672,35 @@ export function Chat() {
     const user = account();
     if (!user) return [];
 
-    if (room.type !== "dm" && room.type !== "memo") {
-      // グループメッセージ取得は未実装のため、空配列を返す
+    if (room.type !== "dm" && room.type !== "memo" && room.type !== "group") {
       return [];
     }
 
-    // サーバーの DM API (/api/dm) を用いてメッセージを取得する
+    // サーバーの API を用いてメッセージを取得する
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
       const raw: unknown[] = [];
       if (room.type === "memo") {
         const list = await fetchMemoMessages(selfHandle, params);
         if (Array.isArray(list)) raw.push(...list);
+      } else if (room.type === "group") {
+        try {
+          const qs = new URLSearchParams();
+          if (typeof params?.limit === "number") {
+            qs.set("limit", String(params.limit));
+          }
+          if (params?.before) qs.set("before", params.before);
+          if (params?.after) qs.set("after", params.after);
+          const res = await apiFetch(
+            `/api/groups/${encodeURIComponent(room.name)}/messages?${qs}`,
+          );
+          if (res.ok) {
+            const list = await res.json();
+            if (Array.isArray(list)) raw.push(...list);
+          }
+        } catch {
+          /* ignore */
+        }
       } else {
         const members = (room.members ?? []).filter((m) =>
           !!m && m !== selfHandle

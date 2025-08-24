@@ -55,6 +55,65 @@ app.get("/api/groups", async (c) => {
   return c.json(formatted);
 });
 
+app.get("/api/groups/:name/messages", async (c) => {
+  const name = c.req.param("name");
+  const env = getEnv(c);
+  const db = createDB(env);
+  const domain = getDomain(c);
+  const groupId = `https://${domain}/groups/${name}`;
+  const limit = Number(c.req.query("limit") ?? "0");
+  const before = c.req.query("before");
+  const after = c.req.query("after");
+  let msgs = await db.findMessages({ "aud.to": groupId }) as {
+    _id?: string;
+    actor_id?: string;
+    attributedTo?: string;
+    content?: string;
+    extra?: Record<string, unknown>;
+    url?: string;
+    mediaType?: string;
+    published?: Date;
+  }[];
+  if (before) {
+    const b = new Date(before);
+    msgs = msgs.filter((m) =>
+      new Date(String(m.published)).getTime() < b.getTime()
+    );
+  }
+  if (after) {
+    const a = new Date(after);
+    msgs = msgs.filter((m) =>
+      new Date(String(m.published)).getTime() > a.getTime()
+    );
+  }
+  msgs.sort((a, b) => {
+    return new Date(String(a.published)).getTime() -
+      new Date(String(b.published)).getTime();
+  });
+  if (limit > 0 && msgs.length > limit) {
+    msgs = msgs.slice(msgs.length - limit);
+  }
+  const formatted = msgs.map((m) => ({
+    id: m._id ?? "",
+    from: m.actor_id ?? m.attributedTo ?? "",
+    to: groupId,
+    type: typeof m.extra?.type === "string" ? m.extra.type as string : "note",
+    content: typeof m.content === "string" ? m.content : "",
+    attachments: Array.isArray(m.extra?.attachments)
+      ? m.extra.attachments as Record<string, unknown>[]
+      : undefined,
+    url: typeof m.url === "string" ? m.url : undefined,
+    mediaType: typeof m.mediaType === "string" ? m.mediaType : undefined,
+    key: typeof m.extra?.key === "string" ? m.extra.key as string : undefined,
+    iv: typeof m.extra?.iv === "string" ? m.extra.iv as string : undefined,
+    preview: (m.extra?.preview && typeof m.extra.preview === "object")
+      ? m.extra.preview as Record<string, unknown>
+      : undefined,
+    createdAt: m.published ?? new Date(),
+  }));
+  return c.json(formatted);
+});
+
 app.post(
   "/api/groups",
   zValidator(
