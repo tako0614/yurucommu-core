@@ -91,7 +91,23 @@ export class MongoDB implements DB {
     if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
       data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
     }
-    if (data.type === "Note") {
+    if (data.type === "Attachment") {
+      const doc = new Attachment({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        extra: data.extra ?? {},
+      });
+      if (this.env["DB_MODE"] === "host") {
+        // ホストモードではテナント識別のため環境変数を伝搬する
+        (doc as unknown as { $locals?: { env?: Record<string, string> } })
+          .$locals = { env: this.env };
+      }
+      await doc.save();
+      return doc.toObject();
+    }
+    const objectType = typeof data.type === "string" ? data.type : "Note";
+    if (objectType === "Note") {
       const doc = new Note({
         _id: data._id,
         attributedTo: String(data.attributedTo),
@@ -108,39 +124,32 @@ export class MongoDB implements DB {
       await doc.save();
       return doc.toObject();
     }
-    if (data.type === "Message") {
-      const doc = new Message({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        content: String(data.content ?? ""),
-        extra: data.extra ?? {},
-        published: data.published ?? new Date(),
-        aud: data.aud ?? { to: [], cc: [] },
-      });
-      if (this.env["DB_MODE"] === "host") {
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
-      await doc.save();
-      return doc.toObject();
+    const allowed = ["Image", "Video", "Audio", "Document"] as const;
+    if (!allowed.includes(objectType as typeof allowed[number])) {
+      throw new Error(`unsupported object type: ${objectType}`);
     }
-    if (data.type === "Attachment") {
-      const doc = new Attachment({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        extra: data.extra ?? {},
-      });
-      if (this.env["DB_MODE"] === "host") {
-        // ホストモードではテナント識別のため環境変数を伝搬する
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
-      await doc.save();
-      return doc.toObject();
+    const url = typeof data.url === "string" ? data.url : "";
+    const doc = new Message({
+      _id: data._id,
+      type: objectType,
+      attributedTo: String(data.attributedTo),
+      actor_id: String(data.actor_id),
+      content: String(data.content ?? ""),
+      url,
+      mediaType: typeof data.mediaType === "string"
+        ? data.mediaType
+        : undefined,
+      name: typeof data.name === "string" ? data.name : undefined,
+      extra: data.extra ?? {},
+      published: data.published ?? new Date(),
+      aud: data.aud ?? { to: [], cc: [] },
+    });
+    if (this.env["DB_MODE"] === "host") {
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
     }
-    return null;
+    await doc.save();
+    return doc.toObject();
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
@@ -386,9 +395,24 @@ export class MongoDB implements DB {
     type: string,
     content?: string,
     attachments?: Record<string, unknown>[],
+    url?: string,
+    mediaType?: string,
+    key?: string,
+    iv?: string,
+    preview?: Record<string, unknown>,
   ) {
     const extra: Record<string, unknown> = { type, dm: true };
+    const objectType = type === "image"
+      ? "Image"
+      : type === "video"
+      ? "Video"
+      : type === "file"
+      ? "Document"
+      : "Note";
     if (attachments) extra.attachments = attachments;
+    if (key) extra.key = key;
+    if (iv) extra.iv = iv;
+    if (preview) extra.preview = preview;
     const domain = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
     const fromUrl = from.includes("://")
       ? from
@@ -396,9 +420,12 @@ export class MongoDB implements DB {
     const id = domain ? createObjectId(domain) : undefined;
     const doc = new Message({
       _id: id,
+      type: objectType,
       attributedTo: fromUrl,
       actor_id: fromUrl,
       content: content ?? "",
+      url: objectType === "Note" ? undefined : url,
+      mediaType: objectType === "Note" ? undefined : mediaType,
       extra,
       aud: { to: [to], cc: [] },
     });
@@ -415,6 +442,11 @@ export class MongoDB implements DB {
       type,
       content: content ?? "",
       attachments,
+      url,
+      mediaType,
+      key,
+      iv,
+      preview,
       createdAt: obj.published as Date,
     };
   }
@@ -471,6 +503,13 @@ export class MongoDB implements DB {
       attachments: d.extra?.attachments as
         | Record<string, unknown>[]
         | undefined,
+      url: typeof d.url === "string" ? d.url : undefined,
+      mediaType: typeof d.mediaType === "string" ? d.mediaType : undefined,
+      key: typeof d.extra?.key === "string" ? d.extra.key : undefined,
+      iv: typeof d.extra?.iv === "string" ? d.extra.iv : undefined,
+      preview: (d.extra?.preview && typeof d.extra.preview === "object")
+        ? d.extra.preview as Record<string, unknown>
+        : undefined,
       createdAt: d.published as Date ?? new Date(),
     }));
   }
@@ -488,11 +527,15 @@ export class MongoDB implements DB {
         .lean();
       result.push(...notes.map((n) => ({ ...n, type: "Note" })));
     }
-    if (!type || type === "Message") {
-      const messages = await this.withTenant(Message.find({ ...rest }))
+    if (!type || type !== "Note") {
+      const messageFilter = { ...rest } as Record<string, unknown>;
+      if (type && type !== "Note") messageFilter.type = type;
+      const messages = await this.withTenant(Message.find({ ...messageFilter }))
         .sort(sort ?? {})
         .lean();
-      result.push(...messages.map((m) => ({ ...m, type: "Message" })));
+      result.push(
+        ...messages.map((m) => ({ ...m, type: m.type ?? "Message" })),
+      );
     }
     return result;
   }
@@ -527,10 +570,18 @@ export class MongoDB implements DB {
       this.withTenant(query);
       return await query;
     }
-    if (filter.type === "Message") {
+    if (filter.type && filter.type !== "Note") {
       const query = Message.deleteMany({ ...filter });
       this.withTenant(query);
       return await query;
+    }
+    if (!filter.type) {
+      const noteQuery = Note.deleteMany({ ...filter });
+      this.withTenant(noteQuery);
+      const msgQuery = Message.deleteMany({ ...filter });
+      this.withTenant(msgQuery);
+      const [nr, mr] = await Promise.all([noteQuery, msgQuery]);
+      return { deletedCount: (nr.deletedCount ?? 0) + (mr.deletedCount ?? 0) };
     }
     return { deletedCount: 0 };
   }

@@ -752,7 +752,9 @@ export function Chat() {
         const normalizedFrom = normalizeActor(from) || from;
         // attachments/attachment の両方に対応し、URL がない場合は
         // /api/files/messages/:messageId/:index をフォールバックとして構築
-  const messageId = String(m._id ?? m.id ?? `${normalizedFrom}:${created}`);
+        const messageId = String(
+          m._id ?? m.id ?? `${normalizedFrom}:${created}`,
+        );
         const rawAtt = (m as { attachments?: unknown; attachment?: unknown })
           .attachments ?? (m as { attachment?: unknown }).attachment;
         const attachments = Array.isArray(rawAtt)
@@ -811,6 +813,49 @@ export function Chat() {
                 | undefined;
             } => !!a)
           : [];
+        if (attachments.length === 0) {
+          const url = typeof (m as { url?: unknown }).url === "string"
+            ? (m as { url: string }).url
+            : undefined;
+          const mediaType = typeof (m as { mediaType?: unknown }).mediaType ===
+              "string"
+            ? (m as { mediaType: string }).mediaType
+            : undefined;
+          if (url && mediaType) {
+            const key = typeof (m as { key?: unknown }).key === "string"
+              ? (m as { key: string }).key
+              : undefined;
+            const iv = typeof (m as { iv?: unknown }).iv === "string"
+              ? (m as { iv: string }).iv
+              : undefined;
+            const rawPrev = (m as { preview?: unknown }).preview;
+            let preview:
+              | { url?: string; data?: string; mediaType?: string }
+              | undefined;
+            if (rawPrev && typeof rawPrev === "object") {
+              const pUrl =
+                typeof (rawPrev as { url?: unknown }).url === "string"
+                  ? (rawPrev as { url: string }).url
+                  : undefined;
+              const pData =
+                typeof (rawPrev as { data?: unknown }).data === "string"
+                  ? (rawPrev as { data: string }).data
+                  : undefined;
+              const pMediaType =
+                typeof (rawPrev as { mediaType?: unknown }).mediaType ===
+                    "string"
+                  ? (rawPrev as { mediaType: string }).mediaType
+                  : undefined;
+              if (pUrl || pData) {
+                preview = { url: pUrl, data: pData, mediaType: pMediaType };
+              }
+            }
+            attachments.push({ url, data: undefined, mediaType, preview });
+            // 暗号化情報は preview に含めていないため、ダウンロード時に別途参照
+            if (key) (attachments[0] as Record<string, unknown>).key = key;
+            if (iv) (attachments[0] as Record<string, unknown>).iv = iv;
+          }
+        }
         return {
           id: String(m._id ?? m.id ?? `${normalizedFrom}:${created}`),
           author: normalizedFrom,
@@ -932,7 +977,7 @@ export function Chat() {
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
-  setRoomsReady(false);
+    setRoomsReady(false);
     const rooms: Room[] = [
       {
         id: "memo",
@@ -1032,8 +1077,8 @@ export function Chat() {
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
     upsertRooms(unique);
-  // mark rooms as loaded so URL-selected room can be validated
-  setRoomsReady(true);
+    // mark rooms as loaded so URL-selected room can be validated
+    setRoomsReady(true);
     // 初期表示のため、各ルームの最新メッセージをバックグラウンドで取得し一覧のプレビューを更新
     // （選択中ルーム以外は本文状態には反映せず、lastMessage/lastMessageTime のみ更新）
     void (async () => {
@@ -1569,7 +1614,7 @@ export function Chat() {
         }
       }
 
-  const isMe = normFrom2 === normSelf2;
+      const isMe = normFrom2 === normSelf2;
       if (!isMe) updatePeerHandle(room.id, data.from);
       const selfH3 = `${user.userName}@${getDomain()}`;
       const baseName3 = room.displayName ?? room.name;

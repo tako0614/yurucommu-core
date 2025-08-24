@@ -345,7 +345,9 @@ export function parseSignature(
   if (!m) {
     // Signature-Input はあるが形式が不正な場合、Signature ヘッダが cavage 形式で来ている可能性にフォールバック
     const fallback = parseSignatureHeader(sig);
-    if (!fallback.headers || !fallback.signature || !fallback.keyId) return null;
+    if (!fallback.headers || !fallback.signature || !fallback.keyId) {
+      return null;
+    }
     return {
       headers: fallback.headers.split(" "),
       signature: fallback.signature,
@@ -361,7 +363,9 @@ export function parseSignature(
   if (!sigMatch || !keyIdMatch) {
     // Signature-Input があるが Signature が cavage 形式（もしくは label 不一致）の可能性
     const fallback = parseSignatureHeader(sig);
-    if (!fallback.headers || !fallback.signature || !fallback.keyId) return null;
+    if (!fallback.headers || !fallback.signature || !fallback.keyId) {
+      return null;
+    }
     return {
       headers: fallback.headers.split(" "),
       signature: fallback.signature,
@@ -789,12 +793,15 @@ export function buildActivityFromStored(
     content: string;
     published: unknown;
     extra: Record<string, unknown>;
+    url?: string;
+    mediaType?: string;
+    name?: string;
   },
   domain: string,
   username: string,
   withContext = false,
 ) {
-  const base = {
+  const base: Record<string, unknown> = {
     id: `https://${domain}/objects/${obj._id}`,
     type: obj.type,
     attributedTo: `https://${domain}/users/${username}`,
@@ -804,6 +811,9 @@ export function buildActivityFromStored(
       : obj.published,
     ...obj.extra,
   };
+  if (obj.url) base.url = obj.url;
+  if (obj.mediaType) base.mediaType = obj.mediaType;
+  if (obj.name) base.name = obj.name;
   return withContext
     ? { "@context": "https://www.w3.org/ns/activitystreams", ...base }
     : base;

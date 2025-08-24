@@ -27,6 +27,18 @@ app.post(
       to: z.string(),
       type: z.string(),
       content: z.string().optional(),
+      url: z.string().optional(),
+      mediaType: z.string().optional(),
+      key: z.string().optional(),
+      iv: z.string().optional(),
+      preview: z.object({
+        url: z.string(),
+        mediaType: z.string().optional(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        key: z.string().optional(),
+        iv: z.string().optional(),
+      }).optional(),
       attachments: z.array(
         z.object({
           url: z.string(),
@@ -36,13 +48,37 @@ app.post(
     }),
   ),
   async (c) => {
-    const { from, to, type, content, attachments } = c.req.valid("json") as {
+    const {
+      from,
+      to,
+      type,
+      content,
+      url,
+      mediaType,
+      key,
+      iv,
+      preview,
+      attachments,
+    } = c.req.valid("json") as {
       from: string;
       to: string;
       type: string;
       content?: string;
+      url?: string;
+      mediaType?: string;
+      key?: string;
+      iv?: string;
+      preview?: Record<string, unknown>;
       attachments?: Record<string, unknown>[];
     };
+    if (
+      type === "note"
+        ? !(typeof content === "string" && content.trim())
+        : !(typeof url === "string" && url && typeof mediaType === "string" &&
+          mediaType)
+    ) {
+      return c.json({ error: "Invalid body" }, 400);
+    }
     const env = getEnv(c);
     const db = createDB(env);
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
@@ -64,6 +100,11 @@ app.post(
       type,
       content,
       attachments,
+      url,
+      mediaType,
+      key,
+      iv,
+      preview,
     );
     (payload as { from: string }).from = fromHandle;
     await Promise.all([
@@ -112,39 +153,58 @@ app.post(
         const asAttachments = Array.isArray(attachments)
           ? attachments
             .map((a) => {
-              const url = typeof (a as { url?: unknown }).url === "string"
+              const u = typeof (a as { url?: unknown }).url === "string"
                 ? (a as { url: string }).url
                 : "";
-              const mediaType =
+              const mType =
                 typeof (a as { mediaType?: unknown }).mediaType === "string"
                   ? (a as { mediaType: string }).mediaType
                   : undefined;
-              if (!url) return null;
-              const t = mediaType?.startsWith("image/")
+              if (!u) return null;
+              const t = mType?.startsWith("image/")
                 ? "Image"
-                : mediaType?.startsWith("video/")
+                : mType?.startsWith("video/")
                 ? "Video"
-                : mediaType?.startsWith("audio/")
+                : mType?.startsWith("audio/")
                 ? "Audio"
                 : "Document";
-              return { type: t, url, mediaType } as Record<string, unknown>;
+              return { type: t, url: u, mediaType: mType } as Record<
+                string,
+                unknown
+              >;
             })
             .filter(Boolean) as Record<string, unknown>[]
           : undefined;
 
+        const objectType = type === "image"
+          ? "Image"
+          : type === "video"
+          ? "Video"
+          : type === "file"
+          ? "Document"
+          : "Note";
         const obj: Record<string, unknown> = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: objectId,
-          type: type && type !== "note"
-            ? type.charAt(0).toUpperCase() + type.slice(1)
-            : "Note",
+          type: objectType,
           attributedTo: actorId,
-          content: content ?? "",
           to: [to],
           extra: { dm: true },
         };
-        if (asAttachments && asAttachments.length > 0) {
-          obj.attachment = asAttachments;
+        if (objectType === "Note") {
+          obj.content = content ?? "";
+          if (asAttachments && asAttachments.length > 0) {
+            obj.attachment = asAttachments;
+          }
+        } else if (url) {
+          obj.url = url;
+          if (mediaType) obj.mediaType = mediaType;
+          if (content) obj.name = content;
+        } else if (asAttachments && asAttachments.length > 0) {
+          const att = asAttachments[0];
+          obj.url = att.url;
+          if (att.mediaType) obj.mediaType = att.mediaType;
+          if (content) obj.name = content;
         }
 
         const activity = {
