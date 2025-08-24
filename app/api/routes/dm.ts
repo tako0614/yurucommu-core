@@ -6,6 +6,12 @@ import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
 import { sendToUser } from "./ws.ts";
 import { getUserInfo } from "../services/user-info.ts";
+import {
+  createActivityId,
+  createObjectId,
+  deliverActivityPubObject,
+  getDomain as apGetDomain,
+} from "../utils/activitypub.ts";
 
 // DM 用のシンプルな REST エンドポイント
 
@@ -69,6 +75,88 @@ app.post(
     ]);
     sendToUser(to, { type: "dm", payload });
     sendToUser(from, { type: "dm", payload });
+
+    // 外部宛てなら ActivityPub で配送する
+    try {
+      const localDomain = apGetDomain(c);
+      // 宛先のホスト名を推定（URL か user@host）
+      const toHost = (() => {
+        try {
+          if (to.startsWith("http")) return new URL(to).hostname;
+          if (to.includes("@")) return to.split("@")[1];
+        } catch {
+          /* noop */
+        }
+        return "";
+      })();
+
+      // 送信者はローカルユーザーのみを許可（鍵を使って署名するため）
+      const fromUserName = (() => {
+        if (from.includes("@")) {
+          const [name, host] = from.split("@");
+          return host === localDomain ? name : "";
+        }
+        return from; // ローカル名
+      })();
+
+      if (toHost && toHost !== localDomain && fromUserName) {
+        // ActivityPub Create(Object) を構築
+        const actorId = `https://${localDomain}/users/${encodeURIComponent(fromUserName)}`;
+        const objectId = createObjectId(localDomain);
+        const activityId = createActivityId(localDomain);
+
+        // 添付は ActivityStreams の attachment として送る
+        const asAttachments = Array.isArray(attachments)
+          ? attachments
+            .map((a) => {
+              const url = typeof (a as { url?: unknown }).url === "string"
+                ? (a as { url: string }).url
+                : "";
+              const mediaType = typeof (a as { mediaType?: unknown }).mediaType === "string"
+                ? (a as { mediaType: string }).mediaType
+                : undefined;
+              if (!url) return null;
+              const t = mediaType?.startsWith("image/")
+                ? "Image"
+                : mediaType?.startsWith("video/")
+                ? "Video"
+                : mediaType?.startsWith("audio/")
+                ? "Audio"
+                : "Document";
+              return { type: t, url, mediaType } as Record<string, unknown>;
+            })
+            .filter(Boolean) as Record<string, unknown>[]
+          : undefined;
+
+        const obj: Record<string, unknown> = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: objectId,
+          type: type && type !== "note" ? type.charAt(0).toUpperCase() + type.slice(1) : "Note",
+          attributedTo: actorId,
+          content: content ?? "",
+          to: [to],
+          extra: { dm: true },
+        };
+        if (asAttachments && asAttachments.length > 0) obj.attachment = asAttachments;
+
+        const activity = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: activityId,
+          type: "Create" as const,
+          actor: actorId,
+          to: [to],
+          object: obj,
+        };
+
+        // deliverActivityPubObject は acct 形式（user@host）も解決可能
+        await deliverActivityPubObject([to], activity, fromUserName, localDomain, env)
+          .catch((err) => {
+            console.error("DM delivery failed:", err);
+          });
+      }
+    } catch (err) {
+      console.error("/api/dm ActivityPub delivery error:", err);
+    }
     return c.json(payload);
   },
 );
