@@ -13,7 +13,7 @@ import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import { Trends } from "./microblog/Trends.tsx";
 import SwipeTabs from "./ui/SwipeTabs.tsx";
-import { Skeleton } from "./ui";
+import { Skeleton } from "./ui/index.ts";
 import { createDelayedVisibility } from "../utils/ui.ts";
 import { microblogPostLimitState } from "../states/settings.ts";
 import {

@@ -323,6 +323,9 @@ app.patch(
     const update = c.req.valid("json") as Record<string, unknown>;
     const updated = await db.updateGroupByName(name, update);
     if (!updated) return c.json({ error: "見つかりません" }, 404);
+    if (!updated.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    }
     const actor: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Group",
@@ -376,6 +379,9 @@ app.post(
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (group.allowInvites === false) {
       return c.json({ error: "招待が禁止されています" }, 400);
+    }
+    if (!group.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     }
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
@@ -444,6 +450,9 @@ app.post(
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (!isOwnedGroup(group, domain, name)) {
       return c.json({ error: "他ホストのグループです" }, 403);
+    }
+    if (!group.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     }
     const approval = await Approval.findOne({
       groupName: name,
@@ -603,6 +612,7 @@ app.post("/groups/:name/inbox", async (c) => {
       { accepted: true },
     ).catch(() => {});
     const accept = createAcceptActivity(domain, groupId, activity);
+    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     await deliverActivityPubObject(
       [activity.actor],
       accept,
@@ -630,6 +640,7 @@ app.post("/groups/:name/inbox", async (c) => {
       { accepted: true },
     ).catch(() => {});
     const accept = createAcceptActivity(domain, groupId, activity);
+    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     await deliverActivityPubObject(
       [activity.actor],
       accept,
@@ -693,16 +704,18 @@ app.post("/groups/:name/inbox", async (c) => {
       actor: groupId,
       object: activity.object,
     };
-    await db.pushGroupOutbox(name, announceBase);
+  await db.pushGroupOutbox(name, announceBase);
 
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
+    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    const gpKey: string = group.privateKey;
     await Promise.all(
       group.followers.map((recipient: string) =>
         sendActivityPubObject(
           recipient,
           announceBase,
-          { actorId: groupId, privateKey: group.privateKey },
+          { actorId: groupId, privateKey: gpKey },
           domain,
           env,
         )

@@ -210,7 +210,10 @@ app.post("/api/fasp/announcements", async (c) => {
     }/data_sharing/v0/announcements`;
     const res = await fetch(url, { method: "POST", headers, body });
     const text = await res.text();
-    return c.body(text, res.status, Object.fromEntries(res.headers));
+    return new Response(text, {
+      status: res.status,
+      headers: Object.fromEntries(res.headers),
+    });
   } catch (e) {
     return c.json({ error: String(e) }, 500);
   }
@@ -530,7 +533,10 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
       verifyResponseSignature: false,
     });
     const text = await res.text();
-    return c.body(text, res.status, Object.fromEntries(res.headers));
+    return new Response(text, {
+      status: res.status,
+      headers: Object.fromEntries(res.headers),
+    });
   } catch (e) {
     return c.json({ error: String(e) }, 502);
   }
@@ -542,10 +548,11 @@ app.get("/api/fasp/settings", async (c) => {
   const db = createDB(env);
   const mongo = await db.getDatabase();
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const doc = await mongo.collection("fasp_client_settings").findOne({
-    _id: "default",
-    tenant_id: tenantId,
-  });
+  // deno-lint-ignore no-explicit-any
+  const _settingsFilter: any = { _id: "default", tenant_id: tenantId };
+  const doc = await mongo.collection("fasp_client_settings").findOne(
+    _settingsFilter,
+  );
   return c.json({
     searchServerId: doc?.searchServerId ?? null,
     shareEnabled: doc?.shareEnabled ?? true,
@@ -579,8 +586,10 @@ app.put("/api/fasp/settings", async (c) => {
       }
     }
     const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  // deno-lint-ignore no-explicit-any
+  const _settingsFilter: any = { _id: "default", tenant_id: tenantId };
     await mongo.collection("fasp_client_settings").updateOne(
-      { _id: "default", tenant_id: tenantId },
+      _settingsFilter,
       {
         $set: { ...update, updatedAt: new Date() },
         $setOnInsert: {
