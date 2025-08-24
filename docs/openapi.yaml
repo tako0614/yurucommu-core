@@ -686,6 +686,10 @@ paths:
                     type: string
                   icon:
                     type: string
+                  members:
+                    type: array
+                    items:
+                      type: string
     post:
       summary: グループ作成
       requestBody:

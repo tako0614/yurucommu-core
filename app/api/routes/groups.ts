@@ -50,6 +50,7 @@ app.get("/api/groups", async (c) => {
       id: `https://${domain}/groups/${g.groupName}`,
       name: g.groupName,
       icon,
+      members: g.followers, // メンバー一覧
     };
   });
   return c.json(formatted);
