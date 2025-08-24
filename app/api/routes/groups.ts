@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
-import Group from "../models/takos/group.ts";
 import Invite from "../models/takos/invite.ts";
 import Approval from "../models/takos/approval.ts";
 import {
@@ -14,24 +13,11 @@ import { sendActivityPubObject } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "../../shared/config.ts";
 import { createDB } from "../DB/mod.ts";
+import type { GroupDoc } from "../../shared/types.ts";
 
 const app = new Hono();
 
 type ActivityPubObject = unknown; // minimal placeholder for mixed fields
-
-interface GroupDoc {
-  groupName: string;
-  displayName?: string;
-  summary?: string;
-  icon?: ActivityPubObject | null;
-  image?: ActivityPubObject | null;
-  membershipPolicy?: string;
-  visibility?: string;
-  allowInvites?: boolean;
-  followers: string[];
-  outbox: ActivityPubObject[];
-  save: () => Promise<void>;
-}
 
 function isOwnedGroup(
   group: GroupDoc & { tenant_id?: string },
@@ -49,7 +35,9 @@ app.use("/api/groups/*", authRequired);
 app.get("/api/groups", async (c) => {
   const owner = c.req.query("owner");
   if (!owner) return c.json({ error: "owner is required" }, 400);
-  const groups = await Group.find({ followers: owner }).lean() as unknown as GroupDoc[];
+  const env = getEnv(c);
+  const db = createDB(env);
+  const groups = await db.listGroups(owner) as GroupDoc[];
   const domain = getDomain(c);
   const formatted = groups.map((g) => {
     const icon = typeof g.icon === "string"
@@ -83,6 +71,8 @@ app.post(
   ),
   async (c) => {
     const body = c.req.valid("json") as Record<string, unknown>;
+    const env = getEnv(c);
+    const db = createDB(env);
     // sanitize inputs and provide sensible defaults when missing/empty
     const rawGroupName = typeof body.groupName === "string"
       ? body.groupName.trim()
@@ -99,13 +89,15 @@ app.post(
         // check existence
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore: lean() return typing
-        exists = await Group.findOne({ groupName }).lean();
+        exists = await db.findGroupByName(groupName);
         attempts++;
       } while (exists && attempts < 5);
-      if (exists) return c.json({ error: "groupName collision, try again" }, 500);
+      if (exists) {
+        return c.json({ error: "groupName collision, try again" }, 500);
+      }
     } else {
       // user provided a name — if it exists, fail with 400 to avoid silently changing it
-      const exists = await Group.findOne({ groupName }).lean();
+      const exists = await db.findGroupByName(groupName);
       if (exists) return c.json({ error: "既に存在します" }, 400);
     }
 
@@ -117,11 +109,17 @@ app.post(
       displayName = groupName;
     }
 
-  const summary = typeof body.summary === "string" ? body.summary : undefined;
-  const membershipPolicy = typeof body.membershipPolicy === "string" ? body.membershipPolicy : undefined;
-  const visibility = typeof body.visibility === "string" ? body.visibility : undefined;
-  const allowInvites = typeof body.allowInvites === "boolean" ? body.allowInvites : undefined;
-    const group = new Group({
+    const summary = typeof body.summary === "string" ? body.summary : undefined;
+    const membershipPolicy = typeof body.membershipPolicy === "string"
+      ? body.membershipPolicy
+      : undefined;
+    const visibility = typeof body.visibility === "string"
+      ? body.visibility
+      : undefined;
+    const allowInvites = typeof body.allowInvites === "boolean"
+      ? body.allowInvites
+      : undefined;
+    await db.createGroup({
       groupName,
       displayName,
       summary,
@@ -129,7 +127,6 @@ app.post(
       visibility,
       allowInvites,
     });
-    await group.save();
     const domain = getDomain(c);
     return c.json({ id: `https://${domain}/groups/${groupName}` }, 201);
   },
@@ -152,9 +149,9 @@ app.patch(
   async (c) => {
     const name = c.req.param("name");
     const update = c.req.valid("json") as Record<string, unknown>;
-    const group = await Group.findOneAndUpdate({ groupName: name }, update, {
-      new: true,
-    });
+    const env = getEnv(c);
+    const db = createDB(env);
+    const group = await db.updateGroupByName(name, update);
     if (!group) return c.json({ error: "見つかりません" }, 404);
     return c.json({ ok: true });
   },
@@ -174,7 +171,9 @@ app.patch(
   async (c) => {
     const name = c.req.param("name");
     const domain = getDomain(c);
-    const group = await Group.findOne({ groupName: name }) as
+    const env = getEnv(c);
+    const db = createDB(env);
+    const group = await db.findGroupByName(name) as
       | (GroupDoc & { tenant_id?: string })
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
@@ -182,29 +181,18 @@ app.patch(
       return c.json({ error: "他ホストのグループです" }, 403);
     }
     const update = c.req.valid("json") as Record<string, unknown>;
-    if (update.displayName !== undefined) {
-      group.displayName = String(update.displayName);
-    }
-    if (update.summary !== undefined) {
-      group.summary = String(update.summary);
-    }
-    if (update.icon !== undefined) {
-      group.icon = update.icon as ActivityPubObject;
-    }
-    if (update.image !== undefined) {
-      group.image = update.image as ActivityPubObject;
-    }
-    await group.save();
+    const updated = await db.updateGroupByName(name, update);
+    if (!updated) return c.json({ error: "見つかりません" }, 404);
     const actor: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Group",
       id: `https://${domain}/groups/${name}`,
-      name: group.displayName,
+      name: updated.displayName,
       preferredUsername: name,
-      summary: group.summary,
+      summary: updated.summary,
     };
-    if (group.icon) actor.icon = group.icon;
-    if (group.image) actor.image = group.image;
+    if (updated.icon) actor.icon = updated.icon;
+    if (updated.image) actor.image = updated.image;
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       id: `https://${domain}/activities/${crypto.randomUUID()}`,
@@ -213,9 +201,8 @@ app.patch(
       to: [`https://${domain}/groups/${name}/followers`],
       object: actor,
     };
-    const env = getEnv(c);
     await deliverActivityPubObject(
-      group.followers,
+      updated.followers,
       activity,
       "system",
       domain,
@@ -231,7 +218,9 @@ app.post(
   async (c) => {
     const name = c.req.param("name");
     const { actor } = c.req.valid("json") as { actor: string };
-    const group = await Group.findOne({ groupName: name }) as GroupDoc | null;
+    const env = getEnv(c);
+    const db = createDB(env);
+    const group = await db.findGroupByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (group.allowInvites === false) {
       return c.json({ error: "招待が禁止されています" }, 400);
@@ -247,13 +236,11 @@ app.post(
       target: groupId,
       to: [actor],
     };
-    const env = getEnv(c);
     await sendActivityPubObject(actor, activity, "system", domain, env);
     const inv = new Invite({ groupName: name, actor, inviter: groupId });
     await inv.save().catch(() => {});
     if (actor.startsWith(`https://${domain}/@`)) {
       const username = actor.substring(`https://${domain}/@`.length);
-      const db = createDB(env);
       const acc = await db.findAccountByUserName(username);
       if (acc) {
         await db.createNotification(
@@ -282,7 +269,9 @@ app.post(
     };
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
-    const group = await Group.findOne({ groupName: name }) as
+    const env = getEnv(c);
+    const db = createDB(env);
+    const group = await db.findGroupByName(name) as
       | (GroupDoc & { tenant_id?: string })
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
@@ -296,11 +285,10 @@ app.post(
     if (!approval) return c.json({ error: "見つかりません" }, 404);
     if (accept) {
       if (!group.followers.includes(actor)) {
-        group.followers.push(actor);
-        await group.save();
+        await db.addGroupFollower(name, actor);
       }
       const acc = createAcceptActivity(domain, groupId, approval.activity);
-      await deliverActivityPubObject([actor], acc, "system", domain, getEnv(c));
+      await deliverActivityPubObject([actor], acc, "system", domain, env);
     } else {
       const reject = {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -315,7 +303,7 @@ app.post(
         reject,
         "system",
         domain,
-        getEnv(c),
+        env,
       );
     }
     await approval.deleteOne();
@@ -325,9 +313,9 @@ app.post(
 
 app.get("/groups/:name", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as
-    | GroupDoc
-    | null;
+  const env = getEnv(c);
+  const db = createDB(env);
+  const group = await db.findGroupByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   const actor: Record<string, unknown> = {
@@ -348,9 +336,9 @@ app.get("/groups/:name", async (c) => {
 
 app.get("/groups/:name/followers", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as
-    | GroupDoc
-    | null;
+  const env = getEnv(c);
+  const db = createDB(env);
+  const group = await db.findGroupByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -368,9 +356,9 @@ app.get("/groups/:name/followers", async (c) => {
 
 app.get("/groups/:name/outbox", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }).lean() as
-    | GroupDoc
-    | null;
+  const env = getEnv(c);
+  const db = createDB(env);
+  const group = await db.findGroupByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -388,10 +376,11 @@ app.get("/groups/:name/outbox", async (c) => {
 
 app.post("/groups/:name/inbox", async (c) => {
   const name = c.req.param("name");
-  const group = await Group.findOne({ groupName: name }) as GroupDoc | null;
+  const env = getEnv(c);
+  const db = createDB(env);
+  const group = await db.findGroupByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
-  const env = getEnv(c);
   const parsed = await parseActivityRequest(c);
   if (!parsed) return c.json({ error: "署名エラー" }, 401);
   const { activity } = parsed;
@@ -429,8 +418,7 @@ app.post("/groups/:name/inbox", async (c) => {
       return c.json({ ok: true });
     }
     if (!group.followers.includes(activity.actor)) {
-      group.followers.push(activity.actor);
-      await group.save();
+      await db.addGroupFollower(name, activity.actor);
     }
     await Invite.findOneAndUpdate(
       { groupName: name, actor: activity.actor },
@@ -457,8 +445,7 @@ app.post("/groups/:name/inbox", async (c) => {
       return c.json({ ok: true });
     }
     if (!group.followers.includes(activity.actor)) {
-      group.followers.push(activity.actor);
-      await group.save();
+      await db.addGroupFollower(name, activity.actor);
     }
     await Invite.findOneAndUpdate(
       { groupName: name, actor: activity.actor },
@@ -528,8 +515,7 @@ app.post("/groups/:name/inbox", async (c) => {
       actor: groupId,
       object: activity.object,
     };
-    group.outbox.push(announceBase);
-    await group.save();
+    await db.pushGroupOutbox(name, announceBase);
 
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
@@ -553,11 +539,7 @@ app.post("/groups/:name/inbox", async (c) => {
       `https://${domain}/groups/${name}` &&
     typeof activity.actor === "string"
   ) {
-    const idx = group.followers.indexOf(activity.actor);
-    if (idx >= 0) {
-      group.followers.splice(idx, 1);
-      await group.save();
-    }
+    await db.removeGroupFollower(name, activity.actor);
     return c.json({ ok: true });
   }
 

@@ -15,11 +15,13 @@ import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";
 import Tenant from "../models/takos/tenant.ts";
 import DirectMessage from "../models/takos/direct_message.ts";
+import Group from "../models/takos/group.ts";
 import mongoose from "mongoose";
 import type { DB, ListOpts } from "../../shared/db.ts";
 import type {
   AccountDoc,
   DirectMessageDoc,
+  GroupDoc,
   SessionDoc,
 } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
@@ -576,6 +578,65 @@ export class MongoDB implements DB {
     this.withTenant(query);
     const res = await query.lean<DirectMessageDoc | null>();
     return res != null;
+  }
+
+  async listGroups(owner: string) {
+    const query = this.withTenant(Group.find({ followers: owner }));
+    return await query.lean<GroupDoc[]>();
+  }
+
+  async findGroupByName(name: string) {
+    const query = this.withTenant(Group.findOne({ groupName: name }));
+    return await query.lean<GroupDoc | null>();
+  }
+
+  async createGroup(data: Record<string, unknown>) {
+    const doc = new Group({ ...data });
+    if (this.env["DB_MODE"] === "host") {
+      (doc as unknown as { $locals?: { env?: Record<string, string> } })
+        .$locals = { env: this.env };
+    }
+    await doc.save();
+    return doc.toObject() as GroupDoc;
+  }
+
+  async updateGroupByName(name: string, update: Record<string, unknown>) {
+    const query = Group.findOneAndUpdate({ groupName: name }, update, {
+      new: true,
+    });
+    this.withTenant(query);
+    return await query.lean<GroupDoc | null>();
+  }
+
+  async addGroupFollower(name: string, actor: string) {
+    const query = Group.findOneAndUpdate(
+      { groupName: name },
+      { $addToSet: { followers: actor } },
+      { new: true },
+    );
+    this.withTenant(query);
+    const doc = await query.lean<{ followers: string[] } | null>();
+    return doc?.followers ?? [];
+  }
+
+  async removeGroupFollower(name: string, actor: string) {
+    const query = Group.findOneAndUpdate(
+      { groupName: name },
+      { $pull: { followers: actor } },
+      { new: true },
+    );
+    this.withTenant(query);
+    const doc = await query.lean<{ followers: string[] } | null>();
+    return doc?.followers ?? [];
+  }
+
+  async pushGroupOutbox(name: string, activity: Record<string, unknown>) {
+    const query = Group.updateOne(
+      { groupName: name },
+      { $push: { outbox: activity } },
+    );
+    this.withTenant(query);
+    await query;
   }
 
   async listNotifications(owner: string) {

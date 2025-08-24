@@ -1,7 +1,12 @@
 import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
-import type { AccountDoc, DirectMessageDoc, SessionDoc } from "./types.ts";
+import type {
+  AccountDoc,
+  DirectMessageDoc,
+  GroupDoc,
+  SessionDoc,
+} from "./types.ts";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -103,6 +108,19 @@ export interface DB {
     update: Record<string, unknown>,
   ): Promise<DirectMessageDoc | null>;
   deleteDirectMessage(owner: string, id: string): Promise<boolean>;
+  listGroups(owner: string): Promise<GroupDoc[]>;
+  findGroupByName(name: string): Promise<GroupDoc | null>;
+  createGroup(data: Record<string, unknown>): Promise<GroupDoc>;
+  updateGroupByName(
+    name: string,
+    update: Record<string, unknown>,
+  ): Promise<GroupDoc | null>;
+  addGroupFollower(name: string, actor: string): Promise<string[]>;
+  removeGroupFollower(name: string, actor: string): Promise<string[]>;
+  pushGroupOutbox(
+    name: string,
+    activity: Record<string, unknown>,
+  ): Promise<void>;
   listNotifications(owner: string): Promise<unknown[]>;
   createNotification(
     owner: string,
