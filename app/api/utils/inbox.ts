@@ -7,7 +7,7 @@ export async function parseActivityRequest(
 ): Promise<{ activity: Record<string, unknown>; body: string } | null> {
   const body = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, body);
-  console.log(verified);
+  console.log(verified, "<- verifyHttpSignature");
   if (!verified) return null;
   try {
     const activity = JSON.parse(body) as Record<string, unknown>;
