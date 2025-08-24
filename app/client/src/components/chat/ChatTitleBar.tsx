@@ -39,7 +39,14 @@ export function ChatTitleBar(props: ChatTitleBarProps) {
         return "無題のグループ";
       }
     }
-    return room.name;
+    // フォールバック: server からの name/displayName が空の場合に
+    // userName や members から補完して表示する
+    return (
+      room.displayName || room.name || room.userName ||
+      (Array.isArray(room.members) && room.members.length > 0
+        ? String(room.members[0]).split("@")[0]
+        : "")
+    );
   };
   return (
     <div
