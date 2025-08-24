@@ -6,7 +6,6 @@ import {
   iriToHandle,
   jsonResponse,
 } from "../api/utils/activitypub.ts";
-import { getSystemKey } from "../api/services/system_actor.ts";
 import { createDB } from "../api/DB/mod.ts";
 import { broadcast, sendToUser } from "../api/routes/ws.ts";
 import {
@@ -26,38 +25,55 @@ export function createRootActivityPubApp(env: Record<string, string>) {
     await next();
   });
 
-  app.get("/.well-known/webfinger", (c) => {
+  app.get("/.well-known/webfinger", async (c) => {
     const resource = c.req.query("resource");
+    if (!resource?.startsWith("acct:")) {
+      return jsonResponse(c, { error: "Bad Request" }, 400);
+    }
+    const [username, host] = resource.slice(5).split("@");
     const domain = getDomain(c);
-    if (resource !== `acct:system@${domain}`) {
+    if (host !== domain) {
+      return jsonResponse(c, { error: "Not found" }, 404);
+    }
+    const db = createDB(env);
+    const account = await db.findAccountByUserName(username);
+    if (!account) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
     const jrd = {
-      subject: `acct:system@${domain}`,
+      subject: `acct:${username}@${domain}`,
       links: [
         {
           rel: "self",
           type: "application/activity+json",
-          href: `https://${domain}/users/system`,
+          href: `https://${domain}/users/${username}`,
         },
       ],
     };
     return jsonResponse(c, jrd, 200, "application/jrd+json");
   });
 
-  app.get("/users/system", async (c) => {
-    const domain = getDomain(c);
+  app.get("/users/:username", async (c) => {
+    const username = c.req.param("username");
     const db = createDB(env);
-    const { publicKey } = await getSystemKey(db, domain);
+    const account = await db.findAccountByUserName(username);
+    if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+    const domain = getDomain(c);
     const actor = createActor(domain, {
-      userName: "system",
-      displayName: "system",
-      publicKey,
+      userName: account.userName,
+      displayName: account.displayName,
+      publicKey: account.publicKey,
     }, { includeIcon: false });
     return jsonResponse(c, actor, 200, "application/activity+json");
   });
 
   async function handleInbox(c: Context) {
+    const username = c.req.param("username");
+    const db = createDB(env);
+    const account = await db.findAccountByUserName(username);
+    if (!account) {
+      return jsonResponse(c, { error: "Not found" }, 404);
+    }
     const result = await parseActivityRequest(c);
     if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
     const { activity } = result;
@@ -92,6 +108,6 @@ export function createRootActivityPubApp(env: Record<string, string>) {
     return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
   }
 
-  app.post("/users/system/inbox", handleInbox);
+  app.post("/users/:username/inbox", handleInbox);
   return app;
 }
