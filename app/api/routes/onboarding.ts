@@ -7,7 +7,7 @@ import authRequired from "../utils/auth.ts";
 const app = new Hono();
 
 // 初回オンボーディングの表示可否は「アカウントが存在するか」で判定する
-app.get("/onboarding/status", async (c: any) => {
+app.get("/onboarding/status", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const list = await db.listAccounts();
@@ -18,7 +18,7 @@ app.get("/onboarding/status", async (c: any) => {
 // /api/setup POSTエンドポイント
 // オンボーディングは「初回のアカウント作成と初期フォロー設定」を担う用途。
 // すでにログイン済みであることを前提とし、env の生成/更新は行わない。
-app.post("/onboarding", async (c: any) => {
+app.post("/onboarding", async (c) => {
   return await authRequired(c, async () => {
     const env = getEnv(c);
     const db = createDB(env);

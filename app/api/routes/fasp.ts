@@ -296,7 +296,7 @@ app.post(
       const c = canonicalize(u);
       return c.endsWith("/fasp") ? c.slice(0, -"/fasp".length) : c;
     };
-    let baseUrl = canonicalize(domainOrUrl);
+    const baseUrl = canonicalize(domainOrUrl);
     // 既定FASPかどうか判定
     const defaultBase = env["FASP_DEFAULT_BASE_URL"] ?? "";
     const hostRoot = (env["ROOT_DOMAIN"] ?? "").toLowerCase();
