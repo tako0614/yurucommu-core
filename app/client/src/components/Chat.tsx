@@ -2076,10 +2076,12 @@ async function searchRooms(
       const j = await gres.json();
       if (!Array.isArray(j)) return [];
       return j.map((r) => ({
-        id: String(r.id ?? ""),
+        id: normalizeActor(String(r.id ?? "")),
         name: String(r.name ?? ""),
         icon: typeof r.icon === "string" ? r.icon : undefined,
-        members: Array.isArray(r.members) ? r.members.map(String) : [],
+        members: Array.isArray(r.members)
+          ? r.members.map((m: unknown) => normalizeActor(String(m)))
+          : [],
       }));
     }
     if (roomType === "dm" || roomType === undefined) {
@@ -2090,10 +2092,12 @@ async function searchRooms(
       const j = await dres.json();
       if (!Array.isArray(j)) return [];
       return j.map((r) => ({
-        id: String(r.id ?? ""),
+        id: normalizeActor(String(r.id ?? "")),
         name: String(r.name ?? ""),
         icon: typeof r.icon === "string" ? r.icon : undefined,
-        members: Array.isArray(r.members) ? r.members.map(String) : [],
+        members: Array.isArray(r.members)
+          ? r.members.map((m: unknown) => normalizeActor(String(m)))
+          : [],
       }));
     }
     return [];
