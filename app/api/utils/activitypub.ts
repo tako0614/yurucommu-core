@@ -32,7 +32,8 @@ async function applySignature(
   key: { id: string; privateKey: string },
   headersToSign: string[],
   headers: Headers,
-  style: "rfc9421" | "cavage" | "both" = "both",
+  // ActivityPub 実装で広く使われている Cavage 形式を既定にする
+  style: "rfc9421" | "cavage" | "both" = "cavage",
 ): Promise<void> {
   const parsed = new URL(url);
   const host = parsed.hostname;
@@ -109,12 +110,8 @@ async function applySignature(
       }",signature="${signatureB64}"`,
     );
   }
-  if (style === "rfc9421" || style === "both") {
-    if (style === "both") {
-      headers.append("Signature", `sig1=:${signatureB64}:`);
-    } else {
-      headers.set("Signature", `sig1=:${signatureB64}:`);
-    }
+  if (style === "rfc9421") {
+    headers.set("Signature", `sig1=:${signatureB64}:`);
     headers.set(
       "Signature-Input",
       `sig1="${headersToSign.join(" ")}";keyid="${keyId}";alg="${sigAlg}"`,
@@ -138,6 +135,7 @@ async function signAndPost(
     key,
     ["(request-target)", "host", "date", "digest"],
     headers,
+    "cavage",
   );
   return await fetch(inboxUrl, { method: "POST", headers, body });
 }
@@ -344,14 +342,33 @@ export function parseSignature(
   const sig = msg.headers.get("signature");
   if (!sigInput || !sig) return null;
   const m = sigInput.match(/([^=]+)=\(([^)]+)\)(.*)/);
-  if (!m) return null;
+  if (!m) {
+    // Signature-Input はあるが形式が不正な場合、Signature ヘッダが cavage 形式で来ている可能性にフォールバック
+    const fallback = parseSignatureHeader(sig);
+    if (!fallback.headers || !fallback.signature || !fallback.keyId) return null;
+    return {
+      headers: fallback.headers.split(" "),
+      signature: fallback.signature,
+      keyId: fallback.keyId,
+      style: "cavage",
+    };
+  }
   const label = m[1];
-  const fields = m[2].split(/\s+/).map((s) => s.replace(/"/g, ""));
+  const fields = m[2].split(/\s+/).map((s) => s.replace(/\"/g, ""));
   const rest = m[3];
-  const keyIdMatch = rest.match(/keyid="([^"]+)"/);
-  if (!keyIdMatch) return null;
+  const keyIdMatch = rest.match(/keyid=\"([^\"]+)\"/);
   const sigMatch = sig.match(new RegExp(`${label}=:(.+):`));
-  if (!sigMatch) return null;
+  if (!sigMatch || !keyIdMatch) {
+    // Signature-Input があるが Signature が cavage 形式（もしくは label 不一致）の可能性
+    const fallback = parseSignatureHeader(sig);
+    if (!fallback.headers || !fallback.signature || !fallback.keyId) return null;
+    return {
+      headers: fallback.headers.split(" "),
+      signature: fallback.signature,
+      keyId: fallback.keyId,
+      style: "cavage",
+    };
+  }
   return {
     headers: fields,
     signature: sigMatch[1],
@@ -416,9 +433,18 @@ export function buildSigningString(
         } ${url.pathname}${url.search}`;
       } else if (h === "host") {
         value = msg.headers.get("x-forwarded-host") ?? msg.headers.get("host");
+        if (value === null) value = url.host; // プロキシでHostが失われた場合のフォールバック
       } else if (h === "content-length") {
         const encoder = new TextEncoder();
         value = encoder.encode(body).length.toString();
+      } else if (h === "digest") {
+        value = msg.headers.get("digest");
+        if (value === null) {
+          // Content-Digest からのフォールバック（sha-256 のみ対応）
+          const sf = msg.headers.get("content-digest");
+          const m = sf?.match(/sha-256=:(.+):/i);
+          if (m) value = `SHA-256=${m[1]}`;
+        }
       } else {
         value = msg.headers.get(h);
       }
@@ -474,7 +500,6 @@ export async function verifyHttpSignature(
     if (hasDigestHeader) {
       if (!await verifyDigest(msg, body)) return false;
     }
-
     const signingString = buildSigningString(
       msg,
       body,
@@ -914,13 +939,10 @@ export async function fetchJson<T = unknown>(
   }
   const host = new URL(url).host;
   const cache = sigCache.get(host);
-  let style: "rfc9421" | "cavage";
-  if (cache && cache.expires > Date.now()) {
-    style = cache.style;
-  } else {
-    style = "rfc9421";
-    if (cache) sigCache.delete(host);
-  }
+  // 既定は Cavage。キャッシュがあれば従う。
+  let style: "rfc9421" | "cavage" = cache && cache.expires > Date.now()
+    ? cache.style
+    : "cavage";
   let triedRfc = style === "rfc9421";
   let triedCavage = style === "cavage";
   let res: Response | null = null;

@@ -78,6 +78,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     username: string,
     c: unknown,
   ) {
+    console.log("Handling Create activity");
     if (typeof activity.object !== "object" || activity.object === null) {
       return;
     }
@@ -144,7 +145,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     const inferredDmTarget = recipientCandidates.length === 1
       ? recipientCandidates[0]
       : undefined;
-
+    console.log("inferredDmTarget:", inferredDmTarget);
     if (extra.dm === true || inferredDmTarget) {
       const target = inferredDmTarget ?? toList[0];
       if (!target || isCollection(target)) return;
@@ -164,6 +165,33 @@ export const activityHandlers: Record<string, ActivityHandler> = {
 
       const fromHandle = iriToHandle(actor);
       const toHandle = iriToHandle(target);
+      // DM ルームを双方に作成（未作成時）
+      try {
+        const fromInfo = await getUserInfo(fromHandle, domain, env).catch(
+          () => null,
+        );
+        const toInfo = await getUserInfo(toHandle, domain, env).catch(
+          () => null,
+        );
+        await Promise.all([
+          db.createDirectMessage({
+            owner: fromHandle,
+            id: toHandle,
+            name: toInfo?.displayName || toInfo?.userName || toHandle,
+            icon: toInfo?.authorAvatar,
+            members: [fromHandle, toHandle],
+          }),
+          db.createDirectMessage({
+            owner: toHandle,
+            id: fromHandle,
+            name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
+            icon: fromInfo?.authorAvatar,
+            members: [fromHandle, toHandle],
+          }),
+        ]);
+      } catch {
+        /* ignore room creation errors */
+      }
       const payload = {
         id: String(msg._id),
         from: fromHandle,
@@ -190,9 +218,6 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       return;
     }
 
-    const actor = typeof activity.actor === "string"
-      ? activity.actor
-      : username;
     const env = (c as { get: (k: string) => unknown }).get("env") as Record<
       string,
       string

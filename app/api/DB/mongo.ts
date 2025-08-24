@@ -399,11 +399,37 @@ export class MongoDB implements DB {
   }
 
   async listDMsBetween(user1: string, user2: string) {
+    // 異なる表記（URL/handle）を相互に許容する
+    const toHandle = (id: string): string => {
+      try {
+        if (id.startsWith("http")) {
+          const u = new URL(id);
+          const name = u.pathname.split("/").filter(Boolean).pop() ?? "";
+          if (name) return `${name}@${u.hostname}`;
+        }
+      } catch {
+        /* ignore */
+      }
+      return id;
+    };
+    const toActorUrl = (handle: string): string | null => {
+      if (handle.includes("@")) {
+        const [name, host] = handle.split("@");
+        if (name && host) return `https://${host}/users/${name}`;
+      }
+      return null;
+    };
+    const uniq = (arr: (string | null | undefined)[]) =>
+      Array.from(new Set(arr.filter((v): v is string => !!v)));
+    const a1 = uniq([user1, toHandle(user1), toActorUrl(user1)]);
+    const a2 = uniq([user2, toHandle(user2), toActorUrl(user2)]);
+
     const query = this.withTenant(
       Message.find({
+        "extra.dm": true,
         $or: [
-          { actor_id: user1, "aud.to": user2 },
-          { actor_id: user2, "aud.to": user1 },
+          { actor_id: { $in: a1 }, "aud.to": { $in: a2 } },
+          { actor_id: { $in: a2 }, "aud.to": { $in: a1 } },
         ],
       }),
     );

@@ -283,6 +283,7 @@ app.post("/users/:username/outbox", async (c) => {
 });
 
 app.post("/users/:username/inbox", async (c) => {
+
   const username = c.req.param("username");
   if (username === "system") {
     const result = await parseActivityRequest(c);
@@ -295,10 +296,10 @@ app.post("/users/:username/inbox", async (c) => {
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
+
   const result = await parseActivityRequest(c);
   if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const { activity } = result;
-
   // activity.type の型安全な参照
   const typeVal = (activity as { type?: unknown })?.type;
   if (typeof typeVal === "string" && typeVal in activityHandlers) {
