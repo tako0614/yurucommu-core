@@ -7,7 +7,7 @@ export async function parseActivityRequest(
 ): Promise<{ activity: Record<string, unknown>; body: string } | null> {
   const body = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, body);
-  console.log(verified)
+  console.log(verified);
   if (!verified) return null;
   try {
     const activity = JSON.parse(body) as Record<string, unknown>;
@@ -26,10 +26,11 @@ export async function storeCreateActivity(
   }
   const db = createDB(env);
   const object = activity.object as Record<string, unknown>;
+  const attributedTo = actorAttr(object.attributedTo, activity.actor);
   let objectId = typeof object.id === "string" ? object.id : "";
   let stored = await db.getObject(objectId);
   if (!stored) {
-    stored = await db.saveObject(object);
+    stored = await db.saveObject({ ...object, attributedTo });
     if (!stored) return null;
     objectId = String((stored as { _id?: unknown })._id);
   }
@@ -37,4 +38,26 @@ export async function storeCreateActivity(
     | string
     | undefined ?? (typeof activity.actor === "string" ? activity.actor : "");
   return { stored: stored as Record<string, unknown>, actorId };
+}
+
+function actorAttr(
+  attr: unknown,
+  actor: unknown,
+): string {
+  // attributedTo を URL として正規化する
+  if (typeof attr === "string") {
+    try {
+      return new URL(attr).href;
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof actor === "string") {
+    try {
+      return new URL(actor).href;
+    } catch {
+      return actor;
+    }
+  }
+  return "";
 }

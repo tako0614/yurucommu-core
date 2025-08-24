@@ -28,6 +28,25 @@ import type { SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 
+function normalizeActorUrl(id: string, defaultDomain?: string): string {
+  try {
+    const url = new URL(id);
+    url.hash = "";
+    url.search = "";
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.href;
+  } catch {
+    if (id.includes("@")) {
+      const [name, host] = id.split("@");
+      return `https://${host}/users/${name}`;
+    }
+    if (defaultDomain) {
+      return `https://${defaultDomain}/users/${id}`;
+    }
+    return id;
+  }
+}
+
 /** MongoDB 実装 */
 export class MongoDB implements DB {
   constructor(private env: Record<string, string>) {}
@@ -54,16 +73,20 @@ export class MongoDB implements DB {
 
   async saveObject(obj: Record<string, unknown>) {
     const data = { ...obj };
-    if (!data.actor_id && typeof data.attributedTo === "string") {
-      try {
-        data.actor_id = new URL(data.attributedTo).href;
-      } catch {
-        if (this.env["ACTIVITYPUB_DOMAIN"]) {
-          data.actor_id = `https://${
-            this.env["ACTIVITYPUB_DOMAIN"]
-          }/users/${data.attributedTo}`;
-        }
-      }
+    if (typeof data.attributedTo === "string") {
+      const actor = normalizeActorUrl(
+        data.attributedTo,
+        this.env["ACTIVITYPUB_DOMAIN"],
+      );
+      data.attributedTo = actor;
+      data.actor_id = actor;
+    } else if (typeof data.actor_id === "string") {
+      const actor = normalizeActorUrl(
+        data.actor_id,
+        this.env["ACTIVITYPUB_DOMAIN"],
+      );
+      data.actor_id = actor;
+      data.attributedTo = actor;
     }
     if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
       data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
@@ -256,13 +279,11 @@ export class MongoDB implements DB {
     aud?: { to: string[]; cc: string[] },
   ) {
     const id = createObjectId(domain);
-    const actor = author.startsWith("http")
-      ? author
-      : `https://${domain}/users/${author}`;
+    const actor = normalizeActorUrl(author, domain);
     const doc = new Note({
       _id: id,
-      attributedTo: actor,
-      actor_id: actor,
+      attributedTo: actorId,
+      actor_id: actorId,
       content,
       extra,
       published: new Date(),
@@ -318,13 +339,11 @@ export class MongoDB implements DB {
     aud: { to: string[]; cc: string[] },
   ) {
     const id = createObjectId(domain);
-    const actor = author.startsWith("http")
-      ? author
-      : `https://${domain}/users/${author}`;
+    const actor = normalizeActorUrl(author, domain);
     const doc = new Message({
       _id: id,
-      attributedTo: actor,
-      actor_id: actor,
+      attributedTo: actorId,
+      actor_id: actorId,
       content,
       extra,
       published: new Date(),
@@ -370,13 +389,15 @@ export class MongoDB implements DB {
   ) {
     const extra: Record<string, unknown> = { type, dm: true };
     if (attachments) extra.attachments = attachments;
-    const id = this.env["ACTIVITYPUB_DOMAIN"]
-      ? createObjectId(this.env["ACTIVITYPUB_DOMAIN"])
-      : undefined;
+    const domain = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const fromUrl = from.includes("://")
+      ? from
+      : `https://${domain}/users/${from}`;
+    const id = domain ? createObjectId(domain) : undefined;
     const doc = new Message({
       _id: id,
-      attributedTo: from,
-      actor_id: from,
+      attributedTo: fromUrl,
+      actor_id: fromUrl,
       content: content ?? "",
       extra,
       aud: { to: [to], cc: [] },
@@ -389,7 +410,7 @@ export class MongoDB implements DB {
     const obj = doc.toObject();
     return {
       id: (id ?? obj._id) as string,
-      from,
+      from: fromUrl,
       to,
       type,
       content: content ?? "",

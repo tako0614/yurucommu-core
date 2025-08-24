@@ -193,7 +193,7 @@ app.get("/users/:username/outbox", async (c) => {
   const db = createDB(env);
   // Message を outbox から除外する
   const objectsUnknown = await db.findObjects(
-    { attributedTo: username },
+    { attributedTo: `https://${domain}/users/${username}` },
     { published: -1 },
   ) as unknown[];
 
@@ -238,7 +238,7 @@ app.post("/users/:username/outbox", async (c) => {
   const object = await db.saveObject({
     _id: createObjectId(domain),
     type: body.type,
-    attributedTo: username,
+    attributedTo: `https://${domain}/users/${username}`,
     content: body.content,
     to: body.to ?? [],
     cc: body.cc ?? [],
@@ -283,7 +283,6 @@ app.post("/users/:username/outbox", async (c) => {
 });
 
 app.post("/users/:username/inbox", async (c) => {
-
   const username = c.req.param("username");
   if (username === "system") {
     const result = await parseActivityRequest(c);

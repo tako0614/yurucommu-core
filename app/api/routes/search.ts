@@ -23,6 +23,16 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function actorToHandle(actor: string): string {
+  try {
+    const url = new URL(actor);
+    const name = url.pathname.split("/").pop() || "";
+    return `@${name}@${url.hostname}`;
+  } catch {
+    return actor;
+  }
+}
+
 function isPrivateIP(ip: string): boolean {
   const privateRanges = [
     /^10\./,
@@ -226,7 +236,7 @@ app.get("/search", async (c) => {
         type: "post",
         id: String(p._id),
         title: (p.content ?? "").slice(0, 80),
-        subtitle: p.attributedTo,
+        subtitle: actorToHandle(p.attributedTo),
         metadata: { createdAt: p.published },
         origin: domain,
       });

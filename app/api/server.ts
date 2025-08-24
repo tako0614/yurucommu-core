@@ -34,6 +34,7 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import { migrateFaspCollections } from "./services/fasp_migration.ts";
+import { migrateAttributedTo } from "./services/attributed_to_migration.ts";
 import dms from "./routes/dms.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
@@ -198,6 +199,12 @@ if (import.meta.main) {
   // 旧 -> 新コレクションへの安全な片道移行
   try {
     await migrateFaspCollections(env).catch(() => {});
+  } catch (_) {
+    // 起動は継続させる
+  }
+  // Note.attributedTo の正規化
+  try {
+    await migrateAttributedTo(env).catch(() => {});
   } catch (_) {
     // 起動は継続させる
   }

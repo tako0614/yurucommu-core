@@ -55,12 +55,30 @@ async function saveObject(
   };
   if (attachments.length > 0) extra.attachments = attachments;
 
+  // attributedTo を URL として正規化する
+  let attributedTo = actor;
+  if (typeof obj.attributedTo === "string") {
+    try {
+      attributedTo = new URL(obj.attributedTo).href;
+    } catch {
+      try {
+        attributedTo = new URL(actor).href;
+      } catch {
+        attributedTo = actor;
+      }
+    }
+  } else {
+    try {
+      attributedTo = new URL(actor).href;
+    } catch {
+      attributedTo = actor;
+    }
+  }
+
   const db = createDB(env);
   return await db.saveObject({
     type: obj.type ?? "Note",
-    attributedTo: typeof obj.attributedTo === "string"
-      ? obj.attributedTo
-      : actor,
+    attributedTo,
     content: obj.content,
     to: Array.isArray(obj.to) ? obj.to : [],
     cc: Array.isArray(obj.cc) ? obj.cc : [],
@@ -86,7 +104,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     // 宛先集合を Activity と Object の両方から収集
     const collect = (v: unknown): string[] => {
       const out: string[] = [];
-      if (Array.isArray(v)) for (const x of v) out.push(...collect(x));
+      if (Array.isArray(v)) { for (const x of v) out.push(...collect(x)); }
       else if (typeof v === "string") out.push(v);
       return out;
     };
@@ -94,7 +112,9 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     const activityCc = collect((activity as { cc?: unknown }).cc);
     const activityBto = collect((activity as { bto?: unknown }).bto);
     const activityBcc = collect((activity as { bcc?: unknown }).bcc);
-    const activityAudience = collect((activity as { audience?: unknown }).audience);
+    const activityAudience = collect(
+      (activity as { audience?: unknown }).audience,
+    );
     const objectTo = collect(obj.to);
     const objectCc = collect((obj as { cc?: unknown }).cc);
     const objectBto = collect((obj as { bto?: unknown }).bto);
@@ -121,27 +141,29 @@ export const activityHandlers: Record<string, ActivityHandler> = {
 
     // extra.dm が true または、宛先集合が「単一のActorのみ（Public禁止）」の場合は DM とみなす
     const isCollection = (url: string): boolean => {
-        if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
-        try {
-          const path = new URL(url).pathname;
-          return path.endsWith("/followers") ||
-            path.endsWith("/following") ||
-            path.endsWith("/outbox") ||
-            path.endsWith("/collections") ||
-            path.endsWith("/liked") ||
-            path.endsWith("/likes");
-        } catch {
-          return false;
-        }
-      };
+      if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
+      try {
+        const path = new URL(url).pathname;
+        return path.endsWith("/followers") ||
+          path.endsWith("/following") ||
+          path.endsWith("/outbox") ||
+          path.endsWith("/collections") ||
+          path.endsWith("/liked") ||
+          path.endsWith("/likes");
+      } catch {
+        return false;
+      }
+    };
 
     const actor = typeof activity.actor === "string"
       ? activity.actor
       : username;
     // Public/コレクションを除外し、送信者自身も除外
-    const recipientCandidates = Array.from(new Set(
-      allRecipients.filter((x): x is string => typeof x === "string"),
-    )).filter((u) => !isCollection(u) && u !== actor);
+    const recipientCandidates = Array.from(
+      new Set(
+        allRecipients.filter((x): x is string => typeof x === "string"),
+      ),
+    ).filter((u) => !isCollection(u) && u !== actor);
     const inferredDmTarget = recipientCandidates.length === 1
       ? recipientCandidates[0]
       : undefined;

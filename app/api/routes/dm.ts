@@ -46,35 +46,44 @@ app.post(
     const env = getEnv(c);
     const db = createDB(env);
     const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
+    const fromUserName = (() => {
+      if (from.includes("@")) {
+        const [name, host] = from.split("@");
+        return host === domain ? name : "";
+      }
+      return from;
+    })();
+    const fromHandle = `${fromUserName}@${domain}`;
     const [fromInfo, toInfo] = await Promise.all([
-      getUserInfo(from, domain, env).catch(() => null),
+      getUserInfo(fromUserName, domain, env).catch(() => null),
       getUserInfo(to, domain, env).catch(() => null),
     ]);
     const payload = await db.saveDMMessage(
-      from,
+      fromUserName,
       to,
       type,
       content,
       attachments,
     );
+    (payload as { from: string }).from = fromHandle;
     await Promise.all([
       db.createDirectMessage({
-        owner: from,
+        owner: fromHandle,
         id: to,
         name: toInfo?.displayName || toInfo?.userName || to,
         icon: toInfo?.authorAvatar,
-        members: [from, to],
+        members: [fromHandle, to],
       }),
       db.createDirectMessage({
         owner: to,
-        id: from,
-        name: fromInfo?.displayName || fromInfo?.userName || from,
+        id: fromHandle,
+        name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
         icon: fromInfo?.authorAvatar,
-        members: [from, to],
+        members: [fromHandle, to],
       }),
     ]);
     sendToUser(to, { type: "dm", payload });
-    sendToUser(from, { type: "dm", payload });
+    sendToUser(fromHandle, { type: "dm", payload });
 
     // 外部宛てなら ActivityPub で配送する
     try {
@@ -91,17 +100,11 @@ app.post(
       })();
 
       // 送信者はローカルユーザーのみを許可（鍵を使って署名するため）
-      const fromUserName = (() => {
-        if (from.includes("@")) {
-          const [name, host] = from.split("@");
-          return host === localDomain ? name : "";
-        }
-        return from; // ローカル名
-      })();
-
       if (toHost && toHost !== localDomain && fromUserName) {
         // ActivityPub Create(Object) を構築
-        const actorId = `https://${localDomain}/users/${encodeURIComponent(fromUserName)}`;
+        const actorId = `https://${localDomain}/users/${
+          encodeURIComponent(fromUserName)
+        }`;
         const objectId = createObjectId(localDomain);
         const activityId = createActivityId(localDomain);
 
@@ -112,9 +115,10 @@ app.post(
               const url = typeof (a as { url?: unknown }).url === "string"
                 ? (a as { url: string }).url
                 : "";
-              const mediaType = typeof (a as { mediaType?: unknown }).mediaType === "string"
-                ? (a as { mediaType: string }).mediaType
-                : undefined;
+              const mediaType =
+                typeof (a as { mediaType?: unknown }).mediaType === "string"
+                  ? (a as { mediaType: string }).mediaType
+                  : undefined;
               if (!url) return null;
               const t = mediaType?.startsWith("image/")
                 ? "Image"
@@ -131,13 +135,17 @@ app.post(
         const obj: Record<string, unknown> = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: objectId,
-          type: type && type !== "note" ? type.charAt(0).toUpperCase() + type.slice(1) : "Note",
+          type: type && type !== "note"
+            ? type.charAt(0).toUpperCase() + type.slice(1)
+            : "Note",
           attributedTo: actorId,
           content: content ?? "",
           to: [to],
           extra: { dm: true },
         };
-        if (asAttachments && asAttachments.length > 0) obj.attachment = asAttachments;
+        if (asAttachments && asAttachments.length > 0) {
+          obj.attachment = asAttachments;
+        }
 
         const activity = {
           "@context": "https://www.w3.org/ns/activitystreams",
@@ -149,7 +157,13 @@ app.post(
         };
 
         // deliverActivityPubObject は acct 形式（user@host）も解決可能
-        await deliverActivityPubObject([to], activity, fromUserName, localDomain, env)
+        await deliverActivityPubObject(
+          [to],
+          activity,
+          fromUserName,
+          localDomain,
+          env,
+        )
           .catch((err) => {
             console.error("DM delivery failed:", err);
           });
@@ -157,8 +171,8 @@ app.post(
     } catch (err) {
       console.error("/api/dm ActivityPub delivery error:", err);
     }
-  // payload can be an arbitrary object/structure from DB; cast to a generic record to satisfy Hono's c.json typing
-  return c.json(payload as Record<string, unknown>);
+    // payload can be an arbitrary object/structure from DB; cast to a generic record to satisfy Hono's c.json typing
+    return c.json(payload as Record<string, unknown>);
   },
 );
 
