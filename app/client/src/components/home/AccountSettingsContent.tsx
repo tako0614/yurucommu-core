@@ -2,6 +2,8 @@ import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { Account, isDataUrl, isUrl } from "./types.ts";
 import { fetchActivityPubObjects, fetchUserProfile } from "../microblog/api.ts";
 import { PostList } from "../microblog/Post.tsx";
+import type { MicroblogPost } from "../microblog/types.ts";
+import AccountSwitchList from "./AccountSwitchList.tsx";
 import { UserAvatar } from "../microblog/UserAvatar.tsx";
 import { getDomain } from "../../utils/config.ts";
 import { useAtom } from "solid-jotai";
@@ -26,6 +28,11 @@ const AccountSettingsContent: Component<{
   ) => Promise<{ success: boolean; error?: string }>;
   updateAccount: (id: string, updates: Partial<Account>) => void;
   deleteAccount: (id: string) => void;
+  // showInlineSwitch: when true (default) the account switch UI is shown inline
+  // inside this content. When false the inline switch UI is hidden (useful
+  // when rendering this component as the main page while account switching
+  // is available only through a modal).
+  showInlineSwitch?: boolean;
 }> = (props) => {
   const selectedAccount = () =>
     props.accounts.find((account) => account.id === props.selectedAccountId);
@@ -80,7 +87,9 @@ const AccountSettingsContent: Component<{
   const [showFollowingModal, setShowFollowingModal] = createSignal(false);
   const [showFollowersModal, setShowFollowersModal] = createSignal(false);
 
-  const [posts, setPosts] = createSignal<Array<any>>([]);
+  const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
+
+  type SimpleUser = { avatarInitial?: string; userName: string; displayName?: string };
 
   // グローバル: フォロー/フォロワー一覧（アカウントIDごと）
   const [followingMap] = useAtom(followingListMap);
@@ -91,13 +100,13 @@ const AccountSettingsContent: Component<{
   // 選択アカウントのフォロー/フォロワー配列（グローバル state 参照）
   const followingList = () => {
     const acc = selectedAccount();
-    if (!acc) return [] as any[];
-    return (followingMap()[acc.id] as any[]) || [];
+    if (!acc) return [] as SimpleUser[];
+    return (followingMap()[acc.id] as SimpleUser[]) || [];
   };
   const followers = () => {
     const acc = selectedAccount();
-    if (!acc) return [] as any[];
-    return (followersMap()[acc.id] as any[]) || [];
+    if (!acc) return [] as SimpleUser[];
+    return (followersMap()[acc.id] as SimpleUser[]) || [];
   };
 
   // アカウント変更時：投稿取得 + フォロー/フォロワーはグローバルキャッシュを確認し、なければ取得
@@ -689,136 +698,16 @@ const AccountSettingsContent: Component<{
             </Show>
           </div>
 
-          {/* アカウント切り替えセクション */}
-          <div class="border-t border-gray-800/30 mt-12">
-            <div class="max-w-4xl mx-auto px-4 md:px-8 py-8">
-              <details class="group">
-                <summary class="flex items-center justify-between cursor-pointer text-gray-400 hover:text-gray-300 transition-colors duration-200 text-sm font-medium">
-                  <div class="flex items-center space-x-2">
-                    <svg
-                      class="w-4 h-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                      />
-                    </svg>
-                    <span>アカウントを切り替え ({props.accounts.length})</span>
-                  </div>
-                  <svg
-                    class="w-4 h-4 transition-transform duration-200 group-open:rotate-180"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </summary>
-
-                <div class="mt-4 space-y-2">
-                  {/* If the currently selected account is missing from props.accounts, show a placeholder so it doesn't disappear */}
-                  <Show when={props.selectedAccountId && !props.accounts.some((a) => a.id === props.selectedAccountId)}>
-                    <div class="w-full flex items-center space-x-3 p-3 rounded-lg bg-gray-800 text-left transition-all duration-200 group border border-gray-800/50">
-                      <div class="h-8 w-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">?</div>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-sm font-medium text-white truncate">選択中のアカウント</p>
-                        <p class="text-xs text-gray-400 truncate">(不明: {props.selectedAccountId})</p>
-                      </div>
-                      <span class="text-xs text-green-400">選択中</span>
-                    </div>
-                  </Show>
-                  <For each={props.accounts}>
-                    {(account) => {
-                      const isSelected = account.id === props.selectedAccountId;
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            console.debug("[AccountSettingsContent] button click, account.id=", account.id, "isSelected=", isSelected);
-                            if (!isSelected) props.setSelectedAccountId(account.id);
-                          }}
-                          disabled={isSelected}
-                          class={`w-full flex items-center space-x-3 p-3 rounded-lg text-left transition-all duration-200 group border border-gray-800/50 hover:border-gray-700/50 ${isSelected ? "bg-gray-800 text-gray-200 cursor-default" : "bg-gray-900/30 hover:bg-gray-800/50"}`}
-                        >
-                          <IconPreview
-                            iconValue={account.avatarInitial}
-                            displayNameValue={account.displayName}
-                            class="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                          />
-                          <div class="min-w-0 flex-1">
-                            <p class="text-sm font-medium transition-colors duration-200 truncate" classList={{ 'text-gray-300': !isSelected, 'text-white': isSelected }}>
-                              {account.displayName}
-                            </p>
-                            <p class="text-xs" classList={{ 'text-gray-500': !isSelected, 'text-gray-400': isSelected }}>
-                              @{account.userName}
-                            </p>
-                          </div>
-                          <div class="flex items-center gap-2">
-                            {isSelected ? (
-                              <span class="text-xs text-green-400">選択中</span>
-                            ) : (
-                              <svg
-                                class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors duration-200"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M9 5l7 7-7 7"
-                                />
-                              </svg>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    }}
-                  </For>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewAccountModal(true)}
-                    class="w-full flex items-center space-x-3 p-3 rounded-lg border border-dashed border-gray-700/50 hover:border-gray-600/50 hover:bg-gray-800/20 text-left transition-all duration-200 group"
-                  >
-                    <div class="h-8 w-8 rounded-full bg-gray-800/50 group-hover:bg-gray-700/50 flex items-center justify-center flex-shrink-0 transition-all duration-200">
-                      <svg
-                        class="h-4 w-4 text-gray-500 group-hover:text-gray-400 transition-colors duration-200"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                        />
-                      </svg>
-                    </div>
-                    <div>
-                      <p class="text-sm font-medium text-gray-400 group-hover:text-gray-300 transition-colors duration-200">
-                        新しいアカウントを追加
-                      </p>
-                      <p class="text-xs text-gray-600">
-                        別のアカウントでログイン
-                      </p>
-                    </div>
-                  </button>
-                </div>
-              </details>
-            </div>
-          </div>
+          <Show when={props.showInlineSwitch ?? true}>
+            <AccountSwitchList
+              accounts={props.accounts}
+              selectedAccountId={props.selectedAccountId}
+              setSelectedAccountId={props.setSelectedAccountId}
+              addNewAccount={props.addNewAccount}
+              updateAccount={props.updateAccount}
+              deleteAccount={props.deleteAccount}
+            />
+          </Show>
         </div>
       </Show>
 

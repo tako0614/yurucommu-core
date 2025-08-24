@@ -507,7 +507,7 @@ export function Microblog() {
           fallback={
             <>
               {/* モバイル用ヘッダー（上段: ハンバーガー/ロゴ、下段: タブメニュー） */}
-              <div class="lg:hidden sticky top-0 z-30 bg-[#0F141A]/95 backdrop-blur-lg border-b border-[#2B3340]/80 shadow-lg">
+              <div class="lg:hidden sticky top-0 z-30 bg-[#1e1e1e] backdrop-blur-lg border-b border-[#2B3340]/80 shadow-lg">
                 <div class="px-3 pt-2 pb-3">
                   {/* 上段: 左ハンバーガー + 中央ロゴ */}
                   <div class="flex items-center justify-between">

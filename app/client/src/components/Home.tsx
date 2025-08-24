@@ -3,6 +3,7 @@ import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
+import AccountSwitchList from "./home/AccountSwitchList.tsx";
 import { Account, isDataUrl, isUrl } from "./home/types.ts";
 import { Setting } from "./Setting/index.tsx";
 import { Button, Modal } from "./ui/index.ts";
@@ -200,6 +201,7 @@ export function Home() {
       addNewAccount={addNewAccount}
       updateAccount={updateAccount}
       deleteAccount={deleteAccount}
+  showInlineSwitch={false}
     />
   );
 
@@ -246,6 +248,18 @@ export function Home() {
           </svg>
           <span class="text-base font-semibold">設定</span>
         </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          class="rounded-md px-3 py-2 shadow flex items-center gap-2"
+          aria-label="アカウント切り替え"
+          title="アカウント切り替え"
+          onClick={() => setShowAccountSettings(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4">
+            <path fill="currentColor" d="M12 5v2a5 5 0 015 5h2a7 7 0 00-7-7zM7 12a5 5 0 015-5V5a7 7 0 00-7 7h2zm5 7v-2a5 5 0 01-5-5H5a7 7 0 007 7zM17 12a5 5 0 00-5 5v2a7 7 0 007-7h-2z" />
+          </svg>
+        </Button>
       </div>
 
         {/* アカウント切替モーダル */}
@@ -255,11 +269,11 @@ export function Home() {
             onClose={() => setShowAccountSettings(false)}
             title="アカウントを切り替え"
           >
-            <div class="max-w-4xl mx-auto">
-              <AccountSettingsContent
+            <div class="w-full min-h-screen">
+              <AccountSwitchList
                 accounts={accounts()}
                 selectedAccountId={actId()}
-                setSelectedAccountId={(id) => { setActId(id); setShowAccountSettings(false); }}
+                setSelectedAccountId={(id: string | null) => { setActId(id); setShowAccountSettings(false); }}
                 addNewAccount={addNewAccount}
                 updateAccount={updateAccount}
                 deleteAccount={deleteAccount}
