@@ -98,22 +98,26 @@ async function uploadFile(opts: {
   return null;
 }
 
-async function sendKeepMessage(
-  _handle: string,
-  _content: string,
-  _attachments?: Record<string, unknown>[],
+async function sendMemoMessage(
+  handle: string,
+  content: string,
+  attachments?: Record<string, unknown>[],
 ) {
   try {
-    const res = await apiFetch(`/api/keeps`, {
+    const payload: Record<string, unknown> = {
+      from: handle,
+      to: handle,
+      content,
+    };
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
+    const res = await apiFetch(`/api/dm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        handle: _handle,
-        content: _content,
-        attachments: Array.isArray(_attachments) ? _attachments : undefined,
-      }),
+      body: JSON.stringify(payload),
     });
-    if (res.ok) return (await res.json());
+    if (res.ok) return await res.json();
   } catch {
     // ignore network errors
   }
@@ -658,52 +662,7 @@ export function Chat() {
     const user = account();
     if (!user) return [];
 
-    // メモは既存の keep API を利用（添付対応）
-    if (room.type === "memo") {
-      const list = await fetchKeepMessages(
-        `${user.userName}@${getDomain()}`,
-        params,
-      );
-      const msgs = (list as Array<Record<string, unknown>>).map((m) => {
-        const attachments = Array.isArray(
-            (m as { attachments?: unknown[] })
-              .attachments,
-          )
-          ? (m as { attachments?: unknown[] }).attachments as unknown[]
-          : [];
-        const firstType = (attachments[0] as { mediaType?: string })
-          ?.mediaType || "";
-        const msgType = attachments.length > 0
-          ? (firstType.startsWith("image/")
-            ? ("image" as const)
-            : (firstType.startsWith("video/")
-              ? ("video" as const)
-              : ("file" as const)))
-          : ("note" as const);
-        return {
-          id: String(m.id ?? ""),
-          author: `${user.userName}@${getDomain()}`,
-          displayName: user.displayName || user.userName,
-          address: `${user.userName}@${getDomain()}`,
-          content: String(m.content ?? ""),
-          attachments: attachments as {
-            data?: string;
-            url?: string;
-            mediaType: string;
-            preview?: { url?: string; data?: string; mediaType?: string };
-          }[],
-          timestamp: new Date(String(m.createdAt ?? Date.now())),
-          type: msgType,
-          isMe: true,
-          avatar: room.avatar,
-        } as ChatMessage;
-      });
-      return msgs.sort((a: ChatMessage, b: ChatMessage) =>
-        a.timestamp.getTime() - b.timestamp.getTime()
-      );
-    }
-
-    if (room.type !== "dm") {
+    if (room.type !== "dm" && room.type !== "memo") {
       // グループメッセージ取得は未実装のため、空配列を返す
       return [];
     }
@@ -711,24 +670,30 @@ export function Chat() {
     // サーバーの DM API (/api/dm) を用いてメッセージを取得する
     try {
       const selfHandle = `${user.userName}@${getDomain()}`;
-      const members = (room.members ?? []).filter((m) =>
-        !!m && m !== selfHandle
-      );
       const raw: unknown[] = [];
-
-      // メンバーごとに /api/dm?user1=<self>&user2=<member> を呼び出して集約
-      for (const m of members) {
-        try {
-          const res = await apiFetch(
-            `/api/dm?user1=${encodeURIComponent(selfHandle)}&user2=${
-              encodeURIComponent(m)
-            }`,
-          );
-          if (!res.ok) continue;
-          const list = await res.json();
-          if (Array.isArray(list)) raw.push(...list);
-        } catch {
-          // ignore per-peer failures
+      if (room.type === "memo") {
+        const list = await fetchMemoMessages(selfHandle, params);
+        if (Array.isArray(list)) raw.push(...list);
+      } else {
+        const members = (room.members ?? []).filter((m) =>
+          !!m && m !== selfHandle
+        );
+        // メンバーごとに /api/dm?user1=<self>&user2=<member> を呼び出して集約
+        for (const m of members) {
+          try {
+            const qs = new URLSearchParams({ user1: selfHandle, user2: m });
+            if (typeof params?.limit === "number") {
+              qs.set("limit", String(params.limit));
+            }
+            if (params?.before) qs.set("before", params.before);
+            if (params?.after) qs.set("after", params.after);
+            const res = await apiFetch(`/api/dm?${qs}`);
+            if (!res.ok) continue;
+            const list = await res.json();
+            if (Array.isArray(list)) raw.push(...list);
+          } catch {
+            // ignore per-peer failures
+          }
         }
       }
 
@@ -1176,27 +1141,27 @@ export function Chat() {
   // room creation should be done via server APIs / sidebar controls
 
   const sendMessage = async () => {
-  const text = newMessage().trim();
+    const text = newMessage().trim();
     const roomId = selectedRoom();
     const user = account();
-  if ((!text && mediaFiles().length === 0) || !roomId || !user) return;
+    if ((!text && mediaFiles().length === 0) || !roomId || !user) return;
     const room = chatRooms().find((r) => r.id === roomId);
     if (!room) return;
     if (room.type === "memo") {
       let attachmentsParam: Record<string, unknown>[] | undefined;
-        if (mediaFiles().length > 0) {
-          const built: Record<string, unknown>[] = [];
-          for (const f of mediaFiles()) {
-            try {
-              const att = await buildAttachment(f);
-              if (att && typeof att.url === "string") built.push(att);
-            } catch {
-              // 個別失敗は無視して続行
-            }
+      if (mediaFiles().length > 0) {
+        const built: Record<string, unknown>[] = [];
+        for (const f of mediaFiles()) {
+          try {
+            const att = await buildAttachment(f);
+            if (att && typeof att.url === "string") built.push(att);
+          } catch {
+            // 個別失敗は無視して続行
           }
-          if (built.length > 0) attachmentsParam = built;
+        }
+        if (built.length > 0) attachmentsParam = built;
       }
-      const res = await sendKeepMessage(
+      const res = await sendMemoMessage(
         `${user.userName}@${getDomain()}`,
         text,
         attachmentsParam,
@@ -1244,9 +1209,9 @@ export function Chat() {
         if (user2) void saveDecryptedMessages(user2.id, room.id, list);
         return next;
       });
-  setNewMessage("");
-  setMediaFiles([]);
-  setMediaPreviews([]);
+      setNewMessage("");
+      setMediaFiles([]);
+      setMediaPreviews([]);
       return;
     }
 
@@ -1288,9 +1253,9 @@ export function Chat() {
           alert("メッセージの送信に失敗しました");
           return;
         }
-  setNewMessage("");
-  setMediaFiles([]);
-  setMediaPreviews([]);
+        setNewMessage("");
+        setMediaFiles([]);
+        setMediaPreviews([]);
         const fetched = await fetchMessagesForRoom(room, {
           limit: 1,
           dryRun: true,
@@ -2050,14 +2015,21 @@ function normalizeHandle(id?: string): string | undefined {
   return undefined;
 }
 
-async function fetchKeepMessages(_handle: string, _params?: unknown) {
-  // delegate to server keep API if available; stub returns empty
+async function fetchMemoMessages(
+  handle: string,
+  params?: { limit?: number; before?: string; after?: string },
+) {
   try {
-    const res = await apiFetch(
-      `/api/keeps?handle=${encodeURIComponent(_handle)}`,
-    );
+    const qs = new URLSearchParams({ user1: handle, user2: handle });
+    if (typeof params?.limit === "number") {
+      qs.set("limit", String(params.limit));
+    }
+    if (params?.before) qs.set("before", params.before);
+    if (params?.after) qs.set("after", params.after);
+    const res = await apiFetch(`/api/dm?${qs}`);
     if (!res.ok) return [];
-    return await res.json();
+    const list = await res.json();
+    return Array.isArray(list) ? list : [];
   } catch {
     return [];
   }

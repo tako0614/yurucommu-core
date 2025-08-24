@@ -68,7 +68,7 @@ async function validateUrl(url: string): Promise<void> {
           throw new Error("DNS resolves to a private IP address");
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // IPv6も確認
       try {
         const resolvedIPv6 = await Deno.resolveDns(parsedUrl.hostname, "AAAA");
