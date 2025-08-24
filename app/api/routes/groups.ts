@@ -8,6 +8,7 @@ import {
   createAcceptActivity,
   deliverActivityPubObject,
   getDomain,
+  resolveActorFromAcct,
   sendActivityPubObject,
 } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
@@ -206,23 +207,25 @@ app.post(
         ];
         for (const cand of candidates) {
           if (cand.toLowerCase() === creator.toLowerCase()) continue; // 自分自身は招待しない
+          const actor = await resolveActorFromAcct(cand).catch(() => null);
+          if (!actor?.id) continue;
+          const target = actor.id;
           const activity = {
             "@context": "https://www.w3.org/ns/activitystreams",
             id: `https://${domain}/activities/${crypto.randomUUID()}`,
             type: "Invite" as const,
             actor: groupId,
-            object: cand,
+            object: target,
             target: groupId,
-            to: [cand],
+            to: [target],
           };
           await deliverActivityPubObject(
-            [cand],
+            [target],
             activity,
             "system",
             domain,
             env,
-          )
-            .catch(() => {});
+          ).catch(() => {});
           const inv = new Invite({
             groupName,
             actor: cand,
@@ -307,8 +310,15 @@ app.patch(
       to: [`https://${domain}/groups/${name}/followers`],
       object: actor,
     };
+    const targets = await Promise.all(
+      updated.followers.map(async (f: string) => {
+        if (f.startsWith("http")) return f;
+        const actor = await resolveActorFromAcct(f).catch(() => null);
+        return actor?.id ?? null;
+      }),
+    );
     await deliverActivityPubObject(
-      updated.followers,
+      targets.filter((t): t is string => typeof t === "string"),
       activity,
       "system",
       domain,
@@ -338,16 +348,21 @@ app.post(
     }
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
+    const actor = await resolveActorFromAcct(acct).catch(() => null);
+    if (!actor?.id) {
+      return c.json({ error: "acct 解決に失敗しました" }, 400);
+    }
+    const target = actor.id;
     const activity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       id: `https://${domain}/activities/${crypto.randomUUID()}`,
       type: "Invite" as const,
       actor: groupId,
-      object: acct,
+      object: target,
       target: groupId,
-      to: [acct],
+      to: [target],
     };
-    await deliverActivityPubObject([acct], activity, "system", domain, env);
+    await deliverActivityPubObject([target], activity, "system", domain, env);
     const inv = new Invite({
       groupName: name,
       actor: acct,

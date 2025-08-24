@@ -187,19 +187,11 @@ export async function deliverActivityPubObject(
     }
   };
   const deliveryPromises = targets.map(async (addr) => {
-    let iri = addr;
-    // acct:username@domain または username@domain 形式を解決
-    if (!iri.startsWith("http")) {
-      const acct = iri.startsWith("acct:") ? iri.slice(5) : iri;
-      try {
-        const actor = await resolveActorFromAcct(acct);
-        if (!actor) throw new Error("acct not found");
-        iri = actor.id;
-      } catch (err) {
-        console.error(`Failed to resolve acct for ${addr}`, err);
-        return Promise.resolve();
-      }
+    if (!addr.startsWith("http")) {
+      console.error(`Invalid target URI ${addr}`);
+      return Promise.resolve();
     }
+    const iri = addr;
     if (isCollection(iri)) {
       console.error(`Skip delivery to non-actor URI ${iri}`);
       return Promise.resolve();

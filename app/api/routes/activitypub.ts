@@ -20,6 +20,7 @@ import {
   deliverActivityPubObject,
   getDomain,
   jsonResponse,
+  resolveActorFromAcct,
 } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 
@@ -208,18 +209,29 @@ app.post("/users/:username/outbox", async (c) => {
     username,
     true,
   );
+  const recipients = [...(object.to ?? []), ...(object.cc ?? [])];
+  const targets = await Promise.all(
+    recipients.map(async (r) => {
+      if (typeof r === "string" && r.startsWith("http")) return r;
+      if (typeof r === "string") {
+        const acct = r.startsWith("acct:") ? r.slice(5) : r;
+        const actor = await resolveActorFromAcct(acct).catch(() => null);
+        return actor?.id ?? null;
+      }
+      return null;
+    }),
+  );
   deliverActivityPubObject(
-    [...(object.to ?? []), ...(object.cc ?? [])],
+    targets.filter((t): t is string => typeof t === "string"),
     activity,
     username,
     domain,
     env,
-  )
-    .catch(
-      (err) => {
-        console.error("Delivery failed:", err);
-      },
-    );
+  ).catch(
+    (err) => {
+      console.error("Delivery failed:", err);
+    },
+  );
   return jsonResponse(c, activity, 201, "application/activity+json");
 });
 

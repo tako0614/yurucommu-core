@@ -11,6 +11,7 @@ import {
   createObjectId,
   deliverActivityPubObject,
   getDomain as apGetDomain,
+  resolveActorFromAcct,
 } from "../utils/activitypub.ts";
 
 // DM 用のシンプルな REST エンドポイント
@@ -193,26 +194,30 @@ app.post(
           if (content) obj.name = content;
         }
 
-        const activity = {
-          "@context": "https://www.w3.org/ns/activitystreams",
-          id: activityId,
-          type: "Create" as const,
-          actor: actorId,
-          to: [to],
-          object: obj,
-        };
-
-        // deliverActivityPubObject は acct 形式（user@host）も解決可能
-        await deliverActivityPubObject(
-          [to],
-          activity,
-          fromUserName,
-          localDomain,
-          env,
-        )
-          .catch((err) => {
+        const resolved = await resolveActorFromAcct(to).catch(() => null);
+        if (!resolved?.id) {
+          console.error("acct 解決に失敗", to);
+        } else {
+          const toActor = resolved.id;
+          obj.to = [toActor];
+          const activity = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: activityId,
+            type: "Create" as const,
+            actor: actorId,
+            to: [toActor],
+            object: obj,
+          };
+          await deliverActivityPubObject(
+            [toActor],
+            activity,
+            fromUserName,
+            localDomain,
+            env,
+          ).catch((err) => {
             console.error("DM delivery failed:", err);
           });
+        }
       }
     } catch (err) {
       console.error("/api/dm ActivityPub delivery error:", err);
