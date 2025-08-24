@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import process from "node:process";
 
 type TenantScopeOptions = {
   envKey: string;
@@ -13,13 +12,7 @@ function getEnv(ctx: unknown): Record<string, string> {
   if (c?.$locals?.env) return c.$locals.env;
   const opt = c?.getOptions?.()?.$locals?.env;
   if (opt) return opt;
-  try {
-    // Deno runtime
-    return Deno.env.toObject();
-  } catch {
-    // Node.js fallback
-    return process.env as Record<string, string>;
-  }
+  return Deno.env.toObject();
 }
 
 export default function tenantScope(
