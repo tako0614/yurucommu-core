@@ -27,7 +27,7 @@ export async function saveFile(
   await db.saveObject({
     _id: id,
     type: "Attachment",
-    attributedTo: `https://${domain}/system`,
+    attributedTo: `https://${domain}/users/system`,
     extra: { mediaType, key: options.key, iv: options.iv, storageKey },
   });
   return { id, url: `https://${domain}/api/files/${id}` };

@@ -7,6 +7,7 @@ import { createTakosApp } from "../../api/server.ts";
 import { ensureTenant } from "../../api/services/tenant.ts";
 import { createDB } from "../../api/DB/mod.ts";
 import { bootstrapDefaultFasp } from "../../api/services/fasp_bootstrap.ts";
+import { getSystemKey } from "../../api/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
 import { createConsumerApp } from "../consumer.ts";
 import { createAuthApp } from "../auth.ts";
@@ -64,6 +65,10 @@ export async function initHostContext(): Promise<HostContext> {
   const rootDomain =
     (hostEnv["ROOT_DOMAIN"] ?? hostEnv["ACTIVITYPUB_DOMAIN"] ?? "")
       .toLowerCase();
+  if (rootDomain) {
+    const db = createDB(hostEnv);
+    await getSystemKey(db, rootDomain);
+  }
   const rootActivityPubApp = rootDomain
     ? createRootActivityPubApp({ ...takosEnv, ACTIVITYPUB_DOMAIN: rootDomain })
     : null;

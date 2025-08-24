@@ -8,5 +8,14 @@ export async function getSystemKey(db: DB, domain: string) {
     await db.saveSystemKey(domain, keys.privateKey, keys.publicKey);
     doc = { domain, ...keys };
   }
+  const account = await db.findAccountByUserName("system");
+  if (!account) {
+    await db.createAccount({
+      userName: "system",
+      displayName: "system",
+      privateKey: doc.privateKey,
+      publicKey: doc.publicKey,
+    });
+  }
   return doc;
 }

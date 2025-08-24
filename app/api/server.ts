@@ -33,6 +33,8 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import dms from "./routes/dms.ts";
+import { createDB } from "./DB/mod.ts";
+import { getSystemKey } from "./services/system_actor.ts";
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -50,6 +52,8 @@ export async function createTakosApp(env?: Record<string, string>) {
     await rl(c, next);
   });
   await initFileModule(e);
+  const db = createDB(e);
+  await getSystemKey(db, e["ACTIVITYPUB_DOMAIN"] ?? "");
 
   const apiRoutes = [
     wsRouter,

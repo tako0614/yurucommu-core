@@ -7,7 +7,6 @@ import {
 } from "../services/follow-info.ts";
 
 import { activityHandlers } from "../activity_handlers.ts";
-import { getSystemKey } from "../services/system_actor.ts";
 import { b64ToBuf } from "../../shared/buffer.ts";
 
 // 未設定時に返すデフォルトアイコン
@@ -23,7 +22,7 @@ import {
   getDomain,
   jsonResponse,
 } from "../utils/activitypub.ts";
-import { parseActivityRequest, storeCreateActivity } from "../utils/inbox.ts";
+import { parseActivityRequest } from "../utils/inbox.ts";
 
 const app = new Hono();
 
@@ -54,19 +53,6 @@ app.get("/.well-known/webfinger", async (c) => {
     return jsonResponse(c, { error: "Not found" }, 404);
   }
   const domain = expected ?? host;
-  if (username === "system") {
-    const jrd = {
-      subject: `acct:system@${domain}`,
-      links: [
-        {
-          rel: "self",
-          type: "application/activity+json",
-          href: `https://${domain}/users/system`,
-        },
-      ],
-    };
-    return jsonResponse(c, jrd, 200, "application/jrd+json");
-  }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
@@ -84,31 +70,8 @@ app.get("/.well-known/webfinger", async (c) => {
   return jsonResponse(c, jrd, 200, "application/jrd+json");
 });
 
-app.get("/users/system", async (c) => {
-  const domain = getDomain(c);
-  const db = createDB(getEnv(c));
-  const { publicKey } = await getSystemKey(db, domain);
-  const actor = createActor(domain, {
-    userName: "system",
-    displayName: "system",
-    publicKey,
-  }, { includeIcon: false });
-  return jsonResponse(c, actor, 200, "application/activity+json");
-});
-
 app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const domain = getDomain(c);
-    const db = createDB(getEnv(c));
-    const { publicKey } = await getSystemKey(db, domain);
-    const actor = createActor(domain, {
-      userName: "system",
-      displayName: "system",
-      publicKey,
-    }, { includeIcon: false });
-    return jsonResponse(c, actor, 200, "application/activity+json");
-  }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
@@ -125,12 +88,6 @@ app.get("/users/:username", async (c) => {
 
 app.get("/users/:username/avatar", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const icon = username.slice(0, 2).toUpperCase();
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="100%" height="100%" fill="#6b7280"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="60" fill="#fff" font-family="sans-serif">${icon}</text></svg>`;
-    return c.body(svg, 200, { "content-type": "image/svg+xml" });
-  }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
@@ -173,21 +130,6 @@ app.get("/users/:username/avatar", async (c) => {
 
 app.get("/users/:username/outbox", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const domain = getDomain(c);
-    return jsonResponse(
-      c,
-      {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: `https://${domain}/users/system/outbox`,
-        type: "OrderedCollection",
-        totalItems: 0,
-        orderedItems: [],
-      },
-      200,
-      "application/activity+json",
-    );
-  }
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
@@ -308,13 +250,6 @@ app.post("/users/:username/outbox", async (c) => {
 
 app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const result = await parseActivityRequest(c);
-    if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
-    const { activity } = result;
-    await storeCreateActivity(activity, getEnv(c));
-    return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
-  }
   const env = getEnv(c);
   const db = createDB(env);
   const account = await db.findAccountByUserName(username);
@@ -344,22 +279,6 @@ app.post("/users/:username/inbox", async (c) => {
 
 app.get("/ap/users/:username/followers", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const domain = getDomain(c);
-    const baseId = `https://${domain}/ap/users/system/followers`;
-    return jsonResponse(
-      c,
-      {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: baseId,
-        type: "OrderedCollection",
-        totalItems: 0,
-        first: `${baseId}?page=1`,
-      },
-      200,
-      "application/activity+json",
-    );
-  }
   const page = c.req.query("page");
   const env = getEnv(c);
   const domain = getDomain(c);
@@ -385,22 +304,6 @@ app.get("/ap/users/:username/followers", async (c) => {
 
 app.get("/ap/users/:username/following", async (c) => {
   const username = c.req.param("username");
-  if (username === "system") {
-    const domain = getDomain(c);
-    const baseId = `https://${domain}/ap/users/system/following`;
-    return jsonResponse(
-      c,
-      {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: baseId,
-        type: "OrderedCollection",
-        totalItems: 0,
-        first: `${baseId}?page=1`,
-      },
-      200,
-      "application/activity+json",
-    );
-  }
   const page = c.req.query("page");
   const env = getEnv(c);
   const domain = getDomain(c);
