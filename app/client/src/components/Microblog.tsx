@@ -500,7 +500,7 @@ export function Microblog() {
 
   return (
     <>
-      <div class="min-h-screen text-[#E6E7EA] relative">
+      <div class="min-h-screen text-[#E6E7EA] relative bg-[#1e1e1e]">
         {/* タイムライン用スケルトン: 初期読み込み時は各カラムで表示 */}
         <Show
           when={targetPostId() && selectedPost()}
