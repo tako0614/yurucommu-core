@@ -53,17 +53,8 @@ export function FriendList(props: FriendListProps) {
       return false;
     };
     const friendMap = new Map<string, Friend>();
-    // フレンド候補: members に自分以外の要素がちょうど1名いるルームを厳密に扱う
-    const candidateRooms = props.rooms.filter((r) => {
-      if (r.type === "memo") return false;
-      const membersOnly = (r.members ?? []).filter((m: unknown): m is string =>
-        typeof m === "string" && !!m
-      );
-      const normalized = Array.from(
-        new Set(membersOnly.map((m) => normalizeHandle(m) || m)),
-      ).filter((m) => !!m && !isSelf(m));
-      return normalized.length === 1;
-    });
+    // フレンド候補: type が dm のルームのみを対象にする
+    const candidateRooms = props.rooms.filter((r) => r.type === "dm");
     for (const room of candidateRooms) {
       const membersOnly = (room.members ?? []).filter((
         m: unknown,
@@ -92,15 +83,13 @@ export function FriendList(props: FriendListProps) {
     const items = Array.from(friendMap.values());
     const unreadSum = (fid: string) =>
       props.rooms
-        .filter((r) => r.type !== "memo" && !(r.hasName || r.hasIcon))
-        .filter((r) => r.members?.includes(fid))
+        .filter((r) => r.type === "dm" && r.members?.includes(fid))
         .reduce((a, r) => a + (r.unreadCount || 0), 0);
     const lastTime = (fid: string) => {
       let t = 0;
       for (const r of props.rooms) {
-        if (r.type === "memo") continue;
-        const match = r.members?.includes(fid);
-        if (!match) continue;
+        if (r.type !== "dm") continue;
+        if (!r.members?.includes(fid)) continue;
         const ts = r.lastMessageTime ? r.lastMessageTime.getTime() : 0;
         if (ts > t) t = ts;
       }

@@ -6,7 +6,6 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { useAtom } from "solid-jotai";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
@@ -15,8 +14,6 @@ import { Button, EmptyState, Input, Skeleton } from "../ui/index.ts";
 // ローディング表示の点滅を抑えるための簡易ディレイ表示フック
 // コンポーネント配下（createRoot/render配下）でのみ使うこと
 import SwipeTabs from "../ui/SwipeTabs.tsx";
-import { activeAccount } from "../../states/account.ts";
-import { getDomain } from "../../utils/config.ts";
 
 interface ChatRoomListProps {
   rooms: Room[];
@@ -83,7 +80,6 @@ export function ChatRoomList(props: ChatRoomListProps) {
     return shown;
   };
   const [query, setQuery] = createSignal("");
-  const [account] = useAtom(activeAccount);
   // リストが空のときだけ、遅延してスケルトンを表示する（点滅防止）
   const showAllSkeleton = useDelayedVisibility(
     () => getFilteredRoomsFor("all").length === 0 && query().trim() === "",
@@ -124,36 +120,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
     return room.name;
   };
 
-  // ハンドル正規化ユーティリティ（members の比較に使う）
-  const normalizeHandleLocal = (id?: string): string | undefined => {
-    if (!id) return undefined;
-    if (id.startsWith("http")) {
-      try {
-        const u = new URL(id);
-        const name = u.pathname.split("/").pop() || "";
-        if (!name) return undefined;
-        return `${name}@${u.hostname}`;
-      } catch {
-        return undefined;
-      }
-    }
-    if (id.includes("@")) return id;
-    return undefined;
-  };
-
-  // 厳密な「友だちルーム」判定: members 配列に自分以外がちょうど1名存在するルーム
-  const isStrictFriendRoom = (r: Room) => {
-    if (r.type === "memo") return false;
-    const me = account();
-    const selfHandle = me ? `${me.userName}@${getDomain()}` : undefined;
-    const membersOnly = (r.members ?? []).filter((m: unknown): m is string =>
-      typeof m === "string" && !!m
-    );
-    const normalized = Array.from(
-      new Set(membersOnly.map((m) => normalizeHandleLocal(m) || m)),
-    ).filter((m) => !!m && m !== selfHandle);
-    return normalized.length === 1;
-  };
+  // 厳密な「友だちルーム」判定: DM ルームのみを対象とする
+  const isStrictFriendRoom = (r: Room) => r.type === "dm";
 
   const getFilteredRoomsFor = (seg: "all" | "people" | "groups") => {
     const q = query().toLowerCase().trim();

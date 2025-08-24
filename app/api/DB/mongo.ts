@@ -366,7 +366,7 @@ export class MongoDB implements DB {
     content?: string,
     attachments?: Record<string, unknown>[],
   ) {
-    const extra: Record<string, unknown> = { type };
+    const extra: Record<string, unknown> = { type, dm: true };
     if (attachments) extra.attachments = attachments;
     const id = this.env["ACTIVITYPUB_DOMAIN"]
       ? createObjectId(this.env["ACTIVITYPUB_DOMAIN"])
@@ -567,15 +567,15 @@ export class MongoDB implements DB {
     const query = DirectMessage.findOneAndUpdate({ owner, id }, update, {
       new: true,
     });
-  this.withTenant(query);
-  return await query.lean<DirectMessageDoc | null>();
+    this.withTenant(query);
+    return await query.lean<DirectMessageDoc | null>();
   }
 
   async deleteDirectMessage(owner: string, id: string) {
-  const query = DirectMessage.findOneAndDelete({ owner, id });
-  this.withTenant(query);
-  const res = await query.lean<DirectMessageDoc | null>();
-  return res != null;
+    const query = DirectMessage.findOneAndDelete({ owner, id });
+    this.withTenant(query);
+    const res = await query.lean<DirectMessageDoc | null>();
+    return res != null;
   }
 
   async listNotifications(owner: string) {

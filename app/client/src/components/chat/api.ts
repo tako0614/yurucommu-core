@@ -18,8 +18,8 @@ export async function fetchDirectMessages(
     const data = await res.json();
     const items = Array.isArray(data.orderedItems) ? data.orderedItems : [];
     const selfHandle = `https://${domain}/users/${encodeURIComponent(actor)}`;
-    // peer が与えられた場合、Activity の to/cc に peer の actor URI が含まれるものを抽出
-    // 指定がない場合は to が自分のみ (to が配列で長さ1か、文字列で自Handle と等しい) のものを抽出
+    // peer が与えられた場合は recipients に peer の actor URI が含まれる DM を抽出
+    // 指定がない場合は recipients に自Handle が含まれる DM を抽出
     const peerActorUri = peer
       ? peer.startsWith("http")
         ? peer
@@ -30,9 +30,13 @@ export async function fetchDirectMessages(
         }`
       : undefined;
 
-  const filtered = items.filter((it: Record<string, unknown>) => {
+    const filtered = items.filter((it: Record<string, unknown>) => {
       const type = typeof it.type === "string" ? it.type : "";
-      if (type !== "Note" && type !== "Message") return false;
+      const extra = typeof it.extra === "object" && it.extra !== null
+        ? it.extra as Record<string, unknown>
+        : {};
+      const isDM = extra.dm === true || extra.type === "dm" || type === "dm";
+      if (!isDM) return false;
       const toField = it.to ?? [];
       const ccField = it.cc ?? [];
       const collect = (v: unknown) => {
@@ -46,14 +50,8 @@ export async function fetchDirectMessages(
 
       if (peerActorUri) {
         return recipients.includes(peerActorUri);
-      } else {
-        // 自分のみ向け: recipients がちょうど自Handle のみ
-        if (recipients.length === 1 && recipients[0] === selfHandle) {
-          return true;
-        }
-        // または to が "https://www.w3.org/ns/activitystreams#Public" のような public は除外
-        return false;
       }
+      return recipients.includes(selfHandle);
     }).map((it: Record<string, unknown>) => {
       const id = String(it.id ?? it._id ?? "");
       const author = typeof it.attributedTo === "string" ? it.attributedTo : "";
@@ -62,24 +60,34 @@ export async function fetchDirectMessages(
         ? new Date(String(it.published))
         : new Date();
       // ActivityStreams 互換の添付（attachment）をクライアント内部形式に正規化
-      type Attachment = { url: string; mediaType: string; preview?: { url?: string } };
+      type Attachment = {
+        url: string;
+        mediaType: string;
+        preview?: { url?: string };
+      };
 
-      const attachments = Array.isArray((it as { attachment?: unknown }).attachment)
-        ? ((it.attachment as unknown[])
-          .map((a: unknown) => {
-            const obj = a as { [k: string]: unknown } | undefined;
-            const url = typeof obj?.url === "string" ? obj.url : undefined;
-            const mediaType = typeof obj?.mediaType === "string"
-              ? obj.mediaType
-              : undefined;
-            const preview = obj?.preview && typeof obj.preview === "object"
-              ? { url: typeof (obj.preview as { url?: unknown })?.url === "string" ? (obj.preview as { url?: string }).url : undefined }
-              : undefined;
-            if (!url || !mediaType) return null;
-            return { url, mediaType, preview };
-          })
-          .filter(Boolean) as unknown) as Attachment[]
-        : undefined;
+      const attachments =
+        Array.isArray((it as { attachment?: unknown }).attachment)
+          ? ((it.attachment as unknown[])
+            .map((a: unknown) => {
+              const obj = a as { [k: string]: unknown } | undefined;
+              const url = typeof obj?.url === "string" ? obj.url : undefined;
+              const mediaType = typeof obj?.mediaType === "string"
+                ? obj.mediaType
+                : undefined;
+              const preview = obj?.preview && typeof obj.preview === "object"
+                ? {
+                  url:
+                    typeof (obj.preview as { url?: unknown })?.url === "string"
+                      ? (obj.preview as { url?: string }).url
+                      : undefined,
+                }
+                : undefined;
+              if (!url || !mediaType) return null;
+              return { url, mediaType, preview };
+            })
+            .filter(Boolean) as unknown) as Attachment[]
+          : undefined;
       return {
         id,
         author,
@@ -121,9 +129,10 @@ export async function sendDirectMessage(
       // ActivityPub準拠の type を決定
       let apType: "note" | "image" | "video" | "file" = "note";
       const hasText = typeof content === "string" && content.trim().length > 0;
-      const firstMediaType = Array.isArray(attachments) && attachments.length > 0
-        ? String((attachments[0] as { mediaType?: string }).mediaType || "")
-        : "";
+      const firstMediaType =
+        Array.isArray(attachments) && attachments.length > 0
+          ? String((attachments[0] as { mediaType?: string }).mediaType || "")
+          : "";
       if (!hasText && firstMediaType) {
         if (firstMediaType.startsWith("image/")) apType = "image";
         else if (firstMediaType.startsWith("video/")) apType = "video";
