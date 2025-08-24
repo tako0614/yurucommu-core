@@ -107,3 +107,43 @@ Deno.test("RFC9421レスポンス署名を検証できる", async () => {
     assert(ok);
   });
 });
+
+Deno.test("@authority を含む署名を検証できる", async () => {
+  const { privateKey, publicKey } = await generateKeyPair();
+  const keyId = "https://example.com/actor#main-key";
+  const body = JSON.stringify({ hello: "world" });
+  const url = "https://example.com/inbox";
+  const method = "POST";
+  const digest = await computeContentDigest(body);
+  const headers = new Headers({ "Content-Digest": digest });
+  const created = Math.floor(Date.now() / 1000);
+  const sigParams =
+    `("@method" "@target-uri" "@authority" "content-digest");created=${created};keyid="${keyId}";alg="ed25519"`;
+  const signingString = [
+    `"@method": ${method.toLowerCase()}`,
+    `"@target-uri": ${url}`,
+    `"@authority": example.com`,
+    `"content-digest": ${digest}`,
+    `"@signature-params": ${sigParams}`,
+  ].join("\n");
+  const keyData = pemToArrayBuffer(privateKey);
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyData,
+    { name: "Ed25519" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "Ed25519",
+    cryptoKey,
+    new TextEncoder().encode(signingString),
+  );
+  headers.set("Signature-Input", `sig1=${sigParams}`);
+  headers.set("Signature", `sig1=:${bufToB64(signature)}:`);
+  const req = new Request(url, { method, headers });
+  await withStubbedKey(keyId, publicKey, async () => {
+    const ok = await verifyHttpSignature(req, body);
+    assert(ok);
+  });
+});

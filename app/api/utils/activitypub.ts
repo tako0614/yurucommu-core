@@ -14,7 +14,7 @@ async function applySignature(
   headers: Headers,
 ): Promise<void> {
   const parsed = new URL(url);
-  const host = parsed.hostname;
+  const authority = parsed.host;
   const date = new Date().toUTCString();
   const encoder = new TextEncoder();
 
@@ -41,7 +41,7 @@ async function applySignature(
     if (h === "@target-uri") {
       return `"@target-uri": ${url}`;
     }
-    if (h === "host") return `host: ${host}`;
+    if (h === "@authority") return `"@authority": ${authority}`;
     if (h === "date") return `date: ${date}`;
     if (h === "content-digest") return `"content-digest": ${contentDigest}`;
     if (h === "content-length") {
@@ -88,7 +88,7 @@ async function signAndPost(
     inboxUrl,
     body,
     key,
-    ["@method", "@target-uri", "host", "date", "content-digest"],
+    ["@method", "@target-uri", "@authority", "date", "content-digest"],
     headers,
   );
   return await fetch(inboxUrl, { method: "POST", headers, body });
@@ -314,6 +314,13 @@ export function buildSigningString(
     } else if (h === "@status") {
       if (!(msg instanceof Response)) return null;
       lines.push(`"@status": ${msg.status}`);
+    } else if (h === "@authority") {
+      try {
+        const url = new URL(msg.url);
+        lines.push(`"@authority": ${url.host}`);
+      } catch {
+        return null;
+      }
     } else if (h === "content-digest") {
       const v = msg.headers.get("content-digest");
       if (v === null) return null;
