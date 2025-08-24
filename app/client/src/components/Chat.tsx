@@ -16,6 +16,7 @@ import {
   fetchUserInfoBatch,
 } from "./microblog/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
+import { navigate } from "../utils/router.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../utils/adsense.ts";
 import { ChatRoomList } from "./chat/ChatRoomList.tsx";
@@ -475,6 +476,8 @@ export function Chat() {
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
   const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
+  const [roomsReady, setRoomsReady] = createSignal(false);
+  const [pendingRoom, setPendingRoom] = createSignal<string | null>(null);
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   // ルームごとの復号済みメッセージキャッシュ（再選択時の再復号を回避）
@@ -929,6 +932,7 @@ export function Chat() {
   const loadRooms = async () => {
     const user = account();
     if (!user) return;
+  setRoomsReady(false);
     const rooms: Room[] = [
       {
         id: "memo",
@@ -1028,6 +1032,8 @@ export function Chat() {
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
     );
     upsertRooms(unique);
+  // mark rooms as loaded so URL-selected room can be validated
+  setRoomsReady(true);
     // 初期表示のため、各ルームの最新メッセージをバックグラウンドで取得し一覧のプレビューを更新
     // （選択中ルーム以外は本文状態には反映せず、lastMessage/lastMessageTime のみ更新）
     void (async () => {
@@ -1683,45 +1689,67 @@ export function Chat() {
         const selfRoomId = getSelfRoomId(account());
         if (!roomId) {
           setMessages([]);
+          setPendingRoom(null);
           return;
         }
 
-        const normalizedRoomId = normalizeActor(roomId);
-        let room = chatRooms().find((r) => r.id === normalizedRoomId);
-
-        // ルームが存在しない場合は作成を試行
-        if (!room && normalizedRoomId !== selfRoomId) {
-          const info = await fetchUserInfo(normalizeActor(normalizedRoomId));
-          const user = account();
-          if (info && user) {
-            room = {
-              id: normalizedRoomId,
-              name: "",
-              displayName: info.displayName || info.userName,
-              userName: info.userName,
-              domain: info.domain,
-              avatar: info.authorAvatar ||
-                info.userName.charAt(0).toUpperCase(),
-              unreadCount: 0,
-              type: "dm",
-              members: [normalizedRoomId],
-              lastMessage: "...",
-              lastMessageTime: undefined,
-            };
-            upsertRoom(room);
-          }
+        // If rooms are not loaded yet, defer handling until load completes
+        if (!roomsReady()) {
+          setPendingRoom(roomId);
+          return;
         }
 
-        // ルームが見つかった場合は相手情報を補正した上でメッセージを読み込み
+        // rooms are loaded; clear pending
+        setPendingRoom(null);
+
+        const normalizedRoomId = normalizeActor(roomId);
+        const room = chatRooms().find((r) => r.id === normalizedRoomId);
+
+        // If room not found and it's not the self-room, redirect to chat list
+        if (!room) {
+          if (normalizedRoomId === selfRoomId) {
+            // self room is allowed
+            setMessages([]);
+            return;
+          }
+          // unknown room from URL: go back to chat list
+          setSelectedRoom(null);
+          navigate("/chat");
+          return;
+        }
+
+        // Found: proceed as before
+        await ensureDmPartnerInfo(room);
+        await loadMessages(room, true);
+      },
+    ),
+  );
+
+  // when rooms become ready and there was a pending room from the URL,
+  // validate it now (createEffect ensures account/chatRooms are current)
+  createEffect(
+    on(
+      () => roomsReady(),
+      async (ready) => {
+        if (!ready) return;
+        const p = pendingRoom();
+        if (!p) return;
+        const normalized = normalizeActor(p);
+        const room = chatRooms().find((r) => r.id === normalized);
+        const selfRoomId = getSelfRoomId(account());
         if (room) {
+          // load messages for the pending room
           await ensureDmPartnerInfo(room);
           await loadMessages(room, true);
-        } else if (roomId === selfRoomId) {
-          // セルフルーム（TAKO Keep）の場合は空のメッセージリストを設定
-          setMessages([]);
-        } else {
-          setMessages([]);
+          return;
         }
+        if (normalized === selfRoomId) {
+          setMessages([]);
+          return;
+        }
+        // not found -> redirect
+        setSelectedRoom(null);
+        navigate("/chat");
       },
     ),
   );
