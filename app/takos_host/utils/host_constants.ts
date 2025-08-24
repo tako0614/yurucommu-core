@@ -12,8 +12,6 @@ export const FCM_KEYS = [
 ] as const;
 
 export const FASP_PROVIDER_INFO_PATHS = [
-  "/provider_info",
-  "/.well-known/fasp/provider_info",
   "/fasp/provider_info",
 ];
 

@@ -246,7 +246,7 @@ app.post(
     const db = createDB(env);
     const { domainOrUrl } = c.req.valid("json") as { domainOrUrl: string };
 
-    // ベースURLの正規化（provider_info や well-known のサフィックスを除去）
+    // ベースURLの正規化（末尾 /provider_info のみ除去）
     function canonicalize(u: string): string {
       let b = u.trim();
       if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
@@ -255,23 +255,14 @@ app.post(
         url.hash = "";
         url.search = "";
         let p = url.pathname.replace(/\/+$/, "");
-        const wl = "/.well-known/fasp/provider_info";
-        if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-        else if (p.endsWith("/fasp/provider_info")) {
-          p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-        } else if (p.endsWith("/provider_info")) {
+        if (p.endsWith("/provider_info")) {
           p = p.slice(0, -"/provider_info".length);
         }
-        if (p === "/") p = "";
         return `${url.origin}${p}`.replace(/\/$/, "");
       } catch {
         return u.replace(/\/$/, "");
       }
     }
-    const compareKey = (u: string) => {
-      const c = canonicalize(u);
-      return c.endsWith("/fasp") ? c.slice(0, -"/fasp".length) : c;
-    };
     const baseUrl = canonicalize(domainOrUrl);
     // 既定FASPかどうか判定
     const defaultBase = env["FASP_DEFAULT_BASE_URL"] ?? "";
@@ -284,37 +275,25 @@ app.post(
       }
     };
     const isDefault = (defaultBase && (
-      compareKey(defaultBase) === compareKey(baseUrl) ||
+      canonicalize(defaultBase) === baseUrl ||
       hostOf(defaultBase) === hostOf(baseUrl)
     )) || (hostRoot && hostOf(baseUrl) === hostRoot);
 
-    // provider_info の取得（複数候補にフォールバック）
+    // provider_info の取得
     let info: unknown;
-    const candidates = (() => {
-      const list: string[] = [];
-      const b = baseUrl.replace(/\/$/, "");
-      list.push(`${b}/provider_info`);
-      list.push(`${b}/.well-known/fasp/provider_info`);
-      if (!b.endsWith("/fasp")) list.push(`${b}/fasp/provider_info`);
-      return list;
-    })();
+    const url = `${baseUrl.replace(/\/$/, "")}/provider_info`;
     let lastErr: unknown = null;
-    for (const url of candidates) {
-      try {
-        const res = await faspFetch(env, url, {
-          verifyResponseSignature: false,
-        });
-        if (!res.ok) {
-          lastErr = new Error(`HTTP ${res.status}`);
-          continue;
-        }
+    try {
+      const res = await faspFetch(env, url, {
+        verifyResponseSignature: false,
+      });
+      if (!res.ok) {
+        lastErr = new Error(`HTTP ${res.status}`);
+      } else {
         info = await res.json();
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        continue;
       }
+    } catch (e) {
+      lastErr = e;
     }
     // 最低限のフィールドのみ緩く検証（取得できない/不正でも pending レコードは作成）
     let name = baseUrl;
@@ -346,9 +325,6 @@ app.post(
       new Set([
         baseUrl,
         `${baseUrl}/provider_info`,
-        `${baseUrl}/fasp`,
-        `${baseUrl}/fasp/provider_info`,
-        `${baseUrl}/.well-known/fasp/provider_info`,
       ].flatMap((u) => [u, `${u}/`])),
     );
     await providersCol.updateMany(

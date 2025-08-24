@@ -11,11 +11,7 @@ function normalizeBaseUrl(url: string): string | null {
     u.hash = "";
     u.search = "";
     let p = u.pathname.replace(/\/+$/, "");
-    const wl = "/.well-known/fasp/provider_info";
-    if (p.endsWith(wl)) p = p.slice(0, -wl.length);
-    else if (p.endsWith("/fasp/provider_info")) {
-      p = p.slice(0, -"/fasp/provider_info".length) + "/fasp";
-    } else if (p.endsWith("/provider_info")) {
+    if (p.endsWith("/provider_info")) {
       p = p.slice(0, -"/provider_info".length);
     }
     if (p === "/") p = "";

@@ -60,6 +60,8 @@
     側FASPクライアントAPIのベースURLを掲載。例：`"faspBaseUrl": "https://{takos-instance}/fasp"`。
   - takos host は Service Actor のエンドポイント `https://{takos-host}/actor`
     のみ提供。
+  - FASP 情報 API `provider_info` は `https://{FASPドメイン}/fasp/provider_info`
+    のみを参照し、`.well-known` などのフォールバックは行わない。
 
 ---
 
@@ -117,6 +119,8 @@
 - takos → FASP：`GET /provider_info` で capabilities を取得し、管理UIでON/OFF。
 - ON時：takos →
   FASP：`POST /capabilities/<identifier>/<version>/activation`。OFF時：`DELETE`。
+  - `provider_info` は `https://{FASPドメイン}/fasp/provider_info`
+    のみに存在する前提。
 
 ---
 
