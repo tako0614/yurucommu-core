@@ -983,6 +983,43 @@ export function Chat() {
       });
     }
 
+    // DMルームをサーバーから取得して追加
+    const dmRooms = await searchRooms(handle, { type: "dm" });
+    for (const item of dmRooms) {
+      const name = item.name ?? "";
+      const icon = item.icon ?? "";
+      // members が不足している場合は pending を参照
+      let members = item.members ?? [] as string[];
+      if (members.length === 0) {
+        try {
+          const pend = await readPending(user.id, item.id, "dm");
+          const others = (pend || []).filter((m: string | undefined) =>
+            !!m && m !== handle
+          ) as string[];
+          if (others.length > 0) members = others;
+        } catch {
+          /* ignore */
+        }
+      }
+      rooms.push({
+        id: item.id,
+        name,
+        userName: user.userName,
+        domain: getDomain(),
+        avatar: icon ||
+          (String(name).length > 0
+            ? String(name).charAt(0).toUpperCase()
+            : "👤"),
+        unreadCount: 0,
+        type: "dm",
+        members,
+        hasName: name !== "",
+        hasIcon: icon !== "",
+        lastMessage: "...",
+        lastMessageTime: undefined,
+      });
+    }
+
     await applyDisplayFallback(rooms);
 
     const unique = rooms.filter(
