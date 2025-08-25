@@ -7,7 +7,7 @@ import {
   Show,
 } from "solid-js";
 import type { Notification } from "./types.ts";
-import { apiFetch } from "../../utils/config.ts";
+import { apiFetch, getDomain } from "../../utils/config.ts";
 import { navigate } from "../../utils/router.ts";
 import { Button, Card, EmptyState, Spinner } from "../ui/index.ts";
 import { useAtom } from "solid-jotai";
@@ -24,7 +24,7 @@ const NotificationsContent: Component = () => {
     async () => {
       const acc = account();
       if (!acc) return [] as Notification[];
-                                try {
+      try {
         const res = await apiFetch(
           `/api/notifications?owner=${encodeURIComponent(acc.id)}`,
         );
@@ -70,7 +70,9 @@ const NotificationsContent: Component = () => {
       if (!res.ok) throw new Error("Failed to mark as read");
 
       mutate((prev) =>
-        prev?.map((n: { id: string; }) => n.id === id ? { ...n, read: true } : n) || []
+        prev?.map((n: { id: string }) =>
+          n.id === id ? { ...n, read: true } : n
+        ) || []
       );
     } catch (error) {
       console.error("Failed to mark notification as read:", error);
@@ -87,7 +89,7 @@ const NotificationsContent: Component = () => {
       });
       if (!res.ok) throw new Error("Failed to delete notification");
 
-      mutate((prev) => prev?.filter((n: { id: string; }) => n.id !== id) || []);
+      mutate((prev) => prev?.filter((n: { id: string }) => n.id !== id) || []);
     } catch (error) {
       console.error("Failed to delete notification:", error);
     } finally {
@@ -104,7 +106,7 @@ const NotificationsContent: Component = () => {
     try {
       await Promise.all(
         // deno-lint-ignore no-explicit-any
-        list.map((n: { id: any; }) =>
+        list.map((n: { id: any }) =>
           apiFetch(`/api/notifications/${n.id}`, { method: "DELETE" })
         ),
       );
@@ -261,7 +263,7 @@ const NotificationsContent: Component = () => {
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between gap-3">
-                          <div class="min-w-0 flex flex-col justify-center">
+                        <div class="min-w-0 flex flex-col justify-center">
                           <h4 class="text-base font-semibold text-gray-100 truncate">
                             {n.title}
                           </h4>
@@ -270,6 +272,11 @@ const NotificationsContent: Component = () => {
                               ? `${
                                 invite.sender ?? "不明"
                               } からの会話招待です。参加しますか？`
+                              : gInvite
+                              ? `${
+                                gInvite.displayName ?? gInvite.groupName ??
+                                  "不明"
+                              } へのグループ招待です。参加しますか？`
                               : n.message}
                           </p>
                         </div>
@@ -311,55 +318,78 @@ const NotificationsContent: Component = () => {
                             後で
                           </Button>
                         </Show>
-                          <Show when={gInvite}>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={async () => {
-                                // グループページへ移動
-                                const gid = gInvite?.groupId;
-                                const gname = gInvite?.groupName;
-                                if (gid && gname) {
-                                  // navigate to group page (client route may vary)
-                                  try {
-                                    // attempt local join via API if available
-                                    const localName = encodeURIComponent(gname);
-                                    const res = await apiFetch(`/api/groups/${localName}/join`, {
+                        <Show when={gInvite}>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={async () => {
+                              const gid = gInvite?.groupId;
+                              const gname = gInvite?.groupName;
+                              if (gid && gname) {
+                                const handle = account()
+                                  ? `${account()!.userName}@${getDomain()}`
+                                  : "";
+                                try {
+                                  const localName = encodeURIComponent(gname);
+                                  const res = await apiFetch(
+                                    `/api/groups/${localName}/join`,
+                                    {
                                       method: "POST",
-                                      headers: { "content-type": "application/json" },
-                                      body: JSON.stringify({}),
-                                    }).catch(() => null);
-                                    // if API succeeded or not available, navigate to group actor page
-                                    globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: res && res.ok ? "success" : "info", title: "グループ", description: res && res.ok ? "参加しました" : "グループページへ移動します" } }));
+                                      headers: {
+                                        "content-type": "application/json",
+                                      },
+                                      body: JSON.stringify({ member: handle }),
+                                    },
+                                  );
+                                  globalThis.dispatchEvent(
+                                    new CustomEvent("app:toast", {
+                                      detail: {
+                                        type: res.ok ? "success" : "error",
+                                        title: "グループ",
+                                        description: res.ok
+                                          ? "参加しました"
+                                          : "参加に失敗しました",
+                                      },
+                                    }),
+                                  );
+                                } catch {
+                                  globalThis.dispatchEvent(
+                                    new CustomEvent("app:toast", {
+                                      detail: {
+                                        type: "error",
+                                        title: "グループ",
+                                        description: "参加に失敗しました",
+                                      },
+                                    }),
+                                  );
+                                }
+                                try {
+                                  navigate(`/groups/${gname}`);
+                                } catch {
+                                  try {
+                                    (globalThis as unknown as {
+                                      location?: Location;
+                                    })
+                                      .location!.href = gid;
                                   } catch {
                                     /* ignore */
                                   }
-                                  // open group page in-app — best effort: use location as fallback
-                                  try {
-                                    navigate(`/groups/${gname}`);
-                                  } catch {
-                                    // use globalThis.location in environments where window isn't available
-                                    try {
-                                      (globalThis as unknown as { location?: Location }).location!.href = gid;
-                                    } catch {
-                                      /* ignore */
-                                    }
-                                  }
-                                  await deleteNotification(n.id);
                                 }
-                              }}
-                            >
-                              グループへ移動
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteNotification(n.id)}
-                              disabled={isDeleting}
-                            >
-                              後で
-                            </Button>
-                          </Show>
+                                await deleteNotification(n.id);
+                              }
+                            }}
+                          >
+                            参加する
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteNotification(n.id)}
+                            disabled={isDeleting}
+                          >
+                            後で
+                          </Button>
+                        </Show>
                         <Show when={!n.read && !invite}>
                           <Button
                             variant="secondary"
@@ -387,9 +417,9 @@ const NotificationsContent: Component = () => {
         </Show>
 
         <div class="mt-4 text-xs text-gray-500">
-          未読: {notifications()?.filter((n: Notification) => !n.read).length || 0}件 / 合計:
-          {" "}
-          {notifications()?.length || 0}件
+          未読:{" "}
+          {notifications()?.filter((n: Notification) => !n.read).length || 0}件
+          / 合計: {notifications()?.length || 0}件
         </div>
       </Card>
     </div>

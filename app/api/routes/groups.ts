@@ -422,6 +422,49 @@ app.post(
 );
 
 app.post(
+  "/api/groups/:name/join",
+  zValidator(
+    "json",
+    z.object({ member: z.string() }),
+  ),
+  async (c) => {
+    const name = c.req.param("name");
+    const { member } = c.req.valid("json") as { member: string };
+    const domain = getDomain(c);
+    const env = getEnv(c);
+    const [user, host] = member.split("@");
+    if (!user || !host) {
+      return c.json({ error: "member の形式が正しくありません" }, 400);
+    }
+    if (host !== domain) {
+      return c.json({ error: "リモートユーザーは未対応です" }, 400);
+    }
+    const actorId = `https://${domain}/users/${user}`;
+    const groupId = `https://${domain}/groups/${name}`;
+    const join = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/activities/${crypto.randomUUID()}`,
+      type: "Join" as const,
+      actor: actorId,
+      object: groupId,
+      to: [groupId],
+    };
+    try {
+      await sendActivityPubObject(
+        `${groupId}/inbox`,
+        join,
+        user,
+        domain,
+        env,
+      );
+    } catch (_err) {
+      return c.json({ error: "送信に失敗しました" }, 500);
+    }
+    return c.json({ ok: true });
+  },
+);
+
+app.post(
   "/api/groups/:name/approvals",
   zValidator(
     "json",
