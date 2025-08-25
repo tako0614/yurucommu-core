@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import type { Notification } from "./types.ts";
 import { apiFetch } from "../../utils/config.ts";
+import { navigate } from "../../utils/router.ts";
 import { Button, Card, EmptyState, Spinner } from "../ui/index.ts";
 import { useAtom } from "solid-jotai";
 import { selectedAppState } from "../../states/app.ts";
@@ -23,7 +24,7 @@ const NotificationsContent: Component = () => {
     async () => {
       const acc = account();
       if (!acc) return [] as Notification[];
-      try {
+                                try {
         const res = await apiFetch(
           `/api/notifications?owner=${encodeURIComponent(acc.id)}`,
         );
@@ -221,14 +222,28 @@ const NotificationsContent: Component = () => {
             <For each={notifications()}>
               {(n) => {
                 const isDeleting = deletingIds().has(n.id);
-                // chat-invite の場合は message をJSONとしてパースして操作ボタンを出す
+                // chat-invite または group-invite の場合は message をJSONとしてパースして操作ボタンを出す
                 let invite:
                   | { kind?: string; roomId?: string; sender?: string }
+                  | null = null;
+                let gInvite:
+                  | {
+                    kind?: string;
+                    groupName?: string;
+                    groupId?: string;
+                    displayName?: string;
+                    inviter?: string;
+                  }
                   | null = null;
                 if (n.type === "chat-invite") {
                   try {
                     const obj = JSON.parse(n.message);
                     if (obj && obj.kind === "chat-invite") invite = obj;
+                  } catch { /* ignore */ }
+                } else if (n.type === "group-invite") {
+                  try {
+                    const obj = JSON.parse(n.message);
+                    if (obj && obj.kind === "group-invite") gInvite = obj;
                   } catch { /* ignore */ }
                 }
 
@@ -296,6 +311,55 @@ const NotificationsContent: Component = () => {
                             後で
                           </Button>
                         </Show>
+                          <Show when={gInvite}>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={async () => {
+                                // グループページへ移動
+                                const gid = gInvite?.groupId;
+                                const gname = gInvite?.groupName;
+                                if (gid && gname) {
+                                  // navigate to group page (client route may vary)
+                                  try {
+                                    // attempt local join via API if available
+                                    const localName = encodeURIComponent(gname);
+                                    const res = await apiFetch(`/api/groups/${localName}/join`, {
+                                      method: "POST",
+                                      headers: { "content-type": "application/json" },
+                                      body: JSON.stringify({}),
+                                    }).catch(() => null);
+                                    // if API succeeded or not available, navigate to group actor page
+                                    globalThis.dispatchEvent(new CustomEvent("app:toast", { detail: { type: res && res.ok ? "success" : "info", title: "グループ", description: res && res.ok ? "参加しました" : "グループページへ移動します" } }));
+                                  } catch {
+                                    /* ignore */
+                                  }
+                                  // open group page in-app — best effort: use location as fallback
+                                  try {
+                                    navigate(`/groups/${gname}`);
+                                  } catch {
+                                    // use globalThis.location in environments where window isn't available
+                                    try {
+                                      (globalThis as unknown as { location?: Location }).location!.href = gid;
+                                    } catch {
+                                      /* ignore */
+                                    }
+                                  }
+                                  await deleteNotification(n.id);
+                                }
+                              }}
+                            >
+                              グループへ移動
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteNotification(n.id)}
+                              disabled={isDeleting}
+                            >
+                              後で
+                            </Button>
+                          </Show>
                         <Show when={!n.read && !invite}>
                           <Button
                             variant="secondary"
@@ -323,7 +387,7 @@ const NotificationsContent: Component = () => {
         </Show>
 
         <div class="mt-4 text-xs text-gray-500">
-          未読: {notifications()?.filter((n: { read: any; }) => !n.read).length || 0}件 / 合計:
+          未読: {notifications()?.filter((n: Notification) => !n.read).length || 0}件 / 合計:
           {" "}
           {notifications()?.length || 0}件
         </div>

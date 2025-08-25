@@ -419,7 +419,14 @@ app.post(
         await db.createNotification(
           acc._id!,
           "グループ招待",
-          `${group.displayName ?? name} に招待されました`,
+          // store structured message so client can show action buttons
+          JSON.stringify({
+            kind: "group-invite",
+            groupName: name,
+            groupId: `https://${domain}/groups/${name}`,
+            displayName: group.displayName ?? name,
+            inviter: groupId,
+          }),
           "group-invite",
         );
       }
