@@ -7,6 +7,7 @@ export interface AccountDoc {
   publicKey: string;
   followers?: string[];
   following?: string[];
+  groups?: string[];
 }
 
 export interface SessionDoc {
@@ -41,4 +42,11 @@ export interface GroupDoc {
   outbox: unknown[];
   privateKey?: string;
   publicKey: string;
+}
+
+export interface ListedGroup {
+  id: string;
+  name: string;
+  icon?: unknown;
+  members: string[];
 }

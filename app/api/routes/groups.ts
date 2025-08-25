@@ -40,22 +40,8 @@ app.get("/api/groups", async (c) => {
   if (!member) return c.json({ error: "member is required" }, 400);
   const env = getEnv(c);
   const db = createDB(env);
-  const groups = await db.listGroups(member) as GroupDoc[];
-  const domain = getDomain(c);
-  const formatted = groups.map((g) => {
-    const icon = typeof g.icon === "string"
-      ? g.icon
-      : g.icon && typeof (g.icon as { url?: string }).url === "string"
-      ? (g.icon as { url: string }).url
-      : undefined;
-    return {
-      id: `https://${domain}/groups/${g.groupName}`,
-      name: g.groupName,
-      icon,
-      members: g.followers, // メンバー一覧
-    };
-  });
-  return c.json(formatted);
+  const groups = await db.listGroups(member);
+  return c.json(groups);
 });
 
 app.get("/api/groups/:name/messages", async (c) => {
@@ -619,7 +605,9 @@ app.post("/groups/:name/inbox", async (c) => {
       { accepted: true },
     ).catch(() => {});
     const accept = createAcceptActivity(domain, groupId, activity);
-    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    if (!group.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    }
     await deliverActivityPubObject(
       [activity.actor],
       accept,
@@ -647,7 +635,9 @@ app.post("/groups/:name/inbox", async (c) => {
       { accepted: true },
     ).catch(() => {});
     const accept = createAcceptActivity(domain, groupId, activity);
-    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    if (!group.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    }
     await deliverActivityPubObject(
       [activity.actor],
       accept,
@@ -711,11 +701,13 @@ app.post("/groups/:name/inbox", async (c) => {
       actor: groupId,
       object: activity.object,
     };
-  await db.pushGroupOutbox(name, announceBase);
+    await db.pushGroupOutbox(name, announceBase);
 
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
-    if (!group.privateKey) return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    if (!group.privateKey) {
+      return c.json({ error: "内部エラー: privateKey がありません" }, 500);
+    }
     const gpKey: string = group.privateKey;
     await Promise.all(
       group.followers.map((recipient: string) =>

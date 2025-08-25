@@ -5,6 +5,7 @@ import type {
   AccountDoc,
   DirectMessageDoc,
   GroupDoc,
+  ListedGroup,
   SessionDoc,
 } from "./types.ts";
 
@@ -113,7 +114,7 @@ export interface DB {
     update: Record<string, unknown>,
   ): Promise<DirectMessageDoc | null>;
   deleteDirectMessage(owner: string, id: string): Promise<boolean>;
-  listGroups(member: string): Promise<GroupDoc[]>;
+  listGroups(member: string): Promise<ListedGroup[]>;
   findGroupByName(name: string): Promise<GroupDoc | null>;
   createGroup(data: Record<string, unknown>): Promise<GroupDoc>;
   updateGroupByName(

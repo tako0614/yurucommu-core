@@ -22,6 +22,7 @@ import type {
   AccountDoc,
   DirectMessageDoc,
   GroupDoc,
+  ListedGroup,
   SessionDoc,
 } from "../../shared/types.ts";
 import type { SortOrder } from "mongoose";
@@ -679,9 +680,61 @@ export class MongoDB implements DB {
     return res != null;
   }
 
-  async listGroups(member: string) {
-    const query = this.withTenant(Group.find({ followers: member }));
-    return await query.lean<GroupDoc[]>();
+  async listGroups(member: string): Promise<ListedGroup[]> {
+    const accQuery = this.withTenant(
+      Account.findOne({ userName: member }),
+    );
+    const acc = await accQuery.lean<{ groups?: string[] } | null>();
+    if (!acc) return [];
+    const groups = acc.groups ?? [];
+    const domain = this.env["ACTIVITYPUB_DOMAIN"];
+    const localPrefix = `https://${domain}/groups/`;
+    const localNames = groups.filter((g) => g.startsWith(localPrefix)).map((
+      g,
+    ) => g.slice(localPrefix.length));
+    const localQuery = this.withTenant(
+      Group.find({ groupName: { $in: localNames } }),
+    );
+    const locals = await localQuery.lean<GroupDoc[]>();
+    const res = locals.map((g) => {
+      const icon = typeof g.icon === "string"
+        ? g.icon
+        : g.icon && typeof (g.icon as { url?: string }).url === "string"
+        ? (g.icon as { url: string }).url
+        : undefined;
+      return {
+        id: `https://${domain}/groups/${g.groupName}`,
+        name: g.groupName,
+        icon,
+        members: g.followers,
+      };
+    });
+    const remoteIds = groups.filter((g) => !g.startsWith(localPrefix));
+    if (remoteIds.length > 0) {
+      const remotes = await this.findRemoteActorsByUrls(remoteIds);
+      const found = new Set(
+        remotes.map((r: { actorUrl: string }) => r.actorUrl),
+      );
+      for (const r of remotes) {
+        const icon = typeof r.icon === "string"
+          ? r.icon
+          : r.icon && typeof (r.icon as { url?: string }).url === "string"
+          ? (r.icon as { url: string }).url
+          : undefined;
+        res.push({
+          id: r.actorUrl,
+          name: r.preferredUsername || r.name || r.actorUrl,
+          icon,
+          members: [],
+        });
+      }
+      for (const id of remoteIds) {
+        if (!found.has(id)) {
+          res.push({ id, name: id, members: [] });
+        }
+      }
+    }
+    return res;
   }
 
   async findGroupByName(name: string) {
@@ -723,6 +776,17 @@ export class MongoDB implements DB {
     );
     this.withTenant(query);
     const doc = await query.lean<{ followers: string[] } | null>();
+    const domain = this.env["ACTIVITYPUB_DOMAIN"];
+    const prefix = `https://${domain}/@`;
+    if (actor.startsWith(prefix)) {
+      const userName = actor.slice(prefix.length);
+      const accQuery = Account.findOneAndUpdate(
+        { userName },
+        { $addToSet: { groups: `https://${domain}/groups/${name}` } },
+      );
+      this.withTenant(accQuery);
+      await accQuery;
+    }
     return doc?.followers ?? [];
   }
 
@@ -734,6 +798,17 @@ export class MongoDB implements DB {
     );
     this.withTenant(query);
     const doc = await query.lean<{ followers: string[] } | null>();
+    const domain = this.env["ACTIVITYPUB_DOMAIN"];
+    const prefix = `https://${domain}/@`;
+    if (actor.startsWith(prefix)) {
+      const userName = actor.slice(prefix.length);
+      const accQuery = Account.findOneAndUpdate(
+        { userName },
+        { $pull: { groups: `https://${domain}/groups/${name}` } },
+      );
+      this.withTenant(accQuery);
+      await accQuery;
+    }
     return doc?.followers ?? [];
   }
 
