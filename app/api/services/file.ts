@@ -39,7 +39,7 @@ export async function getFile(
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
   if (!storage) await initFileService(env);
   const db = createDB(env);
-  const doc = await db.getObject(id) as {
+  const doc = await db.findAttachmentById(id) as {
     content?: string;
     extra?: Record<string, unknown>;
   } | null;
@@ -66,7 +66,7 @@ export async function getMessageAttachment(
   env: Record<string, string>,
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
   const db = createDB(env);
-  const doc = await db.getObject(id) as
+  const doc = await db.findMessageById(id) as
     | { extra?: Record<string, unknown> }
     | null;
   if (!doc || typeof doc.extra !== "object" || !doc.extra) return null;

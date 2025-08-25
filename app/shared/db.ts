@@ -17,7 +17,9 @@ export interface ListOpts {
 
 /** DB 抽象インターフェース */
 export interface DB {
-  getObject(id: string): Promise<unknown | null>;
+  findNoteById(id: string): Promise<unknown | null>;
+  findMessageById(id: string): Promise<unknown | null>;
+  findAttachmentById(id: string): Promise<unknown | null>;
   saveObject(obj: Record<string, unknown>): Promise<unknown>;
   listTimeline(actor: string, opts: ListOpts): Promise<unknown[]>;
   follow(follower: string, target: string): Promise<void>;

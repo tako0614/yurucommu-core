@@ -28,7 +28,15 @@ export async function storeCreateActivity(
   const object = activity.object as Record<string, unknown>;
   const attributedTo = actorAttr(object.attributedTo, activity.actor);
   let objectId = typeof object.id === "string" ? object.id : "";
-  let stored = await db.getObject(objectId);
+  const type = typeof object.type === "string" ? object.type : "";
+  let stored = null;
+  if (type === "Note") {
+    stored = await db.findNoteById(objectId);
+  } else if (type === "Attachment") {
+    stored = await db.findAttachmentById(objectId);
+  } else {
+    stored = await db.findMessageById(objectId);
+  }
   if (!stored) {
     stored = await db.saveObject({ ...object, attributedTo });
     if (!stored) return null;

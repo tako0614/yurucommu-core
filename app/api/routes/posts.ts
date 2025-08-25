@@ -3,6 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 type ActivityObject = Record<string, unknown>;
 import { createDB } from "../DB/mod.ts";
+import type { DB } from "../../shared/db.ts";
 
 // 型定義用のimport
 import { getEnv } from "../../shared/config.ts";
@@ -37,6 +38,12 @@ interface PostDoc {
   content?: string;
   published?: string | Date;
   extra?: Record<string, unknown>;
+}
+
+async function findPost(db: DB, id: string): Promise<ActivityObject | null> {
+  const note = await db.findNoteById(id) as ActivityObject | null;
+  if (note) return note;
+  return await db.findMessageById(id) as ActivityObject | null;
 }
 
 const app = new Hono();
@@ -177,7 +184,7 @@ app.post(
     }
 
     if (typeof parentId === "string") {
-      const parent = await db.getObject(parentId) as ActivityObject | null;
+      const parent = await findPost(db, parentId);
       if (
         parent &&
         typeof (parent as PostDoc).actor_id === "string" &&
@@ -263,7 +270,7 @@ app.get("/posts/:id", async (c) => {
   const env = getEnv(c);
   const id = c.req.param("id");
   const db = createDB(env);
-  const post = await db.getObject(id) as ActivityObject | null;
+  const post = await findPost(db, id);
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const postData = post as PostDoc;
@@ -345,7 +352,7 @@ app.post(
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
     const db = createDB(env);
-    const post = await db.getObject(id) as ActivityObject | null;
+    const post = await findPost(db, id);
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const postData = post as PostDoc;
@@ -430,7 +437,7 @@ app.post(
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
     const db = createDB(env);
-    const post = await db.getObject(id) as ActivityObject | null;
+    const post = await findPost(db, id);
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const postData = post as PostDoc;
@@ -510,7 +517,7 @@ app.delete("/posts/:id", async (c) => {
   const env = getEnv(c);
   const db = createDB(env);
   const id = c.req.param("id");
-  const post = await db.getObject(id) as ActivityObject | null;
+  const post = await findPost(db, id);
   if (!post) return c.json({ error: "Not found" }, 404);
   const deleted = await db.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);

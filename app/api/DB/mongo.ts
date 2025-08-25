@@ -76,17 +76,16 @@ export class MongoDB implements DB {
     return doc;
   }
 
-  async getObject(id: string) {
-    let query = this.withTenant(Note.findOne({ _id: id }));
-    let doc = await query.lean();
-    if (doc) return doc;
-    query = this.withTenant(Message.findOne({ _id: id }));
-    doc = await query.lean();
-    if (doc) return doc;
-    query = this.withTenant(Attachment.findOne({ _id: id }));
-    doc = await query.lean();
-    if (doc) return doc;
-    return null;
+  async findNoteById(id: string) {
+    return await this.withTenant(Note.findOne({ _id: id })).lean();
+  }
+
+  async findMessageById(id: string) {
+    return await this.withTenant(Message.findOne({ _id: id })).lean();
+  }
+
+  async findAttachmentById(id: string) {
+    return await this.withTenant(Attachment.findOne({ _id: id })).lean();
   }
 
   async saveObject(obj: Record<string, unknown>) {
