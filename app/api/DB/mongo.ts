@@ -25,7 +25,7 @@ import type {
   ListedGroup,
   SessionDoc,
 } from "../../shared/types.ts";
-import type { Model, SortOrder } from "mongoose";
+import type { Model, SortOrder, FilterQuery } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
@@ -106,7 +106,9 @@ export class MongoDB implements DB {
     id: string,
     key = "_id",
   ): Promise<T | null> {
-    return await this.withTenant(model.findOne({ [key]: id }))
+  // model.findOne's filter can be a dynamic object; cast to FilterQuery<T>
+  const filter = { [key]: id } as unknown as FilterQuery<T>;
+  return await this.withTenant(model.findOne(filter))
       .lean<T | null>();
   }
 
@@ -515,6 +517,8 @@ export class MongoDB implements DB {
       extra?: Record<string, unknown>;
       content?: string;
       published?: Date;
+      url?: string;
+      mediaType?: string;
     }[]>();
     return docs.map((d) => ({
       id: d._id as string,
@@ -625,6 +629,7 @@ export class MongoDB implements DB {
 
   async createDirectMessage(data: DirectMessageDoc) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
+    // return plain object using lean and a proper type
     const doc = await this.withTenant(
       DirectMessage.findOneAndUpdate(
         { owner: data.owner, id: data.id },
@@ -637,9 +642,12 @@ export class MongoDB implements DB {
           $setOnInsert: { tenant_id: tenantId },
         },
         { upsert: true, new: true },
-      ),
-    );
-    return doc.toObject();
+      ).lean<DirectMessageDoc>(),
+    ) as DirectMessageDoc | null;
+    if (!doc) {
+      throw new Error("failed to create direct message");
+    }
+    return doc;
   }
 
   async updateDirectMessage(
@@ -709,7 +717,7 @@ export class MongoDB implements DB {
       }
       for (const id of remoteIds) {
         if (!found.has(id)) {
-          res.push({ id, name: id, members: [] });
+          res.push({ id, name: id, icon: undefined, members: [] });
         }
       }
     }
@@ -839,14 +847,27 @@ export class MongoDB implements DB {
   }
 
   async findRemoteActorByUrl(url: string) {
-    return await this.withTenant(RemoteActor.findOne({ actorUrl: url }))
-      .lean();
+    return await this.withTenant(
+      RemoteActor.findOne({ actorUrl: url }),
+    ).lean<{
+      actorUrl: string;
+      name?: string;
+      preferredUsername?: string;
+      icon?: unknown;
+      summary?: string;
+    } | null>();
   }
 
   async findRemoteActorsByUrls(urls: string[]) {
     return await this.withTenant(
       RemoteActor.find({ actorUrl: { $in: urls } }),
-    ).lean();
+    ).lean<{
+      actorUrl: string;
+      name?: string;
+      preferredUsername?: string;
+      icon?: unknown;
+      summary?: string;
+    }[]>();
   }
 
   async upsertRemoteActor(data: {
