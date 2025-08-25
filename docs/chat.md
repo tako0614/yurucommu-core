@@ -103,6 +103,26 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 - `visibility`: 公開範囲。`public` や `private` などサーバー実装に依存。
 - `allowInvites`: メンバーが招待を送れるかどうかの真偽値。
 
+### 4.4 設定項目（追補: v0.3.1）
+
+グループは以下の設定を持つことができる（v0.3.1 での追補を含む）。
+
+- `membershipPolicy`:
+  参加承認方式。
+
+  - `open`: 誰でも参加可（既存）
+  - `approval`: 承認制（既存）
+  - `inviteOnly`: **招待必須**。有効な招待が無い `Follow`/`Join` は **Accept してはならない（MUST NOT）**。
+
+- `invitePolicy`: 招待の送信権限。デフォルトは `members`。
+
+  - `members`: **メンバーのみ招待可**（推奨/既定）
+  - `admins`: 管理者/モデレーターのみ招待可
+  - `none`: 招待機能を無効化
+
+- `visibility`: 公開範囲。`public` や `private` などサーバー実装に依存。
+- `allowInvites`（後方互換）: 廃止予定の真偽値。`true` は `invitePolicy=members`、`false` は `invitePolicy=none` と解釈される。
+
 ---
 
 ## 5. エンドポイント
@@ -117,6 +137,8 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 ### 5.2 受信系（POST）
 
 - `POST {group.id}/inbox`: リモート配送の受け口（AP S2S）
+
+- 管理 API: `/api/groups/:name/invite` はサーバー側で inviter のメンバー/権限チェックを必須とする（v0.3.1 の要件）。
 
 > 注:
 > 俯瞰ではC2Sのアクティビティ投稿は\*\*各ユーザーの`outbox`\*\*へ行う。グループ自体を直接操作するC2Sは管理者操作（例:
@@ -164,54 +186,51 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 - 強制退出はグループが `Remove{ object: user, target: group.followers }`
   を発行（実装任意）。
 
-### 6.3 招待（Invite: 非保有Actorからの送信を含む）
+### 6.3 招待（Invite: 送信権限と招待必須モード）
 
-- **誰でも**自分のActorから\*\*`Invite`
-  **を送って「このGroupに来て」と**通知\*\*できる（Group所有は不要）。
-- **Invite自体に加入効力はない**。受け手は **`Join` または `Follow`**
-  をGroupへ送り、必要ならGroupが`Accept`して初めてメンバーになる。
-- 最小相互運用のため、**最終的にFollow/Acceptへ収束**させること（`Join`は受理して内部でFollowへ写像してもよい）。
-- 招待通知は **`to: 招待相手`**、任意で **`cc: group`**
-  としてGroupにも知らせてよい（Group側でのUX補助）。
-- 乱用対策として、Groupは**招待の存在を加入要件にしない**（招待が無くてもJoin/Followを受け付ける）。
+*v0.3.1 変更点の要約: グループ宛の `Invite` は `invitePolicy` に適合するアクター（既存メンバーまたは管理者）からのもののみ受理される。`membershipPolicy=inviteOnly` を導入し、招待が無い参加申請の Accept を禁止する挙動を追加する。*
 
-Takos では管理エンドポイント `/api/groups/:name/invite` に招待したいアカウントの
-acct（`username@domain`）を指定して POST
-することで、グループから招待を送信できます。クライアントから招待を送る際は必ず
-このエンドポイントを利用してください。旧 `/api/rooms/:id/invite`
-は廃止されました。 受け手が `Join` または `Follow` を返送するとサーバーは自動で
-`Accept` を返し、 メンバーに追加されます。
+- **送信権限:**
 
-#### 例: 非保有ActorからのInvite
+  - グループ宛の `Invite` は **`invitePolicy` に適合するアクター**（`members` なら現メンバー、`admins` なら管理者）からのみ **受理** される。非メンバーからの `Invite` は **MUST** 無視または拒否（`Reject`）。
+
+- **加入効力:**
+
+  - **Invite自体に加入効力はない**（不変）。受け手は `Join` または `Follow` を Group に送り、必要なら Group が `Accept` して初めてメンバーになる。
+  - 最小相互運用のため、**最終的にFollow/Acceptへ収束**させる（`Join`は受理して内部でFollowへ写像してもよい）。
+
+- **通知表現:** 招待通知は `to: 招待相手`、任意で `cc: group` としてGroupにも知らせてよい。
+
+- **membershipPolicy=inviteOnly の挙動:**
+
+  - `membershipPolicy=inviteOnly` の場合、Group は **有効な招待**（下記の検証を満たす）が存在しない `Follow`/`Join` を **Accept してはならない（MUST NOT）**。存在しない場合は `Reject` するか承認待ちに保留する。
+
+**検証要件（Invite 受理時）:**
+
+1. HTTP 署名/LD 署名により `Invite.actor` の真正性を検証。
+2. `Invite.actor` が **当該時点のメンバー（もしくは管理権限者）** であること。
+3. 招待先（`object` が招待相手、`target` が Group の表現を採用）と Group の一致。
+4. TTL（例: 7〜30日）や最大使用回数（1または N 回）のポリシーを満たすこと。
+5. レート制限（単位時間あたりの招待上限）。
+
+**例（メンバーからの Invite）:**
 
 ```json
 {
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Invite",
-  "id": "https://user.example/acts/inv-1",
-  "actor": "https://user.example/@alice",
-  "object": "https://remote.example/@bob",
-  "target": "https://groups.example/@cats",
+  "id": "https://groups.example/acts/inv-42",
+  "actor": "https://groups.example/@cats#members/alice",  
+  "object": "https://remote.example/@bob",                 
+  "target": "https://groups.example/@cats",                
   "to": ["https://remote.example/@bob"],
   "cc": ["https://groups.example/@cats"]
 }
 ```
 
-#### 例: 受け手のJoin（またはFollow）
+> 注: 正準表現は **`object=招待相手`、`target=group`** とする。別実装（`object=group`・`target=招待相手`）も受理可だが、正規化時に前者へ写像して扱うこと。
 
-```json
-{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Join",
-  "id": "https://remote.example/acts/join-1",
-  "actor": "https://remote.example/@bob",
-  "object": "https://groups.example/@cats",
-  "to": ["https://groups.example/@cats"]
-}
-```
-
-> セキュリティ注:
-> Inviteの有無・送信者は**加入判定に影響させない**。招待スパムはレート制限・ブロックで対処。
+Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter のメンバー/権限チェック** を必須とし、不適合時は `403 Forbidden` を返す。生成される `Invite` は発行時刻・TTL・使用回数といったメタを内部に保持する。
 
 ### 6.4 承認待ち処理
 
@@ -221,6 +240,8 @@ acct（`username@domain`）を指定して POST
   を送信すると、該当リクエストを承認 (`accept: true`) または拒否
   (`accept: false`) できる。
 - 承認時は `Accept` が、拒否時は `Reject` が申請者へ返送される。
+
+*追補 (v0.3.1):* `inviteOnly` のグループでは、承認待ちキューに保存された `Follow`/`Join` に対して **後から招待が届いた場合に自動承認する** オプションを定義できる（招待の TTL 内に限る）。自動承認は運用設定で有効化/無効化できる。
 
 ---
 
@@ -432,6 +453,12 @@ acct（`username@domain`）を指定して POST
 - リプレイ対策（`id`の一意・`published`時刻の受容範囲・署名の有効期限）。
 - 添付サイズ上限、HTMLサニタイズ、ドメインブロック/キュー制御、レート制限。
 
+-- 招待（Invite）受理時の追加検証（v0.3.1）:
+
+- `Invite.actor` のメンバー整合性チェック（招待時刻におけるメンバー/権限保有）
+- 招待乱用対策（TTL、回数、レート制限、ドメインブロック）
+- 招待の署名検証（HTTP署名／LD署名）と、`object`/`target` の一致確認
+
 ---
 
 ## 13. レート制限/DoS耐性（推奨）
@@ -479,7 +506,12 @@ acct（`username@domain`）を指定して POST
 - [ ] DM: 単一宛先・Public禁止の検証に通る（違反は400）
 - [ ] DM: 返信時に受信者集合（単一）が自動継承される
 - [ ] DM: 可能な限り**個別inbox**へ配送（共有Inboxのみの場合は許容）
-- [ ] **Inviteは誰でも送れるが加入はFollow/Acceptでのみ成立**
+- [ ] `invitePolicy` が実装されている（`members`/`admins`/`none`）
+- [ ] `inviteOnly` で **招待無しの `Follow`/`Join` を Accept しない**
+- [ ] 非メンバーからの `Invite` を拒否/無視する
+- [ ] `/api/groups/:name/invite` で inviter の権限チェックが行われる
+- [ ] 招待の TTL/回数/レート制限が機能する
+- [ ] 招待後着時の自動承認（任意）が機能する
 
 ---
 
