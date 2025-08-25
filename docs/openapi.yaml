@@ -713,7 +713,10 @@ paths:
                   description: 概要
                 membershipPolicy:
                   type: string
-                  description: 参加承認方式（`approval` で承認制）
+                  description: 参加承認方式（`approval` や `inviteOnly`）
+                invitePolicy:
+                  type: string
+                  description: 招待の送信権限
                 visibility:
                   type: string
                   description: 公開範囲
@@ -754,7 +757,10 @@ paths:
                   description: ヘッダー画像
                 membershipPolicy:
                   type: string
-                  description: 参加承認方式（`approval` で承認制）
+                  description: 参加承認方式（`approval` や `inviteOnly`）
+                invitePolicy:
+                  type: string
+                  description: 招待の送信権限
                 visibility:
                   type: string
                 allowInvites:
@@ -808,8 +814,20 @@ paths:
                 acct:
                   type: string
                   description: 招待先の acct (`username@domain` をそのまま使用)
+                inviter:
+                  type: string
+                  description: 招待者の acct
+                ttl:
+                  type: integer
+                  description: 招待の有効期間（秒）
+                uses:
+                  type: integer
+                  description: 使用可能回数
               required:
                 - acct
+                - inviter
+                - ttl
+                - uses
       responses:
         "200":
           description: 送信結果

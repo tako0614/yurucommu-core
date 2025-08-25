@@ -5,6 +5,7 @@ import { activeAccount } from "../../states/account.ts";
 
 interface GroupOptions {
   membershipPolicies: string[];
+  invitePolicies: string[];
   visibilities: string[];
 }
 
@@ -12,14 +13,15 @@ export function GroupSettingsForm() {
   const [account] = useAtom(activeAccount);
   const [options, setOptions] = createSignal<GroupOptions>({
     membershipPolicies: [],
+    invitePolicies: [],
     visibilities: [],
   });
   const [groupName, setGroupName] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [summary, setSummary] = createSignal("");
   const [membershipPolicy, setMembershipPolicy] = createSignal("");
+  const [invitePolicy, setInvitePolicy] = createSignal("");
   const [visibility, setVisibility] = createSignal("");
-  const [allowInvites, setAllowInvites] = createSignal(true);
   const [message, setMessage] = createSignal("");
 
   onMount(async () => {
@@ -46,8 +48,8 @@ export function GroupSettingsForm() {
           displayName: displayName(),
           summary: summary() || undefined,
           membershipPolicy: membershipPolicy() || undefined,
+          invitePolicy: invitePolicy() || undefined,
           visibility: visibility() || undefined,
-          allowInvites: allowInvites(),
           member: handle,
         }),
       });
@@ -67,8 +69,8 @@ export function GroupSettingsForm() {
           displayName: displayName() || undefined,
           summary: summary() || undefined,
           membershipPolicy: membershipPolicy() || undefined,
+          invitePolicy: invitePolicy() || undefined,
           visibility: visibility() || undefined,
-          allowInvites: allowInvites(),
         }),
       });
       setMessage(res.ok ? "更新しました" : "更新に失敗しました");
@@ -120,6 +122,19 @@ export function GroupSettingsForm() {
         </select>
       </div>
       <div>
+        <label class="block mb-1">招待権限</label>
+        <select
+          class="w-full p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
+          value={invitePolicy()}
+          onChange={(e) => setInvitePolicy(e.currentTarget.value)}
+        >
+          <option value="">未設定</option>
+          <For each={options().invitePolicies}>
+            {(opt) => <option value={opt}>{opt}</option>}
+          </For>
+        </select>
+      </div>
+      <div>
         <label class="block mb-1">公開範囲</label>
         <select
           class="w-full p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
@@ -131,14 +146,6 @@ export function GroupSettingsForm() {
             {(opt) => <option value={opt}>{opt}</option>}
           </For>
         </select>
-      </div>
-      <div class="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={allowInvites()}
-          onChange={(e) => setAllowInvites(e.currentTarget.checked)}
-        />
-        <span>メンバーによる招待を許可</span>
       </div>
       <div class="flex gap-2">
         <button

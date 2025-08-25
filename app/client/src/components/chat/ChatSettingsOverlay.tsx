@@ -23,6 +23,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const [pendingInvites, setPendingInvites] = createSignal<string[]>([]);
   const [inviteActor, setInviteActor] = createSignal("");
   const [inviteMsg, setInviteMsg] = createSignal("");
+  const [inviteTTL, setInviteTTL] = createSignal(86400);
+  const [inviteUses, setInviteUses] = createSignal(1);
 
   createEffect(() => {
     if (props.isOpen && props.room) {
@@ -231,12 +233,21 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     } else if (props.room.type === "group") {
       try {
         if (props.room.name) {
+          const ttl = Number(inviteTTL());
+          const uses = Number(inviteUses());
           const gres = await apiFetch(
             `/api/groups/${encodeURIComponent(props.room.name)}/invite`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ acct: actor }),
+              body: JSON.stringify({
+                acct: actor,
+                inviter: accountValue()
+                  ? `${accountValue()!.userName}@${getDomain()}`
+                  : "",
+                ttl,
+                uses,
+              }),
             },
           );
           if (gres.ok) {
@@ -376,20 +387,38 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           </ul>
                         </div>
                       </Show>
-                      <div class="mt-2 flex gap-2">
+                      <div class="mt-2 flex flex-col gap-2">
                         <input
-                          class="flex-1 bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
+                          class="bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
                           placeholder="招待先 Actor (例: user@host.tld)"
                           value={inviteActor()}
                           onInput={(e) => setInviteActor(e.currentTarget.value)}
                         />
-                        <button
-                          type="button"
-                          class="px-3 py-2 bg-blue-600 text-white rounded text-sm"
-                          onClick={sendInvite}
-                        >
-                          招待
-                        </button>
+                        <div class="flex gap-2">
+                          <input
+                            class="w-32 bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
+                            type="number"
+                            placeholder="TTL(秒)"
+                            value={inviteTTL()}
+                            onInput={(e) =>
+                              setInviteTTL(Number(e.currentTarget.value))}
+                          />
+                          <input
+                            class="w-24 bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
+                            type="number"
+                            placeholder="使用回数"
+                            value={inviteUses()}
+                            onInput={(e) =>
+                              setInviteUses(Number(e.currentTarget.value))}
+                          />
+                          <button
+                            type="button"
+                            class="px-3 py-2 bg-blue-600 text-white rounded text-sm"
+                            onClick={sendInvite}
+                          >
+                            招待
+                          </button>
+                        </div>
                       </div>
                       <Show when={inviteMsg()}>
                         <div class="text-sm text-green-300">{inviteMsg()}</div>

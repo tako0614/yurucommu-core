@@ -16,7 +16,8 @@ app.get("/config", (c) => {
   const adsenseAccount = env["ADSENSE_ACCOUNT"] ?? null;
   const domain = env["ACTIVITYPUB_DOMAIN"] ?? null;
   const groupConfig = {
-    membershipPolicies: ["open", "approval"],
+    membershipPolicies: ["open", "approval", "inviteOnly"],
+    invitePolicies: ["members", "admins", "none"],
     visibilities: ["public", "private"],
   };
   return c.json({

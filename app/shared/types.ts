@@ -36,6 +36,7 @@ export interface GroupDoc {
   icon?: unknown;
   image?: unknown;
   membershipPolicy?: string;
+  invitePolicy?: string;
   visibility?: string;
   allowInvites?: boolean;
   followers: string[];

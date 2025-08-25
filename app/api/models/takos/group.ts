@@ -10,6 +10,7 @@ const groupSchema = new mongoose.Schema({
   privateKey: { type: String, default: "" },
   publicKey: { type: String, default: "" },
   membershipPolicy: { type: String, default: "open" },
+  invitePolicy: { type: String, default: "members" },
   visibility: { type: String, default: "public" },
   allowInvites: { type: Boolean, default: true },
   followers: { type: [String], default: [] },

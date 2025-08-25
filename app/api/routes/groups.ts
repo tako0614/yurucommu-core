@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import Invite from "../models/takos/invite.ts";
 import Approval from "../models/takos/approval.ts";
+import type { Document } from "mongoose";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -113,6 +114,7 @@ app.post(
       displayName: z.string().optional(),
       summary: z.string().optional(),
       membershipPolicy: z.string().optional(),
+      invitePolicy: z.string().optional(),
       visibility: z.string().optional(),
       allowInvites: z.boolean().optional(),
       member: z.string(),
@@ -165,6 +167,9 @@ app.post(
     const membershipPolicy = typeof body.membershipPolicy === "string"
       ? body.membershipPolicy
       : undefined;
+    const invitePolicy = typeof body.invitePolicy === "string"
+      ? body.invitePolicy
+      : undefined;
     const visibility = typeof body.visibility === "string"
       ? body.visibility
       : undefined;
@@ -179,6 +184,7 @@ app.post(
       displayName,
       summary,
       membershipPolicy,
+      invitePolicy,
       visibility,
       allowInvites,
       followers: [member],
@@ -236,7 +242,7 @@ app.post(
         }
         const inv = new Invite({
           groupName,
-          actor: cand,
+          actor: target,
           inviter: groupId,
         });
         try {
@@ -268,6 +274,7 @@ app.patch(
       icon: z.any().optional(),
       image: z.any().optional(),
       membershipPolicy: z.string().optional(),
+      invitePolicy: z.string().optional(),
       visibility: z.string().optional(),
       allowInvites: z.boolean().optional(),
     }),
@@ -354,17 +361,27 @@ app.post(
     "json",
     z.object({
       acct: z.string().regex(/^[^@\s]+@[^@\s]+$/),
+      inviter: z.string().regex(/^[^@\s]+@[^@\s]+$/),
+      ttl: z.number().int().positive(),
+      uses: z.number().int().positive(),
     }),
   ),
   async (c) => {
     const name = c.req.param("name");
-    const { acct } = c.req.valid("json") as { acct: string };
+    const { acct, inviter, ttl, uses } = c.req.valid("json") as {
+      acct: string;
+      inviter: string;
+      ttl: number;
+      uses: number;
+    };
     const env = getEnv(c);
     const db = createDB(env);
     const group = await db.findGroupByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
-    if (group.allowInvites === false) {
-      return c.json({ error: "招待が禁止されています" }, 400);
+    const policy = group.invitePolicy ??
+      (group.allowInvites ? "members" : "none");
+    if (policy === "none") {
+      return c.json({ error: "招待が禁止されています" }, 403);
     }
     if (!group.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
@@ -374,6 +391,17 @@ app.post(
     const actor = await resolveActorFromAcct(acct).catch(() => null);
     if (!actor?.id) {
       return c.json({ error: "acct 解決に失敗しました" }, 400);
+    }
+    const inviterActor = await resolveActorFromAcct(inviter).catch(() => null);
+    const inviterId = inviterActor?.id ?? "";
+    if (!inviterId) {
+      return c.json({ error: "inviter 解決に失敗しました" }, 400);
+    }
+    if (policy === "members" && !group.followers.includes(inviterId)) {
+      return c.json({ error: "招待権限がありません" }, 403);
+    }
+    if (policy === "admins" && group.followers[0] !== inviterId) {
+      return c.json({ error: "招待権限がありません" }, 403);
     }
     const target = actor.id;
     const activity = {
@@ -392,10 +420,13 @@ app.post(
       domain,
       env,
     );
+    const expiresAt = new Date(Date.now() + ttl * 1000);
     const inv = new Invite({
       groupName: name,
-      actor: acct,
-      inviter: groupId,
+      actor: target,
+      inviter: inviterId,
+      expiresAt,
+      remainingUses: uses,
     });
     await inv.save().catch(() => {});
     const [user, host] = acct.split("@");
@@ -411,7 +442,7 @@ app.post(
             groupName: name,
             groupId: `https://${domain}/groups/${name}`,
             displayName: group.displayName ?? name,
-            inviter: groupId,
+            inviter: inviterId,
           }),
           "group-invite",
         );
@@ -436,10 +467,24 @@ app.post(
     if (!user || !host) {
       return c.json({ error: "member の形式が正しくありません" }, 400);
     }
+    const db = createDB(env);
+    const group = await db.findGroupByName(name) as GroupDoc | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
     if (host !== domain) {
       return c.json({ error: "リモートユーザーは未対応です" }, 400);
     }
     const actorId = `https://${domain}/users/${user}`;
+    if (group.membershipPolicy === "inviteOnly") {
+      const inv = await Invite.findOne({ groupName: name, actor: actorId });
+      const now = new Date();
+      if (
+        !inv ||
+        (inv.expiresAt && inv.expiresAt < now) ||
+        (typeof inv.remainingUses === "number" && inv.remainingUses <= 0)
+      ) {
+        return c.json({ error: "招待が必要です" }, 400);
+      }
+    }
     const groupId = `https://${domain}/groups/${name}`;
     const join = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -616,6 +661,35 @@ app.post("/groups/:name/inbox", async (c) => {
   ) {
     const invited = typeof activity.object === "string" ? activity.object : "";
     const inviter = typeof activity.actor === "string" ? activity.actor : "";
+    const policy = group.invitePolicy ??
+      (group.allowInvites ? "members" : "none");
+    let allowed = true;
+    if (policy === "none") allowed = false;
+    else if (policy === "members") {
+      allowed = group.followers.includes(inviter);
+    } else if (policy === "admins") {
+      allowed = group.followers[0] === inviter;
+    }
+    if (!allowed) {
+      if (group.privateKey) {
+        const reject = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: `https://${domain}/activities/${crypto.randomUUID()}`,
+          type: "Reject" as const,
+          actor: groupId,
+          object: activity,
+          to: [inviter],
+        };
+        await deliverActivityPubObject(
+          [inviter],
+          reject,
+          { actorId: groupId, privateKey: group.privateKey },
+          domain,
+          env,
+        ).catch(() => {});
+      }
+      return c.json({ error: "権限がありません" }, 403);
+    }
     if (invited) {
       await Invite.findOneAndUpdate(
         { groupName: name, actor: invited },
@@ -640,13 +714,51 @@ app.post("/groups/:name/inbox", async (c) => {
       ).catch(() => {});
       return c.json({ ok: true });
     }
+    let inv: (Document & { expiresAt?: Date; remainingUses?: number }) | null =
+      null;
+    if (group.membershipPolicy === "inviteOnly") {
+      inv = await Invite.findOne({
+        groupName: name,
+        actor: activity.actor,
+      });
+      const now = new Date();
+      if (
+        !inv ||
+        (inv.expiresAt && inv.expiresAt < now) ||
+        (typeof inv.remainingUses === "number" && inv.remainingUses <= 0)
+      ) {
+        if (group.privateKey) {
+          const reject = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: `https://${domain}/activities/${crypto.randomUUID()}`,
+            type: "Reject" as const,
+            actor: groupId,
+            object: activity,
+            to: [activity.actor],
+          };
+          await deliverActivityPubObject(
+            [activity.actor],
+            reject,
+            { actorId: groupId, privateKey: group.privateKey },
+            domain,
+            env,
+          ).catch(() => {});
+        }
+        return c.json({ error: "招待が必要です" }, 403);
+      }
+    }
     if (!group.followers.includes(activity.actor)) {
       await db.addGroupFollower(name, activity.actor);
     }
-    await Invite.findOneAndUpdate(
-      { groupName: name, actor: activity.actor },
-      { accepted: true },
-    ).catch(() => {});
+    if (inv) {
+      const uses = inv.remainingUses ?? 1;
+      if (uses <= 1) {
+        await inv.deleteOne();
+      } else {
+        inv.remainingUses = uses - 1;
+        await inv.save().catch(() => {});
+      }
+    }
     const accept = createAcceptActivity(domain, groupId, activity);
     if (!group.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
@@ -670,13 +782,51 @@ app.post("/groups/:name/inbox", async (c) => {
       ).catch(() => {});
       return c.json({ ok: true });
     }
+    let inv: (Document & { expiresAt?: Date; remainingUses?: number }) | null =
+      null;
+    if (group.membershipPolicy === "inviteOnly") {
+      inv = await Invite.findOne({
+        groupName: name,
+        actor: activity.actor,
+      });
+      const now = new Date();
+      if (
+        !inv ||
+        (inv.expiresAt && inv.expiresAt < now) ||
+        (typeof inv.remainingUses === "number" && inv.remainingUses <= 0)
+      ) {
+        if (group.privateKey) {
+          const reject = {
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: `https://${domain}/activities/${crypto.randomUUID()}`,
+            type: "Reject" as const,
+            actor: groupId,
+            object: activity,
+            to: [activity.actor],
+          };
+          await deliverActivityPubObject(
+            [activity.actor],
+            reject,
+            { actorId: groupId, privateKey: group.privateKey },
+            domain,
+            env,
+          ).catch(() => {});
+        }
+        return c.json({ error: "招待が必要です" }, 403);
+      }
+    }
     if (!group.followers.includes(activity.actor)) {
       await db.addGroupFollower(name, activity.actor);
     }
-    await Invite.findOneAndUpdate(
-      { groupName: name, actor: activity.actor },
-      { accepted: true },
-    ).catch(() => {});
+    if (inv) {
+      const uses = inv.remainingUses ?? 1;
+      if (uses <= 1) {
+        await inv.deleteOne();
+      } else {
+        inv.remainingUses = uses - 1;
+        await inv.save().catch(() => {});
+      }
+    }
     const accept = createAcceptActivity(domain, groupId, activity);
     if (!group.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
