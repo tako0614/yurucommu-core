@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show, createEffect } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiFetch } from "../utils/config.ts";
 import { useAtom } from "solid-jotai";
 import AccountSettingsContent from "./home/AccountSettingsContent.tsx";
@@ -30,7 +30,8 @@ export function Home() {
   });
 
   // selected account object derived from actId
-  const selectedAccountObj = () => accounts().find((a) => a.id === actId()) ?? null;
+  const selectedAccountObj = () =>
+    accounts().find((a) => a.id === actId()) ?? null;
 
   // APIでアカウント一覧を取得
   const loadAccounts = async (preserveSelectedId?: string) => {
@@ -202,7 +203,7 @@ export function Home() {
       addNewAccount={addNewAccount}
       updateAccount={updateAccount}
       deleteAccount={deleteAccount}
-  showInlineSwitch={false}
+      showInlineSwitch={false}
     />
   );
 
@@ -235,47 +236,87 @@ export function Home() {
           size="md"
           class="rounded-full px-3 py-1 shadow flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700"
           aria-label="アカウント切り替え"
-          title={selectedAccountObj() ? selectedAccountObj()!.displayName : "アカウント切り替え"}
+          title={selectedAccountObj()
+            ? selectedAccountObj()!.displayName
+            : "アカウント切り替え"}
           onClick={() => setShowAccountSettings(true)}
         >
           <span class="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-sm font-semibold overflow-hidden">
-            {selectedAccountObj() && selectedAccountObj()!.avatarInitial ? (
-              isDataUrl(selectedAccountObj()!.avatarInitial) || selectedAccountObj()!.avatarInitial.startsWith("http") ? (
-                <img src={selectedAccountObj()!.avatarInitial} class="h-full w-full object-cover rounded-full" />
-              ) : (
-                <span class="text-sm">{(selectedAccountObj()!.displayName || selectedAccountObj()!.userName).substring(0, 2)}</span>
+            {selectedAccountObj() && selectedAccountObj()!.avatarInitial
+              ? (
+                isDataUrl(selectedAccountObj()!.avatarInitial) ||
+                  selectedAccountObj()!.avatarInitial.startsWith("http")
+                  ? (
+                    <img
+                      src={selectedAccountObj()!.avatarInitial}
+                      class="h-full w-full object-cover rounded-full"
+                    />
+                  )
+                  : (
+                    <span class="text-sm">
+                      {(selectedAccountObj()!.displayName ||
+                        selectedAccountObj()!.userName).substring(0, 2)}
+                    </span>
+                  )
               )
-            ) : (
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.63 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            )}
+              : (
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.63 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              )}
           </span>
-          <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          <svg
+            class="w-4 h-4 text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
           </svg>
         </Button>
       </div>
 
-        {/* アカウント切替モーダル */}
-        <Show when={showAccountSettings()}>
-          <Modal
-            open={showAccountSettings()}
-            onClose={() => setShowAccountSettings(false)}
-            title="アカウントを切り替え"
-          >
-            <div class="w-full min-h-screen">
-              <AccountSwitchList
-                accounts={accounts()}
-                selectedAccountId={actId()}
-                setSelectedAccountId={(id: string | null) => { setActId(id); setShowAccountSettings(false); }}
-                addNewAccount={addNewAccount}
-                updateAccount={updateAccount}
-                deleteAccount={deleteAccount}
-              />
-            </div>
-          </Modal>
-        </Show>
+      {/* アカウント切替モーダル */}
+      <Show when={showAccountSettings()}>
+        <Modal
+          open={showAccountSettings()}
+          onClose={() => setShowAccountSettings(false)}
+          title="アカウントを切り替え"
+        >
+          <div class="w-full min-h-screen">
+            <AccountSwitchList
+              accounts={accounts()}
+              selectedAccountId={actId()}
+              setSelectedAccountId={(id: string | null) => {
+                setActId(id);
+                setShowAccountSettings(false);
+                // 選択後にアカウント一覧を再取得し、重複表示を防ぐ
+                if (id) {
+                  void loadAccounts(id);
+                }
+              }}
+              addNewAccount={addNewAccount}
+              updateAccount={updateAccount}
+              deleteAccount={deleteAccount}
+            />
+          </div>
+        </Modal>
+      </Show>
 
       {/* メインコンテンツ */}
       <main class="flex-1">
