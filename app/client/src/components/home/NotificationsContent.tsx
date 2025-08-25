@@ -166,7 +166,7 @@ const NotificationsContent: Component = () => {
   };
 
   return (
-    <div class="max-w-3xl mx-auto space-y-4">
+    <div class="max-w-3xl mx-auto space-y-4 px-4 sm:px-0">
       <Card
         title="最近の通知"
         actions={
@@ -265,7 +265,7 @@ const NotificationsContent: Component = () => {
                           <h4 class="text-base font-semibold text-gray-100 truncate">
                             {n.title}
                           </h4>
-                          <p class="text-sm text-gray-400 mt-1 leading-relaxed">
+                          <p class="text-sm text-gray-400 mt-1 leading-relaxed break-words whitespace-normal">
                             {invite
                               ? `${
                                 invite.sender ?? "不明"
@@ -273,7 +273,7 @@ const NotificationsContent: Component = () => {
                               : n.message}
                           </p>
                         </div>
-                        <span class="text-xs text-gray-500 whitespace-nowrap">
+                        <span class="text-xs text-gray-500 sm:whitespace-nowrap">
                           {new Date(n.createdAt).toLocaleString()}
                         </span>
                       </div>
