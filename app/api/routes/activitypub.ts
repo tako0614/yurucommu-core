@@ -109,8 +109,8 @@ app.get("/users/:username/outbox", async (c) => {
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = createDB(env);
-  // Message を outbox から除外する
-  const objectsUnknown = await db.findObjects(
+  // ノートのみを取得する
+  const objectsUnknown = await db.findNotes(
     { attributedTo: `https://${domain}/users/${username}` },
     { published: -1 },
   ) as unknown[];
@@ -120,9 +120,7 @@ app.get("/users/:username/outbox", async (c) => {
   const isActivityObject = (v: unknown): v is ActivityObject =>
     typeof v === "object" && v !== null;
 
-  const objects = objectsUnknown
-    .filter(isActivityObject)
-    .filter((o) => o.type !== "Message");
+  const objects = objectsUnknown.filter(isActivityObject);
   const outbox = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `https://${domain}/users/${username}/outbox`,

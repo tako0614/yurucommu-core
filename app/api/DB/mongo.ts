@@ -51,13 +51,29 @@ function normalizeActorUrl(id: string, defaultDomain?: string): string {
 
 /** MongoDB 実装 */
 export class MongoDB implements DB {
-  constructor(private env: Record<string, string>) {}
+  private readonly isHost: boolean;
 
-  private withTenant<T>(query: mongoose.Query<T, unknown>) {
-    if (this.env["DB_MODE"] === "host") {
+  constructor(private env: Record<string, string>) {
+    this.isHost = env["DB_MODE"] === "host";
+  }
+
+  private withTenant<T>(
+    query: mongoose.Query<T, unknown>,
+  ): mongoose.Query<T, unknown> {
+    if (this.isHost) {
       query.setOptions({ $locals: { env: this.env } });
     }
     return query;
+  }
+
+  /** ホストモードのドキュメントに環境変数を付与する */
+  private withEnv<
+    T extends { $locals?: { env?: Record<string, string> } },
+  >(doc: T): T {
+    if (this.isHost) {
+      doc.$locals = { env: this.env };
+    }
+    return doc;
   }
 
   async getObject(id: string) {
@@ -94,35 +110,30 @@ export class MongoDB implements DB {
       data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
     }
     if (data.type === "Attachment") {
-      const doc = new Attachment({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        extra: data.extra ?? {},
-      });
-      if (this.env["DB_MODE"] === "host") {
-        // ホストモードではテナント識別のため環境変数を伝搬する
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
+      const doc = this.withEnv(
+        new Attachment({
+          _id: data._id,
+          attributedTo: String(data.attributedTo),
+          actor_id: String(data.actor_id),
+          extra: data.extra ?? {},
+        }),
+      );
       await doc.save();
       return doc.toObject();
     }
     const objectType = typeof data.type === "string" ? data.type : "Note";
     if (objectType === "Note") {
-      const doc = new Note({
-        _id: data._id,
-        attributedTo: String(data.attributedTo),
-        actor_id: String(data.actor_id),
-        content: String(data.content ?? ""),
-        extra: data.extra ?? {},
-        published: data.published ?? new Date(),
-        aud: data.aud ?? { to: [], cc: [] },
-      });
-      if (this.env["DB_MODE"] === "host") {
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
+      const doc = this.withEnv(
+        new Note({
+          _id: data._id,
+          attributedTo: String(data.attributedTo),
+          actor_id: String(data.actor_id),
+          content: String(data.content ?? ""),
+          extra: data.extra ?? {},
+          published: data.published ?? new Date(),
+          aud: data.aud ?? { to: [], cc: [] },
+        }),
+      );
       await doc.save();
       return doc.toObject();
     }
@@ -131,25 +142,23 @@ export class MongoDB implements DB {
       throw new Error(`unsupported object type: ${objectType}`);
     }
     const url = typeof data.url === "string" ? data.url : "";
-    const doc = new Message({
-      _id: data._id,
-      type: objectType,
-      attributedTo: String(data.attributedTo),
-      actor_id: String(data.actor_id),
-      content: String(data.content ?? ""),
-      url,
-      mediaType: typeof data.mediaType === "string"
-        ? data.mediaType
-        : undefined,
-      name: typeof data.name === "string" ? data.name : undefined,
-      extra: data.extra ?? {},
-      published: data.published ?? new Date(),
-      aud: data.aud ?? { to: [], cc: [] },
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new Message({
+        _id: data._id,
+        type: objectType,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        url,
+        mediaType: typeof data.mediaType === "string"
+          ? data.mediaType
+          : undefined,
+        name: typeof data.name === "string" ? data.name : undefined,
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -167,118 +176,108 @@ export class MongoDB implements DB {
     } catch {
       // actor is not URL
     }
-    const accountQuery = this.withTenant(Account.findOne({ userName: name }));
-    const account = await accountQuery
-      .lean<{ following?: string[] } | null>();
+    const account = await this.withTenant(
+      Account.findOne({ userName: name }),
+    ).lean<{ following?: string[] } | null>();
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
     // タイムラインには Note のみを表示する
     const filter: Record<string, unknown> = { actor_id: { $in: ids } };
     if (opts.before) filter.created_at = { $lt: opts.before };
-    const noteQuery = this.withTenant(Note.find(filter));
-    return await noteQuery
+    return await this.withTenant(Note.find(filter))
       .sort({ created_at: -1 })
       .limit(opts.limit ?? 40)
       .lean();
   }
 
   async follow(_: string, target: string) {
-    const query = FollowEdge.updateOne(
-      { actor_id: target },
-      { $setOnInsert: { since: new Date() } },
-      { upsert: true },
+    await this.withTenant(
+      FollowEdge.updateOne(
+        { actor_id: target },
+        { $setOnInsert: { since: new Date() } },
+        { upsert: true },
+      ),
     );
-    this.withTenant(query);
-    await query;
   }
 
   async unfollow(_: string, target: string) {
-    const query = FollowEdge.deleteOne({ actor_id: target });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(FollowEdge.deleteOne({ actor_id: target }));
   }
 
   async listAccounts(): Promise<AccountDoc[]> {
-    const query = this.withTenant(Account.find({}));
-    return await query.lean<AccountDoc[]>();
+    return await this.withTenant(Account.find({})).lean<AccountDoc[]>();
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
-    const doc = new Account({
-      ...data,
-      tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
+    const doc = this.withEnv(
+      new Account({
+        ...data,
+        tenant_id: this.env["ACTIVITYPUB_DOMAIN"] ?? "",
+      }),
+    );
     await doc.save();
     return doc.toObject() as AccountDoc;
   }
 
   async findAccountById(id: string): Promise<AccountDoc | null> {
-    const query = this.withTenant(Account.findOne({ _id: id }));
-    return await query.lean<AccountDoc | null>();
+    return await this.withTenant(Account.findOne({ _id: id }))
+      .lean<AccountDoc | null>();
   }
 
   async findAccountByUserName(
     username: string,
   ): Promise<AccountDoc | null> {
-    const query = this.withTenant(Account.findOne({ userName: username }));
-    return await query.lean<AccountDoc | null>();
+    return await this.withTenant(Account.findOne({ userName: username }))
+      .lean<AccountDoc | null>();
   }
 
   async updateAccountById(
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    const query = Account.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    return await query.lean<AccountDoc | null>();
+    return await this.withTenant(
+      Account.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ).lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
-    const query = Account.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    const res = await query;
+    const res = await this.withTenant(Account.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
   async addFollower(id: string, follower: string) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $addToSet: { followers: follower },
-    }, { new: true });
-    this.withTenant(query);
-    const acc = await query;
+    const acc = await this.withTenant(
+      Account.findOneAndUpdate({ _id: id }, {
+        $addToSet: { followers: follower },
+      }, { new: true }),
+    );
     return acc?.followers ?? [];
   }
 
   async removeFollower(id: string, follower: string) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $pull: { followers: follower },
-    }, { new: true });
-    this.withTenant(query);
-    const acc = await query;
+    const acc = await this.withTenant(
+      Account.findOneAndUpdate({ _id: id }, {
+        $pull: { followers: follower },
+      }, { new: true }),
+    );
     return acc?.followers ?? [];
   }
 
   async addFollowing(id: string, target: string) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $addToSet: { following: target },
-    }, { new: true });
-    this.withTenant(query);
-    const acc = await query;
+    const acc = await this.withTenant(
+      Account.findOneAndUpdate({ _id: id }, {
+        $addToSet: { following: target },
+      }, { new: true }),
+    );
     return acc?.following ?? [];
   }
 
   async removeFollowing(id: string, target: string) {
-    const query = Account.findOneAndUpdate({ _id: id }, {
-      $pull: { following: target },
-    }, { new: true });
-    this.withTenant(query);
-    const acc = await query;
+    const acc = await this.withTenant(
+      Account.findOneAndUpdate({ _id: id }, {
+        $pull: { following: target },
+      }, { new: true }),
+    );
     return acc?.following ?? [];
   }
 
@@ -291,38 +290,32 @@ export class MongoDB implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = normalizeActorUrl(author, domain);
-    const doc = new Note({
-      _id: id,
-      attributedTo: actor,
-      actor_id: actor,
-      content,
-      extra,
-      published: new Date(),
-      aud: aud ?? {
-        to: ["https://www.w3.org/ns/activitystreams#Public"],
-        cc: [],
-      },
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
+    const doc = this.withEnv(
+      new Note({
+        _id: id,
+        attributedTo: actor,
+        actor_id: actor,
+        content,
+        extra,
+        published: new Date(),
+        aud: aud ?? {
+          to: ["https://www.w3.org/ns/activitystreams#Public"],
+          cc: [],
+        },
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
 
   async updateNote(id: string, update: Record<string, unknown>) {
-    const query = Note.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    return await query.lean();
+    return await this.withTenant(
+      Note.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ).lean();
   }
 
   async deleteNote(id: string) {
-    const query = Note.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    const res = await query;
+    const res = await this.withTenant(Note.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
@@ -330,8 +323,9 @@ export class MongoDB implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    const query = this.withTenant(Note.find({ ...filter }));
-    return await query.sort(sort ?? {}).lean();
+    return await this.withTenant(Note.find({ ...filter }))
+      .sort(sort ?? {})
+      .lean();
   }
 
   async getPublicNotes(limit: number, before?: Date) {
@@ -351,35 +345,29 @@ export class MongoDB implements DB {
   ) {
     const id = createObjectId(domain);
     const actor = normalizeActorUrl(author, domain);
-    const doc = new Message({
-      _id: id,
-      attributedTo: actor,
-      actor_id: actor,
-      content,
-      extra,
-      published: new Date(),
-      aud,
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
+    const doc = this.withEnv(
+      new Message({
+        _id: id,
+        attributedTo: actor,
+        actor_id: actor,
+        content,
+        extra,
+        published: new Date(),
+        aud,
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
 
   async updateMessage(id: string, update: Record<string, unknown>) {
-    const query = Message.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    return await query.lean();
+    return await this.withTenant(
+      Message.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ).lean();
   }
 
   async deleteMessage(id: string) {
-    const query = Message.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    const res = await query;
+    const res = await this.withTenant(Message.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
@@ -387,8 +375,9 @@ export class MongoDB implements DB {
     filter: Record<string, unknown>,
     sort?: Record<string, SortOrder>,
   ) {
-    const query = this.withTenant(Message.find({ ...filter }));
-    return await query.sort(sort ?? {}).lean();
+    return await this.withTenant(Message.find({ ...filter }))
+      .sort(sort ?? {})
+      .lean();
   }
 
   async saveDMMessage(
@@ -420,21 +409,19 @@ export class MongoDB implements DB {
       ? from
       : `https://${domain}/users/${from}`;
     const id = domain ? createObjectId(domain) : undefined;
-    const doc = new Message({
-      _id: id,
-      type: objectType,
-      attributedTo: fromUrl,
-      actor_id: fromUrl,
-      content: content ?? "",
-      url: objectType === "Note" ? undefined : url,
-      mediaType: objectType === "Note" ? undefined : mediaType,
-      extra,
-      aud: { to: [to], cc: [] },
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new Message({
+        _id: id,
+        type: objectType,
+        attributedTo: fromUrl,
+        actor_id: fromUrl,
+        content: content ?? "",
+        url: objectType === "Note" ? undefined : url,
+        mediaType: objectType === "Note" ? undefined : mediaType,
+        extra,
+        aud: { to: [to], cc: [] },
+      }),
+    );
     await doc.save();
     const obj = doc.toObject();
     return {
@@ -479,7 +466,7 @@ export class MongoDB implements DB {
     const a1 = uniq([user1, toHandle(user1), toActorUrl(user1)]);
     const a2 = uniq([user2, toHandle(user2), toActorUrl(user2)]);
 
-    const query = this.withTenant(
+    const docs = await this.withTenant(
       Message.find({
         "extra.dm": true,
         $or: [
@@ -487,8 +474,7 @@ export class MongoDB implements DB {
           { actor_id: { $in: a2 }, "aud.to": { $in: a1 } },
         ],
       }),
-    );
-    const docs = await query.sort({ published: 1 }).lean<{
+    ).sort({ published: 1 }).lean<{
       _id: string;
       actor_id: string;
       aud?: { to?: string[]; cc?: string[] };
@@ -516,72 +502,36 @@ export class MongoDB implements DB {
     }));
   }
 
-  async findObjects(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-  ) {
-    const { type, ...rest } = filter;
-    const result: unknown[] = [];
-    // type が指定されている場合は対象のモデルのみ検索する
-    if (!type || type === "Note") {
-      const notes = await this.withTenant(Note.find({ ...rest }))
-        .sort(sort ?? {})
-        .lean();
-      result.push(...notes.map((n) => ({ ...n, type: "Note" })));
-    }
-    if (!type || type !== "Note") {
-      const messageFilter = { ...rest } as Record<string, unknown>;
-      if (type && type !== "Note") messageFilter.type = type;
-      const messages = await this.withTenant(Message.find({ ...messageFilter }))
-        .sort(sort ?? {})
-        .lean();
-      result.push(
-        ...messages.map((m) => ({ ...m, type: m.type ?? "Message" })),
-      );
-    }
-    return result;
-  }
-
   async updateObject(id: string, update: Record<string, unknown>) {
-    let query = Note.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    let doc = await query.lean();
+    let doc = await this.withTenant(
+      Note.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ).lean();
     if (doc) return doc;
-    query = Message.findOneAndUpdate({ _id: id }, update, { new: true });
-    this.withTenant(query);
-    doc = await query.lean();
+    doc = await this.withTenant(
+      Message.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ).lean();
     if (doc) return doc;
     return null;
   }
 
   async deleteObject(id: string) {
-    let query = Note.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    let res = await query;
+    let res = await this.withTenant(Note.findOneAndDelete({ _id: id }));
     if (res) return true;
-    query = Message.findOneAndDelete({ _id: id });
-    this.withTenant(query);
-    res = await query;
+    res = await this.withTenant(Message.findOneAndDelete({ _id: id }));
     if (res) return true;
     return false;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
     if (filter.type === "Note") {
-      const query = Note.deleteMany({ ...filter });
-      this.withTenant(query);
-      return await query;
+      return await this.withTenant(Note.deleteMany({ ...filter }));
     }
     if (filter.type && filter.type !== "Note") {
-      const query = Message.deleteMany({ ...filter });
-      this.withTenant(query);
-      return await query;
+      return await this.withTenant(Message.deleteMany({ ...filter }));
     }
     if (!filter.type) {
-      const noteQuery = Note.deleteMany({ ...filter });
-      this.withTenant(noteQuery);
-      const msgQuery = Message.deleteMany({ ...filter });
-      this.withTenant(msgQuery);
+      const noteQuery = this.withTenant(Note.deleteMany({ ...filter }));
+      const msgQuery = this.withTenant(Message.deleteMany({ ...filter }));
       const [nr, mr] = await Promise.all([noteQuery, msgQuery]);
       return { deletedCount: (nr.deletedCount ?? 0) + (mr.deletedCount ?? 0) };
     }
@@ -589,75 +539,72 @@ export class MongoDB implements DB {
   }
 
   async addFollowerByName(username: string, follower: string) {
-    const query = Account.updateOne({ userName: username }, {
-      $addToSet: { followers: follower },
-    });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(
+      Account.updateOne({ userName: username }, {
+        $addToSet: { followers: follower },
+      }),
+    );
   }
 
   async removeFollowerByName(username: string, follower: string) {
-    const query = Account.updateOne({ userName: username }, {
-      $pull: { followers: follower },
-    });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(
+      Account.updateOne({ userName: username }, {
+        $pull: { followers: follower },
+      }),
+    );
   }
 
   async searchAccounts(
     query: RegExp,
     limit = 20,
   ): Promise<AccountDoc[]> {
-    const q = this.withTenant(
+    return await this.withTenant(
       Account.find({ $or: [{ userName: query }, { displayName: query }] }),
-    );
-    return await q.limit(limit).lean<AccountDoc[]>();
+    )
+      .limit(limit)
+      .lean<AccountDoc[]>();
   }
 
   async updateAccountByUserName(
     username: string,
     update: Record<string, unknown>,
   ) {
-    const query = Account.updateOne({ userName: username }, update);
-    this.withTenant(query);
-    await query;
+    await this.withTenant(Account.updateOne({ userName: username }, update));
   }
 
   async findAccountsByUserNames(
     usernames: string[],
   ): Promise<AccountDoc[]> {
-    const query = this.withTenant(
+    return await this.withTenant(
       Account.find({ userName: { $in: usernames } }),
-    );
-    return await query.lean<AccountDoc[]>();
+    ).lean<AccountDoc[]>();
   }
 
   async countAccounts() {
-    const query = this.withTenant(Account.countDocuments({}));
-    return await query;
+    return await this.withTenant(Account.countDocuments({}));
   }
 
   async listDirectMessages(owner: string) {
-    const query = this.withTenant(DirectMessage.find({ owner }));
-    return await query.lean<DirectMessageDoc[]>();
+    return await this.withTenant(DirectMessage.find({ owner }))
+      .lean<DirectMessageDoc[]>();
   }
 
   async createDirectMessage(data: DirectMessageDoc) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = DirectMessage.findOneAndUpdate(
-      { owner: data.owner, id: data.id },
-      {
-        $set: {
-          name: data.name,
-          icon: data.icon,
-          members: data.members,
+    const doc = await this.withTenant(
+      DirectMessage.findOneAndUpdate(
+        { owner: data.owner, id: data.id },
+        {
+          $set: {
+            name: data.name,
+            icon: data.icon,
+            members: data.members,
+          },
+          $setOnInsert: { tenant_id: tenantId },
         },
-        $setOnInsert: { tenant_id: tenantId },
-      },
-      { upsert: true, new: true },
+        { upsert: true, new: true },
+      ),
     );
-    this.withTenant(query);
-    const doc = await query;
     return doc.toObject();
   }
 
@@ -666,25 +613,24 @@ export class MongoDB implements DB {
     id: string,
     update: Record<string, unknown>,
   ) {
-    const query = DirectMessage.findOneAndUpdate({ owner, id }, update, {
-      new: true,
-    });
-    this.withTenant(query);
-    return await query.lean<DirectMessageDoc | null>();
+    return await this.withTenant(
+      DirectMessage.findOneAndUpdate({ owner, id }, update, {
+        new: true,
+      }),
+    ).lean<DirectMessageDoc | null>();
   }
 
   async deleteDirectMessage(owner: string, id: string) {
-    const query = DirectMessage.findOneAndDelete({ owner, id });
-    this.withTenant(query);
-    const res = await query.lean<DirectMessageDoc | null>();
+    const res = await this.withTenant(
+      DirectMessage.findOneAndDelete({ owner, id }),
+    ).lean<DirectMessageDoc | null>();
     return res != null;
   }
 
   async listGroups(member: string): Promise<ListedGroup[]> {
-    const accQuery = this.withTenant(
+    const acc = await this.withTenant(
       Account.findOne({ userName: member }),
-    );
-    const acc = await accQuery.lean<{ groups?: string[] } | null>();
+    ).lean<{ groups?: string[] } | null>();
     if (!acc) return [];
     const groups = acc.groups ?? [];
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
@@ -692,10 +638,9 @@ export class MongoDB implements DB {
     const localNames = groups.filter((g) => g.startsWith(localPrefix)).map((
       g,
     ) => g.slice(localPrefix.length));
-    const localQuery = this.withTenant(
+    const locals = await this.withTenant(
       Group.find({ groupName: { $in: localNames } }),
-    );
-    const locals = await localQuery.lean<GroupDoc[]>();
+    ).lean<GroupDoc[]>();
     const res = locals.map((g) => {
       const icon = typeof g.icon === "string"
         ? g.icon
@@ -738,8 +683,8 @@ export class MongoDB implements DB {
   }
 
   async findGroupByName(name: string) {
-    const query = this.withTenant(Group.findOne({ groupName: name }));
-    return await query.lean<GroupDoc | null>();
+    return await this.withTenant(Group.findOne({ groupName: name }))
+      .lean<GroupDoc | null>();
   }
 
   async createGroup(data: Record<string, unknown>) {
@@ -751,82 +696,77 @@ export class MongoDB implements DB {
       data.privateKey = keys.privateKey;
       data.publicKey = keys.publicKey;
     }
-    const doc = new Group({ ...data });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(new Group({ ...data }));
     await doc.save();
     return doc.toObject() as GroupDoc;
   }
 
   async updateGroupByName(name: string, update: Record<string, unknown>) {
-    const query = Group.findOneAndUpdate({ groupName: name }, update, {
-      new: true,
-    });
-    this.withTenant(query);
-    return await query.lean<GroupDoc | null>();
+    return await this.withTenant(
+      Group.findOneAndUpdate({ groupName: name }, update, {
+        new: true,
+      }),
+    ).lean<GroupDoc | null>();
   }
 
   async addGroupFollower(name: string, actor: string) {
-    const query = Group.findOneAndUpdate(
-      { groupName: name },
-      { $addToSet: { followers: actor } },
-      { new: true },
-    );
-    this.withTenant(query);
-    const doc = await query.lean<{ followers: string[] } | null>();
+    const doc = await this.withTenant(
+      Group.findOneAndUpdate(
+        { groupName: name },
+        { $addToSet: { followers: actor } },
+        { new: true },
+      ),
+    ).lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
     const prefix = `https://${domain}/@`;
     if (actor.startsWith(prefix)) {
       const userName = actor.slice(prefix.length);
-      const accQuery = Account.findOneAndUpdate(
-        { userName },
-        { $addToSet: { groups: `https://${domain}/groups/${name}` } },
+      await this.withTenant(
+        Account.findOneAndUpdate(
+          { userName },
+          { $addToSet: { groups: `https://${domain}/groups/${name}` } },
+        ),
       );
-      this.withTenant(accQuery);
-      await accQuery;
     }
     return doc?.followers ?? [];
   }
 
   async removeGroupFollower(name: string, actor: string) {
-    const query = Group.findOneAndUpdate(
-      { groupName: name },
-      { $pull: { followers: actor } },
-      { new: true },
-    );
-    this.withTenant(query);
-    const doc = await query.lean<{ followers: string[] } | null>();
+    const doc = await this.withTenant(
+      Group.findOneAndUpdate(
+        { groupName: name },
+        { $pull: { followers: actor } },
+        { new: true },
+      ),
+    ).lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
     const prefix = `https://${domain}/@`;
     if (actor.startsWith(prefix)) {
       const userName = actor.slice(prefix.length);
-      const accQuery = Account.findOneAndUpdate(
-        { userName },
-        { $pull: { groups: `https://${domain}/groups/${name}` } },
+      await this.withTenant(
+        Account.findOneAndUpdate(
+          { userName },
+          { $pull: { groups: `https://${domain}/groups/${name}` } },
+        ),
       );
-      this.withTenant(accQuery);
-      await accQuery;
     }
     return doc?.followers ?? [];
   }
 
   async pushGroupOutbox(name: string, activity: Record<string, unknown>) {
-    const query = Group.updateOne(
-      { groupName: name },
-      { $push: { outbox: activity } },
+    await this.withTenant(
+      Group.updateOne(
+        { groupName: name },
+        { $push: { outbox: activity } },
+      ),
     );
-    this.withTenant(query);
-    await query;
   }
 
   async listNotifications(owner: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = this.withTenant(
+    return await this.withTenant(
       Notification.find({ tenant_id: tenantId, owner }),
-    );
-    return await query.sort({ createdAt: -1 }).lean();
+    ).sort({ createdAt: -1 }).lean();
   }
 
   async createNotification(
@@ -835,49 +775,44 @@ export class MongoDB implements DB {
     message: string,
     type: string,
   ) {
-    const doc = new Notification({ owner, title, message, type });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
+    const doc = this.withEnv(
+      new Notification({ owner, title, message, type }),
+    );
     await doc.save();
     return doc.toObject();
   }
 
   async markNotificationRead(id: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = Notification.findOneAndUpdate(
-      { _id: id, tenant_id: tenantId },
-      { read: true },
+    const res = await this.withTenant(
+      Notification.findOneAndUpdate(
+        { _id: id, tenant_id: tenantId },
+        { read: true },
+      ),
     );
-    this.withTenant(query);
-    const res = await query;
     return !!res;
   }
 
   async deleteNotification(id: string) {
     const tenantId = this.env["ACTIVITYPUB_DOMAIN"] ?? "";
-    const query = Notification.findOneAndDelete({
-      _id: id,
-      tenant_id: tenantId,
-    });
-    this.withTenant(query);
-    const res = await query;
+    const res = await this.withTenant(
+      Notification.findOneAndDelete({
+        _id: id,
+        tenant_id: tenantId,
+      }),
+    );
     return !!res;
   }
 
   async findRemoteActorByUrl(url: string) {
-    const query = this.withTenant(RemoteActor.findOne({ actorUrl: url }));
-    return await query.lean();
+    return await this.withTenant(RemoteActor.findOne({ actorUrl: url }))
+      .lean();
   }
 
   async findRemoteActorsByUrls(urls: string[]) {
-    const query = this.withTenant(
+    return await this.withTenant(
       RemoteActor.find({ actorUrl: { $in: urls } }),
-    );
-    return await query.lean();
+    ).lean();
   }
 
   async upsertRemoteActor(data: {
@@ -887,26 +822,26 @@ export class MongoDB implements DB {
     icon: unknown;
     summary: string;
   }) {
-    const query = RemoteActor.findOneAndUpdate(
-      { actorUrl: data.actorUrl },
-      {
-        name: data.name,
-        preferredUsername: data.preferredUsername,
-        icon: data.icon,
-        summary: data.summary,
-        cachedAt: new Date(),
-      },
-      { upsert: true },
+    await this.withTenant(
+      RemoteActor.findOneAndUpdate(
+        { actorUrl: data.actorUrl },
+        {
+          name: data.name,
+          preferredUsername: data.preferredUsername,
+          icon: data.icon,
+          summary: data.summary,
+          cachedAt: new Date(),
+        },
+        { upsert: true },
+      ),
     );
-    this.withTenant(query);
-    await query;
   }
 
   async findSystemKey(domain: string) {
-    const query = this.withTenant(SystemKey.findOne({ domain }));
-    return await query.lean<
-      { domain: string; privateKey: string; publicKey: string } | null
-    >();
+    return await this.withTenant(SystemKey.findOne({ domain }))
+      .lean<
+        { domain: string; privateKey: string; publicKey: string } | null
+      >();
   }
 
   async saveSystemKey(
@@ -914,11 +849,9 @@ export class MongoDB implements DB {
     privateKey: string,
     publicKey: string,
   ) {
-    const doc = new SystemKey({ domain, privateKey, publicKey });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new SystemKey({ domain, privateKey, publicKey }),
+    );
     await doc.save();
   }
 
@@ -963,26 +896,25 @@ export class MongoDB implements DB {
   }
 
   async listInstances(owner: string) {
-    const query = this.withTenant(Instance.find({ owner }));
-    const docs = await query.lean<{ host: string }[]>();
+    const docs = await this.withTenant(Instance.find({ owner }))
+      .lean<{ host: string }[]>();
     return docs.map((d) => ({ host: d.host }));
   }
 
   async countInstances(owner: string) {
-    const query = this.withTenant(Instance.countDocuments({ owner }));
-    return await query;
+    return await this.withTenant(Instance.countDocuments({ owner }));
   }
 
   async findInstanceByHost(host: string) {
-    const query = this.withTenant(Instance.findOne({ host }));
-    const doc = await query.lean<
-      {
-        _id: mongoose.Types.ObjectId;
-        host: string;
-        owner: mongoose.Types.ObjectId;
-        env?: Record<string, string>;
-      } | null
-    >();
+    const doc = await this.withTenant(Instance.findOne({ host }))
+      .lean<
+        {
+          _id: mongoose.Types.ObjectId;
+          host: string;
+          owner: mongoose.Types.ObjectId;
+          env?: Record<string, string>;
+        } | null
+      >();
     return doc
       ? {
         _id: String(doc._id),
@@ -994,50 +926,46 @@ export class MongoDB implements DB {
   }
 
   async findInstanceByHostAndOwner(host: string, owner: string) {
-    const query = this.withTenant(Instance.findOne({ host, owner }));
-    const doc = await query.lean<
-      {
-        _id: mongoose.Types.ObjectId;
-        host: string;
-        env?: Record<string, string>;
-      } | null
-    >();
+    const doc = await this.withTenant(Instance.findOne({ host, owner }))
+      .lean<
+        {
+          _id: mongoose.Types.ObjectId;
+          host: string;
+          env?: Record<string, string>;
+        } | null
+      >();
     return doc ? { _id: String(doc._id), host: doc.host, env: doc.env } : null;
   }
 
   async createInstance(
     data: { host: string; owner: string; env?: Record<string, string> },
   ) {
-    const doc = new Instance({
-      host: data.host,
-      owner: data.owner,
-      env: data.env ?? {},
-      createdAt: new Date(),
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new Instance({
+        host: data.host,
+        owner: data.owner,
+        env: data.env ?? {},
+        createdAt: new Date(),
+      }),
+    );
     await doc.save();
   }
 
   async updateInstanceEnv(id: string, env: Record<string, string>) {
-    const query = Instance.updateOne({ _id: id }, { $set: { env } });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(
+      Instance.updateOne({ _id: id }, { $set: { env } }),
+    );
   }
 
   async deleteInstance(host: string, owner: string) {
-    const query = Instance.deleteOne({ host, owner });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(Instance.deleteOne({ host, owner }));
   }
 
   async listOAuthClients() {
-    const query = this.withTenant(OAuthClient.find({}));
-    const docs = await query.lean<
-      { clientId: string; redirectUri: string }[]
-    >();
+    const docs = await this.withTenant(OAuthClient.find({}))
+      .lean<
+        { clientId: string; redirectUri: string }[]
+      >();
     return docs.map((d) => ({
       clientId: d.clientId,
       redirectUri: d.redirectUri,
@@ -1045,81 +973,75 @@ export class MongoDB implements DB {
   }
 
   async findOAuthClient(clientId: string) {
-    const query = this.withTenant(OAuthClient.findOne({ clientId }));
-    const doc = await query.lean<
-      { clientSecret: string } | null
-    >();
+    const doc = await this.withTenant(OAuthClient.findOne({ clientId }))
+      .lean<
+        { clientSecret: string } | null
+      >();
     return doc ? { clientSecret: doc.clientSecret } : null;
   }
 
   async createOAuthClient(
     data: { clientId: string; clientSecret: string; redirectUri: string },
   ) {
-    const doc = new OAuthClient({
-      clientId: data.clientId,
-      clientSecret: data.clientSecret,
-      redirectUri: data.redirectUri,
-      createdAt: new Date(),
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new OAuthClient({
+        clientId: data.clientId,
+        clientSecret: data.clientSecret,
+        redirectUri: data.redirectUri,
+        createdAt: new Date(),
+      }),
+    );
     await doc.save();
   }
 
   async listHostDomains(user: string) {
-    const query = this.withTenant(HostDomain.find({ user }));
-    const docs = await query.lean<
-      { domain: string; verified: boolean }[]
-    >();
+    const docs = await this.withTenant(HostDomain.find({ user }))
+      .lean<
+        { domain: string; verified: boolean }[]
+      >();
     return docs.map((d) => ({ domain: d.domain, verified: d.verified }));
   }
 
   async findHostDomain(domain: string, user?: string) {
     const cond: Record<string, unknown> = { domain };
     if (user) cond.user = user;
-    const query = this.withTenant(HostDomain.findOne(cond));
-    const doc = await query.lean<
-      { _id: mongoose.Types.ObjectId; token: string; verified: boolean } | null
-    >();
+    const doc = await this.withTenant(HostDomain.findOne(cond))
+      .lean<
+        | { _id: mongoose.Types.ObjectId; token: string; verified: boolean }
+        | null
+      >();
     return doc
       ? { _id: String(doc._id), token: doc.token, verified: doc.verified }
       : null;
   }
 
   async createHostDomain(domain: string, user: string, token: string) {
-    const doc = new HostDomain({
-      domain,
-      user,
-      token,
-      verified: false,
-      createdAt: new Date(),
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = { env: this.env };
-    }
+    const doc = this.withEnv(
+      new HostDomain({
+        domain,
+        user,
+        token,
+        verified: false,
+        createdAt: new Date(),
+      }),
+    );
     await doc.save();
   }
 
   async verifyHostDomain(id: string) {
-    const query = HostDomain.updateOne({ _id: id }, {
-      $set: { verified: true },
-    });
-    this.withTenant(query);
-    await query;
+    await this.withTenant(
+      HostDomain.updateOne({ _id: id }, {
+        $set: { verified: true },
+      }),
+    );
   }
 
   async ensureTenant(id: string, domain: string) {
-    const query = this.withTenant(Tenant.findOne({ _id: id }));
-    const exists = await query.lean();
+    const exists = await this.withTenant(Tenant.findOne({ _id: id })).lean();
     if (!exists) {
-      const doc = new Tenant({ _id: id, domain, created_at: new Date() });
-      if (this.env["DB_MODE"] === "host") {
-        (doc as unknown as { $locals?: { env?: Record<string, string> } })
-          .$locals = { env: this.env };
-      }
+      const doc = this.withEnv(
+        new Tenant({ _id: id, domain, created_at: new Date() }),
+      );
       await doc.save();
     }
   }
@@ -1133,62 +1055,47 @@ export class MongoDB implements DB {
     expiresAt: Date,
     deviceId: string,
   ): Promise<SessionDoc> {
-    const doc = new Session({
-      sessionId,
-      deviceId,
-      expiresAt,
-      lastDecryptAt: new Date(),
-    });
-    if (this.env["DB_MODE"] === "host") {
-      (doc as unknown as { $locals?: { env?: Record<string, string> } })
-        .$locals = {
-          env: this.env,
-        };
-    }
+    const doc = this.withEnv(
+      new Session({
+        sessionId,
+        deviceId,
+        expiresAt,
+        lastDecryptAt: new Date(),
+      }),
+    );
     await doc.save();
     return doc.toObject() as SessionDoc;
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    const query = Session.findOne({ sessionId });
-    if (this.env["DB_MODE"] === "host") {
-      query.setOptions({ $locals: { env: this.env } });
-    }
-    return await query.lean<SessionDoc | null>();
+    return await this.withTenant(Session.findOne({ sessionId }))
+      .lean<SessionDoc | null>();
   }
 
   async deleteSessionById(sessionId: string) {
-    const query = Session.deleteOne({ sessionId });
-    if (this.env["DB_MODE"] === "host") {
-      query.setOptions({ $locals: { env: this.env } });
-    }
-    await query;
+    await this.withTenant(Session.deleteOne({ sessionId }));
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    const query = Session.updateOne({ sessionId }, { expiresAt: expires });
-    if (this.env["DB_MODE"] === "host") {
-      query.setOptions({ $locals: { env: this.env } });
-    }
-    await query;
+    await this.withTenant(
+      Session.updateOne({ sessionId }, { expiresAt: expires }),
+    );
   }
 
   async updateSessionActivity(sessionId: string, date = new Date()) {
     const threshold = new Date(date.getTime() - 1000 * 60 * 60 * 12);
-    const query = Session.updateOne(
-      {
-        sessionId,
-        $or: [
-          { lastDecryptAt: { $lt: threshold } },
-          { lastDecryptAt: { $exists: false } },
-        ],
-      },
-      { lastDecryptAt: date },
+    await this.withTenant(
+      Session.updateOne(
+        {
+          sessionId,
+          $or: [
+            { lastDecryptAt: { $lt: threshold } },
+            { lastDecryptAt: { $exists: false } },
+          ],
+        },
+        { lastDecryptAt: date },
+      ),
     );
-    if (this.env["DB_MODE"] === "host") {
-      query.setOptions({ $locals: { env: this.env } });
-    }
-    await query;
   }
 
   async getDatabase() {

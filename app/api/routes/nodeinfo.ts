@@ -10,7 +10,8 @@ const app = new Hono();
 async function getNodeStats(env: Record<string, string>) {
   const db = createDB(env);
   const users = await db.countAccounts();
-  const posts = (await db.findObjects({}, {})).length;
+  const posts = (await db.findNotes({}, {})).length +
+    (await db.findMessages({}, {})).length;
   const version = env["TAKOS_VERSION"] ?? "1.0.0";
   return { users, posts, version };
 }

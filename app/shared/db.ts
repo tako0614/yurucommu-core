@@ -85,10 +85,6 @@ export interface DB {
     preview?: Record<string, unknown>,
   ): Promise<unknown>;
   listDMsBetween(user1: string, user2: string): Promise<unknown[]>;
-  findObjects(
-    filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
-  ): Promise<unknown[]>;
   updateObject(
     id: string,
     update: Record<string, unknown>,
