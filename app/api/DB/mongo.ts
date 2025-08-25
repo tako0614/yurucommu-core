@@ -25,7 +25,7 @@ import type {
   ListedGroup,
   SessionDoc,
 } from "../../shared/types.ts";
-import type { SortOrder } from "mongoose";
+import type { Model, SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
@@ -47,6 +47,31 @@ function normalizeActorUrl(id: string, defaultDomain?: string): string {
     }
     return id;
   }
+}
+
+function toHandle(id: string): string {
+  try {
+    if (id.startsWith("http")) {
+      const u = new URL(id);
+      const name = u.pathname.split("/").filter(Boolean).pop() ?? "";
+      if (name) return `${name}@${u.hostname}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return id;
+}
+
+function toActorUrl(handle: string): string | null {
+  if (handle.includes("@")) {
+    const [name, host] = handle.split("@");
+    if (name && host) return `https://${host}/users/${name}`;
+  }
+  return null;
+}
+
+function uniq(arr: (string | null | undefined)[]): string[] {
+  return Array.from(new Set(arr.filter((v): v is string => !!v)));
 }
 
 /** MongoDB 実装 */
@@ -76,66 +101,90 @@ export class MongoDB implements DB {
     return doc;
   }
 
+  private async findById<T>(
+    model: Model<T>,
+    id: string,
+    key = "_id",
+  ): Promise<T | null> {
+    return await this.withTenant(model.findOne({ [key]: id }))
+      .lean<T | null>();
+  }
+
   async findNoteById(id: string) {
-    return await this.withTenant(Note.findOne({ _id: id })).lean();
+    return await this.findById(Note, id);
   }
 
   async findMessageById(id: string) {
-    return await this.withTenant(Message.findOne({ _id: id })).lean();
+    return await this.findById(Message, id);
   }
 
   async findAttachmentById(id: string) {
-    return await this.withTenant(Attachment.findOne({ _id: id })).lean();
+    return await this.findById(Attachment, id);
   }
 
-  async saveObject(obj: Record<string, unknown>) {
-    const data = { ...obj };
-    if (typeof data.attributedTo === "string") {
+  /**
+   * オブジェクトの共通項目を正規化し ID を生成します。
+   */
+  private normalizeObject(data: Record<string, unknown>) {
+    const obj = { ...data };
+    if (typeof obj.attributedTo === "string") {
       const actor = normalizeActorUrl(
-        data.attributedTo,
+        obj.attributedTo,
         this.env["ACTIVITYPUB_DOMAIN"],
       );
-      data.attributedTo = actor;
-      data.actor_id = actor;
-    } else if (typeof data.actor_id === "string") {
+      obj.attributedTo = actor;
+      obj.actor_id = actor;
+    } else if (typeof obj.actor_id === "string") {
       const actor = normalizeActorUrl(
-        data.actor_id,
+        obj.actor_id,
         this.env["ACTIVITYPUB_DOMAIN"],
       );
-      data.actor_id = actor;
-      data.attributedTo = actor;
+      obj.actor_id = actor;
+      obj.attributedTo = actor;
     }
-    if (!data._id && this.env["ACTIVITYPUB_DOMAIN"]) {
-      data._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
+    if (!obj._id && this.env["ACTIVITYPUB_DOMAIN"]) {
+      obj._id = createObjectId(this.env["ACTIVITYPUB_DOMAIN"]);
     }
-    if (data.type === "Attachment") {
-      const doc = this.withEnv(
-        new Attachment({
-          _id: data._id,
-          attributedTo: String(data.attributedTo),
-          actor_id: String(data.actor_id),
-          extra: data.extra ?? {},
-        }),
-      );
-      await doc.save();
-      return doc.toObject();
-    }
-    const objectType = typeof data.type === "string" ? data.type : "Note";
-    if (objectType === "Note") {
-      const doc = this.withEnv(
-        new Note({
-          _id: data._id,
-          attributedTo: String(data.attributedTo),
-          actor_id: String(data.actor_id),
-          content: String(data.content ?? ""),
-          extra: data.extra ?? {},
-          published: data.published ?? new Date(),
-          aud: data.aud ?? { to: [], cc: [] },
-        }),
-      );
-      await doc.save();
-      return doc.toObject();
-    }
+    return obj;
+  }
+
+  /** Attachment を作成します。 */
+  private async createAttachment(obj: Record<string, unknown>) {
+    const data = this.normalizeObject(obj);
+    const doc = this.withEnv(
+      new Attachment({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        extra: data.extra ?? {},
+      }),
+    );
+    await doc.save();
+    return doc.toObject();
+  }
+
+  /** Note を作成します。 */
+  private async createNote(obj: Record<string, unknown>) {
+    const data = this.normalizeObject(obj);
+    const doc = this.withEnv(
+      new Note({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      }),
+    );
+    await doc.save();
+    return doc.toObject();
+  }
+
+  /** メディア系 Message を作成します。 */
+  private async createMessage(obj: Record<string, unknown>) {
+    const data = this.normalizeObject(obj);
+    const objectType = typeof data.type === "string" ? data.type : "Document";
     const allowed = ["Image", "Video", "Audio", "Document"] as const;
     if (!allowed.includes(objectType as typeof allowed[number])) {
       throw new Error(`unsupported object type: ${objectType}`);
@@ -160,6 +209,17 @@ export class MongoDB implements DB {
     );
     await doc.save();
     return doc.toObject();
+  }
+
+  async saveObject(obj: Record<string, unknown>) {
+    const objectType = typeof obj.type === "string" ? obj.type : "Note";
+    if (objectType === "Attachment") {
+      return await this.createAttachment(obj);
+    }
+    if (objectType === "Note") {
+      return await this.createNote(obj);
+    }
+    return await this.createMessage({ ...obj, type: objectType });
   }
 
   async listTimeline(actor: string, opts: ListOpts) {
@@ -219,8 +279,7 @@ export class MongoDB implements DB {
   }
 
   async findAccountById(id: string): Promise<AccountDoc | null> {
-    return await this.withTenant(Account.findOne({ _id: id }))
-      .lean<AccountDoc | null>();
+    return await this.findById<AccountDoc>(Account, id);
   }
 
   async findAccountByUserName(
@@ -244,40 +303,38 @@ export class MongoDB implements DB {
     return !!res;
   }
 
-  async addFollower(id: string, follower: string) {
+  /**
+   * followers や following の配列を更新するヘルパー
+   */
+  private async updateAccountSet(
+    id: string,
+    field: "followers" | "following",
+    value: string,
+    action: "add" | "remove",
+  ) {
+    const update = action === "add"
+      ? { $addToSet: { [field]: value } }
+      : { $pull: { [field]: value } };
     const acc = await this.withTenant(
-      Account.findOneAndUpdate({ _id: id }, {
-        $addToSet: { followers: follower },
-      }, { new: true }),
-    );
-    return acc?.followers ?? [];
+      Account.findOneAndUpdate({ _id: id }, update, { new: true }),
+    ) as { followers?: string[]; following?: string[] } | null;
+    return acc?.[field] ?? [];
+  }
+
+  async addFollower(id: string, follower: string) {
+    return await this.updateAccountSet(id, "followers", follower, "add");
   }
 
   async removeFollower(id: string, follower: string) {
-    const acc = await this.withTenant(
-      Account.findOneAndUpdate({ _id: id }, {
-        $pull: { followers: follower },
-      }, { new: true }),
-    );
-    return acc?.followers ?? [];
+    return await this.updateAccountSet(id, "followers", follower, "remove");
   }
 
   async addFollowing(id: string, target: string) {
-    const acc = await this.withTenant(
-      Account.findOneAndUpdate({ _id: id }, {
-        $addToSet: { following: target },
-      }, { new: true }),
-    );
-    return acc?.following ?? [];
+    return await this.updateAccountSet(id, "following", target, "add");
   }
 
   async removeFollowing(id: string, target: string) {
-    const acc = await this.withTenant(
-      Account.findOneAndUpdate({ _id: id }, {
-        $pull: { following: target },
-      }, { new: true }),
-    );
-    return acc?.following ?? [];
+    return await this.updateAccountSet(id, "following", target, "remove");
   }
 
   async saveNote(
@@ -392,13 +449,12 @@ export class MongoDB implements DB {
     preview?: Record<string, unknown>,
   ) {
     const extra: Record<string, unknown> = { type, dm: true };
-    const objectType = type === "image"
-      ? "Image"
-      : type === "video"
-      ? "Video"
-      : type === "file"
-      ? "Document"
-      : "Note";
+    const typeMap: Record<string, string> = {
+      image: "Image",
+      video: "Video",
+      file: "Document",
+    };
+    const objectType = typeMap[type] ?? "Note";
     if (attachments) extra.attachments = attachments;
     if (key) extra.key = key;
     if (iv) extra.iv = iv;
@@ -441,27 +497,6 @@ export class MongoDB implements DB {
 
   async listDMsBetween(user1: string, user2: string) {
     // 異なる表記（URL/handle）を相互に許容する
-    const toHandle = (id: string): string => {
-      try {
-        if (id.startsWith("http")) {
-          const u = new URL(id);
-          const name = u.pathname.split("/").filter(Boolean).pop() ?? "";
-          if (name) return `${name}@${u.hostname}`;
-        }
-      } catch {
-        /* ignore */
-      }
-      return id;
-    };
-    const toActorUrl = (handle: string): string | null => {
-      if (handle.includes("@")) {
-        const [name, host] = handle.split("@");
-        if (name && host) return `https://${host}/users/${name}`;
-      }
-      return null;
-    };
-    const uniq = (arr: (string | null | undefined)[]) =>
-      Array.from(new Set(arr.filter((v): v is string => !!v)));
     const a1 = uniq([user1, toHandle(user1), toActorUrl(user1)]);
     const a2 = uniq([user2, toHandle(user2), toActorUrl(user2)]);
 
@@ -1067,8 +1102,7 @@ export class MongoDB implements DB {
   }
 
   async findSessionById(sessionId: string): Promise<SessionDoc | null> {
-    return await this.withTenant(Session.findOne({ sessionId }))
-      .lean<SessionDoc | null>();
+    return await this.findById<SessionDoc>(Session, sessionId, "sessionId");
   }
 
   async deleteSessionById(sessionId: string) {
