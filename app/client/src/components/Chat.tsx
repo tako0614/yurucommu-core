@@ -1941,14 +1941,31 @@ export function Chat() {
           const user = account();
           if (!user) return;
           const handle = `${user.userName}@${getDomain()}`;
-          const id = crypto.randomUUID();
           // membersStr is comma-separated list
           const members = membersStr.split(",").map((s) => s.trim()).filter(
             Boolean,
           );
           try {
-            await _addRoom(handle, { id, name, members, type: "group" });
+            const id = await _addRoom(handle, { name, members, type: "group" });
+            if (!id) return;
             selectRoom(id);
+            upsertRooms([
+              {
+                id,
+                name,
+                displayName: name,
+                userName: user.userName,
+                domain: getDomain(),
+                avatar: name ? name.charAt(0).toUpperCase() : "👥",
+                unreadCount: 0,
+                type: "group",
+                members,
+                hasName: name !== "",
+                hasIcon: false,
+                lastMessage: "...",
+                lastMessageTime: undefined,
+              },
+            ]);
           } catch {
             /* ignore */
           }
@@ -2131,13 +2148,13 @@ async function readPending(
 async function _addRoom(
   _handle: string,
   _room: {
-    id: string;
+    id?: string;
     name: string;
     members: string[];
     type: Room["type"];
   },
   _meta?: unknown,
-) {
+): Promise<string | undefined> {
   try {
     if (_room.type === "dm") {
       await apiFetch(`/api/dms`, {
@@ -2145,8 +2162,9 @@ async function _addRoom(
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ owner: _handle, ..._room }),
       });
+      return _room.id;
     } else if (_room.type === "group") {
-      await apiFetch(`/api/groups`, {
+      const res = await apiFetch(`/api/groups`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2156,10 +2174,17 @@ async function _addRoom(
           invites: _room.members || [],
         }),
       });
+      if (res.ok) {
+        const j = await res.json().catch(() => undefined);
+        if (j && typeof j === "object" && "id" in j) {
+          return String((j as { id: string }).id);
+        }
+      }
     }
   } catch {
     /* ignore */
   }
+  return undefined;
 }
 
 // event cursor state (local only)
