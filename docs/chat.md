@@ -66,13 +66,13 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 {
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Group",
-  "id": "https://groups.example/@cats",
+  "id": "https://groups.example/users/cats",
   "name": "Cats Club",
   "preferredUsername": "cats",
   "summary": "猫好きのためのグループ",
-  "inbox": "https://groups.example/@cats/inbox",
-  "outbox": "https://groups.example/@cats/outbox",
-  "followers": "https://groups.example/@cats/followers",
+  "inbox": "https://groups.example/users/cats/inbox",
+  "outbox": "https://groups.example/users/cats/outbox",
+  "followers": "https://groups.example/users/cats/followers",
   "endpoints": { "sharedInbox": "https://groups.example/inbox" },
   "icon": {
     "type": "Image",
@@ -107,12 +107,12 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 
 グループは以下の設定を持つことができる（v0.3.1 での追補を含む）。
 
-- `membershipPolicy`:
-  参加承認方式。
+- `membershipPolicy`: 参加承認方式。
 
   - `open`: 誰でも参加可（既存）
   - `approval`: 承認制（既存）
-  - `inviteOnly`: **招待必須**。有効な招待が無い `Follow`/`Join` は **Accept してはならない（MUST NOT）**。
+  - `inviteOnly`: **招待必須**。有効な招待が無い `Follow`/`Join` は **Accept
+    してはならない（MUST NOT）**。
 
 - `invitePolicy`: 招待の送信権限。デフォルトは `members`。
 
@@ -121,7 +121,8 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
   - `none`: 招待機能を無効化
 
 - `visibility`: 公開範囲。`public` や `private` などサーバー実装に依存。
-- `allowInvites`（後方互換）: 廃止予定の真偽値。`true` は `invitePolicy=members`、`false` は `invitePolicy=none` と解釈される。
+- `allowInvites`（後方互換）: 廃止予定の真偽値。`true` は
+  `invitePolicy=members`、`false` は `invitePolicy=none` と解釈される。
 
 ---
 
@@ -138,7 +139,8 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 
 - `POST {group.id}/inbox`: リモート配送の受け口（AP S2S）
 
-- 管理 API: `/api/groups/:name/invite` はサーバー側で inviter のメンバー/権限チェックを必須とする（v0.3.1 の要件）。
+- 管理 API: `/api/groups/:name/invite` はサーバー側で inviter
+  のメンバー/権限チェックを必須とする（v0.3.1 の要件）。
 
 > 注:
 > 俯瞰ではC2Sのアクティビティ投稿は\*\*各ユーザーの`outbox`\*\*へ行う。グループ自体を直接操作するC2Sは管理者操作（例:
@@ -161,9 +163,9 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Follow",
   "id": "https://user.example/acts/111",
-  "actor": "https://user.example/@alice",
-  "object": "https://groups.example/@cats",
-  "to": ["https://groups.example/@cats"]
+  "actor": "https://user.example/users/alice",
+  "object": "https://groups.example/users/cats",
+  "to": ["https://groups.example/users/cats"]
 }
 ```
 
@@ -174,9 +176,9 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Accept",
   "id": "https://groups.example/acts/200",
-  "actor": "https://groups.example/@cats",
+  "actor": "https://groups.example/users/cats",
   "object": "https://user.example/acts/111",
-  "to": ["https://user.example/@alice"]
+  "to": ["https://user.example/users/alice"]
 }
 ```
 
@@ -188,28 +190,38 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
 
 ### 6.3 招待（Invite: 送信権限と招待必須モード）
 
-*v0.3.1 変更点の要約: グループ宛の `Invite` は `invitePolicy` に適合するアクター（既存メンバーまたは管理者）からのもののみ受理される。`membershipPolicy=inviteOnly` を導入し、招待が無い参加申請の Accept を禁止する挙動を追加する。*
+_v0.3.1 変更点の要約: グループ宛の `Invite` は `invitePolicy`
+に適合するアクター（既存メンバーまたは管理者）からのもののみ受理される。`membershipPolicy=inviteOnly`
+を導入し、招待が無い参加申請の Accept を禁止する挙動を追加する。_
 
 - **送信権限:**
 
-  - グループ宛の `Invite` は **`invitePolicy` に適合するアクター**（`members` なら現メンバー、`admins` なら管理者）からのみ **受理** される。非メンバーからの `Invite` は **MUST** 無視または拒否（`Reject`）。
+  - グループ宛の `Invite` は **`invitePolicy` に適合するアクター**（`members`
+    なら現メンバー、`admins` なら管理者）からのみ **受理**
+    される。非メンバーからの `Invite` は **MUST** 無視または拒否（`Reject`）。
 
 - **加入効力:**
 
-  - **Invite自体に加入効力はない**（不変）。受け手は `Join` または `Follow` を Group に送り、必要なら Group が `Accept` して初めてメンバーになる。
+  - **Invite自体に加入効力はない**（不変）。受け手は `Join` または `Follow` を
+    Group に送り、必要なら Group が `Accept` して初めてメンバーになる。
   - 最小相互運用のため、**最終的にFollow/Acceptへ収束**させる（`Join`は受理して内部でFollowへ写像してもよい）。
 
-- **通知表現:** 招待通知は `to: 招待相手`、任意で `cc: group` としてGroupにも知らせてよい。
+- **通知表現:** 招待通知は `to: 招待相手`、任意で `cc: group`
+  としてGroupにも知らせてよい。
 
 - **membershipPolicy=inviteOnly の挙動:**
 
-  - `membershipPolicy=inviteOnly` の場合、Group は **有効な招待**（下記の検証を満たす）が存在しない `Follow`/`Join` を **Accept してはならない（MUST NOT）**。存在しない場合は `Reject` するか承認待ちに保留する。
+  - `membershipPolicy=inviteOnly` の場合、Group は
+    **有効な招待**（下記の検証を満たす）が存在しない `Follow`/`Join` を **Accept
+    してはならない（MUST NOT）**。存在しない場合は `Reject`
+    するか承認待ちに保留する。
 
 **検証要件（Invite 受理時）:**
 
 1. HTTP 署名/LD 署名により `Invite.actor` の真正性を検証。
 2. `Invite.actor` が **当該時点のメンバー（もしくは管理権限者）** であること。
-3. 招待先（`object` が招待相手、`target` が Group の表現を採用）と Group の一致。
+3. 招待先（`object` が招待相手、`target` が Group の表現を採用）と Group
+   の一致。
 4. TTL（例: 7〜30日）や最大使用回数（1または N 回）のポリシーを満たすこと。
 5. レート制限（単位時間あたりの招待上限）。
 
@@ -220,17 +232,21 @@ Group）\*\*を用いて複数人で会話する最低相互運用仕様を定�
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Invite",
   "id": "https://groups.example/acts/inv-42",
-  "actor": "https://groups.example/@cats#members/alice",  
-  "object": "https://remote.example/@bob",                 
-  "target": "https://groups.example/@cats",                
-  "to": ["https://remote.example/@bob"],
-  "cc": ["https://groups.example/@cats"]
+  "actor": "https://groups.example/users/cats#members/alice",
+  "object": "https://remote.example/users/bob",
+  "target": "https://groups.example/users/cats",
+  "to": ["https://remote.example/users/bob"],
+  "cc": ["https://groups.example/users/cats"]
 }
 ```
 
-> 注: 正準表現は **`object=招待相手`、`target=group`** とする。別実装（`object=group`・`target=招待相手`）も受理可だが、正規化時に前者へ写像して扱うこと。
+> 注: 正準表現は **`object=招待相手`、`target=group`**
+> とする。別実装（`object=group`・`target=招待相手`）も受理可だが、正規化時に前者へ写像して扱うこと。
 
-Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter のメンバー/権限チェック** を必須とし、不適合時は `403 Forbidden` を返す。生成される `Invite` は発行時刻・TTL・使用回数といったメタを内部に保持する。
+Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter
+のメンバー/権限チェック** を必須とし、不適合時は `403 Forbidden`
+を返す。生成される `Invite`
+は発行時刻・TTL・使用回数といったメタを内部に保持する。
 
 ### 6.4 承認待ち処理
 
@@ -241,7 +257,10 @@ Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter
   (`accept: false`) できる。
 - 承認時は `Accept` が、拒否時は `Reject` が申請者へ返送される。
 
-*追補 (v0.3.1):* `inviteOnly` のグループでは、承認待ちキューに保存された `Follow`/`Join` に対して **後から招待が届いた場合に自動承認する** オプションを定義できる（招待の TTL 内に限る）。自動承認は運用設定で有効化/無効化できる。
+_追補 (v0.3.1):_ `inviteOnly` のグループでは、承認待ちキューに保存された
+`Follow`/`Join` に対して **後から招待が届いた場合に自動承認する**
+オプションを定義できる（招待の TTL
+内に限る）。自動承認は運用設定で有効化/無効化できる。
 
 ---
 
@@ -261,22 +280,22 @@ Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Create",
   "id": "https://user.example/acts/123",
-  "actor": "https://user.example/@alice",
-  "to": ["https://groups.example/@cats"],
+  "actor": "https://user.example/users/alice",
+  "to": ["https://groups.example/users/cats"],
   "object": {
     "type": "Note",
     "id": "urn:uuid:3b19b6a9-6d1a-4a7d-9f7b-b6a9c3f8d1e2",
-    "attributedTo": "https://user.example/@alice",
-    "audience": "https://groups.example/@cats",
+    "attributedTo": "https://user.example/users/alice",
+    "audience": "https://groups.example/users/cats",
     "content": "はじめまして！",
     "published": "2025-08-24T10:00:00Z",
     "proof": {
       "type": "DataIntegrityProof",
       "created": "2025-08-24T10:00:01Z",
-      "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+      "verificationMethod": "https://user.example/users/alice#keys/ed25519-1",
       "jws": "eyJ..."
     },
-    "to": ["https://groups.example/@cats"]
+    "to": ["https://groups.example/users/cats"]
   }
 }
 ```
@@ -299,22 +318,22 @@ Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Announce",
   "id": "https://groups.example/acts/345",
-  "actor": "https://groups.example/@cats",
+  "actor": "https://groups.example/users/cats",
   "bto": [
-    "https://bob.example/@bob",
-    "https://carol.example/@carol"
+    "https://bob.example/users/bob",
+    "https://carol.example/users/carol"
   ],
   "object": {
     "type": "Note",
     "id": "urn:uuid:3b19b6a9-6d1a-4a7d-9f7b-b6a9c3f8d1e2",
-    "attributedTo": "https://user.example/@alice",
-    "audience": "https://groups.example/@cats",
+    "attributedTo": "https://user.example/users/alice",
+    "audience": "https://groups.example/users/cats",
     "content": "はじめまして！",
     "published": "2025-08-24T10:00:00Z",
     "proof": {
       "type": "DataIntegrityProof",
       "created": "2025-08-24T10:00:01Z",
-      "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+      "verificationMethod": "https://user.example/users/alice#keys/ed25519-1",
       "jws": "eyJ..."
     }
   }
@@ -377,11 +396,11 @@ Takos では管理エンドポイント `/api/groups/:name/invite` は **inviter
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Update",
   "id": "https://groups.example/acts/400",
-  "actor": "https://groups.example/@cats",
-  "to": ["https://groups.example/@cats/followers"],
+  "actor": "https://groups.example/users/cats",
+  "to": ["https://groups.example/users/cats/followers"],
   "object": {
     "type": "Group",
-    "id": "https://groups.example/@cats",
+    "id": "https://groups.example/users/cats",
     "icon": {
       "type": "Image",
       "mediaType": "image/png",
@@ -582,14 +601,14 @@ IRI）を入れたObject/Activityを、相互運用可能な\*\*DM（ダイレ�
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Create",
   "id": "https://user.example/acts/dm1",
-  "actor": "https://user.example/@alice",
-  "to": ["https://remote.example/@bob"],
+  "actor": "https://user.example/users/alice",
+  "to": ["https://remote.example/users/bob"],
   "object": {
     "type": "Note",
     "id": "https://user.example/notes/dm-xyz",
-    "attributedTo": "https://user.example/@alice",
+    "attributedTo": "https://user.example/users/alice",
     "content": "（DM）こんにちは！",
-    "to": ["https://remote.example/@bob"]
+    "to": ["https://remote.example/users/bob"]
   }
 }
 ```
@@ -603,13 +622,13 @@ IRI）を入れたObject/Activityを、相互運用可能な\*\*DM（ダイレ�
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Create",
   "id": "https://remote.example/acts/dm2",
-  "actor": "https://remote.example/@bob",
-  "to": ["https://user.example/@alice"],
+  "actor": "https://remote.example/users/bob",
+  "to": ["https://user.example/users/alice"],
   "object": {
     "type": "Note",
     "inReplyTo": "https://user.example/notes/dm-xyz",
     "content": "（DM返信）了解！",
-    "to": ["https://user.example/@alice"]
+    "to": ["https://user.example/users/alice"]
   }
 }
 ```
@@ -628,9 +647,9 @@ IRI）を入れたObject/Activityを、相互運用可能な\*\*DM（ダイレ�
 {
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Announce",
-  "actor": "https://groups.example/@cats",
+  "actor": "https://groups.example/users/cats",
   "object": "https://user.example/notes/xyz",
-  "bto": ["https://bob.example/@bob"],
+  "bto": ["https://bob.example/users/bob"],
   "_note": "参照式。可能な限り埋め込みを推奨。参照式の場合はidを非推測化し、認証付きフェッチを要求すること。"
 }
 ```
@@ -641,8 +660,8 @@ IRI）を入れたObject/Activityを、相互運用可能な\*\*DM（ダイレ�
 {
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Create",
-  "actor": "https://user.example/@alice",
-  "to": ["https://groups.example/@cats"],
+  "actor": "https://user.example/users/alice",
+  "to": ["https://groups.example/users/cats"],
   "object": {
     "type": "Note",
     "content": "写真です！",
@@ -675,14 +694,14 @@ IRI）を入れたObject/Activityを、相互運用可能な\*\*DM（ダイレ�
 {
   "type": "Note",
   "id": "urn:uuid:0226f4c9-6c3e-48c5-9e6c-8d9e9e7b8c1a",
-  "attributedTo": "https://user.example/@alice",
-  "audience": "https://groups.example/@cats",
+  "attributedTo": "https://user.example/users/alice",
+  "audience": "https://groups.example/users/cats",
   "content": "署名検証テスト",
   "published": "2025-08-24T10:00:00Z",
   "proof": {
     "type": "DataIntegrityProof",
     "created": "2025-08-24T10:00:01Z",
-    "verificationMethod": "https://user.example/@alice#keys/ed25519-1",
+    "verificationMethod": "https://user.example/users/alice#keys/ed25519-1",
     "jws": "eyJ..."
   }
 }

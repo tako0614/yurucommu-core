@@ -602,7 +602,7 @@ export function createActor(
     preferredUsername: account.userName,
     name: account.displayName,
     summary: account.displayName,
-    url: `https://${domain}/@${account.userName}`,
+    url: `https://${domain}/users/${account.userName}`,
     icon: {
       type: "Image",
       mediaType: "image/png",

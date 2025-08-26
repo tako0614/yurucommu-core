@@ -25,7 +25,7 @@ import type {
   ListedGroup,
   SessionDoc,
 } from "../../shared/types.ts";
-import type { Model, SortOrder, FilterQuery } from "mongoose";
+import type { FilterQuery, Model, SortOrder } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "../../shared/db.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
@@ -106,9 +106,9 @@ export class MongoDB implements DB {
     id: string,
     key = "_id",
   ): Promise<T | null> {
-  // model.findOne's filter can be a dynamic object; cast to FilterQuery<T>
-  const filter = { [key]: id } as unknown as FilterQuery<T>;
-  return await this.withTenant(model.findOne(filter))
+    // model.findOne's filter can be a dynamic object; cast to FilterQuery<T>
+    const filter = { [key]: id } as unknown as FilterQuery<T>;
+    return await this.withTenant(model.findOne(filter))
       .lean<T | null>();
   }
 
@@ -760,9 +760,9 @@ export class MongoDB implements DB {
       ),
     ).lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
-    const prefix = `https://${domain}/@`;
+    const prefix = `https://${domain}/users/`;
     if (actor.startsWith(prefix)) {
-      const userName = actor.slice(prefix.length);
+      const userName = actor.slice(prefix.length).split(/[/?#]/)[0];
       await this.withTenant(
         Account.findOneAndUpdate(
           { userName },
@@ -782,9 +782,9 @@ export class MongoDB implements DB {
       ),
     ).lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
-    const prefix = `https://${domain}/@`;
+    const prefix = `https://${domain}/users/`;
     if (actor.startsWith(prefix)) {
-      const userName = actor.slice(prefix.length);
+      const userName = actor.slice(prefix.length).split(/[/?#]/)[0];
       await this.withTenant(
         Account.findOneAndUpdate(
           { userName },
@@ -849,13 +849,15 @@ export class MongoDB implements DB {
   async findRemoteActorByUrl(url: string) {
     return await this.withTenant(
       RemoteActor.findOne({ actorUrl: url }),
-    ).lean<{
-      actorUrl: string;
-      name?: string;
-      preferredUsername?: string;
-      icon?: unknown;
-      summary?: string;
-    } | null>();
+    ).lean<
+      {
+        actorUrl: string;
+        name?: string;
+        preferredUsername?: string;
+        icon?: unknown;
+        summary?: string;
+      } | null
+    >();
   }
 
   async findRemoteActorsByUrls(urls: string[]) {

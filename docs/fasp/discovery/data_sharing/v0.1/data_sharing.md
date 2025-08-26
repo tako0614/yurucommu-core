@@ -250,8 +250,8 @@ Example payload:
   "category": "content",
   "eventType": "new",
   "objectUris": [
-    "https://fediverse-server.example.com/@example/2342",
-    "https://fediverse-server.example.com/@other/8726"
+    "https://fediverse-server.example.com/users/example/2342",
+    "https://fediverse-server.example.com/users/other/8726"
   ]
 }
 ```

@@ -193,7 +193,7 @@ app.post(
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${groupName}`;
     // 作成者をローカルのアクターIDに変換し、フォロワーとして登録
-    const actorId = `https://${domain}/@${member.split("@")[0]}`;
+    const actorId = `https://${domain}/users/${member.split("@")[0]}`;
     await db.addGroupFollower(groupName, actorId);
     // 追加: 初期招待（invites があれば送信）
     const rawInv = Array.isArray((body as { invites?: unknown }).invites)
@@ -931,7 +931,7 @@ app.post("/groups/:name/inbox", async (c) => {
     typeof activity.actor === "string"
   ) {
     const actor = activity.actor;
-    const localPrefix = `https://${domain}/@`;
+    const localPrefix = `https://${domain}/users/`;
     if (
       isOwnedGroup(group, domain, name) &&
       actor.startsWith(localPrefix)
