@@ -187,12 +187,14 @@ app.post(
       invitePolicy,
       visibility,
       allowInvites,
-      followers: [member],
       privateKey: keys.privateKey,
       publicKey: keys.publicKey,
     });
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${groupName}`;
+    // 作成者をローカルのアクターIDに変換し、フォロワーとして登録
+    const actorId = `https://${domain}/@${member.split("@")[0]}`;
+    await db.addGroupFollower(groupName, actorId);
     // 追加: 初期招待（invites があれば送信）
     const rawInv = Array.isArray((body as { invites?: unknown }).invites)
       ? (body as { invites: string[] }).invites
