@@ -39,9 +39,10 @@ app.use("/api/groups/*", authRequired);
 app.get("/api/groups", async (c) => {
   const member = c.req.query("member");
   if (!member) return c.json({ error: "member is required" }, 400);
+  const username = member.split("@")[0];
   const env = getEnv(c);
   const db = createDB(env);
-  const groups = await db.listGroups(member);
+  const groups = await db.listGroups(username);
   return c.json(groups);
 });
 
