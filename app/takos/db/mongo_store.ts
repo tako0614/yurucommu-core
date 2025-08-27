@@ -1,5 +1,5 @@
 import { LegacyDBAdapter } from "../../core/db/legacy_adapter.ts";
-import type { DataStore } from "../../shared/db_port.ts";
+import type { DataStore } from "../../packages/db/mod.ts";
 import { MongoDB } from "./mongo.ts";
 
 /**

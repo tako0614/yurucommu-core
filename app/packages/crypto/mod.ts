@@ -1,4 +1,4 @@
-import { b64ToBuf, bufToB64 } from "./buffer.ts";
+import { b64ToBuf, bufToB64 } from "@takos/buffer";
 
 export async function hashSha256(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
@@ -19,7 +19,7 @@ export function bufferToPem(
 
 export function pemToArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  return b64ToBuf(b64).buffer;
+  return b64ToBuf(b64).buffer as ArrayBuffer;
 }
 
 export async function generateKeyPair() {
@@ -27,7 +27,7 @@ export async function generateKeyPair() {
     { name: "Ed25519" },
     true,
     ["sign", "verify"],
-  );
+  ) as CryptoKeyPair;
   const priv = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
   const pub = await crypto.subtle.exportKey("spki", pair.publicKey);
   return {

@@ -4,7 +4,7 @@ import type {
   GroupDoc,
   ListedGroup,
   SessionDoc,
-} from "./types.ts";
+} from "@takos/types";
 
 /** タイムライン取得用オプション */
 export interface ListOpts {
@@ -226,3 +226,5 @@ export interface DB {
    */
   getDatabase(): Promise<unknown>;
 }
+
+export * from "./db_port.ts";

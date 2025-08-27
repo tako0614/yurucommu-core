@@ -1,6 +1,6 @@
 import { dirname, fromFileUrl, join } from "@std/path";
-import { loadConfig } from "../shared/config.ts";
-import { getEnvPath } from "../shared/args.ts";
+import { loadConfig } from "@takos/config";
+import { getEnvPath } from "@takos/config";
 
 /**
  * takos host 全体で利用するベース環境変数オブジェクトを生成するモジュール。

@@ -1,7 +1,7 @@
-import { setCookie } from "hono/cookie";
-import type { Context } from "hono";
+import { setCookie } from "npm:hono/cookie";
+import type { Context } from "npm:hono";
 import { createDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 
 export async function issueSession(c: Context): Promise<void> {
   const env = getEnv(c);

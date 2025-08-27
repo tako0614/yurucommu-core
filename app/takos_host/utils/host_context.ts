@@ -1,13 +1,13 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import type { Context } from "hono";
-import { loadConfig } from "../../shared/config.ts";
+import { loadConfig } from "@takos/config";
 import {
   connectDatabase,
   createDB,
   createMongoDataStore,
   setStoreFactory,
 } from "@takos_host/db";
-import { getEnvPath } from "../../shared/args.ts";
+import { getEnvPath } from "@takos/config";
 import { createTakosApp } from "../../core/create_takos_app.ts";
 import { ensureTenant } from "../../core/services/tenant.ts";
 import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts";
@@ -18,7 +18,7 @@ import { createAuthApp } from "../auth.ts";
 import oauthApp from "../oauth.ts";
 import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
-import type { DB } from "../../shared/db.ts";
+import type { DB } from "../../packages/db/mod.ts";
 import Instance from "../models/instance.ts";
 import FaspClient from "../models/fasp_client.ts";
 import {

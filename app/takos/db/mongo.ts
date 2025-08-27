@@ -17,18 +17,18 @@ import Tenant from "../models/takos/tenant.ts";
 import DirectMessage from "../models/takos/direct_message.ts";
 import Group from "../models/takos/group.ts";
 import mongoose from "mongoose";
-import type { DB, ListOpts, SortSpec } from "../../shared/db.ts";
+import type { DB, ListOpts, SortSpec } from "../../packages/db/mod.ts";
 import type {
   AccountDoc,
   DirectMessageDoc,
   GroupDoc,
   ListedGroup,
   SessionDoc,
-} from "../../shared/types.ts";
+} from "../../packages/types/mod.ts";
 import type { FilterQuery, Model } from "mongoose";
 import type { Db } from "mongodb";
 import { connectDatabase } from "./mongo_conn.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
+import { generateKeyPair } from "@takos/crypto";
 
 function normalizeActorUrl(id: string, defaultDomain?: string): string {
   try {

@@ -1,8 +1,8 @@
-import { MiddlewareHandler } from "hono";
+import { MiddlewareHandler } from "npm:hono";
 import { createDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
-import { createAuthMiddleware } from "../../shared/auth.ts";
-import type { SessionDoc } from "../../shared/types.ts";
+import { getEnv } from "@takos/config";
+import { createAuthMiddleware } from "@takos/auth";
+import type { SessionDoc } from "@takos/types";
 
 const authRequired: MiddlewareHandler = createAuthMiddleware<SessionDoc>({
   cookieName: "sessionId",

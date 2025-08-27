@@ -1,0 +1,8 @@
+{
+  "name": "@takos/crypto",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@takos/buffer": "../buffer/mod.ts"
+  }
+}

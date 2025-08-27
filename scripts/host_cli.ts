@@ -1,5 +1,5 @@
 import { parse } from "jsr:@std/flags";
-import { loadConfig } from "../app/shared/config.ts";
+import { loadConfig } from "../app/packages/config/mod.ts";
 import {
   connectDatabase,
   createDB,
@@ -7,7 +7,7 @@ import {
   setStoreFactory,
 } from "../app/takos_host/db/mod.ts";
 import { ensureTenant } from "../app/core/services/tenant.ts";
-import type { DB } from "../app/shared/db.ts";
+import type { DB } from "../app/packages/db/mod.ts";
 import { hash } from "../app/takos_host/auth.ts";
 interface Args {
   command: string;

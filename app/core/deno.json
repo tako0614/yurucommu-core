@@ -1,0 +1,12 @@
+{
+  "name": "@takos/core",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "hono": "npm:hono@^4.8.4",
+    "@takos/config": "../packages/config/mod.ts",
+    "@takos/db": "../packages/db/mod.ts",
+    "@takos/auth": "../packages/auth/mod.ts",
+    "@takos/types": "../packages/types/mod.ts"
+  }
+}

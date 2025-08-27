@@ -1,4 +1,4 @@
-import { loadConfig } from "../shared/config.ts";
+import { loadConfig } from "@takos/config";
 import { connectDatabase, createDB } from "../takos/db/mod.ts";
 import { createObjectId } from "../takos/utils/activitypub.ts";
 

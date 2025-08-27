@@ -6,7 +6,7 @@ import type {
   GroupDoc,
   ListedGroup,
   SessionDoc,
-} from "./types.ts";
+} from "@takos/types";
 
 export interface ListOpts {
   limit?: number;

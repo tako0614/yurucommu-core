@@ -1,4 +1,4 @@
-import { createTakosApp } from "../core/create_takos_app.ts";
+import { createTakosApp } from "@takos/core";
 import {
   connectDatabase,
   createDB,
@@ -7,8 +7,8 @@ import {
 } from "@takos/db";
 import { ensureTenant } from "../core/services/tenant.ts";
 import { getSystemKey } from "../core/services/system_actor.ts";
-import { loadConfig } from "../shared/config.ts";
-import { getEnvPath } from "../shared/args.ts";
+import { loadConfig } from "@takos/config";
+import { getEnvPath } from "../packages/config/mod.ts";
 
 // コマンドライン引数から .env のパスを取得
 const envPath = getEnvPath();

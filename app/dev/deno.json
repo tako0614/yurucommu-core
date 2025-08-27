@@ -4,6 +4,7 @@
     "host2": "deno task --cwd ../takos_host/ dev --env C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv2"
   },
   "imports": {
-    "zod": "npm:zod@^4.0.14"
+    "zod": "npm:zod@^4.0.14",
+    "@takos/config": "../packages/config/mod.ts"
   }
 }

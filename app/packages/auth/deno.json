@@ -1,0 +1,8 @@
+{
+  "name": "@takos/auth",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "hono": "npm:hono@^4.8.4"
+  }
+}

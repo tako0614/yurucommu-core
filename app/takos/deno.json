@@ -12,6 +12,9 @@
     "@cloudflare/workers-types": "npm:@cloudflare/workers-types@^4",
     "@std/flags": "jsr:@std/flags@1",
     "@takos/db": "./db/mod.ts",
+    "@takos/core": "../core/mod.ts",
+    "@takos/config": "../packages/config/mod.ts",
+    "@takos/crypto": "../packages/crypto/mod.ts",
     "@core/": "../core/",
     "@shared/": "../shared/"
   },

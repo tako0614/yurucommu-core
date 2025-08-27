@@ -1,4 +1,4 @@
-import { getEnvPath } from "../shared/args.ts";
+import { getEnvPath } from "@takos/config";
 import { runHostDev } from "./utils/dev_runner.ts";
 
 async function main() {

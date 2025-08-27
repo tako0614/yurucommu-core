@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { initEnv } from "../shared/config.ts";
-import type { DB } from "../shared/db.ts";
+import { initEnv } from "@takos/config";
+import type { DB } from "@takos/db";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
 import onboarding from "./routes/onboarding.ts";
@@ -42,11 +42,11 @@ export async function createTakosApp(
 ) {
   const app = new Hono();
   initEnv(app, env);
-  app.use("/*", async (c, next) => {
+  app.use("/*", async (c: Context, next: () => Promise<void>) => {
     c.set("db", db);
     await next();
   });
-  app.use("/api/*", async (c, next) => {
+  app.use("/api/*", async (c: Context, next: () => Promise<void>) => {
     if (c.req.path === "/api/ws") {
       await next();
       return;
@@ -91,7 +91,7 @@ export async function createTakosApp(
   }
 
   // OAuth landing handler: intercept /?code=... and perform server-side exchange
-  app.use("/*", async (c, next) => {
+  app.use("/*", async (c: Context, next: () => Promise<void>) => {
     try {
       if (c.req.method !== "GET") return await next();
       const code = c.req.query("code");
@@ -182,7 +182,7 @@ export async function createTakosApp(
       "/*",
       serveStatic({
         root: "../client/dist",
-        onNotFound: async (_path, c) => {
+        onNotFound: async (_path: string, c: Context) => {
           await serveStatic({ root: "../client/dist", path: "index.html" })(
             c,
             async () => {},

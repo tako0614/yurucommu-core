@@ -54,3 +54,5 @@ export function getEnv(target: Hono | Context): Record<string, string> {
   }
   return envMap.get(target as Hono) ?? {};
 }
+
+export * from "./args.ts";

@@ -1,4 +1,4 @@
-import { loadConfig } from "../shared/config.ts";
+import { loadConfig } from "@takos/config";
 import * as nodemailer from "nodemailer";
 const env = await loadConfig();
 const smtp_host = env["SMTP_HOST"];

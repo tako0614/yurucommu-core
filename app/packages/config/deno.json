@@ -1,0 +1,10 @@
+{
+  "name": "@takos/config",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
+    "zod": "npm:zod@^3.25.56",
+    "hono": "npm:hono@^4.8.4"
+  }
+}

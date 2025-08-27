@@ -1,0 +1,8 @@
+{
+  "name": "@takos/db",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@takos/types": "../types/mod.ts"
+  }
+}
