@@ -1,9 +1,9 @@
 import { createDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
-import { pemToArrayBuffer } from "../../shared/crypto.ts";
+import { getEnv } from "@takos/config";
+import { pemToArrayBuffer } from "@takos/crypto";
 import { getSystemKey } from "../services/system_actor.ts";
-import type { Context } from "hono";
-import { b64ToBuf, bufToB64 } from "../../shared/buffer.ts";
+import type { Context } from "npm:hono";
+import { b64ToBuf, bufToB64 } from "@takos/buffer";
 
 async function applySignature(
   method: string,

@@ -119,7 +119,7 @@ export class GridFSStorage implements ObjectStorage {
 /* ==========================
    ストレージファクトリ関数
    ========================== */
-import type { DB } from "../../shared/db.ts";
+import type { DB } from "@takos/db";
 
 export async function createStorage(
   e: Record<string, string>,

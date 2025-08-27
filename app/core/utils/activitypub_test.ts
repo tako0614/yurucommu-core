@@ -1,7 +1,7 @@
 import { assert } from "https://deno.land/std@0.208.0/assert/assert.ts";
 import { verifyHttpSignature } from "./activitypub.ts";
-import { generateKeyPair, pemToArrayBuffer } from "../../shared/crypto.ts";
-import { bufToB64 } from "../../shared/buffer.ts";
+import { generateKeyPair, pemToArrayBuffer } from "@takos/crypto";
+import { bufToB64 } from "@takos/buffer";
 
 async function computeContentDigest(body: string): Promise<string> {
   const buf = new TextEncoder().encode(body);

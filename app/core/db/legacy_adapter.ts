@@ -1,5 +1,5 @@
-import type { DB, ListOpts, SortSpec } from "../../shared/db.ts";
-import type { DataStore } from "../../shared/db_port.ts";
+import type { DB, ListOpts, SortSpec, DataStore } from "@takos/db";
+import type { DirectMessageDoc } from "@takos/types";
 
 /** 既存の DB インターフェースを新しい DataStore にアダプト */
 export class LegacyDBAdapter implements DB {

@@ -1,6 +1,6 @@
 import { createDB } from "../db/mod.ts";
 import { createStorage, type ObjectStorage } from "./object-storage.ts";
-import { b64ToBuf } from "../../shared/buffer.ts";
+import { b64ToBuf } from "@takos/buffer";
 
 let storage: ObjectStorage | undefined;
 

@@ -1,8 +1,8 @@
 // FASP 送信側の各種処理
 import { createDB } from "../db/mod.ts";
 import { getSystemKey } from "./system_actor.ts";
-import { pemToArrayBuffer } from "../../shared/crypto.ts";
-import { bufToB64 } from "../../shared/buffer.ts";
+import { pemToArrayBuffer } from "@takos/crypto";
+import { bufToB64 } from "@takos/buffer";
 import { ensurePem, verifyHttpSignature } from "../utils/activitypub.ts";
 
 export const faspMetrics = {

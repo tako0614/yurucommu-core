@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import {
   type ActivityHandler,
   activityHandlers,

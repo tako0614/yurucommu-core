@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDB } from "../db/mod.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
+import { generateKeyPair } from "@takos/crypto";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();

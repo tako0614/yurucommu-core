@@ -1,5 +1,5 @@
-import type { DB } from "../../shared/db.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
+import type { DB } from "@takos/db";
+import { generateKeyPair } from "@takos/crypto";
 
 export async function getSystemKey(db: DB, domain: string) {
   let doc = await db.findSystemKey(domain);

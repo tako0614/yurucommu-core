@@ -1,11 +1,11 @@
-import { Hono } from "hono";
+import { Hono } from "npm:hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { saveFile } from "../services/file.ts";
-import type { DirectMessageDoc } from "../../shared/types.ts";
+import type { DirectMessageDoc } from "@takos/types";
 
 const app = new Hono();
 app.use("/dms/*", authRequired);

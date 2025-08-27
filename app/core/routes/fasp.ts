@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getSystemKey } from "../services/system_actor.ts";

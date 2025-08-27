@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { getDB } from "../db/mod.ts";
 import { sendToUser } from "./ws.ts";
 import { getUserInfo } from "../services/user-info.ts";

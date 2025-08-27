@@ -1,5 +1,5 @@
 import { createDB } from "../db/mod.ts";
-import type { DB } from "../../shared/db.ts";
+import type { DB } from "@takos/db";
 
 /**
  * ユーザーが存在しない場合のエラー

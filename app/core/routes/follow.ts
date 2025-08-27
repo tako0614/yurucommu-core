@@ -1,9 +1,9 @@
-import { type Context, Hono } from "hono";
+import { type Context, Hono } from "npm:hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import {
   createAcceptActivity,
   createFollowActivity,
@@ -13,7 +13,7 @@ import {
   jsonResponse,
 } from "../utils/activitypub.ts";
 import { addNotification } from "../services/notification.ts";
-import type { AccountDoc } from "../../shared/types.ts";
+import type { AccountDoc } from "@takos/types";
 
 const urlValidator = (field: string) =>
   z.string()

@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
-import type { AccountDoc } from "../../shared/types.ts";
-import { isUrl } from "../../shared/url.ts";
+import { getEnv } from "@takos/config";
+import { generateKeyPair } from "@takos/crypto";
+import type { AccountDoc } from "@takos/types";
+import { isUrl } from "@takos/url";
 import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
 
 function formatAccount(doc: AccountDoc) {

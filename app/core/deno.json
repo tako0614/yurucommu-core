@@ -3,10 +3,18 @@
   "version": "1.0.0",
   "exports": "./mod.ts",
   "imports": {
+    "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.2",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
+    "bcrypt": "npm:bcrypt@^6.0.0",
     "hono": "npm:hono@^4.8.4",
     "@takos/config": "../packages/config/mod.ts",
     "@takos/db": "../packages/db/mod.ts",
     "@takos/auth": "../packages/auth/mod.ts",
-    "@takos/types": "../packages/types/mod.ts"
-  }
+    "@takos/types": "../packages/types/mod.ts",
+    "@takos/crypto": "../packages/crypto/mod.ts",
+    "@takos/firebase": "../packages/firebase/mod.ts",
+    "@takos/buffer": "../packages/buffer/mod.ts",
+    "zod": "npm:zod@^4.1.3"
+  },
+  "nodeModulesDir": "auto"
 }

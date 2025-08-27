@@ -1,7 +1,7 @@
 import { createDB } from "../db/mod.ts";
-import type { DB } from "../../shared/db.ts";
-import { pemToArrayBuffer } from "../../shared/crypto.ts";
-import { bufToB64 } from "../../shared/buffer.ts";
+import type { DB } from "@takos/db";
+import { pemToArrayBuffer } from "@takos/crypto";
+import { bufToB64 } from "@takos/buffer";
 
 function encodeBase64Url(buf: ArrayBuffer | Uint8Array): string {
   return bufToB64(buf).replace(/\+/g, "-").replace(/\//g, "_").replace(

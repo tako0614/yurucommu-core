@@ -1,4 +1,4 @@
-import type { DB } from "../../shared/db.ts";
+import type { DB } from "@takos/db";
 
 export async function ensureTenant(
   db: DB,

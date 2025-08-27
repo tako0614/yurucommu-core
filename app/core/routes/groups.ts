@@ -14,10 +14,10 @@ import {
   sendActivityPubObject,
 } from "../utils/activitypub.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { getDB } from "../db/mod.ts";
-import type { GroupDoc } from "../../shared/types.ts";
-import { generateKeyPair } from "../../shared/crypto.ts";
+import type { GroupDoc } from "@takos/types";
+import { generateKeyPair } from "@takos/crypto";
 
 const app = new Hono();
 

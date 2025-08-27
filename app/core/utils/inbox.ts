@@ -16,7 +16,6 @@ export async function parseActivityRequest(
     return null;
   }
 }
-
 export async function storeCreateActivity(
   activity: Record<string, unknown>,
   env: Record<string, string>,
