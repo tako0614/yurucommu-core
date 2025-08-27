@@ -76,16 +76,18 @@ function uniq(arr: (string | null | undefined)[]): string[] {
 
 /** MongoDB 実装 */
 export class MongoDB implements DB {
-  private readonly isHost: boolean;
+  public readonly multiTenant: boolean;
 
-  constructor(private env: Record<string, string>) {
-    this.isHost = env["DB_MODE"] === "host";
+  constructor(private env: Record<string, string>, options?: {
+    multiTenant?: boolean;
+  }) {
+    this.multiTenant = options?.multiTenant === true;
   }
 
   private withTenant<T>(
     query: mongoose.Query<T, unknown>,
   ): mongoose.Query<T, unknown> {
-    if (this.isHost) {
+    if (this.multiTenant) {
       query.setOptions({ $locals: { env: this.env } });
     }
     return query;
@@ -95,7 +97,7 @@ export class MongoDB implements DB {
   private withEnv<
     T extends { $locals?: { env?: Record<string, string> } },
   >(doc: T): T {
-    if (this.isHost) {
+    if (this.multiTenant) {
       doc.$locals = { env: this.env };
     }
     return doc;
@@ -913,7 +915,7 @@ export class MongoDB implements DB {
   }
 
   async registerFcmToken(token: string, userName: string) {
-    if (this.env["DB_MODE"] === "host") {
+    if (this.multiTenant) {
       await HostFcmToken.updateOne(
         {
           token,
@@ -930,7 +932,7 @@ export class MongoDB implements DB {
   }
 
   async unregisterFcmToken(token: string) {
-    if (this.env["DB_MODE"] === "host") {
+    if (this.multiTenant) {
       await HostFcmToken.deleteOne({
         token,
         tenant_id: this.env["ACTIVITYPUB_DOMAIN"],
@@ -941,7 +943,7 @@ export class MongoDB implements DB {
   }
 
   async listFcmTokens() {
-    if (this.env["DB_MODE"] === "host") {
+    if (this.multiTenant) {
       const docs = await HostFcmToken.find<{ token: string }>(
         { tenant_id: this.env["ACTIVITYPUB_DOMAIN"] },
       ).lean();

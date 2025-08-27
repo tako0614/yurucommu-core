@@ -54,7 +54,6 @@ function copyKeys(
 
 // ベースとなる固定値
 const base: Record<string, string> = {
-  DB_MODE: "host",
   MONGO_URI: hostEnv["MONGO_URI"],
   hashedPassword: "", // 後続で設定される想定
   salt: "", // 後続で設定される想定

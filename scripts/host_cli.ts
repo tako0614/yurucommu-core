@@ -165,7 +165,6 @@ async function main() {
   const args = parseArgsFn();
   if (!args) return;
   env = await loadConfig();
-  env["DB_MODE"] = "host";
   await connectDatabase(env);
   // CLI 実行時に Mongo Store を注入
   setStoreFactory((e) => createMongoDataStore(e));

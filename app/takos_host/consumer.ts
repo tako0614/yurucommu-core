@@ -28,7 +28,7 @@ export function createConsumerApp(
   },
 ) {
   const app = new Hono<{ Variables: { user: HostUserDoc } }>();
-  const db = createDB({ DB_MODE: "host" });
+  const db = createDB({});
   const rootDomain = options?.rootDomain?.toLowerCase() ?? "";
   const freeLimit = options?.freeLimit ?? 1;
   const reserved = new Set(options?.reservedSubdomains ?? []);

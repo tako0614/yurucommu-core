@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getEnv } from "@takos/config";
+import { getDB } from "@takos/core/db/mod.ts";
 import { join } from "jsr:@std/path";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { load, stringify } from "jsr:@std/dotenv";
@@ -10,15 +11,20 @@ const app = new Hono();
 // システムセットアップの必要性を返す（takos host では常に設定済み）
 app.get("/system/setup/status", (c) => {
   const env = getEnv(c);
-  const configured = env["DB_MODE"] === "host" ||
-    Boolean(env["hashedPassword"]);
+  const db = getDB(c);
+  const isHost = (db as unknown as { multiTenant?: boolean }).multiTenant ===
+    true;
+  const configured = isHost || Boolean(env["hashedPassword"]);
   return c.json({ configured });
 });
 
 // 初回のみ .env に hashedPassword を保存する
 app.post("/system/setup", async (c) => {
   const env = getEnv(c);
-  if (env["DB_MODE"] === "host") {
+  const db = getDB(c);
+  const isHost = (db as unknown as { multiTenant?: boolean }).multiTenant ===
+    true;
+  if (isHost) {
     return c.json({ error: "host_mode" }, 400);
   }
   if (env["hashedPassword"]) {

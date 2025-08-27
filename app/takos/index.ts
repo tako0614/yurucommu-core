@@ -15,7 +15,7 @@ const envPath = getEnvPath();
 const env = await loadConfig({ envPath });
 await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
-setStoreFactory((e) => createMongoDataStore(e));
+setStoreFactory((e) => createMongoDataStore(e, { multiTenant: false }));
 const db = createDB(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {
   const domain = env["ACTIVITYPUB_DOMAIN"];

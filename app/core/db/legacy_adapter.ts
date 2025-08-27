@@ -9,6 +9,12 @@ export class LegacyDBAdapter implements DB {
     return this.store.tenantId;
   }
 
+  // takos host（マルチテナント）判定用のヒント
+  get multiTenant() {
+    // deno-lint-ignore no-explicit-any
+    return (this.store as any).multiTenant === true;
+  }
+
   // Posts / objects
   findNoteById(id: string) {
     return this.store.posts.findNoteById(id);

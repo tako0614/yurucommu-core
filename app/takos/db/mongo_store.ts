@@ -6,10 +6,15 @@ import { MongoDB } from "./mongo.ts";
  * 既存の MongoDB 実装 (MongoDB クラス) を新しい DataStore に束ねる薄い実装。
  * 段階的移行のため、まずは LegacyDBAdapter 経由で旧 API を満たします。
  */
-export function createMongoDataStore(env: Record<string, string>): DataStore {
-  const impl = new MongoDB(env);
+export function createMongoDataStore(
+  env: Record<string, string>,
+  options?: { multiTenant?: boolean },
+): DataStore {
+  const impl = new MongoDB(env, { multiTenant: options?.multiTenant });
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   return {
+    // host/tenant モード区別用の目印
+    multiTenant: options?.multiTenant === true,
     tenantId,
     // 既存クラスのメソッドをドメインごとに束ねる
     accounts: {

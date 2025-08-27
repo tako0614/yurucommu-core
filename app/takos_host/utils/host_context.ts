@@ -64,10 +64,9 @@ export async function initHostContext(): Promise<HostContext> {
   const envPath = getEnvPath();
   const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), "../.env");
   const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
-  hostEnv["DB_MODE"] = "host";
   await connectDatabase(hostEnv);
   // ホスト環境では新抽象(Store)を注入
-  setStoreFactory((e) => createMongoDataStore(e));
+  setStoreFactory((e) => createMongoDataStore(e, { multiTenant: true }));
 
   const rootDomain = (hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   if (rootDomain) {

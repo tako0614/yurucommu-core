@@ -1,5 +1,5 @@
 import { loadConfig } from "@takos/config";
-import { connectDatabase, createDB } from "../takos/db/mod.ts";
+import { connectDatabase, createDB, createMongoDataStore, setStoreFactory } from "../takos_host/db/mod.ts";
 import { createObjectId } from "../takos/utils/activitypub.ts";
 
 // Takos Host 用のテストオブジェクトを複数追加するスクリプト
@@ -9,12 +9,12 @@ const env = await loadConfig({
   // dotenv の load はファイルパス(ローカルのパス文字列)を期待するため、URL からパスへ変換
   envPath: new URL("./.hostsEnv", import.meta.url).pathname,
 });
-
-env["DB_MODE"] = "host";
 const domain = env["OAUTH_HOST"] ?? "localhost";
 env["ACTIVITYPUB_DOMAIN"] = domain;
 
 await connectDatabase(env);
+// ホスト用（マルチテナント）Store を注入
+setStoreFactory((e) => createMongoDataStore(e, { multiTenant: true }));
 const db = createDB(env);
 
 const objects = [
