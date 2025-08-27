@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import tenantScope from "../plugins/tenant_scope.ts";
 
 const remoteActorSchema = new mongoose.Schema({
   actorUrl: { type: String, required: true },
@@ -10,8 +9,7 @@ const remoteActorSchema = new mongoose.Schema({
   cachedAt: { type: Date, default: Date.now },
 });
 
-remoteActorSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
-remoteActorSchema.index({ actorUrl: 1, tenant_id: 1 }, { unique: true });
+remoteActorSchema.index({ actorUrl: 1 }, { unique: true });
 
 // 24時間後に自動削除されるTTLインデックス
 remoteActorSchema.index({ cachedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 });

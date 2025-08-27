@@ -119,11 +119,11 @@ export class GridFSStorage implements ObjectStorage {
 /* ==========================
    ストレージファクトリ関数
    ========================== */
-import type { DB } from "@takos/db";
+import type { DataStore } from "../db/types.ts";
 
 export async function createStorage(
   e: Record<string, string>,
-  db?: DB,
+  db?: DataStore,
 ): Promise<ObjectStorage> {
   const provider = e["OBJECT_STORAGE_PROVIDER"] || "local";
   if (provider === "r2") {
@@ -140,12 +140,14 @@ export async function createStorage(
     return new R2Storage(bucket);
   }
   if (provider === "gridfs") {
-    if (!db || !db.getDatabase) {
-      throw new Error("DB instance with getDatabase is required for GridFS");
+    if (!db || !db.raw) {
+      throw new Error(
+        "DataStore instance with raw() is required for GridFS",
+      );
     }
     const bucketName = e["GRIDFS_BUCKET"] || "uploads";
-    const native = await db.getDatabase();
-    return new GridFSStorage(native, bucketName);
+    const native = await db.raw();
+    return new GridFSStorage(native as Db, bucketName);
   }
   const dir = e["LOCAL_STORAGE_DIR"] || "uploads";
   return new LocalStorage(dir);

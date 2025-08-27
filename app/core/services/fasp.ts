@@ -40,6 +40,7 @@ async function computeContentDigest(body: string): Promise<string> {
 
 async function faspFetch(
   env: Record<string, string>,
+  domain: string,
   url: string,
   options: {
     method?: string;
@@ -66,7 +67,6 @@ async function faspFetch(
   const digest = await computeContentDigest(bodyText);
   baseHeaders.set("Content-Digest", digest);
 
-  const domain = env["ACTIVITYPUB_DOMAIN"];
   const db = createDB(env);
   const { privateKey } = await getSystemKey(db, domain);
   let keyId = `https://${domain}/actor#main-key`;
@@ -76,9 +76,8 @@ async function faspFetch(
       const u = new URL(url);
       const origin = `${u.protocol}//${u.host}`;
       const mongo = await db.getDatabase();
-      // 新コレクション: fasp_client_providers から origin が含まれるものを探す
+      // 登録済み FASP の origin から faspId を取得
       const rec = await mongo.collection("fasp_client_providers").findOne({
-        tenant_id: env["ACTIVITYPUB_DOMAIN"] ?? "",
         baseUrl: { $regex: `^${origin}` },
       });
       if (rec?.faspId) keyId = String(rec.faspId);
@@ -167,22 +166,20 @@ async function faspFetch(
 
 export async function sendAnnouncements(
   env: Record<string, string>,
+  domain: string,
   ann: FaspAnnouncement,
 ): Promise<void> {
   const db = createDB(env);
   const mongo = await db.getDatabase();
   // 設定に基づき送信先を決定
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
-    tenant_id: tenantId,
   } as unknown as Record<string, unknown>)
     .catch(() => null) as
       | { shareEnabled?: boolean; shareServerIds?: string[] }
       | null;
   if (settings && settings.shareEnabled === false) return; // 共有無効
   const baseFilter: Record<string, unknown> = {
-    tenant_id: tenantId,
     status: "approved",
   };
   if (
@@ -210,7 +207,7 @@ export async function sendAnnouncements(
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
       try {
-        await faspFetch(env, url, {
+        await faspFetch(env, domain, url, {
           method: "POST",
           body,
           signing: "registered",
@@ -227,6 +224,7 @@ const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
 // 公開かつ discoverable なオブジェクトのみ FASP へ通知する
 export async function announceIfPublicAndDiscoverable(
   env: Record<string, string>,
+  domain: string,
   ann: FaspAnnouncement,
   obj: Record<string, unknown> | null,
 ): Promise<void> {
@@ -239,7 +237,7 @@ export async function announceIfPublicAndDiscoverable(
   if (discoverable === false) return;
   const to = (obj as { aud?: { to?: unknown } }).aud?.to;
   if (Array.isArray(to) && !to.includes(PUBLIC_AUDIENCE)) return;
-  await sendAnnouncements(env, ann).catch(() => {});
+  await sendAnnouncements(env, domain, ann).catch(() => {});
 }
 
 export async function getFaspBaseUrl(
@@ -249,17 +247,14 @@ export async function getFaspBaseUrl(
   const db = createDB(env);
   const mongo = await db.getDatabase();
   // 設定から検索対象のプロバイダが指定されていれば優先
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const settings = await mongo.collection("fasp_client_settings").findOne({
     _id: "default",
-    tenant_id: tenantId,
   } as unknown as Record<string, unknown>)
     .catch(() => null) as
       | { _id: string; searchServerId?: string | null }
       | null;
   if (settings?.searchServerId) {
     const byId = await mongo.collection("fasp_client_providers").findOne({
-      tenant_id: tenantId,
       serverId: settings.searchServerId,
       status: "approved",
       [`capabilities.${capability}.enabled`]: true,
@@ -268,7 +263,6 @@ export async function getFaspBaseUrl(
   }
   // それ以外は最初の承認済み・有効なもの
   const rec = await mongo.collection("fasp_client_providers").findOne({
-    tenant_id: tenantId,
     status: "approved",
     [`capabilities.${capability}.enabled`]: true,
   });
@@ -279,6 +273,7 @@ export async function getFaspBaseUrl(
 // FASP へ capability の有効化/無効化を通知する
 export async function notifyCapabilityActivation(
   env: Record<string, string>,
+  domain: string,
   baseUrl: string,
   identifier: string,
   version: string,
@@ -288,7 +283,7 @@ export async function notifyCapabilityActivation(
     baseUrl.replace(/\/$/, "")
   }/capabilities/${identifier}/${version}/activation`;
   try {
-    await faspFetch(env, url, {
+    await faspFetch(env, domain, url, {
       method: enabled ? "POST" : "DELETE",
       signing: "registered",
     });

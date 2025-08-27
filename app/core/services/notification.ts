@@ -1,5 +1,5 @@
 import { createDB } from "../db/mod.ts";
-import type { DB } from "@takos/db";
+import type { DataStore } from "../db/types.ts";
 import { sendNotification as sendFcm } from "./fcm.ts";
 
 /**
@@ -11,10 +11,10 @@ export async function addNotification(
   message: string,
   type: string = "info",
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ) {
   const db = dbInst ?? createDB(env);
-  await db.createNotification(owner, title, message, type);
+  await db.notifications.create(owner, title, message, type);
   await sendFcm(title, message, env, db);
   return true;
 }

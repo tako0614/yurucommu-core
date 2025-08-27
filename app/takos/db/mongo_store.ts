@@ -1,21 +1,14 @@
-import { LegacyDBAdapter } from "../../core/db/legacy_adapter.ts";
-import type { DataStore } from "../../packages/db/mod.ts";
+import type { DataStore } from "../../core/db/types.ts";
 import { MongoDB } from "./mongo.ts";
 
 /**
  * 既存の MongoDB 実装 (MongoDB クラス) を新しい DataStore に束ねる薄い実装。
- * 段階的移行のため、まずは LegacyDBAdapter 経由で旧 API を満たします。
  */
 export function createMongoDataStore(
   env: Record<string, string>,
-  options?: { multiTenant?: boolean },
 ): DataStore {
-  const impl = new MongoDB(env, { multiTenant: options?.multiTenant });
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const impl = new MongoDB(env);
   return {
-    // host/tenant モード区別用の目印
-    multiTenant: options?.multiTenant === true,
-    tenantId,
     // 既存クラスのメソッドをドメインごとに束ねる
     accounts: {
       list: () => impl.listAccounts(),
@@ -123,33 +116,8 @@ export function createMongoDataStore(
       unregister: (t) => impl.unregisterFcmToken(t),
       list: () => impl.listFcmTokens(),
     },
-    tenant: { ensure: (id, d) => impl.ensureTenant(id, d) },
-    host: {
-      listInstances: (o) => impl.listInstances(o),
-      countInstances: (o) => impl.countInstances(o),
-      findInstanceByHost: (h) => impl.findInstanceByHost(h),
-      findInstanceByHostAndOwner: (h, o) =>
-        impl.findInstanceByHostAndOwner(h, o),
-      createInstance: (d) => impl.createInstance(d),
-      updateInstanceEnv: (id, env) => impl.updateInstanceEnv(id, env),
-      deleteInstance: (h, o) => impl.deleteInstance(h, o),
-    },
-    oauth: {
-      list: () => impl.listOAuthClients(),
-      find: (id) => impl.findOAuthClient(id),
-      create: (d) => impl.createOAuthClient(d),
-    },
-    domains: {
-      list: (u) => impl.listHostDomains(u),
-      find: (d, u) => impl.findHostDomain(d, u),
-      create: (d, u, t) => impl.createHostDomain(d, u, t),
-      verify: (id) => impl.verifyHostDomain(id),
-    },
     raw: () => impl.getDatabase(),
+    // 互換用: 旧 API で使用していた getDatabase を残す
+    getDatabase: () => impl.getDatabase(),
   };
-}
-
-/** 旧 API (DB) を返したい場合のヘルパー */
-export function createLegacyDBFromMongo(env: Record<string, string>) {
-  return new LegacyDBAdapter(createMongoDataStore(env));
 }

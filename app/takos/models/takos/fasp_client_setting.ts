@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import tenantScope from "../plugins/tenant_scope.ts";
 
 const faspClientSettingSchema = new mongoose.Schema({
   _id: { type: String, default: "default" },
@@ -9,8 +8,6 @@ const faspClientSettingSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 }, { collection: "fasp_client_settings" });
-
-faspClientSettingSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 faspClientSettingSchema.pre("save", function (next) {
   (this as unknown as { updatedAt?: Date }).updatedAt = new Date();

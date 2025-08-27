@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { authRequired, hash } from "./auth.ts";
 
-import { ObjectId } from "mongodb";
+import type { ObjectId } from "mongodb";
 
 interface HostUserDoc {
   _id: ObjectId;
@@ -17,7 +17,7 @@ interface HostUserDoc {
   createdAt: Date;
 }
 import { createDB } from "@takos_host/db";
-import { ensureTenant } from "../core/services/tenant.ts";
+import type { HostDataStore } from "./db/types.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,
@@ -28,20 +28,20 @@ export function createConsumerApp(
   },
 ) {
   const app = new Hono<{ Variables: { user: HostUserDoc } }>();
-  const db = createDB({});
+  const db = createDB({}) as HostDataStore;
   const rootDomain = options?.rootDomain?.toLowerCase() ?? "";
   const freeLimit = options?.freeLimit ?? 1;
   const reserved = new Set(options?.reservedSubdomains ?? []);
 
   const isReserved = (sub: string) => reserved.has(sub);
   const overLimit = async (userId: string) =>
-    (await db.countInstances(userId)) >= freeLimit;
+    (await db.host.countInstances(userId)) >= freeLimit;
 
   app.use("/*", authRequired);
 
   app.get("/instances", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const list = await db.listInstances(String(user._id));
+    const list = await db.host.listInstances(String(user._id));
     return c.json(list);
   });
 
@@ -82,7 +82,7 @@ export function createConsumerApp(
         return c.json({ error: "reserved" }, 400);
       }
 
-      const exists = await db.findInstanceByHost(fullHost);
+      const exists = await db.host.findInstanceByHost(fullHost);
       if (exists) {
         return c.json({ error: "already exists" }, 400);
       }
@@ -92,12 +92,12 @@ export function createConsumerApp(
         const redirect = `https://${fullHost}`;
         const clientId = redirect;
         let clientSecret: string;
-        const existsCli = await db.findOAuthClient(clientId);
+        const existsCli = await db.oauth.find(clientId);
         if (existsCli) {
           clientSecret = existsCli.clientSecret;
         } else {
           clientSecret = crypto.randomUUID();
-          await db.createOAuthClient({
+          await db.oauth.create({
             clientId,
             clientSecret,
             redirectUri: redirect,
@@ -112,12 +112,12 @@ export function createConsumerApp(
         env.hashedPassword = hashedPassword;
         env.salt = salt;
       }
-      await db.createInstance({
+      await db.host.createInstance({
         host: fullHost,
         owner: String(user._id),
         env,
       });
-      await ensureTenant(db, fullHost, fullHost);
+      await db.tenant.ensure(fullHost, fullHost);
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
     },
@@ -126,7 +126,7 @@ export function createConsumerApp(
   app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    await db.deleteInstance(host, String(user._id));
+    await db.host.deleteInstance(host, String(user._id));
     invalidate?.(host);
     return c.json({ success: true });
   });
@@ -134,7 +134,10 @@ export function createConsumerApp(
   app.get("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
+    const inst = await db.host.findInstanceByHostAndOwner(
+      host,
+      String(user._id),
+    );
     if (!inst) {
       return c.json({ error: "not found" }, 404);
     }
@@ -148,18 +151,21 @@ export function createConsumerApp(
       const host = c.req.param("host").toLowerCase();
       const { password } = c.req.valid("json");
       const user = c.get("user") as HostUserDoc;
-      const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
+      const inst = await db.host.findInstanceByHostAndOwner(
+        host,
+        String(user._id),
+      );
       if (!inst) return c.json({ error: "not found" }, 404);
       if (password) {
         const salt = crypto.randomUUID();
         const hashedPassword = await hash(password);
         const newEnv = { ...(inst.env ?? {}), hashedPassword, salt };
-        await db.updateInstanceEnv(inst._id, newEnv);
+        await db.host.updateInstanceEnv(inst._id, newEnv);
       } else if (inst.env) {
         const newEnv = { ...inst.env };
         delete newEnv.hashedPassword;
         delete newEnv.salt;
-        await db.updateInstanceEnv(inst._id, newEnv);
+        await db.host.updateInstanceEnv(inst._id, newEnv);
       }
       invalidate?.(host);
       return c.json({ success: true });
@@ -169,14 +175,17 @@ export function createConsumerApp(
   app.post("/instances/:host/restart", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    const inst = await db.findInstanceByHostAndOwner(host, String(user._id));
+    const inst = await db.host.findInstanceByHostAndOwner(
+      host,
+      String(user._id),
+    );
     if (!inst) return c.json({ error: "not found" }, 404);
     invalidate?.(host);
     return c.json({ success: true });
   });
 
   app.get("/oauth/clients", async (c) => {
-    const list = await db.listOAuthClients();
+    const list = await db.oauth.list();
     return c.json(list);
   });
 
@@ -192,16 +201,16 @@ export function createConsumerApp(
     ),
     async (c) => {
       const { clientId, clientSecret, redirectUri } = c.req.valid("json");
-      const exists = await db.findOAuthClient(clientId);
+      const exists = await db.oauth.find(clientId);
       if (exists) return c.json({ error: "exists" }, 400);
-      await db.createOAuthClient({ clientId, clientSecret, redirectUri });
+      await db.oauth.create({ clientId, clientSecret, redirectUri });
       return c.json({ success: true });
     },
   );
 
   app.get("/domains", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const list = await db.listHostDomains(String(user._id));
+    const list = await db.domains.list(String(user._id));
     return c.json(list);
   });
 
@@ -211,10 +220,10 @@ export function createConsumerApp(
     async (c) => {
       const { domain } = c.req.valid("json");
       const user = c.get("user") as HostUserDoc;
-      const exists = await db.findHostDomain(domain);
+      const exists = await db.domains.find(domain);
       if (exists) return c.json({ error: "exists" }, 400);
       const token = crypto.randomUUID();
-      await db.createHostDomain(domain, String(user._id), token);
+      await db.domains.create(domain, String(user._id), token);
       return c.json({ success: true, token });
     },
   );
@@ -222,7 +231,7 @@ export function createConsumerApp(
   app.post("/domains/:domain/verify", async (c) => {
     const domain = c.req.param("domain");
     const user = c.get("user") as HostUserDoc;
-    const doc = await db.findHostDomain(domain, String(user._id));
+    const doc = await db.domains.find(domain, String(user._id));
     if (!doc) return c.json({ error: "not found" }, 404);
     try {
       const res = await fetch(
@@ -231,7 +240,7 @@ export function createConsumerApp(
       if (res.ok) {
         const text = (await res.text()).trim();
         if (text === doc.token) {
-          await db.verifyHostDomain(doc._id);
+          await db.domains.verify(doc._id);
           return c.json({ success: true });
         }
       }

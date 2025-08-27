@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 type ActivityObject = Record<string, unknown>;
 import { getDB } from "../db/mod.ts";
-import type { DB } from "@takos/db";
+import type { DataStore } from "../db/types.ts";
 
 // 型定義用のimport
 import { getEnv } from "@takos/config";
@@ -40,10 +40,13 @@ interface PostDoc {
   extra?: Record<string, unknown>;
 }
 
-async function findPost(db: DB, id: string): Promise<ActivityObject | null> {
-  const note = await db.findNoteById(id) as ActivityObject | null;
+async function findPost(
+  db: DataStore,
+  id: string,
+): Promise<ActivityObject | null> {
+  const note = await db.posts.findNoteById(id) as ActivityObject | null;
   if (note) return note;
-  return await db.findMessageById(id) as ActivityObject | null;
+  return await db.posts.findMessageById(id) as ActivityObject | null;
 }
 
 const app = new Hono();
@@ -62,12 +65,12 @@ app.get("/posts", async (c) => {
   const db = getDB(c);
   let list: ActivityPubObjectType[];
   if (timeline === "following" && actor) {
-    list = await db.listTimeline(actor, {
+    list = await db.posts.listTimeline(actor, {
       limit,
       before: before ? new Date(before) : undefined,
     }) as ActivityObject[];
   } else {
-    list = await db.getPublicNotes(
+    list = await db.posts.getPublicNotes(
       limit,
       before ? new Date(before) : undefined,
     ) as ActivityObject[];
@@ -133,7 +136,7 @@ app.post(
 
     const env = getEnv(c);
     const db = getDB(c);
-    const post = await db.saveNote(
+    const post = await db.posts.saveNote(
       domain,
       author,
       content,
@@ -141,9 +144,10 @@ app.post(
     ) as ActivityObject;
 
     if (typeof parentId === "string") {
-      await db.updateNote(parentId, { $inc: { "extra.replies": 1 } }).catch(
-        () => {},
-      );
+      await db.posts.updateNote(parentId, { $inc: { "extra.replies": 1 } })
+        .catch(
+          () => {},
+        );
     }
 
     const baseObj = post as Record<string, unknown>;
@@ -176,7 +180,7 @@ app.post(
     const objectId = String((post as Record<string, unknown>)._id ?? "");
     if (objectId && faspShare !== false) {
       const objectUrl = `https://${domain}/objects/${objectId}`;
-      await announceIfPublicAndDiscoverable(env, {
+      await announceIfPublicAndDiscoverable(env, domain, {
         category: "content",
         eventType: "new",
         objectUris: [objectUrl],
@@ -237,7 +241,7 @@ app.post(
     });
 
     // ローカルのフォロワーへ個別に軽量通知
-    const account = await db.findAccountByUserName(author);
+    const account = await db.accounts.findByUserName(author);
     const followers = account?.followers ?? [];
     const localFollowers = followers
       .map((url) => {
@@ -293,7 +297,7 @@ app.get("/posts/:id/replies", async (c) => {
   const env = getEnv(c);
   const id = c.req.param("id");
   const db = getDB(c);
-  const list = await db.findNotes({ "extra.inReplyTo": id }, {
+  const list = await db.posts.findNotes({ "extra.inReplyTo": id }, {
     published: 1,
   }) as ActivityObject[];
   const ids = list.map((doc) =>
@@ -315,7 +319,9 @@ app.put(
     const { content } = c.req.valid("json") as { content: string };
     const env = getEnv(c);
     const db = getDB(c);
-    const post = await db.updateNote(id, { content }) as ActivityObject | null;
+    const post = await db.posts.updateNote(id, { content }) as
+      | ActivityObject
+      | null;
     if (!post) return c.json({ error: "Not found" }, 404);
 
     // 共通ユーザー情報取得サービスを使用
@@ -328,7 +334,7 @@ app.put(
 
     // 更新された投稿を FASP へ通知
     const objectUrl = `https://${domain}/objects/${id}`;
-    await announceIfPublicAndDiscoverable(env, {
+    await announceIfPublicAndDiscoverable(env, domain, {
       category: "content",
       eventType: "update",
       objectUris: [objectUrl],
@@ -365,7 +371,7 @@ app.post(
       extra.likedBy = likedBy;
       extra.likes = likedBy.length;
       const db = getDB(c);
-      await db.updateNote(id, { extra });
+      await db.posts.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${postData._id}`;
@@ -378,7 +384,7 @@ app.post(
       } else if (typeof postData.actor_id === "string") {
         const url = new URL(postData.actor_id);
         const db = getDB(c);
-        const account = await db.findAccountByUserName(
+        const account = await db.accounts.findByUserName(
           url.pathname.split("/")[2],
         );
         targets = account?.followers ?? [];
@@ -414,7 +420,7 @@ app.post(
       }
 
       // いいね数の更新を FASP へ通知
-      await announceIfPublicAndDiscoverable(env, {
+      await announceIfPublicAndDiscoverable(env, domain, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
@@ -449,13 +455,13 @@ app.post(
       extra.retweetedBy = retweetedBy;
       extra.retweets = retweetedBy.length;
       const db = getDB(c);
-      await db.updateNote(id, { extra });
+      await db.posts.updateNote(id, { extra });
 
       const actorId = `https://${domain}/users/${username}`;
       const objectUrl = `https://${domain}/objects/${postData._id}`;
 
       let targets: string[] = [];
-      const account = await db.findAccountByUserName(username);
+      const account = await db.accounts.findByUserName(username);
       targets = account?.followers ?? [];
 
       if (
@@ -497,7 +503,7 @@ app.post(
       }
 
       // リツイート数の更新を FASP へ通知
-      await announceIfPublicAndDiscoverable(env, {
+      await announceIfPublicAndDiscoverable(env, domain, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
@@ -517,11 +523,11 @@ app.delete("/posts/:id", async (c) => {
   const id = c.req.param("id");
   const post = await findPost(db, id);
   if (!post) return c.json({ error: "Not found" }, 404);
-  const deleted = await db.deleteNote(id);
+  const deleted = await db.posts.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);
 
   // 削除された投稿を FASP へ通知
-  await announceIfPublicAndDiscoverable(env, {
+  await announceIfPublicAndDiscoverable(env, domain, {
     category: "content",
     eventType: "delete",
     objectUris: [`https://${domain}/objects/${id}`],

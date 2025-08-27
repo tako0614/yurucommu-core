@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import tenantScope from "../plugins/tenant_scope.ts";
 
 const noteSchema = new mongoose.Schema({
   _id: { type: String },
@@ -16,8 +15,6 @@ const noteSchema = new mongoose.Schema({
     cc: { type: [String], default: [] },
   },
 });
-
-noteSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const Note = mongoose.models.Note ??
   mongoose.model("Note", noteSchema, "notes");

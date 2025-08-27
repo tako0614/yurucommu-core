@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import tenantScope from "../plugins/tenant_scope.ts";
 
 const followEdgeSchema = new mongoose.Schema({
   actor_id: { type: String, required: true },
@@ -7,8 +6,7 @@ const followEdgeSchema = new mongoose.Schema({
   relay: { type: String, default: null },
 });
 
-followEdgeSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
-followEdgeSchema.index({ actor_id: 1, tenant_id: 1 });
+followEdgeSchema.index({ actor_id: 1 });
 
 const FollowEdge = mongoose.models.FollowEdge ??
   mongoose.model("FollowEdge", followEdgeSchema, "follow_edge");

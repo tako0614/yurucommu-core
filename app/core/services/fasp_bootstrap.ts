@@ -28,7 +28,10 @@ function genSecret(bytes = 32): string {
   return btoa(String.fromCharCode(...buf));
 }
 
-export async function bootstrapDefaultFasp(env: Record<string, string>) {
+export async function bootstrapDefaultFasp(
+  env: Record<string, string>,
+  domain: string,
+) {
   const base = env["FASP_DEFAULT_BASE_URL"] ?? "";
   const normalized = normalizeBaseUrl(base);
   if (!normalized) return; // 既定 FASP 未設定
@@ -36,11 +39,9 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
   const db = createDB(env);
   const mongo = await db.getDatabase();
   const fasps = mongo.collection("fasp_client_providers");
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
 
   const now = new Date();
   const existing = await fasps.findOne({
-    tenant_id: tenantId,
     baseUrl: normalized,
   });
 
@@ -50,12 +51,11 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
   // name は一旦 baseUrl を既定値として保存
   const serverId = existing?.serverId ?? `default:${crypto.randomUUID()}`;
   await fasps.updateOne(
-    { tenant_id: tenantId, baseUrl: normalized },
+    { baseUrl: normalized },
     {
       $setOnInsert: {
         faspId: crypto.randomUUID(),
         createdAt: now,
-        tenant_id: tenantId,
       },
       $set: {
         name: existing?.name ?? normalized,
@@ -73,7 +73,7 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
 
   // provider_info を取得して capabilities を反映（既定では全て有効化）
   try {
-    const res = await faspFetch(env, `${normalized}/provider_info`, {
+    const res = await faspFetch(env, domain, `${normalized}/provider_info`, {
       verifyResponseSignature: false,
     });
     if (!res.ok) return;
@@ -90,7 +90,7 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
     }
 
     const after = await fasps.findOneAndUpdate(
-      { tenant_id: tenantId, baseUrl: normalized },
+      { baseUrl: normalized },
       { $set: { name, capabilities: newCaps, updatedAt: new Date() } },
       { returnDocument: "after" },
     );
@@ -98,7 +98,7 @@ export async function bootstrapDefaultFasp(env: Record<string, string>) {
     // 有効化を FASP 側へ通知
     await Promise.all(
       Object.entries(newCaps).map(([id, v]) =>
-        notifyCapabilityActivation(env, normalized, id, v.version, true)
+        notifyCapabilityActivation(env, domain, normalized, id, v.version, true)
       ),
     );
 
