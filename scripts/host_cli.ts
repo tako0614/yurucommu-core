@@ -1,8 +1,9 @@
 import { parse } from "jsr:@std/flags";
 import { loadConfig } from "../app/shared/config.ts";
 import { connectDatabase } from "../app/shared/db.ts";
-import { createDB } from "../app/api/DB/mod.ts";
-import { ensureTenant } from "../app/api/services/tenant.ts";
+import { createDB, setStoreFactory } from "../app/takos/DB/mod.ts";
+import { createMongoDataStore } from "../app/takos/DB/mongo_store.ts";
+import { ensureTenant } from "../app/takos/services/tenant.ts";
 import type { DB } from "../app/shared/db.ts";
 import { hash } from "../app/takos_host/auth.ts";
 interface Args {
@@ -163,6 +164,8 @@ async function main() {
   env = await loadConfig();
   env["DB_MODE"] = "host";
   await connectDatabase(env);
+  // CLI 実行時に Mongo Store を注入
+  setStoreFactory((e) => createMongoDataStore(e));
   db = createDB(env);
   const user = args.user ?? "system";
   try {

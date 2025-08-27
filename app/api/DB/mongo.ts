@@ -17,7 +17,7 @@ import Tenant from "../models/takos/tenant.ts";
 import DirectMessage from "../models/takos/direct_message.ts";
 import Group from "../models/takos/group.ts";
 import mongoose from "mongoose";
-import type { DB, ListOpts } from "../../shared/db.ts";
+import type { DB, ListOpts, SortSpec } from "../../shared/db.ts";
 import type {
   AccountDoc,
   DirectMessageDoc,
@@ -25,9 +25,9 @@ import type {
   ListedGroup,
   SessionDoc,
 } from "../../shared/types.ts";
-import type { FilterQuery, Model, SortOrder } from "mongoose";
+import type { FilterQuery, Model } from "mongoose";
 import type { Db } from "mongodb";
-import { connectDatabase } from "../../shared/db.ts";
+import { connectDatabase } from "./mongo_conn.ts";
 import { generateKeyPair } from "../../shared/crypto.ts";
 
 function normalizeActorUrl(id: string, defaultDomain?: string): string {
@@ -379,7 +379,7 @@ export class MongoDB implements DB {
 
   async findNotes(
     filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
+    sort?: SortSpec,
   ) {
     return await this.withTenant(Note.find({ ...filter }))
       .sort(sort ?? {})
@@ -431,7 +431,7 @@ export class MongoDB implements DB {
 
   async findMessages(
     filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
+    sort?: SortSpec,
   ) {
     return await this.withTenant(Message.find({ ...filter }))
       .sort(sort ?? {})

@@ -1,6 +1,3 @@
-import mongoose from "mongoose";
-import type { SortOrder } from "mongoose";
-import type { Db } from "mongodb";
 import type {
   AccountDoc,
   DirectMessageDoc,
@@ -14,6 +11,9 @@ export interface ListOpts {
   limit?: number;
   before?: Date;
 }
+
+/** 汎用ソート指定（Mongo 等に依存しない） */
+export type SortSpec = Record<string, 1 | -1 | "asc" | "desc">;
 
 /** DB 抽象インターフェース */
 export interface DB {
@@ -55,7 +55,7 @@ export interface DB {
   deleteNote(id: string): Promise<boolean>;
   findNotes(
     filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
+    sort?: SortSpec,
   ): Promise<unknown[]>;
   getPublicNotes(limit: number, before?: Date): Promise<unknown[]>;
   saveMessage(
@@ -72,7 +72,7 @@ export interface DB {
   deleteMessage(id: string): Promise<boolean>;
   findMessages(
     filter: Record<string, unknown>,
-    sort?: Record<string, SortOrder>,
+    sort?: SortSpec,
   ): Promise<unknown[]>;
   saveDMMessage(
     from: string,
@@ -219,21 +219,9 @@ export interface DB {
   findSessionById(sessionId: string): Promise<SessionDoc | null>;
   deleteSessionById(sessionId: string): Promise<void>;
   updateSessionExpires(sessionId: string, expires: Date): Promise<void>;
-  getDatabase(): Promise<Db>;
-}
-
-let currentUri = "";
-
-export async function connectDatabase(env: Record<string, string>) {
-  const uri = env["MONGO_URI"];
-  if (!uri) return;
-  if (mongoose.connection.readyState === 1 && currentUri === uri) {
-    return;
-  }
-  currentUri = uri;
-  // populate の対象パスがスキーマに存在しない場合でもエラーとしない
-  mongoose.set("strictPopulate", false);
-  await mongoose.connect(uri)
-    .then(() => console.log("Connected to MongoDB"))
-    .catch((err: Error) => console.error("MongoDB connection error:", err));
+  /**
+   * 実装依存の生コネクション。移行中の暫定 API。
+   * MongoDB 実装では `mongodb` の Db を返します。
+   */
+  getDatabase(): Promise<unknown>;
 }

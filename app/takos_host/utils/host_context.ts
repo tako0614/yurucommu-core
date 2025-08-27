@@ -1,11 +1,12 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import type { Context } from "hono";
 import { loadConfig } from "../../shared/config.ts";
-import { connectDatabase } from "../../shared/db.ts";
+import { connectDatabase } from "../../api/DB/mongo_conn.ts";
 import { getEnvPath } from "../../shared/args.ts";
 import { createTakosApp } from "../../api/server.ts";
 import { ensureTenant } from "../../api/services/tenant.ts";
-import { createDB } from "../../api/DB/mod.ts";
+import { createDB, setStoreFactory } from "../../api/DB/mod.ts";
+import { createMongoDataStore } from "../../api/DB/mongo_store.ts";
 import { bootstrapDefaultFasp } from "../../api/services/fasp_bootstrap.ts";
 import { getSystemKey } from "../../api/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
@@ -61,6 +62,8 @@ export async function initHostContext(): Promise<HostContext> {
   const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
   hostEnv["DB_MODE"] = "host";
   await connectDatabase(hostEnv);
+  // ホスト環境では新抽象(Store)を注入
+  setStoreFactory((e) => createMongoDataStore(e));
 
   const rootDomain = (hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   if (rootDomain) {
@@ -230,6 +233,9 @@ export async function getAppForHost(
     if (!appEnv) return null;
     const db = createDB(ctx.hostEnv);
     await ensureTenant(db, host, host);
+    // テナント環境用のシステム鍵を用意
+    const tenantDb = createDB(appEnv);
+    await getSystemKey(tenantDb, host).catch(() => {});
     await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl);
     const app = await createTakosApp(appEnv);
     apps.set(host, app);

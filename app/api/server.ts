@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { connectDatabase } from "../shared/db.ts";
+import { connectDatabase } from "./DB/mongo_conn.ts";
 import { initEnv, loadConfig } from "../shared/config.ts";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
@@ -33,8 +33,7 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./utils/session.ts";
 import { bootstrapDefaultFasp } from "./services/fasp_bootstrap.ts";
 import dms from "./routes/dms.ts";
-import { createDB } from "./DB/mod.ts";
-import { getSystemKey } from "./services/system_actor.ts";
+// DB 依存を避けるため、createTakosApp では DB 生成や操作を行わない
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -52,8 +51,7 @@ export async function createTakosApp(env?: Record<string, string>) {
     await rl(c, next);
   });
   await initFileModule(e);
-  const db = createDB(e);
-  await getSystemKey(db, e["ACTIVITYPUB_DOMAIN"] ?? "");
+  // DB 初期化や鍵生成はホスト側（takos host）や起動スクリプトで実施する
 
   const apiRoutes = [
     wsRouter,
