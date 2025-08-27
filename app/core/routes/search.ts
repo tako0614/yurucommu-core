@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
+import { getEnv } from "@takos/config";
 import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
 
 interface SearchResult {
@@ -106,6 +107,7 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
 }
 
 app.get("/search", async (c) => {
+  const env = getEnv(c);
   let q = c.req.query("q")?.trim();
   const acct = c.req.query("acct")?.trim();
   const type = c.req.query("type") ?? "all";
@@ -160,7 +162,9 @@ app.get("/search", async (c) => {
           encodeURIComponent(q)
         }&limit=${perPage}`;
         while (nextUrl && seen.size < maxTotal) {
-          const res = await faspFetch(env, nextUrl, { signing: "registered" });
+          const res = await faspFetch(env, domain, nextUrl, {
+            signing: "registered",
+          });
           if (!res.ok) break;
           const list = await res.json() as string[];
           await Promise.all(

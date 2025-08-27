@@ -1,13 +1,11 @@
-
 {
-	"name": "@takos/core-routes",
-	"version": "1.0.0",
-	"exports": "./mod.ts",
-	"imports": {
-		"@takos/config": "../config/mod.ts",
-		"@takos/crypto": "../crypto/mod.ts",
-		"@takos/types": "../types/mod.ts",
-		"@takos/url": "../url/mod.ts",
-		"@takos/db": "../db/mod.ts"
-	}
+  "name": "@takos/core-routes",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@takos/config": "../config/mod.ts",
+    "@takos/crypto": "../crypto/mod.ts",
+    "@takos/types": "../types/mod.ts",
+    "@takos/url": "../url/mod.ts"
+  }
 }

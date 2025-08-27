@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { initEnv } from "@takos/config";
-import type { DB } from "@takos/db";
+import type { DataStore } from "./db/types.ts";
 import login from "./routes/login.ts";
 import logout from "./routes/logout.ts";
 import onboarding from "./routes/onboarding.ts";
@@ -38,7 +38,7 @@ const isDev = Deno.env.get("DEV") === "1";
 
 export async function createTakosApp(
   env: Record<string, string>,
-  db: DB,
+  db: DataStore,
 ) {
   const app = new Hono();
   initEnv(app, env);

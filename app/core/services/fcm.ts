@@ -1,5 +1,5 @@
 import { createDB } from "../db/mod.ts";
-import type { DB } from "@takos/db";
+import type { DataStore } from "../db/types.ts";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { bufToB64 } from "@takos/buffer";
 
@@ -83,31 +83,31 @@ export async function registerToken(
   token: string,
   userName: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ) {
   const db = dbInst ?? createDB(env);
-  await db.registerFcmToken(token, userName);
+  await db.fcm.register(token, userName);
 }
 
 export async function unregisterToken(
   token: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ) {
   const db = dbInst ?? createDB(env);
-  await db.unregisterFcmToken(token);
+  await db.fcm.unregister(token);
 }
 
 export async function sendNotification(
   title: string,
   body: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ) {
   const accessToken = await getAccessToken(env);
   if (!accessToken) return;
   const db = dbInst ?? createDB(env);
-  const list = await db.listFcmTokens();
+  const list = await db.fcm.list();
   const projectId = env["FIREBASE_PROJECT_ID"];
   const url =
     `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;

@@ -1,5 +1,10 @@
 import { loadConfig } from "@takos/config";
-import { connectDatabase, createDB, createMongoDataStore, setStoreFactory } from "../takos_host/db/mod.ts";
+import {
+  connectDatabase,
+  createDB,
+  createMongoDataStore,
+  setStoreFactory,
+} from "../takos_host/db/mod.ts";
 import { createObjectId } from "../takos/utils/activitypub.ts";
 
 // Takos Host 用のテストオブジェクトを複数追加するスクリプト
@@ -35,7 +40,7 @@ for (const obj of objects) {
     },
     to: ["https://www.w3.org/ns/activitystreams#Public"],
   };
-  await db.saveObject(note);
+  await db.posts.saveObject(note);
   console.log(`追加しました: ${id}`);
 }
 

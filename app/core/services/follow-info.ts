@@ -1,5 +1,5 @@
 import { createDB } from "../db/mod.ts";
-import type { DB } from "@takos/db";
+import type { DataStore } from "../db/types.ts";
 
 /**
  * ユーザーが存在しない場合のエラー
@@ -18,10 +18,10 @@ export async function getFollowList(
   username: string,
   type: "followers" | "following",
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ): Promise<string[]> {
   const db = dbInst ?? createDB(env);
-  const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
   if (!account) {
     throw new UserNotFoundError();
   }
@@ -42,7 +42,7 @@ export async function formatFollowList(
   list: string[],
   domain: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ): Promise<FollowInfo[]> {
   const db = dbInst ?? createDB(env);
   const result: FollowInfo[] = [];
@@ -50,7 +50,7 @@ export async function formatFollowList(
     try {
       if (url.includes(domain)) {
         const name = url.split("/").pop();
-        const acc = await db.findAccountByUserName(name ?? "");
+        const acc = await db.accounts.findByUserName(name ?? "");
         if (acc) {
           result.push({
             userName: acc.userName,
@@ -84,7 +84,7 @@ export async function getFormattedFollowInfo(
   type: "followers" | "following",
   domain: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ): Promise<FollowInfo[]> {
   const list = await getFollowList(username, type, env, dbInst);
   return await formatFollowList(list, domain, env, dbInst);
@@ -99,7 +99,7 @@ export async function buildActivityPubFollowCollection(
   page: string | undefined,
   domain: string,
   env: Record<string, string>,
-  dbInst?: DB,
+  dbInst?: DataStore,
 ): Promise<Record<string, unknown>> {
   const list = await getFollowList(username, type, env, dbInst);
   const baseId = `https://${domain}/ap/users/${username}/${type}`;

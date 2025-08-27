@@ -247,6 +247,7 @@ app.post(
   async (c) => {
     const env = getEnv(c);
     const db = getDB(c);
+    const domain = getDomain(c);
     const { domainOrUrl } = c.req.valid("json") as { domainOrUrl: string };
 
     // ベースURLの正規化（末尾 /provider_info のみ除去）
@@ -285,7 +286,7 @@ app.post(
     const url = `${baseUrl.replace(/\/$/, "")}/provider_info`;
     let lastErr: unknown = null;
     try {
-      const res = await faspFetch(env, url, {
+      const res = await faspFetch(env, domain, url, {
         verifyResponseSignature: false,
       });
       if (!res.ok) {
@@ -320,7 +321,6 @@ app.post(
 
     const mongo = await db.getDatabase();
     const providersCol = mongo.collection("fasp_client_providers");
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     // 既存のベースURL表記揺れを正規化して統合
     const variants = Array.from(
       new Set([
@@ -329,7 +329,7 @@ app.post(
       ].flatMap((u) => [u, `${u}/`])),
     );
     await providersCol.updateMany(
-      { tenant_id: tenantId, baseUrl: { $in: variants } },
+      { baseUrl: { $in: variants } },
       { $set: { baseUrl, updatedAt: new Date() } },
     );
 
@@ -338,13 +338,12 @@ app.post(
     const faspId = crypto.randomUUID();
     const now = new Date();
     const res = await providersCol.findOneAndUpdate(
-      { tenant_id: tenantId, baseUrl },
+      { baseUrl },
       {
         $setOnInsert: {
           faspId,
           serverId: provisionalServerId,
           createdAt: now,
-          tenant_id: tenantId,
         },
         $set: {
           name,
@@ -366,7 +365,7 @@ app.post(
           const secret = btoa(
             String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))),
           );
-          await providersCol.updateOne({ tenant_id: tenantId, baseUrl }, {
+          await providersCol.updateOne({ baseUrl }, {
             $set: { secret, updatedAt: new Date() },
           });
         }
@@ -374,7 +373,7 @@ app.post(
       const base = baseUrl.replace(/\/$/, "");
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
-          notifyCapabilityActivation(env, base, id, info.version, true)
+          notifyCapabilityActivation(env, domain, base, id, info.version, true)
         ),
       ).catch(() => {});
     }
@@ -395,13 +394,10 @@ app.post(
 
 // 管理用: プロバイダ詳細
 app.get("/api/fasp/providers/:serverId", async (c) => {
-  const env = getEnv(c);
   const db = getDB(c);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const d = await mongo.collection("fasp_client_providers").findOne({
-    tenant_id: tenantId,
     serverId,
   });
   if (!d) return c.json({ error: "not found" }, 404);
@@ -421,13 +417,11 @@ app.get("/api/fasp/providers/:serverId", async (c) => {
 
 // 管理用: 承認
 app.post("/api/fasp/providers/:serverId/approve", async (c) => {
-  const env = getEnv(c);
   const db = getDB(c);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const res = await mongo.collection("fasp_client_providers").findOneAndUpdate(
-    { tenant_id: tenantId, serverId },
+    { serverId },
     { $set: { status: "approved", approvedAt: new Date(), rejectedAt: null } },
     { returnDocument: "after" },
   );
@@ -437,13 +431,11 @@ app.post("/api/fasp/providers/:serverId/approve", async (c) => {
 
 // 管理用: 却下
 app.post("/api/fasp/providers/:serverId/reject", async (c) => {
-  const env = getEnv(c);
   const db = getDB(c);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const res = await mongo.collection("fasp_client_providers").findOneAndUpdate(
-    { tenant_id: tenantId, serverId },
+    { serverId },
     { $set: { status: "rejected", rejectedAt: new Date() } },
     { returnDocument: "after" },
   );
@@ -453,13 +445,10 @@ app.post("/api/fasp/providers/:serverId/reject", async (c) => {
 
 // 管理用: プロバイダ削除
 app.delete("/api/fasp/providers/:serverId", async (c) => {
-  const env = getEnv(c);
   const db = getDB(c);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const res = await mongo.collection("fasp_client_providers").deleteOne({
-    tenant_id: tenantId,
     serverId,
   });
   if (!res || res.deletedCount === 0) {
@@ -482,15 +471,15 @@ app.put(
   async (c) => {
     const env = getEnv(c);
     const db = getDB(c);
+    const domain = getDomain(c);
     const serverId = c.req.param("serverId");
     const { capabilities } = c.req.valid("json") as {
       capabilities: Record<string, { version: string; enabled: boolean }>;
     };
     const mongo = await db.getDatabase();
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
     const res = await mongo.collection("fasp_client_providers")
       .findOneAndUpdate(
-        { tenant_id: tenantId, serverId },
+        { serverId },
         { $set: { capabilities, updatedAt: new Date() } },
         { returnDocument: "after" },
       );
@@ -502,6 +491,7 @@ app.put(
         Object.entries(capabilities).map(([id, info]) =>
           notifyCapabilityActivation(
             env,
+            domain,
             baseUrl,
             id,
             info.version,
@@ -518,18 +508,17 @@ app.put(
 app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const env = getEnv(c);
   const db = getDB(c);
+  const domain = getDomain(c);
   const serverId = c.req.param("serverId");
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const rec = await mongo.collection("fasp_client_providers").findOne({
-    tenant_id: tenantId,
     serverId,
   });
   if (!rec) return c.json({ error: "not found" }, 404);
   const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
-    const res = await faspFetch(env, `${baseUrl}/provider_info`, {
+    const res = await faspFetch(env, domain, `${baseUrl}/provider_info`, {
       verifyResponseSignature: false,
     });
     const text = await res.text();
@@ -544,14 +533,10 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
 
 // 管理用: FASP 設定の取得/更新（検索に使うFASP、共有設定）
 app.get("/api/fasp/settings", async (c) => {
-  const env = getEnv(c);
   const db = getDB(c);
   const mongo = await db.getDatabase();
-  const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  // deno-lint-ignore no-explicit-any
-  const _settingsFilter: any = { _id: "default", tenant_id: tenantId };
   const doc = await mongo.collection("fasp_client_settings").findOne(
-    _settingsFilter,
+    { _id: "default" } as unknown as Record<string, unknown>,
   );
   return c.json({
     searchServerId: doc?.searchServerId ?? null,
@@ -562,7 +547,6 @@ app.get("/api/fasp/settings", async (c) => {
 
 app.put("/api/fasp/settings", async (c) => {
   try {
-    const env = getEnv(c);
     const db = getDB(c);
     const mongo = await db.getDatabase();
     const body = await c.req.json();
@@ -585,16 +569,12 @@ app.put("/api/fasp/settings", async (c) => {
         update.shareServerIds = null;
       }
     }
-    const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-    // deno-lint-ignore no-explicit-any
-    const _settingsFilter: any = { _id: "default", tenant_id: tenantId };
     await mongo.collection("fasp_client_settings").updateOne(
-      _settingsFilter,
+      { _id: "default" } as unknown as Record<string, unknown>,
       {
         $set: { ...update, updatedAt: new Date() },
         $setOnInsert: {
           _id: "default",
-          tenant_id: tenantId,
           createdAt: new Date(),
         },
       },

@@ -26,13 +26,13 @@ app.get("/users/:acct", async (c) => {
     const info = await getUserInfo(acct, domain, env);
 
     const user = info.isLocal
-      ? await db.findAccountByUserName(info.userName)
+      ? await db.accounts.findByUserName(info.userName)
       : null;
 
     if (user) {
       // ユーザーの投稿数を取得
       const fullUrl = `https://${domain}/users/${info.userName}`;
-      const postCount = (await db.findNotes({
+      const postCount = (await db.posts.findNotes({
         attributedTo: fullUrl,
       }, {})).length;
 

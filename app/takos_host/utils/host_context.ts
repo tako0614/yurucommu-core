@@ -9,7 +9,6 @@ import {
 } from "@takos_host/db";
 import { getEnvPath } from "@takos/config";
 import { createTakosApp } from "../../core/create_takos_app.ts";
-import { ensureTenant } from "../../core/services/tenant.ts";
 import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts";
 import { getSystemKey } from "../../core/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
@@ -18,7 +17,8 @@ import { createAuthApp } from "../auth.ts";
 import oauthApp from "../oauth.ts";
 import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
-import type { DB } from "../../packages/db/mod.ts";
+import type { DataStore } from "../../core/db/types.ts";
+import type { HostDataStore } from "../db/types.ts";
 import Instance from "../models/instance.ts";
 import FaspClient from "../models/fasp_client.ts";
 import {
@@ -181,14 +181,15 @@ async function seedDefaultFasp(
   appEnv: Record<string, string>,
   host: string,
   defaultFaspBaseUrl: string,
-  tenantDb: DB,
+  tenantDb: DataStore,
 ) {
   if (!defaultFaspBaseUrl) return;
   try {
     const normalized = canonicalizeFaspBaseUrl(defaultFaspBaseUrl);
-    const mongo = await tenantDb.getDatabase();
+    // deno-lint-ignore no-explicit-any
+    const mongo = await tenantDb.raw?.() as any;
     const fasps = mongo.collection("fasp_client_providers");
-    const tenantId = tenantDb.tenantId;
+    const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
     const exists = await fasps.findOne({
       tenant_id: tenantId,
       baseUrl: normalized,
@@ -218,7 +219,7 @@ async function seedDefaultFasp(
     await bootstrapDefaultFasp({
       ...appEnv,
       FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
-    }).catch(() => {});
+    }, host).catch(() => {});
   } catch { /* ignore */ }
 }
 
@@ -234,8 +235,8 @@ export async function getAppForHost(
   const p = (async () => {
     const appEnv = await getEnvForHost(host, ctx.rootDomain, ctx.hostEnv);
     if (!appEnv) return null;
-    const db = createDB(ctx.hostEnv);
-    await ensureTenant(db, host, host);
+    const db = createDB(ctx.hostEnv) as HostDataStore;
+    await db.tenant.ensure(host, host);
     // テナント環境用のシステム鍵を用意
     const tenantDb = createDB(appEnv);
     await getSystemKey(tenantDb, host).catch(() => {});

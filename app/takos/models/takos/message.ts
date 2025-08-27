@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import tenantScope from "../plugins/tenant_scope.ts";
 
 const messageSchema = new mongoose.Schema({
   _id: { type: String },
@@ -34,8 +33,6 @@ messageSchema.pre("validate", function (next) {
   }
   next();
 });
-
-messageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
 const Message = mongoose.models.Message ??
   mongoose.model("Message", messageSchema, "messages");

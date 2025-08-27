@@ -4,8 +4,7 @@ import {
   createDB,
   createMongoDataStore,
   setStoreFactory,
-} from "@takos/db";
-import { ensureTenant } from "../core/services/tenant.ts";
+} from "./db/mod.ts";
 import { getSystemKey } from "../core/services/system_actor.ts";
 import { loadConfig } from "@takos/config";
 import { getEnvPath } from "../packages/config/mod.ts";
@@ -15,11 +14,10 @@ const envPath = getEnvPath();
 const env = await loadConfig({ envPath });
 await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
-setStoreFactory((e) => createMongoDataStore(e, { multiTenant: false }));
+setStoreFactory((e) => createMongoDataStore(e));
 const db = createDB(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {
   const domain = env["ACTIVITYPUB_DOMAIN"];
-  await ensureTenant(db, domain, domain);
   await getSystemKey(db, domain);
 }
 const app = await createTakosApp(env, db);

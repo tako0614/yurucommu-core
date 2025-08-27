@@ -86,7 +86,7 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  await announceIfPublicAndDiscoverable(env, {
+  await announceIfPublicAndDiscoverable(env, domain, {
     category: "account",
     eventType: "new",
     objectUris: [`https://${domain}/users/${account.userName}`],
@@ -136,7 +136,7 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await db.updateAccountById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(env, {
+  await announceIfPublicAndDiscoverable(env, domain, {
     category: "account",
     eventType: "update",
     objectUris: [`https://${domain}/users/${account.userName}`],
@@ -153,7 +153,7 @@ app.delete("/accounts/:id", async (c) => {
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const deleted = await db.deleteAccountById(id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(env, {
+  await announceIfPublicAndDiscoverable(env, domain, {
     category: "account",
     eventType: "delete",
     objectUris: [`https://${domain}/users/${account.userName}`],
