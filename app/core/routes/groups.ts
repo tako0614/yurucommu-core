@@ -24,12 +24,10 @@ const app = new Hono();
 type ActivityPubObject = unknown; // minimal placeholder for mixed fields
 
 function isOwnedGroup(
-  group: GroupDoc & { tenant_id?: string },
+  group: GroupDoc,
   domain: string,
   name: string,
 ): boolean {
-  const tenant = (group as { tenant_id?: string }).tenant_id;
-  if (tenant && tenant !== domain) return false;
   const id = `https://${domain}/groups/${group.groupName}`;
   return id === `https://${domain}/groups/${name}`;
 }
@@ -305,7 +303,7 @@ app.patch(
     const domain = getDomain(c);
     const db = getDB(c);
     const group = await db.findGroupByName(name) as
-      | (GroupDoc & { tenant_id?: string })
+      | GroupDoc
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (!isOwnedGroup(group, domain, name)) {
@@ -524,7 +522,7 @@ app.post(
     const env = getEnv(c);
     const db = getDB(c);
     const group = await db.findGroupByName(name) as
-      | (GroupDoc & { tenant_id?: string })
+      | GroupDoc
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (!isOwnedGroup(group, domain, name)) {
