@@ -56,7 +56,6 @@ export async function createTakosApp(
   });
   await initFileModule(env);
   // DB 初期化や鍵生成はホスト側（takos host）や起動スクリプトで実施する
-
   const apiRoutes = [
     wsRouter,
     login,

@@ -1,0 +1,19 @@
+{
+  "imports": {
+    "@std/": "https://deno.land/std@0.224.0/",
+    "@std/dotenv": "https://deno.land/std@0.224.0/dotenv/mod.ts",
+    "zod": "https://deno.land/x/zod@v3.23.8/mod.ts",
+    "mongoose": "npm:mongoose@7",
+    "@core/": "./app/core/",
+    "@takos/": "./app/packages/",
+    "@takos/auth": "./app/packages/auth/mod.ts",
+    "@takos/buffer": "./app/packages/buffer/mod.ts",
+    "@takos/config": "./app/packages/config/mod.ts",
+    "@takos/crypto": "./app/packages/crypto/mod.ts",
+    "@takos/db": "./app/packages/db/mod.ts",
+    "@takos/firebase": "./app/packages/firebase/mod.ts",
+    "@takos/types": "./app/packages/types/mod.ts",
+    "@takos/url": "./app/packages/url/mod.ts",
+    "@takos_host/": "./app/takos_host/"
+  }
+}

@@ -1,0 +1,10 @@
+
+{
+	"name": "@takos/core-utils",
+	"version": "1.0.0",
+	"exports": "./mod.ts",
+	"imports": {
+		"@takos/types": "../types/mod.ts",
+		"@takos/db": "../db/mod.ts"
+	}
+}
