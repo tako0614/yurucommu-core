@@ -1,12 +1,12 @@
-import { Hono } from "hono";
+import { Hono } from "npm:hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 type ActivityObject = Record<string, unknown>;
 import { getDB } from "../db/mod.ts";
-import type { DB } from "../../shared/db.ts";
+import type { DB } from "@takos/db";
 
 // 型定義用のimport
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 
 type ActivityPubObjectType = ActivityObject;
 import {

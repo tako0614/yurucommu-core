@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 // NodeInfo は外部から参照されるため認証は不要
 
 const app = new Hono();

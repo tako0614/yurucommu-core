@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { compare } from "bcrypt";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { issueSession } from "../utils/session.ts";
 import { setCookie } from "hono/cookie";
 

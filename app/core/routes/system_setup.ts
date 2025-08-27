@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import { join } from "jsr:@std/path";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { load, stringify } from "jsr:@std/dotenv";

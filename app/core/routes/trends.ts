@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import authRequired from "../utils/auth.ts";
 import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
 

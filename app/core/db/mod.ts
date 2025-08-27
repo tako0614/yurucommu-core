@@ -1,6 +1,6 @@
-import type { Context } from "hono";
-import type { DB } from "../../shared/db.ts";
-import type { DataStore } from "../../shared/db_port.ts";
+import type { Context } from "npm:hono";
+import type { DB } from "../../packages/db/mod.ts";
+import type { DataStore } from "../../packages/db/mod.ts";
 import { LegacyDBAdapter } from "./legacy_adapter.ts";
 
 /**

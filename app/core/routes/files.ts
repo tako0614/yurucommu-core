@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
-import { getEnv } from "../../shared/config.ts";
+import { getEnv } from "@takos/config";
 import {
   getFile,
   getMessageAttachment,
