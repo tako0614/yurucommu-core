@@ -17,6 +17,7 @@ export type SortSpec = Record<string, 1 | -1 | "asc" | "desc">;
 
 /** DB 抽象インターフェース */
 export interface DB {
+  tenantId: string;
   findNoteById(id: string): Promise<unknown | null>;
   findMessageById(id: string): Promise<unknown | null>;
   findAttachmentById(id: string): Promise<unknown | null>;

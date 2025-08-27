@@ -1,6 +1,5 @@
 import { loadConfig } from "../shared/config.ts";
-import { connectDatabase } from "../takos/DB/mongo_conn.ts";
-import { createDB } from "../takos/DB/mod.ts";
+import { connectDatabase, createDB } from "../takos/db/mod.ts";
 import { createObjectId } from "../takos/utils/activitypub.ts";
 
 // Takos Host 用のテストオブジェクトを複数追加するスクリプト

@@ -1,9 +1,12 @@
 import { parse } from "jsr:@std/flags";
 import { loadConfig } from "../app/shared/config.ts";
-import { connectDatabase } from "../app/shared/db.ts";
-import { createDB, setStoreFactory } from "../app/takos/DB/mod.ts";
-import { createMongoDataStore } from "../app/takos/DB/mongo_store.ts";
-import { ensureTenant } from "../app/takos/services/tenant.ts";
+import {
+  connectDatabase,
+  createDB,
+  createMongoDataStore,
+  setStoreFactory,
+} from "../app/takos_host/db/mod.ts";
+import { ensureTenant } from "../app/core/services/tenant.ts";
 import type { DB } from "../app/shared/db.ts";
 import { hash } from "../app/takos_host/auth.ts";
 interface Args {

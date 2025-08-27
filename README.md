@@ -17,9 +17,19 @@ takosは、ActivityPubに追加で、以下の機能を提供します。
 **フロントエンドフレームワーク**: Solid.js/tauri\
 **データベース**: mongodb mongoose
 
+## 🗂 ディレクトリ構成
+
+- `app/core/` - データベースに依存しない takos
+  のコア。ルートやサービスなどの共通ロジックを提供します。
+- `app/takos/` - 単体運用向けの起動コードと MongoDB 実装。`createTakosApp` に DB
+  を注入してサーバーを起動します。
+- `app/takos_host/` - 複数テナントをホストする環境。テナントごとに DB を生成し
+  `createTakosApp` を呼び出します。
+- `app/shared/` - サーバーとクライアントで共有するユーティリティ群。
+
 ## 🚀 GET started(backend)
 
-環境変数を設定したら、`app/api` ディレクトリからサーバーを起動します。
+環境変数を設定したら、`app/takos` ディレクトリからサーバーを起動します。
 特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`
 を、ポート番号を変更したい場合は `SERVER_PORT` を設定してください。HTTPS
 を利用する場合は `SERVER_CERT` と `SERVER_KEY`
@@ -67,7 +77,7 @@ deno run -A setup.ts
 共有しつつ、インスタンスごとのデータが混在しないよう設計されています。
 
 ```bash
-cd app/api
+cd app/takos
 deno task dev --env path/to/.env
 ```
 
@@ -82,7 +92,7 @@ cd app/client
 deno task build
 ```
 
-生成された `dist` フォルダーは `app/api` サーバーから自動的に配信されます。
+生成された `dist` フォルダーは `app/takos` サーバーから自動的に配信されます。
 
 ## ActivityPub エンドポイント
 
@@ -208,7 +218,7 @@ ActivityPub 形式の一覧が必要な場合は、`/ap/users/:username/follower
 
 備考: `FILE_MAX_SIZE` を未設定の場合、サイズ制限はありません。
 
-.env の例は `app/api/.env.example` を参照してください。
+.env の例は `app/takos/.env.example` を参照してください。
 
 ## クライアントでのデータ保存
 

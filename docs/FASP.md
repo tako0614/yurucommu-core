@@ -40,11 +40,12 @@
 
 - **構成要素**
 
-  - **takos Core**：既存アプリケーション。
-  - **takos FASP Client**：FASP
-    クライアント機能（プロバイダ情報取得・capability管理・Discovery
-    API呼び出し）。
-  - **takos host Service Actor**：`https://{takos-host}/actor`
+  - **takos Core (`app/core`)**：DB に依存しない共通アプリケーションロジック。
+  - **takos (`app/takos`) FASP Client**：FASP
+    クライアント機能（プロバイダ情報取得・capability 管理・Discovery API
+    呼び出し）。
+  - **takos host (`app/takos_host`) Service
+    Actor**：`https://{takos-host}/actor`
     に公開。inbox/outbox、公開鍵、フォロー受付、配信制御のみ。
   - **FASP（Discovery Provider）**：外部サービス。
 
@@ -388,7 +389,7 @@ FASP の Service Actor 配信へ移行するため、takos host
 - `scripts/host_cli.ts` から `relay-*` コマンドを削除し、takos host
   でのリレーサーバー運用を停止する。
 - takos host 専用のリレー関連 API
-  やデータモデル（例：`app/api/models/takos_host/relay.ts`）を削除する。
+  やデータモデル（例：`app/takos/models/takos_host/relay.ts`）を削除する。
 
 ### DB コレクションの取り扱い
 

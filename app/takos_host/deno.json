@@ -20,7 +20,10 @@
     "mongodb": "npm:mongodb@^6.17.0",
     "nodemailer": "npm:nodemailer@^6.9.11",
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
-    "@std/flags": "jsr:@std/flags@1"
+    "@std/flags": "jsr:@std/flags@1",
+    "@takos_host/db": "./db/mod.ts",
+    "@core/": "../core/",
+    "@shared/": "../shared/"
   },
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": true
 }

@@ -18,11 +18,11 @@ takosは、ActivityPubプロトコルを実装したソーシャルWebアプリ�
 
 ## 開発コマンド
 
-### バックエンド (app/api)
+### バックエンド (app/takos)
 
 ```bash
 # 開発サーバー起動
-cd app/api
+cd app/takos
 deno task dev --env path/to/.env
 
 # 本番サーバー起動
@@ -60,21 +60,20 @@ deno run -A setup.ts
 
 ### ディレクトリ構造
 
-- `app/api/` - バックエンドAPIサーバー
-  - `routes/` - APIエンドポイント定義
-  - `models/` - Mongooseモデル定義
+- `app/core/` - データベースに依存しないサーバーコア
+  - `routes/` - API エンドポイント定義
   - `services/` - ビジネスロジック層
   - `utils/` - ユーティリティ関数
-  - `DB/` - データベース関連処理
-  - `activity_handlers.ts` - ActivityPubアクティビティハンドラー
-
-- `app/client/` - フロントエンドアプリケーション
-  - `src/` - Solid.jsコンポーネント
-  - `src-tauri/` - Tauriデスクトップアプリ設定
-  - `public/` - 静的アセット
-
-- `app/shared/` - クライアント・サーバー共有コード
+  - `activity_handlers.ts` - ActivityPub アクティビティハンドラー
+- `app/takos/` - 単体運用向けの起動コードと MongoDB 実装
+  - `db/` - MongoDB 接続とストア実装
 - `app/takos_host/` - マルチテナント向けホスティングサービス
+  - `db/` - ホスト環境向け DB 実装
+- `app/client/` - フロントエンドアプリケーション
+  - `src/` - Solid.js コンポーネント
+  - `src-tauri/` - Tauri デスクトップアプリ設定
+  - `public/` - 静的アセット
+- `app/shared/` - クライアント・サーバー共有コード
 - `docs/` - プロジェクトドキュメント
 - `scripts/` - ユーティリティスクリプト
 

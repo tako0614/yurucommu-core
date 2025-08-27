@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { getSystemKey } from "../api/services/system_actor.ts";
-import { createDB } from "../api/DB/mod.ts";
+import { getSystemKey } from "../core/services/system_actor.ts";
+import { createDB } from "@takos_host/db";
 import {
   createAcceptActivity,
   createAnnounceActivity,
@@ -9,7 +9,7 @@ import {
   signAndPostAsActor,
   verifyDigest,
   verifyHttpSignature,
-} from "../api/utils/activitypub.ts";
+} from "../core/utils/activitypub.ts";
 
 interface ActivityPubActivity {
   type: string;

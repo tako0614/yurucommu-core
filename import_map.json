@@ -3,6 +3,10 @@
     "@std/": "https://deno.land/std@0.224.0/",
     "@std/dotenv": "https://deno.land/std@0.224.0/dotenv/mod.ts",
     "zod": "https://deno.land/x/zod@v3.23.8/mod.ts",
-    "mongoose": "npm:mongoose@7"
+    "mongoose": "npm:mongoose@7",
+    "@core/": "./app/core/",
+    "@takos/": "./app/takos/",
+    "@takos_host/": "./app/takos_host/",
+    "@shared/": "./app/shared/"
   }
 }
