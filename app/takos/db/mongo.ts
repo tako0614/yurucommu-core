@@ -9,7 +9,7 @@ import SystemKey from "../models/takos/system_key.ts";
 import RemoteActor from "../models/takos/remote_actor.ts";
 import Session from "../models/takos/session.ts";
 import FcmToken from "../models/takos/fcm_token.ts";
-import HostFcmToken from "../models/takos_host/fcm_token.ts";
+import HostFcmToken from "../../takos_host/models/takos/fcm_token.ts";
 import Instance from "../../takos_host/models/instance.ts";
 import OAuthClient from "../../takos_host/models/oauth_client.ts";
 import HostDomain from "../../takos_host/models/domain.ts";

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { followEdgeSchema } from "../takos/follow_edge.ts";
+import { followEdgeSchema } from "../../../takos/models/takos/follow_edge.ts";
 
 const HostFollowEdge = mongoose.models.HostFollowEdge ??
   mongoose.model("HostFollowEdge", followEdgeSchema, "follow_edge");

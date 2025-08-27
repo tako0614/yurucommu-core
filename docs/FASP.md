@@ -389,7 +389,7 @@ FASP の Service Actor 配信へ移行するため、takos host
 - `scripts/host_cli.ts` から `relay-*` コマンドを削除し、takos host
   でのリレーサーバー運用を停止する。
 - takos host 専用のリレー関連 API
-  やデータモデル（例：`app/takos/models/takos_host/relay.ts`）を削除する。
+  やデータモデル（例：`app/takos_host/models/takos/relay.ts`）を削除する。
 
 ### DB コレクションの取り扱い
 

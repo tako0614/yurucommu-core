@@ -12,7 +12,7 @@ import {
   formatUserInfoForPost,
   getUserInfo,
 } from "../core/services/user-info.ts";
-import HostAccount from "../takos/models/takos_host/account.ts";
+import HostAccount from "./models/takos/account.ts";
 import {
   parseActivityRequest,
   storeCreateActivity,
