@@ -5,18 +5,18 @@ import {
   getDomain,
   iriToHandle,
   jsonResponse,
-} from "../api/utils/activitypub.ts";
-import { createDB } from "../api/DB/mod.ts";
-import { broadcast, sendToUser } from "../api/routes/ws.ts";
+} from "../core/utils/activitypub.ts";
+import { createDB } from "@takos_host/db";
+import { broadcast, sendToUser } from "../core/routes/ws.ts";
 import {
   formatUserInfoForPost,
   getUserInfo,
-} from "../api/services/user-info.ts";
-import HostAccount from "../api/models/takos_host/account.ts";
+} from "../core/services/user-info.ts";
+import HostAccount from "../takos/models/takos_host/account.ts";
 import {
   parseActivityRequest,
   storeCreateActivity,
-} from "../api/utils/inbox.ts";
+} from "../core/utils/inbox.ts";
 import { announceToFollowers } from "./service_actor.ts";
 export function createRootActivityPubApp(env: Record<string, string>) {
   const app = new Hono();

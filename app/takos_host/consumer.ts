@@ -16,8 +16,8 @@ interface HostUserDoc {
   salt: string;
   createdAt: Date;
 }
-import { createDB } from "../api/DB/mod.ts";
-import { ensureTenant } from "../api/services/tenant.ts";
+import { createDB } from "@takos_host/db";
+import { ensureTenant } from "../core/services/tenant.ts";
 
 export function createConsumerApp(
   invalidate?: (host: string) => void,

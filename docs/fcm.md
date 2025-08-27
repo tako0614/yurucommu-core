@@ -4,9 +4,12 @@ Takos では Firebase Cloud Messaging
 を利用して通知を配信できます。クライアントには Firebase
 の設定情報を埋め込まず、サーバーから `/api/config` 経由で取得します。
 
+サーバー本体のロジックは `app/core` にあり、単体運用時は `app/takos`
+から、マルチテナント運用では `app/takos_host` からそれぞれ起動します。
+
 ## 必要な環境変数
 
--`app/api/.env` または takos host を利用する場合は `app/takos_host/.env` に
+-`app/takos/.env` または takos host を利用する場合は `app/takos_host/.env` に
 以下の値を設定してください。
 
 - `FIREBASE_CLIENT_EMAIL` – サービスアカウントの client_email

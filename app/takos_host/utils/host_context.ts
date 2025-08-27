@@ -1,20 +1,24 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import type { Context } from "hono";
 import { loadConfig } from "../../shared/config.ts";
-import { connectDatabase } from "../../api/DB/mongo_conn.ts";
+import {
+  connectDatabase,
+  createDB,
+  createMongoDataStore,
+  setStoreFactory,
+} from "@takos_host/db";
 import { getEnvPath } from "../../shared/args.ts";
-import { createTakosApp } from "../../api/server.ts";
-import { ensureTenant } from "../../api/services/tenant.ts";
-import { createDB, setStoreFactory } from "../../api/DB/mod.ts";
-import { createMongoDataStore } from "../../api/DB/mongo_store.ts";
-import { bootstrapDefaultFasp } from "../../api/services/fasp_bootstrap.ts";
-import { getSystemKey } from "../../api/services/system_actor.ts";
+import { createTakosApp } from "../../core/create_takos_app.ts";
+import { ensureTenant } from "../../core/services/tenant.ts";
+import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts";
+import { getSystemKey } from "../../core/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
 import { createConsumerApp } from "../consumer.ts";
 import { createAuthApp } from "../auth.ts";
 import oauthApp from "../oauth.ts";
 import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
+import type { DB } from "../../shared/db.ts";
 import Instance from "../models/instance.ts";
 import FaspClient from "../models/fasp_client.ts";
 import {
@@ -178,14 +182,14 @@ async function seedDefaultFasp(
   appEnv: Record<string, string>,
   host: string,
   defaultFaspBaseUrl: string,
+  tenantDb: DB,
 ) {
   if (!defaultFaspBaseUrl) return;
   try {
     const normalized = canonicalizeFaspBaseUrl(defaultFaspBaseUrl);
-    const tenantDb = createDB(appEnv);
     const mongo = await tenantDb.getDatabase();
     const fasps = mongo.collection("fasp_client_providers");
-    const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
+    const tenantId = tenantDb.tenantId;
     const exists = await fasps.findOne({
       tenant_id: tenantId,
       baseUrl: normalized,
@@ -236,8 +240,8 @@ export async function getAppForHost(
     // テナント環境用のシステム鍵を用意
     const tenantDb = createDB(appEnv);
     await getSystemKey(tenantDb, host).catch(() => {});
-    await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl);
-    const app = await createTakosApp(appEnv);
+    await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl, tenantDb);
+    const app = await createTakosApp(appEnv, tenantDb);
     apps.set(host, app);
     return app;
   })();
