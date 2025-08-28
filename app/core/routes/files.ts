@@ -2,16 +2,10 @@ import { Hono } from "hono";
 import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
 import { getEnv } from "@takos/config";
-import {
-  getFile,
-  getMessageAttachment,
-  initFileService,
-  saveFile,
-} from "../services/file.ts";
+import { getFile, getMessageAttachment, saveFile } from "../services/file.ts";
 
-export async function initFileModule(env: Record<string, string>) {
-  await initFileService(env);
-}
+// ストレージは DB API から注入されるため初期化は不要
+export async function initFileModule(_env: Record<string, string>) {}
 
 // すべて環境変数で制御するため、コード内のデフォルトは持たない
 

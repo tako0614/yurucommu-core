@@ -1,12 +1,11 @@
 import { createDB } from "../db/mod.ts";
-import { createStorage, type ObjectStorage } from "./object-storage.ts";
+import type { ObjectStorage } from "../storage/types.ts";
 import { b64ToBuf } from "@takos/buffer";
 
-let storage: ObjectStorage | undefined;
-
-export async function initFileService(env: Record<string, string>) {
+// core 側ではストレージ実装を保持しない。必要時に DB API から取得する。
+function getStorage(env: Record<string, string>): ObjectStorage {
   const db = createDB(env);
-  storage = await createStorage(env, db);
+  return db.storage as ObjectStorage;
 }
 
 export async function saveFile(
@@ -14,12 +13,12 @@ export async function saveFile(
   env: Record<string, string>,
   options: { mediaType?: string; key?: string; iv?: string; ext?: string } = {},
 ): Promise<{ id: string; url: string }> {
-  if (!storage) await initFileService(env);
+  const storage = getStorage(env);
   const mediaType = options.mediaType ?? "application/octet-stream";
   const ext = options.ext ?? "";
   const filename = `${crypto.randomUUID()}${ext}`;
   const storageKey = `files/${filename}`;
-  await storage!.put(storageKey, bytes);
+  await storage.put(storageKey, bytes);
   const domain = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const db = createDB(env);
   // ファイルIDはURLを含まないランダム文字列にする
@@ -37,7 +36,7 @@ export async function getFile(
   id: string,
   env: Record<string, string>,
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
-  if (!storage) await initFileService(env);
+  const storage = getStorage(env);
   const db = createDB(env);
   const doc = await db.findAttachmentById(id) as {
     content?: string;
@@ -52,7 +51,7 @@ export async function getFile(
     : undefined;
   let data: Uint8Array | null = null;
   if (storageKey) {
-    data = await storage!.get(storageKey);
+    data = await storage.get(storageKey);
   } else if (typeof doc.content === "string") {
     data = b64ToBuf(doc.content);
   }

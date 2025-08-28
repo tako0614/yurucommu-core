@@ -9,6 +9,7 @@ import HostSession from "../models/session.ts";
 import FaspClientSetting from "../../takos/models/takos/fasp_client_setting.ts";
 import mongoose from "mongoose";
 import type { Db } from "mongodb";
+import { createObjectStorage } from "../../takos/storage/providers.ts";
 
 /**
  * 既存の MongoDB 実装をホスト用 DataStore に束ねる実装。
@@ -19,7 +20,9 @@ export function createMongoDataStore(
 ): HostDataStore {
   const impl = new MongoDB(env);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  const storage = createObjectStorage(env, { getDb: () => impl.getDatabase() as Promise<Db> });
   return {
+    storage,
     multiTenant: options?.multiTenant === true,
     tenantId,
     accounts: {

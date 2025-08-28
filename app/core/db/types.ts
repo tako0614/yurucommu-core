@@ -7,6 +7,7 @@ import type {
   ListedGroup,
   SessionDoc,
 } from "@takos/types";
+import type { ObjectStorage } from "../storage/types.ts";
 
 export interface ListOpts {
   limit?: number;
@@ -207,6 +208,10 @@ export interface DataStore {
   sessions: SessionsRepo;
   fcm: FcmRepo;
   faspProviders: FaspProvidersRepo;
+  /**
+   * オブジェクトストレージ API（実装はホスト側で注入）
+   */
+  storage: ObjectStorage;
   /** 実装依存の生コネクション（必要時のみ使用） */
   raw?(): Promise<unknown>;
 }

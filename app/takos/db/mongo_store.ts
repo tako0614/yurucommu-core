@@ -1,5 +1,6 @@
 import type { DataStore, SortSpec } from "../../core/db/types.ts";
 import { MongoDB } from "./mongo.ts";
+import { createObjectStorage } from "../storage/providers.ts";
 
 /**
  * 既存の MongoDB 実装 (MongoDB クラス) を新しい DataStore に束ねる薄い実装。
@@ -8,7 +9,9 @@ export function createMongoDataStore(
   env: Record<string, string>,
 ): DataStore {
   const impl = new MongoDB(env);
+  const storage = createObjectStorage(env, { getDb: () => impl.getDatabase() });
   return {
+    storage,
     // 既存クラスのメソッドをドメインごとに束ねる
     accounts: {
       list: () => impl.listAccounts(),
