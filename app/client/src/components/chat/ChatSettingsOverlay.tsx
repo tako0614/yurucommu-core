@@ -273,6 +273,55 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     setInviteMsg("送信に失敗しました");
   };
 
+  // グループのアイコン変更（DataURL 送信）: ローカルはグループを更新、リモートはオーバーライド保存
+  const handleGroupIconChange = async (file: File) => {
+    if (!props.room || props.room.type !== "group") return;
+    if (!props.room.name) return;
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result));
+        fr.onerror = () => reject(new Error("failed to read file"));
+        fr.readAsDataURL(file);
+      });
+      const host = (() => { try { return new URL(props.room!.meta?.groupId || props.room!.id).hostname; } catch { return ""; } })();
+      const iconBody = { icon: { url: dataUrl } } as Record<string, unknown>;
+      if (host === getDomain()) {
+        const base = `/api/groups/${encodeURIComponent(props.room.name)}`;
+        const res1 = await apiFetch(base, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(iconBody),
+        });
+        if (!res1.ok) throw new Error("update failed");
+        await apiFetch(`${base}/actor`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(iconBody),
+        }).catch(() => {});
+      } else {
+        const me = accountValue();
+        if (!me) throw new Error("not logged in");
+        const handle = `${me.userName}@${getDomain()}`;
+        const gid = props.room.meta?.groupId || props.room.id;
+        const res = await apiFetch(`/api/groups/overrides`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ member: handle, groupId: gid, icon: dataUrl }),
+        });
+        if (!res.ok) throw new Error("update failed");
+      }
+      setRoomIcon(dataUrl);
+      props.onRoomUpdated?.({ avatar: dataUrl });
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // グループ退会
   const handleLeaveGroup = async () => {
     if (!props.room || props.room.type !== "group") return;
@@ -309,40 +358,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
 
-  // グループのアイコン変更（DataURL 送信）
-  const handleGroupIconChange = async (file: File) => {
-    if (!props.room || props.room.type !== "group") return;
-    if (!props.room.name) return;
-    setUploading(true);
-    try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result));
-        fr.onerror = () => reject(new Error("failed to read file"));
-        fr.readAsDataURL(file);
-      });
-      const body = { icon: { url: dataUrl } } as Record<string, unknown>;
-      const base = `/api/groups/${encodeURIComponent(props.room.name)}`;
-      const res1 = await apiFetch(base, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res1.ok) throw new Error("update failed");
-      await apiFetch(`${base}/actor`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).catch(() => {});
-      setRoomIcon(dataUrl);
-      props.onRoomUpdated?.({ avatar: dataUrl });
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setUploading(false);
-    }
-  };
+  
 
   createEffect(() => {
     if (props.isOpen) loadPendingInvites();

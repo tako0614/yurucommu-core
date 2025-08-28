@@ -631,7 +631,7 @@ export class MongoDB {
       return {
         id,
         name: (ov?.displayName && String(ov.displayName)) || g.groupName,
-        icon: typeof ov?.icon !== "undefined" ? ov.icon : icon,
+        icon: typeof ov?.icon === "string" ? ov.icon : icon,
         members: g.followers,
       };
     });
@@ -735,7 +735,7 @@ export class MongoDB {
         res.push({
           id,
           name: (ov?.displayName && String(ov.displayName)) || r.preferredUsername || r.name || r.actorUrl,
-          icon: typeof ov?.icon !== "undefined" ? ov.icon : icon,
+          icon: typeof ov?.icon === "string" ? ov.icon : icon,
           members: followersMap.get(r.actorUrl) ?? [],
         });
       }
@@ -743,7 +743,7 @@ export class MongoDB {
         if (!found.has(id)) {
           // followers は未取得
           const ov = acc?.groupOverrides?.[id];
-          res.push({ id, name: (ov?.displayName && String(ov.displayName)) || id, icon: typeof ov?.icon !== "undefined" ? ov.icon : undefined, members: [] });
+          res.push({ id, name: (ov?.displayName && String(ov.displayName)) || id, icon: typeof ov?.icon === "string" ? ov.icon : undefined, members: [] });
         }
       }
     }
