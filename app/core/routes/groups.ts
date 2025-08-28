@@ -711,6 +711,44 @@ app.post(
   },
 );
 
+// リモートグループへ参加（ローカルユーザー → リモートGroup）
+app.post(
+  "/api/groups/joinRemote",
+  zValidator(
+    "json",
+    z.object({ member: z.string(), groupId: z.string().url() }),
+  ),
+  async (c) => {
+    const { member, groupId } = c.req.valid("json") as {
+      member: string;
+      groupId: string;
+    };
+    const [user, host] = member.split("@");
+    const domain = getDomain(c);
+    if (!user || !host) return c.json({ error: "member の形式が正しくありません" }, 400);
+    if (host !== domain) return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+    const env = getEnv(c);
+    try {
+      const join = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/activities/${crypto.randomUUID()}`,
+        type: "Join" as const,
+        actor: `https://${domain}/users/${user}`,
+        object: groupId,
+        to: [groupId],
+      };
+      await sendActivityPubObject(groupId, join, user, domain, env);
+      // アカウントの groups に追加して一覧に出せるようにする
+      const db = getDB(c);
+      await db.accounts.updateByUserName(user, { $addToSet: { groups: groupId } });
+      return c.json({ ok: true });
+    } catch (err) {
+      console.error("joinRemote failed", err);
+      return c.json({ error: "送信に失敗しました" }, 500);
+    }
+  },
+);
+
 app.post(
   "/api/groups/:name/approvals",
   zValidator(

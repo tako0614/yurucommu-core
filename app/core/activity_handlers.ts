@@ -9,6 +9,8 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
+import { createDB } from "./db/mod.ts";
+import { resolveRemoteActor } from "./utils/activitypub.ts";
 
 export type ActivityHandler = (
   activity: Record<string, unknown>,
@@ -279,5 +281,79 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         console.error("Delivery failed:", err);
       },
     );
+  },
+
+  async Invite(
+    activity: Record<string, unknown>,
+    username: string,
+    c: unknown,
+  ) {
+    // 招待（グループ → ローカルユーザー）。通知を作成して WS で配信。
+    try {
+      const env = (c as { get: (k: string) => unknown }).get("env") as Record<
+        string,
+        string
+      >;
+      const db = createDB(env);
+      const account = await db.accounts.findByUserName(username);
+      if (!account) return;
+
+      // group actor は activity.actor、フォールバックとして activity.target
+      const groupActor = typeof activity.actor === "string"
+        ? activity.actor
+        : (typeof (activity as { target?: unknown }).target === "string"
+          ? (activity as { target: string }).target
+          : "");
+      if (!groupActor) return;
+
+      // 可能ならリモートアクター情報を取得して表示名等を補完（失敗しても続行）
+      let displayName = "";
+      let preferred = "";
+      try {
+        const doc = await resolveRemoteActor(groupActor, env);
+        const res = await fetch(doc.id, {
+          headers: {
+            Accept:
+              'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+          },
+        });
+        if (res.ok) {
+          const actor = await res.json() as {
+            name?: string;
+            preferredUsername?: string;
+          };
+          displayName = actor.name ?? "";
+          preferred = actor.preferredUsername ?? "";
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const groupName = preferred || (() => {
+        try {
+          const u = new URL(groupActor);
+          return u.pathname.split("/").pop() || "";
+        } catch {
+          return "";
+        }
+      })();
+
+      await db.notifications.create(
+        (account as { _id: string })._id,
+        "グループ招待",
+        JSON.stringify({
+          kind: "group-invite",
+          groupId: groupActor,
+          groupName,
+          displayName: displayName || groupName || groupActor,
+          inviter: groupActor,
+        }),
+        "group-invite",
+      );
+      const domain = getDomain(c as Context);
+      sendToUser(`${username}@${domain}`, { type: "notification" });
+    } catch (err) {
+      console.error("Invite handler failed:", err);
+    }
   },
 };

@@ -1984,16 +1984,28 @@ export function Chat() {
                 try {
                   const user = account();
                   if (!user) return;
-                  const gname = room.meta?.groupName || room.name;
                   const handle = `${user.userName}@${getDomain()}`;
-                  const res = await apiFetch(
-                    `/api/groups/${encodeURIComponent(gname)}/join`,
-                    {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ member: handle }),
-                    },
-                  );
+                  const gid = room.meta?.groupId || room.id;
+                  const host = (() => { try { return new URL(gid).hostname; } catch { return null; } })();
+                  const isLocal = host === getDomain();
+                  const gname = room.meta?.groupName || room.name;
+                  const res = isLocal && gname
+                    ? await apiFetch(
+                      `/api/groups/${encodeURIComponent(gname)}/join`,
+                      {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ member: handle }),
+                      },
+                    )
+                    : await apiFetch(
+                      `/api/groups/joinRemote`,
+                      {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ member: handle, groupId: gid }),
+                      },
+                    );
                   if (res.ok) {
                     if (room.meta?.notificationId) {
                       await apiFetch(
