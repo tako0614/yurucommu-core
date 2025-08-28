@@ -5,10 +5,6 @@
 // 外部モジュール
 import { ensureDir } from "@std/fs";
 import { dirname, join } from "@std/path";
-import { type Db, GridFSBucket } from "mongodb";
-import { once } from "node:events";
-import { Buffer } from "node:buffer";
-import type { R2Bucket } from "@cloudflare/workers-types";
 
 // 内部ユーティリティ
 
@@ -18,11 +14,17 @@ export interface ObjectStorage {
   delete(key: string): Promise<void>;
 }
 
+interface R2Bucket {
+  put(key: string, data: Uint8Array): Promise<unknown>;
+  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  delete(key: string): Promise<void>;
+}
+
 /* ==========================
    LocalStorage 実装
    ========================== */
 
-export class LocalStorage implements ObjectStorage {
+class LocalStorage implements ObjectStorage {
   constructor(private baseDir: string) {}
 
   async put(key: string, data: Uint8Array): Promise<string> {
@@ -51,7 +53,7 @@ export class LocalStorage implements ObjectStorage {
    R2Storage 実装
    ========================== */
 
-export class R2Storage implements ObjectStorage {
+class R2Storage implements ObjectStorage {
   constructor(private bucket: R2Bucket) {}
 
   async put(key: string, data: Uint8Array): Promise<string> {
@@ -68,51 +70,6 @@ export class R2Storage implements ObjectStorage {
 
   async delete(key: string): Promise<void> {
     await this.bucket.delete(key);
-  }
-}
-
-/* ==========================
-   GridFSStorage 実装
-   ========================== */
-
-export class GridFSStorage implements ObjectStorage {
-  private bucket: GridFSBucket;
-  constructor(db: Db, bucketName: string) {
-    this.bucket = new GridFSBucket(db, { bucketName });
-  }
-
-  async put(key: string, data: Uint8Array): Promise<string> {
-    const stream = this.bucket.openUploadStream(key);
-    stream.end(Buffer.from(data));
-    await once(stream, "finish");
-    return key;
-  }
-
-  async get(key: string): Promise<Uint8Array | null> {
-    const download = this.bucket.openDownloadStreamByName(key);
-    const chunks: Uint8Array[] = [];
-    try {
-      for await (const chunk of download) {
-        chunks.push(chunk as Buffer);
-      }
-      const size = chunks.reduce((s, c) => s + c.length, 0);
-      const data = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        data.set(chunk, offset);
-        offset += chunk.length;
-      }
-      return data;
-    } catch {
-      return null;
-    }
-  }
-
-  async delete(key: string): Promise<void> {
-    const files = await this.bucket.find({ filename: key }).toArray();
-    for (const file of files) {
-      await this.bucket.delete(file._id).catch(() => {});
-    }
   }
 }
 
@@ -147,7 +104,8 @@ export async function createStorage(
     }
     const bucketName = e["GRIDFS_BUCKET"] || "uploads";
     const native = await db.raw();
-    return new GridFSStorage(native as Db, bucketName);
+    const { GridFSStorage } = await import("./object-storage/gridfs.ts");
+    return new GridFSStorage(native, bucketName);
   }
   const dir = e["LOCAL_STORAGE_DIR"] || "uploads";
   return new LocalStorage(dir);

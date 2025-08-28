@@ -4,6 +4,8 @@ import Tenant from "../models/tenant.ts";
 import Instance from "../models/instance.ts";
 import OAuthClient from "../models/oauth_client.ts";
 import HostDomain from "../models/domain.ts";
+import HostUser from "../models/user.ts";
+import HostSession from "../models/session.ts";
 import mongoose from "mongoose";
 import type { Db } from "mongodb";
 
@@ -124,6 +126,145 @@ export function createMongoDataStore(
       register: (t, u) => impl.registerFcmToken(t, u),
       unregister: (t) => impl.unregisterFcmToken(t),
       list: () => impl.listFcmTokens(),
+    },
+    hostUsers: {
+      findByUserName: async (userName) => {
+        const doc = await HostUser.findOne({ userName })
+          .lean<
+            | {
+              _id: mongoose.Types.ObjectId;
+              userName: string;
+              email: string;
+              emailVerified: boolean;
+              verifyCode?: string;
+              verifyCodeExpires?: Date;
+              hashedPassword: string;
+              salt: string;
+            }
+            | null
+          >();
+        return doc
+          ? {
+            _id: String(doc._id),
+            userName: doc.userName,
+            email: doc.email,
+            emailVerified: doc.emailVerified,
+            verifyCode: doc.verifyCode,
+            verifyCodeExpires: doc.verifyCodeExpires,
+            hashedPassword: doc.hashedPassword,
+            salt: doc.salt,
+          }
+          : null;
+      },
+      findByUserNameOrEmail: async (userName, email) => {
+        const doc = await HostUser.findOne({
+          $or: [{ userName }, { email }],
+        })
+          .lean<
+            | {
+              _id: mongoose.Types.ObjectId;
+              userName: string;
+              email: string;
+              emailVerified: boolean;
+              verifyCode?: string;
+              verifyCodeExpires?: Date;
+              hashedPassword: string;
+              salt: string;
+            }
+            | null
+          >();
+        return doc
+          ? {
+            _id: String(doc._id),
+            userName: doc.userName,
+            email: doc.email,
+            emailVerified: doc.emailVerified,
+            verifyCode: doc.verifyCode,
+            verifyCodeExpires: doc.verifyCodeExpires,
+            hashedPassword: doc.hashedPassword,
+            salt: doc.salt,
+          }
+          : null;
+      },
+      create: async (data) => {
+        const doc = new HostUser({
+          userName: data.userName,
+          email: data.email,
+          hashedPassword: data.hashedPassword,
+          salt: data.salt,
+          verifyCode: data.verifyCode,
+          verifyCodeExpires: data.verifyCodeExpires,
+          emailVerified: data.emailVerified ?? false,
+          createdAt: new Date(),
+        });
+        await doc.save();
+        return {
+          _id: String(doc._id),
+          userName: doc.userName,
+          email: doc.email,
+          emailVerified: doc.emailVerified,
+          verifyCode: doc.verifyCode,
+          verifyCodeExpires: doc.verifyCodeExpires,
+          hashedPassword: doc.hashedPassword,
+          salt: doc.salt,
+        };
+      },
+      update: async (id, data) => {
+        const set: Record<string, unknown> = {};
+        const unset: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(data)) {
+          if (v === undefined || v === null) unset[k] = "";
+          else set[k] = v;
+        }
+        const update: Record<string, unknown> = {};
+        if (Object.keys(set).length) update.$set = set;
+        if (Object.keys(unset).length) update.$unset = unset;
+        await HostUser.updateOne(
+          { _id: new mongoose.Types.ObjectId(id) },
+          update,
+        );
+      },
+    },
+    hostSessions: {
+      findById: async (sessionId) => {
+        const doc = await HostSession.findOne({ sessionId })
+          .lean<
+            | {
+              _id: mongoose.Types.ObjectId;
+              sessionId: string;
+              expiresAt: Date;
+              user: mongoose.Types.ObjectId;
+            }
+            | null
+          >();
+        return doc
+          ? {
+            _id: String(doc._id),
+            sessionId: doc.sessionId,
+            expiresAt: doc.expiresAt,
+            user: String(doc.user),
+          }
+          : null;
+      },
+      create: async (data) => {
+        const doc = new HostSession({
+          sessionId: data.sessionId,
+          user: new mongoose.Types.ObjectId(data.user),
+          expiresAt: data.expiresAt,
+          createdAt: new Date(),
+        });
+        await doc.save();
+        return {
+          _id: String(doc._id),
+          sessionId: doc.sessionId,
+          expiresAt: doc.expiresAt,
+          user: String(doc.user),
+        };
+      },
+      update: async (sessionId, data) => {
+        await HostSession.updateOne({ sessionId }, { $set: data });
+      },
+      delete: (sessionId) => HostSession.deleteOne({ sessionId }),
     },
     tenant: {
       ensure: async (id, domain) => {

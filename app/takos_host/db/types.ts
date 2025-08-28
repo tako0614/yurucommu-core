@@ -58,6 +58,69 @@ export interface FaspProvidersRepo {
   updateSecret(baseUrl: string, secret: string): Promise<void>;
 }
 
+// ホスト管理ユーザー操作用リポジトリ
+export interface HostUserData {
+  _id: string;
+  userName: string;
+  email: string;
+  emailVerified: boolean;
+  verifyCode?: string;
+  verifyCodeExpires?: Date;
+  hashedPassword: string;
+  salt: string;
+}
+
+export interface HostUserRepo {
+  findByUserName(userName: string): Promise<HostUserData | null>;
+  findByUserNameOrEmail(
+    userName: string,
+    email: string,
+  ): Promise<HostUserData | null>;
+  create(data: {
+    userName: string;
+    email: string;
+    hashedPassword: string;
+    salt: string;
+    verifyCode: string;
+    verifyCodeExpires: Date;
+    emailVerified?: boolean;
+  }): Promise<HostUserData>;
+  update(
+    id: string,
+    data: Partial<{
+      userName: string;
+      email: string;
+      hashedPassword: string;
+      salt: string;
+      verifyCode: string | null;
+      verifyCodeExpires: Date | null;
+      emailVerified: boolean;
+    }>,
+  ): Promise<void>;
+}
+
+// ホスト管理セッション操作用リポジトリ
+export interface HostSessionData {
+  _id?: string;
+  sessionId: string;
+  expiresAt: Date;
+  user: string;
+}
+
+export interface HostSessionRepo {
+  findById(sessionId: string): Promise<HostSessionData | null>;
+  create(data: {
+    sessionId: string;
+    user: string;
+    expiresAt: Date;
+  }): Promise<HostSessionData>;
+  update(
+    sessionId: string,
+    data: { expiresAt: Date },
+  ): Promise<void>;
+  delete(sessionId: string): Promise<void>;
+}
+
 export interface HostDataStore extends DataStore {
   tenantId: string;
   multiTenant: boolean;
@@ -66,4 +129,6 @@ export interface HostDataStore extends DataStore {
   oauth: OAuthRepo;
   domains: DomainsRepo;
   faspProviders: FaspProvidersRepo;
+  hostUsers: HostUserRepo;
+  hostSessions: HostSessionRepo;
 }

@@ -6,6 +6,10 @@ export type {
   FaspProvidersRepo,
   HostDataStore,
   HostRepo,
+  HostSessionData,
+  HostSessionRepo,
+  HostUserData,
+  HostUserRepo,
   OAuthRepo,
   TenantRepo,
 } from "./types.ts";
