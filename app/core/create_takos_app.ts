@@ -29,9 +29,8 @@ import { fetchOgpData } from "./services/ogp.ts";
 import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
-import { deleteCookie, getCookie } from "hono/cookie";
-import { issueSession } from "./utils/session.ts";
 import dms from "./routes/dms.ts";
+import { handleOAuthCallback } from "./utils/oauth_callback.ts";
 // DB 依存を避けるため、createTakosApp 本体は DB 生成や操作を行わない
 
 const isDev = Deno.env.get("DEV") === "1";
@@ -89,65 +88,7 @@ export async function createTakosApp(
     app.route("/", r);
   }
 
-  // OAuth landing handler: intercept /?code=... and perform server-side exchange
-  app.use("/*", async (c: Context, next: () => Promise<void>) => {
-    try {
-      if (c.req.method !== "GET") return await next();
-      const code = c.req.query("code");
-      const state = c.req.query("state") ?? "";
-      if (!code) return await next();
-      const env = (c as unknown as { get: (k: string) => unknown }).get(
-        "env",
-      ) as Record<string, string>;
-      const host = env["OAUTH_HOST"];
-      const clientId = env["OAUTH_CLIENT_ID"];
-      const clientSecret = env["OAUTH_CLIENT_SECRET"];
-      if (!host || !clientId || !clientSecret) return await next();
-      const stateCookie = getCookie(c, "oauthState") ?? "";
-      if (!state || !stateCookie || state !== stateCookie) return await next();
-      // Clear state cookie
-      deleteCookie(c, "oauthState", { path: "/" });
-      const xfProto = c.req.header("x-forwarded-proto");
-      const xfHost = c.req.header("x-forwarded-host");
-      let origin: string;
-      if (xfProto && xfHost) {
-        origin = `${xfProto.split(",")[0].trim()}://${
-          xfHost.split(",")[0].trim()
-        }`;
-      } else {
-        const u = new URL(c.req.url);
-        origin = `${u.protocol}//${u.host}`;
-      }
-      const redirectUri = origin;
-      const base = host.startsWith("http") ? host : `https://${host}`;
-      const form = new URLSearchParams();
-      form.set("grant_type", "authorization_code");
-      form.set("code", code);
-      form.set("client_id", clientId);
-      form.set("client_secret", clientSecret);
-      form.set("redirect_uri", redirectUri);
-      const tokenRes = await fetch(`${base}/oauth/token`, {
-        method: "POST",
-        body: form,
-      });
-      if (!tokenRes.ok) return await next();
-      const tokenData = await tokenRes.json() as { access_token?: string };
-      if (!tokenData.access_token) return await next();
-      const verifyRes = await fetch(`${base}/oauth/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: tokenData.access_token }),
-      });
-      if (!verifyRes.ok) return await next();
-      const v = await verifyRes.json();
-      if (!v.active) return await next();
-      await issueSession(c);
-      return c.redirect("/");
-    } catch (_e) {
-      // ignore and pass through to static
-      await next();
-    }
-  });
+  app.use("/*", handleOAuthCallback);
 
   app.get("/api/ogp", async (c) => {
     const url = c.req.query("url");
