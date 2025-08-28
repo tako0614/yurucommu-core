@@ -28,7 +28,7 @@ import { ChatMessageList } from "./chat/ChatMessageList.tsx";
 import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 // GroupCreateDialog removed from this view; creation flows via ChatRoomList
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
-import { b64ToBuf, bufToB64 } from "../../../shared/buffer.ts";
+import { b64ToBuf, bufToB64 } from "@takos/buffer";
 import {
   fetchDirectMessages as _fetchDirectMessages,
   sendDirectMessage,

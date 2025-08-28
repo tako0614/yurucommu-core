@@ -15,10 +15,14 @@
     "@takos/config": "../packages/config/mod.ts",
     "@takos/crypto": "../packages/crypto/mod.ts",
     "@core/": "../core/",
-    "@shared/": "../shared/"
+    "@takos/auth": "../packages/auth/mod.ts",
+    "@takos/buffer": "../packages/buffer/mod.ts",
+    "@takos/url": "../packages/url/mod.ts",
+    "@takos/firebase": "../packages/firebase/mod.ts"
   },
   "tasks": {
-    "dev": "deno run -A --unstable-worker-options --watch --no-prompt --unsafely-ignore-certificate-errors index.ts --"
+    "dev": "deno run -A --unstable-worker-options --watch --no-prompt --unsafely-ignore-certificate-errors index.ts --",
+    "start": "deno run -A index.ts"
   },
-  "nodeModulesDir": true
+  "nodeModulesDir": "auto"
 }

@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "serve": "deno run -A --unstable-detect-cjs --watch --unsafely-ignore-certificate-errors main.ts --",
+    "start": "deno run -A main.ts --",
     "dev": "deno run -A --unstable-detect-cjs --unsafely-ignore-certificate-errors dev.ts --",
     "build": "deno task --cwd app/takos_host/client build",
     "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
@@ -30,8 +30,7 @@
     "@takos/url": "../packages/url/mod.ts",
     "@takos/firebase": "../packages/firebase/mod.ts",
     "@takos/types": "../packages/types/mod.ts",
-    "@core/": "../core/",
-    "@shared/": "../shared/"
+    "@core/": "../core/"
   },
   "nodeModulesDir": "auto"
 }

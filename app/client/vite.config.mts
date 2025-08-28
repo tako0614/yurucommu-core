@@ -34,6 +34,8 @@ export default defineConfig({
       "solid-js": resolve(__dirname, "node_modules/solid-js"),
       "solid-js/web": resolve(__dirname, "node_modules/solid-js/web"),
       "solid-js/store": resolve(__dirname, "node_modules/solid-js/store"),
+      "@takos/buffer": resolve(__dirname, "../packages/buffer/mod.ts"),
+      "@takos/url": resolve(__dirname, "../packages/url/mod.ts"),
     },
   },
 });

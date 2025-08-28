@@ -1,1 +1,1 @@
-export { isUrl } from "../../../shared/url.ts";
+export { isUrl } from "@takos/url";

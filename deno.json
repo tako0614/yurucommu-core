@@ -8,8 +8,8 @@
     "dev:host": "deno task --cwd app/takos_host dev",
     "build:host": "deno task --cwd app/takos_host/client build",
     "build:client": "deno task --cwd app/client build",
-    "start:takos": "deno run -A app/takos/index.ts",
-    "start:host": "deno run -A app/takos_host/main.ts"
+    "start:takos": "deno task --cwd app/takos start",
+    "start:host": "deno task --cwd app/takos_host start"
   },
   "nodeModulesDir": "auto"
 }
