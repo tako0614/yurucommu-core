@@ -3,6 +3,7 @@ export { createMongoDataStore } from "./mongo_store.ts";
 export { createDB, setStoreFactory } from "../../core/db/mod.ts";
 export type {
   DomainsRepo,
+  FaspProvidersRepo,
   HostDataStore,
   HostRepo,
   OAuthRepo,

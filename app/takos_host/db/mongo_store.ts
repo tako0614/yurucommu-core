@@ -5,6 +5,7 @@ import Instance from "../models/instance.ts";
 import OAuthClient from "../models/oauth_client.ts";
 import HostDomain from "../models/domain.ts";
 import type mongoose from "mongoose";
+import type { Db } from "mongodb";
 
 /**
  * 既存の MongoDB 実装をホスト用 DataStore に束ねる実装。
@@ -283,6 +284,40 @@ export function createMongoDataStore(
       },
       verify: (id) =>
         HostDomain.updateOne({ _id: id }, { $set: { verified: true } }),
+    },
+    faspProviders: {
+      findByBaseUrl: async (baseUrl) => {
+        const db = await impl.getDatabase() as Db;
+        const col = db.collection("fasp_client_providers");
+        const doc = await col.findOne<{ secret?: string }>({
+          tenant_id: tenantId,
+          baseUrl,
+        });
+        return doc ? { secret: doc.secret } : null;
+      },
+      createDefault: async (data) => {
+        const db = await impl.getDatabase() as Db;
+        const col = db.collection("fasp_client_providers");
+        await col.insertOne({
+          name: data.name,
+          baseUrl: data.baseUrl,
+          serverId: data.serverId,
+          status: "approved",
+          capabilities: {},
+          secret: data.secret,
+          tenant_id: tenantId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      },
+      updateSecret: async (baseUrl, secret) => {
+        const db = await impl.getDatabase() as Db;
+        const col = db.collection("fasp_client_providers");
+        await col.updateOne(
+          { tenant_id: tenantId, baseUrl },
+          { $set: { secret, updatedAt: new Date() } },
+        );
+      },
     },
     raw: () => impl.getDatabase(),
     // 互換用: 旧 API で使用していた getDatabase を残す

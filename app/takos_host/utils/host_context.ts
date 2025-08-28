@@ -17,7 +17,6 @@ import { createAuthApp } from "../auth.ts";
 import oauthApp from "../oauth.ts";
 import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
-import type { DataStore } from "../../core/db/types.ts";
 import type { HostDataStore } from "../db/types.ts";
 import Instance from "../models/instance.ts";
 import FaspClient from "../models/fasp_client.ts";
@@ -181,37 +180,23 @@ async function seedDefaultFasp(
   appEnv: Record<string, string>,
   host: string,
   defaultFaspBaseUrl: string,
-  tenantDb: DataStore,
+  tenantDb: HostDataStore,
 ) {
   if (!defaultFaspBaseUrl) return;
   try {
     const normalized = canonicalizeFaspBaseUrl(defaultFaspBaseUrl);
-    // deno-lint-ignore no-explicit-any
-    const mongo = await tenantDb.raw?.() as any;
-    const fasps = mongo.collection("fasp_client_providers");
-    const tenantId = appEnv["ACTIVITYPUB_DOMAIN"] ?? "";
-    const exists = await fasps.findOne({
-      tenant_id: tenantId,
-      baseUrl: normalized,
-    });
-    const secret = (exists?.secret as string | undefined) ??
+    const existing = await tenantDb.faspProviders.findByBaseUrl(normalized);
+    const secret = existing?.secret ??
       btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
-    if (!exists) {
-      await fasps.insertOne({
+    if (!existing) {
+      await tenantDb.faspProviders.createDefault({
         name: normalized,
         baseUrl: normalized,
         serverId: `default:${crypto.randomUUID()}`,
-        status: "approved",
-        capabilities: {},
         secret,
-        tenant_id: tenantId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       });
-    } else if (!exists.secret) {
-      await fasps.updateOne({ _id: exists._id, tenant_id: tenantId }, {
-        $set: { secret, updatedAt: new Date() },
-      });
+    } else if (!existing.secret) {
+      await tenantDb.faspProviders.updateSecret(normalized, secret);
     }
     await FaspClient.updateOne({ tenant: host }, {
       $set: { tenant: host, secret },
@@ -238,7 +223,7 @@ export async function getAppForHost(
     const db = createDB(ctx.hostEnv) as HostDataStore;
     await db.tenant.ensure(host, host);
     // テナント環境用のシステム鍵を用意
-    const tenantDb = createDB(appEnv);
+    const tenantDb = createDB(appEnv) as HostDataStore;
     await getSystemKey(tenantDb, host).catch(() => {});
     await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl, tenantDb);
     const app = await createTakosApp(appEnv, tenantDb);
