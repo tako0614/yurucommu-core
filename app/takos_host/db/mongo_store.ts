@@ -4,7 +4,7 @@ import Tenant from "../models/tenant.ts";
 import Instance from "../models/instance.ts";
 import OAuthClient from "../models/oauth_client.ts";
 import HostDomain from "../models/domain.ts";
-import type mongoose from "mongoose";
+import mongoose from "mongoose";
 import type { Db } from "mongodb";
 
 /**
@@ -125,50 +125,6 @@ export function createMongoDataStore(
       unregister: (t) => impl.unregisterFcmToken(t),
       list: () => impl.listFcmTokens(),
     },
-    faspProviders: {
-      getSettings: async () => {
-        const mongo = await impl.getDatabase();
-        const doc = await mongo.collection("fasp_client_settings").findOne({
-          _id: "default",
-        }).catch(() => null);
-        return doc as
-          | {
-            shareEnabled?: boolean;
-            shareServerIds?: string[];
-            searchServerId?: string | null;
-          }
-          | null;
-      },
-      list: async (filter) => {
-        const mongo = await impl.getDatabase();
-        return await mongo.collection("fasp_client_providers").find(filter)
-          .toArray();
-      },
-      findOne: async (filter) => {
-        const mongo = await impl.getDatabase();
-        return await mongo.collection("fasp_client_providers").findOne(filter);
-      },
-      upsertByBaseUrl: async (baseUrl, set, setOnInsert) => {
-        const mongo = await impl.getDatabase();
-        const update: Record<string, unknown> = { $set: set };
-        if (setOnInsert) update.$setOnInsert = setOnInsert;
-        await mongo.collection("fasp_client_providers").updateOne(
-          { baseUrl },
-          update,
-          { upsert: true },
-        );
-      },
-      updateByBaseUrl: async (baseUrl, update) => {
-        const mongo = await impl.getDatabase();
-        const res = await mongo.collection("fasp_client_providers")
-          .findOneAndUpdate(
-            { baseUrl },
-            { $set: update },
-            { returnDocument: "after" },
-          );
-        return res.value as unknown | null;
-      },
-    },
     tenant: {
       ensure: async (id, domain) => {
         const exists = await Tenant.findOne({ _id: id }).lean();
@@ -180,11 +136,14 @@ export function createMongoDataStore(
     },
     host: {
       listInstances: async (owner) => {
-        const docs = await Instance.find({ owner })
+        const docs = await Instance.find({
+          owner: new mongoose.Types.ObjectId(owner),
+        })
           .lean<{ host: string }[]>();
         return docs.map((d) => ({ host: d.host }));
       },
-      countInstances: (owner) => Instance.countDocuments({ owner }),
+      countInstances: (owner) =>
+        Instance.countDocuments({ owner: new mongoose.Types.ObjectId(owner) }),
       findInstanceByHost: async (host) => {
         const doc = await Instance.findOne({ host })
           .lean<
@@ -205,7 +164,10 @@ export function createMongoDataStore(
           : null;
       },
       findInstanceByHostAndOwner: async (host, owner) => {
-        const doc = await Instance.findOne({ host, owner })
+        const doc = await Instance.findOne({
+          host,
+          owner: new mongoose.Types.ObjectId(owner),
+        })
           .lean<
             {
               _id: mongoose.Types.ObjectId;
@@ -220,15 +182,21 @@ export function createMongoDataStore(
       createInstance: async (data) => {
         const doc = new Instance({
           host: data.host,
-          owner: data.owner,
+          owner: new mongoose.Types.ObjectId(data.owner),
           env: data.env ?? {},
           createdAt: new Date(),
         });
         await doc.save();
       },
       updateInstanceEnv: (id, env) =>
-        Instance.updateOne({ _id: id }, { $set: { env } }),
-      deleteInstance: (host, owner) => Instance.deleteOne({ host, owner }),
+        Instance.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
+          $set: { env },
+        }),
+      deleteInstance: (host, owner) =>
+        Instance.deleteOne({
+          host,
+          owner: new mongoose.Types.ObjectId(owner),
+        }),
     },
     oauth: {
       list: async () => {
@@ -256,13 +224,15 @@ export function createMongoDataStore(
     },
     domains: {
       list: async (user) => {
-        const docs = await HostDomain.find({ user })
+        const docs = await HostDomain.find({
+          user: new mongoose.Types.ObjectId(user),
+        })
           .lean<{ domain: string; verified: boolean }[]>();
         return docs.map((d) => ({ domain: d.domain, verified: d.verified }));
       },
       find: async (domain, user?) => {
         const cond: Record<string, unknown> = { domain };
-        if (user) cond.user = user;
+        if (user) cond.user = new mongoose.Types.ObjectId(user);
         const doc = await HostDomain.findOne(cond)
           .lean<
             | { _id: mongoose.Types.ObjectId; token: string; verified: boolean }
@@ -275,7 +245,7 @@ export function createMongoDataStore(
       create: async (domain, user, token) => {
         const doc = new HostDomain({
           domain,
-          user,
+          user: new mongoose.Types.ObjectId(user),
           token,
           verified: false,
           createdAt: new Date(),
@@ -283,7 +253,9 @@ export function createMongoDataStore(
         await doc.save();
       },
       verify: (id) =>
-        HostDomain.updateOne({ _id: id }, { $set: { verified: true } }),
+        HostDomain.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
+          $set: { verified: true },
+        }),
     },
     faspProviders: {
       findByBaseUrl: async (baseUrl) => {
