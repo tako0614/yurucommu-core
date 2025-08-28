@@ -25,7 +25,7 @@ export interface DirectMessageDoc {
   id: string;
   name: string;
   icon?: string;
-  members: string[];
+  // members removed: room identity is owner+id
 }
 
 export interface GroupDoc {

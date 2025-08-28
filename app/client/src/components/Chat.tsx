@@ -1151,6 +1151,7 @@ export function Chat() {
       (r.members ?? []).filter((m) => m && m !== selfHandle);
 
     // 暫定表示: members が空のグループルームは pending 招待から1名だけでも補完
+    const fallbackMap = new Map<string, string>();
     for (const r of rooms) {
       try {
         if ((r.members?.length ?? 0) === 0 && r.type === "group") {
@@ -1159,12 +1160,19 @@ export function Chat() {
             !!m && m !== selfHandle
           ) as string[];
           if (cand.length > 0) {
-            r.members = [cand[0]];
+            fallbackMap.set(r.id, cand[0]);
           }
         }
       } catch {
         // ignore
       }
+    }
+    if (fallbackMap.size > 0) {
+      setChatRooms((prev) => prev.map((r) =>
+        fallbackMap.has(r.id) && (r.members?.length ?? 0) === 0 && r.type === "group"
+          ? { ...r, members: [fallbackMap.get(r.id)!] }
+          : r
+      ));
     }
     const totalMembers = (r: Room) => 1 + uniqueOthers(r).length; // 自分+その他
     // 事前補正: 2人想定で名前が自分の表示名/ユーザー名のときは未命名として扱う
@@ -2623,11 +2631,12 @@ async function _addRoom(
 ): Promise<string | undefined> {
   try {
     if (_room.type === "dm") {
-      await apiFetch(`/api/dms`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner: _handle, ..._room }),
-      });
+        await apiFetch(`/api/dms`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // do not send `members` (server no longer accepts/stores it)
+          body: JSON.stringify({ owner: _handle, id: _room.id, name: _room.name }),
+        });
       return _room.id;
     } else if (_room.type === "group") {
       const res = await apiFetch(`/api/groups`, {

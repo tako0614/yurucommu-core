@@ -6,7 +6,7 @@ const directMessageSchema = new mongoose.Schema({
   id: { type: String, required: true }, // 相手ユーザーまたはグループID
   name: { type: String, default: "" },
   icon: { type: String, default: "" },
-  members: { type: [String], default: [] }, // 参加者一覧
+  // Note: members removed — direct message rooms are identified by owner+id
 });
 
 directMessageSchema.index({ owner: 1, id: 1 }, { unique: true });

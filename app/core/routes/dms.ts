@@ -20,7 +20,6 @@ app.get("/dms", async (c) => {
     owner: r.owner,
     name: r.name,
     icon: r.icon,
-    members: r.members ?? [],
   }));
   return c.json(formatted);
 });
@@ -33,22 +32,19 @@ app.post(
       owner: z.string(),
       id: z.string(),
       name: z.string(),
-      members: z.array(z.string()).optional(),
     }),
   ),
   async (c) => {
-    const { owner, id, name, members = [] } = c.req.valid("json") as {
+    const { owner, id, name } = c.req.valid("json") as {
       owner: string;
       id: string;
       name: string;
-      members?: string[];
     };
     const db = getDB(c);
     const room = await db.dms.create({
       owner,
       id,
       name,
-      members,
     });
     return c.json(room);
   },

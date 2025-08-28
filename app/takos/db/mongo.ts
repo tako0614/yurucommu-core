@@ -568,6 +568,7 @@ export class MongoDB {
   }
 
   async listDirectMessages(owner: string) {
+    // DirectMessage schema no longer stores members; return available fields
     return await DirectMessage.find({ owner })
       .lean<DirectMessageDoc[]>();
   }
@@ -580,7 +581,6 @@ export class MongoDB {
         $set: {
           name: data.name,
           icon: data.icon,
-          members: data.members,
         },
       },
       { upsert: true, new: true },

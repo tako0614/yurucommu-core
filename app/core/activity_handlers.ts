@@ -182,14 +182,12 @@ export const activityHandlers: Record<string, ActivityHandler> = {
             id: toHandle,
             name: toInfo?.displayName || toInfo?.userName || toHandle,
             icon: toInfo?.authorAvatar,
-            members: [fromHandle, toHandle],
           }),
           db.dms.create({
             owner: toHandle,
             id: fromHandle,
             name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
             icon: fromInfo?.authorAvatar,
-            members: [fromHandle, toHandle],
           }),
         ]);
       } catch {

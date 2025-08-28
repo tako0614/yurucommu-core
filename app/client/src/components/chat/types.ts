@@ -38,7 +38,7 @@ export interface Room {
   isOnline?: boolean;
   avatar?: string;
   type: "group" | "memo" | "dm";
-  members: ActorID[];
+  members?: ActorID[];
   hasName?: boolean;
   hasIcon?: boolean;
   // 招待中（未参加）の仮想ルームであることを示す

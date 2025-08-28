@@ -109,14 +109,12 @@ app.post(
         id: to,
         name: toInfo?.displayName || toInfo?.userName || to,
         icon: toInfo?.authorAvatar,
-        members: [fromHandle, to],
       }),
       db.dms.create({
         owner: to,
         id: fromHandle,
         name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
         icon: fromInfo?.authorAvatar,
-        members: [fromHandle, to],
       }),
     ]);
     sendToUser(to, { type: "dm", payload });
