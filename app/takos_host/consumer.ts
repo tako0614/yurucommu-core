@@ -3,10 +3,8 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { authRequired, hash } from "./auth.ts";
 
-import type { ObjectId } from "mongodb";
-
 interface HostUserDoc {
-  _id: ObjectId;
+  _id: string;
   userName: string;
   email: string;
   emailVerified: boolean;
@@ -41,7 +39,7 @@ export function createConsumerApp(
 
   app.get("/instances", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const list = await db.host.listInstances(String(user._id));
+    const list = await db.host.listInstances(user._id);
     return c.json(list);
   });
 
@@ -56,7 +54,7 @@ export function createConsumerApp(
       const host = rawHost.toLowerCase();
       const user = c.get("user") as HostUserDoc;
 
-      if (await overLimit(String(user._id))) {
+      if (await overLimit(user._id)) {
         return c.json({ error: "limit" }, 400);
       }
 
@@ -114,7 +112,7 @@ export function createConsumerApp(
       }
       await db.host.createInstance({
         host: fullHost,
-        owner: String(user._id),
+        owner: user._id,
         env,
       });
       await db.tenant.ensure(fullHost, fullHost);
@@ -126,7 +124,7 @@ export function createConsumerApp(
   app.delete("/instances/:host", async (c) => {
     const host = c.req.param("host").toLowerCase();
     const user = c.get("user") as HostUserDoc;
-    await db.host.deleteInstance(host, String(user._id));
+    await db.host.deleteInstance(host, user._id);
     invalidate?.(host);
     return c.json({ success: true });
   });
@@ -136,7 +134,7 @@ export function createConsumerApp(
     const user = c.get("user") as HostUserDoc;
     const inst = await db.host.findInstanceByHostAndOwner(
       host,
-      String(user._id),
+      user._id,
     );
     if (!inst) {
       return c.json({ error: "not found" }, 404);
@@ -153,7 +151,7 @@ export function createConsumerApp(
       const user = c.get("user") as HostUserDoc;
       const inst = await db.host.findInstanceByHostAndOwner(
         host,
-        String(user._id),
+        user._id,
       );
       if (!inst) return c.json({ error: "not found" }, 404);
       if (password) {
@@ -177,7 +175,7 @@ export function createConsumerApp(
     const user = c.get("user") as HostUserDoc;
     const inst = await db.host.findInstanceByHostAndOwner(
       host,
-      String(user._id),
+      user._id,
     );
     if (!inst) return c.json({ error: "not found" }, 404);
     invalidate?.(host);
@@ -210,7 +208,7 @@ export function createConsumerApp(
 
   app.get("/domains", async (c) => {
     const user = c.get("user") as HostUserDoc;
-    const list = await db.domains.list(String(user._id));
+    const list = await db.domains.list(user._id);
     return c.json(list);
   });
 
@@ -223,7 +221,7 @@ export function createConsumerApp(
       const exists = await db.domains.find(domain);
       if (exists) return c.json({ error: "exists" }, 400);
       const token = crypto.randomUUID();
-      await db.domains.create(domain, String(user._id), token);
+      await db.domains.create(domain, user._id, token);
       return c.json({ success: true, token });
     },
   );
@@ -231,7 +229,7 @@ export function createConsumerApp(
   app.post("/domains/:domain/verify", async (c) => {
     const domain = c.req.param("domain");
     const user = c.get("user") as HostUserDoc;
-    const doc = await db.domains.find(domain, String(user._id));
+    const doc = await db.domains.find(domain, user._id);
     if (!doc) return c.json({ error: "not found" }, 404);
     try {
       const res = await fetch(
