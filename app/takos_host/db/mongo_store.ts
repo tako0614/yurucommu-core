@@ -124,6 +124,50 @@ export function createMongoDataStore(
       unregister: (t) => impl.unregisterFcmToken(t),
       list: () => impl.listFcmTokens(),
     },
+    faspProviders: {
+      getSettings: async () => {
+        const mongo = await impl.getDatabase();
+        const doc = await mongo.collection("fasp_client_settings").findOne({
+          _id: "default",
+        }).catch(() => null);
+        return doc as
+          | {
+            shareEnabled?: boolean;
+            shareServerIds?: string[];
+            searchServerId?: string | null;
+          }
+          | null;
+      },
+      list: async (filter) => {
+        const mongo = await impl.getDatabase();
+        return await mongo.collection("fasp_client_providers").find(filter)
+          .toArray();
+      },
+      findOne: async (filter) => {
+        const mongo = await impl.getDatabase();
+        return await mongo.collection("fasp_client_providers").findOne(filter);
+      },
+      upsertByBaseUrl: async (baseUrl, set, setOnInsert) => {
+        const mongo = await impl.getDatabase();
+        const update: Record<string, unknown> = { $set: set };
+        if (setOnInsert) update.$setOnInsert = setOnInsert;
+        await mongo.collection("fasp_client_providers").updateOne(
+          { baseUrl },
+          update,
+          { upsert: true },
+        );
+      },
+      updateByBaseUrl: async (baseUrl, update) => {
+        const mongo = await impl.getDatabase();
+        const res = await mongo.collection("fasp_client_providers")
+          .findOneAndUpdate(
+            { baseUrl },
+            { $set: update },
+            { returnDocument: "after" },
+          );
+        return res.value as unknown | null;
+      },
+    },
     tenant: {
       ensure: async (id, domain) => {
         const exists = await Tenant.findOne({ _id: id }).lean();
