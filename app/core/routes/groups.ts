@@ -10,6 +10,7 @@ import {
   resolveActorFromAcct,
   sendActivityPubObject,
 } from "../utils/activitypub.ts";
+import { sendToUser } from "./ws.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "@takos/config";
 import { getDB } from "../db/mod.ts";
@@ -422,6 +423,30 @@ app.post(
           console.error("招待の保存に失敗しました", err);
           failed.push(cand);
         }
+        // ローカルユーザーなら通知も保存＋WS送信
+        try {
+          const [u, h] = cand.split("@");
+          if (h === domain) {
+            const acc = await db.accounts.findByUserName(u);
+            if (acc) {
+              await db.notifications.create(
+                acc._id!,
+                "グループ招待",
+                JSON.stringify({
+                  kind: "group-invite",
+                  groupName,
+                  groupId: `https://${domain}/groups/${groupName}`,
+                  displayName: (await db.groups.findByName(groupName))?.displayName ?? groupName,
+                  inviter: groupId,
+                }),
+                "group-invite",
+              );
+              sendToUser(`${acc.userName}@${domain}`, { type: "notification" });
+            }
+          }
+        } catch (_e) {
+          // ignore local notification failure
+        }
       }
     }
     if (failed.length > 0) {
@@ -615,6 +640,12 @@ app.post(
           }),
           "group-invite",
         );
+        // WS で即時通知（通知画面を開いていなくても反映させる）
+        try {
+          sendToUser(`${acc.userName}@${domain}`, { type: "notification" });
+        } catch {
+          /* ignore */
+        }
       }
     }
     return c.json({ ok: true });
