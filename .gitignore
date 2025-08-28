@@ -1,3 +1,4 @@
 node_modules
 dist
 .serena/cache
+.env
