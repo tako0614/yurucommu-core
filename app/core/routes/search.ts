@@ -130,6 +130,53 @@ app.get("/search", async (c) => {
   }
 
   const results: SearchResult[] = [];
+
+  // FASP に関係なく、acct が明示/暗黙に与えられている場合は WebFinger で存在確認して返す
+  if (server) {
+    const isValidServer = await validateServerHostname(server);
+    if (isValidServer) {
+      try {
+        const resource = `acct:${q}@${server}`;
+        const wfUrl = `https://${server}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`;
+        const wfRes = await fetch(wfUrl, { headers: { Accept: "application/jrd+json" } });
+        if (wfRes.ok) {
+          const jrd = await wfRes.json() as { links?: Array<{ rel?: string; type?: string; href?: string }> };
+          const link = (jrd.links || []).find((l) =>
+            (l.rel === "self" || l.rel === "http://webfinger.net/rel/profile-page") &&
+            (typeof l.type === "string" && l.type.includes("activity+json")) &&
+            typeof l.href === "string"
+          );
+          const actorUrl = link?.href;
+          if (actorUrl) {
+            const aRes = await fetch(actorUrl, {
+              headers: {
+                Accept:
+                  'application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+              },
+            });
+            if (aRes.ok) {
+              const actor = await aRes.json() as { id?: string; name?: string; preferredUsername?: string; icon?: { url?: string } };
+              const host = (() => { try { return new URL(actorUrl).hostname; } catch { return server; } })();
+              const id = actor.id ?? actorUrl;
+              results.push({
+                type: "user",
+                id,
+                title: actor.name ?? actor.preferredUsername ?? `${q}@${server}`,
+                subtitle: actor.preferredUsername ? `@${actor.preferredUsername}@${host}` : actorUrl,
+                avatar: actor.icon?.url,
+                actor: id,
+                origin: host,
+              });
+            }
+          }
+        }
+      } catch {
+        // ignore webfinger failures
+      }
+    }
+  }
+
+  const results: SearchResult[] = [];
   if (!q) return c.json(results);
   const regex = new RegExp(escapeRegex(q), "i");
 
@@ -294,7 +341,9 @@ app.get("/search", async (c) => {
     }
 
     if (remoteResults.length === 0) {
-      return c.json([]);
+      // 何も取れなかった場合でも、上の WebFinger が結果を返していれば残す
+      if (results.length === 0) return c.json([]);
+      return c.json(results);
     }
   }
 
