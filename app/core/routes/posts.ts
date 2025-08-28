@@ -10,16 +10,13 @@ import { getEnv } from "@takos/config";
 
 type ActivityPubObjectType = ActivityObject;
 import {
-  buildActivityFromStored,
   createAnnounceActivity,
-  createCreateActivity,
   createLikeActivity,
   deliverActivityPubObject,
   getDomain,
   iriToHandle,
   isLocalActor,
 } from "../utils/activitypub.ts";
-import { deliverToFollowers } from "../utils/deliver.ts";
 import authRequired from "../utils/auth.ts";
 import {
   formatUserInfoForPost,
@@ -28,8 +25,12 @@ import {
 } from "../services/user-info.ts";
 import { addNotification } from "../services/notification.ts";
 import { rateLimit } from "../utils/rate_limit.ts";
-import { broadcast, sendToUser } from "./ws.ts";
 import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
+import {
+  announceToFasp,
+  createPost,
+  notifyFollowers,
+} from "../services/posts.ts";
 
 interface PostDoc {
   _id?: string;
@@ -136,89 +137,27 @@ app.post(
 
     const env = getEnv(c);
     const db = getDB(c);
-    const post = await db.posts.saveNote(
+    const { post, createActivity, objectId } = await createPost(
+      db,
       domain,
       author,
       content,
       extra,
-    ) as ActivityObject;
+      parentId,
+    );
 
-    if (typeof parentId === "string") {
-      await db.posts.updateNote(parentId, { $inc: { "extra.replies": 1 } })
-        .catch(
-          () => {},
-        );
-    }
-
-    const baseObj = post as Record<string, unknown>;
-    const noteObject = buildActivityFromStored(
-      {
-        ...baseObj,
-        content: typeof post.content === "string" ? post.content : "",
-        _id: String(baseObj._id),
-        type: typeof baseObj.type === "string" ? baseObj.type : "Note",
-        published: typeof baseObj.published === "string"
-          ? baseObj.published
-          : new Date().toISOString(),
-        extra: (typeof baseObj.extra === "object" && baseObj.extra !== null &&
-            !Array.isArray(baseObj.extra))
-          ? baseObj.extra as Record<string, unknown>
-          : {},
-      },
-      domain,
+    await notifyFollowers(
+      env,
       author,
-      false,
-    );
-    const createActivity = createCreateActivity(
+      createActivity,
       domain,
-      `https://${domain}/users/${author}`,
-      noteObject,
+      db,
+      post,
+      parentId,
+      objectId,
     );
-    deliverToFollowers(env, author, createActivity, domain);
 
-    // FASP へ URI のみのアナウンスを送信（公開投稿のみ）
-    const objectId = String((post as Record<string, unknown>)._id ?? "");
-    if (objectId && faspShare !== false) {
-      const objectUrl = `https://${domain}/objects/${objectId}`;
-      await announceIfPublicAndDiscoverable(env, domain, {
-        category: "content",
-        eventType: "new",
-        objectUris: [objectUrl],
-      }, post);
-    }
-
-    if (typeof parentId === "string") {
-      const parent = await findPost(db, parentId);
-      if (
-        parent &&
-        typeof (parent as PostDoc).actor_id === "string" &&
-        !isLocalActor((parent as PostDoc).actor_id as string, domain)
-      ) {
-        deliverActivityPubObject(
-          [(parent as PostDoc).actor_id as string],
-          createActivity,
-          author,
-          domain,
-          env,
-        );
-      } else if (
-        parent &&
-        typeof (parent as PostDoc).actor_id === "string"
-      ) {
-        const url = new URL((parent as PostDoc).actor_id as string);
-        const localName = url.pathname.split("/")[2];
-        if (
-          localName && localName !== author && isLocalActor(url.href, domain)
-        ) {
-          await addNotification(
-            "新しい返信",
-            `${author}さんが${localName}さんの投稿に返信しました`,
-            "info",
-            env,
-          );
-        }
-      }
-    }
+    await announceToFasp(env, domain, post, objectId, faspShare);
 
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
@@ -230,41 +169,6 @@ app.post(
       userInfo,
       post as Record<string, unknown>,
     );
-
-    // REST-first: WebSocket は本文を送らず存在通知のみ送る
-    // クライアントはこの通知を受けて REST API (/posts/:id や /posts?...) で本文を取得する
-    const objId = objectId ||
-      String((post as Record<string, unknown>)._id ?? "");
-    broadcast({
-      type: "hasUpdate",
-      payload: { kind: "newPost", id: objId },
-    });
-
-    // ローカルのフォロワーへ個別に軽量通知
-    const account = await db.accounts.findByUserName(author);
-    const followers = account?.followers ?? [];
-    const localFollowers = followers
-      .map((url) => {
-        try {
-          const u = new URL(url);
-          if (u.hostname !== domain || !u.pathname.startsWith("/users/")) {
-            return null;
-          }
-          return `${u.pathname.split("/")[2]}@${domain}`;
-        } catch {
-          return null;
-        }
-      })
-      .filter((v): v is string => !!v);
-    // 投稿者自身にも送信
-    localFollowers.push(`${author}@${domain}`);
-    for (const f of localFollowers) {
-      sendToUser(f, {
-        type: "hasUpdate",
-        payload: { kind: "newPost", id: objId },
-      });
-    }
-
     return c.json(formatted, 201);
   },
 );
