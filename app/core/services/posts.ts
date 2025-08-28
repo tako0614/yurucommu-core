@@ -108,6 +108,7 @@ export async function notifyFollowers(
           localName && localName !== author && isLocalActor(url.href, domain)
         ) {
           await addNotification(
+            localName,
             "新しい返信",
             `${author}さんが${localName}さんの投稿に返信しました`,
             "info",

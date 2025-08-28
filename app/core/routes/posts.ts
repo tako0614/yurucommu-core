@@ -316,6 +316,7 @@ app.post(
       }
       if (localAuthor) {
         await addNotification(
+          localAuthor,
           "新しいいいね",
           `${username}さんが${localAuthor}さんの投稿をいいねしました`,
           "info",
@@ -399,6 +400,7 @@ app.post(
       }
       if (localAuthor) {
         await addNotification(
+          localAuthor,
           "新しいリツイート",
           `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
           "info",
