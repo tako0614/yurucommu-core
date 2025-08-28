@@ -1,0 +1,16 @@
+{
+  "tasks": {
+    "dev": "deno run -A --unstable-detect-cjs dev.ts",
+    "build": "deno run -A --unstable-detect-cjs build.ts",
+    "start": "deno run -A --unstable-detect-cjs start.ts",
+
+    "dev:takos": "deno task --cwd app/takos dev",
+    "dev:host": "deno task --cwd app/takos_host dev",
+    "build:host": "deno task --cwd app/takos_host build",
+    "build:client": "deno task --cwd app/client build",
+    "start:takos": "deno run -A app/takos/index.ts",
+    "start:host": "deno run -A app/takos_host/main.ts"
+  },
+  "nodeModulesDir": "auto"
+}
+
