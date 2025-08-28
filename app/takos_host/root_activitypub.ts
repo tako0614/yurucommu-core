@@ -36,7 +36,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
     const db = createDB(env);
-    const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
     if (!account) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
@@ -56,7 +56,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   app.get("/users/:username", async (c) => {
     const username = c.req.param("username");
     const db = createDB(env);
-    const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
     if (!account) return jsonResponse(c, { error: "Not found" }, 404);
     const domain = getDomain(c);
     const actor = createActor(domain, {
@@ -70,7 +70,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   async function handleInbox(c: Context) {
     const username = c.req.param("username");
     const db = createDB(env);
-    const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
     if (!account) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }

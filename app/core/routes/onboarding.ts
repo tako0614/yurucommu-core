@@ -16,10 +16,9 @@ app.get("/onboarding/status", async (c) => {
 // /api/setup POSTエンドポイント
 // オンボーディングは「初回のアカウント作成と初期フォロー設定」を担う用途。
 // すでにログイン済みであることを前提とし、env の生成/更新は行わない。
-app.post("/onboarding", async (c) => {
-  return await authRequired(c, async () => {
-    const db = getDB(c);
-    const { username, displayName, follow } = await c.req.json();
+app.post("/onboarding", authRequired, async (c) => {
+  const db = getDB(c);
+  const { username, displayName, follow } = await c.req.json();
 
     if (!username || typeof username !== "string") {
       return c.json({ error: "invalid_parameters" }, 400);
@@ -29,14 +28,14 @@ app.post("/onboarding", async (c) => {
       return c.json({ error: "invalid_username" }, 400);
     }
 
-    // 既存ユーザー名チェック（重複防止）
-    const exists = await db.findAccountByUserName(name);
+  // 既存ユーザー名チェック（重複防止）
+  const exists = await db.accounts.findByUserName(name);
     if (exists) {
       return c.json({ error: "username_exists" }, 409);
     }
 
     const keys = await generateKeyPair();
-    const account = await db.createAccount({
+    const account = await db.accounts.create({
       userName: name,
       displayName: (displayName && String(displayName).trim()) || name,
       avatarInitial: name.charAt(0).toUpperCase().substring(0, 2),
@@ -51,15 +50,14 @@ app.post("/onboarding", async (c) => {
     if (Array.isArray(follow)) {
       for (const target of follow) {
         try {
-          await db.addFollowing(String(account._id), String(target));
+          await db.accounts.addFollowing(String(account._id), String(target));
         } catch (_e) {
           // 個別のフォロー失敗は握りつぶす（セットアップ全体は継続）
         }
       }
     }
 
-    return c.json({ success: true });
-  });
+  return c.json({ success: true });
 });
 
 export default app;

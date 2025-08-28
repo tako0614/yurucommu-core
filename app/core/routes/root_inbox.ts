@@ -58,7 +58,7 @@ app.post("/inbox", async (c) => {
           continue;
         }
         const db = getDB(c);
-        const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
         if (!account) continue;
         const typeVal = (activity as { type?: unknown })?.type;
         if (typeof typeVal === "string" && typeVal in activityHandlers) {

@@ -23,7 +23,7 @@ export async function saveFile(
   const db = createDB(env);
   // ファイルIDはURLを含まないランダム文字列にする
   const id = crypto.randomUUID();
-  await db.saveObject({
+  await db.posts.saveObject({
     _id: id,
     type: "Attachment",
     attributedTo: `https://${domain}/users/system`,
@@ -65,7 +65,7 @@ export async function getMessageAttachment(
   env: Record<string, string>,
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
   const db = createDB(env);
-  const doc = await db.findMessageById(id) as
+  const doc = await db.posts.findMessageById(id) as
     | { extra?: Record<string, unknown> }
     | null;
   if (!doc || typeof doc.extra !== "object" || !doc.extra) return null;

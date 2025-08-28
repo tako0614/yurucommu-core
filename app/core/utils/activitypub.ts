@@ -129,7 +129,7 @@ export async function sendActivityPubObject(
       key = { userName: "system", privateKey: sys.privateKey };
     } else {
       const db = createDB(env);
-      const account = await db.findAccountByUserName(actor);
+  const account = await db.accounts.findByUserName(actor);
       if (!account || !account.privateKey) {
         throw new Error("actor not found or private key missing");
       }

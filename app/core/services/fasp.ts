@@ -78,7 +78,7 @@ async function faspFetch(
       // 登録済み FASP の origin から faspId を取得
       const rec = await db.faspProviders.findOne({
         baseUrl: { $regex: `^${origin}` },
-      });
+      }) as { faspId?: string } | null;
       if (rec?.faspId) keyId = String(rec.faspId);
     } catch {
       // fallback to actor keyId
@@ -244,14 +244,14 @@ export async function getFaspBaseUrl(
       serverId: settings.searchServerId,
       status: "approved",
       [`capabilities.${capability}.enabled`]: true,
-    });
+    }) as { baseUrl?: string } | null;
     if (byId?.baseUrl) return String(byId.baseUrl).replace(/\/$/, "");
   }
   // それ以外は最初の承認済み・有効なもの
   const rec = await db.faspProviders.findOne({
     status: "approved",
     [`capabilities.${capability}.enabled`]: true,
-  });
+  }) as { baseUrl?: string } | null;
   if (!rec?.baseUrl) return null;
   return String(rec.baseUrl).replace(/\/$/, "");
 }

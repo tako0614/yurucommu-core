@@ -8,7 +8,7 @@ export async function deliverToFollowers(
   domain: string,
 ): Promise<void> {
   const db = createDB(env);
-  const account = await db.findAccountByUserName(user);
+  const account = await db.accounts.findByUserName(user);
   if (!account || !account.followers) return;
 
   const targets = account.followers.filter((actorUrl) => {
