@@ -330,25 +330,15 @@ const NotificationsContent: Component = () => {
                                   ? `${account()!.userName}@${getDomain()}`
                                   : "";
                                 try {
-                                  const host = (() => { try { return new URL(gid).hostname; } catch { return null; } })();
-                                  const isLocal = host === getDomain();
-                                  const res = isLocal
-                                    ? await apiFetch(
-                                      `/api/groups/${encodeURIComponent(gname)}/join`,
-                                      {
-                                        method: "POST",
-                                        headers: { "content-type": "application/json" },
-                                        body: JSON.stringify({ member: handle }),
-                                      },
-                                    )
-                                    : await apiFetch(
-                                      `/api/groups/joinRemote`,
-                                      {
-                                        method: "POST",
-                                        headers: { "content-type": "application/json" },
-                                        body: JSON.stringify({ member: handle, groupId: gid }),
-                                      },
-                                    );
+                                  const target = encodeURIComponent(gid || gname || "");
+                                  const res = await apiFetch(
+                                    `/api/groups/${target}/join`,
+                                    {
+                                      method: "POST",
+                                      headers: { "content-type": "application/json" },
+                                      body: JSON.stringify({ member: handle }),
+                                    },
+                                  );
                                   globalThis.dispatchEvent(
                                     new CustomEvent("app:toast", {
                                       detail: {
@@ -372,9 +362,9 @@ const NotificationsContent: Component = () => {
                                   );
                                 }
                                 try {
-                                  const host = (() => { try { return new URL(gid).hostname; } catch { return null; } })();
+                                  const host = (() => { try { return new URL(gid!).hostname; } catch { return null; } })();
                                   const isLocal = host === getDomain();
-                                  if (isLocal) navigate(`/groups/${gname}`);
+                                  if (isLocal && gname) navigate(`/groups/${gname}`);
                                 } catch {
                                   try {
                                     (globalThis as unknown as {

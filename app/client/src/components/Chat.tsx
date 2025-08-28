@@ -55,6 +55,9 @@ function loadDecryptedMessages(accountId: string, roomId: string) {
   });
 }
 
+// 統一キー（可能なら Actor URL）を返す
+const keyForRoom = (r: Room): string => (r.meta?.groupId ? String(r.meta.groupId) : r.id);
+
 function saveDecryptedMessages(
   accountId: string,
   roomId: string,
@@ -659,18 +662,29 @@ export function Chat() {
         if (Array.isArray(list)) raw.push(...list);
       } else if (room.type === "group") {
         try {
-          const qs = new URLSearchParams();
-          if (typeof params?.limit === "number") {
-            qs.set("limit", String(params.limit));
-          }
-          if (params?.before) qs.set("before", params.before);
-          if (params?.after) qs.set("after", params.after);
-          const res = await apiFetch(
-            `/api/groups/${encodeURIComponent(room.name)}/messages?${qs}`,
-          );
-          if (res.ok) {
-            const list = await res.json();
-            if (Array.isArray(list)) raw.push(...list);
+          // リモートグループは現状サーバー履歴APIがないため取得をスキップ
+          const hostOf = (id: string | undefined) => {
+            if (!id) return null;
+            try { return new URL(id).hostname; } catch { return null; }
+          };
+          const groupUrl = (room.meta?.groupId && room.meta.groupId.startsWith("http")) ? room.meta.groupId : undefined;
+          const isRemote = groupUrl && hostOf(groupUrl) !== getDomain();
+          if (isRemote) {
+            // 何も追加しない（送信エコーのみで表示）
+          } else {
+            const qs = new URLSearchParams();
+            if (typeof params?.limit === "number") {
+              qs.set("limit", String(params.limit));
+            }
+            if (params?.before) qs.set("before", params.before);
+            if (params?.after) qs.set("after", params.after);
+            const res = await apiFetch(
+              `/api/groups/${encodeURIComponent(room.name)}/messages?${qs}`,
+            );
+            if (res.ok) {
+              const list = await res.json();
+              if (Array.isArray(list)) raw.push(...list);
+            }
           }
         } catch {
           /* ignore */
@@ -1189,7 +1203,7 @@ export function Chat() {
     const roomId = selectedRoom();
     const user = account();
     if ((!text && mediaFiles().length === 0) || !roomId || !user) return;
-    const room = chatRooms().find((r) => r.id === roomId);
+    const room = chatRooms().find((r) => keyForRoom(r) === roomId || r.id === roomId);
     if (!room) return;
     if (room.type === "memo") {
       let attachmentsParam: Record<string, unknown>[] | undefined;
@@ -1241,12 +1255,12 @@ export function Chat() {
         avatar: room.avatar,
       };
       // まだメモが選択中かを確認してからUIに反映
-      if (selectedRoom() === room.id) {
+      if (selectedRoom() === keyForRoom(room)) {
         setMessages((prev) => [...prev, msg]);
       }
       // 部屋ごとのキャッシュと永続化を更新
       setMessagesByRoom((prev) => {
-        const key = roomCacheKey(room.id);
+        const key = roomCacheKey(keyForRoom(room));
         const list = (prev[key] ?? []).concat(msg);
         const next = { ...prev, [key]: list };
         const user2 = account();
@@ -1262,6 +1276,17 @@ export function Chat() {
     if (room.type === "group") {
       // --- グループ送信 ---
       try {
+        const hostOf = (id: string | undefined) => {
+          if (!id) return null;
+          try { return new URL(id).hostname; } catch { return null; }
+        };
+        const localHost = getDomain();
+        let groupUrl = (room.meta?.groupId && room.meta.groupId.startsWith("http")) ? room.meta.groupId : undefined;
+        if (!groupUrl && room.id.includes("@")) {
+          const [gname, ghost] = splitActor(room.id as ActorID);
+          if (gname && ghost) groupUrl = `https://${ghost}/groups/${gname}`;
+        }
+        const isLocal = hostOf(groupUrl ?? undefined) === localHost || !groupUrl;
         // 添付の組み立て
         let attachmentsParam: Record<string, unknown>[] | undefined;
         if (mediaFiles().length > 0) {
@@ -1290,33 +1315,34 @@ export function Chat() {
           else apType = "file";
         }
 
+        const payload = {
+          from: `${user.userName}@${getDomain()}`,
+          type: apType,
+          content: text,
+          attachments: attachmentsParam,
+          url: (attachmentsParam && attachmentsParam.length > 0)
+            ? (attachmentsParam[0] as { url?: string }).url
+            : undefined,
+          mediaType: (attachmentsParam && attachmentsParam.length > 0)
+            ? (attachmentsParam[0] as { mediaType?: string }).mediaType
+            : undefined,
+          key: (attachmentsParam && attachmentsParam.length > 0)
+            ? (attachmentsParam[0] as { key?: string }).key
+            : undefined,
+          iv: (attachmentsParam && attachmentsParam.length > 0)
+            ? (attachmentsParam[0] as { iv?: string }).iv
+            : undefined,
+          preview: (attachmentsParam && attachmentsParam.length > 0)
+            ? (attachmentsParam[0] as { preview?: unknown }).preview
+            : undefined,
+        } as Record<string, unknown>;
+        const targetParam = encodeURIComponent(groupUrl ?? room.name);
         const res = await apiFetch(
-          `/api/groups/${encodeURIComponent(room.name)}/messages`,
+          `/api/groups/${targetParam}/messages`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              from: `${user.userName}@${getDomain()}`,
-              type: apType,
-              content: text,
-              attachments: attachmentsParam,
-              // 画像・動画単体送信のときの互換フィールド（サーバー側で参照）
-              url: (attachmentsParam && attachmentsParam.length > 0)
-                ? (attachmentsParam[0] as { url?: string }).url
-                : undefined,
-              mediaType: (attachmentsParam && attachmentsParam.length > 0)
-                ? (attachmentsParam[0] as { mediaType?: string }).mediaType
-                : undefined,
-              key: (attachmentsParam && attachmentsParam.length > 0)
-                ? (attachmentsParam[0] as { key?: string }).key
-                : undefined,
-              iv: (attachmentsParam && attachmentsParam.length > 0)
-                ? (attachmentsParam[0] as { iv?: string }).iv
-                : undefined,
-              preview: (attachmentsParam && attachmentsParam.length > 0)
-                ? (attachmentsParam[0] as { preview?: unknown }).preview
-                : undefined,
-            }),
+            body: JSON.stringify(payload),
           },
         );
         if (!res.ok) {
@@ -1345,11 +1371,11 @@ export function Chat() {
           isMe: true,
           avatar: room.avatar,
         };
-        if (selectedRoom() === room.id) {
+        if (selectedRoom() === keyForRoom(room)) {
           setMessages((prev) => [...prev, msg]);
         }
         setMessagesByRoom((prev) => {
-          const key = roomCacheKey(room.id);
+          const key = roomCacheKey(keyForRoom(room));
           const list = (prev[key] ?? []).concat(msg);
           const next = { ...prev, [key]: list };
           const user2 = account();
@@ -1870,9 +1896,8 @@ export function Chat() {
 
         // rooms are loaded; clear pending
         setPendingRoom(null);
-
         const normalizedRoomId = normalizeActor(roomId);
-        const room = chatRooms().find((r) => r.id === normalizedRoomId);
+        const room = chatRooms().find((r) => (r.meta?.groupId ? String(r.meta.groupId) : r.id) === roomId || r.id === normalizedRoomId);
 
         // If room not found and it's not the self-room, redirect to chat list
         if (!room) {
@@ -2275,14 +2300,25 @@ async function searchRooms(
       if (!gres.ok) return [];
       const j = await gres.json();
       if (!Array.isArray(j)) return [];
-      return j.map((r) => ({
-        id: normalizeActor(String(r.id ?? "")),
-        name: String(r.name ?? ""),
-        icon: typeof r.icon === "string" ? r.icon : undefined,
-        members: Array.isArray(r.members)
-          ? r.members.map((m: unknown) => normalizeActor(String(m)))
-          : [],
-      }));
+      return j.map((r) => {
+        const rid = String(r.id ?? "");
+        const handle = normalizeActor(rid as unknown as ActorID);
+        const obj: any = {
+          id: handle,
+          name: String(r.name ?? ""),
+          icon: typeof r.icon === "string" ? r.icon : undefined,
+          members: Array.isArray(r.members)
+            ? r.members.map((m: unknown) => normalizeActor(String(m)))
+            : [],
+        };
+        if (typeof r.id === "string" && r.id.startsWith("http")) {
+          obj.meta = { groupId: String(r.id) };
+        } else if (handle.includes("@")) {
+          const [gname, ghost] = handle.split("@");
+          if (gname && ghost) obj.meta = { groupId: `https://${ghost}/groups/${gname}` };
+        }
+        return obj;
+      });
     }
     if (roomType === "dm" || roomType === undefined) {
       const dres = await apiFetch(

@@ -31,6 +31,7 @@ interface ChatRoomListProps {
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
+  const keyFor = (r: Room) => (r.meta?.groupId ? String(r.meta.groupId) : r.id);
   const useDelayedVisibility = (
     visible: () => boolean,
     delay = 250,
@@ -312,11 +313,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
               {(room) => (
                 <li
                   class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
-                    props.selectedRoom === room.id
+                    props.selectedRoom === keyFor(room)
                       ? "bg-[#4a4a4a]"
                       : "hover:bg-[#3c3c3c]"
                   }`}
-                  onClick={() => props.onSelect(room.id)}
+                  onClick={() => props.onSelect(keyFor(room))}
                 >
                   <div class="flex items-center w-full">
                     <span class="relative w-[40px] h-[40px] flex items-center justify-center">
@@ -414,11 +415,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
               {(room) => (
                 <li
                   class={`flex items-center cursor-pointer h-16 rounded-lg mb-2 w-full ${
-                    props.selectedRoom === room.id
+                    props.selectedRoom === keyFor(room)
                       ? "bg-[#4a4a4a]"
                       : "hover:bg-[#3c3c3c]"
                   }`}
-                  onClick={() => props.onSelect(room.id)}
+                  onClick={() => props.onSelect(keyFor(room))}
                 >
                   <div class="flex items-center w-full">
                     <span class="relative w-[40px] h-[40px] flex items-center justify-center">

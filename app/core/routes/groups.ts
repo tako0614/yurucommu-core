@@ -8,6 +8,7 @@ import {
   ensurePem,
   getDomain,
   resolveActorFromAcct,
+  resolveRemoteActor,
   sendActivityPubObject,
 } from "../utils/activitypub.ts";
 import { sendToUser } from "./ws.ts";
@@ -117,11 +118,115 @@ app.post(
     }),
   ),
   async (c) => {
-    const name = c.req.param("name");
+    const raw = c.req.param("name");
+    const decoded = decodeURIComponent(raw);
+    const domain = getDomain(c);
+    // リモート or ローカルのActor URLかを判定
+    if ((decoded.startsWith("http://") || decoded.startsWith("https://")) &&
+      (() => { try { return new URL(decoded).hostname !== domain; } catch { return false; } })()) {
+      const body = c.req.valid("json") as Record<string, unknown>;
+      const env = getEnv(c);
+      const from = String(body.from ?? "");
+      const [fromUser, fromHost] = from.split("@");
+      if (!fromUser || !fromHost || fromHost !== domain) {
+        return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+      }
+      const type = (body.type as string) ?? "note";
+      const content = typeof body.content === "string" ? body.content : "";
+      const url = typeof body.url === "string" ? body.url : undefined;
+      const mediaType = typeof body.mediaType === "string" ? body.mediaType : undefined;
+      if (type === "note" ? !content.trim() : !(url && mediaType)) {
+        return c.json({ error: "不正な入力です" }, 400);
+      }
+      const attachments = Array.isArray((body as { attachments?: unknown }).attachments)
+        ? (body as { attachments: Record<string, unknown>[] }).attachments
+        : undefined;
+      const preview = (body as { preview?: unknown }).preview;
+      const db = getDB(c);
+      const extra: Record<string, unknown> = { type, group: true };
+      if (attachments) extra.attachments = attachments;
+      if (typeof (body as { key?: unknown }).key === "string") extra.key = (body as { key: string }).key;
+      if (typeof (body as { iv?: unknown }).iv === "string") extra.iv = (body as { iv: string }).iv;
+      if (preview && typeof preview === "object") extra.preview = preview as Record<string, unknown>;
+      const saved = await db.posts.saveMessage(
+        domain,
+        `https://${domain}/users/${fromUser}`,
+        content,
+        extra,
+        { to: [decoded], cc: [] },
+      ) as { _id?: string; published?: Date };
+      try {
+        const target = await resolveRemoteActor(decoded, env);
+        const asType = type === "image" ? "Image" : type === "video" ? "Video" : type === "file" ? "Document" : "Note";
+        const toAsAttachments = (atts?: Record<string, unknown>[]) => Array.isArray(atts)
+          ? atts.map((a) => {
+            const u = typeof (a as { url?: unknown }).url === "string" ? (a as { url: string }).url : "";
+            const mt = typeof (a as { mediaType?: unknown }).mediaType === "string" ? (a as { mediaType: string }).mediaType : undefined;
+            if (!u) return null;
+            const t = mt?.startsWith("image/") ? "Image" : mt?.startsWith("video/") ? "Video" : mt?.startsWith("audio/") ? "Audio" : "Document";
+            const obj: Record<string, unknown> = { type: t, url: u };
+            if (mt) obj.mediaType = mt;
+            const prev = (a as { preview?: unknown }).preview;
+            if (prev && typeof prev === "object") obj.preview = prev as Record<string, unknown>;
+            const k = (a as { key?: unknown }).key; const v = (a as { iv?: unknown }).iv;
+            if (typeof k === "string") obj.key = k; if (typeof v === "string") obj.iv = v;
+            return obj;
+          }).filter(Boolean) as Record<string, unknown>[] : undefined;
+        const object: Record<string, unknown> = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          type: asType,
+          attributedTo: `https://${domain}/users/${fromUser}`,
+          to: [decoded],
+          audience: decoded,
+        };
+        if (asType === "Note") {
+          object.content = content;
+          const asAtt = toAsAttachments(attachments);
+          if (asAtt && asAtt.length > 0) object.attachment = asAtt;
+        } else {
+          if (url) object.url = url;
+          if (mediaType) object.mediaType = mediaType;
+          if (content) object.name = content;
+        }
+        if (typeof (body as { key?: unknown }).key === "string") (object as Record<string, unknown>).key = (body as { key: string }).key;
+        if (typeof (body as { iv?: unknown }).iv === "string") (object as Record<string, unknown>).iv = (body as { iv: string }).iv;
+        if (preview && typeof preview === "object") (object as Record<string, unknown>).preview = preview as Record<string, unknown>;
+        const activity = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: `https://${domain}/activities/${crypto.randomUUID()}`,
+          type: "Create" as const,
+          actor: `https://${domain}/users/${fromUser}`,
+          to: [decoded],
+          object,
+        };
+        await sendActivityPubObject(target.sharedInbox ?? target.inbox, activity, fromUser, domain, env);
+      } catch (err) {
+        console.error("remote group message delivery failed", err);
+      }
+      return c.json({
+        id: "", from: `https://${domain}/users/${fromUser}`, to: decoded, type, content,
+        attachments, url, mediaType,
+        key: typeof (body as { key?: unknown }).key === "string" ? (body as { key: string }).key : undefined,
+        iv: typeof (body as { iv?: unknown }).iv === "string" ? (body as { iv: string }).iv : undefined,
+        preview: preview && typeof preview === "object" ? preview as Record<string, unknown> : undefined,
+        createdAt: new Date(),
+      });
+    }
+    // ローカル（グループ名 or ローカルActor URL）
+    let name = raw;
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+      try {
+        const u = new URL(decoded);
+        if (u.hostname === domain) {
+          name = u.pathname.split("/").pop() || raw;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     const body = c.req.valid("json") as Record<string, unknown>;
     const db = getDB(c);
     const env = getEnv(c);
-    const domain = getDomain(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
 
@@ -659,13 +764,43 @@ app.post(
     z.object({ member: z.string() }),
   ),
   async (c) => {
-    const name = c.req.param("name");
+    const raw = c.req.param("name");
     const { member } = c.req.valid("json") as { member: string };
     const domain = getDomain(c);
     const env = getEnv(c);
     const [user, host] = member.split("@");
     if (!user || !host) {
       return c.json({ error: "member の形式が正しくありません" }, 400);
+    }
+    const decoded = decodeURIComponent(raw);
+    if ((decoded.startsWith("http://") || decoded.startsWith("https://")) &&
+      (() => { try { return new URL(decoded).hostname !== domain; } catch { return false; } })()) {
+      if (host !== domain) return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+      try {
+        const join = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: `https://${domain}/activities/${crypto.randomUUID()}`,
+          type: "Join" as const,
+          actor: `https://${domain}/users/${user}`,
+          object: decoded,
+          to: [decoded],
+        };
+        const target = await resolveRemoteActor(decoded, env);
+        await sendActivityPubObject(target.sharedInbox ?? target.inbox, join, user, domain, env);
+        const db = getDB(c);
+        await db.accounts.updateByUserName(user, { $addToSet: { groups: decoded } });
+        return c.json({ ok: true });
+      } catch (_err) {
+        return c.json({ error: "送信に失敗しました" }, 500);
+      }
+    }
+    // ローカル（グループ名 or ローカルActor URL）
+    let name = raw;
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+      try {
+        const u = new URL(decoded);
+        if (u.hostname === domain) name = u.pathname.split("/").pop() || raw;
+      } catch { /* ignore */ }
     }
     const db = getDB(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
@@ -697,13 +832,7 @@ app.post(
       to: [groupId],
     };
     try {
-      await sendActivityPubObject(
-        `${groupId}/inbox`,
-        join,
-        user,
-        domain,
-        env,
-      );
+      await sendActivityPubObject(`${groupId}/inbox`, join, user, domain, env);
     } catch (_err) {
       return c.json({ error: "送信に失敗しました" }, 500);
     }
@@ -729,6 +858,7 @@ app.post(
     if (host !== domain) return c.json({ error: "ローカルユーザーのみ対応" }, 400);
     const env = getEnv(c);
     try {
+      const target = await resolveRemoteActor(groupId, env);
       const join = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `https://${domain}/activities/${crypto.randomUUID()}`,
@@ -737,7 +867,7 @@ app.post(
         object: groupId,
         to: [groupId],
       };
-      await sendActivityPubObject(groupId, join, user, domain, env);
+      await sendActivityPubObject(target.sharedInbox ?? target.inbox, join, user, domain, env);
       // アカウントの groups に追加して一覧に出せるようにする
       const db = getDB(c);
       await db.accounts.updateByUserName(user, { $addToSet: { groups: groupId } });
@@ -1188,5 +1318,138 @@ app.post("/groups/:name/inbox", async (c) => {
 
   return c.json({ error: "Unsupported" }, 400);
 });
+
+// リモートグループ宛のメッセージ送信（ローカルユーザー → リモートGroup）
+app.post(
+  "/api/groups/messages/remote",
+  zValidator(
+    "json",
+    z.object({
+      from: z.string(),
+      groupId: z.string().url(),
+      type: z.enum(["note", "image", "video", "file"]).default("note"),
+      content: z.string().optional(),
+      url: z.string().optional(),
+      mediaType: z.string().optional(),
+      key: z.string().optional(),
+      iv: z.string().optional(),
+      preview: z.record(z.any()).optional(),
+      attachments: z.array(z.record(z.any())).optional(),
+    }),
+  ),
+  async (c) => {
+    const {
+      from,
+      groupId,
+      type,
+      content,
+      url,
+      mediaType,
+      key,
+      iv,
+      preview,
+      attachments,
+    } = c.req.valid("json") as {
+      from: string;
+      groupId: string;
+      type: "note" | "image" | "video" | "file";
+      content?: string;
+      url?: string;
+      mediaType?: string;
+      key?: string;
+      iv?: string;
+      preview?: Record<string, unknown>;
+      attachments?: Record<string, unknown>[];
+    };
+    const env = getEnv(c);
+    const domain = getDomain(c);
+    const [user, host] = from.split("@");
+    if (!user || !host) return c.json({ error: "from の形式が不正です" }, 400);
+    if (host !== domain) return c.json({ error: "ローカル送信者のみ対応" }, 400);
+
+    if (type === "note" ? !(content && content.trim()) : !(url && mediaType)) {
+      return c.json({ error: "不正な入力です" }, 400);
+    }
+
+    const db = getDB(c);
+    const extra: Record<string, unknown> = { type, group: true };
+    if (attachments) extra.attachments = attachments;
+    if (key) extra.key = key;
+    if (iv) extra.iv = iv;
+    if (preview) extra.preview = preview;
+    const saved = await db.posts.saveMessage(
+      domain,
+      `https://${domain}/users/${user}`,
+      content ?? "",
+      extra,
+      { to: [groupId], cc: [] },
+    ) as { _id?: string; published?: Date };
+
+    try {
+      const resv = await resolveRemoteActor(groupId, env);
+      const asType = type === "image" ? "Image" : type === "video" ? "Video" : type === "file" ? "Document" : "Note";
+      const toAsAttachments = (atts?: Record<string, unknown>[]) => Array.isArray(atts)
+        ? atts.map((a) => {
+          const u = typeof (a as { url?: unknown }).url === "string" ? (a as { url: string }).url : "";
+          const mt = typeof (a as { mediaType?: unknown }).mediaType === "string" ? (a as { mediaType: string }).mediaType : undefined;
+          if (!u) return null;
+          const t = mt?.startsWith("image/") ? "Image" : mt?.startsWith("video/") ? "Video" : mt?.startsWith("audio/") ? "Audio" : "Document";
+          const obj: Record<string, unknown> = { type: t, url: u };
+          if (mt) obj.mediaType = mt;
+          const prev = (a as { preview?: unknown }).preview;
+          if (prev && typeof prev === "object") obj.preview = prev as Record<string, unknown>;
+          const k = (a as { key?: unknown }).key; const v = (a as { iv?: unknown }).iv;
+          if (typeof k === "string") obj.key = k; if (typeof v === "string") obj.iv = v;
+          return obj;
+        }).filter(Boolean) as Record<string, unknown>[] : undefined;
+      const object: Record<string, unknown> = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        type: asType,
+        attributedTo: `https://${domain}/users/${user}`,
+        to: [groupId],
+        audience: groupId,
+      };
+      if (asType === "Note") {
+        object.content = content ?? "";
+        const asAtt = toAsAttachments(attachments);
+        if (asAtt && asAtt.length > 0) object.attachment = asAtt;
+      } else {
+        if (url) object.url = url;
+        if (mediaType) object.mediaType = mediaType;
+        if (content) object.name = content;
+      }
+      if (key) (object as Record<string, unknown>).key = key;
+      if (iv) (object as Record<string, unknown>).iv = iv;
+      if (preview) (object as Record<string, unknown>).preview = preview;
+
+      const activity = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/activities/${crypto.randomUUID()}`,
+        type: "Create" as const,
+        actor: `https://${domain}/users/${user}`,
+        to: [groupId],
+        object,
+      };
+      await sendActivityPubObject(resv.sharedInbox ?? resv.inbox, activity, user, domain, env);
+    } catch (err) {
+      console.error("remote group message delivery failed", err);
+    }
+
+    return c.json({
+      id: String((saved as { _id?: unknown })._id ?? ""),
+      from: `https://${domain}/users/${user}`,
+      to: groupId,
+      type,
+      content: content ?? "",
+      attachments,
+      url,
+      mediaType,
+      key,
+      iv,
+      preview,
+      createdAt: (saved as { published?: Date }).published ?? new Date(),
+    });
+  },
+);
 
 export default app;

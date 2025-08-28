@@ -25,6 +25,8 @@ export interface ChatMessage {
 
 export interface Room {
   id: string;
+  // 統一識別子（可能ならActor URL）。未設定時は id を使用
+  uid?: string;
   name: string;
   // 画面表示用の名称（未命名DMなどの補完に使用）。name はサーバー由来の正規名。
   displayName?: string;
