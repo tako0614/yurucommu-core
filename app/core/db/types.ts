@@ -128,6 +128,27 @@ export interface GroupsRepo {
   pushOutbox(name: string, activity: Record<string, unknown>): Promise<void>;
 }
 
+export interface InvitesRepo {
+  findOne(filter: Record<string, unknown>): Promise<unknown | null>;
+  findOneAndUpdate(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+    options?: { upsert?: boolean },
+  ): Promise<unknown | null>;
+  save(data: Record<string, unknown>): Promise<unknown>;
+  deleteOne(filter: Record<string, unknown>): Promise<void>;
+}
+
+export interface ApprovalsRepo {
+  findOne(filter: Record<string, unknown>): Promise<unknown | null>;
+  findOneAndUpdate(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+    options?: { upsert?: boolean },
+  ): Promise<unknown | null>;
+  deleteOne(filter: Record<string, unknown>): Promise<void>;
+}
+
 export interface NotificationsRepo {
   list(owner: string): Promise<unknown[]>;
   create(
@@ -203,6 +224,8 @@ export interface DataStore {
   posts: PostsRepo;
   dms: DMRepo;
   groups: GroupsRepo;
+  invites: InvitesRepo;
+  approvals: ApprovalsRepo;
   notifications: NotificationsRepo;
   system: SystemRepo;
   sessions: SessionsRepo;

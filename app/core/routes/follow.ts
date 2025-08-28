@@ -52,7 +52,7 @@ async function processFollow(c: Context, remove: boolean) {
   let account: AccountDoc | null = null;
   if (isLocalFollower) {
     const followerName = followerInfo.pathname.split("/")[2];
-    account = await db.findAccountByUserName(followerName);
+    account = await db.accounts.findByUserName(followerName);
     if (!account) {
       return jsonResponse(c, { error: "Follower not found" }, 404);
     }
@@ -60,8 +60,8 @@ async function processFollow(c: Context, remove: boolean) {
 
   const following = account
     ? (remove
-      ? await db.removeFollowing(String(account._id), targetUrl)
-      : await db.addFollowing(String(account._id), targetUrl))
+      ? await db.accounts.removeFollowing(String(account._id), targetUrl)
+      : await db.accounts.addFollowing(String(account._id), targetUrl))
     : [];
 
   try {
@@ -72,9 +72,9 @@ async function processFollow(c: Context, remove: boolean) {
     if (url.hostname === domain && url.pathname.startsWith("/users/")) {
       const name = url.pathname.split("/")[2];
       if (remove) {
-        await db.removeFollowerByName(name, actorId);
+        await db.accounts.removeFollowerByName(name, actorId);
       } else {
-        await db.addFollowerByName(name, actorId);
+        await db.accounts.addFollowerByName(name, actorId);
       }
       if (account) {
         if (!remove) {
@@ -112,9 +112,9 @@ async function processFollow(c: Context, remove: boolean) {
         env,
       ).catch((err) => console.error("Delivery failed:", err));
       if (remove) {
-        if (db.unfollow) await db.unfollow(account.userName, targetUrl);
+        if (db.posts.unfollow) await db.posts.unfollow(account.userName, targetUrl);
       } else {
-        await db.follow(account.userName, targetUrl);
+        await db.posts.follow(account.userName, targetUrl);
       }
     } else {
       return jsonResponse(c, { error: "unsupported" }, 400);

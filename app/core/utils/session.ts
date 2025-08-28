@@ -9,7 +9,7 @@ export async function issueSession(c: Context): Promise<void> {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const db = createDB(env);
   const deviceId = crypto.randomUUID();
-  await db.createSession(sessionId, expiresAt, deviceId);
+  await db.sessions.create(sessionId, expiresAt, deviceId);
   setCookie(c, "sessionId", sessionId, {
     path: "/",
     httpOnly: true,

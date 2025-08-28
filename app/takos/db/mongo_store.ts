@@ -1,6 +1,8 @@
 import type { DataStore, SortSpec } from "../../core/db/types.ts";
 import { MongoDB } from "./mongo.ts";
 import { createObjectStorage } from "../storage/providers.ts";
+import Invite from "../models/takos/invite.ts";
+import Approval from "../models/takos/approval.ts";
 
 /**
  * 既存の MongoDB 実装 (MongoDB クラス) を新しい DataStore に束ねる薄い実装。
@@ -91,6 +93,26 @@ export function createMongoDataStore(
       addFollower: (n, a) => impl.addGroupFollower(n, a),
       removeFollower: (n, a) => impl.removeGroupFollower(n, a),
       pushOutbox: (n, act) => impl.pushGroupOutbox(n, act),
+    },
+    invites: {
+      findOne: (filter) => Invite.findOne(filter),
+      findOneAndUpdate: (filter, update, options) =>
+        Invite.findOneAndUpdate(filter, update, options),
+      save: (data) => {
+        const invite = new Invite(data);
+        return invite.save();
+      },
+      deleteOne: async (filter) => {
+        await Invite.deleteOne(filter);
+      },
+    },
+    approvals: {
+      findOne: (filter) => Approval.findOne(filter),
+      findOneAndUpdate: (filter, update, options) =>
+        Approval.findOneAndUpdate(filter, update, options),
+      deleteOne: async (filter) => {
+        await Approval.deleteOne(filter);
+      },
     },
     notifications: {
       list: (o) => impl.listNotifications(o),

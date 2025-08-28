@@ -14,7 +14,7 @@ app.get("/dms", async (c) => {
   const owner = c.req.query("owner");
   if (!owner) return c.json({ error: "owner is required" }, 400);
   const db = getDB(c);
-  const rooms = await db.listDirectMessages(owner) as DirectMessageDoc[];
+  const rooms = await db.dms.list(owner) as DirectMessageDoc[];
   const formatted = rooms.map((r) => ({
     id: r.id,
     owner: r.owner,
@@ -44,7 +44,7 @@ app.post(
       members?: string[];
     };
     const db = getDB(c);
-    const room = await db.createDirectMessage({
+    const room = await db.dms.create({
       owner,
       id,
       name,
@@ -67,7 +67,7 @@ app.patch(
       name?: string;
     };
     const db = getDB(c);
-    const room = await db.updateDirectMessage(owner, id, { name });
+    const room = await db.dms.update(owner, id, { name });
     if (!room) return c.json({ error: "not found" }, 404);
     return c.json(room);
   },
@@ -90,7 +90,7 @@ app.post("/dms/:id/icon", async (c) => {
     ext: ext ? `.${ext}` : undefined,
   });
   const db = getDB(c);
-  await db.updateDirectMessage(owner, id, { icon: saved.url });
+  await db.dms.update(owner, id, { icon: saved.url });
   return c.json({ url: saved.url });
 });
 
@@ -99,7 +99,7 @@ app.delete("/dms/:id", async (c) => {
   if (!owner) return c.json({ error: "owner is required" }, 400);
   const id = c.req.param("id");
   const db = getDB(c);
-  const ok = await db.deleteDirectMessage(owner, id);
+  const ok = await db.dms.delete(owner, id);
   if (!ok) return c.json({ error: "not found" }, 404);
   return c.json({ success: true });
 });

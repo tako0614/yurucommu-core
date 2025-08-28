@@ -38,7 +38,7 @@ export async function getFile(
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
   const storage = getStorage(env);
   const db = createDB(env);
-  const doc = await db.findAttachmentById(id) as {
+  const doc = await db.posts.findAttachmentById(id) as {
     content?: string;
     extra?: Record<string, unknown>;
   } | null;

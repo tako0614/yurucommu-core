@@ -90,7 +90,7 @@ app.post(
       getUserInfo(fromHandle, domain, env).catch(() => null),
       getUserInfo(to, domain, env).catch(() => null),
     ]);
-    const payload = await db.saveDMMessage(
+    const payload = await db.dms.save(
       localName,
       to,
       type,
@@ -104,14 +104,14 @@ app.post(
     );
     (payload as { from: string }).from = fromHandle;
     await Promise.all([
-      db.createDirectMessage({
+      db.dms.create({
         owner: fromHandle,
         id: to,
         name: toInfo?.displayName || toInfo?.userName || to,
         icon: toInfo?.authorAvatar,
         members: [fromHandle, to],
       }),
-      db.createDirectMessage({
+      db.dms.create({
         owner: to,
         id: fromHandle,
         name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
@@ -239,7 +239,7 @@ app.get(
       user2: string;
     };
     const db = getDB(c);
-    const messages = await db.listDMsBetween(user1, user2);
+    const messages = await db.dms.listBetween(user1, user2);
     return c.json(messages);
   },
 );

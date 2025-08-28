@@ -7,6 +7,8 @@ import HostDomain from "../models/domain.ts";
 import HostUser from "../models/user.ts";
 import HostSession from "../models/session.ts";
 import FaspClientSetting from "../../takos/models/takos/fasp_client_setting.ts";
+import Invite from "../../takos/models/takos/invite.ts";
+import Approval from "../../takos/models/takos/approval.ts";
 import mongoose from "mongoose";
 import type { Db } from "mongodb";
 import { createObjectStorage } from "../../takos/storage/providers.ts";
@@ -105,6 +107,26 @@ export function createMongoDataStore(
       addFollower: (n, a) => impl.addGroupFollower(n, a),
       removeFollower: (n, a) => impl.removeGroupFollower(n, a),
       pushOutbox: (n, act) => impl.pushGroupOutbox(n, act),
+    },
+    invites: {
+      findOne: (filter) => Invite.findOne(filter),
+      findOneAndUpdate: (filter, update, options) =>
+        Invite.findOneAndUpdate(filter, update, options),
+      save: (data) => {
+        const invite = new Invite(data);
+        return invite.save();
+      },
+      deleteOne: async (filter) => {
+        await Invite.deleteOne(filter);
+      },
+    },
+    approvals: {
+      findOne: (filter) => Approval.findOne(filter),
+      findOneAndUpdate: (filter, update, options) =>
+        Approval.findOneAndUpdate(filter, update, options),
+      deleteOne: async (filter) => {
+        await Approval.deleteOne(filter);
+      },
     },
     notifications: {
       list: (o) => impl.listNotifications(o),

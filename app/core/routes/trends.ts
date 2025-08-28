@@ -53,7 +53,7 @@ app.get("/trends", async (c) => {
     const db = getDB(c);
     const since = new Date(Date.now() - withinLastHours * 60 * 60 * 1000);
     // published が過去日時の投稿も集計対象とするため、作成日時で検索する
-    const notes = await db.findNotes({ created_at: { $gte: since } }, {
+    const notes = await db.posts.findNotes({ created_at: { $gte: since } }, {
       created_at: -1,
     }) as NoteDoc[];
     const counts: Record<string, number> = {};

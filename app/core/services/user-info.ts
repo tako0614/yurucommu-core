@@ -33,7 +33,7 @@ export async function getUserInfo(
   const isLocal = userDomain === domain;
 
   if (isLocal) {
-    const account = await db.findAccountByUserName(userName);
+    const account = await db.accounts.findByUserName(userName);
     if (account) {
       displayName = account.displayName || userName;
       authorAvatar = account.avatarInitial || "/api/image/people.png";
@@ -50,7 +50,7 @@ export async function getUserInfo(
           ? icon
           : "";
       }
-      await db.upsertRemoteActor({
+      await db.system.upsertRemoteActor({
         actorUrl: actor.id,
         name: actor.name || "",
         preferredUsername: actor.preferredUsername || "",
@@ -93,7 +93,7 @@ export async function getUserInfoBatch(
     .map((a) => a.split("@")[0]);
 
   if (localNames.length > 0) {
-    const accounts = await db.findAccountsByUserNames(localNames);
+    const accounts = await db.accounts.findByUserNames(localNames);
     for (const acc of accounts) {
       const acct = `${acc.userName}@${domain}`;
       cache[acct] = {

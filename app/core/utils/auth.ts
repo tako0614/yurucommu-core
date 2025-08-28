@@ -10,17 +10,17 @@ const authRequired: MiddlewareHandler = createAuthMiddleware<SessionDoc>({
   findSession: async (sid, c) => {
     const env = getEnv(c);
     const db = createDB(env);
-    return await db.findSessionById(sid);
+    return await db.sessions.findById(sid);
   },
   deleteSession: async (sid, c) => {
     const env = getEnv(c);
     const db = createDB(env);
-    await db.deleteSessionById(sid);
+    await db.sessions.deleteById(sid);
   },
   updateSession: async (session, expires, c) => {
     const env = getEnv(c);
     const db = createDB(env);
-    await db.updateSessionExpires(session.sessionId, expires);
+    await db.sessions.updateExpires(session.sessionId, expires);
   },
 });
 

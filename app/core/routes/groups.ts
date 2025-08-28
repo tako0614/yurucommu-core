@@ -2,9 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
-import Invite from "../../takos/models/takos/invite.ts";
-import Approval from "../../takos/models/takos/approval.ts";
-import type { Document } from "mongoose";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -39,7 +36,7 @@ app.get("/api/groups", async (c) => {
   if (!member) return c.json({ error: "member is required" }, 400);
   const username = member.split("@")[0];
   const db = getDB(c);
-  const groups = await db.listGroups(username);
+  const groups = await db.groups.list(username);
   return c.json(groups);
 });
 
@@ -51,7 +48,7 @@ app.get("/api/groups/:name/messages", async (c) => {
   const limit = Number(c.req.query("limit") ?? "0");
   const before = c.req.query("before");
   const after = c.req.query("after");
-  let msgs = await db.findMessages({ "aud.to": groupId }) as {
+  let msgs = await db.posts.findMessages({ "aud.to": groupId }) as {
     _id?: string;
     actor_id?: string;
     attributedTo?: string;
@@ -139,7 +136,7 @@ app.post(
         // check existence
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore: lean() return typing
-        exists = await db.findGroupByName(groupName);
+        exists = await db.groups.findByName(groupName);
         attempts++;
       } while (exists && attempts < 5);
       if (exists) {
@@ -147,7 +144,7 @@ app.post(
       }
     } else {
       // user provided a name — if it exists, fail with 400 to avoid silently changing it
-      const exists = await db.findGroupByName(groupName);
+      const exists = await db.groups.findByName(groupName);
       if (exists) return c.json({ error: "既に存在します" }, 400);
     }
 
@@ -175,7 +172,7 @@ app.post(
     const member = typeof body.member === "string" ? body.member : "";
     if (!member) return c.json({ error: "member is required" }, 400);
     const keys = await generateKeyPair();
-    await db.createGroup({
+    await db.groups.create({
       groupName,
       displayName,
       summary,
@@ -190,7 +187,7 @@ app.post(
     const groupId = `https://${domain}/groups/${groupName}`;
     // 作成者をローカルのアクターIDに変換し、フォロワーとして登録
     const actorId = `https://${domain}/users/${member.split("@")[0]}`;
-    await db.addGroupFollower(groupName, actorId);
+    await db.groups.addFollower(groupName, actorId);
     // 追加: 初期招待（invites があれば送信）
     const rawInv = Array.isArray((body as { invites?: unknown }).invites)
       ? (body as { invites: string[] }).invites
@@ -225,6 +222,7 @@ app.post(
           target: groupId,
           to: [target],
         };
+        const env = getEnv(c);
         try {
           await deliverActivityPubObject(
             [target],
@@ -238,13 +236,12 @@ app.post(
           failed.push(cand);
           continue;
         }
-        const inv = new Invite({
-          groupName,
-          actor: target,
-          inviter: groupId,
-        });
         try {
-          await inv.save();
+          await db.invites.save({
+            groupName,
+            actor: target,
+            inviter: groupId,
+          });
         } catch (err) {
           console.error("招待の保存に失敗しました", err);
           failed.push(cand);
@@ -281,7 +278,7 @@ app.patch(
     const name = c.req.param("name");
     const update = c.req.valid("json") as Record<string, unknown>;
     const db = getDB(c);
-    const group = await db.updateGroupByName(name, update);
+    const group = await db.groups.updateByName(name, update);
     if (!group) return c.json({ error: "見つかりません" }, 404);
     return c.json({ ok: true });
   },
@@ -301,8 +298,9 @@ app.patch(
   async (c) => {
     const name = c.req.param("name");
     const domain = getDomain(c);
+    const env = getEnv(c);
     const db = getDB(c);
-    const group = await db.findGroupByName(name) as
+    const group = await db.groups.findByName(name) as
       | GroupDoc
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
@@ -310,7 +308,7 @@ app.patch(
       return c.json({ error: "他ホストのグループです" }, 403);
     }
     const update = c.req.valid("json") as Record<string, unknown>;
-    const updated = await db.updateGroupByName(name, update);
+    const updated = await db.groups.updateByName(name, update);
     if (!updated) return c.json({ error: "見つかりません" }, 404);
     if (!updated.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
@@ -372,7 +370,7 @@ app.post(
     };
     const env = getEnv(c);
     const db = getDB(c);
-    const group = await db.findGroupByName(name) as GroupDoc | null;
+    const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     const policy = group.invitePolicy ??
       (group.allowInvites ? "members" : "none");
@@ -417,19 +415,18 @@ app.post(
       env,
     );
     const expiresAt = new Date(Date.now() + ttl * 1000);
-    const inv = new Invite({
+    await db.invites.save({
       groupName: name,
       actor: target,
       inviter: inviterId,
       expiresAt,
       remainingUses: uses,
-    });
-    await inv.save().catch(() => {});
+    }).catch(() => {});
     const [user, host] = acct.split("@");
     if (host === domain) {
-      const acc = await db.findAccountByUserName(user);
+      const acc = await db.accounts.findByUserName(user);
       if (acc) {
-        await db.createNotification(
+        await db.notifications.create(
           acc._id!,
           "グループ招待",
           // store structured message so client can show action buttons
@@ -464,14 +461,16 @@ app.post(
       return c.json({ error: "member の形式が正しくありません" }, 400);
     }
     const db = getDB(c);
-    const group = await db.findGroupByName(name) as GroupDoc | null;
+    const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     if (host !== domain) {
       return c.json({ error: "リモートユーザーは未対応です" }, 400);
     }
     const actorId = `https://${domain}/users/${user}`;
     if (group.membershipPolicy === "inviteOnly") {
-      const inv = await Invite.findOne({ groupName: name, actor: actorId });
+      const inv = await db.invites.findOne({ groupName: name, actor: actorId }) as
+        | (unknown & { expiresAt?: Date; remainingUses?: number })
+        | null;
       const now = new Date();
       if (
         !inv ||
@@ -521,7 +520,7 @@ app.post(
     const groupId = `https://${domain}/groups/${name}`;
     const env = getEnv(c);
     const db = getDB(c);
-    const group = await db.findGroupByName(name) as
+    const group = await db.groups.findByName(name) as
       | GroupDoc
       | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
@@ -531,14 +530,14 @@ app.post(
     if (!group.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     }
-    const approval = await Approval.findOne({
+    const approval = await db.approvals.findOne({
       groupName: name,
       actor,
-    });
+    }) as unknown & { activity: unknown };
     if (!approval) return c.json({ error: "見つかりません" }, 404);
     if (accept) {
       if (!group.followers.includes(actor)) {
-        await db.addGroupFollower(name, actor);
+        await db.groups.addFollower(name, actor);
       }
       const acc = createAcceptActivity(domain, groupId, approval.activity);
       await deliverActivityPubObject(
@@ -565,7 +564,7 @@ app.post(
         env,
       );
     }
-    await approval.deleteOne();
+    await db.approvals.deleteOne({ groupName: name, actor });
     return c.json({ ok: true });
   },
 );
@@ -573,7 +572,7 @@ app.post(
 app.get("/groups/:name", async (c) => {
   const name = c.req.param("name");
   const db = getDB(c);
-  const group = await db.findGroupByName(name) as GroupDoc | null;
+  const group = await db.groups.findByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   const actor: Record<string, unknown> = {
@@ -600,7 +599,7 @@ app.get("/groups/:name", async (c) => {
 app.get("/groups/:name/followers", async (c) => {
   const name = c.req.param("name");
   const db = getDB(c);
-  const group = await db.findGroupByName(name) as GroupDoc | null;
+  const group = await db.groups.findByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -619,7 +618,7 @@ app.get("/groups/:name/followers", async (c) => {
 app.get("/groups/:name/outbox", async (c) => {
   const name = c.req.param("name");
   const db = getDB(c);
-  const group = await db.findGroupByName(name) as GroupDoc | null;
+  const group = await db.groups.findByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
   return c.json(
@@ -638,9 +637,10 @@ app.get("/groups/:name/outbox", async (c) => {
 app.post("/groups/:name/inbox", async (c) => {
   const name = c.req.param("name");
   const db = getDB(c);
-  const group = await db.findGroupByName(name) as GroupDoc | null;
+  const group = await db.groups.findByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
+  const env = getEnv(c);
   const parsed = await parseActivityRequest(c);
   if (!parsed) return c.json({ error: "署名エラー" }, 401);
   const { activity } = parsed;
@@ -683,7 +683,7 @@ app.post("/groups/:name/inbox", async (c) => {
       return c.json({ error: "権限がありません" }, 403);
     }
     if (invited) {
-      await Invite.findOneAndUpdate(
+      await db.invites.findOneAndUpdate(
         { groupName: name, actor: invited },
         { inviter },
         { upsert: true },
@@ -699,20 +699,20 @@ app.post("/groups/:name/inbox", async (c) => {
     activity.object === groupId
   ) {
     if (group.membershipPolicy === "approval") {
-      await Approval.findOneAndUpdate(
+      await db.approvals.findOneAndUpdate(
         { groupName: name, actor: activity.actor },
         { activity },
         { upsert: true },
       ).catch(() => {});
       return c.json({ ok: true });
     }
-    let inv: (Document & { expiresAt?: Date; remainingUses?: number }) | null =
+    let inv: (unknown & { expiresAt?: Date; remainingUses?: number }) | null =
       null;
     if (group.membershipPolicy === "inviteOnly") {
-      inv = await Invite.findOne({
+      inv = await db.invites.findOne({
         groupName: name,
         actor: activity.actor,
-      });
+      }) as (unknown & { expiresAt?: Date; remainingUses?: number }) | null;
       const now = new Date();
       if (
         !inv ||
@@ -740,15 +740,17 @@ app.post("/groups/:name/inbox", async (c) => {
       }
     }
     if (!group.followers.includes(activity.actor)) {
-      await db.addGroupFollower(name, activity.actor);
+      await db.groups.addFollower(name, activity.actor);
     }
     if (inv) {
       const uses = inv.remainingUses ?? 1;
       if (uses <= 1) {
-        await inv.deleteOne();
+        await db.invites.deleteOne({ groupName: name, actor: activity.actor });
       } else {
-        inv.remainingUses = uses - 1;
-        await inv.save().catch(() => {});
+        await db.invites.findOneAndUpdate(
+          { groupName: name, actor: activity.actor },
+          { $inc: { remainingUses: -1 } },
+        ).catch(() => {});
       }
     }
     const accept = createAcceptActivity(domain, groupId, activity);
@@ -767,20 +769,20 @@ app.post("/groups/:name/inbox", async (c) => {
 
   if (activity.type === "Follow" && typeof activity.actor === "string") {
     if (group.membershipPolicy === "approval") {
-      await Approval.findOneAndUpdate(
+      await db.approvals.findOneAndUpdate(
         { groupName: name, actor: activity.actor },
         { activity },
         { upsert: true },
       ).catch(() => {});
       return c.json({ ok: true });
     }
-    let inv: (Document & { expiresAt?: Date; remainingUses?: number }) | null =
+    let inv: (unknown & { expiresAt?: Date; remainingUses?: number }) | null =
       null;
     if (group.membershipPolicy === "inviteOnly") {
-      inv = await Invite.findOne({
+      inv = await db.invites.findOne({
         groupName: name,
         actor: activity.actor,
-      });
+      }) as (unknown & { expiresAt?: Date; remainingUses?: number }) | null;
       const now = new Date();
       if (
         !inv ||
@@ -808,15 +810,17 @@ app.post("/groups/:name/inbox", async (c) => {
       }
     }
     if (!group.followers.includes(activity.actor)) {
-      await db.addGroupFollower(name, activity.actor);
+      await db.groups.addFollower(name, activity.actor);
     }
     if (inv) {
       const uses = inv.remainingUses ?? 1;
       if (uses <= 1) {
-        await inv.deleteOne();
+        await db.invites.deleteOne({ groupName: name, actor: activity.actor });
       } else {
-        inv.remainingUses = uses - 1;
-        await inv.save().catch(() => {});
+        await db.invites.findOneAndUpdate(
+          { groupName: name, actor: activity.actor },
+          { $inc: { remainingUses: -1 } },
+        ).catch(() => {});
       }
     }
     const accept = createAcceptActivity(domain, groupId, activity);
@@ -886,7 +890,7 @@ app.post("/groups/:name/inbox", async (c) => {
       actor: groupId,
       object: activity.object,
     };
-    await db.pushGroupOutbox(name, announceBase);
+    await db.groups.pushOutbox(name, announceBase);
 
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）
@@ -933,7 +937,7 @@ app.post("/groups/:name/inbox", async (c) => {
         return c.json({ error: "最後のメンバーは退出できません" }, 400);
       }
     }
-    await db.removeGroupFollower(name, actor);
+    await db.groups.removeFollower(name, actor);
     return c.json({ ok: true });
   }
 

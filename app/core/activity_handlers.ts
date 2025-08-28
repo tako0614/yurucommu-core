@@ -66,7 +66,7 @@ async function saveObject(
   }
 
   const db = createDB(env);
-  return await db.saveObject({
+  return await db.posts.saveObject({
     type: obj.type ?? "Note",
     attributedTo,
     content: obj.content,
@@ -157,7 +157,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       >;
       const domain = getDomain(c as Context);
       const db = createDB(env);
-      const msg = await db.saveMessage(
+      const msg = await db.posts.saveMessage(
         domain,
         actor,
         typeof obj.content === "string" ? obj.content : "",
@@ -176,14 +176,14 @@ export const activityHandlers: Record<string, ActivityHandler> = {
           () => null,
         );
         await Promise.all([
-          db.createDirectMessage({
+          db.dms.create({
             owner: fromHandle,
             id: toHandle,
             name: toInfo?.displayName || toInfo?.userName || toHandle,
             icon: toInfo?.authorAvatar,
             members: [fromHandle, toHandle],
           }),
-          db.createDirectMessage({
+          db.dms.create({
             owner: toHandle,
             id: fromHandle,
             name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
@@ -260,8 +260,8 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       string
     >;
     const db = createDB(env);
-    await db.addFollowerByName(username, activity.actor);
-    await db.follow(username, activity.actor);
+    await db.accounts.addFollowerByName(username, activity.actor);
+    await db.posts.follow(username, activity.actor);
     const domain = getDomain(c as Context);
     const accept = createAcceptActivity(
       domain,

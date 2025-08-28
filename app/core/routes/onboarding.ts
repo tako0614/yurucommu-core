@@ -8,7 +8,7 @@ const app = new Hono();
 // 初回オンボーディングの表示可否は「アカウントが存在するか」で判定する
 app.get("/onboarding/status", async (c) => {
   const db = getDB(c);
-  const list = await db.listAccounts();
+  const list = await db.accounts.list();
   const configured = (list?.length ?? 0) > 0;
   return c.json({ configured });
 });

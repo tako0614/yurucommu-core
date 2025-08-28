@@ -35,7 +35,7 @@ app.use("/accounts/*", authRequired);
 
 app.get("/accounts", async (c) => {
   const db = getDB(c);
-  const list = await db.listAccounts();
+  const list = await db.accounts.list();
   const formatted = list.map((doc: AccountDoc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
@@ -59,7 +59,7 @@ app.post("/accounts", async (c) => {
 
   // Check if username already exists
   const db = getDB(c);
-  const existingAccount = await db.findAccountByUserName(username.trim());
+  const existingAccount = await db.accounts.findByUserName(username.trim());
   if (existingAccount) {
     return jsonResponse(c, { error: "Username already exists" }, 409);
   }
@@ -77,7 +77,7 @@ app.post("/accounts", async (c) => {
       }, 400);
     }
   }
-  const account = await db.createAccount({
+  const account = await db.accounts.create({
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
     avatarInitial: avatar,
@@ -97,7 +97,7 @@ app.post("/accounts", async (c) => {
 app.get("/accounts/:id", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id);
+  const account = await db.accounts.findById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     ...formatAccount(account),
@@ -111,7 +111,7 @@ app.put("/accounts/:id", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
   const updates = await c.req.json();
-  const orig = await db.findAccountById(id);
+  const orig = await db.accounts.findById(id);
   if (!orig) return jsonResponse(c, { error: "Account not found" }, 404);
 
   const data: Record<string, unknown> = {};
@@ -134,7 +134,7 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
 
-  const account = await db.updateAccountById(id, data);
+  const account = await db.accounts.updateById(id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   await announceIfPublicAndDiscoverable(env, domain, {
     category: "account",
@@ -149,9 +149,9 @@ app.delete("/accounts/:id", async (c) => {
   const env = getEnv(c);
   const db = getDB(c);
   const id = c.req.param("id");
-  const account = await db.findAccountById(id);
+  const account = await db.accounts.findById(id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const deleted = await db.deleteAccountById(id);
+  const deleted = await db.accounts.deleteById(id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
   await announceIfPublicAndDiscoverable(env, domain, {
     category: "account",

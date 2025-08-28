@@ -12,13 +12,13 @@ app.get("/session/status", async (c) => {
 
   try {
     const db = getDB(c);
-    const session = await db.findSessionById(sessionId);
+    const session = await db.sessions.findById(sessionId);
     if (session && session.expiresAt > new Date()) {
       return c.json({ login: true });
     } else {
       if (session) {
         // Clean up expired session
-        await db.deleteSessionById(sessionId);
+        await db.sessions.deleteById(sessionId);
       }
       return c.json({ login: false });
     }

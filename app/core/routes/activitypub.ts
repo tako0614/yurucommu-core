@@ -54,7 +54,7 @@ app.get("/.well-known/webfinger", async (c) => {
   }
   const domain = expected ?? host;
   const db = getDB(c);
-  const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const jrd = {
     subject: `acct:${username}@${domain}`,
@@ -72,7 +72,7 @@ app.get("/.well-known/webfinger", async (c) => {
 app.get("/users/:username", async (c) => {
   const username = c.req.param("username");
   const db = getDB(c);
-  const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
   const domain = getDomain(c);
 
@@ -87,7 +87,7 @@ app.get("/users/:username", async (c) => {
 app.get("/users/:username/avatar", async (c) => {
   const username = c.req.param("username");
   const db = getDB(c);
-  const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
   if (!account) return c.body("Not Found", 404);
 
   const icon = account.avatarInitial;
@@ -106,7 +106,7 @@ app.get("/users/:username/outbox", async (c) => {
   const domain = getDomain(c);
   const db = getDB(c);
   // ノートのみを取得する
-  const objectsUnknown = await db.findNotes(
+  const objectsUnknown = await db.posts.findNotes(
     { attributedTo: `https://${domain}/users/${username}` },
     { published: -1 },
   ) as unknown[];
@@ -175,7 +175,7 @@ app.post("/users/:username/outbox", async (c) => {
     if (typeof body.name === "string") data.name = body.name;
     if (typeof body.content === "string") data.content = body.content;
   }
-  const object = await db.saveObject(data) as {
+  const object = await db.posts.saveObject(data) as {
     _id: unknown;
     type?: string;
     content?: string;
@@ -232,7 +232,7 @@ app.post("/users/:username/outbox", async (c) => {
 app.post("/users/:username/inbox", async (c) => {
   const username = c.req.param("username");
   const db = getDB(c);
-  const account = await db.findAccountByUserName(username);
+  const account = await db.accounts.findByUserName(username);
   if (!account) return jsonResponse(c, { error: "Not found" }, 404);
 
   const result = await parseActivityRequest(c);
