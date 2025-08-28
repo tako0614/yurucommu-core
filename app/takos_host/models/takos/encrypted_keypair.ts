@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import tenantScope from "../plugins/tenant_scope.ts";
 
 // encryptedKeyPair schema was previously expected to live at
 // ../takos/encrypted_keypair.ts but that file is missing. Define the
@@ -11,6 +12,9 @@ const encryptedKeyPairSchema = new mongoose.Schema({
   publicKey: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
 });
+
+encryptedKeyPairSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
+encryptedKeyPairSchema.index({ domain: 1, tenant_id: 1 }, { unique: true });
 
 const HostEncryptedKeyPair = mongoose.models.HostEncryptedKeyPair ??
   mongoose.model(
