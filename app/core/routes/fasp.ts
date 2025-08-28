@@ -6,8 +6,8 @@ import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getSystemKey } from "../services/system_actor.ts";
 import { faspFetch, notifyCapabilityActivation } from "../services/fasp.ts";
-import { verifyDigest, verifyHttpSignature } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
+import { requireSignedJson } from "../utils/require_signed_json.ts";
 import {
   continueBackfill,
   createBackfill,
@@ -25,40 +25,23 @@ app.use("/api/fasp/*", authRequired);
 
 // 以前の実装に戻す（provider_info の自己提供は行わない）
 
-// deno-lint-ignore no-explicit-any
-async function requireSignedJson(c: any): Promise<{ ok: boolean; body?: any }> {
-  const bodyText = await c.req.text();
-  const hasContentDigest = !!c.req.header("content-digest");
-  if (!hasContentDigest) return { ok: false };
-  const okDigest = await verifyDigest(c.req.raw, bodyText);
-  const okSig = await verifyHttpSignature(c.req.raw, bodyText);
-  if (!okDigest || !okSig) {
-    return { ok: false };
-  }
-  try {
-    return { ok: true, body: JSON.parse(bodyText) };
-  } catch {
-    return { ok: false };
-  }
-}
-
 // POST /fasp/registration
 // FASP からの登録要求を受理し、takos 側情報を返す
 app.post("/fasp/registration", async (c) => {
   const env = getEnv(c);
   const domain = getDomain(c);
   const db = getDB(c);
-  const signed = await requireSignedJson(c);
-  if (!signed.ok) {
-    return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
-  }
-  const body = signed.body as {
+  const signed = await requireSignedJson<{
     name?: string;
     baseUrl?: string;
     serverId?: string;
     publicKey?: string;
-  };
-  const { name = "", baseUrl = "", serverId = "", publicKey = "" } = body;
+  }>(c);
+  if (!signed.ok) {
+    return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
+  }
+  const { name = "", baseUrl = "", serverId = "", publicKey = "" } =
+    signed.body ?? {};
   if (!baseUrl || !serverId || !publicKey) {
     return c.json({ error: "必須フィールドが不足しています" }, 400);
   }
@@ -124,7 +107,9 @@ const backfillRequestSchema = z.object({
 // data_sharing v0.1: event_subscriptions の受信（作成）
 app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
   const env = getEnv(c);
-  const signed = await requireSignedJson(c);
+  const signed = await requireSignedJson<
+    z.infer<typeof eventSubscriptionSchema>
+  >(c);
   if (!signed.ok) {
     return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
   }
@@ -149,7 +134,9 @@ app.delete("/fasp/data_sharing/v0/event_subscriptions/:id", async (c) => {
 // data_sharing v0.1: backfill の作成
 app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
   const env = getEnv(c);
-  const signed = await requireSignedJson(c);
+  const signed = await requireSignedJson<
+    z.infer<typeof backfillRequestSchema>
+  >(c);
   if (!signed.ok) {
     return c.json({ error: "署名/ダイジェスト検証に失敗しました" }, 401);
   }
@@ -169,7 +156,7 @@ app.post(
   async (c) => {
     const env = getEnv(c);
     const id = c.req.param("id");
-    const signed = await requireSignedJson(c);
+    const signed = await requireSignedJson<unknown>(c);
     if (!signed.ok) {
       return c.json({
         error: "署名/ダイジェスト検証に失敗しました",
