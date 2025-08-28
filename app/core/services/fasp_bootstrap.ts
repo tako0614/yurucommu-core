@@ -1,26 +1,7 @@
 // 既定の FASP を起動時に自動登録/承認し、provider_info を取得して能力を有効化する
 import { createDB } from "../db/mod.ts";
 import { faspFetch, notifyCapabilityActivation } from "./fasp.ts";
-
-function normalizeBaseUrl(url: string): string | null {
-  let b = url.trim();
-  if (!b) return null;
-  if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
-  try {
-    const u = new URL(b);
-    u.hash = "";
-    u.search = "";
-    let p = u.pathname.replace(/\/+$/, "");
-    if (p.endsWith("/provider_info")) {
-      p = p.slice(0, -"/provider_info".length);
-    }
-    if (p === "/") p = "";
-    const out = `${u.origin}${p}`.replace(/\/$/, "");
-    return out;
-  } catch {
-    return null;
-  }
-}
+import { normalizeBaseUrl } from "../utils/url.ts";
 
 function genSecret(bytes = 32): string {
   const buf = new Uint8Array(bytes);

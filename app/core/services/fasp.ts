@@ -4,6 +4,7 @@ import { getSystemKey } from "./system_actor.ts";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { bufToB64 } from "@takos/buffer";
 import { ensurePem, verifyHttpSignature } from "../utils/activitypub.ts";
+import { normalizeBaseUrl } from "../utils/url.ts";
 
 export const faspMetrics = {
   rateLimitHits: 0,
@@ -192,9 +193,8 @@ export async function sendAnnouncements(
   });
   await Promise.all(
     fasps.map(async (p: unknown) => {
-      const baseUrl = ((p as { baseUrl?: string }).baseUrl ?? "").replace(
-        /\/$/,
-        "",
+      const baseUrl = normalizeBaseUrl(
+        (p as { baseUrl?: string }).baseUrl ?? "",
       );
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
@@ -245,7 +245,10 @@ export async function getFaspBaseUrl(
       status: "approved",
       [`capabilities.${capability}.enabled`]: true,
     }) as { baseUrl?: string } | null;
-    if (byId?.baseUrl) return String(byId.baseUrl).replace(/\/$/, "");
+    if (byId?.baseUrl) {
+      const n = normalizeBaseUrl(String(byId.baseUrl));
+      if (n) return n;
+    }
   }
   // それ以外は最初の承認済み・有効なもの
   const rec = await db.faspProviders.findOne({
@@ -253,7 +256,7 @@ export async function getFaspBaseUrl(
     [`capabilities.${capability}.enabled`]: true,
   }) as { baseUrl?: string } | null;
   if (!rec?.baseUrl) return null;
-  return String(rec.baseUrl).replace(/\/$/, "");
+  return normalizeBaseUrl(String(rec.baseUrl));
 }
 
 // FASP へ capability の有効化/無効化を通知する
@@ -265,9 +268,9 @@ export async function notifyCapabilityActivation(
   version: string,
   enabled: boolean,
 ): Promise<void> {
-  const url = `${
-    baseUrl.replace(/\/$/, "")
-  }/capabilities/${identifier}/${version}/activation`;
+  const base = normalizeBaseUrl(baseUrl);
+  if (!base) return;
+  const url = `${base}/capabilities/${identifier}/${version}/activation`;
   try {
     await faspFetch(env, domain, url, {
       method: enabled ? "POST" : "DELETE",

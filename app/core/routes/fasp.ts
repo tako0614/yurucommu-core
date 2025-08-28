@@ -8,6 +8,7 @@ import { getSystemKey } from "../services/system_actor.ts";
 import { faspFetch, notifyCapabilityActivation } from "../services/fasp.ts";
 import authRequired from "../utils/auth.ts";
 import { requireSignedJson } from "../utils/require_signed_json.ts";
+import { normalizeBaseUrl } from "../utils/url.ts";
 import {
   continueBackfill,
   createBackfill,
@@ -42,13 +43,12 @@ app.post("/fasp/registration", async (c) => {
   }
   const { name = "", baseUrl = "", serverId = "", publicKey = "" } =
     signed.body ?? {};
-  if (!baseUrl || !serverId || !publicKey) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!normalizedBaseUrl || !serverId || !publicKey) {
     return c.json({ error: "必須フィールドが不足しています" }, 400);
   }
 
   const faspId = crypto.randomUUID();
-  // baseUrl の正規化（末尾のスラッシュを削除）
-  const normalizedBaseUrl = String(baseUrl).replace(/\/$/, "");
 
   // FASP 登録情報は registrationUpsert で必ず保存する
   await registrationUpsert(env, {
@@ -182,7 +182,8 @@ app.post("/api/fasp/announcements", async (c) => {
   try {
     const req = await c.req.json();
     const faspBaseUrl: string = req.faspBaseUrl;
-    if (!faspBaseUrl) return c.json({ error: "faspBaseUrl が必要です" }, 400);
+    const normalized = normalizeBaseUrl(faspBaseUrl);
+    if (!normalized) return c.json({ error: "faspBaseUrl が不正です" }, 400);
     const payload = {
       source: req.source,
       category: req.category,
@@ -199,9 +200,7 @@ app.post("/api/fasp/announcements", async (c) => {
       Accept: "application/json",
       "Content-Digest": `sha-256=:${b64}:`,
     });
-    const url = `${
-      faspBaseUrl.replace(/\/$/, "")
-    }/data_sharing/v0/announcements`;
+    const url = `${normalized}/data_sharing/v0/announcements`;
     const res = await fetch(url, { method: "POST", headers, body });
     const text = await res.text();
     return new Response(text, {
@@ -244,40 +243,25 @@ app.post(
     const domain = getDomain(c);
     const { domainOrUrl } = c.req.valid("json") as { domainOrUrl: string };
 
-    // ベースURLの正規化（末尾 /provider_info のみ除去）
-    function canonicalize(u: string): string {
-      let b = u.trim();
-      if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
-      try {
-        const url = new URL(b);
-        url.hash = "";
-        url.search = "";
-        let p = url.pathname.replace(/\/+$/, "");
-        if (p.endsWith("/provider_info")) {
-          p = p.slice(0, -"/provider_info".length);
-        }
-        return `${url.origin}${p}`.replace(/\/$/, "");
-      } catch {
-        return u.replace(/\/$/, "");
-      }
-    }
-    const baseUrl = canonicalize(domainOrUrl);
+    const baseUrl = normalizeBaseUrl(domainOrUrl);
+    if (!baseUrl) return c.json({ error: "不正な URL です" }, 400);
     // 既定FASPかどうか判定
     const defaultBase = env["FASP_DEFAULT_BASE_URL"] ?? "";
     const hostOf = (u: string) => {
       try {
-        return new URL(canonicalize(u)).hostname.toLowerCase();
+        const h = normalizeBaseUrl(u);
+        return h ? new URL(h).hostname.toLowerCase() : "";
       } catch {
         return "";
       }
     };
     const isDefault = !!defaultBase &&
-      (canonicalize(defaultBase) === baseUrl ||
+      (normalizeBaseUrl(defaultBase) === baseUrl ||
         hostOf(defaultBase) === hostOf(baseUrl));
 
     // provider_info の取得
     let info: unknown;
-    const url = `${baseUrl.replace(/\/$/, "")}/provider_info`;
+    const url = `${baseUrl}/provider_info`;
     let lastErr: unknown = null;
     try {
       const res = await faspFetch(env, domain, url, {
@@ -381,7 +365,7 @@ app.post(
           });
         }
       } catch { /* ignore */ }
-      const base = baseUrl.replace(/\/$/, "");
+      const base = baseUrl;
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
           notifyCapabilityActivation(
@@ -502,7 +486,8 @@ app.put(
       | Record<string, unknown>
       | null;
     if (!provider) return c.json({ error: "not found" }, 404);
-    const baseUrl = ((provider["baseUrl"] ?? "") as string).replace(/\/$/, "");
+    const baseUrl = normalizeBaseUrl((provider["baseUrl"] ?? "") as string) ??
+      "";
     await db.faspProviders.updateByBaseUrl(baseUrl, {
       capabilities,
       updatedAt: new Date(),
@@ -536,7 +521,7 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
     | Record<string, unknown>
     | null;
   if (!rec) return c.json({ error: "not found" }, 404);
-  const baseUrl = ((rec["baseUrl"] ?? "") as string).replace(/\/$/, "");
+  const baseUrl = normalizeBaseUrl((rec["baseUrl"] ?? "") as string);
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
     const res = await faspFetch(env, domain, `${baseUrl}/provider_info`, {
