@@ -23,7 +23,7 @@ app.get("/notifications", async (c) => {
   const db = getDB(c);
   const owner = c.req.query("owner");
   if (!owner) return c.json({ error: "owner is required" }, 400);
-  const list = await db.listNotifications(owner) as NotificationDoc[];
+  const list = await db.notifications.list(owner) as NotificationDoc[];
   const formatted = list.map((doc) => ({
     id: doc._id!,
     owner: doc.owner,
@@ -55,14 +55,14 @@ app.post(
       type: string;
     };
     const db = getDB(c);
-    const notification = await db.createNotification(
+    const notification = await db.notifications.create(
       owner,
       title,
       message,
       type,
     ) as NotificationDoc;
     try {
-      const acc = await db.findAccountById(owner);
+      const acc = await db.accounts.findById(owner);
       if (acc && acc.userName) {
         const domain = getDomain(c);
         sendToUser(`${acc.userName}@${domain}`, { type: "notification" });
@@ -85,7 +85,7 @@ app.post(
 app.put("/notifications/:id/read", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
-  const ok = await db.markNotificationRead(id);
+  const ok = await db.notifications.markRead(id);
   if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });
@@ -93,7 +93,7 @@ app.put("/notifications/:id/read", async (c) => {
 app.delete("/notifications/:id", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
-  const ok = await db.deleteNotification(id);
+  const ok = await db.notifications.delete(id);
   if (!ok) return c.json({ error: "Notification not found" }, 404);
   return c.json({ success: true });
 });

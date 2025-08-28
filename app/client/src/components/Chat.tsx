@@ -1217,7 +1217,111 @@ export function Chat() {
     }
 
     if (room.type === "group") {
-      alert("グループチャットは未対応です");
+      // --- グループ送信 ---
+      try {
+        // 添付の組み立て
+        let attachmentsParam: Record<string, unknown>[] | undefined;
+        if (mediaFiles().length > 0) {
+          const built: Record<string, unknown>[] = [];
+          for (const f of mediaFiles()) {
+            try {
+              const att = await buildAttachment(f);
+              if (att && typeof att.url === "string") built.push(att);
+            } catch {
+              // 個別失敗は無視
+            }
+          }
+          if (built.length > 0) attachmentsParam = built;
+        }
+
+        // ActivityPub の type 推定
+        let apType: "note" | "image" | "video" | "file" = "note";
+        const hasText = text.length > 0;
+        const firstMediaType =
+          Array.isArray(attachmentsParam) && attachmentsParam.length > 0
+            ? String((attachmentsParam[0] as { mediaType?: string }).mediaType || "")
+            : "";
+        if (!hasText && firstMediaType) {
+          if (firstMediaType.startsWith("image/")) apType = "image";
+          else if (firstMediaType.startsWith("video/")) apType = "video";
+          else apType = "file";
+        }
+
+        const res = await apiFetch(
+          `/api/groups/${encodeURIComponent(room.name)}/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: `${user.userName}@${getDomain()}`,
+              type: apType,
+              content: text,
+              attachments: attachmentsParam,
+              // 画像・動画単体送信のときの互換フィールド（サーバー側で参照）
+              url: (attachmentsParam && attachmentsParam.length > 0)
+                ? (attachmentsParam[0] as { url?: string }).url
+                : undefined,
+              mediaType: (attachmentsParam && attachmentsParam.length > 0)
+                ? (attachmentsParam[0] as { mediaType?: string }).mediaType
+                : undefined,
+              key: (attachmentsParam && attachmentsParam.length > 0)
+                ? (attachmentsParam[0] as { key?: string }).key
+                : undefined,
+              iv: (attachmentsParam && attachmentsParam.length > 0)
+                ? (attachmentsParam[0] as { iv?: string }).iv
+                : undefined,
+              preview: (attachmentsParam && attachmentsParam.length > 0)
+                ? (attachmentsParam[0] as { preview?: unknown }).preview
+                : undefined,
+            }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "送信に失敗しました" }));
+          globalThis.dispatchEvent(new CustomEvent("app:toast", {
+            detail: { type: "error", title: "送信エラー", description: String(err.error ?? "送信に失敗しました") },
+          }));
+          return;
+        }
+        const j = await res.json();
+        const msg: ChatMessage = {
+          id: String(j.id ?? crypto.randomUUID()),
+          author: `${user.userName}@${getDomain()}`,
+          displayName: user.displayName || user.userName,
+          address: `${user.userName}@${getDomain()}`,
+          content: String(j.content ?? text),
+          attachments: Array.isArray(j.attachments) ? j.attachments : undefined,
+          timestamp: new Date(String(j.createdAt ?? new Date())),
+          type: apType === "note"
+            ? (Array.isArray(j.attachments) && j.attachments.length > 0
+              ? (((j.attachments[0]?.mediaType || "").startsWith("image/"))
+                ? "image"
+                : ((j.attachments[0]?.mediaType || "").startsWith("video/") ? "video" : "file"))
+              : "note")
+            : (apType === "image" ? "image" : apType === "video" ? "video" : "file"),
+          isMe: true,
+          avatar: room.avatar,
+        };
+        if (selectedRoom() === room.id) {
+          setMessages((prev) => [...prev, msg]);
+        }
+        setMessagesByRoom((prev) => {
+          const key = roomCacheKey(room.id);
+          const list = (prev[key] ?? []).concat(msg);
+          const next = { ...prev, [key]: list };
+          const user2 = account();
+          if (user2) void saveDecryptedMessages(user2.id, room.id, list);
+          return next;
+        });
+        updateRoomLast(room.id, msg);
+        setNewMessage("");
+        setMediaFiles([]);
+        setMediaPreviews([]);
+      } catch {
+        globalThis.dispatchEvent(new CustomEvent("app:toast", {
+          detail: { type: "error", title: "送信エラー", description: "送信に失敗しました" },
+        }));
+      }
       return;
     }
     // --- DM 送信 ---

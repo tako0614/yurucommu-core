@@ -768,6 +768,77 @@ paths:
       responses:
         "200":
           description: 更新結果
+  /api/groups/{name}/messages:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: グループメッセージ一覧取得
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: before
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: メッセージの配列
+    post:
+      summary: グループメッセージ送信
+      description: ローカルユーザーが所属グループへメッセージを送信します。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  description: 送信者の acct（例: alice@example.com）
+                type:
+                  type: string
+                  enum: [note, image, video, file]
+                  default: note
+                content:
+                  type: string
+                  description: 本文（note の場合必須）
+                url:
+                  type: string
+                  description: メディアのURL（image/video/file の場合）
+                mediaType:
+                  type: string
+                  description: メディアの MIME タイプ
+                key:
+                  type: string
+                  description: 添付の暗号鍵（Base64、任意）
+                iv:
+                  type: string
+                  description: 添付の IV（Base64、任意）
+                preview:
+                  type: object
+                  description: プレビュー情報（任意）
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                  description: ActivityStreams 互換の添付配列
+              required:
+                - from
+                - type
+      responses:
+        "200":
+          description: 送信結果
   /api/groups/{name}/actor:
     parameters:
       - name: name
