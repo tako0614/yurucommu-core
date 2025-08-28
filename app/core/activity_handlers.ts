@@ -9,7 +9,6 @@ import {
 } from "./utils/activitypub.ts";
 import { broadcast, sendToUser } from "./routes/ws.ts";
 import { formatUserInfoForPost, getUserInfo } from "./services/user-info.ts";
-import { createDB } from "./db/mod.ts";
 import { resolveRemoteActor } from "./utils/activitypub.ts";
 
 export type ActivityHandler = (
