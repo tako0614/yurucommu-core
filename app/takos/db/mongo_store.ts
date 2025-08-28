@@ -183,6 +183,11 @@ export function createMongoDataStore(
         if (!res) return null;
         return (res.value as unknown) ?? null;
       },
+      deleteOne: async (filter) => {
+        const mongo = await impl.getDatabase();
+        const res = await mongo.collection("fasp_client_providers").deleteOne(filter);
+        return { deletedCount: res.deletedCount };
+      },
     }
   };
 }

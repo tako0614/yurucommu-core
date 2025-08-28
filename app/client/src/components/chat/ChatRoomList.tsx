@@ -165,9 +165,9 @@ export function ChatRoomList(props: ChatRoomListProps) {
   };
   const subtitleFor = (room: Room): string => {
     if (room.type !== "group") return room.lastMessage ?? "";
-    const actor = (room.meta as any)?.actor;
-    if (actor?.handle) return actor.handle as string;
-    const gid = (room.meta as any)?.groupId as string | undefined;
+  const actor = (room.meta as { actor?: { handle?: string } } | undefined)?.actor;
+  if (actor?.handle) return actor.handle as string;
+  const gid = (room.meta as { groupId?: string } | undefined)?.groupId as string | undefined;
     if (gid && gid.startsWith("http")) {
       try {
         const u = new URL(gid);

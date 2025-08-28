@@ -66,7 +66,7 @@ app.use("/api/groups/*", authRequired);
 app.use("/api/actors", authRequired);
 app.get("/api/actors", async (c) => {
   const url = c.req.query("url");
-  if (!url) return c.json({ error: "url is required" }, 400);
+  if (!url) return c.json({ error: "url is required" }, { status: 400 });
   try {
     const res = await fetch(url, {
       headers: {
@@ -74,7 +74,12 @@ app.get("/api/actors", async (c) => {
           'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
       },
     });
-    if (!res.ok) return c.json({ error: "fetch failed" }, res.status);
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: "fetch failed" }), {
+        status: res.status,
+        headers: { "content-type": "application/json" },
+      });
+    }
     const data = await res.json() as {
       id?: string;
       type?: string;
@@ -110,7 +115,8 @@ app.get("/api/actors", async (c) => {
       host,
     });
   } catch {
-    return c.json({ error: "fetch failed" }, 502);
+  c.status(502);
+  return c.json({ error: "fetch failed" });
   }
 });
 
@@ -581,12 +587,16 @@ app.post(
         attempts++;
       } while (exists && attempts < 5);
       if (exists) {
-        return c.json({ error: "groupName collision, try again" }, 500);
+        c.status(500);
+        return c.json({ error: "groupName collision, try again" });
       }
     } else {
       // user provided a name — if it exists, fail with 400 to avoid silently changing it
       const exists = await db.groups.findByName(groupName);
-      if (exists) return c.json({ error: "既に存在します" }, 400);
+      if (exists) {
+        c.status(400);
+        return c.json({ error: "既に存在します" });
+      }
     }
 
     let displayName = typeof body.displayName === "string"
@@ -611,7 +621,10 @@ app.post(
       ? body.allowInvites
       : undefined;
     const member = typeof body.member === "string" ? body.member : "";
-    if (!member) return c.json({ error: "member is required" }, 400);
+    if (!member) {
+      c.status(400);
+      return c.json({ error: "member is required" });
+    }
     const keys = await generateKeyPair();
     await db.groups.create({
       groupName,
@@ -716,13 +729,15 @@ app.post(
       }
     }
     if (failed.length > 0) {
+      c.status(500);
       return c.json({
         id: groupId,
         error: "一部または全ての招待に失敗しました",
         failedInvites: failed,
-      }, 500);
+      });
     }
-    return c.json({ id: groupId }, 201);
+    c.status(201);
+    return c.json({ id: groupId });
   },
 );
 
@@ -746,7 +761,10 @@ app.patch(
     const update = c.req.valid("json") as Record<string, unknown>;
     const db = getDB(c);
     const group = await db.groups.updateByName(name, update);
-    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!group) {
+      c.status(404);
+      return c.json({ error: "見つかりません" });
+    }
     return c.json({ ok: true });
   },
 );
@@ -770,7 +788,10 @@ app.patch(
     const group = await db.groups.findByName(name) as
       | GroupDoc
       | null;
-    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!group) {
+      c.status(404);
+      return c.json({ error: "見つかりません" });
+    }
     if (!isOwnedGroup(group, domain, name)) {
       return c.json({ error: "他ホストのグループです" }, 403);
     }
@@ -838,7 +859,10 @@ app.post(
     const env = getEnv(c);
     const db = getDB(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
-    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!group) {
+      c.status(404);
+      return c.json({ error: "見つかりません" });
+    }
     const policy = group.invitePolicy ??
       (group.allowInvites ? "members" : "none");
     if (policy === "none") {
@@ -984,7 +1008,10 @@ app.post(
     }
     const db = getDB(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
-    if (!group) return c.json({ error: "見つかりません" }, 404);
+    if (!group) {
+      c.status(404);
+      return c.json({ error: "見つかりません" });
+    }
     if (host !== domain) {
       return c.json({ error: "リモートユーザーは未対応です" }, 400);
     }

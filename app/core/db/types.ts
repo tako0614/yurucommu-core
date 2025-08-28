@@ -217,6 +217,7 @@ export interface FaspProvidersRepo {
     baseUrl: string,
     update: Record<string, unknown>,
   ): Promise<unknown | null>;
+  deleteOne(filter: Record<string, unknown>): Promise<{ deletedCount?: number }>;
 }
 
 export interface DataStore {

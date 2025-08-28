@@ -976,23 +976,27 @@ export function Chat() {
       type: "group",
     });
     for (const item of serverRooms) {
-      const name = item.name ?? "";
-      const icon = item.icon ?? "";
+      const _item = item as Record<string, unknown>;
+      const itemId = typeof _item.id === "string" ? _item.id : String(_item.id ?? "");
+      const name = typeof _item.name === "string" ? _item.name : String(_item.name ?? "");
+      const icon = typeof _item.icon === "string" ? _item.icon : String(_item.icon ?? "");
       // server may not populate members fully; use pending invites as fallback
       let members = item.members ?? [] as string[];
       if (members.length === 0) {
         try {
-          const pend = await readPending(user.id, item.id, "group");
-          const others = (pend || []).filter((m: string | undefined) =>
-            !!m && m !== handle
-          ) as string[];
+          const pend = await readPending(user.id, itemId, "group");
+          // pend may contain unknown values; filter and coerce to strings safely
+          const raw = Array.isArray(pend) ? pend : [];
+          const others = raw
+            .map((m) => (typeof m === "string" ? m : undefined))
+            .filter((m): m is string => !!m && m !== handle);
           if (others.length > 0) members = others;
         } catch {
           /* ignore */
         }
       }
       rooms.push({
-        id: item.id,
+        id: itemId,
         name,
         userName: user.userName,
         domain: getDomain(),
@@ -1014,23 +1018,26 @@ export function Chat() {
     // DMルームをサーバーから取得して追加
     const dmRooms = await searchRooms(handle, { type: "dm" });
     for (const item of dmRooms) {
-      const name = item.name ?? "";
-      const icon = item.icon ?? "";
+      const _item = item as Record<string, unknown>;
+      const itemId = typeof _item.id === "string" ? _item.id : String(_item.id ?? "");
+      const name = typeof _item.name === "string" ? _item.name : String(_item.name ?? "");
+      const icon = typeof _item.icon === "string" ? _item.icon : String(_item.icon ?? "");
       // members が不足している場合は pending を参照
       let members = item.members ?? [] as string[];
       if (members.length === 0) {
         try {
-          const pend = await readPending(user.id, item.id, "dm");
-          const others = (pend || []).filter((m: string | undefined) =>
-            !!m && m !== handle
-          ) as string[];
+          const pend = await readPending(user.id, itemId, "dm");
+          const raw = Array.isArray(pend) ? pend : [];
+          const others = raw
+            .map((m) => (typeof m === "string" ? m : undefined))
+            .filter((m): m is string => !!m && m !== handle);
           if (others.length > 0) members = others;
         } catch {
           /* ignore */
         }
       }
       rooms.push({
-        id: item.id,
+        id: itemId,
         name,
         userName: user.userName,
         domain: getDomain(),

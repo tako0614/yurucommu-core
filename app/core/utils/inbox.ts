@@ -29,14 +29,14 @@ export async function storeCreateActivity(
   const type = typeof object.type === "string" ? object.type : "";
   let stored = null;
   if (type === "Note") {
-    stored = await db.findNoteById(objectId);
+  stored = await db.posts.findNoteById(objectId);
   } else if (type === "Attachment") {
-    stored = await db.findAttachmentById(objectId);
+  stored = await db.posts.findAttachmentById(objectId);
   } else {
-    stored = await db.findMessageById(objectId);
+  stored = await db.posts.findMessageById(objectId);
   }
   if (!stored) {
-    stored = await db.saveObject({ ...object, attributedTo });
+  stored = await db.posts.saveObject({ ...object, attributedTo });
     if (!stored) return null;
     objectId = String((stored as { _id?: unknown })._id);
   }

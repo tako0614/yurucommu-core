@@ -209,8 +209,8 @@ app.post("/api/fasp/announcements", async (c) => {
 // 管理用: プロバイダ一覧取得
 app.get("/api/fasp/providers", async (c) => {
   const env = getEnv(c);
-  const list = await listProviders(env);
-  const result = list.map((d) => ({
+  const list = await listProviders(env) as Array<Record<string, unknown>>;
+  const result = list.map((d: Record<string, unknown>) => ({
     name: d.name,
     baseUrl: d.baseUrl,
     serverId: d.serverId,
@@ -306,8 +306,6 @@ app.post(
       ]),
     );
 
-    const mongo = await db.getDatabase();
-    const providersCol = mongo.collection("fasp_client_providers");
     // 既存のベースURL表記揺れを正規化して統合
     const variants = Array.from(
       new Set([
@@ -315,52 +313,63 @@ app.post(
         `${baseUrl}/provider_info`,
       ].flatMap((u) => [u, `${u}/`])),
     );
-    await providersCol.updateMany(
-      { baseUrl: { $in: variants } },
-      { $set: { baseUrl, updatedAt: new Date() } },
-    );
+    // variants に該当する既存レコードを列挙して baseUrl を統合
+    try {
+      const existing = await db.faspProviders.list({ baseUrl: { $in: variants } }) as Array<Record<string, unknown>>;
+      await Promise.all((existing ?? []).map(async (ex: Record<string, unknown>) => {
+        const exBase = (ex['baseUrl'] ?? "") as string;
+        if (exBase) {
+          await db.faspProviders.updateByBaseUrl(exBase, {
+            baseUrl,
+            updatedAt: new Date(),
+          });
+        }
+      }));
+    } catch {
+      // ignore errors from listing/updating variants
+    }
 
     // baseUrl で既存を検索して upsert（仮 serverId を付与）
     const provisionalServerId = `provisional:${crypto.randomUUID()}`;
     const faspId = crypto.randomUUID();
     const now = new Date();
-    const res = await providersCol.findOneAndUpdate(
-      { baseUrl },
+    await db.faspProviders.upsertByBaseUrl(
+      baseUrl,
       {
-        $setOnInsert: {
-          faspId,
-          serverId: provisionalServerId,
-          createdAt: now,
-        },
-        $set: {
-          name,
-          baseUrl,
-          capabilities,
-          status: isDefault ? "approved" : "pending",
-          approvedAt: isDefault ? now : null,
-          rejectedAt: null,
-          updatedAt: now,
-        },
+        name,
+        baseUrl,
+        capabilities,
+        status: isDefault ? "approved" : "pending",
+        approvedAt: isDefault ? now : null,
+        rejectedAt: null,
+        updatedAt: now,
       },
-      { upsert: true, returnDocument: "after" },
+      {
+        faspId,
+        serverId: provisionalServerId,
+        createdAt: now,
+      },
     );
+  const res = await db.faspProviders.findOne({ baseUrl }) as Record<string, unknown> | null;
 
     // 既定FASPなら secret を確保し capability の有効化通知を送る
     if (isDefault) {
       try {
-        if (!res?.secret) {
+        const existingSecret = res ? (res as Record<string, unknown>)['secret'] : undefined;
+        if (!existingSecret) {
           const secret = btoa(
             String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))),
           );
-          await providersCol.updateOne({ baseUrl }, {
-            $set: { secret, updatedAt: new Date() },
+          await db.faspProviders.updateByBaseUrl(baseUrl, {
+            secret,
+            updatedAt: new Date(),
           });
         }
       } catch { /* ignore */ }
       const base = baseUrl.replace(/\/$/, "");
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
-          notifyCapabilityActivation(env, domain, base, id, info.version, true)
+          notifyCapabilityActivation(env, domain, base, id, (info as unknown as { version: string }).version, true)
         ),
       ).catch(() => {});
     }
@@ -383,10 +392,7 @@ app.post(
 app.get("/api/fasp/providers/:serverId", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const mongo = await db.getDatabase();
-  const d = await mongo.collection("fasp_client_providers").findOne({
-    serverId,
-  });
+  const d = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
   if (!d) return c.json({ error: "not found" }, 404);
   return c.json({
     name: d.name,
@@ -406,13 +412,15 @@ app.get("/api/fasp/providers/:serverId", async (c) => {
 app.post("/api/fasp/providers/:serverId/approve", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const mongo = await db.getDatabase();
-  const res = await mongo.collection("fasp_client_providers").findOneAndUpdate(
-    { serverId },
-    { $set: { status: "approved", approvedAt: new Date(), rejectedAt: null } },
-    { returnDocument: "after" },
-  );
-  if (!res) return c.json({ error: "not found" }, 404);
+  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  if (!provider) return c.json({ error: "not found" }, 404);
+  const baseUrl = (provider['baseUrl'] ?? "") as string;
+  if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
+  await db.faspProviders.updateByBaseUrl(baseUrl, {
+    status: "approved",
+    approvedAt: new Date(),
+    rejectedAt: null,
+  });
   return c.json({ ok: true });
 });
 
@@ -420,13 +428,14 @@ app.post("/api/fasp/providers/:serverId/approve", async (c) => {
 app.post("/api/fasp/providers/:serverId/reject", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const mongo = await db.getDatabase();
-  const res = await mongo.collection("fasp_client_providers").findOneAndUpdate(
-    { serverId },
-    { $set: { status: "rejected", rejectedAt: new Date() } },
-    { returnDocument: "after" },
-  );
-  if (!res) return c.json({ error: "not found" }, 404);
+  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  if (!provider) return c.json({ error: "not found" }, 404);
+  const baseUrl = (provider['baseUrl'] ?? "") as string;
+  if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
+  await db.faspProviders.updateByBaseUrl(baseUrl, {
+    status: "rejected",
+    rejectedAt: new Date(),
+  });
   return c.json({ ok: true });
 });
 
@@ -434,10 +443,7 @@ app.post("/api/fasp/providers/:serverId/reject", async (c) => {
 app.delete("/api/fasp/providers/:serverId", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const mongo = await db.getDatabase();
-  const res = await mongo.collection("fasp_client_providers").deleteOne({
-    serverId,
-  });
+  const res = await db.faspProviders.deleteOne({ serverId });
   if (!res || res.deletedCount === 0) {
     return c.json({ error: "not found" }, 404);
   }
@@ -450,9 +456,7 @@ app.put(
   zValidator(
     "json",
     z.object({
-      capabilities: z.record(
-        z.object({ version: z.string(), enabled: z.boolean() }),
-      ),
+      capabilities: z.record(z.string(), z.object({ version: z.string(), enabled: z.boolean() })),
     }),
   ),
   async (c) => {
@@ -463,15 +467,13 @@ app.put(
     const { capabilities } = c.req.valid("json") as {
       capabilities: Record<string, { version: string; enabled: boolean }>;
     };
-    const mongo = await db.getDatabase();
-    const res = await mongo.collection("fasp_client_providers")
-      .findOneAndUpdate(
-        { serverId },
-        { $set: { capabilities, updatedAt: new Date() } },
-        { returnDocument: "after" },
-      );
-    if (!res) return c.json({ error: "not found" }, 404);
-    const baseUrl = (res.baseUrl ?? "").replace(/\/$/, "");
+  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  if (!provider) return c.json({ error: "not found" }, 404);
+  const baseUrl = ((provider['baseUrl'] ?? "") as string).replace(/\/$/, "");
+  await db.faspProviders.updateByBaseUrl(baseUrl, {
+      capabilities,
+      updatedAt: new Date(),
+    });
     if (baseUrl) {
       // FASP に有効化/無効化を通知
       await Promise.all(
@@ -497,12 +499,9 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const db = getDB(c);
   const domain = getDomain(c);
   const serverId = c.req.param("serverId");
-  const mongo = await db.getDatabase();
-  const rec = await mongo.collection("fasp_client_providers").findOne({
-    serverId,
-  });
+  const rec = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
   if (!rec) return c.json({ error: "not found" }, 404);
-  const baseUrl = (rec.baseUrl ?? "").replace(/\/$/, "");
+  const baseUrl = ((rec['baseUrl'] ?? "") as string).replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
     const res = await faspFetch(env, domain, `${baseUrl}/provider_info`, {
@@ -521,10 +520,7 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
 // 管理用: FASP 設定の取得/更新（検索に使うFASP、共有設定）
 app.get("/api/fasp/settings", async (c) => {
   const db = getDB(c);
-  const mongo = await db.getDatabase();
-  const doc = await mongo.collection("fasp_client_settings").findOne(
-    { _id: "default" } as unknown as Record<string, unknown>,
-  );
+  const doc = await db.faspProviders.getSettings();
   return c.json({
     searchServerId: doc?.searchServerId ?? null,
     shareEnabled: doc?.shareEnabled ?? true,
@@ -535,7 +531,6 @@ app.get("/api/fasp/settings", async (c) => {
 app.put("/api/fasp/settings", async (c) => {
   try {
     const db = getDB(c);
-    const mongo = await db.getDatabase();
     const body = await c.req.json();
     const update: Record<string, unknown> = {};
     if ("searchServerId" in body) {
@@ -556,17 +551,13 @@ app.put("/api/fasp/settings", async (c) => {
         update.shareServerIds = null;
       }
     }
-    await mongo.collection("fasp_client_settings").updateOne(
-      { _id: "default" } as unknown as Record<string, unknown>,
-      {
-        $set: { ...update, updatedAt: new Date() },
-        $setOnInsert: {
-          _id: "default",
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true },
-    );
+    await db.faspProviders.upsertByBaseUrl("default", {
+      ...update,
+      updatedAt: new Date(),
+    }, {
+      _id: "default",
+      createdAt: new Date(),
+    } as Record<string, unknown>);
     return c.json({ ok: true });
   } catch (e) {
     return c.json({ error: String(e) }, 400);

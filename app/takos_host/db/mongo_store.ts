@@ -479,6 +479,11 @@ export function createMongoDataStore(
         });
         return doc ? { secret: doc.secret } : null;
       },
+      deleteOne: async (filter) => {
+        const db = await impl.getDatabase() as Db;
+        const res = await db.collection("fasp_client_providers").deleteOne({ ...filter, tenant_id: tenantId });
+        return { deletedCount: res.deletedCount };
+      },
       createDefault: async (data) => {
         const db = await impl.getDatabase() as Db;
         const col = db.collection("fasp_client_providers");
