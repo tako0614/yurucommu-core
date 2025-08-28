@@ -951,7 +951,8 @@ app.post(
         const join = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: `https://${domain}/activities/${crypto.randomUUID()}`,
-          type: "Join" as const,
+          // リモート実装互換のため Join ではなく Follow を送る
+          type: "Follow" as const,
           actor: `https://${domain}/users/${user}`,
           object: decoded,
           to: [decoded],
@@ -1048,7 +1049,8 @@ app.post(
       const join = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `https://${domain}/activities/${crypto.randomUUID()}`,
-        type: "Join" as const,
+        // リモート実装互換のため Join ではなく Follow を送る
+        type: "Follow" as const,
         actor: `https://${domain}/users/${user}`,
         object: groupId,
         to: [groupId],
