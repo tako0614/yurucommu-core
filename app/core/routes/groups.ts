@@ -33,6 +33,49 @@ function isOwnedGroup(
 
 app.use("/api/groups/*", authRequired);
 
+// 汎用: Actor情報取得（Group/User問わず）
+app.use("/api/actors", authRequired);
+app.get("/api/actors", async (c) => {
+  const url = c.req.query("url");
+  if (!url) return c.json({ error: "url is required" }, 400);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept:
+          'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+      },
+    });
+    if (!res.ok) return c.json({ error: "fetch failed" }, res.status);
+    const data = await res.json() as {
+      id?: string;
+      type?: string;
+      name?: string;
+      preferredUsername?: string;
+      icon?: { url?: string } | string;
+      image?: { url?: string } | string;
+      summary?: string;
+    };
+    const iconUrl = typeof data.icon === "string"
+      ? data.icon
+      : (data.icon && typeof data.icon === "object" && typeof data.icon.url === "string"
+        ? data.icon.url
+        : undefined);
+    const host = (() => { try { return new URL(data.id ?? url).hostname; } catch { return ""; } })();
+    return c.json({
+      id: data.id ?? url,
+      type: data.type ?? "Actor",
+      name: data.name ?? data.preferredUsername ?? url,
+      preferredUsername: data.preferredUsername,
+      handle: data.preferredUsername ? `@${data.preferredUsername}@${host}` : undefined,
+      iconUrl: iconUrl,
+      summary: data.summary,
+      host,
+    });
+  } catch {
+    return c.json({ error: "fetch failed" }, 502);
+  }
+});
+
 app.get("/api/groups", async (c) => {
   const member = c.req.query("member");
   if (!member) return c.json({ error: "member is required" }, 400);
@@ -43,10 +86,13 @@ app.get("/api/groups", async (c) => {
 });
 
 app.get("/api/groups/:name/messages", async (c) => {
-  const name = c.req.param("name");
+  const raw = c.req.param("name");
   const db = getDB(c);
   const domain = getDomain(c);
-  const groupId = `https://${domain}/groups/${name}`;
+  const decoded = decodeURIComponent(raw);
+  const groupId = (decoded.startsWith("http://") || decoded.startsWith("https://"))
+    ? decoded
+    : `https://${domain}/groups/${decoded}`;
   const limit = Number(c.req.query("limit") ?? "0");
   const before = c.req.query("before");
   const after = c.req.query("after");

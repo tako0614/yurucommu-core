@@ -662,29 +662,16 @@ export function Chat() {
         if (Array.isArray(list)) raw.push(...list);
       } else if (room.type === "group") {
         try {
-          // リモートグループは現状サーバー履歴APIがないため取得をスキップ
-          const hostOf = (id: string | undefined) => {
-            if (!id) return null;
-            try { return new URL(id).hostname; } catch { return null; }
-          };
           const groupUrl = (room.meta?.groupId && room.meta.groupId.startsWith("http")) ? room.meta.groupId : undefined;
-          const isRemote = groupUrl && hostOf(groupUrl) !== getDomain();
-          if (isRemote) {
-            // 何も追加しない（送信エコーのみで表示）
-          } else {
-            const qs = new URLSearchParams();
-            if (typeof params?.limit === "number") {
-              qs.set("limit", String(params.limit));
-            }
-            if (params?.before) qs.set("before", params.before);
-            if (params?.after) qs.set("after", params.after);
-            const res = await apiFetch(
-              `/api/groups/${encodeURIComponent(room.name)}/messages?${qs}`,
-            );
-            if (res.ok) {
-              const list = await res.json();
-              if (Array.isArray(list)) raw.push(...list);
-            }
+          const target = encodeURIComponent(groupUrl ?? room.name);
+          const qs = new URLSearchParams();
+          if (typeof params?.limit === "number") qs.set("limit", String(params.limit));
+          if (params?.before) qs.set("before", params.before);
+          if (params?.after) qs.set("after", params.after);
+          const res = await apiFetch(`/api/groups/${target}/messages?${qs}`);
+          if (res.ok) {
+            const list = await res.json();
+            if (Array.isArray(list)) raw.push(...list);
           }
         } catch {
           /* ignore */
@@ -1096,6 +1083,7 @@ export function Chat() {
     } catch { /* ignore */ }
 
     await applyDisplayFallback(rooms);
+    await enrichGroupActors(rooms);
 
     const unique = rooms.filter(
       (room, idx, arr) => arr.findIndex((r) => r.id === room.id) === idx,
@@ -1471,6 +1459,31 @@ export function Chat() {
       setShowRoomList(false); // モバイルではチャット画面に切り替え
     }
     // メッセージの取得は selectedRoom 監視の createEffect に任せる
+  };
+  // 外部グループのActor情報（name, icon, handle）を取得して表示補完
+  const enrichGroupActors = async (rooms: Room[]) => {
+    try {
+      const targets = rooms.filter((r) => r.type === "group" && r.meta?.groupId && String(r.meta.groupId).startsWith("http"));
+      for (const r of targets) {
+        try {
+          const res = await apiFetch(`/api/actors?url=${encodeURIComponent(String(r.meta!.groupId))}`);
+          if (!res.ok) continue;
+          const info = await res.json();
+          setChatRooms((prev) => prev.map((x) => (
+            x.id === r.id
+              ? {
+                ...x,
+                displayName: info.name || x.displayName || x.name,
+                avatar: info.iconUrl || x.avatar,
+                hasName: !!info.name || x.hasName,
+                hasIcon: !!info.iconUrl || x.hasIcon,
+                meta: { ...x.meta, actor: info },
+              }
+              : x
+          )));
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
   };
 
   // チャット一覧に戻る（モバイル用）

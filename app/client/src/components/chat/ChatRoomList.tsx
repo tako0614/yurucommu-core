@@ -163,6 +163,20 @@ export function ChatRoomList(props: ChatRoomListProps) {
     });
     return list;
   };
+  const subtitleFor = (room: Room): string => {
+    if (room.type !== "group") return room.lastMessage ?? "";
+    const actor = (room.meta as any)?.actor;
+    if (actor?.handle) return actor.handle as string;
+    const gid = (room.meta as any)?.groupId as string | undefined;
+    if (gid && gid.startsWith("http")) {
+      try {
+        const u = new URL(gid);
+        const name = u.pathname.split("/").pop() || gid;
+        return `@${name}@${u.hostname}`;
+      } catch { /* ignore */ }
+    }
+    return room.lastMessage ?? "";
+  };
 
   const segUnread = createMemo(() => {
     const all = props.rooms.reduce((a, r) => a + (r.unreadCount || 0), 0);
@@ -365,7 +379,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
                         </span>
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
-                        <p class="truncate">{room.lastMessage}</p>
+                        <p class="truncate">{subtitleFor(room)}</p>
                         <Show when={room.pendingInvite}>
                           <span class="flex items-center gap-2 ml-2">
                             <button
@@ -467,7 +481,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
                         </span>
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
-                        <p class="truncate">{room.lastMessage}</p>
+                        <p class="truncate">{subtitleFor(room)}</p>
                         <Show when={room.pendingInvite}>
                           <span class="flex items-center gap-2 ml-2">
                             <button
@@ -574,7 +588,7 @@ export function ChatRoomList(props: ChatRoomListProps) {
                         </span>
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
-                        <p class="truncate">{room.lastMessage}</p>
+                        <p class="truncate">{subtitleFor(room)}</p>
                       </span>
                     </span>
                   </div>
