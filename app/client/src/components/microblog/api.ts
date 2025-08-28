@@ -130,12 +130,24 @@ export const followUser = async (
   followerUsername: string,
 ) => {
   try {
+    // username may be either actor URL or handle; prefer sending actor URL
+    const target = (() => {
+      try {
+        new URL(username);
+        return username; // already a URL
+      } catch {
+        // assume it's a handle or local username
+        const domain = getDomain();
+        return username.includes("@") ? `https://${username.split('@')[1]}/users/${username.split('@')[0]}` : `https://${domain}/users/${encodeURIComponent(username)}`;
+      }
+    })();
+    const follower = (() => {
+      try { new URL(followerUsername); return followerUsername; } catch { return `https://${getDomain()}/users/${encodeURIComponent(followerUsername)}`; }
+    })();
     const response = await apiFetch("/api/follow", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ follower: followerUsername, target: username }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ follower, target }),
     });
     return response.ok;
   } catch (error) {
@@ -149,12 +161,20 @@ export const unfollowUser = async (
   followerUsername: string,
 ) => {
   try {
+    const target = (() => {
+      try {
+        new URL(username);
+        return username;
+      } catch {
+        const domain = getDomain();
+        return username.includes("@") ? `https://${username.split('@')[1]}/users/${username.split('@')[0]}` : `https://${domain}/users/${encodeURIComponent(username)}`;
+      }
+    })();
+    const follower = (() => { try { new URL(followerUsername); return followerUsername; } catch { return `https://${getDomain()}/users/${encodeURIComponent(followerUsername)}`; } })();
     const response = await apiFetch("/api/follow", {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ follower: followerUsername, target: username }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ follower, target }),
     });
     return response.ok;
   } catch (error) {

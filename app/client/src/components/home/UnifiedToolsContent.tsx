@@ -114,7 +114,7 @@ export default function UnifiedToolsContent() {
 
         // グローバルのフォロー一覧キャッシュ
         const cached = followingMap()[id];
-        let list: any[] | null = null;
+        let list: unknown[] | null = null;
         if (cached) {
           list = Array.isArray(cached) ? cached : [];
         } else {
@@ -132,10 +132,13 @@ export default function UnifiedToolsContent() {
         // followStatus（表示用の真偽値マップ）を更新
         if (list) {
           const map: Record<string, boolean> = {};
-          for (const item of list as any[]) {
-            const actor = typeof item === "string"
-              ? item
-              : (item?.actor || item?.id || item?.userName) ?? "";
+          for (const item of list) {
+            let actor = "";
+            if (typeof item === "string") actor = item;
+            else if (item && typeof item === "object") {
+              const it = item as Record<string, unknown>;
+              actor = (typeof it.actor === "string" && it.actor) || (typeof it.id === "string" && it.id) || (typeof it.userName === "string" && it.userName) || "";
+            }
             if (actor) map[actor] = true;
           }
           setFollowStatus((prev) => ({ ...map, ...prev }));
@@ -282,8 +285,9 @@ export default function UnifiedToolsContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            follower: `${currentAccount()?.userName}@${getDomain()}`,
-            target: actorToHandle(actor),
+            // send full actor URLs to match server-side validation
+            follower: `${getOrigin()}/users/${currentAccount()?.userName}`,
+            target: actor,
           }),
         });
       }
@@ -313,8 +317,9 @@ export default function UnifiedToolsContent() {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            follower: `${currentAccount()?.userName}@${getDomain()}`,
-            target: actorToHandle(actor),
+            // send full actor URLs to match server-side validation
+            follower: `${getOrigin()}/users/${currentAccount()?.userName}`,
+            target: actor,
           }),
         });
       }
