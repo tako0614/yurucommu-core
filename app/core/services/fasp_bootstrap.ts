@@ -45,20 +45,29 @@ export async function bootstrapDefaultFasp(
 
   // name は一旦 baseUrl を既定値として保存
   const serverId = existing?.serverId ?? `default:${crypto.randomUUID()}`;
-  await db.faspProviders.upsertByBaseUrl(
-    normalized,
-    {
-      name: existing?.name ?? normalized,
-      baseUrl: normalized,
-      serverId,
-      status: "approved",
-      secret,
-      updatedAt: now,
-      rejectedAt: null,
-      approvedAt: existing?.approvedAt ?? now,
-    },
-    { faspId: crypto.randomUUID(), createdAt: now },
-  );
+  try {
+    await db.faspProviders.upsertByBaseUrl(
+      normalized,
+      {
+        name: existing?.name ?? normalized,
+        baseUrl: normalized,
+        serverId,
+        status: "approved",
+        secret,
+        updatedAt: now,
+        rejectedAt: null,
+        approvedAt: existing?.approvedAt ?? now,
+      },
+      { faspId: crypto.randomUUID(), createdAt: now },
+    );
+  } catch (e) {
+    console.warn(
+      "既定 FASP の登録に失敗しました",
+      normalized,
+      e instanceof Error ? e.message : String(e),
+    );
+    return;
+  }
 
   // provider_info を取得して capabilities を反映（既定では全て有効化）
   try {
@@ -91,7 +100,12 @@ export async function bootstrapDefaultFasp(
     );
 
     return after;
-  } catch {
+  } catch (e) {
+    console.warn(
+      "provider_info の取得に失敗しました",
+      normalized,
+      e instanceof Error ? e.message : String(e),
+    );
     // 起動継続のために黙殺
   }
 }
