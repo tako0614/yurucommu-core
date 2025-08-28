@@ -19,6 +19,11 @@ Takos リポジトリで作業を行う際のガイドラインをまとめて�
   モジュールを自動取得するため、Node.js の事前インストールは必須ではありませ
   ん。
 
+- 初期設定は CLI で自動生成できます（手動編集不要）。
+  - 全体: `deno task setup`
+  - takos のみ: `deno task setup:takos`
+  - host のみ: `deno task setup:host`
+
 ## 開発サーバーの起動
 
 - バックエンド (`app/takos`) とフロントエンド (`app/client`) はそれぞれ

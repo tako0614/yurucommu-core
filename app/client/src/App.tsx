@@ -6,7 +6,6 @@ import { languageState, microblogPostLimitState } from "./states/settings.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { Application } from "./components/Application.tsx";
 import { OnboardingForm } from "./components/OnboardingForm.tsx";
-import { SystemSetupForm } from "./components/SystemSetupForm.tsx";
 import { apiFetch } from "./utils/config.ts";
 import { useInitialLoad } from "./utils/initialLoad.ts";
 import { usePathRouter } from "./utils/router.ts";
@@ -19,7 +18,6 @@ function App() {
   const [language, setLanguage] = useAtom(languageState);
   const [postLimit, setPostLimit] = useAtom(microblogPostLimitState);
   const [showSetup, setShowSetup] = createSignal(false);
-  const [showSystemSetup, setShowSystemSetup] = createSignal(false);
 
   // 共通の初期データ取得
   useInitialLoad();
@@ -66,20 +64,7 @@ function App() {
     }
   });
 
-  // システム初期設定の表示可否を判定（ログイン前でも実行）
-  createEffect(async () => {
-    try {
-      const st = await apiFetch("/api/system/setup/status");
-      if (st.ok) {
-        const data = await st.json();
-        setShowSystemSetup(!data.configured);
-      } else {
-        setShowSystemSetup(false);
-      }
-    } catch {
-      setShowSystemSetup(false);
-    }
-  });
+  // システム初期設定は CLI に移行したため、クライアントでの確認は不要
 
   // ログイン後にのみオンボーディング（アカウント作成）の表示可否を判定
   createEffect(async () => {
@@ -127,10 +112,7 @@ function App() {
           </div>
         }
       >
-        <Show when={!isLoggedIn() && showSystemSetup()}>
-          <SystemSetupForm onSuccess={() => setShowSystemSetup(false)} />
-        </Show>
-        <Show when={!isLoggedIn() && !showSystemSetup()}>
+        <Show when={!isLoggedIn()}>
           <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
         </Show>
         <Show when={isLoggedIn() && showSetup()}>

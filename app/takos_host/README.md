@@ -90,13 +90,15 @@ OAuth ボタンを表示します。
 
 ## 起動方法
 
-1. `.env.example` を参考に `.env` を作成します。
-   - `OAUTH_HOST` にホストの OAuth サーバードメインを設定します。
-   - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
-   - `RESERVED_SUBDOMAINS`
-     には利用禁止とするサブドメインをカンマ区切りで設定します。
-   - `TERMS_FILE` に利用規約(テキストまたは Markdown)の
-     ファイルパスを指定します。Markdown の場合は HTML として表示されます。
+1. 初期設定（CLIで自動生成・手動編集不要）
+   - ルートから実行: `deno task setup:host`
+   - 対話なしで生成: `deno run -A scripts/setup_env.ts --target host --force --yes --mongo mongodb://localhost:27017/takos-host --domain host.example.com`
+   - 生成後、必要に応じて `.env` を編集してください。
+   - 主な変数:
+     - `OAUTH_HOST`: OAuth サーバードメイン
+     - `FREE_PLAN_LIMIT`: 無料プランのインスタンス作成上限
+     - `RESERVED_SUBDOMAINS`: 利用禁止サブドメイン（カンマ区切り）
+     - `TERMS_FILE`: 規約テキスト/Markdown のファイルパス
 
 - `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
 - `RESERVED_SUBDOMAINS`
@@ -111,16 +113,6 @@ OAuth ボタンを表示します。
    `--unsafely-ignore-certificate-errors`
    を付けて起動することで自己署名証明書などの SSL エラーを無視します。
 
-## CLI 管理ツール
+## 初期設定CLIについて
 
-`scripts/host_cli.ts` を使用して takos host を CLI から操作できます。 MongoDB
-へ直接接続してインスタンスを作成・削除できます。`--user`
-を省略すると管理ユーザー `system`として実行されます。
-
-### 使用例
-
-```bash
-deno task host list --user alice
-
-deno task host create --host myapp --password pw --user alice
-```
+このリポジトリには、`.env` を自動生成する初期設定CLI（`scripts/setup_env.ts`）が含まれています。手動での初期設定なしで最小構成の環境を用意できます。詳細はリポジトリの `README.md` のクイックスタートをご覧ください。

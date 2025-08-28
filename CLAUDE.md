@@ -46,14 +46,21 @@ deno task build
 deno task tauri
 ```
 
-### 初期設定
+### 初期設定（CLIで自動生成）
 
 ```bash
-# MongoDBセッションインデックス作成（初回のみ）
-deno run -A scripts/create_session_indexes.ts
+# ルートから対話的に .env を生成（手動編集不要）
+deno task setup
 
-# CLIセットアップ
-deno run -A setup.ts
+# サーバー/ホストを個別に生成
+deno task setup:takos
+deno task setup:host
+
+# 非対話で一括生成の例
+deno run -A scripts/setup_env.ts --target takos --force --yes \
+  --mongo mongodb://localhost:27017/takos \
+  --domain dev.takos.local \
+  --password yourpass
 ```
 
 ## アーキテクチャ

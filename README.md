@@ -29,12 +29,14 @@ Deno をベースに、バックエンド（takos）、ホスティングコン�
 
 ## クイックスタート（ルートで実行）
 
-1) 環境ファイルの作成
-- 対話的セットアップ: `deno task setup`
-- takos のみ: `deno task setup:takos`
-- host のみ: `deno task setup:host`
-- 非対話の例:
+1) 初期設定（CLIで自動生成・手動編集不要）
+- 全体の対話的セットアップ: `deno task setup`
+- サーバー(takos)のみ: `deno task setup:takos`
+- ホスト(host)のみ: `deno task setup:host`
+- 非対話で一括生成例（Mongo/ドメイン/初期パスワード指定）:
   - `deno run -A scripts/setup_env.ts --target takos --force --yes --mongo mongodb://localhost:27017/takos --domain dev.takos.local --password yourpass`
+
+CLIにより `.env` を自動生成できるため、手動での初期設定は不要です（必要に応じて後から編集可能）。
 
 2) 開発サーバーの同時起動（takos + takos_host）
 - `deno task dev --env path/to/.env`
@@ -64,7 +66,7 @@ Deno をベースに、バックエンド（takos）、ホスティングコン�
 - `SERVER_HOST`, `SERVER_PORT`: バインド先ホスト/ポート（未指定時はポート 80）
 - `SERVER_CERT`, `SERVER_KEY`: 文字列で証明書/秘密鍵を指定すると HTTPS で待受
 - `ACTIVITYPUB_DOMAIN`: takos 側の連合用ドメイン名（設定時に system actor キーを生成）
-- Mongo 接続などの詳細は各 `.env.example` を参照
+- Mongo 接続などの詳細は各 `.env.example` を参照（`deno task setup` は最低限の値を自動設定します）
 
 ## トラブルシューティング
 

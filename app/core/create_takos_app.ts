@@ -22,7 +22,6 @@ import fcm from "./routes/fcm.ts";
 import placeholder from "./routes/placeholder.ts";
 import image from "./routes/image.ts";
 import trends from "./routes/trends.ts";
-import systemSetup from "./routes/system_setup.ts";
 import dm from "./routes/dm.ts";
 import groups from "./routes/groups.ts";
 import { fetchOgpData } from "./services/ogp.ts";
@@ -66,7 +65,6 @@ export async function createTakosApp(
     posts,
     config,
     fcm,
-    systemSetup,
     onboarding,
     placeholder,
     image,

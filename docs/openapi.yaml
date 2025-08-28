@@ -62,15 +62,17 @@ paths:
       responses:
         "200":
           description: OAuth 情報に加え firebase、vapidKey、Google AdSense 設定を含む JSON を返します。
-  /api/setup/status:
+  /api/onboarding/status:
     get:
-      summary: 初期設定状態取得
+      summary: オンボーディング状態取得
+      description: 初回アカウント作成が済んでいるかを返します。
       responses:
         "200":
           description: configured フィールドを含む JSON を返します。
-  /api/setup:
+  /api/onboarding:
     post:
-      summary: 初期設定実行
+      summary: オンボーディング実行（初回アカウント作成）
+      description: ログイン済みのユーザーが初回にアカウントを作成します。
       requestBody:
         required: true
         content:
@@ -78,8 +80,6 @@ paths:
             schema:
               type: object
               properties:
-                password:
-                  type: string
                 username:
                   type: string
                 displayName:
@@ -89,7 +89,6 @@ paths:
                   items:
                     type: string
               required:
-                - password
                 - username
       responses:
         "200":

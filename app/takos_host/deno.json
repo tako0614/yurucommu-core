@@ -2,8 +2,7 @@
   "tasks": {
     "start": "deno run -A main.ts --",
     "dev": "deno run -A --unstable-detect-cjs --unsafely-ignore-certificate-errors dev.ts --",
-    "build": "deno task --cwd app/takos_host/client build",
-    "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
+    "build": "deno task --cwd app/takos_host/client build"
   },
   "imports": {
     "@motionone/solid": "npm:@motionone/solid@^10.16.4",
