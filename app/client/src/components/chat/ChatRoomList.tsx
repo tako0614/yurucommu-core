@@ -26,6 +26,8 @@ interface ChatRoomListProps {
   segment: "all" | "people" | "groups";
   onSegmentChange: (seg: "all" | "people" | "groups") => void;
   onCreateFriendRoom?: (friendId: string) => void;
+  onAcceptInvite?: (room: Room) => void;
+  onIgnoreInvite?: (room: Room) => void;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
@@ -343,8 +345,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
                     </span>
                     <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
                       <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                        <span class="font-bold flex-1">
+                        <span class="font-bold flex-1 flex items-center gap-2">
                           {displayNameFor(room)}
+                          <Show when={room.pendingInvite}>
+                            <span class="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-600 text-white">招待中</span>
+                          </Show>
                         </span>
                         <span
                           class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
@@ -360,6 +365,26 @@ export function ChatRoomList(props: ChatRoomListProps) {
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
                         <p class="truncate">{room.lastMessage}</p>
+                        <Show when={room.pendingInvite}>
+                          <span class="flex items-center gap-2 ml-2">
+                            <button
+                              type="button"
+                              class="px-2 py-1 rounded bg-blue-600 text-white text-[11px] hover:bg-blue-500"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onAcceptInvite?.(room);
+                              }}
+                            >参加</button>
+                            <button
+                              type="button"
+                              class="px-2 py-1 rounded bg-[#2b2b2b] text-white text-[11px] hover:bg-[#3a3a3a]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onIgnoreInvite?.(room);
+                              }}
+                            >後で</button>
+                          </span>
+                        </Show>
                       </span>
                     </span>
                   </div>
@@ -422,8 +447,11 @@ export function ChatRoomList(props: ChatRoomListProps) {
                     </span>
                     <span class="pl-[10px] flex flex-col justify-center min-w-0 w-full">
                       <span class="text-[14px] text-white flex justify-between items-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                        <span class="font-bold flex-1">
+                        <span class="font-bold flex-1 flex items-center gap-2">
                           {displayNameFor(room)}
+                          <Show when={room.pendingInvite}>
+                            <span class="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-600 text-white">招待中</span>
+                          </Show>
                         </span>
                         <span
                           class="text-[10px] text-gray-500 ml-1 whitespace-nowrap"
@@ -439,6 +467,26 @@ export function ChatRoomList(props: ChatRoomListProps) {
                       </span>
                       <span class="text-[12px] text-[#aaaaaa] font-normal flex justify-between items-center">
                         <p class="truncate">{room.lastMessage}</p>
+                        <Show when={room.pendingInvite}>
+                          <span class="flex items-center gap-2 ml-2">
+                            <button
+                              type="button"
+                              class="px-2 py-1 rounded bg-blue-600 text-white text-[11px] hover:bg-blue-500"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onAcceptInvite?.(room);
+                              }}
+                            >参加</button>
+                            <button
+                              type="button"
+                              class="px-2 py-1 rounded bg-[#2b2b2b] text-white text-[11px] hover:bg-[#3a3a3a]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onIgnoreInvite?.(room);
+                              }}
+                            >後で</button>
+                          </span>
+                        </Show>
                       </span>
                     </span>
                   </div>

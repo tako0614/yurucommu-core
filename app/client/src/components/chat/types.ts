@@ -39,6 +39,14 @@ export interface Room {
   members: ActorID[];
   hasName?: boolean;
   hasIcon?: boolean;
+  // 招待中（未参加）の仮想ルームであることを示す
+  pendingInvite?: boolean;
+  // 追加メタ情報（通知IDやグループ名など）
+  meta?: {
+    notificationId?: string;
+    groupName?: string;
+    groupId?: string;
+  };
 }
 
 // トークルームの種類を判定するユーティリティ関数

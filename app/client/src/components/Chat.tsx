@@ -1038,6 +1038,49 @@ export function Chat() {
       });
     }
 
+    // 招待中（通知ベース）のグループを補完表示
+    try {
+      const nres = await apiFetch(`/api/notifications?owner=${encodeURIComponent(user.id)}`);
+      if (nres.ok) {
+        const list = await nres.json();
+        const invites = Array.isArray(list)
+          ? list.filter((n: Record<string, unknown>) => n.type === "group-invite")
+          : [];
+        const existing = new Set(rooms.map((r) => r.id));
+        const domain = getDomain();
+        for (const n of invites) {
+          let info: { groupName?: string; groupId?: string; displayName?: string } = {};
+          try {
+            const obj = JSON.parse(String((n as { message?: string }).message || "{}"));
+            if (obj && typeof obj === "object") info = obj;
+          } catch { /* ignore */ }
+          const gname = info.groupName || "";
+          const gid = info.groupId || (gname ? `https://${domain}/groups/${gname}` : "");
+          if (!gid) continue;
+          const rid = normalizeActor(gid as unknown as ActorID);
+          if (existing.has(rid)) continue;
+          rooms.push({
+            id: rid,
+            name: gname,
+            displayName: info.displayName || gname,
+            userName: user.userName,
+            domain,
+            avatar: "👥",
+            unreadCount: 0,
+            type: "group",
+            members: [],
+            hasName: !!info.displayName,
+            hasIcon: false,
+            lastMessage: "グループ招待: 参加しますか？",
+            lastMessageTime: undefined,
+            pendingInvite: true,
+            meta: { notificationId: String((n as { id?: string }).id || ""), groupName: gname, groupId: gid },
+          });
+          existing.add(rid);
+        }
+      }
+    } catch { /* ignore */ }
+
     await applyDisplayFallback(rooms);
 
     const unique = rooms.filter(
@@ -1936,6 +1979,56 @@ export function Chat() {
               onCreateFriendRoom={(friendId: string) => {
                 const normalized = normalizeActor(friendId as ActorID);
                 selectRoom(normalized);
+              }}
+              onAcceptInvite={async (room) => {
+                try {
+                  const user = account();
+                  if (!user) return;
+                  const gname = room.meta?.groupName || room.name;
+                  const handle = `${user.userName}@${getDomain()}`;
+                  const res = await apiFetch(
+                    `/api/groups/${encodeURIComponent(gname)}/join`,
+                    {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ member: handle }),
+                    },
+                  );
+                  if (res.ok) {
+                    if (room.meta?.notificationId) {
+                      await apiFetch(
+                        `/api/notifications/${room.meta.notificationId}`,
+                        { method: "DELETE" },
+                      ).catch(() => {});
+                    }
+                    setChatRooms((prev) => prev.map((r) => r.id === room.id
+                      ? { ...r, pendingInvite: false, lastMessage: "..." }
+                      : r));
+                    globalThis.dispatchEvent(new CustomEvent("app:toast", {
+                      detail: { type: "success", title: "グループ", description: "参加しました" },
+                    }));
+                  } else {
+                    globalThis.dispatchEvent(new CustomEvent("app:toast", {
+                      detail: { type: "error", title: "グループ", description: "参加に失敗しました" },
+                    }));
+                  }
+                } catch {
+                  globalThis.dispatchEvent(new CustomEvent("app:toast", {
+                    detail: { type: "error", title: "グループ", description: "参加に失敗しました" },
+                  }));
+                }
+              }}
+              onIgnoreInvite={async (room) => {
+                try {
+                  if (room.meta?.notificationId) {
+                    await apiFetch(
+                      `/api/notifications/${room.meta.notificationId}`,
+                      { method: "DELETE" },
+                    ).catch(() => {});
+                  }
+                } finally {
+                  setChatRooms((prev) => prev.filter((r) => r.id !== room.id));
+                }
               }}
             />
           </div>
