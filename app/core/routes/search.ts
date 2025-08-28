@@ -129,12 +129,13 @@ app.get("/search", async (c) => {
     }
   }
 
-  const regex = new RegExp(escapeRegex(q), "i");
   const results: SearchResult[] = [];
+  if (!q) return c.json(results);
+  const regex = new RegExp(escapeRegex(q), "i");
 
   if (type === "all" || type === "users") {
-    const db = getDB(c);
-    const users = await db.searchAccounts(regex, 20);
+  const db = getDB(c);
+  const users = await db.accounts.search(regex, 20);
     const domain = getDomain(c);
     for (const u of users) {
       results.push({
@@ -158,7 +159,7 @@ app.get("/search", async (c) => {
         const seen = new Set(
           results.map((r) => r.actor).filter((a): a is string => Boolean(a)),
         );
-        let nextUrl = `${faspBase}/account_search/v0/search?term=${
+  let nextUrl: string | undefined = `${faspBase}/account_search/v0/search?term=${
           encodeURIComponent(q)
         }&limit=${perPage}`;
         while (nextUrl && seen.size < maxTotal) {
@@ -229,7 +230,7 @@ app.get("/search", async (c) => {
 
   if (type === "all" || type === "posts") {
     const db = getDB(c);
-    const posts = await db.findNotes({ content: regex }, {
+  const posts = await db.posts.findNotes({ content: regex }, {
       published: -1,
     }) as Array<{
       _id?: unknown;
@@ -264,7 +265,7 @@ app.get("/search", async (c) => {
     let remoteResults: SearchResult[] = [];
     try {
       const url = `https://${server}/api/search?q=${
-        encodeURIComponent(q)
+  encodeURIComponent(q)
       }&type=${type}`;
 
       // タイムアウト設定

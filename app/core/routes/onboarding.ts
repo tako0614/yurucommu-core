@@ -9,7 +9,9 @@ const app = new Hono();
 app.get("/onboarding/status", async (c) => {
   const db = getDB(c);
   const list = await db.accounts.list();
-  const configured = (list?.length ?? 0) > 0;
+  // ignore internal system account when deciding onboarding status
+  const visible = (list || []).filter((a) => a.userName !== "system");
+  const configured = (visible.length ?? 0) > 0;
   return c.json({ configured });
 });
 

@@ -36,7 +36,9 @@ app.use("/accounts/*", authRequired);
 app.get("/accounts", async (c) => {
   const db = getDB(c);
   const list = await db.accounts.list();
-  const formatted = list.map((doc: AccountDoc) => formatAccount(doc));
+  // exclude internal system account from API results
+  const filtered = list.filter((doc: AccountDoc) => doc.userName !== "system");
+  const formatted = filtered.map((doc: AccountDoc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 
