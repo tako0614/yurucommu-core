@@ -1,4 +1,4 @@
-import type { Context } from "npm:hono";
+import type { Context } from "hono";
 import type { DataStore } from "./types.ts";
 
 /**

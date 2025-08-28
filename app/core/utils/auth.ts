@@ -1,4 +1,4 @@
-import { MiddlewareHandler } from "npm:hono";
+import type { MiddlewareHandler } from "hono";
 import { createDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import { createAuthMiddleware } from "@takos/auth";

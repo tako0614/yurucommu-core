@@ -1,5 +1,5 @@
-import { setCookie } from "npm:hono/cookie";
-import type { Context } from "npm:hono";
+import { setCookie } from "hono/cookie";
+import type { Context } from "hono";
 import { createDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 

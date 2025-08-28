@@ -1,4 +1,4 @@
-import { type Context, Hono } from "npm:hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
@@ -31,12 +31,9 @@ const app = new Hono();
 app.use("/follow", authRequired);
 
 async function processFollow(c: Context, remove: boolean) {
-  const { follower: followerUrl, target: targetUrl } = c.req.valid(
-    "json",
-  ) as {
-    follower: string;
-    target: string;
-  };
+  const body = await c.req.json();
+  const validated = followSchema.parse(body);
+  const { follower: followerUrl, target: targetUrl } = validated;
   const domain = getDomain(c);
   const env = getEnv(c);
   const db = getDB(c);
@@ -82,6 +79,7 @@ async function processFollow(c: Context, remove: boolean) {
       if (account) {
         if (!remove) {
           await addNotification(
+            name,
             "新しいフォロー",
             `${account.userName}さんが${name}さんをフォローしました`,
             "info",

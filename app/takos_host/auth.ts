@@ -103,7 +103,7 @@ export function createAuthApp(options?: {
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    await db.hostUsers.update(user._id, {
+    await db().hostUsers.update(user._id, {
       verifyCode: code,
       verifyCodeExpires: new Date(Date.now() + 10 * 60 * 1000),
     });
@@ -118,7 +118,7 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid1" }, 400);
     }
 
-    const user = await db.hostUsers.findByUserName(userName);
+    const user = await db().hostUsers.findByUserName(userName);
     if (
       !user ||
       user.emailVerified ||

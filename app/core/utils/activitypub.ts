@@ -2,7 +2,7 @@ import { createDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { getSystemKey } from "../services/system_actor.ts";
-import type { Context } from "npm:hono";
+import type { Context } from "hono";
 import { b64ToBuf, bufToB64 } from "@takos/buffer";
 
 async function applySignature(
