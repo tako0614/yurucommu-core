@@ -176,7 +176,6 @@ app.get("/search", async (c) => {
     }
   }
 
-  const results: SearchResult[] = [];
   if (!q) return c.json(results);
   const regex = new RegExp(escapeRegex(q), "i");
 
