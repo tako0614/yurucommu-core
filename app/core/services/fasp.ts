@@ -75,9 +75,8 @@ async function faspFetch(
     try {
       const u = new URL(url);
       const origin = `${u.protocol}//${u.host}`;
-      const mongo = await db.getDatabase();
       // 登録済み FASP の origin から faspId を取得
-      const rec = await mongo.collection("fasp_client_providers").findOne({
+      const rec = await db.faspProviders.findOne({
         baseUrl: { $regex: `^${origin}` },
       });
       if (rec?.faspId) keyId = String(rec.faspId);
@@ -170,14 +169,8 @@ export async function sendAnnouncements(
   ann: FaspAnnouncement,
 ): Promise<void> {
   const db = createDB(env);
-  const mongo = await db.getDatabase();
   // 設定に基づき送信先を決定
-  const settings = await mongo.collection("fasp_client_settings").findOne({
-    _id: "default",
-  } as unknown as Record<string, unknown>)
-    .catch(() => null) as
-      | { shareEnabled?: boolean; shareServerIds?: string[] }
-      | null;
+  const settings = await db.faspProviders.getSettings();
   if (settings && settings.shareEnabled === false) return; // 共有無効
   const baseFilter: Record<string, unknown> = {
     status: "approved",
@@ -188,8 +181,7 @@ export async function sendAnnouncements(
   ) {
     baseFilter.serverId = { $in: settings.shareServerIds };
   }
-  const fasps = await mongo.collection("fasp_client_providers").find(baseFilter)
-    .toArray();
+  const fasps = await db.faspProviders.list(baseFilter);
   if (!fasps || fasps.length === 0) return;
   const body = JSON.stringify({
     source: ann.source ?? { subscription: { id: "default" } },
@@ -245,16 +237,10 @@ export async function getFaspBaseUrl(
   capability: string,
 ): Promise<string | null> {
   const db = createDB(env);
-  const mongo = await db.getDatabase();
   // 設定から検索対象のプロバイダが指定されていれば優先
-  const settings = await mongo.collection("fasp_client_settings").findOne({
-    _id: "default",
-  } as unknown as Record<string, unknown>)
-    .catch(() => null) as
-      | { _id: string; searchServerId?: string | null }
-      | null;
+  const settings = await db.faspProviders.getSettings();
   if (settings?.searchServerId) {
-    const byId = await mongo.collection("fasp_client_providers").findOne({
+    const byId = await db.faspProviders.findOne({
       serverId: settings.searchServerId,
       status: "approved",
       [`capabilities.${capability}.enabled`]: true,
@@ -262,7 +248,7 @@ export async function getFaspBaseUrl(
     if (byId?.baseUrl) return String(byId.baseUrl).replace(/\/$/, "");
   }
   // それ以外は最初の承認済み・有効なもの
-  const rec = await mongo.collection("fasp_client_providers").findOne({
+  const rec = await db.faspProviders.findOne({
     status: "approved",
     [`capabilities.${capability}.enabled`]: true,
   });

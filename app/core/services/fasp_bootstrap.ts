@@ -37,38 +37,27 @@ export async function bootstrapDefaultFasp(
   if (!normalized) return; // 既定 FASP 未設定
 
   const db = createDB(env);
-  const mongo = await db.getDatabase();
-  const fasps = mongo.collection("fasp_client_providers");
-
   const now = new Date();
-  const existing = await fasps.findOne({
-    baseUrl: normalized,
-  });
+  const existing = await db.faspProviders.findOne({ baseUrl: normalized });
 
   let secret = existing?.secret as string | undefined;
   if (!secret) secret = genSecret();
 
   // name は一旦 baseUrl を既定値として保存
   const serverId = existing?.serverId ?? `default:${crypto.randomUUID()}`;
-  await fasps.updateOne(
-    { baseUrl: normalized },
+  await db.faspProviders.upsertByBaseUrl(
+    normalized,
     {
-      $setOnInsert: {
-        faspId: crypto.randomUUID(),
-        createdAt: now,
-      },
-      $set: {
-        name: existing?.name ?? normalized,
-        baseUrl: normalized,
-        serverId,
-        status: "approved",
-        secret,
-        updatedAt: now,
-        rejectedAt: null,
-        approvedAt: existing?.approvedAt ?? now,
-      },
+      name: existing?.name ?? normalized,
+      baseUrl: normalized,
+      serverId,
+      status: "approved",
+      secret,
+      updatedAt: now,
+      rejectedAt: null,
+      approvedAt: existing?.approvedAt ?? now,
     },
-    { upsert: true },
+    { faspId: crypto.randomUUID(), createdAt: now },
   );
 
   // provider_info を取得して capabilities を反映（既定では全て有効化）
@@ -89,10 +78,9 @@ export async function bootstrapDefaultFasp(
       newCaps[c.id] = { version: c.version, enabled: true };
     }
 
-    const after = await fasps.findOneAndUpdate(
-      { baseUrl: normalized },
-      { $set: { name, capabilities: newCaps, updatedAt: new Date() } },
-      { returnDocument: "after" },
+    const after = await db.faspProviders.updateByBaseUrl(
+      normalized,
+      { name, capabilities: newCaps, updatedAt: new Date() },
     );
 
     // 有効化を FASP 側へ通知

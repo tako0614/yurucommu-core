@@ -175,6 +175,28 @@ export interface FcmRepo {
   list(): Promise<{ token: string }[]>;
 }
 
+export interface FaspProvidersRepo {
+  getSettings(): Promise<
+    | {
+      shareEnabled?: boolean;
+      shareServerIds?: string[];
+      searchServerId?: string | null;
+    }
+    | null
+  >;
+  list(filter: Record<string, unknown>): Promise<unknown[]>;
+  findOne(filter: Record<string, unknown>): Promise<unknown | null>;
+  upsertByBaseUrl(
+    baseUrl: string,
+    set: Record<string, unknown>,
+    setOnInsert?: Record<string, unknown>,
+  ): Promise<void>;
+  updateByBaseUrl(
+    baseUrl: string,
+    update: Record<string, unknown>,
+  ): Promise<unknown | null>;
+}
+
 export interface DataStore {
   accounts: AccountsRepo;
   posts: PostsRepo;
@@ -184,6 +206,7 @@ export interface DataStore {
   system: SystemRepo;
   sessions: SessionsRepo;
   fcm: FcmRepo;
+  faspProviders: FaspProvidersRepo;
   /** 実装依存の生コネクション（必要時のみ使用） */
   raw?(): Promise<unknown>;
 }
