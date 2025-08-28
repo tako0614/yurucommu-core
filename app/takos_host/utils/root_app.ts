@@ -154,6 +154,7 @@ export function buildRootApp(ctx: HostContext) {
   // Dev vs Prod: only handle /auth static/proxy & root domain static fallback + ActivityPub
   if (isDev) {
     app.use("/auth/*", devProxy("/auth"));
+    // ルートドメインが設定されている場合は、ルートをフロントの dev サーバーへプロキシ
     if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
       const proxyRoot = devProxy("");
       app.use(async (c, next) => {
@@ -175,6 +176,16 @@ export function buildRootApp(ctx: HostContext) {
         await next();
       });
     }
+    // ルートドメイン未設定の場合でも、テナントに該当しないアクセスはホストUIへフォールバック
+    if (!rootDomain) {
+      const proxyRoot = devProxy("");
+      app.use(async (c, next) => {
+        const host = getRealHost(c);
+        const tenantApp = await getAppForHost(host, ctx);
+        if (!tenantApp) return await proxyRoot(c, next);
+        await next();
+      });
+    }
   } else {
     const mid = serviceActorAndActivityPubMiddleware(ctx);
     if (mid) app.use(mid);
@@ -193,6 +204,20 @@ export function buildRootApp(ctx: HostContext) {
         } else await next();
       });
     }
+    // ルートドメイン未設定時: テナントに該当しない場合はビルド済みホストUI(index.html)を返す
+    if (!rootDomain) {
+      app.use(async (c, next) => {
+        const host = getRealHost(c);
+        const tenantApp = await getAppForHost(host, ctx);
+        if (!tenantApp) {
+          return await serveStatic({
+            root: "./client/dist",
+            rewriteRequestPath: () => "/index.html",
+          })(c, next);
+        }
+        await next();
+      });
+    }
   }
 
   // Catch-all dynamic tenant dispatch
@@ -203,6 +228,18 @@ export function buildRootApp(ctx: HostContext) {
     }
     const tenantApp = await getAppForHost(host, ctx);
     if (!tenantApp) {
+      // 開発時は最終フォールバックで dev サーバーへ（上の use でも対応しているが念のため）
+      if (isDev) {
+        const proxy = devProxy("");
+        return await proxy(c, async () => {});
+      }
+      // 本番時かつ ルートドメイン未設定なら index.html を返す（上の use と二重になっても問題なし）
+      if (!rootDomain) {
+        return await serveStatic({
+          root: "./client/dist",
+          rewriteRequestPath: () => "/index.html",
+        })(c, async () => {});
+      }
       if (!isDev && notFoundHtml) {
         return new Response(notFoundHtml, {
           status: 404,
