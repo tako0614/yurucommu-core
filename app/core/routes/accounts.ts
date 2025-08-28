@@ -36,7 +36,7 @@ app.use("/accounts/*", authRequired);
 app.get("/accounts", async (c) => {
   const db = getDB(c);
   const list = await db.listAccounts();
-  const formatted = list.map((doc) => formatAccount(doc));
+  const formatted = list.map((doc: AccountDoc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 

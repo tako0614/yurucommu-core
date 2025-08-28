@@ -159,9 +159,6 @@ export function createMongoDataStore(
           );
         return res.value as unknown | null;
       },
-    },
-    raw: () => impl.getDatabase(),
-    // 互換用: 旧 API で使用していた getDatabase を残す
-    getDatabase: () => impl.getDatabase(),
+    }
   };
 }

@@ -13,6 +13,7 @@
     "@takos/crypto": "../packages/crypto/mod.ts",
     "@takos/firebase": "../packages/firebase/mod.ts",
     "@takos/buffer": "../packages/buffer/mod.ts",
+    "@takos/url": "../packages/url/mod.ts",
     "zod": "npm:zod@^4.1.3"
   },
   "nodeModulesDir": "auto"
