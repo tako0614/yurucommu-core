@@ -4,7 +4,7 @@
 //   takosのみ: deno task setup:takos
 //   非対話で上書き: deno run -A scripts/setup_env.ts --target takos --force --password yourpass --domain dev.takos.jp
 
-import { dirname, fromFileUrl, join, resolve } from "jsr:@std/path";
+import { dirname, fromFileUrl, join as _join, resolve } from "jsr:@std/path";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { load as loadDotenv, stringify } from "jsr:@std/dotenv";
 import { genSalt, hash as bcryptHash } from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
@@ -58,7 +58,7 @@ async function loadExampleEnv(path: string): Promise<Record<string, string>> {
 function promptIfNeeded(label: string, def = "", yes = false): string {
   if (yes) return def;
   const v = prompt(`${label}${def ? ` [${def}]` : ""}`);
-  return (v ?? def).trim();
+  return (v === null || v.trim() === "") ? def : v.trim();
 }
 
 async function createTakosEnv(outPath: string, opts: Options) {
@@ -71,7 +71,7 @@ async function createTakosEnv(outPath: string, opts: Options) {
   const domain = opts.domain ??
     promptIfNeeded("ACTIVITYPUB_DOMAIN (takos)", example.ACTIVITYPUB_DOMAIN ?? "", opts.yes);
 
-  let password = opts.password ?? (opts.yes ? "" : (prompt("管理者初期パスワード(空欄でスキップ)") ?? ""));
+  const password = opts.password ?? (opts.yes ? "" : (prompt("管理者初期パスワード(空欄でスキップ)") ?? ""));
   let salt = example.salt ?? "";
   let hashedPassword = example.hashedPassword ?? "";
   if (password) {
@@ -187,8 +187,8 @@ async function main() {
   if (!opts.force) {
     // 既存ファイルがある場合は確認
     const existing: string[] = [];
-    try { await Deno.stat(takosOut); existing.push("takos"); } catch {}
-    try { await Deno.stat(hostOut); existing.push("host"); } catch {}
+    try { await Deno.stat(takosOut); existing.push("takos"); } catch { /* ignore */ }
+    try { await Deno.stat(hostOut); existing.push("host"); } catch { /* ignore */ }
     if (existing.length) {
       if (opts.yes) {
         // 続行
