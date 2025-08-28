@@ -1727,6 +1727,67 @@ export function Chat() {
             }
             return;
           }
+          // グループメッセージの通知（サーバーからのトリガー）
+          if (typeof m.type === "string" && m.type === "groupMessage") {
+            const p = m.payload as Record<string, unknown> | undefined;
+            const groupId = typeof p?.groupId === "string" ? p.groupId : "";
+            if (!groupId) return;
+            const user = account();
+            if (!user) return;
+            // 自分が参加している該当グループのルームを特定
+            const findGroupRoom = (r: Room): boolean => {
+              if (r.type !== "group") return false;
+              // まず meta.groupId があればそれを優先
+              const metaUrl = r.meta?.groupId as string | undefined;
+              if (typeof metaUrl === "string" && metaUrl) {
+                return metaUrl === groupId;
+              }
+              // ルームIDが acct 形式 name@host の場合は相手ホスト優先のURLに正規化
+              let expected = "";
+              if (r.id.includes("@")) {
+                const [gname, ghost] = (r.id as string).split("@");
+                if (gname && ghost) expected = `https://${ghost}/groups/${gname}`;
+              } else {
+                expected = `https://${getDomain()}/groups/${r.name}`;
+              }
+              return expected === groupId;
+            };
+
+            const room = chatRooms().find(findGroupRoom);
+            if (!room) return;
+
+            // 選択中なら差分取得して追記、未選択ならプレビュー更新のみ
+            if (selectedRoom() === room.id) {
+              const fetched = await fetchMessagesForRoom(room, {
+                limit: 1,
+                dryRun: true,
+              });
+              if (fetched.length > 0) {
+                const last = fetched[fetched.length - 1];
+                setMessages((prev) => {
+                  if (prev.some((x) => x.id === last.id)) return prev;
+                  const next = [...prev, last];
+                  setMessagesByRoom({
+                    ...messagesByRoom(),
+                    [roomCacheKey(room.id)]: next,
+                  });
+                  const u2 = account();
+                  if (u2) void saveDecryptedMessages(u2.id, room.id, next);
+                  return next;
+                });
+                updateRoomLast(room.id, last);
+              }
+            } else {
+              const fetched = await fetchMessagesForRoom(room, {
+                limit: 1,
+                dryRun: true,
+              });
+              if (fetched.length > 0) {
+                updateRoomLast(room.id, fetched[fetched.length - 1]);
+              }
+            }
+            return;
+          }
         }
       } catch (e) {
         console.warn("failed to handle message", e);

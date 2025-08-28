@@ -1723,6 +1723,33 @@ app.post("/groups/:name/inbox", async (c) => {
       domain,
       env,
     );
+    // ローカルメンバーには WS で即時通知を送ってチャットを更新させる
+    try {
+      const localFollowers = group.followers.filter((iri) => {
+        try {
+          const u = new URL(iri);
+          return u.hostname === domain && u.pathname.startsWith("/users/");
+        } catch {
+          return false;
+        }
+      });
+      for (const iri of localFollowers) {
+        try {
+          const u = new URL(iri);
+          const username = u.pathname.split("/")[2] ?? "";
+          if (!username) continue;
+          // クライアントはこの通知を受けて該当グループの最新メッセージを再取得する
+          sendToUser(`${username}@${domain}`, {
+            type: "groupMessage",
+            payload: { groupId },
+          });
+        } catch {
+          /* ignore per-user ws error */
+        }
+      }
+    } catch {
+      /* ignore ws fanout errors */
+    }
     return c.json({ ok: true });
   }
 
