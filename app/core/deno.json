@@ -5,6 +5,7 @@
   "imports": {
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.2",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.5",
+    "@std/path": "jsr:@std/path@^1.1.0",
     "bcrypt": "npm:bcrypt@^6.0.0",
     "hono": "npm:hono@^4.8.4",
     "@takos/config": "../packages/config/mod.ts",
