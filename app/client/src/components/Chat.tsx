@@ -10,11 +10,7 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import {
-  fetchFollowing as _fetchFollowing,
-  fetchUserInfo,
-  fetchUserInfoBatch,
-} from "./microblog/api.ts";
+import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { navigate } from "../utils/router.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -29,10 +25,7 @@ import { ChatSendForm } from "./chat/ChatSendForm.tsx";
 // GroupCreateDialog removed from this view; creation flows via ChatRoomList
 import type { ActorID, ChatMessage, Room } from "./chat/types.ts";
 import { b64ToBuf, bufToB64 } from "@takos/buffer";
-import {
-  fetchDirectMessages as _fetchDirectMessages,
-  sendDirectMessage,
-} from "./chat/api.ts";
+import { sendDirectMessage } from "./chat/api.ts";
 
 /* ローカルキャッシュ用の軽量ヘルパー
    メモリ上の Map を用いた実装 */
@@ -56,7 +49,9 @@ function loadDecryptedMessages(accountId: string, roomId: string) {
 }
 
 // 統一キー（可能なら Actor URL）を返す
-const keyForRoom = (r: Room): string => (r.meta?.groupId ? String(r.meta.groupId) : r.id);
+const keyForRoom = (
+  r: Room,
+): string => (r.meta?.groupId ? String(r.meta.groupId) : r.id);
 
 function saveDecryptedMessages(
   accountId: string,
@@ -662,10 +657,13 @@ export function Chat() {
         if (Array.isArray(list)) raw.push(...list);
       } else if (room.type === "group") {
         try {
-          const groupUrl = (room.meta?.groupId && room.meta.groupId.startsWith("http")) ? room.meta.groupId : undefined;
-          const target = encodeURIComponent(groupUrl ?? room.name);
+          const groupUrl = room.meta?.groupId ??
+            `https://${getDomain()}/groups/${room.name}`;
+          const target = encodeURIComponent(groupUrl);
           const qs = new URLSearchParams();
-          if (typeof params?.limit === "number") qs.set("limit", String(params.limit));
+          if (typeof params?.limit === "number") {
+            qs.set("limit", String(params.limit));
+          }
           if (params?.before) qs.set("before", params.before);
           if (params?.after) qs.set("after", params.after);
           const res = await apiFetch(`/api/groups/${target}/messages?${qs}`);
@@ -1041,22 +1039,33 @@ export function Chat() {
 
     // 招待中（通知ベース）のグループを補完表示
     try {
-      const nres = await apiFetch(`/api/notifications?owner=${encodeURIComponent(user.id)}`);
+      const nres = await apiFetch(
+        `/api/notifications?owner=${encodeURIComponent(user.id)}`,
+      );
       if (nres.ok) {
         const list = await nres.json();
         const invites = Array.isArray(list)
-          ? list.filter((n: Record<string, unknown>) => n.type === "group-invite")
+          ? list.filter((n: Record<string, unknown>) =>
+            n.type === "group-invite"
+          )
           : [];
         const existing = new Set(rooms.map((r) => r.id));
         const domain = getDomain();
         for (const n of invites) {
-          let info: { groupName?: string; groupId?: string; displayName?: string } = {};
+          let info: {
+            groupName?: string;
+            groupId?: string;
+            displayName?: string;
+          } = {};
           try {
-            const obj = JSON.parse(String((n as { message?: string }).message || "{}"));
+            const obj = JSON.parse(
+              String((n as { message?: string }).message || "{}"),
+            );
             if (obj && typeof obj === "object") info = obj;
           } catch { /* ignore */ }
           const gname = info.groupName || "";
-          const gid = info.groupId || (gname ? `https://${domain}/groups/${gname}` : "");
+          const gid = info.groupId ||
+            (gname ? `https://${domain}/groups/${gname}` : "");
           if (!gid) continue;
           const rid = normalizeActor(gid as unknown as ActorID);
           if (existing.has(rid)) continue;
@@ -1075,7 +1084,11 @@ export function Chat() {
             lastMessage: "グループ招待: 参加しますか？",
             lastMessageTime: undefined,
             pendingInvite: true,
-            meta: { notificationId: String((n as { id?: string }).id || ""), groupName: gname, groupId: gid },
+            meta: {
+              notificationId: String((n as { id?: string }).id || ""),
+              groupName: gname,
+              groupId: gid,
+            },
           });
           existing.add(rid);
         }
@@ -1191,7 +1204,9 @@ export function Chat() {
     const roomId = selectedRoom();
     const user = account();
     if ((!text && mediaFiles().length === 0) || !roomId || !user) return;
-    const room = chatRooms().find((r) => keyForRoom(r) === roomId || r.id === roomId);
+    const room = chatRooms().find((r) =>
+      keyForRoom(r) === roomId || r.id === roomId
+    );
     if (!room) return;
     if (room.type === "memo") {
       let attachmentsParam: Record<string, unknown>[] | undefined;
@@ -1264,17 +1279,18 @@ export function Chat() {
     if (room.type === "group") {
       // --- グループ送信 ---
       try {
-        const hostOf = (id: string | undefined) => {
-          if (!id) return null;
-          try { return new URL(id).hostname; } catch { return null; }
-        };
-        const localHost = getDomain();
-        let groupUrl = (room.meta?.groupId && room.meta.groupId.startsWith("http")) ? room.meta.groupId : undefined;
-        if (!groupUrl && room.id.includes("@")) {
-          const [gname, ghost] = splitActor(room.id as ActorID);
-          if (gname && ghost) groupUrl = `https://${ghost}/groups/${gname}`;
+        let groupUrl = room.meta?.groupId;
+        if (!groupUrl) {
+          if (room.id.includes("@")) {
+            const [gname, ghost] = splitActor(room.id as ActorID);
+            if (gname && ghost) {
+              groupUrl = `https://${ghost}/groups/${gname}`;
+            }
+          }
         }
-        const isLocal = hostOf(groupUrl ?? undefined) === localHost || !groupUrl;
+        if (!groupUrl) {
+          groupUrl = `https://${getDomain()}/groups/${room.name}`;
+        }
         // 添付の組み立て
         let attachmentsParam: Record<string, unknown>[] | undefined;
         if (mediaFiles().length > 0) {
@@ -1295,7 +1311,9 @@ export function Chat() {
         const hasText = text.length > 0;
         const firstMediaType =
           Array.isArray(attachmentsParam) && attachmentsParam.length > 0
-            ? String((attachmentsParam[0] as { mediaType?: string }).mediaType || "")
+            ? String(
+              (attachmentsParam[0] as { mediaType?: string }).mediaType || "",
+            )
             : "";
         if (!hasText && firstMediaType) {
           if (firstMediaType.startsWith("image/")) apType = "image";
@@ -1324,7 +1342,7 @@ export function Chat() {
             ? (attachmentsParam[0] as { preview?: unknown }).preview
             : undefined,
         } as Record<string, unknown>;
-        const targetParam = encodeURIComponent(groupUrl ?? room.name);
+        const targetParam = encodeURIComponent(groupUrl);
         const res = await apiFetch(
           `/api/groups/${targetParam}/messages`,
           {
@@ -1334,14 +1352,23 @@ export function Chat() {
           },
         );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "送信に失敗しました" }));
-          globalThis.dispatchEvent(new CustomEvent("app:toast", {
-            detail: { type: "error", title: "送信エラー", description: String(err.error ?? "送信に失敗しました") },
+          const err = await res.json().catch(() => ({
+            error: "送信に失敗しました",
           }));
+          globalThis.dispatchEvent(
+            new CustomEvent("app:toast", {
+              detail: {
+                type: "error",
+                title: "送信エラー",
+                description: String(err.error ?? "送信に失敗しました"),
+              },
+            }),
+          );
           return;
         }
         const j = await res.json();
-        const respId = (j && typeof j.id !== "undefined" ? String(j.id) : "").trim();
+        const respId = (j && typeof j.id !== "undefined" ? String(j.id) : "")
+          .trim();
         const msg: ChatMessage = {
           // サーバーが空文字を返すケースに備え、UUID をフォールバック
           id: respId.length > 0 ? respId : crypto.randomUUID(),
@@ -1355,9 +1382,15 @@ export function Chat() {
             ? (Array.isArray(j.attachments) && j.attachments.length > 0
               ? (((j.attachments[0]?.mediaType || "").startsWith("image/"))
                 ? "image"
-                : ((j.attachments[0]?.mediaType || "").startsWith("video/") ? "video" : "file"))
+                : ((j.attachments[0]?.mediaType || "").startsWith("video/")
+                  ? "video"
+                  : "file"))
               : "note")
-            : (apType === "image" ? "image" : apType === "video" ? "video" : "file"),
+            : (apType === "image"
+              ? "image"
+              : apType === "video"
+              ? "video"
+              : "file"),
           isMe: true,
           avatar: room.avatar,
         };
@@ -1377,9 +1410,15 @@ export function Chat() {
         setMediaFiles([]);
         setMediaPreviews([]);
       } catch {
-        globalThis.dispatchEvent(new CustomEvent("app:toast", {
-          detail: { type: "error", title: "送信エラー", description: "送信に失敗しました" },
-        }));
+        globalThis.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: {
+              type: "error",
+              title: "送信エラー",
+              description: "送信に失敗しました",
+            },
+          }),
+        );
       }
       return;
     }
@@ -1465,24 +1504,31 @@ export function Chat() {
   // 外部グループのActor情報（name, icon, handle）を取得して表示補完
   const enrichGroupActors = async (rooms: Room[]) => {
     try {
-      const targets = rooms.filter((r) => r.type === "group" && r.meta?.groupId && String(r.meta.groupId).startsWith("http"));
+      const targets = rooms.filter((r) =>
+        r.type === "group" && r.meta?.groupId &&
+        String(r.meta.groupId).startsWith("http")
+      );
       for (const r of targets) {
         try {
-          const res = await apiFetch(`/api/actors?url=${encodeURIComponent(String(r.meta!.groupId))}`);
+          const res = await apiFetch(
+            `/api/actors?url=${encodeURIComponent(String(r.meta!.groupId))}`,
+          );
           if (!res.ok) continue;
           const info = await res.json();
-          setChatRooms((prev) => prev.map((x) => (
-            x.id === r.id
-              ? {
-                ...x,
-                displayName: info.name || x.displayName || x.name,
-                avatar: info.iconUrl || x.avatar,
-                hasName: !!info.name || x.hasName,
-                hasIcon: !!info.iconUrl || x.hasIcon,
-                meta: { ...x.meta, actor: info },
-              }
-              : x
-          )));
+          setChatRooms((prev) =>
+            prev.map((x) => (
+              x.id === r.id
+                ? {
+                  ...x,
+                  displayName: info.name || x.displayName || x.name,
+                  avatar: info.iconUrl || x.avatar,
+                  hasName: !!info.name || x.hasName,
+                  hasIcon: !!info.iconUrl || x.hasIcon,
+                  meta: { ...x.meta, actor: info },
+                }
+                : x
+            ))
+          );
         } catch { /* ignore */ }
       }
     } catch { /* ignore */ }
@@ -1912,7 +1958,10 @@ export function Chat() {
         // rooms are loaded; clear pending
         setPendingRoom(null);
         const normalizedRoomId = normalizeActor(roomId);
-        const room = chatRooms().find((r) => (r.meta?.groupId ? String(r.meta.groupId) : r.id) === roomId || r.id === normalizedRoomId);
+        const room = chatRooms().find((r) =>
+          (r.meta?.groupId ? String(r.meta.groupId) : r.id) === roomId ||
+          r.id === normalizedRoomId
+        );
 
         // If room not found and it's not the self-room, redirect to chat list
         if (!room) {
@@ -2026,7 +2075,13 @@ export function Chat() {
                   if (!user) return;
                   const handle = `${user.userName}@${getDomain()}`;
                   const gid = room.meta?.groupId || room.id;
-                  const host = (() => { try { return new URL(gid).hostname; } catch { return null; } })();
+                  const host = (() => {
+                    try {
+                      return new URL(gid).hostname;
+                    } catch {
+                      return null;
+                    }
+                  })();
                   const isLocal = host === getDomain();
                   const gname = room.meta?.groupName || room.name;
                   const res = isLocal && gname
@@ -2053,21 +2108,43 @@ export function Chat() {
                         { method: "DELETE" },
                       ).catch(() => {});
                     }
-                    setChatRooms((prev) => prev.map((r) => r.id === room.id
-                      ? { ...r, pendingInvite: false, lastMessage: "..." }
-                      : r));
-                    globalThis.dispatchEvent(new CustomEvent("app:toast", {
-                      detail: { type: "success", title: "グループ", description: "参加しました" },
-                    }));
+                    setChatRooms((prev) =>
+                      prev.map((r) =>
+                        r.id === room.id
+                          ? { ...r, pendingInvite: false, lastMessage: "..." }
+                          : r
+                      )
+                    );
+                    globalThis.dispatchEvent(
+                      new CustomEvent("app:toast", {
+                        detail: {
+                          type: "success",
+                          title: "グループ",
+                          description: "参加しました",
+                        },
+                      }),
+                    );
                   } else {
-                    globalThis.dispatchEvent(new CustomEvent("app:toast", {
-                      detail: { type: "error", title: "グループ", description: "参加に失敗しました" },
-                    }));
+                    globalThis.dispatchEvent(
+                      new CustomEvent("app:toast", {
+                        detail: {
+                          type: "error",
+                          title: "グループ",
+                          description: "参加に失敗しました",
+                        },
+                      }),
+                    );
                   }
                 } catch {
-                  globalThis.dispatchEvent(new CustomEvent("app:toast", {
-                    detail: { type: "error", title: "グループ", description: "参加に失敗しました" },
-                  }));
+                  globalThis.dispatchEvent(
+                    new CustomEvent("app:toast", {
+                      detail: {
+                        type: "error",
+                        title: "グループ",
+                        description: "参加に失敗しました",
+                      },
+                    }),
+                  );
                 }
               }}
               onIgnoreInvite={async (room) => {
@@ -2318,7 +2395,7 @@ async function searchRooms(
       return j.map((r) => {
         const rid = String(r.id ?? "");
         const handle = normalizeActor(rid as unknown as ActorID);
-        const obj: any = {
+        const obj: Record<string, unknown> = {
           id: handle,
           name: String(r.name ?? ""),
           icon: typeof r.icon === "string" ? r.icon : undefined,
@@ -2330,7 +2407,9 @@ async function searchRooms(
           obj.meta = { groupId: String(r.id) };
         } else if (handle.includes("@")) {
           const [gname, ghost] = handle.split("@");
-          if (gname && ghost) obj.meta = { groupId: `https://${ghost}/groups/${gname}` };
+          if (gname && ghost) {
+            obj.meta = { groupId: `https://${ghost}/groups/${gname}` };
+          }
         }
         return obj;
       });

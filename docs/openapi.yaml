@@ -768,13 +768,14 @@ paths:
       responses:
         "200":
           description: 更新結果
-  /api/groups/{name}/messages:
+  /api/groups/{groupId}/messages:
     parameters:
-      - name: name
+      - name: groupId
         in: path
         required: true
         schema:
           type: string
+        description: グループID。URL エンコードした完全URL または `name@host` 形式で指定します。
     get:
       summary: グループメッセージ一覧取得
       parameters:

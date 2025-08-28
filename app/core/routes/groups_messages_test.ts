@@ -1,24 +1,31 @@
-import { Hono } from "hono";
-import { assertEquals } from "@std/assert/mod.ts";
+function assertEquals(actual: unknown, expected: unknown) {
+  if (actual !== expected) {
+    throw new Error(`${actual} !== ${expected}`);
+  }
+}
 
-Deno.test("グループルームメッセージ取得", async () => {
-  const app = new Hono();
-  app.get("/api/groups/:name/messages", (c) => {
-    return c.json([
-      {
-        _id: "m1",
-        from: "alice@example.com",
-        content: "hello",
-        createdAt: "2024-01-01T00:00:00Z",
-      },
-    ]);
-  });
+function toGroupId(raw: string, domain: string): string {
+  const decoded = decodeURIComponent(raw);
+  if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+    return decoded;
+  }
+  if (decoded.includes("@")) {
+    const [name, host] = decoded.split("@");
+    if (name && host) return `https://${host}/groups/${name}`;
+  }
+  return `https://${domain}/groups/${decoded}`;
+}
 
-  const res = await app.request(
-    "http://example.com/api/groups/test/messages",
+Deno.test("name@host 形式のグループID解決", () => {
+  assertEquals(
+    toGroupId("test@example.net", "example.com"),
+    "https://example.net/groups/test",
   );
-  assertEquals(res.status, 200);
-  const data = await res.json();
-  assertEquals(Array.isArray(data), true);
-  assertEquals(data[0].content, "hello");
+});
+
+Deno.test("ローカルグループIDの解決", () => {
+  assertEquals(
+    toGroupId("local", "example.com"),
+    "https://example.com/groups/local",
+  );
 });
