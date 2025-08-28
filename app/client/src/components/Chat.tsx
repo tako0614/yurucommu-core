@@ -657,8 +657,19 @@ export function Chat() {
         if (Array.isArray(list)) raw.push(...list);
       } else if (room.type === "group") {
         try {
-          const groupUrl = room.meta?.groupId ??
-            `https://${getDomain()}/groups/${room.name}`;
+          // 取得時も送信時と同じ判定で相手ドメインの URL を優先
+          let groupUrl = room.meta?.groupId as string | undefined;
+          if (!groupUrl) {
+            if (room.id.includes("@")) {
+              const [gname, ghost] = splitActor(room.id as ActorID);
+              if (gname && ghost) {
+                groupUrl = `https://${ghost}/groups/${gname}`;
+              }
+            }
+          }
+          if (!groupUrl) {
+            groupUrl = `https://${getDomain()}/groups/${room.name}`;
+          }
           const target = encodeURIComponent(groupUrl);
           const qs = new URLSearchParams();
           if (typeof params?.limit === "number") {

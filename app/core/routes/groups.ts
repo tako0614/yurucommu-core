@@ -10,6 +10,7 @@ import {
   resolveActorFromAcct,
   resolveRemoteActor,
   sendActivityPubObject,
+  extractAttachments,
 } from "../utils/activitypub.ts";
 import { sendToUser } from "./ws.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
@@ -31,15 +32,31 @@ function isOwnedGroup(
   return id === `https://${domain}/groups/${name}`;
 }
 
-function toGroupId(raw: string, domain: string): string {
+// 任意の Actor 指定を IRI に正規化する
+// - 完全な URL: そのまま返す（/users/ でも /groups/ でも可）
+// - acct 形式 name@host: WebFinger で解決を試み、失敗時は従来どおりグループ IRI にフォールバック
+// - それ以外（ローカル名）: ローカルグループ IRI にフォールバック
+async function toGroupId(raw: string, domain: string): Promise<string> {
   const decoded = decodeURIComponent(raw);
+  // URL の場合はそのまま使用（ユーザー/グループを問わない）
   if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
     return decoded;
   }
+  // acct 形式を WebFinger で解決（任意の Actor に対応）
   if (decoded.includes("@")) {
     const [name, host] = decoded.split("@");
-    if (name && host) return `https://${host}/groups/${name}`;
+    if (name && host) {
+      try {
+        const actor = await resolveActorFromAcct(`${name}@${host}`);
+        if (actor?.id) return actor.id;
+      } catch {
+        // ignore and fall back
+      }
+      // 解決に失敗した場合は従来動作（グループ想定）へフォールバック
+      return `https://${host}/groups/${name}`;
+    }
   }
+  // ローカル名は従来どおりローカルグループとして解釈
   return `https://${domain}/groups/${decoded}`;
 }
 
@@ -107,13 +124,12 @@ app.get("/api/groups", async (c) => {
 });
 
 app.get("/api/groups/:groupId/messages", async (c) => {
-  const raw = c.req.param("groupId");
+  const groupId = c.req.param("groupId");
   const db = getDB(c);
-  const domain = getDomain(c);
-  const groupId = toGroupId(raw, domain); // name@host 形式も外部グループとして扱う
   const limit = Number(c.req.query("limit") ?? "0");
   const before = c.req.query("before");
   const after = c.req.query("after");
+
   let msgs = await db.posts.findMessages({ "aud.to": groupId }) as {
     _id?: string;
     actor_id?: string;
@@ -184,7 +200,7 @@ app.post(
   async (c) => {
     const raw = c.req.param("groupId");
     const domain = getDomain(c);
-    const groupId = toGroupId(raw, domain);
+    const groupId = await toGroupId(raw, domain);
     // リモートグループ宛かを判定
     if (
       (() => {
