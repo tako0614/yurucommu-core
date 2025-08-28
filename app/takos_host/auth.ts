@@ -24,7 +24,12 @@ export function createCookieOpts(c: Context, expires: Date) {
   };
 }
 
-const db = createDB({}) as HostDataStore;
+// DB は初期化順序の都合で遅延生成する
+let dbInst: HostDataStore | null = null;
+function db(): HostDataStore {
+  if (!dbInst) dbInst = createDB({}) as HostDataStore;
+  return dbInst;
+}
 
 export function createAuthApp(options?: {
   rootDomain?: string;
@@ -48,13 +53,13 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid" }, 400);
     }
 
-    const exists = await db.hostUsers.findByUserNameOrEmail(userName, email);
+    const exists = await db().hostUsers.findByUserNameOrEmail(userName, email);
     if (exists) {
       if (exists.emailVerified) return c.json({ error: "exists" }, 400);
 
       const newSalt = crypto.randomUUID();
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await db.hostUsers.update(exists._id, {
+      await db().hostUsers.update(exists._id, {
         userName,
         email,
         salt: newSalt,
@@ -71,7 +76,7 @@ export function createAuthApp(options?: {
     const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
     const verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
-    await db.hostUsers.create({
+    await db().hostUsers.create({
       userName,
       email,
       hashedPassword,
@@ -92,7 +97,7 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid" }, 400);
     }
 
-    const user = await db.hostUsers.findByUserName(userName);
+    const user = await db().hostUsers.findByUserName(userName);
     if (!user || user.emailVerified) {
       return c.json({ error: "invalid" }, 400);
     }
@@ -124,7 +129,7 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid2" }, 400);
     }
 
-    await db.hostUsers.update(user._id, {
+    await db().hostUsers.update(user._id, {
       emailVerified: true,
       verifyCode: null,
       verifyCodeExpires: null,
@@ -132,7 +137,7 @@ export function createAuthApp(options?: {
 
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
-    await db.hostSessions.create({ sessionId, user: user._id, expiresAt });
+    await db().hostSessions.create({ sessionId, user: user._id, expiresAt });
 
     setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
 
@@ -146,7 +151,7 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid" }, 400);
     }
 
-    const user = await db.hostUsers.findByUserName(userName);
+    const user = await db().hostUsers.findByUserName(userName);
     if (!user) return c.json({ error: "invalid" }, 401);
     if (!user.emailVerified) return c.json({ error: "unverified" }, 403);
 
@@ -155,7 +160,7 @@ export function createAuthApp(options?: {
 
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
-    await db.hostSessions.create({ sessionId, user: user._id, expiresAt });
+    await db().hostSessions.create({ sessionId, user: user._id, expiresAt });
 
     setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
 
@@ -167,10 +172,10 @@ export function createAuthApp(options?: {
     const sid = getCookie(c, "hostSessionId");
     if (!sid) return c.json({ login: false, rootDomain, termsRequired });
 
-    const session = await db.hostSessions.findById(sid);
+    const session = await db().hostSessions.findById(sid);
     if (session && session.expiresAt > new Date()) {
       const newExpires = new Date(Date.now() + SESSION_LIFETIME_MS);
-      await db.hostSessions.update(sid, { expiresAt: newExpires });
+      await db().hostSessions.update(sid, { expiresAt: newExpires });
       setCookie(
         c,
         "hostSessionId",
@@ -185,7 +190,7 @@ export function createAuthApp(options?: {
       });
     }
 
-    if (session) await db.hostSessions.delete(sid);
+    if (session) await db().hostSessions.delete(sid);
     return c.json({ login: false, rootDomain, termsRequired });
   });
 
@@ -193,7 +198,7 @@ export function createAuthApp(options?: {
   app.delete("/logout", async (c) => {
     const sid = getCookie(c, "hostSessionId");
     if (sid) {
-      await db.hostSessions.delete(sid);
+      await db().hostSessions.delete(sid);
       deleteCookie(c, "hostSessionId", { path: "/" });
     }
     return c.json({ success: true });
@@ -207,14 +212,14 @@ export const authRequired: MiddlewareHandler = createAuthMiddleware({
   cookieName: "hostSessionId",
   errorMessage: "unauthorized",
   findSession: async (sid) => {
-    const session = await db.hostSessions.findById(sid);
+    const session = await db().hostSessions.findById(sid);
     return session;
   },
   deleteSession: async (sid) => {
-    await db.hostSessions.delete(sid);
+    await db().hostSessions.delete(sid);
   },
   updateSession: async (session, expires) => {
-    await db.hostSessions.update(
+    await db().hostSessions.update(
       (session as { sessionId: string }).sessionId,
       { expiresAt: expires },
     );

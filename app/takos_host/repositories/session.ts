@@ -1,7 +1,12 @@
 import { createDB } from "@takos_host/db";
 import type { HostDataStore } from "../db/types.ts";
 
-const db = createDB({}) as HostDataStore;
+// DB は初期化順序の都合で遅延生成する
+let dbInst: HostDataStore | null = null;
+function db(): HostDataStore {
+  if (!dbInst) dbInst = createDB({}) as HostDataStore;
+  return dbInst;
+}
 
 export interface HostSessionData {
   _id?: string;
@@ -13,7 +18,7 @@ export interface HostSessionData {
 export async function findHostSessionById(
   sessionId: string,
 ): Promise<HostSessionData | null> {
-  return await db.hostSessions.findById(sessionId);
+  return await db().hostSessions.findById(sessionId);
 }
 
 export async function createHostSession(
@@ -21,7 +26,7 @@ export async function createHostSession(
   expiresAt: Date,
   user: string,
 ): Promise<HostSessionData> {
-  return await db.hostSessions.create({
+  return await db().hostSessions.create({
     sessionId,
     expiresAt,
     user,
@@ -32,5 +37,5 @@ export async function updateHostSession(
   sessionId: string,
   expiresAt: Date,
 ): Promise<void> {
-  await db.hostSessions.update(sessionId, { expiresAt });
+  await db().hostSessions.update(sessionId, { expiresAt });
 }
