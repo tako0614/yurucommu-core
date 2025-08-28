@@ -1341,8 +1341,10 @@ export function Chat() {
           return;
         }
         const j = await res.json();
+        const respId = (j && typeof j.id !== "undefined" ? String(j.id) : "").trim();
         const msg: ChatMessage = {
-          id: String(j.id ?? crypto.randomUUID()),
+          // サーバーが空文字を返すケースに備え、UUID をフォールバック
+          id: respId.length > 0 ? respId : crypto.randomUUID(),
           author: `${user.userName}@${getDomain()}`,
           displayName: user.displayName || user.userName,
           address: `${user.userName}@${getDomain()}`,

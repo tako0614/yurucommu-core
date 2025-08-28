@@ -651,6 +651,74 @@ export class MongoDB {
         }
       }
       const remotes = await this.findRemoteActorsByUrls(remoteIds);
+
+      // フォロワー一覧を取得（可能なら）して members として反映
+      const followersMap = new Map<string, string[]>();
+      const fetchFollowers = async (actorUrl: string): Promise<string[]> => {
+        try {
+          const docRes = await fetch(actorUrl, {
+            headers: {
+              Accept:
+                'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+            },
+          });
+          if (!docRes.ok) return [];
+          const actor = await docRes.json() as { followers?: string };
+          const followersUrl = typeof actor.followers === "string"
+            ? actor.followers
+            : (() => {
+              try { return new URL("followers", actorUrl).href; } catch { return ""; }
+            })();
+          if (!followersUrl) return [];
+          const fRes = await fetch(followersUrl, {
+            headers: {
+              Accept:
+                'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+            },
+          });
+          if (!fRes.ok) return [];
+          const col = await fRes.json() as
+            | { orderedItems?: unknown[]; items?: unknown[]; first?: string | { orderedItems?: unknown[]; items?: unknown[] } }
+            | undefined;
+          const toStrs = (arr?: unknown[]) => (Array.isArray(arr) ? arr : [])
+            .map((v) => (typeof v === "string" ? v : (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") ? (v as { id: string }).id : ""))
+            .filter((s): s is string => !!s);
+          let items: string[] = [];
+          if (col) {
+            items = toStrs(col.orderedItems ?? col.items);
+            if (items.length === 0 && col.first) {
+              try {
+                const firstUrl = typeof col.first === "string" ? col.first : undefined;
+                const firstObj = typeof col.first === "object" ? col.first as { orderedItems?: unknown[]; items?: unknown[] } : undefined;
+                if (firstObj) {
+                  items = toStrs(firstObj.orderedItems ?? firstObj.items);
+                } else if (firstUrl) {
+                  const pRes = await fetch(firstUrl, { headers: { Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"' } });
+                  if (pRes.ok) {
+                    const page = await pRes.json() as { orderedItems?: unknown[]; items?: unknown[] };
+                    items = toStrs(page.orderedItems ?? page.items);
+                  }
+                }
+              } catch { /* ignore pagination errors */ }
+            }
+          }
+          return items;
+        } catch {
+          return [];
+        }
+      };
+
+      // まとめて取得（過度な並列は避ける）
+      for (const r of remotes) {
+        const id = r.actorUrl as string;
+        try {
+          const m = await fetchFollowers(id);
+          followersMap.set(id, m);
+        } catch {
+          followersMap.set(id, []);
+        }
+      }
+
       const found = new Set(
         remotes.map((r: { actorUrl: string }) => r.actorUrl),
       );
@@ -664,11 +732,12 @@ export class MongoDB {
           id: r.actorUrl,
           name: r.preferredUsername || r.name || r.actorUrl,
           icon,
-          members: [],
+          members: followersMap.get(r.actorUrl) ?? [],
         });
       }
       for (const id of remoteIds) {
         if (!found.has(id)) {
+          // followers は未取得
           res.push({ id, name: id, icon: undefined, members: [] });
         }
       }

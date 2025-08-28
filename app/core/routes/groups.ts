@@ -249,13 +249,26 @@ app.post(
       } catch (err) {
         console.error("remote group message delivery failed", err);
       }
+      // 保存したメッセージの ID/日時を返す（クライアントでの表示不整合を防ぐ）
       return c.json({
-        id: "", from: `https://${domain}/users/${fromUser}`, to: decoded, type, content,
-        attachments, url, mediaType,
-        key: typeof (body as { key?: unknown }).key === "string" ? (body as { key: string }).key : undefined,
-        iv: typeof (body as { iv?: unknown }).iv === "string" ? (body as { iv: string }).iv : undefined,
-        preview: preview && typeof preview === "object" ? preview as Record<string, unknown> : undefined,
-        createdAt: new Date(),
+        id: String((saved as { _id?: unknown })._id ?? ""),
+        from: `https://${domain}/users/${fromUser}`,
+        to: decoded,
+        type,
+        content,
+        attachments,
+        url,
+        mediaType,
+        key: typeof (body as { key?: unknown }).key === "string"
+          ? (body as { key: string }).key
+          : undefined,
+        iv: typeof (body as { iv?: unknown }).iv === "string"
+          ? (body as { iv: string }).iv
+          : undefined,
+        preview: preview && typeof preview === "object"
+          ? preview as Record<string, unknown>
+          : undefined,
+        createdAt: (saved as { published?: Date }).published ?? new Date(),
       });
     }
     // ローカル（グループ名 or ローカルActor URL）
