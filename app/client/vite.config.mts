@@ -16,15 +16,12 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 1420,
     strictPort: true,
-  // HMR: when developing with a custom hostname (eg. tako.host1.local) you
-  // may need to tune hmr.host/protocol/clientPort so the browser can reach
-  // the Vite websocket server. Leave unset here to avoid hardcoding; see
-  // vite docs if you need a custom value.
-  // hmr: { protocol: 'wss', host: 'tako.host1.local', clientPort: 1420 },
+    // HMR: when developing with a custom hostname (eg. tako.host1.local) you
+    // may need to tune hmr.host/protocol/clientPort so the browser can reach
+    // the Vite websocket server. Leave unset here to avoid hardcoding; see
+    // vite docs if you need a custom value.
+    // hmr: { protocol: 'wss', host: 'tako.host1.local', clientPort: 1420 },
   },
-
-  envPrefix: ["VITE_", "TAURI_"],
-
   build: {
     target: process.env.TAURI_PLATFORM ? "es2021" : "esnext",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
