@@ -9,7 +9,11 @@
     "build:host": "deno task --cwd app/takos_host/client build",
     "build:client": "deno task --cwd app/client build",
     "start:takos": "deno task --cwd app/takos start",
-    "start:host": "deno task --cwd app/takos_host start"
+    "start:host": "deno task --cwd app/takos_host start",
+
+    "setup": "deno run -A scripts/setup_env.ts",
+    "setup:takos": "deno run -A scripts/setup_env.ts --target takos",
+    "setup:host": "deno run -A scripts/setup_env.ts --target host"
   },
   "nodeModulesDir": "auto"
 }

@@ -13,23 +13,33 @@ function getOnly(): "takos" | "host" | undefined {
   }
 }
 
-const envPath = getEnvPath();
+function getEnvArg(name: string): string | undefined {
+  for (let i = 0; i < Deno.args.length; i++) {
+    const a = Deno.args[i];
+    if (a === name) return Deno.args[i + 1];
+    if (a.startsWith(name + "=")) return a.slice((name + "=").length);
+  }
+}
+
+// 優先順: --env-takos / --env-host > --env
+const envCommon = getEnvPath();
+const envTakos = getEnvArg("--env-takos") ?? envCommon;
+const envHost = getEnvArg("--env-host") ?? envCommon;
 const only = getOnly();
 
 const procs: Deno.ChildProcess[] = [];
 
 if (!only || only === "takos") {
   const args = ["run", "-A", "index.ts"];
-  if (envPath) args.push("--env", envPath);
+  if (envTakos) args.push("--env", envTakos);
   procs.push(spawnDeno(args, { cwd: "app/takos", prefix: "takos" }));
 }
 
 if (!only || only === "host") {
   const args = ["run", "-A", "main.ts"];
-  if (envPath) args.push("--env", envPath);
+  if (envHost) args.push("--env", envHost);
   procs.push(spawnDeno(args, { cwd: "app/takos_host", prefix: "host" }));
 }
 
 const ok = await waitAll(...procs);
 Deno.exit(ok ? 0 : 1);
-

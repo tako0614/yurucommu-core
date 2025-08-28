@@ -1,6 +1,11 @@
 import { loadConfig } from "@takos/config";
+import { getEnvPath } from "@takos/config";
+import { dirname, fromFileUrl, join } from "jsr:@std/path";
 import * as nodemailer from "nodemailer";
-const env = await loadConfig();
+// ルートから実行された場合でも host 直下の .env を既定で読み込む
+const envPathArg = getEnvPath();
+const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), ".env");
+const env = await loadConfig({ envPath: envPathArg ?? defaultEnvPath });
 const smtp_host = env["SMTP_HOST"];
 const smtp_port = env["SMTP_PORT"];
 const smtp_auth_user = env["SMTP_USER"];

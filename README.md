@@ -10,6 +10,7 @@ Takos リポジトリのルートから、開発・ビルド・本番実行を�
 - 開発同時起動（takos + takos_host）
 
   - `deno task dev --env path/to/.env`
+  - 片方ずつ別の env を使う: `deno task dev -- --env-takos path/to/takos.env --env-host path/to/host.env`
 
 - ビルド（takos_host のクライアント + app/client）
 
@@ -19,6 +20,14 @@ Takos リポジトリのルートから、開発・ビルド・本番実行を�
 
   - 両方: `deno task start --env path/to/.env`
   - 片方のみ: `deno task start -- --only takos` または `deno task start -- --only host`
+  - 片方ずつ別の env を使う: `deno task start -- --env-takos path/to/takos.env --env-host path/to/host.env`
+
+- セットアップ（.env 生成 CLI）
+
+  - 対話モード（両方）: `deno task setup`
+  - takosのみ: `deno task setup:takos`
+  - hostのみ: `deno task setup:host`
+  - 非対話/自動化例: `deno run -A scripts/setup_env.ts --target takos --force --yes --mongo mongodb://localhost:27017/takos-hono --domain dev.takos.jp --password yourpass`
 
 ## 個別実行（参考）
 
