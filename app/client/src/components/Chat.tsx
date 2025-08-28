@@ -1670,10 +1670,35 @@ export function Chat() {
               : normFrom;
             if (!partnerId) return;
             const normPartner = normalizeActor(partnerId as ActorID);
-            let room = chatRooms().find((r) =>
-              r.type === "dm" &&
-              ((r.members ?? []).includes(normPartner) || r.id === normPartner)
-            );
+
+            // If the partner resolves to self, this is a memo (TAKO Keep).
+            // Route it to the memo room instead of creating a DM friend room.
+            let room;
+            if (normPartner === (normalizeActor(self) ?? self)) {
+              const selfRoomId = getSelfRoomId(user);
+              room = chatRooms().find((r) => r.type === "memo" || r.id === selfRoomId);
+              if (!room && selfRoomId) {
+                // create a lightweight memo room entry so UI can show it when needed
+                room = {
+                  id: selfRoomId,
+                  name: "TAKO Keep",
+                  userName: user.userName,
+                  domain: getDomain(),
+                  avatar: "📝",
+                  unreadCount: 0,
+                  type: "memo",
+                  members: [`${user.userName}@${getDomain()}`],
+                  lastMessage: "...",
+                  lastMessageTime: undefined,
+                } as Room;
+                upsertRoom(room);
+              }
+            } else {
+              room = chatRooms().find((r) =>
+                r.type === "dm" &&
+                ((r.members ?? []).includes(normPartner) || r.id === normPartner)
+              );
+            }
             if (!room) {
               room = {
                 id: normPartner,
@@ -1826,6 +1851,29 @@ export function Chat() {
         : normFrom2;
 
       const normalizedPartner = normalizeActor(partnerId);
+      // If the partner resolves to self, treat this as memo (TAKO Keep)
+      const selfNorm = normalizeActor(self) ?? self;
+      if (normalizedPartner && normalizedPartner === selfNorm) {
+        const selfRoomId = getSelfRoomId(user);
+        let memoRoom = chatRooms().find((r) => r.type === "memo" || r.id === selfRoomId);
+        if (!memoRoom && selfRoomId) {
+          memoRoom = {
+            id: selfRoomId,
+            name: "TAKO Keep",
+            userName: user.userName,
+            domain: getDomain(),
+            avatar: "📝",
+            unreadCount: 0,
+            type: "memo",
+            members: [`${user.userName}@${getDomain()}`],
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          } as Room;
+          upsertRoom(memoRoom);
+        }
+        // Use memo room and skip creation of DM
+        room = memoRoom;
+      }
       const [partnerName] = splitActor(normalizedPartner);
       const uuidRe =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
