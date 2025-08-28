@@ -1451,6 +1451,54 @@ app.post("/groups/:name/inbox", async (c) => {
     if (!isToGroup) {
       return c.json({ error: "宛先に当該グループが含まれていません" }, 400);
     }
+    // メッセージを保存（ローカル履歴用）
+    const saveForHistory = async () => {
+      const obj = activity.object as Record<string, unknown>;
+      const objType = String((obj as { type?: unknown }).type ?? "Note");
+      const type = objType === "Image"
+        ? "image"
+        : objType === "Video"
+        ? "video"
+        : objType === "Document"
+        ? "file"
+        : "note";
+      const author = typeof (obj as { attributedTo?: unknown }).attributedTo ===
+          "string"
+        ? String((obj as { attributedTo: string }).attributedTo)
+        : (typeof activity.actor === "string" ? activity.actor : "");
+      const content = typeof (obj as { content?: unknown }).content === "string"
+        ? String((obj as { content: string }).content)
+        : (typeof (obj as { name?: unknown }).name === "string"
+          ? String((obj as { name: string }).name)
+          : "");
+      const extra: Record<string, unknown> = { type, group: true };
+      const atts = extractAttachments(obj);
+      if (atts.length > 0) extra.attachments = atts as unknown as Record<
+        string,
+        unknown
+      >[];
+      const k = (obj as { key?: unknown }).key;
+      const v = (obj as { iv?: unknown }).iv;
+      const prev = (obj as { preview?: unknown }).preview;
+      if (typeof k === "string") extra.key = k;
+      if (typeof v === "string") extra.iv = v;
+      if (prev && typeof prev === "object") extra.preview = prev as Record<
+        string,
+        unknown
+      >;
+      await db.posts.saveMessage(
+        domain,
+        author,
+        content,
+        extra,
+        { to: [groupId], cc: [] },
+      ).catch((err: unknown) => {
+        console.error("save group message failed", err);
+      });
+    };
+
+    await saveForHistory();
+
     // 保存用（公開用）Outbox には宛先情報を含めない Announce を格納
     const announceBase = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -1467,19 +1515,14 @@ app.post("/groups/:name/inbox", async (c) => {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     }
     const gpKey: string = group.privateKey;
-    await Promise.all(
-      group.followers.map((recipient: string) =>
-        sendActivityPubObject(
-          recipient,
-          announceBase,
-          { actorId: groupId, privateKey: gpKey },
-          domain,
-          env,
-        )
-          .catch(
-            (err) => console.error("deliver failed", recipient, err),
-          )
-      ),
+    // ここではフォロワー（Actor IRI）の配列を渡し、各自の inbox/sharedInbox 解決は
+    // deliverActivityPubObject に委譲する（sendActivityPubObject は inbox URL 前提）。
+    await deliverActivityPubObject(
+      group.followers,
+      announceBase,
+      { actorId: groupId, privateKey: gpKey },
+      domain,
+      env,
     );
     return c.json({ ok: true });
   }
