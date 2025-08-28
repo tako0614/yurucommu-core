@@ -2,7 +2,7 @@
   "tasks": {
     "serve": "deno run -A --unstable-detect-cjs --watch --unsafely-ignore-certificate-errors main.ts --",
     "dev": "deno run -A --unstable-detect-cjs --unsafely-ignore-certificate-errors dev.ts --",
-    "build": "deno run -A --node-modules-dir --unstable-detect-cjs npm:vite build --config client/vite.config.mts",
+    "build": "deno task --cwd app/takos_host/client build",
     "host": "deno run -A -c deno.json ../../scripts/host_cli.ts"
   },
   "imports": {
