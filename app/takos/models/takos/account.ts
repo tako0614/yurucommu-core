@@ -9,6 +9,8 @@ const accountSchema = new mongoose.Schema({
   followers: { type: [String], default: [] },
   following: { type: [String], default: [] },
   groups: { type: [String], default: [] },
+  // クライアント表示用のグループ上書き（リモートグループの別名/アイコン差し替え等）
+  groupOverrides: { type: mongoose.Schema.Types.Mixed, default: {} },
 });
 
 accountSchema.index({ userName: 1 }, { unique: true });

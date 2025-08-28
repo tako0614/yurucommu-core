@@ -610,7 +610,7 @@ export class MongoDB {
 
   async listGroups(member: string): Promise<ListedGroup[]> {
     const acc = await Account.findOne({ userName: member })
-      .lean<{ groups?: string[] } | null>();
+      .lean<{ groups?: string[]; groupOverrides?: Record<string, { displayName?: string; icon?: unknown }> } | null>();
     if (!acc) return [];
     const groups = acc.groups ?? [];
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
@@ -626,10 +626,12 @@ export class MongoDB {
         : g.icon && typeof (g.icon as { url?: string }).url === "string"
         ? (g.icon as { url: string }).url
         : undefined;
+      const id = `https://${domain}/groups/${g.groupName}`;
+      const ov = acc?.groupOverrides?.[id];
       return {
-        id: `https://${domain}/groups/${g.groupName}`,
-        name: g.groupName,
-        icon,
+        id,
+        name: (ov?.displayName && String(ov.displayName)) || g.groupName,
+        icon: typeof ov?.icon !== "undefined" ? ov.icon : icon,
         members: g.followers,
       };
     });
@@ -728,17 +730,20 @@ export class MongoDB {
           : r.icon && typeof (r.icon as { url?: string }).url === "string"
           ? (r.icon as { url: string }).url
           : undefined;
+        const id = r.actorUrl;
+        const ov = acc?.groupOverrides?.[id];
         res.push({
-          id: r.actorUrl,
-          name: r.preferredUsername || r.name || r.actorUrl,
-          icon,
+          id,
+          name: (ov?.displayName && String(ov.displayName)) || r.preferredUsername || r.name || r.actorUrl,
+          icon: typeof ov?.icon !== "undefined" ? ov.icon : icon,
           members: followersMap.get(r.actorUrl) ?? [],
         });
       }
       for (const id of remoteIds) {
         if (!found.has(id)) {
           // followers は未取得
-          res.push({ id, name: id, icon: undefined, members: [] });
+          const ov = acc?.groupOverrides?.[id];
+          res.push({ id, name: (ov?.displayName && String(ov.displayName)) || id, icon: typeof ov?.icon !== "undefined" ? ov.icon : undefined, members: [] });
         }
       }
     }

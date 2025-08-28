@@ -1064,6 +1064,74 @@ app.post(
   },
 );
 
+// ローカルグループを退会（ローカルユーザー → ローカルGroup）
+app.post(
+  "/api/groups/:name/leave",
+  zValidator(
+    "json",
+    z.object({ member: z.string() }),
+  ),
+  async (c) => {
+    const raw = c.req.param("name");
+    const { member } = c.req.valid("json") as { member: string };
+    const domain = getDomain(c);
+    const [user, host] = member.split("@");
+    if (!user || !host) {
+      return c.json({ error: "member の形式が正しくありません" }, 400);
+    }
+    if (host !== domain) {
+      return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+    }
+    const decoded = decodeURIComponent(raw);
+    // リモートグループ指定はエラー（leaveRemote を使用）
+    if (
+      (decoded.startsWith("http://") || decoded.startsWith("https://")) &&
+      (() => {
+        try {
+          return new URL(decoded).hostname !== domain;
+        } catch {
+          return false;
+        }
+      })()
+    ) {
+      return c.json({ error: "リモートは /api/groups/leaveRemote を使用してください" }, 400);
+    }
+    const name = (() => {
+      if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+        try {
+          const u = new URL(decoded);
+          if (u.hostname === domain) return u.pathname.split("/").pop() || raw;
+        } catch { /* ignore */ }
+      }
+      return raw;
+    })();
+    const db = getDB(c);
+    const group = await db.groups.findByName(name) as GroupDoc | null;
+    if (!group) return c.json({ error: "見つかりません" }, 404);
+    const groupId = `https://${domain}/groups/${name}`;
+    const env = getEnv(c);
+    // Undo(Follow) をグループの inbox に送信
+    const undo = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://${domain}/activities/${crypto.randomUUID()}`,
+      type: "Undo" as const,
+      actor: `https://${domain}/users/${user}`,
+      object: {
+        type: "Follow",
+        actor: `https://${domain}/users/${user}`,
+        object: groupId,
+      },
+      to: [groupId],
+    };
+    try {
+      await sendActivityPubObject(`${groupId}/inbox`, undo, user, domain, env);
+      return c.json({ ok: true });
+    } catch (_err) {
+      return c.json({ error: "送信に失敗しました" }, 500);
+    }
+  },
+);
+
 // リモートグループへ参加（ローカルユーザー → リモートGroup）
 app.post(
   "/api/groups/joinRemote",
@@ -1111,6 +1179,94 @@ app.post(
       return c.json({ ok: true });
     } catch (err) {
       console.error("joinRemote failed", err);
+      return c.json({ error: "送信に失敗しました" }, 500);
+    }
+  },
+);
+
+// リモート/ローカルを問わず、クライアント側でのグループ表示用上書きを保存
+// - ローカルグループの実体は /api/groups/:name の PATCH を使うことを推奨
+// - リモートグループの場合の別名・アイコン差し替え用途
+app.post(
+  "/api/groups/overrides",
+  zValidator(
+    "json",
+    z.object({
+      member: z.string(), // acct 例: alice@example.com（ローカルのみ）
+      groupId: z.string().url(),
+      displayName: z.string().optional(),
+      icon: z.any().optional(),
+    }),
+  ),
+  async (c) => {
+    const { member, groupId, displayName, icon } = c.req.valid("json") as {
+      member: string;
+      groupId: string;
+      displayName?: string;
+      icon?: unknown;
+    };
+    const [user, host] = member.split("@");
+    const domain = getDomain(c);
+    if (!user || !host) {
+      return c.json({ error: "member の形式が正しくありません" }, 400);
+    }
+    if (host !== domain) {
+      return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+    }
+    const db = getDB(c);
+    const $set: Record<string, unknown> = {};
+    const base = `groupOverrides.${groupId}`;
+    if (typeof displayName === "string") $set[`${base}.displayName`] = displayName;
+    if (typeof icon !== "undefined") $set[`${base}.icon`] = icon;
+    if (Object.keys($set).length === 0) return c.json({ ok: true });
+    await db.accounts.updateByUserName(user, { $set });
+    return c.json({ ok: true });
+  },
+);
+
+// リモートグループを退会（ローカルユーザー → リモートGroup）
+app.post(
+  "/api/groups/leaveRemote",
+  zValidator(
+    "json",
+    z.object({ member: z.string(), groupId: z.string().url() }),
+  ),
+  async (c) => {
+    const { member, groupId } = c.req.valid("json") as {
+      member: string;
+      groupId: string;
+    };
+    const [user, host] = member.split("@");
+    const domain = getDomain(c);
+    if (!user || !host) {
+      return c.json({ error: "member の形式が正しくありません" }, 400);
+    }
+    if (host !== domain) {
+      return c.json({ error: "ローカルユーザーのみ対応" }, 400);
+    }
+    const env = getEnv(c);
+    try {
+      const target = await resolveRemoteActor(groupId, env);
+      const undo = {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: `https://${domain}/activities/${crypto.randomUUID()}`,
+        type: "Undo" as const,
+        actor: `https://${domain}/users/${user}`,
+        object: { type: "Follow", actor: `https://${domain}/users/${user}`, object: groupId },
+        to: [groupId],
+      };
+      await sendActivityPubObject(
+        target.sharedInbox ?? target.inbox,
+        undo,
+        user,
+        domain,
+        env,
+      );
+      const db = getDB(c);
+      await db.accounts.updateByUserName(user, { $pull: { groups: groupId } });
+      return c.json({ ok: true });
+    } catch (err) {
+      console.error("leaveRemote failed", err);
       return c.json({ error: "送信に失敗しました" }, 500);
     }
   },
