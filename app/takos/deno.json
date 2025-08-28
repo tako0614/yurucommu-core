@@ -22,7 +22,7 @@
   },
   "tasks": {
     "dev": "deno run -A --unstable-worker-options --watch --no-prompt --unsafely-ignore-certificate-errors index.ts --",
-    "start": "deno run -A index.ts"
+    "start": "deno run -A index.ts --"
   },
   "nodeModulesDir": "auto"
 }

@@ -10,9 +10,10 @@ import { getSystemKey } from "../core/services/system_actor.ts";
 import { loadConfig } from "@takos/config";
 import { getEnvPath } from "../packages/config/mod.ts";
 
-// コマンドライン引数から .env のパスを取得
-const envPath = getEnvPath();
-const env = await loadConfig({ envPath });
+// コマンドライン引数から .env のパスを取得（未指定時はローカル .env を既定に）
+const envPathArg = getEnvPath();
+const defaultEnvPath = new URL("./.env", import.meta.url).toString();
+const env = await loadConfig({ envPath: envPathArg ?? defaultEnvPath });
 await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
 // 明示的に core の DataStore 型としてキャストして型不一致を回避
