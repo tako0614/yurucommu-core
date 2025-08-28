@@ -12,6 +12,8 @@ import {
   sendActivityPubObject,
   extractAttachments,
 } from "../utils/activitypub.ts";
+import { signObjectProof, verifyObjectProof } from "../utils/object_proof.ts";
+import { fetchPublicKeyPem } from "../utils/activitypub.ts";
 import { sendToUser } from "./ws.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
 import { getEnv } from "@takos/config";
@@ -304,6 +306,9 @@ app.post(
           to: [groupId],
           audience: groupId,
         };
+        // 署名対象に含めるメタデータを付与
+        (object as Record<string, unknown>).id = `urn:uuid:${crypto.randomUUID()}`;
+        (object as Record<string, unknown>).published = new Date().toISOString();
         if (asType === "Note") {
           object.content = content;
           const asAtt = toAsAttachments(attachments);
@@ -326,6 +331,21 @@ app.post(
             unknown
           >;
         }
+        // 作者署名（object-signature）を付与
+        try {
+          const acc = await db.accounts.findByUserName(fromUser);
+          const privateKey: string | undefined = (acc as { privateKey?: string } | null)?.privateKey;
+          if (privateKey) {
+            (object as Record<string, unknown>).proof = await signObjectProof(
+              object,
+              privateKey,
+              `https://${domain}/users/${fromUser}#main-key`,
+            );
+          }
+        } catch {
+          /* 署名付与失敗は非致命 */
+        }
+
         const activity = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: `https://${domain}/activities/${crypto.randomUUID()}`,
@@ -483,6 +503,9 @@ app.post(
       to: [groupId],
       audience: groupId, // 受信側検証しやすくするため audience も付与
     };
+    // 署名対象に含めるメタデータを付与
+    (object as Record<string, unknown>).id = `urn:uuid:${crypto.randomUUID()}`;
+    (object as Record<string, unknown>).published = new Date().toISOString();
     if (asType === "Note") {
       object.content = content;
       const asAtt = toAsAttachments(attachments);
@@ -503,6 +526,22 @@ app.post(
         string,
         unknown
       >;
+    }
+
+    // 作者署名（object-signature）を付与
+    try {
+      const fromUser = actorId.split("/").pop()!;
+      const acc = await db.accounts.findByUserName(fromUser);
+      const privateKey: string | undefined = (acc as { privateKey?: string } | null)?.privateKey;
+      if (privateKey) {
+        (object as Record<string, unknown>).proof = await signObjectProof(
+          object,
+          privateKey,
+          `${actorId}#main-key`,
+        );
+      }
+    } catch {
+      /* 署名付与失敗は非致命 */
     }
 
     const activity = {
@@ -1650,6 +1689,36 @@ app.post("/groups/:name/inbox", async (c) => {
     if (!isToGroup) {
       return c.json({ error: "宛先に当該グループが含まれていません" }, 400);
     }
+    // 作者署名（object-signature）の検証（必須）
+    try {
+      const objForVerify = activity.object as Record<string, unknown>;
+      const proof = (objForVerify as { proof?: unknown }).proof as
+        | { type?: string; verificationMethod?: string; jws?: string; created?: string }
+        | undefined;
+      const attributedTo = typeof (objForVerify as { attributedTo?: unknown }).attributedTo === "string"
+        ? String((objForVerify as { attributedTo: string }).attributedTo)
+        : "";
+      if (!(proof && proof.type === "DataIntegrityProof" && proof.verificationMethod)) {
+        return c.json({ error: "署名が必要です" }, 400);
+      }
+      const actorIriForKey = proof.verificationMethod.split("#")[0] || attributedTo;
+      const pem = await fetchPublicKeyPem(actorIriForKey);
+      if (!pem) return c.json({ error: "公開鍵の取得に失敗しました" }, 400);
+      const ok = await verifyObjectProof(
+        objForVerify,
+        pem,
+        proof as unknown as {
+          type: "DataIntegrityProof";
+          created: string;
+          verificationMethod: string;
+          jws: string;
+        },
+      );
+      if (!ok) return c.json({ error: "署名検証に失敗しました" }, 400);
+    } catch (_e) {
+      return c.json({ error: "署名検証エラー" }, 400);
+    }
+
     // メッセージを保存（ローカル履歴用）
     const saveForHistory = async () => {
       const obj = activity.object as Record<string, unknown>;
