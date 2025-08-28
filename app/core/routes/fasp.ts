@@ -59,6 +59,13 @@ app.post("/fasp/registration", async (c) => {
     faspId,
   });
 
+  // 署名検証済みのため、登録と同時に承認状態へ更新
+  await db.faspProviders.updateByBaseUrl(normalizedBaseUrl, {
+    status: "approved",
+    approvedAt: new Date(),
+    rejectedAt: null,
+  });
+
   const { publicKey: takosPublicKey } = await getSystemKey(db, domain);
   const registrationCompletionUri = `https://${domain}/api/fasp/providers`; // 管理APIを案内
   // keyid は登録時に交換する識別子として、サーバーの Actor 鍵IDを明示
@@ -315,16 +322,20 @@ app.post(
     );
     // variants に該当する既存レコードを列挙して baseUrl を統合
     try {
-      const existing = await db.faspProviders.list({ baseUrl: { $in: variants } }) as Array<Record<string, unknown>>;
-      await Promise.all((existing ?? []).map(async (ex: Record<string, unknown>) => {
-        const exBase = (ex['baseUrl'] ?? "") as string;
-        if (exBase) {
-          await db.faspProviders.updateByBaseUrl(exBase, {
-            baseUrl,
-            updatedAt: new Date(),
-          });
-        }
-      }));
+      const existing = await db.faspProviders.list({
+        baseUrl: { $in: variants },
+      }) as Array<Record<string, unknown>>;
+      await Promise.all(
+        (existing ?? []).map(async (ex: Record<string, unknown>) => {
+          const exBase = (ex["baseUrl"] ?? "") as string;
+          if (exBase) {
+            await db.faspProviders.updateByBaseUrl(exBase, {
+              baseUrl,
+              updatedAt: new Date(),
+            });
+          }
+        }),
+      );
     } catch {
       // ignore errors from listing/updating variants
     }
@@ -350,12 +361,16 @@ app.post(
         createdAt: now,
       },
     );
-  const res = await db.faspProviders.findOne({ baseUrl }) as Record<string, unknown> | null;
+    const res = await db.faspProviders.findOne({ baseUrl }) as
+      | Record<string, unknown>
+      | null;
 
     // 既定FASPなら secret を確保し capability の有効化通知を送る
     if (isDefault) {
       try {
-        const existingSecret = res ? (res as Record<string, unknown>)['secret'] : undefined;
+        const existingSecret = res
+          ? (res as Record<string, unknown>)["secret"]
+          : undefined;
         if (!existingSecret) {
           const secret = btoa(
             String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))),
@@ -369,7 +384,14 @@ app.post(
       const base = baseUrl.replace(/\/$/, "");
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
-          notifyCapabilityActivation(env, domain, base, id, (info as unknown as { version: string }).version, true)
+          notifyCapabilityActivation(
+            env,
+            domain,
+            base,
+            id,
+            (info as unknown as { version: string }).version,
+            true,
+          )
         ),
       ).catch(() => {});
     }
@@ -392,7 +414,9 @@ app.post(
 app.get("/api/fasp/providers/:serverId", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const d = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  const d = await db.faspProviders.findOne({ serverId }) as
+    | Record<string, unknown>
+    | null;
   if (!d) return c.json({ error: "not found" }, 404);
   return c.json({
     name: d.name,
@@ -412,9 +436,11 @@ app.get("/api/fasp/providers/:serverId", async (c) => {
 app.post("/api/fasp/providers/:serverId/approve", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  const provider = await db.faspProviders.findOne({ serverId }) as
+    | Record<string, unknown>
+    | null;
   if (!provider) return c.json({ error: "not found" }, 404);
-  const baseUrl = (provider['baseUrl'] ?? "") as string;
+  const baseUrl = (provider["baseUrl"] ?? "") as string;
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   await db.faspProviders.updateByBaseUrl(baseUrl, {
     status: "approved",
@@ -428,9 +454,11 @@ app.post("/api/fasp/providers/:serverId/approve", async (c) => {
 app.post("/api/fasp/providers/:serverId/reject", async (c) => {
   const db = getDB(c);
   const serverId = c.req.param("serverId");
-  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  const provider = await db.faspProviders.findOne({ serverId }) as
+    | Record<string, unknown>
+    | null;
   if (!provider) return c.json({ error: "not found" }, 404);
-  const baseUrl = (provider['baseUrl'] ?? "") as string;
+  const baseUrl = (provider["baseUrl"] ?? "") as string;
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   await db.faspProviders.updateByBaseUrl(baseUrl, {
     status: "rejected",
@@ -456,7 +484,10 @@ app.put(
   zValidator(
     "json",
     z.object({
-      capabilities: z.record(z.string(), z.object({ version: z.string(), enabled: z.boolean() })),
+      capabilities: z.record(
+        z.string(),
+        z.object({ version: z.string(), enabled: z.boolean() }),
+      ),
     }),
   ),
   async (c) => {
@@ -467,10 +498,12 @@ app.put(
     const { capabilities } = c.req.valid("json") as {
       capabilities: Record<string, { version: string; enabled: boolean }>;
     };
-  const provider = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
-  if (!provider) return c.json({ error: "not found" }, 404);
-  const baseUrl = ((provider['baseUrl'] ?? "") as string).replace(/\/$/, "");
-  await db.faspProviders.updateByBaseUrl(baseUrl, {
+    const provider = await db.faspProviders.findOne({ serverId }) as
+      | Record<string, unknown>
+      | null;
+    if (!provider) return c.json({ error: "not found" }, 404);
+    const baseUrl = ((provider["baseUrl"] ?? "") as string).replace(/\/$/, "");
+    await db.faspProviders.updateByBaseUrl(baseUrl, {
       capabilities,
       updatedAt: new Date(),
     });
@@ -499,9 +532,11 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const db = getDB(c);
   const domain = getDomain(c);
   const serverId = c.req.param("serverId");
-  const rec = await db.faspProviders.findOne({ serverId }) as Record<string, unknown> | null;
+  const rec = await db.faspProviders.findOne({ serverId }) as
+    | Record<string, unknown>
+    | null;
   if (!rec) return c.json({ error: "not found" }, 404);
-  const baseUrl = ((rec['baseUrl'] ?? "") as string).replace(/\/$/, "");
+  const baseUrl = ((rec["baseUrl"] ?? "") as string).replace(/\/$/, "");
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
     const res = await faspFetch(env, domain, `${baseUrl}/provider_info`, {
