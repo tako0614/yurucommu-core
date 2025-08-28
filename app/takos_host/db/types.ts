@@ -44,6 +44,20 @@ export interface DomainsRepo {
   verify(id: string): Promise<void>;
 }
 
+// FASP プロバイダ操作用リポジトリ
+export interface FaspProvidersRepo {
+  findByBaseUrl(
+    baseUrl: string,
+  ): Promise<{ secret?: string } | null>;
+  createDefault(data: {
+    name: string;
+    baseUrl: string;
+    serverId: string;
+    secret: string;
+  }): Promise<void>;
+  updateSecret(baseUrl: string, secret: string): Promise<void>;
+}
+
 export interface HostDataStore extends DataStore {
   tenantId: string;
   multiTenant: boolean;
@@ -51,4 +65,5 @@ export interface HostDataStore extends DataStore {
   host: HostRepo;
   oauth: OAuthRepo;
   domains: DomainsRepo;
+  faspProviders: FaspProvidersRepo;
 }
