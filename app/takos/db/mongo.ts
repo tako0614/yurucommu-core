@@ -2,7 +2,7 @@ import Note from "../models/takos/note.ts";
 import Message from "../models/takos/message.ts";
 import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
-import { createObjectId } from "../../core/utils/activitypub.ts";
+import { createObjectId, resolveRemoteActor } from "../../core/utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
 import Notification from "../models/takos/notification.ts";
 import SystemKey from "../models/takos/system_key.ts";
@@ -635,6 +635,21 @@ export class MongoDB {
     });
     const remoteIds = groups.filter((g) => !g.startsWith(localPrefix));
     if (remoteIds.length > 0) {
+      // Resolve remote actors and upsert them
+      for (const id of remoteIds) {
+        try {
+          const remoteActor = await resolveRemoteActor(id, this.env);
+          await this.upsertRemoteActor({
+            actorUrl: remoteActor.id,
+            name: remoteActor.name || "",
+            preferredUsername: remoteActor.preferredUsername || "",
+            icon: remoteActor.icon,
+            summary: remoteActor.summary || "",
+          });
+        } catch (error) {
+          console.error(`Failed to resolve remote actor ${id}:`, error);
+        }
+      }
       const remotes = await this.findRemoteActorsByUrls(remoteIds);
       const found = new Set(
         remotes.map((r: { actorUrl: string }) => r.actorUrl),

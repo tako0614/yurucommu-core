@@ -771,6 +771,10 @@ export interface RemoteActor {
   inbox: string;
   sharedInbox?: string;
   publicKeyId: string;
+  name?: string;
+  preferredUsername?: string;
+  icon?: unknown;
+  summary?: string;
 }
 
 /**
@@ -783,6 +787,10 @@ interface RemoteActorDocument {
   inbox?: string;
   endpoints?: { sharedInbox?: string };
   publicKey?: { id?: string };
+  name?: string;
+  preferredUsername?: string;
+  icon?: unknown;
+  summary?: string;
 }
 export async function resolveRemoteActor(
   actorIri: string,
@@ -819,6 +827,10 @@ export async function resolveRemoteActor(
     inbox: inbox as string,
     sharedInbox: actor.endpoints?.sharedInbox,
     publicKeyId,
+    name: actor.name,
+    preferredUsername: actor.preferredUsername,
+    icon: actor.icon,
+    summary: actor.summary,
   };
 }
 
