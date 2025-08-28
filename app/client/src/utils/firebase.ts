@@ -14,6 +14,8 @@ const swUrl = new URL("../firebase-messaging-sw.ts", import.meta.url).href;
 let firebaseConfig: Record<string, unknown> | null = null;
 let vapidKey: string | null = null;
 const isTauri = typeof window !== "undefined" && "__TAURI_IPC__" in window;
+const isLocalhost = typeof location !== "undefined" &&
+  (location.hostname === "localhost" || location.hostname === "127.0.0.1");
 
 function isValidVapidKey(key: string): boolean {
   try {
@@ -49,12 +51,15 @@ async function ensureMessaging(): Promise<Messaging> {
   if (!config) throw new Error("firebase config not loaded");
   const app = initializeApp(config as Record<string, string>);
   messaging = getMessaging(app);
-  // During local development Vite serves TS files directly and the browser
-  // may try to fetch the `.ts` service worker script which can fail under
-  // some host/config setups (CORS, unknown content type). Skip registering
-  // the service worker in dev to avoid that error. In Tauri or production
-  // we register normally.
-  if (!import.meta.env.DEV && !isTauri && 'serviceWorker' in navigator) {
+  // ローカル開発ではブラウザが `.ts` の Service Worker スクリプトを
+  // 取得しようとして失敗する場合があるため、localhost では登録を
+  // スキップする。Tauri または本番環境では通常通り登録する。
+  if (
+    !isLocalhost &&
+    !isTauri &&
+    typeof navigator !== "undefined" &&
+    "serviceWorker" in navigator
+  ) {
     const reg = await navigator.serviceWorker.register(swUrl, {
       type: "module",
     });

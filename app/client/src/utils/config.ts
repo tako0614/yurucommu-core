@@ -1,8 +1,6 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
-let apiBase = import.meta.env.VITE_API_BASE ||
-  localStorage.getItem("takos-api-base") ||
-  "";
+let apiBase = localStorage.getItem("takos-api-base") || "";
 
 export function setApiBase(url: string) {
   apiBase = url;
@@ -71,8 +69,7 @@ export function getOrigin(): string {
 }
 
 if (!domain) {
-  domain = import.meta.env.VITE_ACTIVITYPUB_DOMAIN ||
-    new URL(getOrigin()).hostname;
+  domain = new URL(getOrigin()).hostname;
 }
 
 export function getDomain(): string {
