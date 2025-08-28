@@ -760,6 +760,16 @@ app.patch(
     const name = c.req.param("name");
     const update = c.req.valid("json") as Record<string, unknown>;
     const db = getDB(c);
+    const domain = getDomain(c);
+    const found = await db.groups.findByName(name) as GroupDoc | null;
+    if (!found) {
+      c.status(404);
+      return c.json({ error: "見つかりません" });
+    }
+    // ローカルグループのみ更新可能
+    if (!isOwnedGroup(found, domain, name)) {
+      return c.json({ error: "他ホストのグループです" }, 403);
+    }
     const group = await db.groups.updateByName(name, update);
     if (!group) {
       c.status(404);
@@ -858,10 +868,15 @@ app.post(
     };
     const env = getEnv(c);
     const db = getDB(c);
+    const domain = getDomain(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) {
       c.status(404);
       return c.json({ error: "見つかりません" });
+    }
+    // ローカルグループのみ招待可能
+    if (!isOwnedGroup(group, domain, name)) {
+      return c.json({ error: "他ホストのグループです" }, 403);
     }
     const policy = group.invitePolicy ??
       (group.allowInvites ? "members" : "none");
@@ -871,7 +886,6 @@ app.post(
     if (!group.privateKey) {
       return c.json({ error: "内部エラー: privateKey がありません" }, 500);
     }
-    const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
     const actor = await resolveActorFromAcct(acct).catch(() => null);
     if (!actor?.id) {
