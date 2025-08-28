@@ -1,4 +1,5 @@
 import { createTakosApp } from "@takos/core";
+import type { DataStore } from "../core/db/types.ts";
 import {
   connectDatabase,
   createDB,
@@ -14,7 +15,8 @@ const envPath = getEnvPath();
 const env = await loadConfig({ envPath });
 await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
-setStoreFactory((e) => createMongoDataStore(e));
+// 明示的に core の DataStore 型としてキャストして型不一致を回避
+setStoreFactory((e: Record<string, string>) => createMongoDataStore(e) as unknown as DataStore);
 const db = createDB(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {
   const domain = env["ACTIVITYPUB_DOMAIN"];

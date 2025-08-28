@@ -1,4 +1,4 @@
-import type { DataStore } from "../../core/db/types.ts";
+import type { DataStore, SortSpec } from "../../core/db/types.ts";
 import { MongoDB } from "./mongo.ts";
 
 /**
@@ -39,14 +39,12 @@ export function createMongoDataStore(
       saveNote: (d, a, c, e, aud) => impl.saveNote(d, a, c, e, aud),
       updateNote: (id, up) => impl.updateNote(id, up),
       deleteNote: (id) => impl.deleteNote(id),
-      // deno-lint-ignore no-explicit-any
-      findNotes: (f, s) => impl.findNotes(f, s as any),
+  findNotes: (f, s?: SortSpec) => impl.findNotes(f, s as SortSpec | undefined),
       getPublicNotes: (l, b) => impl.getPublicNotes(l, b),
       saveMessage: (d, a, c, e, aud) => impl.saveMessage(d, a, c, e, aud),
       updateMessage: (id, up) => impl.updateMessage(id, up),
       deleteMessage: (id) => impl.deleteMessage(id),
-      // deno-lint-ignore no-explicit-any
-      findMessages: (f, s) => impl.findMessages(f, s as any),
+  findMessages: (f, s?: SortSpec) => impl.findMessages(f, s as SortSpec | undefined),
       updateObject: (id, up) => impl.updateObject(id, up),
       deleteObject: (id) => impl.deleteObject(id),
       deleteManyObjects: (f) => impl.deleteManyObjects(f),
@@ -119,9 +117,9 @@ export function createMongoDataStore(
     faspProviders: {
       getSettings: async () => {
         const mongo = await impl.getDatabase();
-        const doc = await mongo.collection("fasp_client_settings").findOne({
+        const doc = await mongo.collection("fasp_client_settings").findOne(({
           _id: "default",
-        }).catch(() => null);
+        } as unknown) as Record<string, unknown>).catch(() => null);
         return doc as
           | {
             shareEnabled?: boolean;
@@ -157,7 +155,8 @@ export function createMongoDataStore(
             { $set: update },
             { returnDocument: "after" },
           );
-        return res.value as unknown | null;
+        if (!res) return null;
+        return (res.value as unknown) ?? null;
       },
     }
   };
