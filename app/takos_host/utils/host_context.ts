@@ -221,7 +221,7 @@ export async function getAppForHost(
     const appEnv = await getEnvForHost(host, ctx.rootDomain, ctx.hostEnv);
     if (!appEnv) return null;
     const db = createDB(ctx.hostEnv) as HostDataStore;
-    await db.tenant.ensure(host, host);
+    await db.tenant.ensure(host);
     // テナント環境用のシステム鍵を用意
     const tenantDb = createDB(appEnv) as HostDataStore;
     await getSystemKey(tenantDb, host).catch(() => {});

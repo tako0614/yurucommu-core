@@ -115,7 +115,7 @@ export function createConsumerApp(
         owner: user._id,
         env,
       });
-      await db.tenant.ensure(fullHost, fullHost);
+      await db.tenant.ensure(fullHost);
       invalidate?.(fullHost);
       return c.json({ success: true, host: fullHost });
     },

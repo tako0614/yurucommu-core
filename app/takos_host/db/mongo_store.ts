@@ -6,6 +6,7 @@ import OAuthClient from "../models/oauth_client.ts";
 import HostDomain from "../models/domain.ts";
 import HostUser from "../models/user.ts";
 import HostSession from "../models/session.ts";
+import FaspClientSetting from "../../takos/models/takos/fasp_client_setting.ts";
 import mongoose from "mongoose";
 import type { Db } from "mongodb";
 
@@ -264,10 +265,13 @@ export function createMongoDataStore(
       update: async (sessionId, data) => {
         await HostSession.updateOne({ sessionId }, { $set: data });
       },
-      delete: (sessionId) => HostSession.deleteOne({ sessionId }),
+      delete: async (sessionId) => {
+        await HostSession.deleteOne({ sessionId });
+      },
     },
     tenant: {
-      ensure: async (id, domain) => {
+      ensure: async (id) => {
+        const domain = id;
         const exists = await Tenant.findOne({ _id: id }).lean();
         if (!exists) {
           const doc = new Tenant({ _id: id, domain, created_at: new Date() });
@@ -329,15 +333,17 @@ export function createMongoDataStore(
         });
         await doc.save();
       },
-      updateInstanceEnv: (id, env) =>
-        Instance.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
+      updateInstanceEnv: async (id, env) => {
+        await Instance.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
           $set: { env },
-        }),
-      deleteInstance: (host, owner) =>
-        Instance.deleteOne({
+        });
+      },
+      deleteInstance: async (host, owner) => {
+        await Instance.deleteOne({
           host,
           owner: new mongoose.Types.ObjectId(owner),
-        }),
+        });
+      },
     },
     oauth: {
       list: async () => {
@@ -393,12 +399,52 @@ export function createMongoDataStore(
         });
         await doc.save();
       },
-      verify: (id) =>
-        HostDomain.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
+      verify: async (id) => {
+        await HostDomain.updateOne({ _id: new mongoose.Types.ObjectId(id) }, {
           $set: { verified: true },
-        }),
+        });
+      },
     },
     faspProviders: {
+      getSettings: async () => {
+        const doc = await FaspClientSetting.findOne({ _id: "default" }).lean();
+        return doc as
+          | {
+            shareEnabled?: boolean;
+            shareServerIds?: string[];
+            searchServerId?: string | null;
+          }
+          | null;
+      },
+      list: async (filter) => {
+        const db = await impl.getDatabase() as Db;
+        return await db.collection("fasp_client_providers").find({ ...filter, tenant_id: tenantId })
+          .toArray();
+      },
+      findOne: async (filter) => {
+        const db = await impl.getDatabase() as Db;
+        return await db.collection("fasp_client_providers").findOne({ ...filter, tenant_id: tenantId });
+      },
+      upsertByBaseUrl: async (baseUrl, set, setOnInsert) => {
+        const db = await impl.getDatabase() as Db;
+        const update: Record<string, unknown> = { $set: set };
+        if (setOnInsert) update.$setOnInsert = setOnInsert;
+        await db.collection("fasp_client_providers").updateOne(
+          { baseUrl, tenant_id: tenantId },
+          update,
+          { upsert: true },
+        );
+      },
+      updateByBaseUrl: async (baseUrl, update) => {
+        const db = await impl.getDatabase() as Db;
+        const res = await db.collection("fasp_client_providers")
+          .findOneAndUpdate(
+            { baseUrl, tenant_id: tenantId },
+            { $set: update },
+            { returnDocument: "after" },
+          );
+        return res ? res.value as unknown | null : null;
+      },
       findByBaseUrl: async (baseUrl) => {
         const db = await impl.getDatabase() as Db;
         const col = db.collection("fasp_client_providers");
@@ -432,8 +478,5 @@ export function createMongoDataStore(
         );
       },
     },
-    raw: () => impl.getDatabase(),
-    // 互換用: 旧 API で使用していた getDatabase を残す
-    getDatabase: () => impl.getDatabase(),
   };
 }

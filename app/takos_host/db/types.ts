@@ -1,7 +1,7 @@
-import type { DataStore } from "../../core/db/types.ts";
+import type { DataStore, FaspProvidersRepo as CoreFaspProvidersRepo } from "../../core/db/types.ts";
 
 export interface TenantRepo {
-  ensure(id: string, domain: string): Promise<void>;
+  ensure(id: string): Promise<void>;
 }
 
 export interface HostRepo {
@@ -45,7 +45,7 @@ export interface DomainsRepo {
 }
 
 // FASP プロバイダ操作用リポジトリ
-export interface FaspProvidersRepo {
+export interface FaspProvidersRepo extends CoreFaspProvidersRepo {
   findByBaseUrl(
     baseUrl: string,
   ): Promise<{ secret?: string } | null>;
