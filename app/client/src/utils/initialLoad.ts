@@ -1,6 +1,7 @@
 import { createEffect, onMount } from "solid-js";
 import { useAtom } from "solid-jotai";
 import {
+  type Account,
   activeAccountId,
   fetchAccounts,
   setAccounts,
@@ -17,6 +18,16 @@ import {
   setFollowingList,
 } from "../states/account.ts";
 
+// キャッシュの有効期限（5分）
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+// アカウント一覧のキャッシュ
+let accountsCache: Account[] | null = null;
+let accountsFetchedAt = 0;
+
+// 各アカウント統計情報の取得時刻
+const statsFetchedAtMap: Record<string, number> = {};
+
 export function useInitialLoad() {
   const [, setAccs] = useAtom(setAccounts);
   const [actId, setActId] = useAtom(activeAccountId);
@@ -26,12 +37,16 @@ export function useInitialLoad() {
 
   onMount(async () => {
     try {
-      const results = await fetchAccounts();
-      setAccs(results);
+      const now = Date.now();
+      if (!accountsCache || now - accountsFetchedAt > CACHE_TTL_MS) {
+        accountsCache = await fetchAccounts();
+        accountsFetchedAt = now;
+      }
+      setAccs(accountsCache || []);
       const currentId = actId();
-      const exists = results.some((acc) => acc.id === currentId);
-      if (!exists && results.length > 0) {
-        setActId(results[0].id);
+      const exists = accountsCache?.some((acc) => acc.id === currentId);
+      if (!exists && (accountsCache?.length ?? 0) > 0) {
+        setActId(accountsCache![0].id);
       }
     } catch (err) {
       console.error("アカウント情報の取得に失敗しました", err);
@@ -43,11 +58,25 @@ export function useInitialLoad() {
     const currentId = actId();
     if (!currentId) return;
 
-    // 既に一度取得済みならスキップ（必要に応じて TODO: 有効期限導入）
-    if (statsMap()[currentId]) return;
+    const now = Date.now();
+
+    // キャッシュが有効なら再取得しない
+    if (
+      statsMap()[currentId] &&
+      now - (statsFetchedAtMap[currentId] ?? 0) < CACHE_TTL_MS
+    ) {
+      return;
+    }
 
     try {
-      const allAccounts = await fetchAccounts();
+      let allAccounts = accountsCache;
+      if (!allAccounts || now - accountsFetchedAt > CACHE_TTL_MS) {
+        allAccounts = await fetchAccounts();
+        accountsCache = allAccounts;
+        accountsFetchedAt = now;
+        setAccs(allAccounts);
+      }
+
       const acc = allAccounts.find((a) => a.id === currentId);
       if (!acc) return;
       const username = acc.userName;
@@ -63,6 +92,7 @@ export function useInitialLoad() {
             followingCount: profile.followingCount ?? 0,
           },
         });
+        statsFetchedAtMap[currentId] = now;
       }
 
       // フォロー/フォロワー一覧（軽量でない可能性があるため必要最低限のみ）
