@@ -1,4 +1,3 @@
-import { createDB } from "../db/mod.ts";
 import type { DataStore } from "../db/types.ts";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { bufToB64 } from "@takos/buffer";
@@ -80,33 +79,28 @@ async function getAccessToken(
 }
 
 export async function registerToken(
+  db: DataStore,
   token: string,
   userName: string,
-  env: Record<string, string>,
-  dbInst?: DataStore,
-) {
-  const db = dbInst ?? createDB(env);
+): Promise<void> {
   await db.fcm.register(token, userName);
 }
 
 export async function unregisterToken(
+  db: DataStore,
   token: string,
-  env: Record<string, string>,
-  dbInst?: DataStore,
-) {
-  const db = dbInst ?? createDB(env);
+): Promise<void> {
   await db.fcm.unregister(token);
 }
 
 export async function sendNotification(
+  db: DataStore,
   title: string,
   body: string,
   env: Record<string, string>,
-  dbInst?: DataStore,
-) {
+): Promise<void> {
   const accessToken = await getAccessToken(env);
   if (!accessToken) return;
-  const db = dbInst ?? createDB(env);
   const list = await db.fcm.list();
   const projectId = env["FIREBASE_PROJECT_ID"];
   const url =

@@ -36,7 +36,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
     const db = createDB(env);
-  const account = await db.accounts.findByUserName(username);
+    const account = await db.accounts.findByUserName(username);
     if (!account) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
@@ -56,7 +56,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   app.get("/users/:username", async (c) => {
     const username = c.req.param("username");
     const db = createDB(env);
-  const account = await db.accounts.findByUserName(username);
+    const account = await db.accounts.findByUserName(username);
     if (!account) return jsonResponse(c, { error: "Not found" }, 404);
     const domain = getDomain(c);
     const actor = createActor(domain, {
@@ -70,19 +70,19 @@ export function createRootActivityPubApp(env: Record<string, string>) {
   async function handleInbox(c: Context) {
     const username = c.req.param("username");
     const db = createDB(env);
-  const account = await db.accounts.findByUserName(username);
+    const account = await db.accounts.findByUserName(username);
     if (!account) {
       return jsonResponse(c, { error: "Not found" }, 404);
     }
     const result = await parseActivityRequest(c);
     if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
     const { activity } = result;
-    const storedInfo = await storeCreateActivity(activity, env);
+    const storedInfo = await storeCreateActivity(activity, db);
     if (storedInfo) {
       const { stored, actorId } = storedInfo;
       const domain = getDomain(c);
       const handle = iriToHandle(actorId);
-      const userInfo = await getUserInfo(handle, domain, env);
+      const userInfo = await getUserInfo(db, handle, domain);
       const formatted = formatUserInfoForPost(
         userInfo,
         stored,

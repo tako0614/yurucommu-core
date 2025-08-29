@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { issueSession } from "./session.ts";
+import { getDB } from "../db/mod.ts";
 
 export interface OAuthCallbackDeps {
   getCookie: typeof getCookie;
@@ -65,7 +66,7 @@ export function createHandleOAuthCallback(
       if (!verifyRes.ok) return await next();
       const v = await verifyRes.json();
       if (!v.active) return await next();
-      await deps.issueSession(c);
+      await deps.issueSession(c, getDB(c));
       return c.redirect("/");
     } catch (_e) {
       await next();

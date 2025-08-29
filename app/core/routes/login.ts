@@ -4,6 +4,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "@takos/config";
 import { issueSession } from "../utils/session.ts";
+import { getDB } from "../db/mod.ts";
 import { setCookie } from "hono/cookie";
 
 const app = new Hono();
@@ -96,7 +97,7 @@ app.post(
         const user = data.user;
         if (!user || !user.id) return c.json({ error: "Invalid user" }, 401);
 
-        await issueSession(c);
+        await issueSession(c, getDB(c));
         return c.json({ success: true, message: "Login successful" });
       } finally {
         clearTimeout(timeout);
@@ -114,7 +115,7 @@ app.post(
         return c.json({ error: "Invalid password" }, 401);
       }
 
-      await issueSession(c);
+      await issueSession(c, getDB(c));
 
       return c.json({ success: true, message: "Login successful" });
     } catch (error) {

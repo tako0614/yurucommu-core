@@ -2,7 +2,10 @@ import Note from "../models/takos/note.ts";
 import Message from "../models/takos/message.ts";
 import Attachment from "../models/takos/attachment.ts";
 import FollowEdge from "../models/takos/follow_edge.ts";
-import { createObjectId, resolveRemoteActor } from "../../core/utils/activitypub.ts";
+import {
+  createObjectId,
+  resolveRemoteActor,
+} from "../../core/utils/activitypub.ts";
 import Account from "../models/takos/account.ts";
 import Notification from "../models/takos/notification.ts";
 import SystemKey from "../models/takos/system_key.ts";
@@ -140,12 +143,14 @@ export class MongoDB {
   /** Attachment を作成します。 */
   private async createAttachment(obj: Record<string, unknown>) {
     const data = this.normalizeObject(obj);
-    const doc = this.attachEnv(new Attachment({
-      _id: data._id,
-      attributedTo: String(data.attributedTo),
-      actor_id: String(data.actor_id),
-      extra: data.extra ?? {},
-    }));
+    const doc = this.attachEnv(
+      new Attachment({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        extra: data.extra ?? {},
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -153,15 +158,17 @@ export class MongoDB {
   /** Note を作成します。 */
   private async createNote(obj: Record<string, unknown>) {
     const data = this.normalizeObject(obj);
-    const doc = this.attachEnv(new Note({
-      _id: data._id,
-      attributedTo: String(data.attributedTo),
-      actor_id: String(data.actor_id),
-      content: String(data.content ?? ""),
-      extra: data.extra ?? {},
-      published: data.published ?? new Date(),
-      aud: data.aud ?? { to: [], cc: [] },
-    }));
+    const doc = this.attachEnv(
+      new Note({
+        _id: data._id,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -175,21 +182,23 @@ export class MongoDB {
       throw new Error(`unsupported object type: ${objectType}`);
     }
     const url = typeof data.url === "string" ? data.url : "";
-    const doc = this.attachEnv(new Message({
-      _id: data._id,
-      type: objectType,
-      attributedTo: String(data.attributedTo),
-      actor_id: String(data.actor_id),
-      content: String(data.content ?? ""),
-      url,
-      mediaType: typeof data.mediaType === "string"
-        ? data.mediaType
-        : undefined,
-      name: typeof data.name === "string" ? data.name : undefined,
-      extra: data.extra ?? {},
-      published: data.published ?? new Date(),
-      aud: data.aud ?? { to: [], cc: [] },
-    }));
+    const doc = this.attachEnv(
+      new Message({
+        _id: data._id,
+        type: objectType,
+        attributedTo: String(data.attributedTo),
+        actor_id: String(data.actor_id),
+        content: String(data.content ?? ""),
+        url,
+        mediaType: typeof data.mediaType === "string"
+          ? data.mediaType
+          : undefined,
+        name: typeof data.name === "string" ? data.name : undefined,
+        extra: data.extra ?? {},
+        published: data.published ?? new Date(),
+        aud: data.aud ?? { to: [], cc: [] },
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -248,9 +257,11 @@ export class MongoDB {
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
-    const doc = this.attachEnv(new Account({
-      ...data,
-    }));
+    const doc = this.attachEnv(
+      new Account({
+        ...data,
+      }),
+    );
     await doc.save();
     return doc.toObject() as AccountDoc;
   }
@@ -270,7 +281,9 @@ export class MongoDB {
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    return await this.withEnv(Account.findOneAndUpdate({ _id: id }, update, { new: true }))
+    return await this.withEnv(
+      Account.findOneAndUpdate({ _id: id }, update, { new: true }),
+    )
       .lean<AccountDoc | null>();
   }
 
@@ -324,18 +337,20 @@ export class MongoDB {
   ) {
     const id = createObjectId(domain);
     const actor = normalizeActorUrl(author, domain);
-    const doc = this.attachEnv(new Note({
-      _id: id,
-      attributedTo: actor,
-      actor_id: actor,
-      content,
-      extra,
-      published: new Date(),
-      aud: aud ?? {
-        to: ["https://www.w3.org/ns/activitystreams#Public"],
-        cc: [],
-      },
-    }));
+    const doc = this.attachEnv(
+      new Note({
+        _id: id,
+        attributedTo: actor,
+        actor_id: actor,
+        content,
+        extra,
+        published: new Date(),
+        aud: aud ?? {
+          to: ["https://www.w3.org/ns/activitystreams#Public"],
+          cc: [],
+        },
+      }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -508,10 +523,14 @@ export class MongoDB {
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
-    let doc = await this.withEnv(Note.findOneAndUpdate({ _id: id }, update, { new: true }))
+    let doc = await this.withEnv(
+      Note.findOneAndUpdate({ _id: id }, update, { new: true }),
+    )
       .lean();
     if (doc) return doc;
-    doc = await this.withEnv(Message.findOneAndUpdate({ _id: id }, update, { new: true }))
+    doc = await this.withEnv(
+      Message.findOneAndUpdate({ _id: id }, update, { new: true }),
+    )
       .lean();
     if (doc) return doc;
     return null;
@@ -612,14 +631,24 @@ export class MongoDB {
   }
 
   async deleteDirectMessage(owner: string, id: string) {
-    const res = await this.withEnv(DirectMessage.findOneAndDelete({ owner, id }))
+    const res = await this.withEnv(
+      DirectMessage.findOneAndDelete({ owner, id }),
+    )
       .lean<DirectMessageDoc | null>();
     return res != null;
   }
 
   async listGroups(member: string): Promise<ListedGroup[]> {
     const acc = await Account.findOne({ userName: member })
-      .lean<{ groups?: string[]; groupOverrides?: Record<string, { displayName?: string; icon?: unknown }> } | null>();
+      .lean<
+        {
+          groups?: string[];
+          groupOverrides?: Record<
+            string,
+            { displayName?: string; icon?: unknown }
+          >;
+        } | null
+      >();
     if (!acc) return [];
     const groups = acc.groups ?? [];
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
@@ -649,7 +678,7 @@ export class MongoDB {
       // Resolve remote actors and upsert them
       for (const id of remoteIds) {
         try {
-          const remoteActor = await resolveRemoteActor(id, this.env);
+          const remoteActor = await resolveRemoteActor(id);
           await this.upsertRemoteActor({
             actorUrl: remoteActor.id,
             name: remoteActor.name || "",
@@ -678,7 +707,11 @@ export class MongoDB {
           const followersUrl = typeof actor.followers === "string"
             ? actor.followers
             : (() => {
-              try { return new URL("followers", actorUrl).href; } catch { return ""; }
+              try {
+                return new URL("followers", actorUrl).href;
+              } catch {
+                return "";
+              }
             })();
           if (!followersUrl) return [];
           const fRes = await fetch(followersUrl, {
@@ -689,24 +722,47 @@ export class MongoDB {
           });
           if (!fRes.ok) return [];
           const col = await fRes.json() as
-            | { orderedItems?: unknown[]; items?: unknown[]; first?: string | { orderedItems?: unknown[]; items?: unknown[] } }
+            | {
+              orderedItems?: unknown[];
+              items?: unknown[];
+              first?: string | { orderedItems?: unknown[]; items?: unknown[] };
+            }
             | undefined;
-          const toStrs = (arr?: unknown[]) => (Array.isArray(arr) ? arr : [])
-            .map((v) => (typeof v === "string" ? v : (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") ? (v as { id: string }).id : ""))
-            .filter((s): s is string => !!s);
+          const toStrs = (arr?: unknown[]) =>
+            (Array.isArray(arr) ? arr : [])
+              .map((
+                v,
+              ) => (typeof v === "string" ? v : (v && typeof v === "object" &&
+                  typeof (v as { id?: unknown }).id === "string")
+                ? (v as { id: string }).id
+                : "")
+              )
+              .filter((s): s is string => !!s);
           let items: string[] = [];
           if (col) {
             items = toStrs(col.orderedItems ?? col.items);
             if (items.length === 0 && col.first) {
               try {
-                const firstUrl = typeof col.first === "string" ? col.first : undefined;
-                const firstObj = typeof col.first === "object" ? col.first as { orderedItems?: unknown[]; items?: unknown[] } : undefined;
+                const firstUrl = typeof col.first === "string"
+                  ? col.first
+                  : undefined;
+                const firstObj = typeof col.first === "object"
+                  ? col.first as { orderedItems?: unknown[]; items?: unknown[] }
+                  : undefined;
                 if (firstObj) {
                   items = toStrs(firstObj.orderedItems ?? firstObj.items);
                 } else if (firstUrl) {
-                  const pRes = await fetch(firstUrl, { headers: { Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"' } });
+                  const pRes = await fetch(firstUrl, {
+                    headers: {
+                      Accept:
+                        'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
+                    },
+                  });
                   if (pRes.ok) {
-                    const page = await pRes.json() as { orderedItems?: unknown[]; items?: unknown[] };
+                    const page = await pRes.json() as {
+                      orderedItems?: unknown[];
+                      items?: unknown[];
+                    };
                     items = toStrs(page.orderedItems ?? page.items);
                   }
                 }
@@ -743,7 +799,8 @@ export class MongoDB {
         const ov = acc?.groupOverrides?.[id];
         res.push({
           id,
-          name: (ov?.displayName && String(ov.displayName)) || r.preferredUsername || r.name || r.actorUrl,
+          name: (ov?.displayName && String(ov.displayName)) ||
+            r.preferredUsername || r.name || r.actorUrl,
           icon: typeof ov?.icon === "string" ? ov.icon : icon,
           members: followersMap.get(r.actorUrl) ?? [],
         });
@@ -752,7 +809,12 @@ export class MongoDB {
         if (!found.has(id)) {
           // followers は未取得
           const ov = acc?.groupOverrides?.[id];
-          res.push({ id, name: (ov?.displayName && String(ov.displayName)) || id, icon: typeof ov?.icon === "string" ? ov.icon : undefined, members: [] });
+          res.push({
+            id,
+            name: (ov?.displayName && String(ov.displayName)) || id,
+            icon: typeof ov?.icon === "string" ? ov.icon : undefined,
+            members: [],
+          });
         }
       }
     }
@@ -779,9 +841,11 @@ export class MongoDB {
   }
 
   async updateGroupByName(name: string, update: Record<string, unknown>) {
-    return await this.withEnv(Group.findOneAndUpdate({ groupName: name }, update, {
-      new: true,
-    }))
+    return await this.withEnv(
+      Group.findOneAndUpdate({ groupName: name }, update, {
+        new: true,
+      }),
+    )
       .lean<GroupDoc | null>();
   }
 
@@ -841,7 +905,9 @@ export class MongoDB {
     message: string,
     type: string,
   ) {
-    const doc = this.attachEnv(new Notification({ owner, title, message, type }));
+    const doc = this.attachEnv(
+      new Notification({ owner, title, message, type }),
+    );
     await doc.save();
     return doc.toObject();
   }
@@ -917,14 +983,18 @@ export class MongoDB {
     privateKey: string,
     publicKey: string,
   ) {
-    const doc = this.attachEnv(new SystemKey({ domain, privateKey, publicKey }));
+    const doc = this.attachEnv(
+      new SystemKey({ domain, privateKey, publicKey }),
+    );
     await doc.save();
   }
 
   async registerFcmToken(token: string, userName: string) {
-    await this.withEnv(FcmToken.updateOne({ token }, { $set: { token, userName } }, {
-      upsert: true,
-    }));
+    await this.withEnv(
+      FcmToken.updateOne({ token }, { $set: { token, userName } }, {
+        upsert: true,
+      }),
+    );
   }
 
   async unregisterFcmToken(token: string) {
@@ -946,12 +1016,14 @@ export class MongoDB {
     expiresAt: Date,
     deviceId: string,
   ): Promise<SessionDoc> {
-    const doc = this.attachEnv(new Session({
-      sessionId,
-      deviceId,
-      expiresAt,
-      lastDecryptAt: new Date(),
-    }));
+    const doc = this.attachEnv(
+      new Session({
+        sessionId,
+        deviceId,
+        expiresAt,
+        lastDecryptAt: new Date(),
+      }),
+    );
     await doc.save();
     return doc.toObject() as SessionDoc;
   }
@@ -965,7 +1037,9 @@ export class MongoDB {
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await this.withEnv(Session.updateOne({ sessionId }, { expiresAt: expires }));
+    await this.withEnv(
+      Session.updateOne({ sessionId }, { expiresAt: expires }),
+    );
   }
 
   async updateSessionActivity(sessionId: string, date = new Date()) {

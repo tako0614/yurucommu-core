@@ -1,8 +1,7 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "@takos/config";
 import { getDomain } from "../utils/activitypub.ts";
 import { getUserInfo, getUserInfoBatch } from "../services/user-info.ts";
 import {
@@ -13,17 +12,18 @@ import { getActivityPubFollowCollection } from "./activitypub.ts";
 import authRequired from "../utils/auth.ts";
 
 const app = new Hono();
-app.use("/users/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/users/*", auth);
 
 // ユーザー詳細取得
 app.get("/users/:acct", async (c) => {
   try {
     const domain = getDomain(c);
     const acct = c.req.param("acct");
-    const env = getEnv(c);
     const db = getDB(c);
 
-    const info = await getUserInfo(acct, domain, env);
+    const info = await getUserInfo(db, acct, domain);
 
     const user = info.isLocal
       ? await db.accounts.findByUserName(info.userName)
@@ -76,7 +76,7 @@ app.post(
         return c.json({ error: "Too many accts (max 100)" }, 400);
       }
 
-      const infos = await getUserInfoBatch(accts, domain, getEnv(c));
+      const infos = await getUserInfoBatch(getDB(c), accts, domain);
       return c.json(infos);
     } catch (error) {
       console.error("Error fetching user info batch:", error);
@@ -90,18 +90,18 @@ app.get("/users/:username/followers", async (c) => {
   const username = c.req.param("username");
   try {
     const domain = getDomain(c);
-    const env = getEnv(c);
+    const db = getDB(c);
     const collection = await getActivityPubFollowCollection(
+      db,
       username,
       "followers",
       "1",
       domain,
-      env,
     );
     const list = Array.isArray(collection.orderedItems)
       ? collection.orderedItems as string[]
       : [];
-    const data = await formatFollowList(list, domain, env);
+    const data = await formatFollowList(db, list, domain);
     return c.json(data);
   } catch (error) {
     if (error instanceof UserNotFoundError) {
@@ -118,18 +118,18 @@ app.get("/users/:username/following", async (c) => {
   const username = c.req.param("username");
   try {
     const domain = getDomain(c);
-    const env = getEnv(c);
+    const db = getDB(c);
     const collection = await getActivityPubFollowCollection(
+      db,
       username,
       "following",
       "1",
       domain,
-      env,
     );
     const list = Array.isArray(collection.orderedItems)
       ? collection.orderedItems as string[]
       : [];
-    const data = await formatFollowList(list, domain, env);
+    const data = await formatFollowList(db, list, domain);
     return c.json(data);
   } catch (error) {
     if (error instanceof UserNotFoundError) {

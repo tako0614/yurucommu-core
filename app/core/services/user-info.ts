@@ -1,4 +1,4 @@
-import { createDB } from "../db/mod.ts";
+import type { DataStore } from "../db/types.ts";
 import { resolveActorFromAcct } from "../utils/activitypub.ts";
 
 export interface UserInfo {
@@ -17,16 +17,14 @@ export interface UserInfoCache {
  * 単一のユーザー情報を取得する
  */
 export async function getUserInfo(
+  db: DataStore,
   acct: string,
   domain: string,
-  env: Record<string, string>,
   cache?: UserInfoCache,
 ): Promise<UserInfo> {
   if (cache && cache[acct]) {
     return cache[acct];
   }
-
-  const db = createDB(env);
   const [userName, userDomain] = acct.split("@");
   let displayName = userName;
   let authorAvatar = "";
@@ -79,13 +77,12 @@ export async function getUserInfo(
  * 複数のユーザー情報をバッチで取得する
  */
 export async function getUserInfoBatch(
+  db: DataStore,
   accts: string[],
   domain: string,
-  env: Record<string, string>,
 ): Promise<UserInfo[]> {
   const cache: UserInfoCache = {};
   const results: UserInfo[] = [];
-  const db = createDB(env);
 
   const uniqueAccts = [...new Set(accts)];
   const localNames = uniqueAccts
@@ -108,7 +105,7 @@ export async function getUserInfoBatch(
 
   for (const acct of uniqueAccts) {
     if (!cache[acct]) {
-      const info = await getUserInfo(acct, domain, env, cache);
+      const info = await getUserInfo(db, acct, domain, cache);
       cache[acct] = info;
     }
   }

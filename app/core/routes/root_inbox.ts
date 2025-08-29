@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
-import { getEnv } from "@takos/config";
 import {
   type ActivityHandler,
   activityHandlers,
@@ -14,8 +13,8 @@ app.post("/system/inbox", async (c) => {
   const result = await parseActivityRequest(c);
   if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const { activity } = result;
-  const env = getEnv(c);
-  await storeCreateActivity(activity, env);
+  const db = getDB(c);
+  await storeCreateActivity(activity, db);
   return jsonResponse(c, { status: "ok" }, 200, "application/activity+json");
 });
 
@@ -23,8 +22,8 @@ app.post("/inbox", async (c) => {
   const result = await parseActivityRequest(c);
   if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const { activity } = result;
-  const env = getEnv(c);
   const domain = getDomain(c);
+  const db = getDB(c);
 
   function collect(list: unknown): string[] {
     const targets: string[] = [];
@@ -54,18 +53,17 @@ app.post("/inbox", async (c) => {
       if (parts[0] === "users" && parts[1]) {
         const username = parts[1];
         if (username === "system") {
-          await storeCreateActivity(activity, env);
+          await storeCreateActivity(activity, db);
           continue;
         }
-        const db = getDB(c);
-  const account = await db.accounts.findByUserName(username);
+        const account = await db.accounts.findByUserName(username);
         if (!account) continue;
         const typeVal = (activity as { type?: unknown })?.type;
         if (typeof typeVal === "string" && typeVal in activityHandlers) {
           const handler =
             (activityHandlers as Record<string, ActivityHandler>)[typeVal];
           if (typeof handler === "function") {
-            const res = await handler(activity, username, c);
+            const res = await handler(activity, username, db, c);
             if (
               res && typeof res === "object" &&
               ("status" in (res as object) || "body" in (res as object))

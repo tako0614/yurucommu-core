@@ -1,9 +1,9 @@
-import { createDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { getSystemKey } from "../services/system_actor.ts";
 import type { Context } from "hono";
 import { b64ToBuf, bufToB64 } from "@takos/buffer";
+import type { DataStore } from "../db/types.ts";
 
 async function applySignature(
   method: string,
@@ -119,17 +119,16 @@ export async function sendActivityPubObject(
   object: unknown,
   actor: string | { actorId: string; privateKey: string },
   domain: string,
-  env: Record<string, string> = {},
+  db: DataStore,
 ): Promise<Response> {
   const body = JSON.stringify(object);
   if (typeof actor === "string") {
     let key: { userName: string; privateKey: string };
     if (actor === "system") {
-      const sys = await getSystemKey(createDB(env), domain);
+      const sys = await getSystemKey(db, domain);
       key = { userName: "system", privateKey: sys.privateKey };
     } else {
-      const db = createDB(env);
-  const account = await db.accounts.findByUserName(actor);
+      const account = await db.accounts.findByUserName(actor);
       if (!account || !account.privateKey) {
         throw new Error("actor not found or private key missing");
       }
@@ -164,7 +163,7 @@ export async function deliverActivityPubObject(
   object: unknown,
   actor: string | { actorId: string; privateKey: string },
   domain: string,
-  env: Record<string, string> = {},
+  db: DataStore,
 ): Promise<void> {
   const isCollection = (url: string): boolean => {
     if (url === "https://www.w3.org/ns/activitystreams#Public") return true;
@@ -199,7 +198,7 @@ export async function deliverActivityPubObject(
       return Promise.resolve();
     }
     try {
-      const { inbox, sharedInbox } = await resolveRemoteActor(iri, env);
+      const { inbox, sharedInbox } = await resolveRemoteActor(iri);
       const target = sharedInbox ?? inbox;
       if (!target) {
         console.error(
@@ -207,7 +206,7 @@ export async function deliverActivityPubObject(
         );
         return Promise.resolve();
       }
-      return sendActivityPubObject(target, object, actor, domain, env).catch(
+      return sendActivityPubObject(target, object, actor, domain, db).catch(
         (err) => {
           console.error(
             `deliverActivityPubObject: failed to deliver to ${iri}`,
@@ -472,7 +471,6 @@ export function createUndoLikeActivity(
 
 export async function fetchActorInbox(
   actorUrl: string,
-  _env: Record<string, string> = {},
 ): Promise<string | null> {
   try {
     const res = await fetch(actorUrl, {
@@ -793,7 +791,6 @@ interface RemoteActorDocument {
 }
 export async function resolveRemoteActor(
   actorIri: string,
-  _env: Record<string, string> = {},
 ): Promise<RemoteActor> {
   const res = await fetch(actorIri, {
     headers: {

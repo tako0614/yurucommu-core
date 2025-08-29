@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
+import { getDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import { getFile, getMessageAttachment, saveFile } from "../services/file.ts";
 import { getMaxFileSize, isAllowedFileType } from "../utils/file_config.ts";
@@ -11,9 +12,12 @@ export async function initFileModule(_env: Record<string, string>) {}
 // すべて環境変数で制御するため、コード内のデフォルトは持たない
 
 const app = new Hono();
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
 
-app.post("/files", authRequired, async (c) => {
+app.post("/files", auth, async (c) => {
   const env = getEnv(c);
+  const db = getDB(c);
   const MAX_FILE_SIZE = getMaxFileSize(env);
 
   const form = await c.req.formData();
@@ -41,14 +45,13 @@ app.post("/files", authRequired, async (c) => {
     return c.json({ error: "File type not allowed" }, 400);
   }
 
-  const { url } = await saveFile(bytes, env, { mediaType, key, iv, ext });
+  const { url } = await saveFile(db, bytes, env, { mediaType, key, iv, ext });
   return c.json({ url }, 201);
 });
 
 app.get("/files/:id", async (c) => {
   const id = c.req.param("id");
-  const env = getEnv(c);
-  const res = await getFile(id, env);
+  const res = await getFile(getDB(c), id);
   if (!res) return c.text("Not Found", 404);
   return new Response(res.data, { headers: { "content-type": res.mediaType } });
 });
@@ -56,8 +59,7 @@ app.get("/files/:id", async (c) => {
 app.get("/files/messages/:id/:index", async (c) => {
   const id = c.req.param("id");
   const index = parseInt(c.req.param("index"), 10) || 0;
-  const env = getEnv(c);
-  const res = await getMessageAttachment(id, index, env);
+  const res = await getMessageAttachment(getDB(c), id, index);
   if (!res) return c.text("Not Found", 404);
   return new Response(res.data, { headers: { "content-type": res.mediaType } });
 });

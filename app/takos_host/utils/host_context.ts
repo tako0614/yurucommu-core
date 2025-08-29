@@ -201,10 +201,14 @@ async function seedDefaultFasp(
     await FaspClient.updateOne({ tenant: host }, {
       $set: { tenant: host, secret },
     }, { upsert: true }).catch(() => {});
-    await bootstrapDefaultFasp({
-      ...appEnv,
-      FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
-    }, host).catch(() => {});
+    await bootstrapDefaultFasp(
+      {
+        ...appEnv,
+        FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
+      },
+      host,
+      tenantDb,
+    ).catch(() => {});
   } catch { /* ignore */ }
 }
 

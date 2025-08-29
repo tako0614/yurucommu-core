@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "@takos/config";
@@ -20,9 +20,11 @@ import {
 
 // FASP 関連の最小実装（docs/FASP.md のプロトタイプに準拠）
 const app = new Hono();
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
 
 // 管理系は通常の /api 配下に集約（要ログイン）
-app.use("/api/fasp/*", authRequired);
+app.use("/api/fasp/*", auth);
 
 // 以前の実装に戻す（provider_info の自己提供は行わない）
 
@@ -264,7 +266,7 @@ app.post(
     const url = `${baseUrl}/provider_info`;
     let lastErr: unknown = null;
     try {
-      const res = await faspFetch(env, domain, url, {
+      const res = await faspFetch(db, env, domain, url, {
         verifyResponseSignature: false,
       });
       if (!res.ok) {
@@ -369,6 +371,7 @@ app.post(
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
           notifyCapabilityActivation(
+            db,
             env,
             domain,
             base,
@@ -497,6 +500,7 @@ app.put(
       await Promise.all(
         Object.entries(capabilities).map(([id, info]) =>
           notifyCapabilityActivation(
+            db,
             env,
             domain,
             baseUrl,
@@ -524,7 +528,7 @@ app.get("/api/fasp/providers/:serverId/provider_info", async (c) => {
   const baseUrl = normalizeBaseUrl((rec["baseUrl"] ?? "") as string);
   if (!baseUrl) return c.json({ error: "baseUrl missing" }, 400);
   try {
-    const res = await faspFetch(env, domain, `${baseUrl}/provider_info`, {
+    const res = await faspFetch(db, env, domain, `${baseUrl}/provider_info`, {
       verifyResponseSignature: false,
     });
     const text = await res.text();

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import authRequired from "../utils/auth.ts";
@@ -11,23 +11,28 @@ interface NoteDoc {
 }
 
 const app = new Hono();
-app.use("/trends/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/trends/*", auth);
 
 app.get("/trends", async (c) => {
   const env = getEnv(c);
+  const db = getDB(c);
   const domain = getDomain(c);
   const qType = c.req.query("type");
   const type = qType === "content" || qType === "links" ? qType : "hashtags";
   const withinLastHours = Number(c.req.query("withinLastHours") ?? "24");
   const maxCount = Number(c.req.query("maxCount") ?? "10");
-  const faspBase = await getFaspBaseUrl(env, "trends");
+  const faspBase = await getFaspBaseUrl(db, env, "trends");
   if (faspBase) {
     try {
       const params = new URLSearchParams();
       params.set("withinLastHours", String(withinLastHours));
       params.set("maxCount", String(maxCount));
       const url = `${faspBase}/trends/v0/${type}?${params.toString()}`;
-      const res = await faspFetch(env, domain, url, { signing: "registered" });
+      const res = await faspFetch(db, env, domain, url, {
+        signing: "registered",
+      });
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>;
         let trends;
