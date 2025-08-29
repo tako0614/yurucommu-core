@@ -122,7 +122,12 @@ export async function createTakosApp(
       serveStatic({
         root: "../client/dist",
         onNotFound: async (_path: string, c: Context) => {
-          await serveStatic({ root: "../client/dist", path: "index.html" })(
+          // SPAのクライアントサイドルーティングに対応するため
+          // 存在しないパスでは index.html を返す
+          return await serveStatic({
+            root: "../client/dist",
+            path: "index.html",
+          })(
             c,
             async () => {},
           );
