@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
 import type { DirectMessageDoc } from "@takos/types";
+import { getUserInfo } from "../services/user-info.ts";
 
 const app = new Hono();
 const auth = (c: Context, next: () => Promise<void>) =>
@@ -15,7 +16,29 @@ app.get("/dms", async (c) => {
   if (!owner) return c.json({ error: "owner is required" }, 400);
   const db = getDB(c);
   const rooms = await db.dms.list(owner) as DirectMessageDoc[];
-  const formatted = rooms.map((r) => ({ id: r.id, owner: r.owner }));
+  const domain = new URL(c.req.url).host;
+  const formatted = await Promise.all(rooms.map(async (r) => {
+    // DMの相手のActorIDはr.id、ownerは自分
+    const otherActor = r.id === owner ? null : r.id;
+    let name = "";
+    let icon = "";
+    if (otherActor) {
+      try {
+        const userInfo = await getUserInfo(db, otherActor, domain);
+        name = userInfo.displayName || userInfo.userName;
+        icon = userInfo.authorAvatar;
+      } catch {
+        // ignore
+      }
+    }
+    return { 
+      id: r.id, 
+      owner: r.owner,
+      name,
+      icon: icon || undefined,
+      members: [r.owner, r.id]
+    };
+  }));
   return c.json(formatted);
 });
 

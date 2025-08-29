@@ -10,7 +10,6 @@ import {
 import { useAtom } from "solid-jotai";
 import { selectedRoomState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
-import { fetchUserInfo, fetchUserInfoBatch } from "./microblog/api.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { navigate } from "../utils/router.ts";
 import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
@@ -2737,3 +2736,20 @@ async function _addRoom(
 
 // event cursor state (local only)
 const _eventsCursor = createSignal<string | null>(null);
+
+async function fetchUserInfo(acct: string) {
+  try {
+    const res = await apiFetch(`/api/users/${encodeURIComponent(acct)}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+async function fetchUserInfoBatch(authors: string[], _userId: string) {
+  const results = await Promise.all(authors.map(fetchUserInfo));
+  return results;
+}
