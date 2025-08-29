@@ -1,56 +1,97 @@
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 24}, "themeVariables": {"edgeLength": 20}}}%%
 flowchart LR
-    subgraph "Takos システム"
-        A[Takos Host<br/>ホスティング層] --> B[Takos Server<br/>本体サーバー]
-        B --> C[Core<br/>共通ロジック]
-        C --> D[Packages<br/>共通パッケージ]
-        A --> E[Client<br/>フロントエンド]
+    %% Takos 高忠実度アーキテクチャ図
+    subgraph "Edge & Client 層"
+        ALB[LoadBalancer_CDN]
+        ALB --> Proxy[TLS_terminator_Traefik]
+        Proxy --> Client[Browser-Mobile-Tauri]
+        Client -->|HTTPS_OAuth| Proxy
     end
 
-    subgraph "Takos Host 詳細"
-        F[Service Actor] --> G[インスタンス管理]
-        G --> H[OAuth認証]
+    subgraph "Ingress & API 層"
+        Proxy --> APIGW[API_Gateway_AuthFilter]
+        APIGW --> RateLimiter[RateLimiter]
+        APIGW --> Authz[Authz_JWT_OAuth_session]
     end
 
-    subgraph "Takos Server 詳細"
-        I[ActivityPub] --> J[REST API]
-        J --> K[FASP Client]
-        K --> L[WebSocket]
+    subgraph "Takos Server (アプリケーション)"
+        direction TB
+        AppCluster[AppCluster_Deno_Hono_xN] --> WebSocketGW[WebSocket_Gateway]
+        AppCluster --> REST[REST_JSON_API]
+        REST --> Services[Services_Accounts_Posts_Files_FASP_Groups_Notifications]
+        Services --> Business[Business_Delivery_Inbox]
+        Business --> WorkerQueue[WorkerQueue_RabbitMQ_RedisStreams]
+        WorkerQueue --> Workers[Workers_Delivery_OGP_Attachments]
     end
 
-    subgraph "Client 詳細"
-        M[Vite + Solid.js] --> N[Tauri]
-        N --> O[OAuth統合]
+    subgraph "Takos Host / マネージド層"
+        ServiceActor[ServiceActor_InstanceManager]
+        ServiceActor --> InstanceMgmt[InstanceMgmt_Scheduler]
+        InstanceMgmt --> OAuthProvider[OAuthProvider]
+        ServiceActor --> TenantIsolate[TenantIsolation]
     end
 
-    subgraph "Core 詳細"
-        P[Hono Framework] --> Q[Routes]
-        Q --> R[Services]
-        R --> S[Utils]
+    subgraph "Fediverse & 外部連携"
+        ActivityPub[ActivityPub_Node]
+        FASP[FASP_Service]
+        ActivityPub -->|Outbox/Inbox| RemotePeers[RemotePeers]
+        FASP --> ActivityPub
     end
 
-    subgraph "Packages 詳細"
-        T[Auth] --> U[Config]
-        U --> V[Crypto]
-        V --> W[Firebase]
-    end
-    subgraph "外部連携"
-        X[ActivityPub<br/>Fediverse] --> Y[FASP<br/>補助サービス]
-        Y --> Z[MongoDB]
-        Z --> AA[Deno Runtime]
+    subgraph "データ層"
+        DB[(MongoDB_DocumentDB)]
+        DBReplica[(MongoDB_ReplicaSet)]
+        Cache[(Redis_Cache_Session)]
+        ObjectStore[(S3_Compatible_ObjectStore)]
+        Search[(Elasticsearch_OpenSearch)]
+        DBReplica --> DB
+        Services --> DB
+        Services --> Cache
+        Services --> ObjectStore
+        Services --> Search
     end
 
-    A --> F
-    B --> I
-    E --> M
-    C --> P
-    D --> T
-    B --> X
-    C --> Y
-    D --> Z
+    subgraph "バックグラウンド & 外部処理"
+        Workers --> Email[SMTP_Mailer]
+        Workers --> Push[Firebase_Cloud_Messaging]
+        Workers --> CDN[CDN_Invalidate]
+    end
 
-    style A fill:#e1f5fe,color:#000000
-    style B fill:#f3e5f5,color:#000000
-    style C fill:#e8f5e8,color:#000000
-    style D fill:#fff3e0,color:#000000
-    style E fill:#fce4ec,color:#000000
+    subgraph "運用・監視"
+        Prom[Prometheus]
+        Graf[Grafana]
+        Logs[ELK_Loki]
+        Traces[Jaeger]
+        AppCluster --> Prom
+        Workers --> Logs
+        Proxy --> Traces
+    end
+
+    subgraph "インフラ周辺"
+        CI[CI_CD_GitHubActions]
+        Vault[Vault_HashiCorp]
+        Backup[Backup_Snapshots]
+        CI -->|deploy| InstanceMgmt
+        InstanceMgmt -->|get| Vault
+        DB --> Backup
+    end
+
+    %% 主要接続
+    APIGW --> AppCluster
+    AppCluster --> ActivityPub
+    FASP -->|補助API| Services
+    WebSocketGW --> Client
+    Proxy -->|静的資産| CDN
+
+    %% 補助ラベル
+    classDef infra fill:#f3f4f6,stroke:#333
+    class ALB,Proxy,APIGW,InstanceMgmt,CI,Vault,Backup infra
+
+    style AppCluster fill:#fef3c7,color:#000
+    style DB fill:#ecfccb,color:#000
+    style Cache fill:#e0f2fe,color:#000
+    style ObjectStore fill:#fce7f3,color:#000
+    style ActivityPub fill:#ede9fe,color:#000
+
+    %% ノート: 矢印は主なデータフローを表します。設計によりフェデレーション、非同期配信、可観測性、バックアップ、テナント分離が明確になります。
   
