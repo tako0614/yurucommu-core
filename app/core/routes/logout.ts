@@ -12,7 +12,7 @@ app.post("/logout", async (c) => {
   const sessionId = getCookie(c, "sessionId");
   if (sessionId) {
     const db = getDB(c);
-    await db.deleteSessionById(sessionId);
+  await db.sessions.deleteById(sessionId);
     deleteCookie(c, "sessionId", { path: "/" });
   }
   return c.json({ success: true });
