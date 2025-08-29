@@ -61,12 +61,33 @@ export async function listGroupMessages(
     url?: string;
     mediaType?: string;
     published?: Date;
+    __src?: "msg" | "note";
   };
 
   let unified: Unified[] = [
-    ...msgsRaw,
-    ...notesRaw,
+    ...msgsRaw.map((m) => ({ ...m, __src: "msg" as const })),
+    ...notesRaw.map((n) => ({ ...n, __src: "note" as const })),
   ];
+
+  // Message/Note の重複除去（同一アクター・同一本文・同一時刻は Message を優先）
+  const seen = new Map<string, Unified>();
+  for (const m of unified) {
+    const key = [
+      String(m.actor_id ?? m.attributedTo ?? ""),
+      String(m.content ?? ""),
+      new Date(String(m.published ?? "")).toISOString(),
+    ].join("|");
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, m);
+    } else {
+      // prefer Message over Note
+      if (existing.__src === "note" && m.__src === "msg") {
+        seen.set(key, m);
+      }
+    }
+  }
+  unified = Array.from(seen.values());
 
   if (opts.before) {
     const b = opts.before;
