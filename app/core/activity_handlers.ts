@@ -107,7 +107,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         actor: (activity as { actor?: string })?.actor ?? undefined,
         objectType:
           typeof (activity as { object?: unknown }).object === "object" &&
-          (activity as { object: { type?: string } }).object?.type
+            (activity as { object: { type?: string } }).object?.type
             ? (activity as { object: { type?: string } }).object.type
             : undefined,
       });
@@ -279,7 +279,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         actor: (activity as { actor?: string })?.actor ?? undefined,
         objectType:
           typeof (activity as { object?: unknown }).object === "object" &&
-          (activity as { object: { type?: string } }).object?.type
+            (activity as { object: { type?: string } }).object?.type
             ? (activity as { object: { type?: string } }).object.type
             : undefined,
       });
@@ -306,6 +306,24 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       });
     } catch {
       // ignore notification errors
+    }
+
+    // グループメッセージを受信した場合はチャット更新を通知
+    try {
+      const actorUrl = new URL(actor);
+      if (
+        actorUrl.pathname.startsWith("/groups/") &&
+        typeof obj.type === "string" &&
+        obj.type === "Create"
+      ) {
+        const domain = getDomain(c as Context);
+        sendToUser(`${username}@${domain}`, {
+          type: "groupMessage",
+          payload: { groupId: actorUrl.href },
+        });
+      }
+    } catch {
+      /* ignore group message notification errors */
     }
   },
 
