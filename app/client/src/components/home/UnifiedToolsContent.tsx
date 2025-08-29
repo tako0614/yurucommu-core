@@ -978,26 +978,6 @@ export default function UnifiedToolsContent() {
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
               class="w-full bg-gray-700 rounded-lg px-4 py-3 pl-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <div class="mt-3 flex items-center gap-2 text-sm text-gray-300">
-              <label class="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={useFaspSearch()}
-                  onChange={(e) => {
-                    setUseFaspSearch(e.currentTarget.checked);
-                    try {
-                      localStorage.setItem(
-                        "useFaspSearch",
-                        e.currentTarget.checked ? "1" : "0",
-                      );
-                    } catch {
-                      /* ignore */
-                    }
-                  }}
-                />
-                FASPを使って検索
-              </label>
-            </div>
             <svg
               class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
               fill="none"
