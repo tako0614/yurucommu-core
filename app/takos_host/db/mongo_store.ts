@@ -587,7 +587,7 @@ export function createMongoDataStore(
       insertEventSubscription: async (id, payload) => {
         const db = await impl.getDatabase() as Db;
         await db.collection("fasp_client_event_subscriptions").insertOne({
-          _id: id,
+          _id: new mongoose.Types.ObjectId(id),
           tenant_id: tenantId,
           payload,
         });
@@ -595,14 +595,14 @@ export function createMongoDataStore(
       deleteEventSubscription: async (id) => {
         const db = await impl.getDatabase() as Db;
         await db.collection("fasp_client_event_subscriptions").deleteOne({
-          _id: id,
+          _id: new mongoose.Types.ObjectId(id),
           tenant_id: tenantId,
         });
       },
       createBackfill: async (id, payload) => {
         const db = await impl.getDatabase() as Db;
         await db.collection("fasp_client_backfills").insertOne({
-          _id: id,
+          _id: new mongoose.Types.ObjectId(id),
           tenant_id: tenantId,
           payload,
           status: "pending",
@@ -611,7 +611,7 @@ export function createMongoDataStore(
       continueBackfill: async (id) => {
         const db = await impl.getDatabase() as Db;
         await db.collection("fasp_client_backfills").updateOne(
-          { _id: id, tenant_id: tenantId },
+          { _id: new mongoose.Types.ObjectId(id), tenant_id: tenantId },
           { $set: { continuedAt: new Date() } },
         );
       },
