@@ -19,6 +19,7 @@ import { followingListMap, setFollowingList } from "../../states/account.ts";
 import { apiFetch, getDomain, getOrigin } from "../../utils/config.ts";
 import { navigate } from "../../utils/router.ts";
 import { fetchPostById } from "../microblog/api.ts";
+import { followUser, unfollowUser } from "../microblog/api.ts";
 import { PostItem } from "../microblog/Post.tsx";
 import QRCode from "qrcode";
 import jsQR from "https://esm.sh/jsqr@1.4.0";
@@ -54,7 +55,7 @@ export interface SearchResult {
 export default function UnifiedToolsContent() {
   const [selectedAccountId, setSelectedAccountId] = useAtom(activeAccountId);
   const [currentAccount] = useAtom(activeAccount);
-  const [accounts, setAccountsState] = useAtom(accountsAtom);
+  const [accounts, setAccounts] = useAtom(accountsAtom);
   const [followingMap] = useAtom(followingListMap);
   const [, saveFollowing] = useAtom(setFollowingList);
   const [activeTab, setActiveTab] = createSignal<"users" | "posts">("users");
@@ -94,7 +95,7 @@ export default function UnifiedToolsContent() {
     if (accounts().length === 0) {
       try {
         const results = await fetchAccounts();
-        setAccountsState(results);
+        setAccounts(results);
         if (results.length > 0 && !selectedAccountId()) {
           setSelectedAccountId(results[0].id);
         }
@@ -280,63 +281,89 @@ export default function UnifiedToolsContent() {
   // フォロー関連の処理
   const handleFollow = async (actor: string, userId?: string) => {
     try {
-      if (selectedAccountId()) {
-        await apiFetch("/api/follow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // send full actor URLs to match server-side validation
-            follower: `${getOrigin()}/users/${currentAccount()?.userName}`,
-            target: actor,
-          }),
-        });
+      const account = currentAccount();
+      if (!account) {
+        console.error("No current account selected");
+        return;
       }
-      if (userId) {
-        setUsers((prev) =>
-          prev.map((user) =>
-            user.id === userId
-              ? {
-                ...user,
-                isFollowing: true,
-                followerCount: user.followerCount + 1,
-              }
-              : user
-          )
+
+      // actorをhandle形式に変換
+      const handle = actorToHandle(actor);
+      const success = await followUser(handle, account.userName);
+
+      if (success) {
+        if (userId) {
+          setUsers((prev) =>
+            prev.map((user) =>
+              user.id === userId
+                ? {
+                    ...user,
+                    isFollowing: true,
+                    followerCount: user.followerCount + 1,
+                  }
+                : user
+            )
+          );
+        }
+        setFollowStatus((prev) => ({ ...prev, [actor]: true }));
+
+        // グローバルステートも更新
+        const target = actor;
+        setAccounts(
+          accounts().map((a) =>
+            a.id === selectedAccountId()
+              ? { ...a, following: [...a.following, target] }
+              : a
+          ),
         );
+      } else {
+        console.error("Failed to follow user");
       }
-      setFollowStatus((prev) => ({ ...prev, [actor]: true }));
     } catch (error) {
-      console.error("Failed to follow user:", error);
+      console.error("Error following user:", error);
     }
   };
 
   const handleUnfollow = async (actor: string, userId?: string) => {
     try {
-      if (selectedAccountId()) {
-        await apiFetch("/api/follow", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // send full actor URLs to match server-side validation
-            follower: `${getOrigin()}/users/${currentAccount()?.userName}`,
-            target: actor,
-          }),
-        });
+      const account = currentAccount();
+      if (!account) {
+        console.error("No current account selected");
+        return;
       }
-      if (userId) {
-        setUsers((prev) =>
-          prev.map((user) =>
-            user.id === userId
-              ? {
-                ...user,
-                isFollowing: false,
-                followerCount: user.followerCount - 1,
-              }
-              : user
-          )
+
+      // actorをhandle形式に変換
+      const handle = actorToHandle(actor);
+      const success = await unfollowUser(handle, account.userName);
+
+      if (success) {
+        if (userId) {
+          setUsers((prev) =>
+            prev.map((user) =>
+              user.id === userId
+                ? {
+                    ...user,
+                    isFollowing: false,
+                    followerCount: Math.max(0, user.followerCount - 1),
+                  }
+                : user
+            )
+          );
+        }
+        setFollowStatus((prev) => ({ ...prev, [actor]: false }));
+
+        // グローバルステートも更新
+        const target = actor;
+        setAccounts(
+          accounts().map((a) =>
+            a.id === selectedAccountId()
+              ? { ...a, following: a.following.filter((f) => f !== target) }
+              : a
+          ),
         );
+      } else {
+        console.error("Failed to unfollow user");
       }
-      setFollowStatus((prev) => ({ ...prev, [actor]: false }));
     } catch (error) {
       console.error("Failed to unfollow user:", error);
     }

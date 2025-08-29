@@ -14,7 +14,7 @@ import "../models/takos/fcm_token.ts";
 import "../models/takos/follow_edge.ts";
 import "../models/takos/invite.ts";
 import "../models/takos/approval.ts";
-import { MongoDB } from "../../takos/db/mongo.ts";
+import { HostMongoDB } from "./host_mongo.ts";
 import Tenant from "../models/tenant.ts";
 import Instance from "../models/instance.ts";
 import OAuthClient from "../models/oauth_client.ts";
@@ -36,11 +36,23 @@ export function createMongoDataStore(
   env: Record<string, string>,
   options?: { multiTenant?: boolean },
 ): HostDataStore {
-  const impl = new MongoDB(env);
+  const impl = new HostMongoDB(env);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
   const storage = createObjectStorage(env, {
     getDb: () => impl.getDatabase() as Promise<Db>,
   });
+  // モデル直叩き時にもテナント情報が伝播するよう、$locals.env を注入
+  const withEnv = <Q>(q: Q): Q =>
+    // deno-lint-ignore no-explicit-any
+    ((q as any).setOptions?.({ $locals: { env, tenantId } }) ?? q);
+  // 保存前には Document にも注入
+  // deno-lint-ignore no-explicit-any
+  const attachEnv = (doc: any) => {
+    try {
+      doc.$locals = { ...(doc.$locals ?? {}), env, tenantId };
+    } catch { /* ignore */ }
+    return doc;
+  };
   return {
     storage,
     multiTenant: options?.multiTenant === true,
@@ -127,23 +139,23 @@ export function createMongoDataStore(
       pushOutbox: (n, act) => impl.pushGroupOutbox(n, act),
     },
     invites: {
-      findOne: (filter) => Invite.findOne(filter),
+      findOne: (filter) => withEnv(Invite.findOne(filter)),
       findOneAndUpdate: (filter, update, options) =>
-        Invite.findOneAndUpdate(filter, update, options),
+        withEnv(Invite.findOneAndUpdate(filter, update, options)),
       save: (data) => {
-        const invite = new Invite(data);
+        const invite = attachEnv(new Invite(data));
         return invite.save();
       },
       deleteOne: async (filter) => {
-        await Invite.deleteOne(filter);
+        await withEnv(Invite.deleteOne(filter));
       },
     },
     approvals: {
-      findOne: (filter) => Approval.findOne(filter),
+      findOne: (filter) => withEnv(Approval.findOne(filter)),
       findOneAndUpdate: (filter, update, options) =>
-        Approval.findOneAndUpdate(filter, update, options),
+        withEnv(Approval.findOneAndUpdate(filter, update, options)),
       deleteOne: async (filter) => {
-        await Approval.deleteOne(filter);
+        await withEnv(Approval.deleteOne(filter));
       },
     },
     notifications: {

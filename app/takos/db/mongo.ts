@@ -74,19 +74,28 @@ function uniq(arr: (string | null | undefined)[]): string[] {
 
 /** MongoDB 実装 */
 export class MongoDB {
-  constructor(private env: Record<string, string>) {}
+  private tenantId: string;
+  constructor(private env: Record<string, string>) {
+    // テナント ID はインスタンス生成時に固定（host 側のみ有効）
+    this.tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
+  }
 
   // テナントスコープ用: すべてのクエリに $locals.env を注入
-  private withEnv<Q>(q: Q): Q {
+  protected withEnv<Q>(q: Q): Q {
     // deno-lint-ignore no-explicit-any
-    return (q as any).setOptions?.({ $locals: { env: this.env } }) ?? q;
+    return (q as any).setOptions?.({
+      $locals: { env: this.env },
+    }) ?? q;
   }
 
   // テナントスコープ用: 保存前に Document に $locals.env を注入
   // deno-lint-ignore no-explicit-any
-  private attachEnv(doc: any) {
+  protected attachEnv(doc: any) {
     try {
-      doc.$locals = { ...(doc.$locals ?? {}), env: this.env };
+      doc.$locals = {
+        ...(doc.$locals ?? {}),
+        env: this.env,
+      };
     } catch { /* ignore */ }
     return doc;
   }
@@ -304,10 +313,12 @@ export class MongoDB {
     const update = action === "add"
       ? { $addToSet: { [field]: value } }
       : { $pull: { [field]: value } };
-    const acc = await Account.findOneAndUpdate(
-      { _id: id },
-      update,
-      { new: true },
+    const acc = await this.withEnv(
+      Account.findOneAndUpdate(
+        { _id: id },
+        update,
+        { new: true },
+      ),
     ) as { followers?: string[]; following?: string[] } | null;
     return acc?.[field] ?? [];
   }
@@ -356,12 +367,14 @@ export class MongoDB {
   }
 
   async updateNote(id: string, update: Record<string, unknown>) {
-    return await Note.findOneAndUpdate({ _id: id }, update, { new: true })
+    return await this.withEnv(
+      Note.findOneAndUpdate({ _id: id }, update, { new: true }),
+    )
       .lean();
   }
 
   async deleteNote(id: string) {
-    const res = await Note.findOneAndDelete({ _id: id });
+    const res = await this.withEnv(Note.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
@@ -369,15 +382,15 @@ export class MongoDB {
     filter: Record<string, unknown>,
     sort?: SortSpec,
   ) {
-    return await Note.find({ ...filter })
+    return await this.withEnv(Note.find({ ...filter }))
       .sort(sort ?? {})
       .lean();
   }
 
   async getPublicNotes(limit: number, before?: Date) {
-    const query = Note.find({
+    const query = this.withEnv(Note.find({
       "aud.to": "https://www.w3.org/ns/activitystreams#Public",
-    });
+    }));
     if (before) query.where("created_at").lt(before.getTime());
     return await query.sort({ created_at: -1 }).limit(limit).lean();
   }
@@ -391,7 +404,7 @@ export class MongoDB {
   ) {
     const id = createObjectId(domain);
     const actor = normalizeActorUrl(author, domain);
-    const doc = new Message({
+    const doc = this.attachEnv(new Message({
       _id: id,
       attributedTo: actor,
       actor_id: actor,
@@ -399,18 +412,20 @@ export class MongoDB {
       extra,
       published: new Date(),
       aud,
-    });
+    }));
     await doc.save();
     return doc.toObject();
   }
 
   async updateMessage(id: string, update: Record<string, unknown>) {
-    return await Message.findOneAndUpdate({ _id: id }, update, { new: true })
+    return await this.withEnv(
+      Message.findOneAndUpdate({ _id: id }, update, { new: true }),
+    )
       .lean();
   }
 
   async deleteMessage(id: string) {
-    const res = await Message.findOneAndDelete({ _id: id });
+    const res = await this.withEnv(Message.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
@@ -418,7 +433,7 @@ export class MongoDB {
     filter: Record<string, unknown>,
     sort?: SortSpec,
   ) {
-    return await Message.find({ ...filter })
+    return await this.withEnv(Message.find({ ...filter }))
       .sort(sort ?? {})
       .lean();
   }
@@ -648,7 +663,7 @@ export class MongoDB {
   }
 
   async listGroups(member: string): Promise<ListedGroup[]> {
-    const acc = await Account.findOne({ userName: member })
+    const acc = await this.withEnv(Account.findOne({ userName: member }))
       .lean<
         {
           groups?: string[];
@@ -665,7 +680,9 @@ export class MongoDB {
     const localNames = groups.filter((g) => g.startsWith(localPrefix)).map((
       g,
     ) => g.slice(localPrefix.length));
-    const locals = await Group.find({ groupName: { $in: localNames } })
+    const locals = await this.withEnv(
+      Group.find({ groupName: { $in: localNames } }),
+    )
       .lean<GroupDoc[]>();
     const res = locals.map((g) => {
       const icon = typeof g.icon === "string"
