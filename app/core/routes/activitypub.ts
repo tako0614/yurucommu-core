@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
+import type { DataStore } from "../db/types.ts";
 import {
   buildActivityPubFollowCollection,
   UserNotFoundError,
@@ -27,18 +28,18 @@ import { parseActivityRequest } from "../utils/inbox.ts";
 const app = new Hono();
 
 export async function getActivityPubFollowCollection(
+  db: DataStore,
   username: string,
   type: "followers" | "following",
   page: string | undefined,
   domain: string,
-  env: Record<string, string>,
 ) {
   return await buildActivityPubFollowCollection(
+    db,
     username,
     type,
     page,
     domain,
-    env,
   );
 }
 
@@ -155,7 +156,6 @@ app.post("/users/:username/outbox", async (c) => {
     return jsonResponse(c, { error: "Invalid body" }, 400);
   }
   const domain = getDomain(c);
-  const env = getEnv(c);
   const db = getDB(c);
   const data: Record<string, unknown> = {
     _id: createObjectId(domain),
@@ -220,7 +220,7 @@ app.post("/users/:username/outbox", async (c) => {
     activity,
     username,
     domain,
-    env,
+    db,
   ).catch(
     (err) => {
       console.error("Delivery failed:", err);
@@ -244,7 +244,7 @@ app.post("/users/:username/inbox", async (c) => {
     // deno-lint-ignore no-explicit-any
     const handler = (activityHandlers as Record<string, any>)[typeVal];
     if (typeof handler === "function") {
-      const res = await handler(activity as unknown, username, c);
+      const res = await handler(activity as unknown, username, db, c);
       // handler が Hono のレスポンス用のオブジェクトを返したらそれを返す
       if (
         res && typeof res === "object" &&
@@ -260,16 +260,16 @@ app.post("/users/:username/inbox", async (c) => {
 app.get("/ap/users/:username/followers", async (c) => {
   const username = c.req.param("username");
   const page = c.req.query("page");
-  const env = getEnv(c);
+  const db = getDB(c);
   const domain = getDomain(c);
   let data: Record<string, unknown>;
   try {
     data = await getActivityPubFollowCollection(
+      db,
       username,
       "followers",
       page,
       domain,
-      env,
     );
   } catch (error) {
     if (error instanceof UserNotFoundError) {
@@ -285,16 +285,16 @@ app.get("/ap/users/:username/followers", async (c) => {
 app.get("/ap/users/:username/following", async (c) => {
   const username = c.req.param("username");
   const page = c.req.query("page");
-  const env = getEnv(c);
+  const db = getDB(c);
   const domain = getDomain(c);
   let data: Record<string, unknown>;
   try {
     data = await getActivityPubFollowCollection(
+      db,
       username,
       "following",
       page,
       domain,
-      env,
     );
   } catch (error) {
     if (error instanceof UserNotFoundError) {

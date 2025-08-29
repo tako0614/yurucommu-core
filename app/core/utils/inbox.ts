@@ -1,6 +1,6 @@
-import { createDB } from "../db/mod.ts";
 import type { Context } from "hono";
 import { verifyHttpSignature } from "./activitypub.ts";
+import type { DataStore } from "../db/types.ts";
 
 export async function parseActivityRequest(
   c: Context,
@@ -17,26 +17,25 @@ export async function parseActivityRequest(
 }
 export async function storeCreateActivity(
   activity: Record<string, unknown>,
-  env: Record<string, string>,
+  db: DataStore,
 ): Promise<{ stored: Record<string, unknown>; actorId: string } | null> {
   if (activity.type !== "Create" || typeof activity.object !== "object") {
     return null;
   }
-  const db = createDB(env);
   const object = activity.object as Record<string, unknown>;
   const attributedTo = actorAttr(object.attributedTo, activity.actor);
   let objectId = typeof object.id === "string" ? object.id : "";
   const type = typeof object.type === "string" ? object.type : "";
   let stored = null;
   if (type === "Note") {
-  stored = await db.posts.findNoteById(objectId);
+    stored = await db.posts.findNoteById(objectId);
   } else if (type === "Attachment") {
-  stored = await db.posts.findAttachmentById(objectId);
+    stored = await db.posts.findAttachmentById(objectId);
   } else {
-  stored = await db.posts.findMessageById(objectId);
+    stored = await db.posts.findMessageById(objectId);
   }
   if (!stored) {
-  stored = await db.posts.saveObject({ ...object, attributedTo });
+    stored = await db.posts.saveObject({ ...object, attributedTo });
     if (!stored) return null;
     objectId = String((stored as { _id?: unknown })._id);
   }

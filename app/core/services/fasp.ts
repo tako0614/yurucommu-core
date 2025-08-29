@@ -1,5 +1,5 @@
 // FASP 送信側の各種処理
-import { createDB } from "../db/mod.ts";
+import type { DataStore } from "../db/types.ts";
 import { getSystemKey } from "./system_actor.ts";
 import { pemToArrayBuffer } from "@takos/crypto";
 import { bufToB64 } from "@takos/buffer";
@@ -40,7 +40,8 @@ async function computeContentDigest(body: string): Promise<string> {
 }
 
 async function faspFetch(
-  env: Record<string, string>,
+  db: DataStore,
+  _env: Record<string, string>,
   domain: string,
   url: string,
   options: {
@@ -68,7 +69,6 @@ async function faspFetch(
   const digest = await computeContentDigest(bodyText);
   baseHeaders.set("Content-Digest", digest);
 
-  const db = createDB(env);
   const { privateKey } = await getSystemKey(db, domain);
   let keyId = `https://${domain}/actor#main-key`;
   const signingMode = options.signing ?? "auto";
@@ -165,11 +165,11 @@ async function faspFetch(
 }
 
 export async function sendAnnouncements(
+  db: DataStore,
   env: Record<string, string>,
   domain: string,
   ann: FaspAnnouncement,
 ): Promise<void> {
-  const db = createDB(env);
   // 設定に基づき送信先を決定
   const settings = await db.faspProviders.getSettings();
   if (settings && settings.shareEnabled === false) return; // 共有無効
@@ -199,7 +199,7 @@ export async function sendAnnouncements(
       if (!baseUrl) return;
       const url = `${baseUrl}/data_sharing/v0/announcements`;
       try {
-        await faspFetch(env, domain, url, {
+        await faspFetch(db, env, domain, url, {
           method: "POST",
           body,
           signing: "registered",
@@ -215,6 +215,7 @@ const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
 
 // 公開かつ discoverable なオブジェクトのみ FASP へ通知する
 export async function announceIfPublicAndDiscoverable(
+  db: DataStore,
   env: Record<string, string>,
   domain: string,
   ann: FaspAnnouncement,
@@ -229,14 +230,14 @@ export async function announceIfPublicAndDiscoverable(
   if (discoverable === false) return;
   const to = (obj as { aud?: { to?: unknown } }).aud?.to;
   if (Array.isArray(to) && !to.includes(PUBLIC_AUDIENCE)) return;
-  await sendAnnouncements(env, domain, ann).catch(() => {});
+  await sendAnnouncements(db, env, domain, ann).catch(() => {});
 }
 
 export async function getFaspBaseUrl(
-  env: Record<string, string>,
+  db: DataStore,
+  _env: Record<string, string>,
   capability: string,
 ): Promise<string | null> {
-  const db = createDB(env);
   // 設定から検索対象のプロバイダが指定されていれば優先
   const settings = await db.faspProviders.getSettings();
   if (settings?.searchServerId) {
@@ -261,6 +262,7 @@ export async function getFaspBaseUrl(
 
 // FASP へ capability の有効化/無効化を通知する
 export async function notifyCapabilityActivation(
+  db: DataStore,
   env: Record<string, string>,
   domain: string,
   baseUrl: string,
@@ -272,7 +274,7 @@ export async function notifyCapabilityActivation(
   if (!base) return;
   const url = `${base}/capabilities/${identifier}/${version}/activation`;
   try {
-    await faspFetch(env, domain, url, {
+    await faspFetch(db, env, domain, url, {
       method: enabled ? "POST" : "DELETE",
       signing: "registered",
     });

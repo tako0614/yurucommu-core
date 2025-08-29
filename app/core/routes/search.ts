@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
@@ -17,7 +17,9 @@ interface SearchResult {
 }
 
 const app = new Hono();
-app.use("/search/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/search/*", auth);
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -108,6 +110,8 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
 
 app.get("/search", async (c) => {
   const env = getEnv(c);
+  const db = getDB(c);
+  const domain = getDomain(c);
   let q = c.req.query("q")?.trim();
   const acct = c.req.query("acct")?.trim();
   const type = c.req.query("type") ?? "all";
@@ -137,12 +141,19 @@ app.get("/search", async (c) => {
     if (isValidServer) {
       try {
         const resource = `acct:${q}@${server}`;
-        const wfUrl = `https://${server}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`;
-        const wfRes = await fetch(wfUrl, { headers: { Accept: "application/jrd+json" } });
+        const wfUrl = `https://${server}/.well-known/webfinger?resource=${
+          encodeURIComponent(resource)
+        }`;
+        const wfRes = await fetch(wfUrl, {
+          headers: { Accept: "application/jrd+json" },
+        });
         if (wfRes.ok) {
-          const jrd = await wfRes.json() as { links?: Array<{ rel?: string; type?: string; href?: string }> };
+          const jrd = await wfRes.json() as {
+            links?: Array<{ rel?: string; type?: string; href?: string }>;
+          };
           const link = (jrd.links || []).find((l) =>
-            (l.rel === "self" || l.rel === "http://webfinger.net/rel/profile-page") &&
+            (l.rel === "self" ||
+              l.rel === "http://webfinger.net/rel/profile-page") &&
             (typeof l.type === "string" && l.type.includes("activity+json")) &&
             typeof l.href === "string"
           );
@@ -155,14 +166,28 @@ app.get("/search", async (c) => {
               },
             });
             if (aRes.ok) {
-              const actor = await aRes.json() as { id?: string; name?: string; preferredUsername?: string; icon?: { url?: string } };
-              const host = (() => { try { return new URL(actorUrl).hostname; } catch { return server; } })();
+              const actor = await aRes.json() as {
+                id?: string;
+                name?: string;
+                preferredUsername?: string;
+                icon?: { url?: string };
+              };
+              const host = (() => {
+                try {
+                  return new URL(actorUrl).hostname;
+                } catch {
+                  return server;
+                }
+              })();
               const id = actor.id ?? actorUrl;
               results.push({
                 type: "user",
                 id,
-                title: actor.name ?? actor.preferredUsername ?? `${q}@${server}`,
-                subtitle: actor.preferredUsername ? `@${actor.preferredUsername}@${host}` : actorUrl,
+                title: actor.name ?? actor.preferredUsername ??
+                  `${q}@${server}`,
+                subtitle: actor.preferredUsername
+                  ? `@${actor.preferredUsername}@${host}`
+                  : actorUrl,
                 avatar: actor.icon?.url,
                 actor: id,
                 origin: host,
@@ -180,9 +205,7 @@ app.get("/search", async (c) => {
   const regex = new RegExp(escapeRegex(q), "i");
 
   if (type === "all" || type === "users") {
-  const db = getDB(c);
-  const users = await db.accounts.search(regex, 20);
-    const domain = getDomain(c);
+    const users = await db.accounts.search(regex, 20);
     for (const u of users) {
       results.push({
         type: "user",
@@ -196,7 +219,7 @@ app.get("/search", async (c) => {
     }
 
     const faspBase = useFasp
-      ? await getFaspBaseUrl(env, "account_search")
+      ? await getFaspBaseUrl(db, env, "account_search")
       : null;
     if (faspBase && useFasp) {
       try {
@@ -205,11 +228,12 @@ app.get("/search", async (c) => {
         const seen = new Set(
           results.map((r) => r.actor).filter((a): a is string => Boolean(a)),
         );
-  let nextUrl: string | undefined = `${faspBase}/account_search/v0/search?term=${
-          encodeURIComponent(q)
-        }&limit=${perPage}`;
+        let nextUrl: string | undefined =
+          `${faspBase}/account_search/v0/search?term=${
+            encodeURIComponent(q)
+          }&limit=${perPage}`;
         while (nextUrl && seen.size < maxTotal) {
-          const res = await faspFetch(env, domain, nextUrl, {
+          const res = await faspFetch(db, env, domain, nextUrl, {
             signing: "registered",
           });
           if (!res.ok) break;
@@ -276,7 +300,7 @@ app.get("/search", async (c) => {
 
   if (type === "all" || type === "posts") {
     const db = getDB(c);
-  const posts = await db.posts.findNotes({ content: regex }, {
+    const posts = await db.posts.findNotes({ content: regex }, {
       published: -1,
     }) as Array<{
       _id?: unknown;
@@ -311,7 +335,7 @@ app.get("/search", async (c) => {
     let remoteResults: SearchResult[] = [];
     try {
       const url = `https://${server}/api/search?q=${
-  encodeURIComponent(q)
+        encodeURIComponent(q)
       }&type=${type}`;
 
       // タイムアウト設定

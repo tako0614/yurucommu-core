@@ -1,5 +1,5 @@
 // 既定の FASP を起動時に自動登録/承認し、provider_info を取得して能力を有効化する
-import { createDB } from "../db/mod.ts";
+import type { DataStore } from "../db/types.ts";
 import { faspFetch, notifyCapabilityActivation } from "./fasp.ts";
 import { normalizeBaseUrl } from "../utils/url.ts";
 
@@ -12,12 +12,11 @@ function genSecret(bytes = 32): string {
 export async function bootstrapDefaultFasp(
   env: Record<string, string>,
   domain: string,
+  db: DataStore,
 ) {
   const base = env["FASP_DEFAULT_BASE_URL"] ?? "";
   const normalized = normalizeBaseUrl(base);
   if (!normalized) return; // 既定 FASP 未設定
-
-  const db = createDB(env);
   const now = new Date();
   const existing = await db.faspProviders.findOne({ baseUrl: normalized });
 
@@ -52,9 +51,15 @@ export async function bootstrapDefaultFasp(
 
   // provider_info を取得して capabilities を反映（既定では全て有効化）
   try {
-    const res = await faspFetch(env, domain, `${normalized}/provider_info`, {
-      verifyResponseSignature: false,
-    });
+    const res = await faspFetch(
+      db,
+      env,
+      domain,
+      `${normalized}/provider_info`,
+      {
+        verifyResponseSignature: false,
+      },
+    );
     if (!res.ok) return;
     const info = await res.json() as {
       name?: string;
@@ -76,7 +81,15 @@ export async function bootstrapDefaultFasp(
     // 有効化を FASP 側へ通知
     await Promise.all(
       Object.entries(newCaps).map(([id, v]) =>
-        notifyCapabilityActivation(env, domain, normalized, id, v.version, true)
+        notifyCapabilityActivation(
+          db,
+          env,
+          domain,
+          normalized,
+          id,
+          v.version,
+          true,
+        )
       ),
     );
 

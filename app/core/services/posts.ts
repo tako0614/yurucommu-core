@@ -82,7 +82,7 @@ export async function notifyFollowers(
   parentId?: string,
   objectId?: string,
 ): Promise<void> {
-  deliverToFollowers(env, author, createActivity, domain);
+  deliverToFollowers(db, author, createActivity, domain);
   if (parentId) {
     const parent = await findPost(db, parentId);
     if (
@@ -95,7 +95,7 @@ export async function notifyFollowers(
         createActivity,
         author,
         domain,
-        env,
+        db,
       );
     } else if (
       parent &&
@@ -108,6 +108,7 @@ export async function notifyFollowers(
           localName && localName !== author && isLocalActor(url.href, domain)
         ) {
           await addNotification(
+            db,
             localName,
             "新しい返信",
             `${author}さんが${localName}さんの投稿に返信しました`,
@@ -158,7 +159,7 @@ export async function announceToFasp(
 ): Promise<void> {
   if (objectId && faspShare !== false) {
     const objectUrl = `https://${domain}/objects/${objectId}`;
-    await announceIfPublicAndDiscoverable(env, domain, {
+    await announceIfPublicAndDiscoverable(db, env, domain, {
       category: "content",
       eventType: "new",
       objectUris: [objectUrl],

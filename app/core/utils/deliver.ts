@@ -1,13 +1,12 @@
-import { createDB } from "../db/mod.ts";
 import { deliverActivityPubObject } from "./activitypub.ts";
+import type { DataStore } from "../db/types.ts";
 
 export async function deliverToFollowers(
-  env: Record<string, string>,
+  db: DataStore,
   user: string,
   activity: unknown,
   domain: string,
 ): Promise<void> {
-  const db = createDB(env);
   const account = await db.accounts.findByUserName(user);
   if (!account || !account.followers) return;
 
@@ -21,7 +20,7 @@ export async function deliverToFollowers(
   });
 
   if (targets.length > 0) {
-    deliverActivityPubObject(targets, activity, user, domain, env).catch(
+    deliverActivityPubObject(targets, activity, user, domain, db).catch(
       (err) => {
         console.error("Delivery failed:", err);
       },

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
@@ -6,22 +6,28 @@ import {
   createAcceptActivity,
   deliverActivityPubObject,
   ensurePem,
+  extractAttachments,
   getDomain,
   resolveActorFromAcct,
   resolveRemoteActor,
   sendActivityPubObject,
-  extractAttachments,
 } from "../utils/activitypub.ts";
 import { signObjectProof, verifyObjectProof } from "../utils/object_proof.ts";
 import { fetchPublicKeyPem } from "../utils/activitypub.ts";
 import { sendToUser } from "./ws.ts";
 import { parseActivityRequest } from "../utils/inbox.ts";
-import { getEnv } from "@takos/config";
 import { getDB } from "../db/mod.ts";
 import type { GroupDoc } from "@takos/types";
 import { generateKeyPair } from "@takos/crypto";
+import {
+  listGroupMessages,
+  listGroups,
+  saveGroupMessage,
+} from "../services/groups.ts";
 
 const app = new Hono();
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
 
 type ActivityPubObject = unknown; // minimal placeholder for mixed fields
 
@@ -62,10 +68,10 @@ async function toGroupId(raw: string, domain: string): Promise<string> {
   return `https://${domain}/groups/${decoded}`;
 }
 
-app.use("/api/groups/*", authRequired);
+app.use("/api/groups/*", auth);
 
 // 汎用: Actor情報取得（Group/User問わず）
-app.use("/api/actors", authRequired);
+app.use("/api/actors", auth);
 app.get("/api/actors", async (c) => {
   const url = c.req.query("url");
   if (!url) return c.json({ error: "url is required" }, { status: 400 });
@@ -117,8 +123,8 @@ app.get("/api/actors", async (c) => {
       host,
     });
   } catch {
-  c.status(502);
-  return c.json({ error: "fetch failed" });
+    c.status(502);
+    return c.json({ error: "fetch failed" });
   }
 });
 
@@ -127,7 +133,7 @@ app.get("/api/groups", async (c) => {
   if (!member) return c.json({ error: "member is required" }, 400);
   const username = member.split("@")[0];
   const db = getDB(c);
-  const groups = await db.groups.list(username);
+  const groups = await listGroups(db, username);
   return c.json(groups);
 });
 
@@ -137,55 +143,16 @@ app.get("/api/groups/:groupId/messages", async (c) => {
   const limit = Number(c.req.query("limit") ?? "0");
   const before = c.req.query("before");
   const after = c.req.query("after");
-
-  let msgs = await db.posts.findMessages({ "aud.to": groupId }) as {
-    _id?: string;
-    actor_id?: string;
-    attributedTo?: string;
-    content?: string;
-    extra?: Record<string, unknown>;
-    url?: string;
-    mediaType?: string;
-    published?: Date;
-  }[];
-  if (before) {
-    const b = new Date(before);
-    msgs = msgs.filter((m) =>
-      new Date(String(m.published)).getTime() < b.getTime()
-    );
-  }
-  if (after) {
-    const a = new Date(after);
-    msgs = msgs.filter((m) =>
-      new Date(String(m.published)).getTime() > a.getTime()
-    );
-  }
-  msgs.sort((a, b) => {
-    return new Date(String(a.published)).getTime() -
-      new Date(String(b.published)).getTime();
-  });
-  if (limit > 0 && msgs.length > limit) {
-    msgs = msgs.slice(msgs.length - limit);
-  }
-  const formatted = msgs.map((m) => ({
-    id: m._id ?? "",
-    from: m.actor_id ?? m.attributedTo ?? "",
-    to: groupId,
-    type: typeof m.extra?.type === "string" ? m.extra.type as string : "note",
-    content: typeof m.content === "string" ? m.content : "",
-    attachments: Array.isArray(m.extra?.attachments)
-      ? m.extra.attachments as Record<string, unknown>[]
-      : undefined,
-    url: typeof m.url === "string" ? m.url : undefined,
-    mediaType: typeof m.mediaType === "string" ? m.mediaType : undefined,
-    key: typeof m.extra?.key === "string" ? m.extra.key as string : undefined,
-    iv: typeof m.extra?.iv === "string" ? m.extra.iv as string : undefined,
-    preview: (m.extra?.preview && typeof m.extra.preview === "object")
-      ? m.extra.preview as Record<string, unknown>
-      : undefined,
-    createdAt: m.published ?? new Date(),
-  }));
-  return c.json(formatted);
+  const msgs = await listGroupMessages(
+    db,
+    groupId,
+    {
+      limit: limit > 0 ? limit : undefined,
+      before: before ? new Date(before) : undefined,
+      after: after ? new Date(after) : undefined,
+    },
+  );
+  return c.json(msgs);
 });
 
 // グループ宛メッセージ送信（ローカルユーザー → ローカルグループ）
@@ -220,7 +187,6 @@ app.post(
       })()
     ) {
       const body = c.req.valid("json") as Record<string, unknown>;
-      const env = getEnv(c);
       const from = String(body.from ?? "");
       const [fromUser, fromHost] = from.split("@");
       if (!fromUser || !fromHost || fromHost !== domain) {
@@ -252,15 +218,16 @@ app.post(
       if (preview && typeof preview === "object") {
         extra.preview = preview as Record<string, unknown>;
       }
-      const saved = await db.posts.saveMessage(
+      const saved = await saveGroupMessage(
+        db,
         domain,
-        `https://${domain}/users/${fromUser}`,
+        fromUser,
         content,
         extra,
-        { to: [groupId], cc: [] },
-      ) as { _id?: string; published?: Date };
+        groupId,
+      );
       try {
-        const target = await resolveRemoteActor(groupId, env);
+        const target = await resolveRemoteActor(groupId);
         const asType = type === "image"
           ? "Image"
           : type === "video"
@@ -307,8 +274,10 @@ app.post(
           audience: groupId,
         };
         // 署名対象に含めるメタデータを付与
-        (object as Record<string, unknown>).id = `urn:uuid:${crypto.randomUUID()}`;
-        (object as Record<string, unknown>).published = new Date().toISOString();
+        (object as Record<string, unknown>).id =
+          `urn:uuid:${crypto.randomUUID()}`;
+        (object as Record<string, unknown>).published = new Date()
+          .toISOString();
         if (asType === "Note") {
           object.content = content;
           const asAtt = toAsAttachments(attachments);
@@ -334,7 +303,8 @@ app.post(
         // 作者署名（object-signature）を付与
         try {
           const acc = await db.accounts.findByUserName(fromUser);
-          const privateKey: string | undefined = (acc as { privateKey?: string } | null)?.privateKey;
+          const privateKey: string | undefined =
+            (acc as { privateKey?: string } | null)?.privateKey;
           if (privateKey) {
             (object as Record<string, unknown>).proof = await signObjectProof(
               object,
@@ -359,7 +329,7 @@ app.post(
           activity,
           fromUser,
           domain,
-          env,
+          db,
         );
       } catch (err) {
         console.error("remote group message delivery failed", err);
@@ -395,7 +365,6 @@ app.post(
     }
     const body = c.req.valid("json") as Record<string, unknown>;
     const db = getDB(c);
-    const env = getEnv(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
 
@@ -532,7 +501,8 @@ app.post(
     try {
       const fromUser = actorId.split("/").pop()!;
       const acc = await db.accounts.findByUserName(fromUser);
-      const privateKey: string | undefined = (acc as { privateKey?: string } | null)?.privateKey;
+      const privateKey: string | undefined =
+        (acc as { privateKey?: string } | null)?.privateKey;
       if (privateKey) {
         (object as Record<string, unknown>).proof = await signObjectProof(
           object,
@@ -558,7 +528,7 @@ app.post(
         activity,
         fromUser,
         domain,
-        env,
+        db,
       );
     } catch (err) {
       console.error("group message delivery failed", err);
@@ -715,14 +685,13 @@ app.post(
           target: groupId,
           to: [target],
         };
-        const env = getEnv(c);
         try {
           await deliverActivityPubObject(
             [target],
             activity,
             { actorId: groupId, privateKey: keys.privateKey },
             domain,
-            env,
+            db,
           );
         } catch (err) {
           console.error("招待の配信に失敗しました", err);
@@ -832,7 +801,6 @@ app.patch(
   async (c) => {
     const name = c.req.param("name");
     const domain = getDomain(c);
-    const env = getEnv(c);
     const db = getDB(c);
     const group = await db.groups.findByName(name) as
       | GroupDoc
@@ -880,7 +848,7 @@ app.patch(
       activity,
       { actorId: actor.id as string, privateKey: updated.privateKey },
       domain,
-      env,
+      db,
     );
     return c.json({ ok: true });
   },
@@ -905,7 +873,6 @@ app.post(
       ttl: number;
       uses: number;
     };
-    const env = getEnv(c);
     const db = getDB(c);
     const domain = getDomain(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
@@ -956,7 +923,7 @@ app.post(
       activity,
       { actorId: groupId, privateKey: group.privateKey },
       domain,
-      env,
+      db,
     );
     const expiresAt = new Date(Date.now() + ttl * 1000);
     await db.invites.save({
@@ -1005,7 +972,6 @@ app.post(
     const raw = c.req.param("name");
     const { member } = c.req.valid("json") as { member: string };
     const domain = getDomain(c);
-    const env = getEnv(c);
     const [user, host] = member.split("@");
     if (!user || !host) {
       return c.json({ error: "member の形式が正しくありません" }, 400);
@@ -1034,15 +1000,14 @@ app.post(
           object: decoded,
           to: [decoded],
         };
-        const target = await resolveRemoteActor(decoded, env);
+        const target = await resolveRemoteActor(decoded);
         await sendActivityPubObject(
           target.sharedInbox ?? target.inbox,
           join,
           user,
           domain,
-          env,
+          db,
         );
-        const db = getDB(c);
         await db.accounts.updateByUserName(user, {
           $addToSet: { groups: decoded },
         });
@@ -1095,7 +1060,7 @@ app.post(
       to: [groupId],
     };
     try {
-      await sendActivityPubObject(`${groupId}/inbox`, join, user, domain, env);
+      await sendActivityPubObject(`${groupId}/inbox`, join, user, domain, db);
     } catch (_err) {
       return c.json({ error: "送信に失敗しました" }, 500);
     }
@@ -1133,7 +1098,9 @@ app.post(
         }
       })()
     ) {
-      return c.json({ error: "リモートは /api/groups/leaveRemote を使用してください" }, 400);
+      return c.json({
+        error: "リモートは /api/groups/leaveRemote を使用してください",
+      }, 400);
     }
     const name = (() => {
       if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
@@ -1148,7 +1115,6 @@ app.post(
     const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
     const groupId = `https://${domain}/groups/${name}`;
-    const env = getEnv(c);
     // Undo(Follow) をグループの inbox に送信
     const undo = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -1163,7 +1129,7 @@ app.post(
       to: [groupId],
     };
     try {
-      await sendActivityPubObject(`${groupId}/inbox`, undo, user, domain, env);
+      await sendActivityPubObject(`${groupId}/inbox`, undo, user, domain, db);
       return c.json({ ok: true });
     } catch (_err) {
       return c.json({ error: "送信に失敗しました" }, 500);
@@ -1191,9 +1157,9 @@ app.post(
     if (host !== domain) {
       return c.json({ error: "ローカルユーザーのみ対応" }, 400);
     }
-    const env = getEnv(c);
+    const db = getDB(c);
     try {
-      const target = await resolveRemoteActor(groupId, env);
+      const target = await resolveRemoteActor(groupId);
       const join = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `https://${domain}/activities/${crypto.randomUUID()}`,
@@ -1208,10 +1174,9 @@ app.post(
         join,
         user,
         domain,
-        env,
+        db,
       );
       // アカウントの groups に追加して一覧に出せるようにする
-      const db = getDB(c);
       await db.accounts.updateByUserName(user, {
         $addToSet: { groups: groupId },
       });
@@ -1255,7 +1220,9 @@ app.post(
     const db = getDB(c);
     const $set: Record<string, unknown> = {};
     const base = `groupOverrides.${groupId}`;
-    if (typeof displayName === "string") $set[`${base}.displayName`] = displayName;
+    if (typeof displayName === "string") {
+      $set[`${base}.displayName`] = displayName;
+    }
     if (typeof icon !== "undefined") $set[`${base}.icon`] = icon;
     if (Object.keys($set).length === 0) return c.json({ ok: true });
     await db.accounts.updateByUserName(user, { $set });
@@ -1283,15 +1250,19 @@ app.post(
     if (host !== domain) {
       return c.json({ error: "ローカルユーザーのみ対応" }, 400);
     }
-    const env = getEnv(c);
+    const db = getDB(c);
     try {
-      const target = await resolveRemoteActor(groupId, env);
+      const target = await resolveRemoteActor(groupId);
       const undo = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `https://${domain}/activities/${crypto.randomUUID()}`,
         type: "Undo" as const,
         actor: `https://${domain}/users/${user}`,
-        object: { type: "Follow", actor: `https://${domain}/users/${user}`, object: groupId },
+        object: {
+          type: "Follow",
+          actor: `https://${domain}/users/${user}`,
+          object: groupId,
+        },
         to: [groupId],
       };
       await sendActivityPubObject(
@@ -1299,9 +1270,8 @@ app.post(
         undo,
         user,
         domain,
-        env,
+        db,
       );
-      const db = getDB(c);
       await db.accounts.updateByUserName(user, { $pull: { groups: groupId } });
       return c.json({ ok: true });
     } catch (err) {
@@ -1325,7 +1295,6 @@ app.post(
     };
     const domain = getDomain(c);
     const groupId = `https://${domain}/groups/${name}`;
-    const env = getEnv(c);
     const db = getDB(c);
     const group = await db.groups.findByName(name) as
       | GroupDoc
@@ -1352,7 +1321,7 @@ app.post(
         acc,
         { actorId: groupId, privateKey: group.privateKey },
         domain,
-        env,
+        db,
       );
     } else {
       const reject = {
@@ -1368,7 +1337,7 @@ app.post(
         reject,
         { actorId: groupId, privateKey: group.privateKey },
         domain,
-        env,
+        db,
       );
     }
     await db.approvals.deleteOne({ groupName: name, actor });
@@ -1447,7 +1416,6 @@ app.post("/groups/:name/inbox", async (c) => {
   const group = await db.groups.findByName(name) as GroupDoc | null;
   if (!group) return c.json({ error: "Not Found" }, 404);
   const domain = getDomain(c);
-  const env = getEnv(c);
   const parsed = await parseActivityRequest(c);
   if (!parsed) return c.json({ error: "署名エラー" }, 401);
   const { activity } = parsed;
@@ -1484,7 +1452,7 @@ app.post("/groups/:name/inbox", async (c) => {
           reject,
           { actorId: groupId, privateKey: group.privateKey },
           domain,
-          env,
+          db,
         ).catch(() => {});
       }
       return c.json({ error: "権限がありません" }, 403);
@@ -1540,7 +1508,7 @@ app.post("/groups/:name/inbox", async (c) => {
             reject,
             { actorId: groupId, privateKey: group.privateKey },
             domain,
-            env,
+            db,
           ).catch(() => {});
         }
         return c.json({ error: "招待が必要です" }, 403);
@@ -1569,7 +1537,7 @@ app.post("/groups/:name/inbox", async (c) => {
       accept,
       { actorId: groupId, privateKey: group.privateKey },
       domain,
-      env,
+      db,
     );
     return c.json({ ok: true });
   }
@@ -1610,7 +1578,7 @@ app.post("/groups/:name/inbox", async (c) => {
             reject,
             { actorId: groupId, privateKey: group.privateKey },
             domain,
-            env,
+            db,
           ).catch(() => {});
         }
         return c.json({ error: "招待が必要です" }, 403);
@@ -1639,7 +1607,7 @@ app.post("/groups/:name/inbox", async (c) => {
       accept,
       { actorId: groupId, privateKey: group.privateKey },
       domain,
-      env,
+      db,
     );
     return c.json({ ok: true });
   }
@@ -1693,15 +1661,26 @@ app.post("/groups/:name/inbox", async (c) => {
     try {
       const objForVerify = activity.object as Record<string, unknown>;
       const proof = (objForVerify as { proof?: unknown }).proof as
-        | { type?: string; verificationMethod?: string; jws?: string; created?: string }
+        | {
+          type?: string;
+          verificationMethod?: string;
+          jws?: string;
+          created?: string;
+        }
         | undefined;
-      const attributedTo = typeof (objForVerify as { attributedTo?: unknown }).attributedTo === "string"
-        ? String((objForVerify as { attributedTo: string }).attributedTo)
-        : "";
-      if (!(proof && proof.type === "DataIntegrityProof" && proof.verificationMethod)) {
+      const attributedTo =
+        typeof (objForVerify as { attributedTo?: unknown }).attributedTo ===
+            "string"
+          ? String((objForVerify as { attributedTo: string }).attributedTo)
+          : "";
+      if (
+        !(proof && proof.type === "DataIntegrityProof" &&
+          proof.verificationMethod)
+      ) {
         return c.json({ error: "署名が必要です" }, 400);
       }
-      const actorIriForKey = proof.verificationMethod.split("#")[0] || attributedTo;
+      const actorIriForKey = proof.verificationMethod.split("#")[0] ||
+        attributedTo;
       const pem = await fetchPublicKeyPem(actorIriForKey);
       if (!pem) return c.json({ error: "公開鍵の取得に失敗しました" }, 400);
       const ok = await verifyObjectProof(
@@ -1741,19 +1720,23 @@ app.post("/groups/:name/inbox", async (c) => {
           : "");
       const extra: Record<string, unknown> = { type, group: true };
       const atts = extractAttachments(obj);
-      if (atts.length > 0) extra.attachments = atts as unknown as Record<
-        string,
-        unknown
-      >[];
+      if (atts.length > 0) {
+        extra.attachments = atts as unknown as Record<
+          string,
+          unknown
+        >[];
+      }
       const k = (obj as { key?: unknown }).key;
       const v = (obj as { iv?: unknown }).iv;
       const prev = (obj as { preview?: unknown }).preview;
       if (typeof k === "string") extra.key = k;
       if (typeof v === "string") extra.iv = v;
-      if (prev && typeof prev === "object") extra.preview = prev as Record<
-        string,
-        unknown
-      >;
+      if (prev && typeof prev === "object") {
+        extra.preview = prev as Record<
+          string,
+          unknown
+        >;
+      }
       await db.posts.saveMessage(
         domain,
         author,
@@ -1790,7 +1773,7 @@ app.post("/groups/:name/inbox", async (c) => {
       announceBase,
       { actorId: groupId, privateKey: gpKey },
       domain,
-      env,
+      db,
     );
     // ローカルメンバーには WS で即時通知を送ってチャットを更新させる
     try {

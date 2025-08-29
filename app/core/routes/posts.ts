@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 type ActivityObject = Record<string, unknown>;
@@ -51,11 +51,12 @@ async function findPost(
 }
 
 const app = new Hono();
-app.use("/posts/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/posts/*", auth);
 
 app.get("/posts", async (c) => {
   const domain = getDomain(c);
-  const env = getEnv(c);
   const actor = c.req.query("actor");
   const timeline = c.req.query("timeline") ?? "latest";
   const limit = Math.min(
@@ -79,9 +80,9 @@ app.get("/posts", async (c) => {
 
   const accts = list.map((doc) => iriToHandle(doc.actor_id as string));
   const userInfos = await getUserInfoBatch(
+    db,
     accts as string[],
     domain,
-    env,
   );
   const formatted = list.map((doc, index) => {
     const userInfo = userInfos[index];
@@ -161,9 +162,9 @@ app.post(
 
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
+      db,
       iriToHandle(postData.actor_id as string),
       domain,
-      env,
     );
     const formatted = formatUserInfoForPost(
       userInfo,
@@ -175,7 +176,6 @@ app.post(
 
 app.get("/posts/:id", async (c) => {
   const domain = getDomain(c);
-  const env = getEnv(c);
   const id = c.req.param("id");
   const db = getDB(c);
   const post = await findPost(db, id);
@@ -183,9 +183,9 @@ app.get("/posts/:id", async (c) => {
 
   const postData = post as PostDoc;
   const userInfo = await getUserInfo(
+    db,
     iriToHandle(postData.actor_id as string),
     domain,
-    env,
   );
   const data = {
     _id: postData._id,
@@ -198,7 +198,6 @@ app.get("/posts/:id", async (c) => {
 
 app.get("/posts/:id/replies", async (c) => {
   const domain = getDomain(c);
-  const env = getEnv(c);
   const id = c.req.param("id");
   const db = getDB(c);
   const list = await db.posts.findNotes({ "extra.inReplyTo": id }, {
@@ -207,7 +206,7 @@ app.get("/posts/:id/replies", async (c) => {
   const ids = list.map((doc) =>
     iriToHandle((doc as PostDoc).actor_id as string)
   );
-  const infos = await getUserInfoBatch(ids, domain, env);
+  const infos = await getUserInfoBatch(db, ids, domain);
   const formatted = list.map((doc, i) =>
     formatUserInfoForPost(infos[i], doc as Record<string, unknown>)
   );
@@ -231,14 +230,14 @@ app.put(
     // 共通ユーザー情報取得サービスを使用
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(
+      db,
       iriToHandle(postData.actor_id as string),
       domain,
-      env,
     );
 
     // 更新された投稿を FASP へ通知
     const objectUrl = `https://${domain}/objects/${id}`;
-    await announceIfPublicAndDiscoverable(env, domain, {
+    await announceIfPublicAndDiscoverable(db, env, domain, {
       category: "content",
       eventType: "update",
       objectUris: [objectUrl],
@@ -295,7 +294,7 @@ app.post(
       }
       if (targets.length > 0) {
         const like = createLikeActivity(domain, actorId, objectUrl);
-        deliverActivityPubObject(targets, like, username, domain, env).catch(
+        deliverActivityPubObject(targets, like, username, domain, db).catch(
           (err) => {
             console.error("Delivery failed:", err);
           },
@@ -316,6 +315,7 @@ app.post(
       }
       if (localAuthor) {
         await addNotification(
+          db,
           localAuthor,
           "新しいいいね",
           `${username}さんが${localAuthor}さんの投稿をいいねしました`,
@@ -325,7 +325,7 @@ app.post(
       }
 
       // いいね数の更新を FASP へ通知
-      await announceIfPublicAndDiscoverable(env, domain, {
+      await announceIfPublicAndDiscoverable(db, env, domain, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
@@ -378,7 +378,7 @@ app.post(
 
       if (targets.length > 0) {
         const announce = createAnnounceActivity(domain, actorId, objectUrl);
-        deliverActivityPubObject(targets, announce, username, domain, env)
+        deliverActivityPubObject(targets, announce, username, domain, db)
           .catch(
             (err) => {
               console.error("Delivery failed:", err);
@@ -400,6 +400,7 @@ app.post(
       }
       if (localAuthor) {
         await addNotification(
+          db,
           localAuthor,
           "新しいリツイート",
           `${username}さんが${localAuthor}さんの投稿をリツイートしました`,
@@ -409,7 +410,7 @@ app.post(
       }
 
       // リツイート数の更新を FASP へ通知
-      await announceIfPublicAndDiscoverable(env, domain, {
+      await announceIfPublicAndDiscoverable(db, env, domain, {
         category: "content",
         eventType: "update",
         objectUris: [`https://${domain}/objects/${id}`],
@@ -433,7 +434,7 @@ app.delete("/posts/:id", async (c) => {
   if (!deleted) return c.json({ error: "Not found" }, 404);
 
   // 削除された投稿を FASP へ通知
-  await announceIfPublicAndDiscoverable(env, domain, {
+  await announceIfPublicAndDiscoverable(db, env, domain, {
     category: "content",
     eventType: "delete",
     objectUris: [`https://${domain}/objects/${id}`],

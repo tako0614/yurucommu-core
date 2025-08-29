@@ -1,13 +1,15 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
-import { getEnv } from "@takos/config";
+import { getDB } from "../db/mod.ts";
 import { registerToken, unregisterToken } from "../services/fcm.ts";
 
 const app = new Hono();
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
 
-app.use("/fcm/*", authRequired);
+app.use("/fcm/*", auth);
 
 app.post(
   "/fcm/token",
@@ -17,8 +19,7 @@ app.post(
       token: string;
       userName: string;
     };
-    const env = getEnv(c);
-    await registerToken(token, userName, env);
+    await registerToken(getDB(c), token, userName);
     return c.json({ success: true });
   },
 );
@@ -28,8 +29,7 @@ app.delete(
   zValidator("json", z.object({ token: z.string() })),
   async (c) => {
     const { token } = c.req.valid("json") as { token: string };
-    const env = getEnv(c);
-    await unregisterToken(token, env);
+    await unregisterToken(getDB(c), token);
     return c.json({ success: true });
   },
 );

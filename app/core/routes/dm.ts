@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
@@ -17,7 +17,9 @@ import {
 // DM 用のシンプルな REST エンドポイント
 
 const app = new Hono();
-app.use("/dm/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/dm/*", auth);
 
 app.post(
   "/dm",
@@ -87,8 +89,8 @@ app.post(
     const fromHandle = from;
     const localName = fromDomain === domain ? fromUserName : "";
     const [fromInfo, toInfo] = await Promise.all([
-      getUserInfo(fromHandle, domain, env).catch(() => null),
-      getUserInfo(to, domain, env).catch(() => null),
+      getUserInfo(db, fromHandle, domain).catch(() => null),
+      getUserInfo(db, to, domain).catch(() => null),
     ]);
     const payload = await db.dms.save(
       localName,
@@ -211,7 +213,7 @@ app.post(
             activity,
             fromUserName,
             localDomain,
-            env,
+            db,
           ).catch((err) => {
             console.error("DM delivery failed:", err);
           });

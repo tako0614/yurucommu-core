@@ -1,14 +1,14 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
-import { getEnv } from "@takos/config";
-import { saveFile } from "../services/file.ts";
 import type { DirectMessageDoc } from "@takos/types";
 
 const app = new Hono();
-app.use("/dms/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/dms/*", auth);
 
 app.get("/dms", async (c) => {
   const owner = c.req.query("owner");
@@ -31,10 +31,10 @@ app.post(
 );
 
 // DM は保持情報が最小のため、更新エンドポイントは未対応
-app.patch("/dms/:id", async (c) => c.json({ error: "not supported" }, 400));
+app.patch("/dms/:id", (c) => c.json({ error: "not supported" }, 400));
 
 // DM はアイコンを保存しない
-app.post("/dms/:id/icon", async (c) => c.json({ error: "not supported" }, 400));
+app.post("/dms/:id/icon", (c) => c.json({ error: "not supported" }, 400));
 
 app.delete("/dms/:id", async (c) => {
   const owner = c.req.query("owner");

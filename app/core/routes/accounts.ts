@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getDomain, jsonResponse } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
@@ -7,6 +7,14 @@ import { generateKeyPair } from "@takos/crypto";
 import type { AccountDoc } from "@takos/types";
 import { isUrl } from "@takos/url";
 import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
+import {
+  createAccount,
+  deleteAccountById,
+  findAccountById,
+  findAccountByUserName,
+  listAccounts,
+  updateAccountById,
+} from "../services/accounts.ts";
 
 function formatAccount(doc: AccountDoc) {
   return {
@@ -31,14 +39,14 @@ function isFilesUrl(url: string): boolean {
 }
 
 const app = new Hono();
-app.use("/accounts/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/accounts/*", auth);
 
 app.get("/accounts", async (c) => {
   const db = getDB(c);
-  const list = await db.accounts.list();
-  // exclude internal system account from API results
-  const filtered = list.filter((doc: AccountDoc) => doc.userName !== "system");
-  const formatted = filtered.map((doc: AccountDoc) => formatAccount(doc));
+  const accounts = await listAccounts(db);
+  const formatted = accounts.map((doc: AccountDoc) => formatAccount(doc));
   return jsonResponse(c, formatted);
 });
 
@@ -61,7 +69,7 @@ app.post("/accounts", async (c) => {
 
   // Check if username already exists
   const db = getDB(c);
-  const existingAccount = await db.accounts.findByUserName(username.trim());
+  const existingAccount = await findAccountByUserName(db, username.trim());
   if (existingAccount) {
     return jsonResponse(c, { error: "Username already exists" }, 409);
   }
@@ -79,7 +87,7 @@ app.post("/accounts", async (c) => {
       }, 400);
     }
   }
-  const account = await db.accounts.create({
+  const account = await createAccount(db, {
     userName: username.trim(),
     displayName: displayName ?? username.trim(),
     avatarInitial: avatar,
@@ -88,7 +96,7 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  await announceIfPublicAndDiscoverable(env, domain, {
+  await announceIfPublicAndDiscoverable(db, env, domain, {
     category: "account",
     eventType: "new",
     objectUris: [`https://${domain}/users/${account.userName}`],
@@ -99,7 +107,7 @@ app.post("/accounts", async (c) => {
 app.get("/accounts/:id", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
-  const account = await db.accounts.findById(id);
+  const account = await findAccountById(db, id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   return jsonResponse(c, {
     ...formatAccount(account),
@@ -113,7 +121,7 @@ app.put("/accounts/:id", async (c) => {
   const db = getDB(c);
   const id = c.req.param("id");
   const updates = await c.req.json();
-  const orig = await db.accounts.findById(id);
+  const orig = await findAccountById(db, id);
   if (!orig) return jsonResponse(c, { error: "Account not found" }, 404);
 
   const data: Record<string, unknown> = {};
@@ -136,9 +144,9 @@ app.put("/accounts/:id", async (c) => {
   if (Array.isArray(updates.followers)) data.followers = updates.followers;
   if (Array.isArray(updates.following)) data.following = updates.following;
 
-  const account = await db.accounts.updateById(id, data);
+  const account = await updateAccountById(db, id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(env, domain, {
+  await announceIfPublicAndDiscoverable(db, env, domain, {
     category: "account",
     eventType: "update",
     objectUris: [`https://${domain}/users/${account.userName}`],
@@ -151,11 +159,11 @@ app.delete("/accounts/:id", async (c) => {
   const env = getEnv(c);
   const db = getDB(c);
   const id = c.req.param("id");
-  const account = await db.accounts.findById(id);
+  const account = await findAccountById(db, id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  const deleted = await db.accounts.deleteById(id);
+  const deleted = await deleteAccountById(db, id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(env, domain, {
+  await announceIfPublicAndDiscoverable(db, env, domain, {
     category: "account",
     eventType: "delete",
     objectUris: [`https://${domain}/users/${account.userName}`],

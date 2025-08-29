@@ -1,4 +1,3 @@
-import { createDB } from "../db/mod.ts";
 import type { DataStore } from "../db/types.ts";
 
 /**
@@ -15,12 +14,10 @@ export class UserNotFoundError extends Error {
  * 指定したユーザーのフォロー/フォロワー一覧を取得
  */
 export async function getFollowList(
+  db: DataStore,
   username: string,
   type: "followers" | "following",
-  env: Record<string, string>,
-  dbInst?: DataStore,
 ): Promise<string[]> {
-  const db = dbInst ?? createDB(env);
   const account = await db.accounts.findByUserName(username);
   if (!account) {
     throw new UserNotFoundError();
@@ -39,12 +36,10 @@ export interface FollowInfo {
  * URL のリストをローカル向けオブジェクト配列へ変換
  */
 export async function formatFollowList(
+  db: DataStore,
   list: string[],
   domain: string,
-  env: Record<string, string>,
-  dbInst?: DataStore,
 ): Promise<FollowInfo[]> {
-  const db = dbInst ?? createDB(env);
   const result: FollowInfo[] = [];
   for (const url of list) {
     try {
@@ -80,28 +75,26 @@ export async function formatFollowList(
  * API 用フォロー情報取得
  */
 export async function getFormattedFollowInfo(
+  db: DataStore,
   username: string,
   type: "followers" | "following",
   domain: string,
-  env: Record<string, string>,
-  dbInst?: DataStore,
 ): Promise<FollowInfo[]> {
-  const list = await getFollowList(username, type, env, dbInst);
-  return await formatFollowList(list, domain, env, dbInst);
+  const list = await getFollowList(db, username, type);
+  return await formatFollowList(db, list, domain);
 }
 
 /**
  * ActivityPub 用フォロー情報生成
  */
 export async function buildActivityPubFollowCollection(
+  db: DataStore,
   username: string,
   type: "followers" | "following",
   page: string | undefined,
   domain: string,
-  env: Record<string, string>,
-  dbInst?: DataStore,
 ): Promise<Record<string, unknown>> {
-  const list = await getFollowList(username, type, env, dbInst);
+  const list = await getFollowList(db, username, type);
   const baseId = `https://${domain}/ap/users/${username}/${type}`;
   if (page) {
     return {

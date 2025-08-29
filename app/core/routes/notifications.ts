@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getDB } from "../db/mod.ts";
@@ -17,7 +17,9 @@ interface NotificationDoc {
 }
 
 const app = new Hono();
-app.use("/notifications/*", authRequired);
+const auth = (c: Context, next: () => Promise<void>) =>
+  authRequired(getDB(c))(c, next);
+app.use("/notifications/*", auth);
 
 app.get("/notifications", async (c) => {
   const db = getDB(c);

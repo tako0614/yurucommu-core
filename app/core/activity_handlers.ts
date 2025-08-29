@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { createDB } from "./db/mod.ts";
+import type { DataStore } from "./db/types.ts";
 import {
   createAcceptActivity,
   deliverActivityPubObject,
@@ -14,11 +14,12 @@ import { resolveRemoteActor } from "./utils/activitypub.ts";
 export type ActivityHandler = (
   activity: Record<string, unknown>,
   username: string,
+  db: DataStore,
   c: unknown,
 ) => Promise<unknown>;
 
 async function saveObject(
-  env: Record<string, string>,
+  db: DataStore,
   obj: Record<string, unknown>,
   actor: string,
 ): Promise<Record<string, unknown>> {
@@ -66,7 +67,6 @@ async function saveObject(
     }
   }
 
-  const db = createDB(env);
   return await db.posts.saveObject({
     type: obj.type ?? "Note",
     attributedTo,
@@ -85,6 +85,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
   async Create(
     activity: Record<string, unknown>,
     username: string,
+    db: DataStore,
     c: unknown,
   ) {
     console.log("Handling Create activity");
@@ -152,12 +153,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     if (extra.dm === true || inferredDmTarget) {
       const target = inferredDmTarget ?? toList[0];
       if (!target || isCollection(target)) return;
-      const env = (c as { get: (k: string) => unknown }).get("env") as Record<
-        string,
-        string
-      >;
       const domain = getDomain(c as Context);
-      const db = createDB(env);
       const msg = await db.posts.saveMessage(
         domain,
         actor,
@@ -170,10 +166,10 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       const toHandle = iriToHandle(target);
       // DM ルームを双方に作成（未作成時）
       try {
-        const fromInfo = await getUserInfo(fromHandle, domain, env).catch(
+        const fromInfo = await getUserInfo(db, fromHandle, domain).catch(
           () => null,
         );
-        const toInfo = await getUserInfo(toHandle, domain, env).catch(
+        const toInfo = await getUserInfo(db, toHandle, domain).catch(
           () => null,
         );
         await Promise.all([
@@ -210,7 +206,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
         }
       })();
       if (targetHost && targetHost !== domain) {
-        deliverActivityPubObject([target], activity, actor, domain, env).catch(
+        deliverActivityPubObject([target], activity, actor, domain, db).catch(
           (err) => {
             console.error("Delivery failed:", err);
           },
@@ -219,20 +215,16 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       return;
     }
 
-    const env = (c as { get: (k: string) => unknown }).get("env") as Record<
-      string,
-      string
-    >;
     const saved = await saveObject(
-      env,
+      db,
       obj,
       actor,
     );
     const domain = getDomain(c as Context);
     const userInfo = await getUserInfo(
+      db,
       iriToHandle((saved.actor_id as string) ?? actor),
       domain,
-      env,
     );
     const formatted = formatUserInfoForPost(
       userInfo,
@@ -251,14 +243,10 @@ export const activityHandlers: Record<string, ActivityHandler> = {
   async Follow(
     activity: Record<string, unknown>,
     username: string,
+    db: DataStore,
     c: unknown,
   ) {
     if (typeof activity.actor !== "string") return;
-    const env = (c as { get: (k: string) => unknown }).get("env") as Record<
-      string,
-      string
-    >;
-    const db = createDB(env);
     await db.accounts.addFollowerByName(username, activity.actor);
     await db.posts.follow(username, activity.actor);
     const domain = getDomain(c as Context);
@@ -272,7 +260,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       accept,
       username,
       domain,
-      env,
+      db,
     ).catch(
       (err) => {
         console.error("Delivery failed:", err);
@@ -283,15 +271,11 @@ export const activityHandlers: Record<string, ActivityHandler> = {
   async Invite(
     activity: Record<string, unknown>,
     username: string,
+    db: DataStore,
     c: unknown,
   ) {
     // 招待（グループ → ローカルユーザー）。通知を作成して WS で配信。
     try {
-      const env = (c as { get: (k: string) => unknown }).get("env") as Record<
-        string,
-        string
-      >;
-      const db = createDB(env);
       const account = await db.accounts.findByUserName(username);
       if (!account) return;
 
@@ -307,7 +291,7 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       let displayName = "";
       let preferred = "";
       try {
-        const doc = await resolveRemoteActor(groupActor, env);
+        const doc = await resolveRemoteActor(groupActor);
         const res = await fetch(doc.id, {
           headers: {
             Accept:
