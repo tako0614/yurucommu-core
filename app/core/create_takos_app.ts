@@ -129,7 +129,7 @@ export async function createTakosApp(
       app.use("/assets/*", proxy());
       app.use("/favicon.ico", proxy());
       app.use("/manifest.json", proxy());
-      // 明示的な SPA エントリ
+      // 明示的な SPA エントリ（クライアントで直接アクセスされうるパスを網羅）
       app.get("/", proxy());
       app.get("/chat", proxy());
       app.get("/chat/*", proxy());
@@ -137,13 +137,30 @@ export async function createTakosApp(
       app.get("/demo/*", proxy());
       app.get("/signup", proxy());
       app.get("/download", proxy());
+      app.get("/home", proxy());
+      app.get("/home/*", proxy());
+      app.get("/microblog", proxy());
+      app.get("/microblog/*", proxy());
+      app.get("/post", proxy());
+      app.get("/post/*", proxy());
+      app.get("/user", proxy());
+      app.get("/user/*", proxy());
+      app.get("/profile", proxy());
+      app.get("/profile/*", proxy());
+      app.get("/tools", proxy());
+      app.get("/notifications", proxy());
+      app.get("/settings", proxy());
+      app.get("/groups", proxy());
+      app.get("/groups/*", proxy());
+      app.get("/accounts", proxy());
+      app.get("/accounts/*", proxy());
     } else {
       // 本番: 静的ファイルは配信し、SPA は明示的パスのみ index.html を返す
       app.use("/assets/*", staticRoot);
       app.use("/favicon.ico", staticRoot);
       app.use("/manifest.json", staticRoot);
 
-      // 明示的に許可するクライアントサイドルート
+      // 明示的に許可するクライアントサイドルート（クライアント側ルーターで使われるパスを網羅）
       app.get("/", spaEntry);
       app.get("/chat", spaEntry);
       app.get("/chat/*", spaEntry);
@@ -151,6 +168,23 @@ export async function createTakosApp(
       app.get("/demo/*", spaEntry);
       app.get("/signup", spaEntry);
       app.get("/download", spaEntry);
+      app.get("/home", spaEntry);
+      app.get("/home/*", spaEntry);
+      app.get("/microblog", spaEntry);
+      app.get("/microblog/*", spaEntry);
+      app.get("/post", spaEntry);
+      app.get("/post/*", spaEntry);
+      app.get("/user", spaEntry);
+      app.get("/user/*", spaEntry);
+      app.get("/profile", spaEntry);
+      app.get("/profile/*", spaEntry);
+      app.get("/tools", spaEntry);
+      app.get("/notifications", spaEntry);
+      app.get("/settings", spaEntry);
+      app.get("/groups", spaEntry);
+      app.get("/groups/*", spaEntry);
+      app.get("/accounts", spaEntry);
+      app.get("/accounts/*", spaEntry);
     }
   return app;
 }

@@ -1068,39 +1068,48 @@ export function Chat() {
     }
 
     // DMルームをサーバーから取得して追加
-    const dmRooms = await searchRooms(handle, { type: "dm" });
-    for (const item of dmRooms) {
-      const _item = item as Record<string, unknown>;
-      const itemId = typeof _item.id === "string"
-        ? _item.id
-        : String(_item.id ?? "");
-      const name = typeof _item.name === "string"
-        ? _item.name
-        : String(_item.name ?? "");
-      const icon = typeof _item.icon === "string"
-        ? _item.icon
-        : String(_item.icon ?? "");
-      // members が不足している場合は pending を参照
-      let members = item.members ?? [] as string[];
-      if (members.length === 0) {
-        try {
-          const pend = await readPending(user.id, itemId, "dm");
-          const raw = Array.isArray(pend) ? pend : [];
-          const others = raw
-            .map((m) => (typeof m === "string" ? m : undefined))
-            .filter((m): m is string => !!m && m !== handle);
-          if (others.length > 0) members = others;
-        } catch {
-          /* ignore */
+      const dmRooms = await searchRooms(handle, { type: "dm" });
+      for (const item of dmRooms) {
+        const _item = item as Record<string, unknown>;
+        const itemId = typeof _item.id === "string"
+          ? _item.id
+          : String(_item.id ?? "");
+        const name = typeof _item.name === "string"
+          ? _item.name
+          : String(_item.name ?? "");
+        const icon = typeof _item.icon === "string"
+          ? _item.icon
+          : String(_item.icon ?? "");
+        // members が不足している場合は pending を参照
+        let members = item.members ?? [] as string[];
+        if (members.length === 0) {
+          try {
+            const pend = await readPending(user.id, itemId, "dm");
+            const raw = Array.isArray(pend) ? pend : [];
+            const others = raw
+              .map((m) => (typeof m === "string" ? m : undefined))
+              .filter((m): m is string => !!m && m !== handle);
+            if (others.length > 0) members = others;
+          } catch {
+            /* ignore */
+          }
         }
-      }
-      rooms.push({
-        id: itemId,
-        name,
-        userName: user.userName,
-        domain: getDomain(),
-        avatar: icon ||
-          (String(name).length > 0
+        // Skip self-only DM entries (they represent memo/TAKO Keep)
+        try {
+          const normId = itemId;
+          const normMembers = Array.isArray(members) ? members : [];
+          if (normId === handle) continue;
+          if (normMembers.length === 1 && normMembers[0] === handle) continue;
+        } catch {
+          /* ignore errors in guard */
+        }
+        rooms.push({
+          id: itemId,
+          name,
+          userName: user.userName,
+          domain: getDomain(),
+          avatar: icon ||
+            (String(name).length > 0
             ? String(name).charAt(0).toUpperCase()
             : "👤"),
         unreadCount: 0,
