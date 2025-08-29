@@ -9,14 +9,6 @@ import { faspFetch, notifyCapabilityActivation } from "../services/fasp.ts";
 import authRequired from "../utils/auth.ts";
 import { requireSignedJson } from "../utils/require_signed_json.ts";
 import { normalizeBaseUrl } from "../utils/url.ts";
-import {
-  continueBackfill,
-  createBackfill,
-  deleteEventSubscription,
-  insertEventSubscription,
-  listProviders,
-  registrationUpsert,
-} from "../../takos/db/fasp_client.ts";
 
 // FASP 関連の最小実装（docs/FASP.md のプロトタイプに準拠）
 const app = new Hono();
@@ -31,7 +23,6 @@ app.use("/api/fasp/*", auth);
 // POST /fasp/registration
 // FASP からの登録要求を受理し、takos 側情報を返す
 app.post("/fasp/registration", async (c) => {
-  const env = getEnv(c);
   const domain = getDomain(c);
   const db = getDB(c);
   const signed = await requireSignedJson<{
@@ -52,8 +43,8 @@ app.post("/fasp/registration", async (c) => {
 
   const faspId = crypto.randomUUID();
 
-  // FASP 登録情報は registrationUpsert で必ず保存する
-  await registrationUpsert(env, {
+  // FASP 登録情報は必ず保存する
+  await db.faspProviders.registrationUpsert({
     name,
     baseUrl: normalizedBaseUrl,
     serverId,
@@ -115,7 +106,7 @@ const backfillRequestSchema = z.object({
 
 // data_sharing v0.1: event_subscriptions の受信（作成）
 app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
-  const env = getEnv(c);
+  const db = getDB(c);
   const signed = await requireSignedJson<
     z.infer<typeof eventSubscriptionSchema>
   >(c);
@@ -128,21 +119,21 @@ app.post("/fasp/data_sharing/v0/event_subscriptions", async (c) => {
   }
   const payload = parsed.data;
   const id = crypto.randomUUID();
-  await insertEventSubscription(env, id, payload);
+  await db.faspProviders.insertEventSubscription(id, payload);
   return c.json({ subscription: { id } }, 201);
 });
 
 // data_sharing v0.1: event_subscriptions の削除
 app.delete("/fasp/data_sharing/v0/event_subscriptions/:id", async (c) => {
-  const env = getEnv(c);
+  const db = getDB(c);
   const id = c.req.param("id");
-  await deleteEventSubscription(env, id);
+  await db.faspProviders.deleteEventSubscription(id);
   return c.body(null, 204);
 });
 
 // data_sharing v0.1: backfill の作成
 app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
-  const env = getEnv(c);
+  const db = getDB(c);
   const signed = await requireSignedJson<
     z.infer<typeof backfillRequestSchema>
   >(c);
@@ -155,7 +146,7 @@ app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
   }
   const payload = parsed.data;
   const id = crypto.randomUUID();
-  await createBackfill(env, id, payload);
+  await db.faspProviders.createBackfill(id, payload);
   return c.json({ backfillRequest: { id } }, 201);
 });
 
@@ -163,7 +154,7 @@ app.post("/fasp/data_sharing/v0/backfill_requests", async (c) => {
 app.post(
   "/fasp/data_sharing/v0/backfill_requests/:id/continuation",
   async (c) => {
-    const env = getEnv(c);
+    const db = getDB(c);
     const id = c.req.param("id");
     const signed = await requireSignedJson<unknown>(c);
     if (!signed.ok) {
@@ -171,7 +162,7 @@ app.post(
         error: "署名/ダイジェスト検証に失敗しました",
       }, 401);
     }
-    await continueBackfill(env, id);
+    await db.faspProviders.continueBackfill(id);
     return c.body(null, 204);
   },
 );
@@ -216,8 +207,10 @@ app.post("/api/fasp/announcements", async (c) => {
 
 // 管理用: プロバイダ一覧取得
 app.get("/api/fasp/providers", async (c) => {
-  const env = getEnv(c);
-  const list = await listProviders(env) as Array<Record<string, unknown>>;
+  const db = getDB(c);
+  const list = await db.faspProviders.listProviders() as Array<
+    Record<string, unknown>
+  >;
   const result = list.map((d: Record<string, unknown>) => ({
     name: d.name,
     baseUrl: d.baseUrl,

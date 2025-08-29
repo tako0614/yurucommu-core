@@ -44,12 +44,14 @@ export function createMongoDataStore(
       saveNote: (d, a, c, e, aud) => impl.saveNote(d, a, c, e, aud),
       updateNote: (id, up) => impl.updateNote(id, up),
       deleteNote: (id) => impl.deleteNote(id),
-  findNotes: (f, s?: SortSpec) => impl.findNotes(f, s as SortSpec | undefined),
+      findNotes: (f, s?: SortSpec) =>
+        impl.findNotes(f, s as SortSpec | undefined),
       getPublicNotes: (l, b) => impl.getPublicNotes(l, b),
       saveMessage: (d, a, c, e, aud) => impl.saveMessage(d, a, c, e, aud),
       updateMessage: (id, up) => impl.updateMessage(id, up),
       deleteMessage: (id) => impl.deleteMessage(id),
-  findMessages: (f, s?: SortSpec) => impl.findMessages(f, s as SortSpec | undefined),
+      findMessages: (f, s?: SortSpec) =>
+        impl.findMessages(f, s as SortSpec | undefined),
       updateObject: (id, up) => impl.updateObject(id, up),
       deleteObject: (id) => impl.deleteObject(id),
       deleteManyObjects: (f) => impl.deleteManyObjects(f),
@@ -142,9 +144,11 @@ export function createMongoDataStore(
     faspProviders: {
       getSettings: async () => {
         const mongo = await impl.getDatabase();
-        const doc = await mongo.collection("fasp_client_settings").findOne(({
-          _id: "default",
-        } as unknown) as Record<string, unknown>).catch(() => null);
+        const doc = await mongo.collection("fasp_client_settings").findOne(
+          ({
+            _id: "default",
+          } as unknown) as Record<string, unknown>,
+        ).catch(() => null);
         return doc as
           | {
             shareEnabled?: boolean;
@@ -185,9 +189,89 @@ export function createMongoDataStore(
       },
       deleteOne: async (filter) => {
         const mongo = await impl.getDatabase();
-        const res = await mongo.collection("fasp_client_providers").deleteOne(filter);
+        const res = await mongo.collection("fasp_client_providers").deleteOne(
+          filter,
+        );
         return { deletedCount: res.deletedCount };
       },
-    }
+      registrationUpsert: async (data) => {
+        const mongo = await impl.getDatabase();
+        const existing = await mongo.collection("fasp_client_providers")
+          .findOne({
+            $or: [{ serverId: data.serverId }, { baseUrl: data.baseUrl }],
+          }) as { status?: string; baseUrl: string } | null;
+        const now = new Date();
+        if (existing && existing.status === "approved") {
+          await mongo.collection("fasp_client_providers").updateOne(
+            { baseUrl: existing.baseUrl },
+            {
+              $set: {
+                name: data.name,
+                baseUrl: data.baseUrl,
+                serverId: data.serverId,
+                publicKey: data.publicKey,
+                updatedAt: now,
+              },
+            },
+          );
+          return;
+        }
+        await mongo.collection("fasp_client_providers").updateOne(
+          { baseUrl: data.baseUrl },
+          {
+            $set: {
+              name: data.name,
+              baseUrl: data.baseUrl,
+              serverId: data.serverId,
+              publicKey: data.publicKey,
+              status: "pending",
+              approvedAt: null,
+              rejectedAt: null,
+              updatedAt: now,
+            },
+            $setOnInsert: {
+              faspId: data.faspId,
+              createdAt: now,
+            },
+          },
+          { upsert: true },
+        );
+      },
+      listProviders: async () => {
+        const mongo = await impl.getDatabase();
+        return await mongo.collection("fasp_client_providers")
+          .find({})
+          .sort({ status: 1, updatedAt: -1 })
+          .toArray();
+      },
+      insertEventSubscription: async (id, payload) => {
+        const mongo = await impl.getDatabase();
+        await mongo.collection("fasp_client_event_subscriptions").insertOne({
+          _id: id,
+          payload,
+        });
+      },
+      deleteEventSubscription: async (id) => {
+        const mongo = await impl.getDatabase();
+        await mongo.collection("fasp_client_event_subscriptions").deleteOne({
+          _id: id,
+        });
+      },
+      createBackfill: async (id, payload) => {
+        const mongo = await impl.getDatabase();
+        await mongo.collection("fasp_client_backfills").insertOne({
+          _id: id,
+          payload,
+          status: "pending",
+        });
+      },
+      continueBackfill: async (id) => {
+        const mongo = await impl.getDatabase();
+        await mongo.collection("fasp_client_backfills").updateOne(
+          { _id: id },
+          { $set: { continuedAt: new Date() } },
+        );
+      },
+    },
   };
 }

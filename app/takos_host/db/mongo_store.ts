@@ -38,7 +38,9 @@ export function createMongoDataStore(
 ): HostDataStore {
   const impl = new MongoDB(env);
   const tenantId = env["ACTIVITYPUB_DOMAIN"] ?? "";
-  const storage = createObjectStorage(env, { getDb: () => impl.getDatabase() as Promise<Db> });
+  const storage = createObjectStorage(env, {
+    getDb: () => impl.getDatabase() as Promise<Db>,
+  });
   return {
     storage,
     multiTenant: options?.multiTenant === true,
@@ -459,12 +461,18 @@ export function createMongoDataStore(
       },
       list: async (filter) => {
         const db = await impl.getDatabase() as Db;
-        return await db.collection("fasp_client_providers").find({ ...filter, tenant_id: tenantId })
+        return await db.collection("fasp_client_providers").find({
+          ...filter,
+          tenant_id: tenantId,
+        })
           .toArray();
       },
       findOne: async (filter) => {
         const db = await impl.getDatabase() as Db;
-        return await db.collection("fasp_client_providers").findOne({ ...filter, tenant_id: tenantId });
+        return await db.collection("fasp_client_providers").findOne({
+          ...filter,
+          tenant_id: tenantId,
+        });
       },
       upsertByBaseUrl: async (baseUrl, set, setOnInsert) => {
         const db = await impl.getDatabase() as Db;
@@ -497,7 +505,10 @@ export function createMongoDataStore(
       },
       deleteOne: async (filter) => {
         const db = await impl.getDatabase() as Db;
-        const res = await db.collection("fasp_client_providers").deleteOne({ ...filter, tenant_id: tenantId });
+        const res = await db.collection("fasp_client_providers").deleteOne({
+          ...filter,
+          tenant_id: tenantId,
+        });
         return { deletedCount: res.deletedCount };
       },
       createDefault: async (data) => {
@@ -521,6 +532,87 @@ export function createMongoDataStore(
         await col.updateOne(
           { tenant_id: tenantId, baseUrl },
           { $set: { secret, updatedAt: new Date() } },
+        );
+      },
+      registrationUpsert: async (data) => {
+        const db = await impl.getDatabase() as Db;
+        const existing = await db.collection("fasp_client_providers").findOne({
+          tenant_id: tenantId,
+          $or: [{ serverId: data.serverId }, { baseUrl: data.baseUrl }],
+        }) as { status?: string; baseUrl: string } | null;
+        const now = new Date();
+        if (existing && existing.status === "approved") {
+          await db.collection("fasp_client_providers").updateOne(
+            { tenant_id: tenantId, baseUrl: existing.baseUrl },
+            {
+              $set: {
+                name: data.name,
+                baseUrl: data.baseUrl,
+                serverId: data.serverId,
+                publicKey: data.publicKey,
+                updatedAt: now,
+              },
+            },
+          );
+          return;
+        }
+        await db.collection("fasp_client_providers").updateOne(
+          { tenant_id: tenantId, baseUrl: data.baseUrl },
+          {
+            $set: {
+              name: data.name,
+              baseUrl: data.baseUrl,
+              serverId: data.serverId,
+              publicKey: data.publicKey,
+              status: "pending",
+              approvedAt: null,
+              rejectedAt: null,
+              updatedAt: now,
+            },
+            $setOnInsert: {
+              faspId: data.faspId,
+              createdAt: now,
+            },
+          },
+          { upsert: true },
+        );
+      },
+      listProviders: async () => {
+        const db = await impl.getDatabase() as Db;
+        return await db.collection("fasp_client_providers")
+          .find({ tenant_id: tenantId })
+          .sort({ status: 1, updatedAt: -1 })
+          .toArray();
+      },
+      insertEventSubscription: async (id, payload) => {
+        const db = await impl.getDatabase() as Db;
+        await db.collection("fasp_client_event_subscriptions").insertOne({
+          _id: id,
+          tenant_id: tenantId,
+          payload,
+        });
+      },
+      deleteEventSubscription: async (id) => {
+        const db = await impl.getDatabase() as Db;
+        await db.collection("fasp_client_event_subscriptions").deleteOne({
+          _id: id,
+          tenant_id: tenantId,
+        });
+      },
+      createBackfill: async (id, payload) => {
+        const db = await impl.getDatabase() as Db;
+        await db.collection("fasp_client_backfills").insertOne({
+          _id: id,
+          tenant_id: tenantId,
+          payload,
+          status: "pending",
+        });
+      },
+      continueBackfill: async (id) => {
+        const db = await impl.getDatabase() as Db;
+        await db.collection("fasp_client_backfills").updateOne(
+          { _id: id, tenant_id: tenantId },
+          { $set: { continuedAt: new Date() } },
         );
       },
     },

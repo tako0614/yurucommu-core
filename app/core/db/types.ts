@@ -217,7 +217,21 @@ export interface FaspProvidersRepo {
     baseUrl: string,
     update: Record<string, unknown>,
   ): Promise<unknown | null>;
-  deleteOne(filter: Record<string, unknown>): Promise<{ deletedCount?: number }>;
+  deleteOne(
+    filter: Record<string, unknown>,
+  ): Promise<{ deletedCount?: number }>;
+  registrationUpsert(data: {
+    name: string;
+    baseUrl: string;
+    serverId: string;
+    publicKey: string;
+    faspId: string;
+  }): Promise<void>;
+  listProviders(): Promise<unknown[]>;
+  insertEventSubscription(id: string, payload: unknown): Promise<void>;
+  deleteEventSubscription(id: string): Promise<void>;
+  createBackfill(id: string, payload: unknown): Promise<void>;
+  continueBackfill(id: string): Promise<void>;
 }
 
 export interface DataStore {
