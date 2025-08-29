@@ -1,6 +1,6 @@
 // 既定の FASP を起動時に自動登録/承認し、provider_info を取得して能力を有効化する
 import type { DataStore } from "../db/types.ts";
-import { faspFetch, notifyCapabilityActivation } from "./fasp.ts";
+import { faspFetch, notifyCapabilityActivation } from "./fasp_frozen.ts";
 import { normalizeBaseUrl } from "../utils/url.ts";
 
 function genSecret(bytes = 32): string {
