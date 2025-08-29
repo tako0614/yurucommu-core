@@ -1,0 +1,56 @@
+flowchart LR
+    subgraph "Takos システム"
+        A[Takos Host<br/>ホスティング層] --> B[Takos Server<br/>本体サーバー]
+        B --> C[Core<br/>共通ロジック]
+        C --> D[Packages<br/>共通パッケージ]
+        A --> E[Client<br/>フロントエンド]
+    end
+
+    subgraph "Takos Host 詳細"
+        F[Service Actor] --> G[インスタンス管理]
+        G --> H[OAuth認証]
+    end
+
+    subgraph "Takos Server 詳細"
+        I[ActivityPub] --> J[REST API]
+        J --> K[FASP Client]
+        K --> L[WebSocket]
+    end
+
+    subgraph "Client 詳細"
+        M[Vite + Solid.js] --> N[Tauri]
+        N --> O[OAuth統合]
+    end
+
+    subgraph "Core 詳細"
+        P[Hono Framework] --> Q[Routes]
+        Q --> R[Services]
+        R --> S[Utils]
+    end
+
+    subgraph "Packages 詳細"
+        T[Auth] --> U[Config]
+        U --> V[Crypto]
+        V --> W[Firebase]
+    end
+    subgraph "外部連携"
+        X[ActivityPub<br/>Fediverse] --> Y[FASP<br/>補助サービス]
+        Y --> Z[MongoDB]
+        Z --> AA[Deno Runtime]
+    end
+
+    A --> F
+    B --> I
+    E --> M
+    C --> P
+    D --> T
+    B --> X
+    C --> Y
+    D --> Z
+
+    style A fill:#e1f5fe,color:#000000
+    style B fill:#f3e5f5,color:#000000
+    style C fill:#e8f5e8,color:#000000
+    style D fill:#fff3e0,color:#000000
+    style E fill:#fce4ec,color:#000000
+  
