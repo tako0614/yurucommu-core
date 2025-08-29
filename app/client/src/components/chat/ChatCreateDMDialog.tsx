@@ -111,7 +111,7 @@ export function ChatCreateDMDialog(props: Props) {
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="absolute inset-0 bg-black/40 z-40" onClick={props.onClose} />
-        <div class="relative w-[min(560px,95%)] bg-[#1e1e1e] rounded-lg p-4 border border-[#333] z-50">
+  <div class="relative w-full h-full bg-[#1e1e1e] p-4 border border-[#333] z-50 rounded-none sm:rounded-lg sm:w-[min(560px,95%)] sm:h-auto">
           <h3 class="text-lg font-semibold text-white mb-3">新しい DM を作成</h3>
 
           <div class="mb-3">

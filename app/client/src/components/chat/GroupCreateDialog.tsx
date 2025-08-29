@@ -9,8 +9,9 @@ interface GroupCreateDialogProps {
   isOpen: boolean;
   mode: "create" | "invite";
   onClose: () => void;
-  onCreate?: (name: string, members: string) => void;
-  onInvite?: (members: string) => void;
+  // onCreate/onInvite now receive an optional icon data URL as 3rd argument
+  onCreate?: (name: string, members: string, icon?: string | null) => void;
+  onInvite?: (members: string, icon?: string | null) => void;
   initialMembers?: string[]; // 事前に選択済みのメンバー
 }
 
@@ -23,6 +24,8 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   const [followingUsers, setFollowingUsers] = createSignal<
     Array<{ id: string; name: string; avatar?: string }>
   >([]);
+  const [iconFile, setIconFile] = createSignal<File | null>(null);
+  const [iconPreview, setIconPreview] = createSignal<string | null>(null);
   const [followingMap] = useAtom(followingListMap);
   const [, saveFollowingGlobal] = useAtom(setFollowingList);
   // 自身のハンドル（@user@domain）を求める
@@ -67,6 +70,18 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
       })
       : []
   );
+
+  // iconFile がセットされたら Data URL に変換してプレビューに使う
+  createEffect(() => {
+    const f = iconFile();
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string | ArrayBuffer | null;
+      if (typeof result === "string") setIconPreview(result);
+    };
+    reader.readAsDataURL(f);
+  });
 
   // ダイアログが開いたとき、またはアカウントが確定したときにフォロー中ユーザーを用意
   createEffect(async () => {
@@ -174,10 +189,11 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
   // Allow creating a group even if no members or name specified.
   // The server-side will accept optional members; the client still adds the current user to membersArr below.
 
+    const icon = iconPreview();
     if (props.mode === "invite") {
-      if (props.onInvite) props.onInvite(members);
+      if (props.onInvite) props.onInvite(members, icon ?? null);
     } else if (props.onCreate) {
-      props.onCreate(groupName, members);
+      props.onCreate(groupName, members, icon ?? null);
     }
 
     // リセット
@@ -186,6 +202,44 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
     setMemberInput("");
     setSearchTerm("");
   };
+
+  const onIconSelect = (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const f = input.files[0];
+    setIconFile(f);
+  };
+
+  const removeIcon = () => {
+    setIconFile(null);
+    setIconPreview(null);
+  };
+
+  // 親しみやすいデフォルト名を生成する
+  const defaultName = createMemo(() => {
+    const sel = selectedMembers();
+    // メンバー名からローカルパートを取り出す
+    const local = (id: string) => {
+      const part = id.split("@")[0] || id;
+      // ドメイン込みの長い文字列は短縮
+      return part.length > 12 ? part.slice(0, 12) + '…' : part;
+    };
+
+    if (sel.length === 0) {
+      // ランダム候補から一つ選ぶ（固定だと退屈なので時間を元に振り分け）
+      const candidates = ["交流ルーム", "おしゃべり広場", "まったり会", "チーム", "雑談ルーム"];
+      const idx = Math.floor((Date.now() / 1000) % candidates.length);
+      return candidates[idx];
+    }
+
+    if (sel.length === 1) {
+      return `${local(sel[0])}さんと私の会話`;
+    }
+
+    // 2人以上
+    const names = sel.slice(0, 2).map(local);
+    return `${names.join('・')}のグループ`;
+  });
 
   const resetForm = () => {
     setName("");
@@ -214,21 +268,45 @@ export function GroupCreateDialog(props: GroupCreateDialogProps) {
         <div class="absolute inset-0 bg-black/40 z-40" onClick={props.onClose} />
 
         {/* ダイアログコンテンツ（DM と同じ見た目に統一） */}
-        <div class="relative w-[min(560px,95%)] bg-[#1e1e1e] rounded-lg p-4 border border-[#333] z-50">
-          <h3 class="text-lg font-semibold text-white mb-3">新しいグループを作成</h3>
+  <div class="relative w-full h-full bg-[#1e1e1e] p-4 border border-[#333] z-50 rounded-none sm:rounded-lg sm:w-[min(560px,95%)] sm:h-auto">
+          <h3 class="text-lg font-semibold text-white mb-3">{props.mode === 'create' ? '新しいグループを作成' : 'メンバーを招待'}</h3>
 
-          <Show when={props.mode === "create" && selectedMembers().length > 1}>
-            <div class="mb-3">
+          {/* アイコン選択とグループ名 */}
+          <div class="mb-3 flex flex-col sm:flex-row items-start gap-4">
+            <div class="flex-shrink-0">
+              <div class="w-20 h-20 rounded-lg bg-[#2a2a2a] flex items-center justify-center overflow-hidden border border-[#333]">
+                <Show when={iconPreview()} fallback={<div class="text-gray-300 text-3xl">{(name() || "G").charAt(0).toUpperCase()}</div>}>
+                  <img src={iconPreview()!} alt="group icon" class="w-full h-full object-cover" />
+                </Show>
+              </div>
+              <div class="flex gap-2 mt-2">
+                <label class="px-3 py-1 text-sm bg-[#111827] text-white rounded cursor-pointer border border-[#333]">
+                  画像を選択
+                  <input type="file" accept="image/*" class="hidden" onInput={onIconSelect} />
+                </label>
+                <button type="button" class="px-3 py-1 text-sm text-gray-300 border border-[#333] rounded" onClick={removeIcon} disabled={!iconPreview()}>削除</button>
+              </div>
+            </div>
+
+            <div class="flex-1">
               <label class="text-sm text-gray-300">グループ名</label>
               <input
                 type="text"
                 class="w-full mt-1 p-2 rounded bg-[#1e1e1e] text-white border border-[#333]"
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
-                placeholder="グループ名"
+                placeholder="グループ名 (例: 開発チーム、友人会)"
+                maxlength={50}
               />
+              <div class="text-xs text-gray-500 mt-1 flex items-center justify-between">
+                <div>{name().length}/50</div>
+                <div class="text-right">
+                  <div class="text-xs text-gray-400">提案: <span class="text-gray-200">{defaultName()}</span></div>
+                  <button type="button" class="text-xs text-blue-400 hover:text-blue-200 mt-1" onClick={() => setName(defaultName())}>提案を適用</button>
+                </div>
+              </div>
             </div>
-          </Show>
+          </div>
 
           <div class="mb-3">
             <label class="text-sm text-gray-300">メンバー（改行・カンマで複数）</label>
