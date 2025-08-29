@@ -38,6 +38,23 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
   const isLocalGroup = () => isGroup() && groupHost() === getDomain();
+  // 所有者かどうか（UI 側の推定）
+  const isGroupOwner = () => {
+    if (!isGroup()) return false;
+    const me = accountValue();
+    if (!me) return false;
+    const handle = `${me.userName}@${getDomain()}`;
+    const meta = props.room?.meta as Record<string, unknown> | undefined;
+    if (!meta) return false;
+    const owner = meta["owner"];
+    if (typeof owner === "string" && owner === handle) return true;
+    const creator = meta["creator"];
+    if (typeof creator === "string" && creator === handle) return true;
+    const admins = meta["admins"];
+    if (Array.isArray(admins) && admins.some((a) => String(a) === handle)) return true;
+    // fallback: room.members に含まれていても所有者とはみなさない
+    return false;
+  };
   const groupStorageKey = () => {
     const id = props.room?.meta?.groupId || props.room?.id || "";
     return `group:notify:${id}`;
@@ -140,6 +157,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
 
   const handleSaveGeneral = async () => {
     if (!props.room) return;
+    if (props.room.type === "group" && !isGroupOwner()) {
+      setError("権限がありません");
+      return;
+    }
     if (!roomName().trim()) {
       setError("名前を入力してください");
       return;
@@ -235,6 +256,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
       setInviteMsg("ルームが選択されていません");
       return;
     }
+    if (props.room.type === "group" && !isGroupOwner()) {
+      setInviteMsg("権限がありません");
+      return;
+    }
     setInviteMsg("");
     const actor = inviteActor().trim();
     if (!actor) {
@@ -277,6 +302,10 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   // グループのアイコン変更（DataURL 送信）: ローカルはグループを更新、リモートはオーバーライド保存
   const handleGroupIconChange = async (file: File) => {
     if (!props.room || props.room.type !== "group") return;
+    if (!isGroupOwner()) {
+      setError("権限がありません");
+      return;
+    }
     if (!props.room.name) return;
     setUploading(true);
     try {
@@ -428,6 +457,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                       onInput={(e) => setRoomName(e.currentTarget.value)}
                       class="w-full bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                       placeholder="グループ名"
+                      readonly={!isGroupOwner()}
+                      disabled={!isGroupOwner()}
                     />
                   </div>
                   <div>
@@ -435,7 +466,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                     <div class="flex items-center gap-4">
                       <div
                         class="w-16 h-16 rounded-lg bg-[#2b2b2b] flex items-center justify-center overflow-hidden border border-[#3a3a3a] cursor-pointer"
-                        onClick={() => groupFileInput?.click()}
+                        onClick={() => { if (isGroupOwner()) groupFileInput?.click(); }}
                       >
                         {roomIcon()
                           ? (<img src={roomIcon()!} alt="group icon" class="w-full h-full object-cover" />)
@@ -448,7 +479,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                         class="hidden"
                         onChange={(e) => {
                           const f = e.currentTarget.files?.[0];
-                          if (f) handleGroupIconChange(f);
+                          if (f && isGroupOwner()) handleGroupIconChange(f);
                         }}
                       />
                       {/* ファイル選択はアイコン領域をクリックして行う（ボタンは削除） */}
@@ -457,9 +488,9 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      disabled={saving()}
+                      disabled={saving() || !isGroupOwner()}
                       onClick={handleSaveGeneral}
-                      class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded text-sm font-medium"
+                      class={`px-4 py-2 ${isGroupOwner() ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600'} text-white rounded text-sm font-medium`}
                     >
                       保存
                     </button>
@@ -507,6 +538,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                         placeholder="招待先 Actor (例: user@host.tld)"
                         value={inviteActor()}
                         onInput={(e) => setInviteActor(e.currentTarget.value)}
+                        readonly={!isGroupOwner()}
+                        disabled={!isGroupOwner()}
                       />
                       <div class="flex gap-2">
                         <input
@@ -515,6 +548,8 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           placeholder="TTL(秒)"
                           value={inviteTTL()}
                           onInput={(e) => setInviteTTL(Number(e.currentTarget.value))}
+                          readonly={!isGroupOwner()}
+                          disabled={!isGroupOwner()}
                         />
                         <input
                           class="w-24 bg-[#2b2b2b] border border-[#3a3a3a] rounded px-3 py-2 text-white text-sm"
@@ -522,11 +557,14 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                           placeholder="使用回数"
                           value={inviteUses()}
                           onInput={(e) => setInviteUses(Number(e.currentTarget.value))}
+                          readonly={!isGroupOwner()}
+                          disabled={!isGroupOwner()}
                         />
                         <button
                           type="button"
-                          class="px-3 py-2 bg-blue-600 text-white rounded text-sm"
+                          class={`px-3 py-2 ${isGroupOwner() ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-300'} rounded text-sm`}
                           onClick={sendInvite}
+                          disabled={!isGroupOwner()}
                         >
                           招待
                         </button>
