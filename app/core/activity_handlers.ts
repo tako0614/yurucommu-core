@@ -67,12 +67,25 @@ async function saveObject(
     }
   }
 
+  // aud に audience や bto/bcc も可能な範囲で取り込む
+  const toList = Array.isArray(obj.to) ? obj.to : [];
+  const ccList = Array.isArray(obj.cc) ? obj.cc : [];
+  const audValue = (obj as { audience?: unknown }).audience;
+  const audienceList = typeof audValue === "string"
+    ? [audValue]
+    : Array.isArray(audValue)
+    ? (audValue as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+
   return await db.posts.saveObject({
     type: obj.type ?? "Note",
     attributedTo,
     content: obj.content,
-    to: Array.isArray(obj.to) ? obj.to : [],
-    cc: Array.isArray(obj.cc) ? obj.cc : [],
+    // aud フィールドに to/cc/audience を正規化して保存（グループ絞り込み用）
+    aud: {
+      to: [...toList, ...audienceList],
+      cc: ccList,
+    },
     published: obj.published && typeof obj.published === "string"
       ? new Date(obj.published)
       : new Date(),
@@ -88,7 +101,17 @@ export const activityHandlers: Record<string, ActivityHandler> = {
     db: DataStore,
     c: unknown,
   ) {
-    console.log("Handling Create activity");
+    try {
+      console.log("[AP] handler Create", {
+        username,
+        actor: (activity as { actor?: string })?.actor ?? undefined,
+        objectType:
+          typeof (activity as { object?: unknown }).object === "object" &&
+          (activity as { object: { type?: string } }).object?.type
+            ? (activity as { object: { type?: string } }).object.type
+            : undefined,
+      });
+    } catch { /* ignore */ }
     if (typeof activity.object !== "object" || activity.object === null) {
       return;
     }
@@ -238,6 +261,52 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       type: "newPost",
       payload: { timeline: "following", post: formatted },
     });
+  },
+
+  async Announce(
+    activity: Record<string, unknown>,
+    username: string,
+    db: DataStore,
+    c: unknown,
+  ) {
+    // Announce.object が埋め込みオブジェクトのとき保存対象とする
+    if (typeof activity.object !== "object" || activity.object === null) {
+      return;
+    }
+    try {
+      console.log("[AP] handler Announce", {
+        username,
+        actor: (activity as { actor?: string })?.actor ?? undefined,
+        objectType:
+          typeof (activity as { object?: unknown }).object === "object" &&
+          (activity as { object: { type?: string } }).object?.type
+            ? (activity as { object: { type?: string } }).object.type
+            : undefined,
+      });
+    } catch { /* ignore */ }
+    const obj = activity.object as Record<string, unknown>;
+    const actor = typeof activity.actor === "string" ? activity.actor : "";
+    const saved = await saveObject(db, obj, actor);
+
+    // 既存の Create と同等の最小限の通知（フォロー中タイムライン）
+    try {
+      const domain = getDomain(c as Context);
+      const userInfo = await getUserInfo(
+        db,
+        iriToHandle((saved.actor_id as string) ?? actor),
+        domain,
+      );
+      const formatted = formatUserInfoForPost(
+        userInfo,
+        saved,
+      );
+      sendToUser(`${username}@${domain}`, {
+        type: "newPost",
+        payload: { timeline: "following", post: formatted },
+      });
+    } catch {
+      // ignore notification errors
+    }
   },
 
   async Follow(

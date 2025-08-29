@@ -21,7 +21,38 @@ export async function listGroupMessages(
   groupId: string,
   opts: MessageOpts,
 ): Promise<Record<string, unknown>[]> {
-  let msgs = await db.posts.findMessages({ "aud.to": groupId }) as {
+  try {
+    console.log("[Group] listGroupMessages", {
+      groupId,
+      before: opts.before?.toISOString(),
+      after: opts.after?.toISOString(),
+      limit: opts.limit,
+    });
+  } catch { /* ignore */ }
+
+  // Message と Note の双方を検索してマージ（aud.to によるグループ宛判定）
+  const [msgsRaw, notesRaw] = await Promise.all([
+    db.posts.findMessages({ "aud.to": groupId }) as Promise<{
+      _id?: string;
+      actor_id?: string;
+      attributedTo?: string;
+      content?: string;
+      extra?: Record<string, unknown>;
+      url?: string;
+      mediaType?: string;
+      published?: Date;
+    }[]>,
+    db.posts.findNotes({ "aud.to": groupId }) as Promise<{
+      _id?: string;
+      actor_id?: string;
+      attributedTo?: string;
+      content?: string;
+      extra?: Record<string, unknown>;
+      published?: Date;
+    }[]>,
+  ]);
+
+  type Unified = {
     _id?: string;
     actor_id?: string;
     attributedTo?: string;
@@ -30,27 +61,39 @@ export async function listGroupMessages(
     url?: string;
     mediaType?: string;
     published?: Date;
-  }[];
+  };
+
+  let unified: Unified[] = [
+    ...msgsRaw,
+    ...notesRaw,
+  ];
+
   if (opts.before) {
     const b = opts.before;
-    msgs = msgs.filter((m) =>
+    unified = unified.filter((m) =>
       new Date(String(m.published)).getTime() < b.getTime()
     );
   }
   if (opts.after) {
     const a = opts.after;
-    msgs = msgs.filter((m) =>
+    unified = unified.filter((m) =>
       new Date(String(m.published)).getTime() > a.getTime()
     );
   }
-  msgs.sort((a, b) =>
+  unified.sort((a, b) =>
     new Date(String(a.published)).getTime() -
     new Date(String(b.published)).getTime()
   );
-  if (opts.limit && msgs.length > opts.limit) {
-    msgs = msgs.slice(msgs.length - opts.limit);
+  if (opts.limit && unified.length > opts.limit) {
+    unified = unified.slice(unified.length - opts.limit);
   }
-  return msgs.map((m) => ({
+  try {
+    console.log("[Group] listGroupMessages: result", {
+      count: unified.length,
+    });
+  } catch { /* ignore */ }
+
+  return unified.map((m) => ({
     id: m._id ?? "",
     from: m.actor_id ?? m.attributedTo ?? "",
     to: groupId,

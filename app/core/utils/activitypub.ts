@@ -121,6 +121,14 @@ export async function sendActivityPubObject(
   domain: string,
   db: DataStore,
 ): Promise<Response> {
+  try {
+    console.log("[AP] sendActivityPubObject: start", {
+      inboxUrl,
+      actor: typeof actor === "string" ? actor : actor.actorId,
+      domain,
+      kind: (object as { type?: string })?.type ?? "unknown",
+    });
+  } catch { /* ignore */ }
   const body = JSON.stringify(object);
   if (typeof actor === "string") {
     let key: { userName: string; privateKey: string };
@@ -136,7 +144,15 @@ export async function sendActivityPubObject(
     }
 
     try {
-      return await signAndSend(inboxUrl, body, key, domain);
+      const res = await signAndSend(inboxUrl, body, key, domain);
+      try {
+        console.log("[AP] sendActivityPubObject: response", {
+          inboxUrl,
+          status: res.status,
+          statusText: res.statusText,
+        });
+      } catch { /* ignore */ }
+      return res;
     } catch (err) {
       console.error(
         `Failed to send ActivityPub object to ${inboxUrl}:`,
@@ -146,12 +162,20 @@ export async function sendActivityPubObject(
     }
   }
   try {
-    return await signAndPostAsActor(
+    const res = await signAndPostAsActor(
       inboxUrl,
       body,
       actor.actorId,
       actor.privateKey,
     );
+    try {
+      console.log("[AP] sendActivityPubObject: response", {
+        inboxUrl,
+        status: res.status,
+        statusText: res.statusText,
+      });
+    } catch { /* ignore */ }
+    return res;
   } catch (err) {
     console.error(`Failed to send ActivityPub object to ${inboxUrl}:`, err);
     throw err;
@@ -206,14 +230,29 @@ export async function deliverActivityPubObject(
         );
         return Promise.resolve();
       }
-      return sendActivityPubObject(target, object, actor, domain, db).catch(
-        (err) => {
-          console.error(
-            `deliverActivityPubObject: failed to deliver to ${iri}`,
-            err,
-          );
-        },
-      );
+      try {
+        const res = await sendActivityPubObject(
+          target,
+          object,
+          actor,
+          domain,
+          db,
+        );
+        try {
+          console.log("[AP] deliverActivityPubObject: delivered", {
+            actorIri: iri,
+            target,
+            status: res.status,
+          });
+        } catch { /* ignore */ }
+        return;
+      } catch (err) {
+        console.error(
+          `deliverActivityPubObject: failed to deliver to ${iri}`,
+          err,
+        );
+        return;
+      }
     } catch (err) {
       console.error(
         `deliverActivityPubObject: failed to resolve ${iri}`,

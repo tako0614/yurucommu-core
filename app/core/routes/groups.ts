@@ -138,7 +138,10 @@ app.get("/api/groups", async (c) => {
 });
 
 app.get("/api/groups/:groupId/messages", async (c) => {
-  const groupId = c.req.param("groupId");
+  const raw = c.req.param("groupId");
+  const domain = getDomain(c);
+  // URL エンコードや acct 形式を許容して正規化
+  const groupId = await toGroupId(raw, domain);
   const db = getDB(c);
   const limit = Number(c.req.query("limit") ?? "0");
   const before = c.req.query("before");
@@ -228,6 +231,13 @@ app.post(
       );
       try {
         const target = await resolveRemoteActor(groupId);
+        try {
+          console.log("[Group] remote target resolved", {
+            groupId,
+            inbox: target.inbox,
+            sharedInbox: target.sharedInbox,
+          });
+        } catch { /* ignore */ }
         const asType = type === "image"
           ? "Image"
           : type === "video"
@@ -324,8 +334,14 @@ app.post(
           to: [groupId],
           object,
         };
+        const resolvedInbox = target.sharedInbox ?? target.inbox;
+        console.log("[Group] sending to remote group inbox", {
+          resolvedInbox,
+          groupId,
+          actor: `https://${domain}/users/${fromUser}`,
+        });
         await sendActivityPubObject(
-          target.sharedInbox ?? target.inbox,
+          resolvedInbox,
           activity,
           fromUser,
           domain,
@@ -1424,6 +1440,19 @@ app.post("/groups/:name/inbox", async (c) => {
   if (!parsed) return c.json({ error: "署名エラー" }, 401);
   const { activity } = parsed;
   const groupId = `https://${domain}/groups/${name}`;
+  try {
+    console.log("[Group] inbox received", {
+      name,
+      type: (activity as { type?: string })?.type ?? "unknown",
+      actor: (activity as { actor?: string })?.actor ?? undefined,
+      target: (activity as { target?: string })?.target ?? undefined,
+      objectType:
+        typeof (activity as { object?: unknown }).object === "object" &&
+        (activity as { object: { type?: string } }).object?.type
+          ? (activity as { object: { type?: string } }).object.type
+          : undefined,
+    });
+  } catch { /* ignore */ }
 
   if (
     activity.type === "Invite" &&
@@ -1778,6 +1807,12 @@ app.post("/groups/:name/inbox", async (c) => {
       object: activity.object,
     };
     await db.groups.pushOutbox(name, announceBase);
+    try {
+      console.log("[Group] stored announce to outbox", {
+        groupId,
+        name,
+      });
+    } catch { /* ignore */ }
 
     // fan-out: bto 相当は配送前に剥離し、各メンバーに個別配送
     // 受信側の相互運用のため sharedInbox があればそれを利用（utils 側が解決）

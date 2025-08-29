@@ -7,9 +7,26 @@ export async function parseActivityRequest(
 ): Promise<{ activity: Record<string, unknown>; body: string } | null> {
   const body = await c.req.text();
   const verified = await verifyHttpSignature(c.req.raw, body);
-  if (!verified) return null;
+  if (!verified) {
+    try {
+      console.warn("[AP] parseActivityRequest: verify failed", {
+        url: c.req.url,
+        sigInput: c.req.header("signature-input"),
+        sig: c.req.header("signature"),
+        digest: c.req.header("content-digest"),
+      });
+    } catch { /* ignore */ }
+    return null;
+  }
   try {
     const activity = JSON.parse(body) as Record<string, unknown>;
+    try {
+      console.log("[AP] parseActivityRequest: verified", {
+        url: c.req.url,
+        type: (activity as { type?: string })?.type ?? "unknown",
+        actor: (activity as { actor?: string })?.actor ?? undefined,
+      });
+    } catch { /* ignore */ }
     return { activity, body };
   } catch {
     return null;
@@ -35,7 +52,23 @@ export async function storeCreateActivity(
     stored = await db.posts.findMessageById(objectId);
   }
   if (!stored) {
-    stored = await db.posts.saveObject({ ...object, attributedTo });
+    // aud フィールドに to/cc/audience を正規化して保存（グループ絞り込み用）
+    const to = Array.isArray((object as { to?: unknown }).to)
+      ? (object as { to: string[] }).to
+      : [];
+    const cc = Array.isArray((object as { cc?: unknown }).cc)
+      ? (object as { cc: string[] }).cc
+      : [];
+    const audienceRaw = (object as { audience?: unknown }).audience;
+    const audience = typeof audienceRaw === "string"
+      ? [audienceRaw]
+      : Array.isArray(audienceRaw)
+      ? (audienceRaw as unknown[]).filter((v): v is string =>
+        typeof v === "string"
+      )
+      : [];
+    const aud = { to: [...to, ...audience], cc };
+    stored = await db.posts.saveObject({ ...object, attributedTo, aud });
     if (!stored) return null;
     objectId = String((stored as { _id?: unknown })._id);
   }

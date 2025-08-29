@@ -22,6 +22,12 @@ app.post("/inbox", async (c) => {
   const result = await parseActivityRequest(c);
   if (!result) return jsonResponse(c, { error: "Invalid signature" }, 401);
   const { activity } = result;
+  try {
+    console.log("[AP] root inbox: received", {
+      type: (activity as { type?: string })?.type ?? "unknown",
+      actor: (activity as { actor?: string })?.actor ?? undefined,
+    });
+  } catch { /* ignore */ }
   const domain = getDomain(c);
   const db = getDB(c);
 
