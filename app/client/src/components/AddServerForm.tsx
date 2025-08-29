@@ -1,5 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import { Button, Input, Modal } from "./ui/index.ts";
+import { isTauri } from "../utils/config.ts";
 
 interface AddServerFormProps {
   onAdd: (url: string, password: string) => Promise<void>;
@@ -11,11 +12,15 @@ export function AddServerForm(props: AddServerFormProps) {
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
+  const tauri = isTauri();
+  console.log("AddServerForm: isTauri =", tauri);
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setError("");
-    if (!url()) {
+    console.log("handleSubmit: tauri =", tauri, "url =", url(), "password =", password());
+    if (tauri && !url()) {
+      console.log("Setting URL error");
       setError("サーバーURLを入力してください");
       return;
     }
@@ -32,7 +37,7 @@ export function AddServerForm(props: AddServerFormProps) {
 
   return (
     // 共通のモーダルとフォームUIを使用してアクセシビリティと一貫性を向上
-    <Modal open={true} onClose={props.onClose} title="サーバー追加">
+    <Modal open onClose={props.onClose} title="サーバー追加">
       <form onSubmit={handleSubmit} class="space-y-5">
         <Input
           id="addServerUrl"
@@ -42,7 +47,7 @@ export function AddServerForm(props: AddServerFormProps) {
           value={url()}
           onInput={(e: Event & { currentTarget: HTMLInputElement }) => setUrl(e.currentTarget.value)}
           disabled={isLoading()}
-          required
+          required={tauri}
         />
         <Input
           id="addServerPassword"

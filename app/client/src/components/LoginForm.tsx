@@ -98,7 +98,12 @@ export function LoginForm(props: LoginFormProps) {
 
   const loginToServer = async (url: string, password: string) => {
     setError("");
-    if (!url) {
+    // ブラウザ環境ではサーバーURLが不要なのでスキップ
+    if (!inTauri && !url) {
+      // ブラウザ環境では現在のホストを使用
+      url = getOrigin();
+    }
+    if (inTauri && !url) {
       setError("サーバーURLを入力してください");
       return;
     }
