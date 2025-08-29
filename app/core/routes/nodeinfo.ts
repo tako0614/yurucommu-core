@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import { getEnv } from "@takos/config";
@@ -7,7 +7,8 @@ import { getEnv } from "@takos/config";
 const app = new Hono();
 // app.use("*", authRequired); // 認証ミドルウェアは適用しない
 
-async function getNodeStats(env: Record<string, string>) {
+async function getNodeStats(c: Context) {
+  const env = getEnv(c);
   const db = getDB(c);
   const users = await db.countAccounts();
   const posts = (await db.findNotes({}, {})).length +
@@ -29,8 +30,7 @@ app.get("/.well-known/nodeinfo", (c) => {
 });
 
 app.get("/nodeinfo/2.0", async (c) => {
-  const env = getEnv(c);
-  const { users, posts, version } = await getNodeStats(env);
+  const { users, posts, version } = await getNodeStats(c);
   return c.json({
     version: "2.0",
     software: {
@@ -44,10 +44,7 @@ app.get("/nodeinfo/2.0", async (c) => {
       users: { total: users, activeMonth: users, activeHalfyear: users },
       localPosts: posts,
     },
-    metadata: {
-      // FASP クライアント API のベース URL を公開
-      // faspBaseUrl: `https://${getDomain(c)}/fasp`,
-    },
+    metadata: {},
   });
 });
 

@@ -150,7 +150,10 @@ export function FaspProviders() {
           const o = msg as Record<string, unknown>;
           // Accept several possible event type names from server
           const t = typeof o.type === "string" ? o.type : "";
-          if (t === "fasp:provider:update" || t === "provider:update" || t === "fasp") {
+          if (
+            t === "fasp:provider:update" || t === "provider:update" ||
+            t === "fasp"
+          ) {
             refetch();
           }
         }

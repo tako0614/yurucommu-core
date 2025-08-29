@@ -5,7 +5,6 @@ import {
 } from "../../states/settings.ts";
 import { loginState } from "../../states/session.ts";
 import { apiFetch } from "../../utils/config.ts";
-import { FaspProviders } from "./FaspProviders.tsx";
 
 export function Setting() {
   const [language, setLanguage] = useAtom(languageState);
@@ -48,10 +47,6 @@ export function Setting() {
           <option value="50">50件</option>
           <option value="100">100件</option>
         </select>
-      </div>
-      <div>
-        <h3 class="font-bold mb-1">FASP 設定</h3>
-        <FaspProviders />
       </div>
       {/* グループ設定は廃止 */}
       <div class="flex justify-end space-x-2">

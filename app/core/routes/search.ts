@@ -2,8 +2,6 @@ import { type Context, Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getDomain } from "../utils/activitypub.ts";
 import authRequired from "../utils/auth.ts";
-import { getEnv } from "@takos/config";
-// import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts"; // FASP機能凍結
 
 interface SearchResult {
   type: "user" | "post";
@@ -109,13 +107,11 @@ async function validateServerHostname(hostname: string): Promise<boolean> {
 }
 
 app.get("/search", async (c) => {
-  const _env = getEnv(c);
   const db = getDB(c);
   const domain = getDomain(c);
   let q = c.req.query("q")?.trim();
   const acct = c.req.query("acct")?.trim();
   const type = c.req.query("type") ?? "all";
-  // const useFasp = (c.req.query("useFasp") ?? "1") !== "0"; // FASP機能凍結
   if (!q && !acct) return c.json([]);
 
   let server: string | undefined;
@@ -135,7 +131,7 @@ app.get("/search", async (c) => {
 
   const results: SearchResult[] = [];
 
-  // FASP に関係なく、acct が明示/暗黙に与えられている場合は WebFinger で存在確認して返す
+  // acct が明示/暗黙に与えられている場合は WebFinger で存在確認して返す
   if (server) {
     const isValidServer = await validateServerHostname(server);
     if (isValidServer) {
@@ -217,85 +213,6 @@ app.get("/search", async (c) => {
         origin: domain,
       });
     }
-
-    // const faspBase = useFasp
-    //   ? await getFaspBaseUrl(db, env, "account_search")
-    //   : null;
-    // if (faspBase && useFasp) {
-    //   try {
-    //     const perPage = 20;
-    //     const maxTotal = 100;
-    //     const seen = new Set(
-    //       results.map((r) => r.actor).filter((a): a is string => Boolean(a)),
-    //     );
-    //     let nextUrl: string | undefined =
-    //       `${faspBase}/account_search/v0/search?term=${
-    //         encodeURIComponent(q)
-    //       }&limit=${perPage}`;
-    //     while (nextUrl && seen.size < maxTotal) {
-    //       const res = await faspFetch(db, env, domain, nextUrl, {
-    //         signing: "registered",
-    //       });
-    //       if (!res.ok) break;
-    //       const list = await res.json() as string[];
-    //       await Promise.all(
-    //         list.map(async (uri) => {
-    //           if (seen.has(uri)) return;
-    //           seen.add(uri);
-    //           try {
-    //             const aRes = await fetch(uri, {
-    //               headers: {
-    //                 Accept:
-    //                   'application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-    //               },
-    //             });
-    //             if (!aRes.ok) return;
-    //             const actor = await aRes.json();
-    //             const host = (() => {
-    //               try {
-    //                 return new URL(uri).hostname;
-    //               } catch {
-    //                 return "";
-    //               }
-    //             })();
-    //             results.push({
-    //               type: "user",
-    //               id: actor.id ?? uri,
-    //               title: actor.name ?? actor.preferredUsername ?? uri,
-    //               subtitle: actor.preferredUsername
-    //                 ? `@${actor.preferredUsername}@${host}`
-    //                 : uri,
-    //               avatar: actor.icon?.url,
-    //               actor: actor.id ?? uri,
-    //               origin: host,
-    //             });
-    //           } catch {
-    //             /* ignore */
-    //           }
-    //         }),
-    //       );
-    //       if (seen.size >= maxTotal) break;
-    //       const link = res.headers.get("Link");
-    //       let next: string | undefined;
-    //       if (link) {
-    //         for (const part of link.split(",")) {
-    //           const m = part.match(/<([^>]+)>;\s*rel="next"/);
-    //           if (m) {
-    //             try {
-    //               next = new URL(m[1], nextUrl).toString();
-    //             } catch {
-    //               next = m[1];
-    //             }
-    //             break;
-    //           }
-    //         }
-    //       }
-    //       nextUrl = next;
-    //     }
-    //   } catch {
-    //     /* ignore */
-    //   }
-    // }
   }
 
   if (type === "all" || type === "posts") {
