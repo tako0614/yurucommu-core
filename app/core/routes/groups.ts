@@ -475,6 +475,10 @@ app.post(
     // 署名対象に含めるメタデータを付与
     (object as Record<string, unknown>).id = `urn:uuid:${crypto.randomUUID()}`;
     (object as Record<string, unknown>).published = new Date().toISOString();
+    // ローカル配送での二重保存回避用（inbox 側で検出）
+    if (saved && typeof saved._id === "string") {
+      (object as Record<string, unknown>).xTakosMessageId = saved._id;
+    }
     if (asType === "Note") {
       object.content = content;
       const asAtt = toAsAttachments(attachments);
@@ -1748,7 +1752,22 @@ app.post("/groups/:name/inbox", async (c) => {
       });
     };
 
-    await saveForHistory();
+    // 送信元が同一サーバーの場合は POST 側で既に保存済みのため二重保存回避
+    try {
+      const obj = activity.object as Record<string, unknown>;
+      const localId = typeof (obj as { xTakosMessageId?: unknown }).xTakosMessageId ===
+          "string"
+        ? (obj as { xTakosMessageId: string }).xTakosMessageId
+        : "";
+      if (localId) {
+        const exists = await db.posts.findMessageById(localId).catch(() => null);
+        if (!exists) await saveForHistory();
+      } else {
+        await saveForHistory();
+      }
+    } catch {
+      await saveForHistory();
+    }
 
     // 保存用（公開用）Outbox には宛先情報を含めない Announce を格納
     const announceBase = {
@@ -1768,13 +1787,29 @@ app.post("/groups/:name/inbox", async (c) => {
     const gpKey: string = group.privateKey;
     // ここではフォロワー（Actor IRI）の配列を渡し、各自の inbox/sharedInbox 解決は
     // deliverActivityPubObject に委譲する（sendActivityPubObject は inbox URL 前提）。
-    await deliverActivityPubObject(
-      group.followers,
-      announceBase,
-      { actorId: groupId, privateKey: gpKey },
-      domain,
-      db,
-    );
+    // 各フォロワーへ個別配送し、to に明示宛先を付与
+    try {
+      const followers = Array.isArray(group.followers)
+        ? group.followers.filter((f): f is string => typeof f === "string")
+        : [];
+      await Promise.all(
+        followers.map(async (f) => {
+          const perRecipient = { ...announceBase, to: [f] } as Record<
+            string,
+            unknown
+          >;
+          await deliverActivityPubObject(
+            [f],
+            perRecipient,
+            { actorId: groupId, privateKey: gpKey },
+            domain,
+            db,
+          );
+        }),
+      );
+    } catch (e) {
+      console.error("group announce fan-out failed", e);
+    }
     // ローカルメンバーには WS で即時通知を送ってチャットを更新させる
     try {
       const localFollowers = group.followers.filter((iri) => {
