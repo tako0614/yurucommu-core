@@ -1,6 +1,15 @@
 import mongoose from "mongoose";
-import { attachmentSchema } from "../../../takos/models/takos/attachment.ts";
 import tenantScope from "../plugins/tenant_scope.ts";
+
+const attachmentSchema = new mongoose.Schema({
+  _id: { type: String },
+  attributedTo: { type: String, required: true },
+  actor_id: { type: String, required: true, index: true },
+  extra: { type: mongoose.Schema.Types.Mixed, default: {} },
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
+  deleted_at: { type: Date },
+});
 
 attachmentSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 

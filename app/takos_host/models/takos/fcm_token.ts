@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
-import { fcmTokenSchema } from "../../../takos/models/takos/fcm_token.ts";
 import tenantScope from "../plugins/tenant_scope.ts";
+
+const fcmTokenSchema = new mongoose.Schema({
+  token: { type: String, required: true },
+  userName: { type: String, default: "" },
+});
 
 fcmTokenSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 // トークン自体はユニーク定義があるが、テナント付きインデックスも追加

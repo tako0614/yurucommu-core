@@ -21,7 +21,7 @@ import OAuthClient from "../models/oauth_client.ts";
 import HostDomain from "../models/domain.ts";
 import HostUser from "../models/user.ts";
 import HostSession from "../models/session.ts";
-import FaspClientSetting from "../../takos/models/takos/fasp_client_setting.ts";
+import FaspClientSetting from "../models/takos/fasp_client_setting.ts";
 // テナントスコープ済みのモデルを使用
 import Invite from "../models/takos/invite.ts";
 import Approval from "../models/takos/approval.ts";

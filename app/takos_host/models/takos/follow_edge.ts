@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
-import { followEdgeSchema } from "../../../takos/models/takos/follow_edge.ts";
 import tenantScope from "../plugins/tenant_scope.ts";
+
+const followEdgeSchema = new mongoose.Schema({
+  actor_id: { type: String, required: true },
+  since: { type: Date, default: Date.now },
+  relay: { type: String, default: null },
+});
 
 followEdgeSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 

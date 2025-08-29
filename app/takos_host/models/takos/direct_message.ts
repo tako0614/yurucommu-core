@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
-import { directMessageSchema } from "../../../takos/models/takos/direct_message.ts";
 import tenantScope from "../plugins/tenant_scope.ts";
+
+// DM は「所有者」と「相手」のみを保持する最小構成
+const directMessageSchema = new mongoose.Schema({
+  owner: { type: String, required: true },
+  id: { type: String, required: true }, // 相手ユーザー（ハンドル or IRI）
+});
 
 // members removed in base schema; keep tenant scoping and index
 directMessageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });

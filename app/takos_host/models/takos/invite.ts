@@ -1,6 +1,14 @@
 import mongoose from "mongoose";
-import { inviteSchema } from "../../../takos/models/takos/invite.ts";
 import tenantScope from "../plugins/tenant_scope.ts";
+
+const inviteSchema = new mongoose.Schema({
+  groupName: { type: String, required: true },
+  actor: { type: String, required: true },
+  inviter: { type: String, default: "" },
+  expiresAt: { type: Date },
+  remainingUses: { type: Number, default: 1 },
+  accepted: { type: Boolean, default: false },
+}, { timestamps: true });
 
 inviteSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 inviteSchema.index({ groupName: 1, actor: 1, tenant_id: 1 }, { unique: true });
