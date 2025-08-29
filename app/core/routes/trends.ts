@@ -2,8 +2,8 @@ import { type Context, Hono } from "hono";
 import { getDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
 import authRequired from "../utils/auth.ts";
-import { getDomain } from "../utils/activitypub.ts";
-import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts";
+// import { getDomain } from "../utils/activitypub.ts";
+// import { faspFetch, getFaspBaseUrl } from "../services/fasp.ts"; // FASP機能凍結
 
 interface NoteDoc {
   content?: string;
@@ -16,44 +16,44 @@ const auth = (c: Context, next: () => Promise<void>) =>
 app.use("/trends/*", auth);
 
 app.get("/trends", async (c) => {
-  const env = getEnv(c);
-  const db = getDB(c);
-  const domain = getDomain(c);
+  const _env = getEnv(c);
+  // const db = getDB(c);
+  // const domain = getDomain(c);
   const qType = c.req.query("type");
   const type = qType === "content" || qType === "links" ? qType : "hashtags";
   const withinLastHours = Number(c.req.query("withinLastHours") ?? "24");
   const maxCount = Number(c.req.query("maxCount") ?? "10");
-  const faspBase = await getFaspBaseUrl(db, env, "trends");
-  if (faspBase) {
-    try {
-      const params = new URLSearchParams();
-      params.set("withinLastHours", String(withinLastHours));
-      params.set("maxCount", String(maxCount));
-      const url = `${faspBase}/trends/v0/${type}?${params.toString()}`;
-      const res = await faspFetch(db, env, domain, url, {
-        signing: "registered",
-      });
-      if (res.ok) {
-        const data = await res.json() as Record<string, unknown>;
-        let trends;
-        if (type === "content") {
-          const content = data.content as Array<{ uri: string; rank: number }>;
-          trends = content.map((t) => ({ tag: t.uri, count: t.rank }));
-        } else if (type === "links") {
-          const links = data.links as Array<{ url: string; rank: number }>;
-          trends = links.map((t) => ({ tag: t.url, count: t.rank }));
-        } else {
-          const hashtags = data.hashtags as Array<
-            { name: string; rank: number }
-          >;
-          trends = hashtags.map((h) => ({ tag: `#${h.name}`, count: h.rank }));
-        }
-        return c.json(trends);
-      }
-    } catch {
-      /* ignore and fallback */
-    }
-  }
+  // const faspBase = await getFaspBaseUrl(db, env, "trends");
+  // if (faspBase) {
+  //   try {
+  //     const params = new URLSearchParams();
+  //     params.set("withinLastHours", String(withinLastHours));
+  //     params.set("maxCount", String(maxCount));
+  //     const url = `${faspBase}/trends/v0/${type}?${params.toString()}`;
+  //     const res = await faspFetch(db, env, domain, url, {
+  //       signing: "registered",
+  //     });
+  //     if (res.ok) {
+  //       const data = await res.json() as Record<string, unknown>;
+  //       let trends;
+  //       if (type === "content") {
+  //         const content = data.content as Array<{ uri: string; rank: number }>;
+  //         trends = content.map((t) => ({ tag: t.uri, count: t.rank }));
+  //       } else if (type === "links") {
+  //         const links = data.links as Array<{ url: string; rank: number }>;
+  //         trends = links.map((t) => ({ tag: t.url, count: t.rank }));
+  //       } else {
+  //         const hashtags = data.hashtags as Array<
+  //           { name: string; rank: number }
+  //         >;
+  //         trends = hashtags.map((h) => ({ tag: `#${h.name}`, count: h.rank }));
+  //       }
+  //       return c.json(trends);
+  //     }
+  //   } catch {
+  //     /* ignore and fallback */
+  //   }
+  // }
   if (type === "hashtags") {
     const db = getDB(c);
     const since = new Date(Date.now() - withinLastHours * 60 * 60 * 1000);

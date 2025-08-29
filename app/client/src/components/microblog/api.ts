@@ -138,11 +138,20 @@ export const followUser = async (
       } catch {
         // assume it's a handle or local username
         const domain = getDomain();
-        return username.includes("@") ? `https://${username.split('@')[1]}/users/${username.split('@')[0]}` : `https://${domain}/users/${encodeURIComponent(username)}`;
+        return username.includes("@")
+          ? `https://${username.split("@")[1]}/users/${username.split("@")[0]}`
+          : `https://${domain}/users/${encodeURIComponent(username)}`;
       }
     })();
     const follower = (() => {
-      try { new URL(followerUsername); return followerUsername; } catch { return `https://${getDomain()}/users/${encodeURIComponent(followerUsername)}`; }
+      try {
+        new URL(followerUsername);
+        return followerUsername;
+      } catch {
+        return `https://${getDomain()}/users/${
+          encodeURIComponent(followerUsername)
+        }`;
+      }
     })();
     const response = await apiFetch("/api/follow", {
       method: "POST",
@@ -167,10 +176,21 @@ export const unfollowUser = async (
         return username;
       } catch {
         const domain = getDomain();
-        return username.includes("@") ? `https://${username.split('@')[1]}/users/${username.split('@')[0]}` : `https://${domain}/users/${encodeURIComponent(username)}`;
+        return username.includes("@")
+          ? `https://${username.split("@")[1]}/users/${username.split("@")[0]}`
+          : `https://${domain}/users/${encodeURIComponent(username)}`;
       }
     })();
-    const follower = (() => { try { new URL(followerUsername); return followerUsername; } catch { return `https://${getDomain()}/users/${encodeURIComponent(followerUsername)}`; } })();
+    const follower = (() => {
+      try {
+        new URL(followerUsername);
+        return followerUsername;
+      } catch {
+        return `https://${getDomain()}/users/${
+          encodeURIComponent(followerUsername)
+        }`;
+      }
+    })();
     const response = await apiFetch("/api/follow", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -189,7 +209,7 @@ export const createPost = async (
   attachments?: { url: string; type: "image" | "video" | "audio" }[],
   parentId?: string,
   quoteId?: string,
-  faspShare?: boolean,
+  // faspShare?: boolean,
 ): Promise<boolean> => {
   try {
     const response = await apiFetch("/api/posts", {
@@ -203,7 +223,7 @@ export const createPost = async (
         attachments,
         parentId,
         quoteId,
-        faspShare,
+        // faspShare,
       }),
     });
     return response.ok;
@@ -225,7 +245,7 @@ export const createPostWithTo = async (
   attachments?: { url: string; type: "image" | "video" | "audio" }[],
   parentId?: string,
   quoteId?: string,
-  faspShare?: boolean,
+  // faspShare?: boolean,
 ): Promise<boolean> => {
   try {
     const payload: Record<string, unknown> = {
@@ -234,7 +254,7 @@ export const createPostWithTo = async (
       attachments,
       parentId,
       quoteId,
-      faspShare,
+      // faspShare,
     };
     if (typeof to !== "undefined") payload.to = to;
     const response = await apiFetch("/api/posts", {

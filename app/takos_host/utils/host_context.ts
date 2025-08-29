@@ -9,7 +9,7 @@ import {
 } from "@takos_host/db";
 import { getEnvPath } from "@takos/config";
 import { createTakosApp } from "../../core/create_takos_app.ts";
-import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts";
+// import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts"; // FASP機能凍結
 import { getSystemKey } from "../../core/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
 import { createConsumerApp } from "../consumer.ts";
@@ -19,7 +19,7 @@ import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
 import type { HostDataStore } from "../db/types.ts";
 import Instance from "../models/instance.ts";
-import FaspClient from "../models/fasp_client.ts";
+// import FaspClient from "../models/fasp_client.ts"; // FASP機能凍結
 import {
   FASP_PROVIDER_INFO_PATHS,
   FCM_KEYS,
@@ -158,7 +158,7 @@ async function getEnvForHost(
   return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
 }
 
-function canonicalizeFaspBaseUrl(u: string): string {
+function _canonicalizeFaspBaseUrl(u: string): string {
   let b = u.trim();
   if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
   try {
@@ -176,6 +176,7 @@ function canonicalizeFaspBaseUrl(u: string): string {
   }
 }
 
+/* FASP機能凍結により未使用
 async function seedDefaultFasp(
   appEnv: Record<string, string>,
   host: string,
@@ -209,8 +210,9 @@ async function seedDefaultFasp(
       host,
       tenantDb,
     ).catch(() => {});
-  } catch { /* ignore */ }
+  } catch { // ignore }
 }
+*/
 
 export async function getAppForHost(
   host: string,
@@ -229,7 +231,7 @@ export async function getAppForHost(
     // テナント環境用のシステム鍵を用意
     const tenantDb = createDB(appEnv) as HostDataStore;
     await getSystemKey(tenantDb, host).catch(() => {});
-    await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl, tenantDb);
+    // await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl, tenantDb); // FASP機能凍結
     const app = await createTakosApp(appEnv, tenantDb);
     apps.set(host, app);
     return app;

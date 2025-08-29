@@ -4,10 +4,13 @@
 //   takosのみ: deno task setup:takos
 //   非対話で上書き: deno run -A scripts/setup_env.ts --target takos --force --password yourpass --domain dev.takos.jp
 
-import { dirname, fromFileUrl, join as _join, resolve } from "jsr:@std/path";
+import { dirname, fromFileUrl, resolve } from "jsr:@std/path";
 import { ensureFile } from "jsr:@std/fs/ensure-file";
 import { load as loadDotenv, stringify } from "jsr:@std/dotenv";
-import { genSalt, hash as bcryptHash } from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
+import {
+  genSalt,
+  hash as bcryptHash,
+} from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 
 type Target = "takos" | "host" | "all";
 
@@ -34,10 +37,12 @@ function parseArgs(): Options {
     else if (a === "--force") o.force = true;
     else if (a === "-y" || a === "--yes") o.yes = true;
     else if (a === "--env-takos") o.envTakos = next();
-    else if (a.startsWith("--env-takos=")) o.envTakos = a.slice("--env-takos=".length);
-    else if (a === "--env-host") o.envHost = next();
-    else if (a.startsWith("--env-host=")) o.envHost = a.slice("--env-host=".length);
-    else if (a === "--mongo") o.mongo = next();
+    else if (a.startsWith("--env-takos=")) {
+      o.envTakos = a.slice("--env-takos=".length);
+    } else if (a === "--env-host") o.envHost = next();
+    else if (a.startsWith("--env-host=")) {
+      o.envHost = a.slice("--env-host=".length);
+    } else if (a === "--mongo") o.mongo = next();
     else if (a.startsWith("--mongo=")) o.mongo = a.slice(8);
     else if (a === "--domain") o.domain = next();
     else if (a.startsWith("--domain=")) o.domain = a.slice(9);
@@ -70,7 +75,8 @@ function promptYesNo(question: string, yes = false): boolean {
 function validateDomain(domain: string): boolean {
   if (!domain) return true; // 空欄は許可
   // より厳密なドメイン検証
-  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  const domainRegex =
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
   return domainRegex.test(domain) && domain.length <= 253;
 }
 
@@ -86,13 +92,29 @@ async function createTakosEnv(outPath: string, opts: Options) {
   const example = await loadExampleEnv(examplePath);
 
   const mongo = opts.mongo ??
-    promptIfNeeded("MONGO_URI (takos)", example.MONGO_URI ?? "mongodb://localhost:27017/takos-hono", opts.yes);
+    promptIfNeeded(
+      "MONGO_URI (takos)",
+      example.MONGO_URI ?? "mongodb://localhost:27017/takos-hono",
+      opts.yes,
+    );
   const domain = opts.domain ??
-    promptIfNeeded("ACTIVITYPUB_DOMAIN (takos)", example.ACTIVITYPUB_DOMAIN ?? "", opts.yes);
+    promptIfNeeded(
+      "ACTIVITYPUB_DOMAIN (takos)",
+      example.ACTIVITYPUB_DOMAIN ?? "",
+      opts.yes,
+    );
 
   // サーバー設定
-  const serverHost = promptIfNeeded("SERVER_HOST (空欄で0.0.0.0)", example.SERVER_HOST ?? "", opts.yes);
-  const serverPort = promptIfNeeded("SERVER_PORT", example.SERVER_PORT ?? "80", opts.yes);
+  const serverHost = promptIfNeeded(
+    "SERVER_HOST (空欄で0.0.0.0)",
+    example.SERVER_HOST ?? "",
+    opts.yes,
+  );
+  const serverPort = promptIfNeeded(
+    "SERVER_PORT",
+    example.SERVER_PORT ?? "80",
+    opts.yes,
+  );
   const useHttps = promptYesNo("HTTPSを使用しますか?", opts.yes);
   let serverCert = example.SERVER_CERT ?? "";
   let serverKey = example.SERVER_KEY ?? "";
@@ -116,7 +138,11 @@ async function createTakosEnv(outPath: string, opts: Options) {
   }
 
   // ストレージ設定
-  const storageProvider = promptIfNeeded("OBJECT_STORAGE_PROVIDER (local/gridfs/r2)", example.OBJECT_STORAGE_PROVIDER ?? "local", opts.yes);
+  const storageProvider = promptIfNeeded(
+    "OBJECT_STORAGE_PROVIDER (local/gridfs/r2)",
+    example.OBJECT_STORAGE_PROVIDER ?? "local",
+    opts.yes,
+  );
   let localStorageDir = example.LOCAL_STORAGE_DIR ?? "uploads";
   let gridfsBucket = example.GRIDFS_BUCKET ?? "uploads";
   let r2Bucket = example.R2_BUCKET ?? "";
@@ -125,7 +151,11 @@ async function createTakosEnv(outPath: string, opts: Options) {
   let r2SecretAccessKey = example.R2_SECRET_ACCESS_KEY ?? "";
 
   if (storageProvider === "local") {
-    localStorageDir = promptIfNeeded("LOCAL_STORAGE_DIR", localStorageDir, opts.yes);
+    localStorageDir = promptIfNeeded(
+      "LOCAL_STORAGE_DIR",
+      localStorageDir,
+      opts.yes,
+    );
   } else if (storageProvider === "gridfs") {
     gridfsBucket = promptIfNeeded("GRIDFS_BUCKET", gridfsBucket, opts.yes);
   } else if (storageProvider === "r2") {
@@ -136,11 +166,22 @@ async function createTakosEnv(outPath: string, opts: Options) {
   }
 
   // ファイル制限設定
-  const fileMaxSize = promptIfNeeded("FILE_MAX_SIZE (例: 10MB)", example.FILE_MAX_SIZE ?? "10MB", opts.yes);
-  const fileAllowedTypes = promptIfNeeded("FILE_ALLOWED_MIME_TYPES (空欄で全許可)", example.FILE_ALLOWED_MIME_TYPES ?? "", opts.yes);
+  const fileMaxSize = promptIfNeeded(
+    "FILE_MAX_SIZE (例: 10MB)",
+    example.FILE_MAX_SIZE ?? "10MB",
+    opts.yes,
+  );
+  const fileAllowedTypes = promptIfNeeded(
+    "FILE_ALLOWED_MIME_TYPES (空欄で全許可)",
+    example.FILE_ALLOWED_MIME_TYPES ?? "",
+    opts.yes,
+  );
 
   // FCM設定
-  const useFcm = promptYesNo("Firebase Cloud Messagingを使用しますか?", opts.yes);
+  const useFcm = promptYesNo(
+    "Firebase Cloud Messagingを使用しますか?",
+    opts.yes,
+  );
   let firebaseClientEmail = example.FIREBASE_CLIENT_EMAIL ?? "";
   let firebasePrivateKey = example.FIREBASE_PRIVATE_KEY ?? "";
   let firebaseApiKey = example.FIREBASE_API_KEY ?? "";
@@ -154,22 +195,35 @@ async function createTakosEnv(outPath: string, opts: Options) {
   if (useFcm) {
     firebaseClientEmail = promptIfNeeded("FIREBASE_CLIENT_EMAIL", "", opts.yes);
     if (firebaseClientEmail && !validateEmail(firebaseClientEmail)) {
-      console.warn("⚠️ 警告: FIREBASE_CLIENT_EMAILの形式が正しくない可能性があります");
+      console.warn(
+        "⚠️ 警告: FIREBASE_CLIENT_EMAILの形式が正しくない可能性があります",
+      );
     }
     firebasePrivateKey = promptIfNeeded("FIREBASE_PRIVATE_KEY", "", opts.yes);
     firebaseApiKey = promptIfNeeded("FIREBASE_API_KEY", "", opts.yes);
     firebaseAuthDomain = promptIfNeeded("FIREBASE_AUTH_DOMAIN", "", opts.yes);
     if (firebaseAuthDomain && !validateDomain(firebaseAuthDomain)) {
-      console.warn("⚠️ 警告: FIREBASE_AUTH_DOMAINの形式が正しくない可能性があります");
+      console.warn(
+        "⚠️ 警告: FIREBASE_AUTH_DOMAINの形式が正しくない可能性があります",
+      );
     }
     firebaseProjectId = promptIfNeeded("FIREBASE_PROJECT_ID", "", opts.yes);
-    firebaseStorageBucket = promptIfNeeded("FIREBASE_STORAGE_BUCKET", "", opts.yes);
-    firebaseMessagingSenderId = promptIfNeeded("FIREBASE_MESSAGING_SENDER_ID", "", opts.yes);
+    firebaseStorageBucket = promptIfNeeded(
+      "FIREBASE_STORAGE_BUCKET",
+      "",
+      opts.yes,
+    );
+    firebaseMessagingSenderId = promptIfNeeded(
+      "FIREBASE_MESSAGING_SENDER_ID",
+      "",
+      opts.yes,
+    );
     firebaseAppId = promptIfNeeded("FIREBASE_APP_ID", "", opts.yes);
     firebaseVapidKey = promptIfNeeded("FIREBASE_VAPID_KEY", "", opts.yes);
   }
 
-  const password = opts.password ?? (opts.yes ? "" : (prompt("管理者初期パスワード(空欄でスキップ)") ?? ""));
+  const password = opts.password ??
+    (opts.yes ? "" : (prompt("管理者初期パスワード(空欄でスキップ)") ?? ""));
   let salt = example.salt ?? "";
   let hashedPassword = example.hashedPassword ?? "";
   if (password) {
@@ -226,9 +280,17 @@ async function createHostEnv(outPath: string, opts: Options) {
   const example = await loadExampleEnv(examplePath);
 
   const mongo = opts.mongo ??
-    promptIfNeeded("MONGO_URI (host)", example.MONGO_URI ?? "mongodb://localhost:27017/takos-host", opts.yes);
+    promptIfNeeded(
+      "MONGO_URI (host)",
+      example.MONGO_URI ?? "mongodb://localhost:27017/takos-host",
+      opts.yes,
+    );
   const domain = opts.domain ??
-    promptIfNeeded("ACTIVITYPUB_DOMAIN (root domain)", example.ACTIVITYPUB_DOMAIN ?? "", opts.yes);
+    promptIfNeeded(
+      "ACTIVITYPUB_DOMAIN (root domain)",
+      example.ACTIVITYPUB_DOMAIN ?? "",
+      opts.yes,
+    );
   const freeLimit = promptIfNeeded(
     "FREE_PLAN_LIMIT",
     example.FREE_PLAN_LIMIT ?? "1",
@@ -239,11 +301,23 @@ async function createHostEnv(outPath: string, opts: Options) {
     example.RESERVED_SUBDOMAINS ?? "www,admin",
     opts.yes,
   );
-  const terms = promptIfNeeded("TERMS_FILE (任意)", example.TERMS_FILE ?? "", opts.yes);
+  const terms = promptIfNeeded(
+    "TERMS_FILE (任意)",
+    example.TERMS_FILE ?? "",
+    opts.yes,
+  );
 
   // サーバー設定
-  const serverHost = promptIfNeeded("SERVER_HOST (空欄で0.0.0.0)", example.SERVER_HOST ?? "", opts.yes);
-  const serverPort = promptIfNeeded("SERVER_PORT", example.SERVER_PORT ?? "80", opts.yes);
+  const serverHost = promptIfNeeded(
+    "SERVER_HOST (空欄で0.0.0.0)",
+    example.SERVER_HOST ?? "",
+    opts.yes,
+  );
+  const serverPort = promptIfNeeded(
+    "SERVER_PORT",
+    example.SERVER_PORT ?? "80",
+    opts.yes,
+  );
   const useHttps = promptYesNo("HTTPSを使用しますか?", opts.yes);
   let serverCert = example.SERVER_CERT ?? "";
   let serverKey = example.SERVER_KEY ?? "";
@@ -270,14 +344,21 @@ async function createHostEnv(outPath: string, opts: Options) {
     }
     smtpPass = promptIfNeeded("SMTP_PASS", "", opts.yes);
     smtpSsl = promptIfNeeded("SMTP_SSL (465=SSL, 587=TLS)", smtpSsl, opts.yes);
-    mailFrom = promptIfNeeded("MAIL_FROM (空欄でSMTP_USERを使用)", "", opts.yes);
+    mailFrom = promptIfNeeded(
+      "MAIL_FROM (空欄でSMTP_USERを使用)",
+      "",
+      opts.yes,
+    );
     if (mailFrom && !validateEmail(mailFrom)) {
       console.warn("⚠️ 警告: MAIL_FROMの形式が正しくない可能性があります");
     }
   }
 
   // FCM設定
-  const useFcm = promptYesNo("Firebase Cloud Messagingを使用しますか?", opts.yes);
+  const useFcm = promptYesNo(
+    "Firebase Cloud Messagingを使用しますか?",
+    opts.yes,
+  );
   let firebaseClientEmail = example.FIREBASE_CLIENT_EMAIL ?? "";
   let firebasePrivateKey = example.FIREBASE_PRIVATE_KEY ?? "";
   let firebaseApiKey = example.FIREBASE_API_KEY ?? "";
@@ -291,22 +372,35 @@ async function createHostEnv(outPath: string, opts: Options) {
   if (useFcm) {
     firebaseClientEmail = promptIfNeeded("FIREBASE_CLIENT_EMAIL", "", opts.yes);
     if (firebaseClientEmail && !validateEmail(firebaseClientEmail)) {
-      console.warn("⚠️ 警告: FIREBASE_CLIENT_EMAILの形式が正しくない可能性があります");
+      console.warn(
+        "⚠️ 警告: FIREBASE_CLIENT_EMAILの形式が正しくない可能性があります",
+      );
     }
     firebasePrivateKey = promptIfNeeded("FIREBASE_PRIVATE_KEY", "", opts.yes);
     firebaseApiKey = promptIfNeeded("FIREBASE_API_KEY", "", opts.yes);
     firebaseAuthDomain = promptIfNeeded("FIREBASE_AUTH_DOMAIN", "", opts.yes);
     if (firebaseAuthDomain && !validateDomain(firebaseAuthDomain)) {
-      console.warn("⚠️ 警告: FIREBASE_AUTH_DOMAINの形式が正しくない可能性があります");
+      console.warn(
+        "⚠️ 警告: FIREBASE_AUTH_DOMAINの形式が正しくない可能性があります",
+      );
     }
     firebaseProjectId = promptIfNeeded("FIREBASE_PROJECT_ID", "", opts.yes);
-    firebaseStorageBucket = promptIfNeeded("FIREBASE_STORAGE_BUCKET", "", opts.yes);
-    firebaseMessagingSenderId = promptIfNeeded("FIREBASE_MESSAGING_SENDER_ID", "", opts.yes);
+    firebaseStorageBucket = promptIfNeeded(
+      "FIREBASE_STORAGE_BUCKET",
+      "",
+      opts.yes,
+    );
+    firebaseMessagingSenderId = promptIfNeeded(
+      "FIREBASE_MESSAGING_SENDER_ID",
+      "",
+      opts.yes,
+    );
     firebaseAppId = promptIfNeeded("FIREBASE_APP_ID", "", opts.yes);
     firebaseVapidKey = promptIfNeeded("FIREBASE_VAPID_KEY", "", opts.yes);
   }
 
-  // FASP設定
+  // FASP設定は凍結されています
+  /*
   const useFasp = promptYesNo("FASPサーバーを有効にしますか?", opts.yes);
   let faspServerDisabled = example.FASP_SERVER_DISABLED ?? "";
   let faspDefaultBaseUrl = example.FASP_DEFAULT_BASE_URL ?? "";
@@ -319,6 +413,7 @@ async function createHostEnv(outPath: string, opts: Options) {
       console.warn("⚠️ 警告: FASP_DEFAULT_BASE_URLの形式が正しくない可能性があります");
     }
   }
+  */
 
   const env: Record<string, string> = {
     ...example,
@@ -346,8 +441,8 @@ async function createHostEnv(outPath: string, opts: Options) {
     FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
     FIREBASE_APP_ID: firebaseAppId,
     FIREBASE_VAPID_KEY: firebaseVapidKey,
-    FASP_SERVER_DISABLED: faspServerDisabled,
-    FASP_DEFAULT_BASE_URL: faspDefaultBaseUrl,
+    // FASP_SERVER_DISABLED: faspServerDisabled,
+    // FASP_DEFAULT_BASE_URL: faspDefaultBaseUrl,
   };
 
   await ensureFile(outPath);
@@ -364,13 +459,23 @@ async function main() {
   if (!opts.force) {
     // 既存ファイルがある場合は確認
     const existing: string[] = [];
-    try { await Deno.stat(takosOut); existing.push("takos"); } catch { /* ignore */ }
-    try { await Deno.stat(hostOut); existing.push("host"); } catch { /* ignore */ }
+    try {
+      await Deno.stat(takosOut);
+      existing.push("takos");
+    } catch { /* ignore */ }
+    try {
+      await Deno.stat(hostOut);
+      existing.push("host");
+    } catch { /* ignore */ }
     if (existing.length) {
       if (opts.yes) {
         // 続行
       } else {
-        const ans = prompt(`既に ${existing.join(",")} の .env が存在します。上書きしますか? [y/N]`)?.toLowerCase() ?? "n";
+        const ans = prompt(
+          `既に ${
+            existing.join(",")
+          } の .env が存在します。上書きしますか? [y/N]`,
+        )?.toLowerCase() ?? "n";
         if (ans !== "y") {
           console.log("キャンセルしました。");
           Deno.exit(0);
@@ -379,7 +484,9 @@ async function main() {
     }
   }
 
-  const targets: Target[] = opts.target === "all" ? ["takos", "host"] : [opts.target];
+  const targets: Target[] = opts.target === "all"
+    ? ["takos", "host"]
+    : [opts.target];
   for (const t of targets) {
     if (t === "takos") await createTakosEnv(takosOut, opts);
     if (t === "host") await createHostEnv(hostOut, opts);
@@ -390,4 +497,3 @@ async function main() {
 if (import.meta.main) {
   await main();
 }
-

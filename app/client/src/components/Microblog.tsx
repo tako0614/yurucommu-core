@@ -40,6 +40,7 @@ export function Microblog() {
     url: string;
     type: "image" | "video" | "audio";
   }[]>([]);
+  /* FASP機能凍結
   function getDefaultFaspShare() {
     try {
       const v = localStorage.getItem("faspShareDefault");
@@ -51,6 +52,7 @@ export function Microblog() {
   const [useFaspShare, setUseFaspShare] = createSignal<boolean>(
     getDefaultFaspShare(),
   );
+  */
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
@@ -300,7 +302,7 @@ export function Microblog() {
       newPostAttachments(),
       _replyingTo() ?? undefined,
       quoteTarget() ?? undefined,
-      useFaspShare(),
+      // useFaspShare(),
     );
     if (success) {
       setNewPostContent("");
@@ -357,7 +359,7 @@ export function Microblog() {
       attachments,
       postId,
       undefined,
-      useFaspShare(),
+      // useFaspShare(),
     );
     if (success) {
       // リプライリストを更新
@@ -930,15 +932,17 @@ export function Microblog() {
           replyingTo={_replyingTo()}
           quoteId={quoteTarget()}
           currentUser={account() || undefined}
+          /* FASP機能凍結
           useFaspShare={useFaspShare()}
           setUseFaspShare={(v) => {
             setUseFaspShare(v);
             try {
               localStorage.setItem("faspShareDefault", v ? "1" : "0");
             } catch {
-              /* ignore */
+              // ignore
             }
           }}
+          */
         />
         <Show when={account()}>
           <button

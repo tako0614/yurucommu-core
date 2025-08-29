@@ -6,7 +6,7 @@ import { getEnv } from "@takos/config";
 import { generateKeyPair } from "@takos/crypto";
 import type { AccountDoc } from "@takos/types";
 import { isUrl } from "@takos/url";
-import { announceIfPublicAndDiscoverable } from "../services/fasp.ts";
+// import { announceIfPublicAndDiscoverable } from "../services/fasp.ts"; // FASP機能凍結
 import {
   createAccount,
   deleteAccountById,
@@ -51,8 +51,8 @@ app.get("/accounts", async (c) => {
 });
 
 app.post("/accounts", async (c) => {
-  const domain = getDomain(c);
-  const env = getEnv(c);
+  const _domain = getDomain(c);
+  const _env = getEnv(c);
   const { username, displayName, icon, privateKey, publicKey } = await c.req
     .json();
 
@@ -96,11 +96,11 @@ app.post("/accounts", async (c) => {
     followers: [],
     following: [],
   });
-  await announceIfPublicAndDiscoverable(db, env, domain, {
-    category: "account",
-    eventType: "new",
-    objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account as unknown as Record<string, unknown>);
+  // await announceIfPublicAndDiscoverable(db, env, domain, {
+  //   category: "account",
+  //   eventType: "new",
+  //   objectUris: [`https://${domain}/users/${account.userName}`],
+  // }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, formatAccount(account));
 });
 
@@ -116,8 +116,8 @@ app.get("/accounts/:id", async (c) => {
 });
 
 app.put("/accounts/:id", async (c) => {
-  const domain = getDomain(c);
-  const env = getEnv(c);
+  const _domain = getDomain(c);
+  const _env = getEnv(c);
   const db = getDB(c);
   const id = c.req.param("id");
   const updates = await c.req.json();
@@ -146,28 +146,28 @@ app.put("/accounts/:id", async (c) => {
 
   const account = await updateAccountById(db, id, data);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(db, env, domain, {
-    category: "account",
-    eventType: "update",
-    objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account as unknown as Record<string, unknown>);
+  // await announceIfPublicAndDiscoverable(db, env, domain, {
+  //   category: "account",
+  //   eventType: "update",
+  //   objectUris: [`https://${domain}/users/${account.userName}`],
+  // }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, formatAccount(account));
 });
 
 app.delete("/accounts/:id", async (c) => {
-  const domain = getDomain(c);
-  const env = getEnv(c);
+  const _domain = getDomain(c);
+  const _env = getEnv(c);
   const db = getDB(c);
   const id = c.req.param("id");
   const account = await findAccountById(db, id);
   if (!account) return jsonResponse(c, { error: "Account not found" }, 404);
   const deleted = await deleteAccountById(db, id);
   if (!deleted) return jsonResponse(c, { error: "Account not found" }, 404);
-  await announceIfPublicAndDiscoverable(db, env, domain, {
-    category: "account",
-    eventType: "delete",
-    objectUris: [`https://${domain}/users/${account.userName}`],
-  }, account as unknown as Record<string, unknown>);
+  // await announceIfPublicAndDiscoverable(db, env, domain, {
+  //   category: "account",
+  //   eventType: "delete",
+  //   objectUris: [`https://${domain}/users/${account.userName}`],
+  // }, account as unknown as Record<string, unknown>);
   return jsonResponse(c, { success: true });
 });
 

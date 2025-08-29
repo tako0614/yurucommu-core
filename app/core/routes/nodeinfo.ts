@@ -46,7 +46,7 @@ app.get("/nodeinfo/2.0", async (c) => {
     },
     metadata: {
       // FASP クライアント API のベース URL を公開
-      faspBaseUrl: `https://${getDomain(c)}/fasp`,
+      // faspBaseUrl: `https://${getDomain(c)}/fasp`,
     },
   });
 });

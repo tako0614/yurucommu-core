@@ -14,7 +14,7 @@ import users from "./routes/users.ts";
 import follow from "./routes/follow.ts";
 import rootInbox from "./routes/root_inbox.ts";
 import nodeinfo from "./routes/nodeinfo.ts";
-import fasp from "./routes/fasp.ts";
+// import fasp from "./routes/fasp.ts"; // FASP機能凍結
 import files, { initFileModule } from "./routes/files.ts";
 import wsRouter from "./routes/ws.ts";
 import config from "./routes/config.ts";
@@ -81,7 +81,8 @@ export async function createTakosApp(
 
   // ActivityPub や公開エンドポイントは / にマウントする
 
-  const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, groups];
+  // const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, groups];
+  const rootRoutes = [nodeinfo, activitypub, rootInbox, groups];
   for (const r of rootRoutes) {
     app.route("/", r);
   }

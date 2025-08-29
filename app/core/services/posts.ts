@@ -7,7 +7,7 @@ import {
 } from "../utils/activitypub.ts";
 import { deliverToFollowers } from "../utils/deliver.ts";
 import { addNotification } from "./notification.ts";
-import { announceIfPublicAndDiscoverable } from "./fasp.ts";
+// import { announceIfPublicAndDiscoverable } from "./fasp.ts"; // FASP機能凍結
 import { broadcast, sendToUser } from "../routes/ws.ts";
 
 type ActivityObject = Record<string, unknown>;
@@ -150,6 +150,7 @@ export async function notifyFollowers(
   }
 }
 
+/* FASP機能凍結のため未使用
 export async function announceToFasp(
   env: Record<string, string>,
   domain: string,
@@ -167,3 +168,4 @@ export async function announceToFasp(
     }, post);
   }
 }
+*/
