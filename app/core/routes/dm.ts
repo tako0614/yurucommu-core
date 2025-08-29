@@ -137,16 +137,21 @@ app.post(
         const activityId = createActivityId(localDomain);
 
         // 添付は ActivityStreams の attachment として送る
+        // Preserve encryption metadata (key/iv) and preview when sending attachments
+        // to remote ActivityPub actors so they can fetch and decrypt previews/files.
         const asAttachments = Array.isArray(attachments)
           ? attachments
             .map((a) => {
-              const u = typeof (a as { url?: unknown }).url === "string"
-                ? (a as { url: string }).url
-                : "";
-              const mType =
-                typeof (a as { mediaType?: unknown }).mediaType === "string"
-                  ? (a as { mediaType: string }).mediaType
-                  : undefined;
+              const rec = a as Record<string, unknown>;
+              const u = typeof rec.url === "string" ? rec.url : "";
+              const mType = typeof rec.mediaType === "string"
+                ? rec.mediaType
+                : undefined;
+              const key = typeof rec.key === "string" ? rec.key : undefined;
+              const iv = typeof rec.iv === "string" ? rec.iv : undefined;
+              const preview = rec.preview && typeof rec.preview === "object"
+                ? rec.preview as Record<string, unknown>
+                : undefined;
               if (!u) return null;
               const t = mType?.startsWith("image/")
                 ? "Image"
@@ -155,10 +160,12 @@ app.post(
                 : mType?.startsWith("audio/")
                 ? "Audio"
                 : "Document";
-              return { type: t, url: u, mediaType: mType } as Record<
-                string,
-                unknown
-              >;
+              const out: Record<string, unknown> = { type: t, url: u };
+              if (mType) out.mediaType = mType;
+              if (key) out.key = key;
+              if (iv) out.iv = iv;
+              if (preview) out.preview = preview;
+              return out;
             })
             .filter(Boolean) as Record<string, unknown>[]
           : undefined;

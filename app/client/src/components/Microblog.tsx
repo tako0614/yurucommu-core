@@ -11,7 +11,6 @@ import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
-import { Trends } from "./microblog/Trends.tsx";
 import SwipeTabs from "./ui/SwipeTabs.tsx";
 import { Skeleton } from "./ui/index.ts";
 import { createDelayedVisibility } from "../utils/ui.ts";
@@ -33,7 +32,7 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 export function Microblog() {
   const [account] = useAtom(activeAccount);
   const [mobileTab, setMobileTab] = createSignal<
-    "latest" | "following" | "trends"
+    "latest" | "following"
   >("following");
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
@@ -70,10 +69,9 @@ export function Microblog() {
   const [targetPostId, setTargetPostId] = useAtom(selectedPostIdState);
 
   // モバイルのタブ <-> インデックスの相互変換
-  const tabOrder: ("latest" | "following" | "trends")[] = [
+  const tabOrder: ("latest" | "following")[] = [
     "latest",
     "following",
-    "trends",
   ];
   const mobileIndex = () => tabOrder.indexOf(mobileTab());
   // タブごとのスクロール位置保持用
@@ -592,35 +590,12 @@ export function Microblog() {
                       </span>
                     </button>
 
-                    {/* トレンド */}
-                    <button
-                      type="button"
-                      class="px-3 py-2 text-sm font-bold text-[#9CA3AF] hover:text-[#E5E7EB]"
-                      onClick={() => setMobileIndex(2)}
-                    >
-                      <span class="relative inline-flex items-center">
-                        <span
-                          class={`absolute inset-[-4px] rounded-full transition-colors duration-200 ${
-                            mobileTab() === "trends"
-                              ? "bg-[#dc2626]/30"
-                              : "bg-transparent"
-                          }`}
-                        />
-                        <span
-                          class={`${
-                            mobileTab() === "trends" ? "text-white" : ""
-                          }`}
-                        >
-                          トレンド
-                        </span>
-                      </span>
-                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* メインレイアウト: デスクトップ3カラム / モバイル1カラム */}
-              <div class="lg:grid lg:grid-cols-[1fr_1.2fr_0.8fr] lg:gap-6 lg:px-6 lg:py-4 max-lg:pb-20">
+              {/* メインレイアウト: デスクトップ2カラム / モバイル1カラム */}
+              <div class="lg:grid lg:grid-cols-[1fr_1fr] lg:gap-6 lg:px-6 lg:py-4 max-lg:pb-20">
                 {/* 左カラム（デスクトップ: 最新投稿） */}
                 <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
                   <div class="backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
@@ -795,10 +770,6 @@ export function Microblog() {
                             </Show>
                           </div>
 
-                          {/* トレンド */}
-                          <div class="p-4 min-h-[calc(100vh-4rem)]">
-                            <Trends />
-                          </div>
                         </SwipeTabs>
                       </div>
 
@@ -852,32 +823,6 @@ export function Microblog() {
                   </div>
                 </div>
 
-                {/* 右カラム（デスクトップ: トレンド） */}
-                <div class="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:overflow-y-auto">
-                  <div class="backdrop-blur-sm rounded-xl border border-[#2B3340]/50 h-full">
-                    <div class="sticky top-0  backdrop-blur-sm px-4 py-3 border-b border-[#2B3340]/50 rounded-t-xl">
-                      <h3 class="text-lg font-semibold text-[#D5D7DB] flex items-center gap-2">
-                        <svg
-                          class="w-5 h-5 text-[#B9C0CA]"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                          />
-                        </svg>
-                        トレンド
-                      </h3>
-                    </div>
-                    <div class="p-4 overflow-x-hidden text-[#CDD1D6]">
-                      <Trends />
-                    </div>
-                  </div>
-                </div>
 
                 {/* モバイル用無限スクロール要素 */}
                 <div class="lg:hidden">
