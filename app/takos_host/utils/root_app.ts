@@ -193,13 +193,17 @@ export function buildRootApp(ctx: HostContext) {
         const proxy = devProxy("");
         return await proxy(c, async () => {});
       }
-      // 本番時かつ ルートドメイン未設定なら index.html を返す（上の use と二重になっても問題なし）
-      if (!rootDomain) {
+      // 本番時: 明示的に許可したパスのみ SPA を返す
+      // 必要に応じてここにパスを追加してください
+      const p = c.req.path;
+      const spaPath = /^(?:\/$|\/chat(?:\/|$)|\/demo(?:\/|$)|\/signup(?:\/|$)|\/download(?:\/|$)|\/terms(?:\/|$))/;
+      if (spaPath.test(p)) {
         return await serveStatic({
           root: "./client/dist",
           rewriteRequestPath: () => "/index.html",
         })(c, async () => {});
       }
+      // 該当しないパスは既存の 404 を返す
       if (!isDev && notFoundHtml) {
         return new Response(notFoundHtml, {
           status: 404,

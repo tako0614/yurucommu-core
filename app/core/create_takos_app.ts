@@ -113,28 +113,44 @@ export async function createTakosApp(
       return new Response(body, { status: res.status, headers: res.headers });
     };
   }
+    // 明示的ルーティング: 静的資産は通常配信し、SPA は必要なエントリパスのみに対して返す
+    const spaEntry = async (c: Context) => {
+      return await serveStatic({ root: "../client/dist", path: "index.html" })(
+        c,
+        async () => {},
+      );
+    };
 
-  if (isDev) {
-    app.use("/*", proxy());
-  } else {
-    app.use(
-      "/*",
-      serveStatic({
-        root: "../client/dist",
-        onNotFound: async (_path: string, c: Context) => {
-          // SPAのクライアントサイドルーティングに対応するため
-          // 存在しないパスでは index.html を返す
-          return await serveStatic({
-            root: "../client/dist",
-            path: "index.html",
-          })(
-            c,
-            async () => {},
-          );
-        },
-      }),
-    );
-  }
+    // 静的アセット一般
+    const staticRoot = serveStatic({ root: "../client/dist" });
 
+    if (isDev) {
+      // 開発時はフロントの dev サーバーへプロキシ。ただし静的資産は proxy で配信
+      app.use("/assets/*", proxy());
+      app.use("/favicon.ico", proxy());
+      app.use("/manifest.json", proxy());
+      // 明示的な SPA エントリ
+      app.get("/", proxy());
+      app.get("/chat", proxy());
+      app.get("/chat/*", proxy());
+      app.get("/demo", proxy());
+      app.get("/demo/*", proxy());
+      app.get("/signup", proxy());
+      app.get("/download", proxy());
+    } else {
+      // 本番: 静的ファイルは配信し、SPA は明示的パスのみ index.html を返す
+      app.use("/assets/*", staticRoot);
+      app.use("/favicon.ico", staticRoot);
+      app.use("/manifest.json", staticRoot);
+
+      // 明示的に許可するクライアントサイドルート
+      app.get("/", spaEntry);
+      app.get("/chat", spaEntry);
+      app.get("/chat/*", spaEntry);
+      app.get("/demo", spaEntry);
+      app.get("/demo/*", spaEntry);
+      app.get("/signup", spaEntry);
+      app.get("/download", spaEntry);
+    }
   return app;
 }

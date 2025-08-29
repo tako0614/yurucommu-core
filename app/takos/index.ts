@@ -9,6 +9,8 @@ import {
 import { getSystemKey } from "../core/services/system_actor.ts";
 import { loadConfig } from "@takos/config";
 import { getEnvPath } from "../packages/config/mod.ts";
+import { serveStatic } from "hono/deno";
+import { Context } from "hono";
 
 // コマンドライン引数から .env のパスを取得（未指定時はローカル .env を既定に）
 const envPathArg = getEnvPath();
@@ -24,6 +26,7 @@ if (env["ACTIVITYPUB_DOMAIN"]) {
   await getSystemKey(db, domain);
 }
 const app = await createTakosApp(env, db);
+
 const hostname = env["SERVER_HOST"];
 const port = Number(env["SERVER_PORT"] ?? "80");
 // SERVER_CERT / SERVER_KEY may be stored with surrounding quotes and `\n` escapes
