@@ -51,8 +51,11 @@ async function findPost(
 }
 
 const app = new Hono();
-const auth = (c: Context, next: () => Promise<void>) =>
-  authRequired(getDB(c))(c, next);
+const auth = (c: Context, next: () => Promise<void>) => {
+  const db = getDB(c);
+  const middleware = authRequired(db);
+  return middleware(c, next);
+};
 app.use("/posts/*", auth);
 
 app.get("/posts", async (c) => {
@@ -158,7 +161,7 @@ app.post(
       objectId,
     );
 
-    await announceToFasp(env, domain, post, objectId, faspShare);
+    await announceToFasp(env, domain, post, objectId, db, faspShare);
 
     const postData = post as PostDoc;
     const userInfo = await getUserInfo(

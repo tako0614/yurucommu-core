@@ -77,9 +77,9 @@ export class MongoDB {
   constructor(private env: Record<string, string>) {}
 
   // テナントスコープ用: すべてのクエリに $locals.env を注入
-  // deno-lint-ignore no-explicit-any
-  private withEnv<T>(q: any) {
-    return q.setOptions?.({ $locals: { env: this.env } }) ?? q;
+  private withEnv<Q>(q: Q): Q {
+    // deno-lint-ignore no-explicit-any
+    return (q as any).setOptions?.({ $locals: { env: this.env } }) ?? q;
   }
 
   // テナントスコープ用: 保存前に Document に $locals.env を注入
@@ -502,7 +502,16 @@ export class MongoDB {
       url?: string;
       mediaType?: string;
     }[]>();
-    return docs.map((d) => ({
+    return docs.map((d: {
+      _id: string;
+      actor_id: string;
+      aud?: { to?: string[]; cc?: string[] };
+      extra?: Record<string, unknown>;
+      content?: string;
+      published?: Date;
+      url?: string;
+      mediaType?: string;
+    }) => ({
       id: d._id as string,
       from: d.actor_id as string,
       to: Array.isArray(d.aud?.to) ? String(d.aud.to[0]) : "",
@@ -1003,8 +1012,8 @@ export class MongoDB {
 
   async listFcmTokens() {
     const docs = await this.withEnv(FcmToken.find<{ token: string }>({}))
-      .lean();
-    return docs.map((d) => ({ token: d.token }));
+      .lean<{ token: string }[]>();
+    return docs.map((d: { token: string }) => ({ token: d.token }));
   }
 
   /**

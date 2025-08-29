@@ -155,6 +155,7 @@ export async function announceToFasp(
   domain: string,
   post: ActivityObject,
   objectId: string,
+  db: DataStore,
   faspShare?: boolean,
 ): Promise<void> {
   if (objectId && faspShare !== false) {

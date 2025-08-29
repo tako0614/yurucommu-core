@@ -1012,7 +1012,7 @@ export function Chat() {
         hasIcon: icon !== "",
         lastMessage: "...",
         lastMessageTime: undefined,
-      });
+      } as Room);
     }
 
     // DMルームをサーバーから取得して追加
@@ -1052,7 +1052,7 @@ export function Chat() {
         hasIcon: icon !== "",
         lastMessage: "...",
         lastMessageTime: undefined,
-      });
+      } as Room);
     }
 
     // 招待中（通知ベース）のグループを補完表示
@@ -1107,7 +1107,7 @@ export function Chat() {
               groupName: gname,
               groupId: gid,
             },
-          });
+          } as Room);
           existing.add(rid);
         }
       }
@@ -1721,7 +1721,7 @@ export function Chat() {
                 members: [normPartner],
                 lastMessage: "...",
                 lastMessageTime: undefined,
-              };
+              } as Room;
               upsertRoom(room);
               try {
                 await applyDisplayFallback([room]);
@@ -2425,7 +2425,7 @@ export function Chat() {
                 hasIcon: false,
                 lastMessage: "...",
                 lastMessageTime: undefined,
-              },
+              } as Room,
             ]);
           } catch {
             /* ignore */
