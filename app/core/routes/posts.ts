@@ -45,9 +45,8 @@ async function findPost(
   db: DataStore,
   id: string,
 ): Promise<ActivityObject | null> {
-  const note = await db.posts.findNoteById(id) as ActivityObject | null;
-  if (note) return note;
-  return await db.posts.findMessageById(id) as ActivityObject | null;
+  // 公開投稿（Note）のみを検索し、DM/チャット（Message）は除外
+  return await db.posts.findNoteById(id) as ActivityObject | null;
 }
 
 const app = new Hono();
@@ -151,7 +150,7 @@ app.post(
     );
 
     await notifyFollowers(
-      env,
+      _env,
       author,
       createActivity,
       domain,
@@ -264,7 +263,8 @@ app.post(
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
     const db = getDB(c);
-    const post = await findPost(db, id);
+    // 公開投稿（Note）のみを対象とし、DM/チャットは除外
+    const post = await db.posts.findNoteById(id) as ActivityObject | null;
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const postData = post as PostDoc;
@@ -350,7 +350,8 @@ app.post(
     const { username } = c.req.valid("json") as { username: string };
     const env = getEnv(c);
     const db = getDB(c);
-    const post = await findPost(db, id);
+    // 公開投稿（Note）のみを対象とし、DM/チャットは除外
+    const post = await db.posts.findNoteById(id) as ActivityObject | null;
     if (!post) return c.json({ error: "Not found" }, 404);
 
     const postData = post as PostDoc;
@@ -431,7 +432,8 @@ app.delete("/posts/:id", async (c) => {
   const _env = getEnv(c);
   const db = getDB(c);
   const id = c.req.param("id");
-  const post = await findPost(db, id);
+  // 公開投稿（Note）のみを対象とし、DM/チャットは除外
+  const post = await db.posts.findNoteById(id) as ActivityObject | null;
   if (!post) return c.json({ error: "Not found" }, 404);
   const deleted = await db.posts.deleteNote(id);
   if (!deleted) return c.json({ error: "Not found" }, 404);

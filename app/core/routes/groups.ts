@@ -176,9 +176,10 @@ app.post(
     }),
   ),
   async (c) => {
-    const raw = c.req.param("groupId");
-    const domain = getDomain(c);
-    const groupId = await toGroupId(raw, domain);
+  const raw = c.req.param("groupId");
+  const domain = getDomain(c);
+  const groupId = await toGroupId(raw, domain);
+  const db = getDB(c);
     // リモートグループ宛かを判定
     if (
       (() => {
@@ -209,8 +210,7 @@ app.post(
           ? (body as { attachments: Record<string, unknown>[] }).attachments
           : undefined;
       const preview = (body as { preview?: unknown }).preview;
-      const db = getDB(c);
-      const extra: Record<string, unknown> = { type, group: true };
+  const extra: Record<string, unknown> = { type, group: true };
       if (attachments) extra.attachments = attachments;
       if (typeof (body as { key?: unknown }).key === "string") {
         extra.key = (body as { key: string }).key;
@@ -379,9 +379,8 @@ app.post(
     } catch {
       name = raw;
     }
-    const body = c.req.valid("json") as Record<string, unknown>;
-    const db = getDB(c);
-    const group = await db.groups.findByName(name) as GroupDoc | null;
+  const body = c.req.valid("json") as Record<string, unknown>;
+  const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) return c.json({ error: "見つかりません" }, 404);
 
     // from は acct 形式を要求し、ローカルユーザーのみ許可
@@ -410,13 +409,32 @@ app.post(
       return c.json({ error: "不正な入力です" }, 400);
     }
 
-    // 添付の正規化
-    const attachments =
-      Array.isArray((body as { attachments?: unknown }).attachments)
-        ? (body as { attachments: Record<string, unknown>[] }).attachments
-        : undefined;
+    // 添付の正規化: attachments 配列が与えられていない場合でも
+    // url/mediaType/key/iv/preview があるときは単一要素配列に変換する
+    const rawAttachments = (body as { attachments?: unknown }).attachments;
+    const attachments = Array.isArray(rawAttachments)
+      ? (rawAttachments as Record<string, unknown>[])
+      : undefined;
+    const attachmentsNormalized: Record<string, unknown>[] | undefined =
+      attachments ?? ((url && mediaType)
+        ? [
+          {
+            url,
+            mediaType,
+            ...(typeof (body as { key?: unknown }).key === "string"
+              ? { key: (body as { key: string }).key }
+              : {}),
+            ...(typeof (body as { iv?: unknown }).iv === "string"
+              ? { iv: (body as { iv: string }).iv }
+              : {}),
+            ...(body.preview && typeof body.preview === "object"
+              ? { preview: body.preview as Record<string, unknown> }
+              : {}),
+          },
+        ]
+        : undefined);
     const extra: Record<string, unknown> = { type: type, group: true };
-    if (attachments) extra.attachments = attachments;
+    if (attachmentsNormalized) extra.attachments = attachmentsNormalized;
     if (typeof body.key === "string") extra.key = body.key;
     if (typeof body.iv === "string") extra.iv = body.iv;
     if (body.preview && typeof body.preview === "object") {
@@ -989,9 +1007,10 @@ app.post(
     z.object({ member: z.string() }),
   ),
   async (c) => {
-    const raw = c.req.param("name");
-    const { member } = c.req.valid("json") as { member: string };
-    const domain = getDomain(c);
+  const raw = c.req.param("name");
+  const { member } = c.req.valid("json") as { member: string };
+  const domain = getDomain(c);
+  const db = getDB(c);
     const [user, host] = member.split("@");
     if (!user || !host) {
       return c.json({ error: "member の形式が正しくありません" }, 400);
@@ -1044,7 +1063,6 @@ app.post(
         if (u.hostname === domain) name = u.pathname.split("/").pop() || raw;
       } catch { /* ignore */ }
     }
-    const db = getDB(c);
     const group = await db.groups.findByName(name) as GroupDoc | null;
     if (!group) {
       c.status(404);

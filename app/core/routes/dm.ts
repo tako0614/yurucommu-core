@@ -88,16 +88,35 @@ app.post(
     const [fromUserName, fromDomain] = from.split("@");
     const fromHandle = from;
     const localName = fromDomain === domain ? fromUserName : "";
-    const [fromInfo, toInfo] = await Promise.all([
+    const [_fromInfo, _toInfo] = await Promise.all([
       getUserInfo(db, fromHandle, domain).catch(() => null),
       getUserInfo(db, to, domain).catch(() => null),
     ]);
+    // Normalize attachments: if attachments array not provided but a url/mediaType
+    // is present, convert it into a single-element attachments array so that
+    // downstream storage and client consumers can rely on attachments being
+    // present in the returned payload.
+    const attachmentsNormalized: Record<string, unknown>[] | undefined =
+      Array.isArray(attachments)
+        ? attachments
+        : (url && mediaType)
+        ? [
+          {
+            url,
+            mediaType,
+            ...(typeof key === "string" ? { key } : {}),
+            ...(typeof iv === "string" ? { iv } : {}),
+            ...(preview && typeof preview === "object" ? { preview } : {}),
+          },
+        ]
+        : undefined;
+
     const payload = await db.dms.save(
       localName,
       to,
       type,
       content,
-      attachments,
+      attachmentsNormalized,
       url,
       mediaType,
       key,
@@ -106,18 +125,8 @@ app.post(
     );
     (payload as { from: string }).from = fromHandle;
     await Promise.all([
-      db.dms.create({
-        owner: fromHandle,
-        id: to,
-        name: toInfo?.displayName || toInfo?.userName || to,
-        icon: toInfo?.authorAvatar,
-      }),
-      db.dms.create({
-        owner: to,
-        id: fromHandle,
-        name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
-        icon: fromInfo?.authorAvatar,
-      }),
+      db.dms.create({ owner: fromHandle, id: to }),
+      db.dms.create({ owner: to, id: fromHandle }),
     ]);
     sendToUser(to, { type: "dm", payload });
     sendToUser(fromHandle, { type: "dm", payload });

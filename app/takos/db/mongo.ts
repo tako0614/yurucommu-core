@@ -240,8 +240,11 @@ export class MongoDB {
       .lean<{ following?: string[] } | null>();
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
-    // タイムラインには Note のみを表示する
-    const filter: Record<string, unknown> = { actor_id: { $in: ids } };
+    // タイムラインには公開された Note のみを表示する
+    const filter: Record<string, unknown> = {
+      actor_id: { $in: ids },
+      "aud.to": "https://www.w3.org/ns/activitystreams#Public"
+    };
     if (opts.before) filter.created_at = { $lt: opts.before };
     return await this.withEnv(Note.find(filter))
       .sort({ created_at: -1 })
