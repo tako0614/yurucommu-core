@@ -239,12 +239,23 @@ export default function Profile() {
     return actor;
   };
 
-  const openChat = () => {
+  const openChat = async () => {
     const name = username();
     const user = account();
     if (!name || !user) return;
-    const handle = normalizeActor(name);
-    setRoom(handle);
+    const partner = normalizeActor(name);
+    try {
+      const selfHandle = `${user.userName}@${getDomain()}`;
+      // DM ルームを事前に作成して一覧へ反映できるようにする（最小情報のみ送信）
+      await apiFetch(`/api/dms`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: selfHandle, id: partner }),
+      }).catch(() => {});
+    } catch {
+      // 失敗してもチャット画面遷移は継続（送信時に補完される）
+    }
+    setRoom(partner);
     setApp("chat");
   };
 

@@ -6,8 +6,9 @@ import tenantScope from "../plugins/tenant_scope.ts";
 directMessageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 directMessageSchema.index({ owner: 1, id: 1, tenant_id: 1 }, { unique: true });
 
-const HostDirectMessage = mongoose.models.HostDirectMessage ??
-  mongoose.model("HostDirectMessage", directMessageSchema, "direct_messages");
+// コア実装が利用する正規のモデル名で登録する
+const DirectMessage = mongoose.models.DirectMessage ??
+  mongoose.model("DirectMessage", directMessageSchema, "direct_messages");
 
-export default HostDirectMessage;
+export default DirectMessage;
 export { directMessageSchema };

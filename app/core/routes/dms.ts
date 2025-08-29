@@ -15,80 +15,26 @@ app.get("/dms", async (c) => {
   if (!owner) return c.json({ error: "owner is required" }, 400);
   const db = getDB(c);
   const rooms = await db.dms.list(owner) as DirectMessageDoc[];
-  const formatted = rooms.map((r) => ({
-    id: r.id,
-    owner: r.owner,
-    name: r.name,
-    icon: r.icon,
-  }));
+  const formatted = rooms.map((r) => ({ id: r.id, owner: r.owner }));
   return c.json(formatted);
 });
 
 app.post(
   "/dms",
-  zValidator(
-    "json",
-    z.object({
-      owner: z.string(),
-      id: z.string(),
-      name: z.string(),
-    }),
-  ),
+  zValidator("json", z.object({ owner: z.string(), id: z.string() })),
   async (c) => {
-    const { owner, id, name } = c.req.valid("json") as {
-      owner: string;
-      id: string;
-      name: string;
-    };
+    const { owner, id } = c.req.valid("json") as { owner: string; id: string };
     const db = getDB(c);
-    const room = await db.dms.create({
-      owner,
-      id,
-      name,
-    });
+    const room = await db.dms.create({ owner, id });
     return c.json(room);
   },
 );
 
-app.patch(
-  "/dms/:id",
-  zValidator(
-    "json",
-    z.object({ owner: z.string(), name: z.string().optional() }),
-  ),
-  async (c) => {
-    const id = c.req.param("id");
-    const { owner, name } = c.req.valid("json") as {
-      owner: string;
-      name?: string;
-    };
-    const db = getDB(c);
-    const room = await db.dms.update(owner, id, { name });
-    if (!room) return c.json({ error: "not found" }, 404);
-    return c.json(room);
-  },
-);
+// DM は保持情報が最小のため、更新エンドポイントは未対応
+app.patch("/dms/:id", async (c) => c.json({ error: "not supported" }, 400));
 
-app.post("/dms/:id/icon", async (c) => {
-  const owner = c.req.query("owner");
-  if (!owner) return c.json({ error: "owner is required" }, 400);
-  const id = c.req.param("id");
-  const env = getEnv(c);
-  const form = await c.req.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return c.json({ error: "file is required" }, 400);
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const ext = file.name.split(".").pop();
-  const saved = await saveFile(bytes, env, {
-    mediaType: file.type,
-    ext: ext ? `.${ext}` : undefined,
-  });
-  const db = getDB(c);
-  await db.dms.update(owner, id, { icon: saved.url });
-  return c.json({ url: saved.url });
-});
+// DM はアイコンを保存しない
+app.post("/dms/:id/icon", async (c) => c.json({ error: "not supported" }, 400));
 
 app.delete("/dms/:id", async (c) => {
   const owner = c.req.query("owner");

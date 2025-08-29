@@ -4,8 +4,9 @@ import tenantScope from "../plugins/tenant_scope.ts";
 
 attachmentSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
-const HostAttachment = mongoose.models.HostAttachment ??
-  mongoose.model("HostAttachment", attachmentSchema, "attachments");
+// コア実装が利用する正規のモデル名で登録する
+const Attachment = mongoose.models.Attachment ??
+  mongoose.model("Attachment", attachmentSchema, "attachments");
 
-export default HostAttachment;
+export default Attachment;
 export { attachmentSchema };

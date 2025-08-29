@@ -4,8 +4,9 @@ import tenantScope from "../plugins/tenant_scope.ts";
 
 sessionSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
-const HostSession = mongoose.models.HostSession ??
-  mongoose.model("HostSession", sessionSchema, "sessions");
+const Session = mongoose.models.Session ??
+  mongoose.model("Session", sessionSchema);
 
-export default HostSession;
+export default Session;
 export { sessionSchema };
+

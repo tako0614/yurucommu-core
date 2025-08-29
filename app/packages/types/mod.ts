@@ -23,9 +23,7 @@ export interface DirectMessageDoc {
   _id?: string;
   owner: string;
   id: string;
-  name: string;
-  icon?: string;
-  // members removed: room identity is owner+id
+  // 最小情報のみ（name/icon は保持しない）
 }
 
 export interface GroupDoc {

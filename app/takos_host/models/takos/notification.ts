@@ -4,8 +4,9 @@ import tenantScope from "../plugins/tenant_scope.ts";
 
 notificationSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
-const HostNotification = mongoose.models.HostNotification ??
-  mongoose.model("HostNotification", notificationSchema, "notifications");
+const Notification = mongoose.models.Notification ??
+  mongoose.model("Notification", notificationSchema);
 
-export default HostNotification;
+export default Notification;
 export { notificationSchema };
+

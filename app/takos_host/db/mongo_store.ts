@@ -1,4 +1,19 @@
 import type { HostDataStore } from "./types.ts";
+// テナントスコープ版のモデルを先に登録してからコア実装を読み込む
+import "../models/takos/account.ts";
+import "../models/takos/attachment.ts";
+import "../models/takos/direct_message.ts";
+import "../models/takos/note.ts";
+import "../models/takos/message.ts";
+import "../models/takos/group.ts";
+import "../models/takos/notification.ts";
+import "../models/takos/system_key.ts";
+import "../models/takos/remote_actor.ts";
+import "../models/takos/session.ts";
+import "../models/takos/fcm_token.ts";
+import "../models/takos/follow_edge.ts";
+import "../models/takos/invite.ts";
+import "../models/takos/approval.ts";
 import { MongoDB } from "../../takos/db/mongo.ts";
 import Tenant from "../models/tenant.ts";
 import Instance from "../models/instance.ts";
@@ -7,8 +22,9 @@ import HostDomain from "../models/domain.ts";
 import HostUser from "../models/user.ts";
 import HostSession from "../models/session.ts";
 import FaspClientSetting from "../../takos/models/takos/fasp_client_setting.ts";
-import Invite from "../../takos/models/takos/invite.ts";
-import Approval from "../../takos/models/takos/approval.ts";
+// テナントスコープ済みのモデルを使用
+import Invite from "../models/takos/invite.ts";
+import Approval from "../models/takos/approval.ts";
 import mongoose from "mongoose";
 import type { Db } from "mongodb";
 import { createObjectStorage } from "../../takos/storage/providers.ts";

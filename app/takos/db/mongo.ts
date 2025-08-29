@@ -73,6 +73,21 @@ function uniq(arr: (string | null | undefined)[]): string[] {
 export class MongoDB {
   constructor(private env: Record<string, string>) {}
 
+  // テナントスコープ用: すべてのクエリに $locals.env を注入
+  // deno-lint-ignore no-explicit-any
+  private withEnv<T>(q: any) {
+    return q.setOptions?.({ $locals: { env: this.env } }) ?? q;
+  }
+
+  // テナントスコープ用: 保存前に Document に $locals.env を注入
+  // deno-lint-ignore no-explicit-any
+  private attachEnv(doc: any) {
+    try {
+      doc.$locals = { ...(doc.$locals ?? {}), env: this.env };
+    } catch { /* ignore */ }
+    return doc;
+  }
+
   private async findById<T>(
     model: Model<T>,
     id: string,
@@ -80,7 +95,7 @@ export class MongoDB {
   ): Promise<T | null> {
     // model.findOne's filter can be a dynamic object; cast to FilterQuery<T>
     const filter = { [key]: id } as unknown as FilterQuery<T>;
-    return await model.findOne(filter)
+    return await this.withEnv(model.findOne(filter))
       .lean<T | null>();
   }
 
@@ -125,12 +140,12 @@ export class MongoDB {
   /** Attachment を作成します。 */
   private async createAttachment(obj: Record<string, unknown>) {
     const data = this.normalizeObject(obj);
-    const doc = new Attachment({
+    const doc = this.attachEnv(new Attachment({
       _id: data._id,
       attributedTo: String(data.attributedTo),
       actor_id: String(data.actor_id),
       extra: data.extra ?? {},
-    });
+    }));
     await doc.save();
     return doc.toObject();
   }
@@ -138,7 +153,7 @@ export class MongoDB {
   /** Note を作成します。 */
   private async createNote(obj: Record<string, unknown>) {
     const data = this.normalizeObject(obj);
-    const doc = new Note({
+    const doc = this.attachEnv(new Note({
       _id: data._id,
       attributedTo: String(data.attributedTo),
       actor_id: String(data.actor_id),
@@ -146,7 +161,7 @@ export class MongoDB {
       extra: data.extra ?? {},
       published: data.published ?? new Date(),
       aud: data.aud ?? { to: [], cc: [] },
-    });
+    }));
     await doc.save();
     return doc.toObject();
   }
@@ -160,7 +175,7 @@ export class MongoDB {
       throw new Error(`unsupported object type: ${objectType}`);
     }
     const url = typeof data.url === "string" ? data.url : "";
-    const doc = new Message({
+    const doc = this.attachEnv(new Message({
       _id: data._id,
       type: objectType,
       attributedTo: String(data.attributedTo),
@@ -174,7 +189,7 @@ export class MongoDB {
       extra: data.extra ?? {},
       published: data.published ?? new Date(),
       aud: data.aud ?? { to: [], cc: [] },
-    });
+    }));
     await doc.save();
     return doc.toObject();
   }
@@ -203,39 +218,39 @@ export class MongoDB {
     } catch {
       // actor is not URL
     }
-    const account = await Account.findOne({ userName: name })
+    const account = await this.withEnv(Account.findOne({ userName: name }))
       .lean<{ following?: string[] } | null>();
     const ids = account?.following ?? [];
     if (actor) ids.push(actor);
     // タイムラインには Note のみを表示する
     const filter: Record<string, unknown> = { actor_id: { $in: ids } };
     if (opts.before) filter.created_at = { $lt: opts.before };
-    return await Note.find(filter)
+    return await this.withEnv(Note.find(filter))
       .sort({ created_at: -1 })
       .limit(opts.limit ?? 40)
       .lean();
   }
 
   async follow(_: string, target: string) {
-    await FollowEdge.updateOne(
+    await this.withEnv(FollowEdge.updateOne(
       { actor_id: target },
       { $setOnInsert: { since: new Date() } },
       { upsert: true },
-    );
+    ));
   }
 
   async unfollow(_: string, target: string) {
-    await FollowEdge.deleteOne({ actor_id: target });
+    await this.withEnv(FollowEdge.deleteOne({ actor_id: target }));
   }
 
   async listAccounts(): Promise<AccountDoc[]> {
-    return await Account.find({}).lean<AccountDoc[]>();
+    return await this.withEnv(Account.find({})).lean<AccountDoc[]>();
   }
 
   async createAccount(data: Record<string, unknown>): Promise<AccountDoc> {
-    const doc = new Account({
+    const doc = this.attachEnv(new Account({
       ...data,
-    });
+    }));
     await doc.save();
     return doc.toObject() as AccountDoc;
   }
@@ -247,7 +262,7 @@ export class MongoDB {
   async findAccountByUserName(
     username: string,
   ): Promise<AccountDoc | null> {
-    return await Account.findOne({ userName: username })
+    return await this.withEnv(Account.findOne({ userName: username }))
       .lean<AccountDoc | null>();
   }
 
@@ -255,12 +270,12 @@ export class MongoDB {
     id: string,
     update: Record<string, unknown>,
   ): Promise<AccountDoc | null> {
-    return await Account.findOneAndUpdate({ _id: id }, update, { new: true })
+    return await this.withEnv(Account.findOneAndUpdate({ _id: id }, update, { new: true }))
       .lean<AccountDoc | null>();
   }
 
   async deleteAccountById(id: string) {
-    const res = await Account.findOneAndDelete({ _id: id });
+    const res = await this.withEnv(Account.findOneAndDelete({ _id: id }));
     return !!res;
   }
 
@@ -309,7 +324,7 @@ export class MongoDB {
   ) {
     const id = createObjectId(domain);
     const actor = normalizeActorUrl(author, domain);
-    const doc = new Note({
+    const doc = this.attachEnv(new Note({
       _id: id,
       attributedTo: actor,
       actor_id: actor,
@@ -320,7 +335,7 @@ export class MongoDB {
         to: ["https://www.w3.org/ns/activitystreams#Public"],
         cc: [],
       },
-    });
+    }));
     await doc.save();
     return doc.toObject();
   }
@@ -455,13 +470,13 @@ export class MongoDB {
     const a1 = uniq([user1, toHandle(user1), toActorUrl(user1)]);
     const a2 = uniq([user2, toHandle(user2), toActorUrl(user2)]);
 
-    const docs = await Message.find({
+    const docs = await this.withEnv(Message.find({
       "extra.dm": true,
       $or: [
         { actor_id: { $in: a1 }, "aud.to": { $in: a2 } },
         { actor_id: { $in: a2 }, "aud.to": { $in: a1 } },
       ],
-    })
+    }))
       .sort({ published: 1 }).lean<{
       _id: string;
       actor_id: string;
@@ -493,33 +508,33 @@ export class MongoDB {
   }
 
   async updateObject(id: string, update: Record<string, unknown>) {
-    let doc = await Note.findOneAndUpdate({ _id: id }, update, { new: true })
+    let doc = await this.withEnv(Note.findOneAndUpdate({ _id: id }, update, { new: true }))
       .lean();
     if (doc) return doc;
-    doc = await Message.findOneAndUpdate({ _id: id }, update, { new: true })
+    doc = await this.withEnv(Message.findOneAndUpdate({ _id: id }, update, { new: true }))
       .lean();
     if (doc) return doc;
     return null;
   }
 
   async deleteObject(id: string) {
-    let res = await Note.findOneAndDelete({ _id: id });
+    let res = await this.withEnv(Note.findOneAndDelete({ _id: id }));
     if (res) return true;
-    res = await Message.findOneAndDelete({ _id: id });
+    res = await this.withEnv(Message.findOneAndDelete({ _id: id }));
     if (res) return true;
     return false;
   }
 
   async deleteManyObjects(filter: Record<string, unknown>) {
     if (filter.type === "Note") {
-      return await Note.deleteMany({ ...filter });
+      return await this.withEnv(Note.deleteMany({ ...filter }));
     }
     if (filter.type && filter.type !== "Note") {
-      return await Message.deleteMany({ ...filter });
+      return await this.withEnv(Message.deleteMany({ ...filter }));
     }
     if (!filter.type) {
-      const noteQuery = Note.deleteMany({ ...filter });
-      const msgQuery = Message.deleteMany({ ...filter });
+      const noteQuery = this.withEnv(Note.deleteMany({ ...filter }));
+      const msgQuery = this.withEnv(Message.deleteMany({ ...filter }));
       const [nr, mr] = await Promise.all([noteQuery, msgQuery]);
       return { deletedCount: (nr.deletedCount ?? 0) + (mr.deletedCount ?? 0) };
     }
@@ -527,24 +542,24 @@ export class MongoDB {
   }
 
   async addFollowerByName(username: string, follower: string) {
-    await Account.updateOne({ userName: username }, {
+    await this.withEnv(Account.updateOne({ userName: username }, {
       $addToSet: { followers: follower },
-    });
+    }));
   }
 
   async removeFollowerByName(username: string, follower: string) {
-    await Account.updateOne({ userName: username }, {
+    await this.withEnv(Account.updateOne({ userName: username }, {
       $pull: { followers: follower },
-    });
+    }));
   }
 
   async searchAccounts(
     query: RegExp,
     limit = 20,
   ): Promise<AccountDoc[]> {
-    return await Account.find({
+    return await this.withEnv(Account.find({
       $or: [{ userName: query }, { displayName: query }],
-    })
+    }))
       .limit(limit)
       .lean<AccountDoc[]>();
   }
@@ -553,13 +568,13 @@ export class MongoDB {
     username: string,
     update: Record<string, unknown>,
   ) {
-    await Account.updateOne({ userName: username }, update);
+    await this.withEnv(Account.updateOne({ userName: username }, update));
   }
 
   async findAccountsByUserNames(
     usernames: string[],
   ): Promise<AccountDoc[]> {
-    return await Account.find({ userName: { $in: usernames } })
+    return await this.withEnv(Account.find({ userName: { $in: usernames } }))
       .lean<AccountDoc[]>();
   }
 
@@ -568,23 +583,18 @@ export class MongoDB {
   }
 
   async listDirectMessages(owner: string) {
-    // DirectMessage schema no longer stores members; return available fields
-    return await DirectMessage.find({ owner })
+    // DM は owner と id のみ返す
+    return await this.withEnv(DirectMessage.find({ owner }))
       .lean<DirectMessageDoc[]>();
   }
 
   async createDirectMessage(data: DirectMessageDoc) {
-    // return plain object using lean and a proper type
-    const doc = await DirectMessage.findOneAndUpdate(
+    // 最小情報のみで upsert（owner+id）。追加情報は保存しない。
+    const doc = await this.withEnv(DirectMessage.findOneAndUpdate(
       { owner: data.owner, id: data.id },
-      {
-        $set: {
-          name: data.name,
-          icon: data.icon,
-        },
-      },
+      { $setOnInsert: {} },
       { upsert: true, new: true },
-    ).lean<DirectMessageDoc>() as DirectMessageDoc | null;
+    )).lean<DirectMessageDoc>() as DirectMessageDoc | null;
     if (!doc) {
       throw new Error("failed to create direct message");
     }
@@ -594,16 +604,15 @@ export class MongoDB {
   async updateDirectMessage(
     owner: string,
     id: string,
-    update: Record<string, unknown>,
+    _update: Record<string, unknown>,
   ) {
-    return await DirectMessage.findOneAndUpdate({ owner, id }, update, {
-      new: true,
-    })
+    // DM は更新項目がないため、現状のドキュメントを返すのみ
+    return await this.withEnv(DirectMessage.findOne({ owner, id }))
       .lean<DirectMessageDoc | null>();
   }
 
   async deleteDirectMessage(owner: string, id: string) {
-    const res = await DirectMessage.findOneAndDelete({ owner, id })
+    const res = await this.withEnv(DirectMessage.findOneAndDelete({ owner, id }))
       .lean<DirectMessageDoc | null>();
     return res != null;
   }
@@ -751,7 +760,7 @@ export class MongoDB {
   }
 
   async findGroupByName(name: string) {
-    return await Group.findOne({ groupName: name })
+    return await this.withEnv(Group.findOne({ groupName: name }))
       .lean<GroupDoc | null>();
   }
 
@@ -764,65 +773,65 @@ export class MongoDB {
       data.privateKey = keys.privateKey;
       data.publicKey = keys.publicKey;
     }
-    const doc = new Group({ ...data });
+    const doc = this.attachEnv(new Group({ ...data }));
     await doc.save();
     return doc.toObject() as GroupDoc;
   }
 
   async updateGroupByName(name: string, update: Record<string, unknown>) {
-    return await Group.findOneAndUpdate({ groupName: name }, update, {
+    return await this.withEnv(Group.findOneAndUpdate({ groupName: name }, update, {
       new: true,
-    })
+    }))
       .lean<GroupDoc | null>();
   }
 
   async addGroupFollower(name: string, actor: string) {
-    const doc = await Group.findOneAndUpdate(
+    const doc = await this.withEnv(Group.findOneAndUpdate(
       { groupName: name },
       { $addToSet: { followers: actor } },
       { new: true },
-    )
+    ))
       .lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
     const prefix = `https://${domain}/users/`;
     if (actor.startsWith(prefix)) {
       const userName = actor.slice(prefix.length).split(/[/?#]/)[0];
-      await Account.findOneAndUpdate(
+      await this.withEnv(Account.findOneAndUpdate(
         { userName },
         { $addToSet: { groups: `https://${domain}/groups/${name}` } },
-      );
+      ));
     }
     return doc?.followers ?? [];
   }
 
   async removeGroupFollower(name: string, actor: string) {
-    const doc = await Group.findOneAndUpdate(
+    const doc = await this.withEnv(Group.findOneAndUpdate(
       { groupName: name },
       { $pull: { followers: actor } },
       { new: true },
-    )
+    ))
       .lean<{ followers: string[] } | null>();
     const domain = this.env["ACTIVITYPUB_DOMAIN"];
     const prefix = `https://${domain}/users/`;
     if (actor.startsWith(prefix)) {
       const userName = actor.slice(prefix.length).split(/[/?#]/)[0];
-      await Account.findOneAndUpdate(
+      await this.withEnv(Account.findOneAndUpdate(
         { userName },
         { $pull: { groups: `https://${domain}/groups/${name}` } },
-      );
+      ));
     }
     return doc?.followers ?? [];
   }
 
   async pushGroupOutbox(name: string, activity: Record<string, unknown>) {
-    await Group.updateOne(
+    await this.withEnv(Group.updateOne(
       { groupName: name },
       { $push: { outbox: activity } },
-    );
+    ));
   }
 
   async listNotifications(owner: string) {
-    return await Notification.find({ owner })
+    return await this.withEnv(Notification.find({ owner }))
       .sort({ createdAt: -1 }).lean();
   }
 
@@ -832,28 +841,28 @@ export class MongoDB {
     message: string,
     type: string,
   ) {
-    const doc = new Notification({ owner, title, message, type });
+    const doc = this.attachEnv(new Notification({ owner, title, message, type }));
     await doc.save();
     return doc.toObject();
   }
 
   async markNotificationRead(id: string) {
-    const res = await Notification.findOneAndUpdate(
+    const res = await this.withEnv(Notification.findOneAndUpdate(
       { _id: id },
       { read: true },
-    );
+    ));
     return !!res;
   }
 
   async deleteNotification(id: string) {
-    const res = await Notification.findOneAndDelete({
+    const res = await this.withEnv(Notification.findOneAndDelete({
       _id: id,
-    });
+    }));
     return !!res;
   }
 
   async findRemoteActorByUrl(url: string) {
-    return await RemoteActor.findOne({ actorUrl: url })
+    return await this.withEnv(RemoteActor.findOne({ actorUrl: url }))
       .lean<
         {
           actorUrl: string;
@@ -866,7 +875,7 @@ export class MongoDB {
   }
 
   async findRemoteActorsByUrls(urls: string[]) {
-    return await RemoteActor.find({ actorUrl: { $in: urls } })
+    return await this.withEnv(RemoteActor.find({ actorUrl: { $in: urls } }))
       .lean<{
         actorUrl: string;
         name?: string;
@@ -883,7 +892,7 @@ export class MongoDB {
     icon: unknown;
     summary: string;
   }) {
-    await RemoteActor.findOneAndUpdate(
+    await this.withEnv(RemoteActor.findOneAndUpdate(
       { actorUrl: data.actorUrl },
       {
         name: data.name,
@@ -893,11 +902,11 @@ export class MongoDB {
         cachedAt: new Date(),
       },
       { upsert: true },
-    );
+    ));
   }
 
   async findSystemKey(domain: string) {
-    return await SystemKey.findOne({ domain })
+    return await this.withEnv(SystemKey.findOne({ domain }))
       .lean<
         { domain: string; privateKey: string; publicKey: string } | null
       >();
@@ -908,22 +917,22 @@ export class MongoDB {
     privateKey: string,
     publicKey: string,
   ) {
-    const doc = new SystemKey({ domain, privateKey, publicKey });
+    const doc = this.attachEnv(new SystemKey({ domain, privateKey, publicKey }));
     await doc.save();
   }
 
   async registerFcmToken(token: string, userName: string) {
-    await FcmToken.updateOne({ token }, { $set: { token, userName } }, {
+    await this.withEnv(FcmToken.updateOne({ token }, { $set: { token, userName } }, {
       upsert: true,
-    });
+    }));
   }
 
   async unregisterFcmToken(token: string) {
-    await FcmToken.deleteOne({ token });
+    await this.withEnv(FcmToken.deleteOne({ token }));
   }
 
   async listFcmTokens() {
-    const docs = await FcmToken.find<{ token: string }>({})
+    const docs = await this.withEnv(FcmToken.find<{ token: string }>({}))
       .lean();
     return docs.map((d) => ({ token: d.token }));
   }
@@ -937,12 +946,12 @@ export class MongoDB {
     expiresAt: Date,
     deviceId: string,
   ): Promise<SessionDoc> {
-    const doc = new Session({
+    const doc = this.attachEnv(new Session({
       sessionId,
       deviceId,
       expiresAt,
       lastDecryptAt: new Date(),
-    });
+    }));
     await doc.save();
     return doc.toObject() as SessionDoc;
   }
@@ -952,16 +961,16 @@ export class MongoDB {
   }
 
   async deleteSessionById(sessionId: string) {
-    await Session.deleteOne({ sessionId });
+    await this.withEnv(Session.deleteOne({ sessionId }));
   }
 
   async updateSessionExpires(sessionId: string, expires: Date) {
-    await Session.updateOne({ sessionId }, { expiresAt: expires });
+    await this.withEnv(Session.updateOne({ sessionId }, { expiresAt: expires }));
   }
 
   async updateSessionActivity(sessionId: string, date = new Date()) {
     const threshold = new Date(date.getTime() - 1000 * 60 * 60 * 12);
-    await Session.updateOne(
+    await this.withEnv(Session.updateOne(
       {
         sessionId,
         $or: [
@@ -970,7 +979,7 @@ export class MongoDB {
         ],
       },
       { lastDecryptAt: date },
-    );
+    ));
   }
 
   async getDatabase() {

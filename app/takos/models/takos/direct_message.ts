@@ -1,12 +1,9 @@
 import mongoose from "mongoose";
 
-// DM一覧表示用にメタ情報を保持するコレクション
+// DM は「所有者」と「相手」のみを保持する最小構成
 const directMessageSchema = new mongoose.Schema({
   owner: { type: String, required: true },
-  id: { type: String, required: true }, // 相手ユーザーまたはグループID
-  name: { type: String, default: "" },
-  icon: { type: String, default: "" },
-  // Note: members removed — direct message rooms are identified by owner+id
+  id: { type: String, required: true }, // 相手ユーザー（ハンドル or IRI）
 });
 
 directMessageSchema.index({ owner: 1, id: 1 }, { unique: true });
