@@ -606,13 +606,16 @@ export function Chat() {
       try {
         const info = await fetchUserInfo(partner as ActorID);
         if (info) {
-          // displayName を補完するが、avatar は相手の authorAvatar を流用しない
+          // 相手の actor 情報で displayName と avatar を補完
           setChatRooms((prev) =>
             prev.map((r) =>
               r.id === room.id
                 ? {
                   ...r,
                   displayName: info.displayName || info.userName,
+                  avatar: info.authorAvatar || r.avatar,
+                  hasName: true,
+                  hasIcon: !!info.authorAvatar || r.hasIcon,
                 }
                 : r
             )
@@ -720,6 +723,42 @@ export function Chat() {
         const bTs = String(b.createdAt ?? b.created_at ?? 0);
         return new Date(aTs).getTime() - new Date(bTs).getTime();
       });
+
+      // DM の場合、送信者の Actor 情報（表示名とアイコン）を一括取得してマップ化
+      const authorInfoMap = new Map<
+        string,
+        { displayName?: string; userName?: string; authorAvatar?: string }
+      >();
+      if (room.type === "dm") {
+        try {
+          const authors = Array.from(
+            new Set(
+              ordered
+                .map((o) => String((o as Record<string, unknown>).from ?? ""))
+                .map((from) => normalizeActor(from) || from)
+                .filter((a) => a && a !== selfHandle),
+            ),
+          );
+          if (authors.length > 0) {
+            const infos = await fetchUserInfoBatch(authors, user.id);
+            for (let i = 0; i < authors.length; i++) {
+              const info = infos[i];
+              if (info) {
+                authorInfoMap.set(
+                  authors[i],
+                  info as unknown as {
+                    displayName?: string;
+                    userName?: string;
+                    authorAvatar?: string;
+                  },
+                );
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
 
       const msgs: ChatMessage[] = ordered.map((m) => {
         const created = m.createdAt ?? m.created_at ?? Date.now();
@@ -836,7 +875,13 @@ export function Chat() {
         return {
           id: String(m._id ?? m.id ?? `${normalizedFrom}:${created}`),
           author: normalizedFrom,
-          displayName: normalizedFrom.split("/").pop() ?? normalizedFrom,
+          displayName: (normalizedFrom === selfHandle)
+            ? (user.displayName || user.userName)
+            : (
+              authorInfoMap.get(normalizedFrom)?.displayName ||
+              authorInfoMap.get(normalizedFrom)?.userName ||
+              (normalizedFrom.split("/").pop() ?? normalizedFrom)
+            ),
           address: from,
           content: String(m.content ?? ""),
           attachments,
@@ -860,7 +905,9 @@ export function Chat() {
               return "note" as const;
             })(),
           isMe: normalizedFrom === selfHandle,
-          avatar: room.avatar,
+          avatar: (normalizedFrom === selfHandle)
+            ? room.avatar
+            : (authorInfoMap.get(normalizedFrom)?.authorAvatar || room.avatar),
         } as ChatMessage;
       });
 
@@ -977,9 +1024,15 @@ export function Chat() {
     });
     for (const item of serverRooms) {
       const _item = item as Record<string, unknown>;
-      const itemId = typeof _item.id === "string" ? _item.id : String(_item.id ?? "");
-      const name = typeof _item.name === "string" ? _item.name : String(_item.name ?? "");
-      const icon = typeof _item.icon === "string" ? _item.icon : String(_item.icon ?? "");
+      const itemId = typeof _item.id === "string"
+        ? _item.id
+        : String(_item.id ?? "");
+      const name = typeof _item.name === "string"
+        ? _item.name
+        : String(_item.name ?? "");
+      const icon = typeof _item.icon === "string"
+        ? _item.icon
+        : String(_item.icon ?? "");
       // server may not populate members fully; use pending invites as fallback
       let members = item.members ?? [] as string[];
       if (members.length === 0) {
@@ -1019,9 +1072,15 @@ export function Chat() {
     const dmRooms = await searchRooms(handle, { type: "dm" });
     for (const item of dmRooms) {
       const _item = item as Record<string, unknown>;
-      const itemId = typeof _item.id === "string" ? _item.id : String(_item.id ?? "");
-      const name = typeof _item.name === "string" ? _item.name : String(_item.name ?? "");
-      const icon = typeof _item.icon === "string" ? _item.icon : String(_item.icon ?? "");
+      const itemId = typeof _item.id === "string"
+        ? _item.id
+        : String(_item.id ?? "");
+      const name = typeof _item.name === "string"
+        ? _item.name
+        : String(_item.name ?? "");
+      const icon = typeof _item.icon === "string"
+        ? _item.icon
+        : String(_item.icon ?? "");
       // members が不足している場合は pending を参照
       let members = item.members ?? [] as string[];
       if (members.length === 0) {
@@ -1168,11 +1227,14 @@ export function Chat() {
       }
     }
     if (fallbackMap.size > 0) {
-      setChatRooms((prev) => prev.map((r) =>
-        fallbackMap.has(r.id) && (r.members?.length ?? 0) === 0 && r.type === "group"
-          ? { ...r, members: [fallbackMap.get(r.id)!] }
-          : r
-      ));
+      setChatRooms((prev) =>
+        prev.map((r) =>
+          fallbackMap.has(r.id) && (r.members?.length ?? 0) === 0 &&
+            r.type === "group"
+            ? { ...r, members: [fallbackMap.get(r.id)!] }
+            : r
+        )
+      );
     }
     const totalMembers = (r: Room) => 1 + uniqueOthers(r).length; // 自分+その他
     // 事前補正: 2人想定で名前が自分の表示名/ユーザー名のときは未命名として扱う
@@ -1684,7 +1746,9 @@ export function Chat() {
             let room;
             if (normPartner === (normalizeActor(self) ?? self)) {
               const selfRoomId = getSelfRoomId(user);
-              room = chatRooms().find((r) => r.type === "memo" || r.id === selfRoomId);
+              room = chatRooms().find((r) =>
+                r.type === "memo" || r.id === selfRoomId
+              );
               if (!room && selfRoomId) {
                 // create a lightweight memo room entry so UI can show it when needed
                 room = {
@@ -1704,7 +1768,8 @@ export function Chat() {
             } else {
               room = chatRooms().find((r) =>
                 r.type === "dm" &&
-                ((r.members ?? []).includes(normPartner) || r.id === normPartner)
+                ((r.members ?? []).includes(normPartner) ||
+                  r.id === normPartner)
               );
             }
             if (!room) {
@@ -1779,7 +1844,9 @@ export function Chat() {
               let expected = "";
               if (r.id.includes("@")) {
                 const [gname, ghost] = (r.id as string).split("@");
-                if (gname && ghost) expected = `https://${ghost}/groups/${gname}`;
+                if (gname && ghost) {
+                  expected = `https://${ghost}/groups/${gname}`;
+                }
               } else {
                 expected = `https://${getDomain()}/groups/${r.name}`;
               }
@@ -1863,7 +1930,9 @@ export function Chat() {
       const selfNorm = normalizeActor(self) ?? self;
       if (normalizedPartner && normalizedPartner === selfNorm) {
         const selfRoomId = getSelfRoomId(user);
-        let memoRoom = chatRooms().find((r) => r.type === "memo" || r.id === selfRoomId);
+        let memoRoom = chatRooms().find((r) =>
+          r.type === "memo" || r.id === selfRoomId
+        );
         if (!memoRoom && selfRoomId) {
           memoRoom = {
             id: selfRoomId,
@@ -2631,12 +2700,16 @@ async function _addRoom(
 ): Promise<string | undefined> {
   try {
     if (_room.type === "dm") {
-        await apiFetch(`/api/dms`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          // do not send `members` (server no longer accepts/stores it)
-          body: JSON.stringify({ owner: _handle, id: _room.id, name: _room.name }),
-        });
+      await apiFetch(`/api/dms`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // do not send `members` (server no longer accepts/stores it)
+        body: JSON.stringify({
+          owner: _handle,
+          id: _room.id,
+          name: _room.name,
+        }),
+      });
       return _room.id;
     } else if (_room.type === "group") {
       const res = await apiFetch(`/api/groups`, {
