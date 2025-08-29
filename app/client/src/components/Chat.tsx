@@ -1071,7 +1071,7 @@ export function Chat() {
       const dmRooms = await searchRooms(handle, { type: "dm" });
       for (const item of dmRooms) {
         const _item = item as Record<string, unknown>;
-        const itemId = typeof _item.id === "string"
+        const rawItemId = typeof _item.id === "string"
           ? _item.id
           : String(_item.id ?? "");
         const name = typeof _item.name === "string"
@@ -1084,43 +1084,47 @@ export function Chat() {
         let members = item.members ?? [] as string[];
         if (members.length === 0) {
           try {
-            const pend = await readPending(user.id, itemId, "dm");
+            const pend = await readPending(user.id, rawItemId, "dm");
             const raw = Array.isArray(pend) ? pend : [];
             const others = raw
               .map((m) => (typeof m === "string" ? m : undefined))
-              .filter((m): m is string => !!m && m !== handle);
+              .filter((m): m is string => !!m);
             if (others.length > 0) members = others;
           } catch {
             /* ignore */
           }
         }
-        // Skip self-only DM entries (they represent memo/TAKO Keep)
+        // 正規化して自己宛のみの DM（memo 相当）を確実に除外する
         try {
-          const normId = itemId;
-          const normMembers = Array.isArray(members) ? members : [];
-          if (normId === handle) continue;
-          if (normMembers.length === 1 && normMembers[0] === handle) continue;
+          const normId = normalizeActor(rawItemId) ?? rawItemId;
+          const normMembers = (Array.isArray(members) ? members : [])
+            .map((m) => normalizeActor(String(m)) ?? String(m));
+          const selfHandle = handle;
+          if (normId === selfHandle) continue;
+          if (normMembers.length === 1 && normMembers[0] === selfHandle) continue;
+
+          // use normalized id/members for consistency in client-side matching
+          rooms.push({
+            id: normId,
+            name,
+            userName: user.userName,
+            domain: getDomain(),
+            avatar: icon ||
+              (String(name).length > 0
+              ? String(name).charAt(0).toUpperCase()
+              : "👤"),
+            unreadCount: 0,
+            type: "dm",
+            members: normMembers,
+            hasName: name !== "",
+            hasIcon: icon !== "",
+            lastMessage: "...",
+            lastMessageTime: undefined,
+          } as Room);
         } catch {
           /* ignore errors in guard */
         }
-        rooms.push({
-          id: itemId,
-          name,
-          userName: user.userName,
-          domain: getDomain(),
-          avatar: icon ||
-            (String(name).length > 0
-            ? String(name).charAt(0).toUpperCase()
-            : "👤"),
-        unreadCount: 0,
-        type: "dm",
-        members,
-        hasName: name !== "",
-        hasIcon: icon !== "",
-        lastMessage: "...",
-        lastMessageTime: undefined,
-      } as Room);
-    }
+      }
 
     // 招待中（通知ベース）のグループを補完表示
     try {
