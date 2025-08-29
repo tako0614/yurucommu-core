@@ -42,7 +42,8 @@ app.post("/onboarding", auth, async (c) => {
   const account = await db.accounts.create({
     userName: name,
     displayName: (displayName && String(displayName).trim()) || name,
-    avatarInitial: name.charAt(0).toUpperCase().substring(0, 2),
+    // デフォルトは頭文字ではなくデフォルト画像パスを保存する
+    avatarInitial: "/api/image/people.png",
     privateKey: keys.privateKey,
     publicKey: keys.publicKey,
     followers: [],
