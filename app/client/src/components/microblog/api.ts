@@ -209,7 +209,6 @@ export const createPost = async (
   attachments?: { url: string; type: "image" | "video" | "audio" }[],
   parentId?: string,
   quoteId?: string,
-  // faspShare?: boolean,
 ): Promise<boolean> => {
   try {
     const response = await apiFetch("/api/posts", {
@@ -223,7 +222,6 @@ export const createPost = async (
         attachments,
         parentId,
         quoteId,
-        // faspShare,
       }),
     });
     return response.ok;
@@ -245,7 +243,6 @@ export const createPostWithTo = async (
   attachments?: { url: string; type: "image" | "video" | "audio" }[],
   parentId?: string,
   quoteId?: string,
-  // faspShare?: boolean,
 ): Promise<boolean> => {
   try {
     const payload: Record<string, unknown> = {
@@ -254,7 +251,6 @@ export const createPostWithTo = async (
       attachments,
       parentId,
       quoteId,
-      // faspShare,
     };
     if (typeof to !== "undefined") payload.to = to;
     const response = await apiFetch("/api/posts", {

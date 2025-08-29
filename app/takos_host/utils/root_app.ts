@@ -1,8 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { serveStatic } from "hono/deno";
-import FaspServerProviderInfo from "../models/fasp_server_provider_info.ts";
-import { FASP_PROVIDER_INFO_PATHS } from "./host_context.ts";
 import { getAppForHost, getRealHost, isRootHost } from "./host_context.ts";
 import type { HostContext } from "./host_context.ts";
 
@@ -39,36 +37,6 @@ function serviceActorAndActivityPubMiddleware(ctx: HostContext) {
   };
 }
 
-async function ensureProviderInfo(ctx: HostContext, c: Context) {
-  const { rootDomain, hostEnv } = ctx;
-  const host = getRealHost(c);
-  if (rootDomain && host !== rootDomain) return c.text("not found", 404);
-  let info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
-  if (!info || Array.isArray(info)) {
-    const name = hostEnv["SERVER_NAME"] || rootDomain || "takos";
-    const initial = new FaspServerProviderInfo({
-      _id: "provider",
-      name,
-      capabilities: [{ id: "data_sharing", version: "v0" }],
-    });
-    await initial.save().catch(() => {});
-    info = await FaspServerProviderInfo.findOne({ _id: "provider" }).lean();
-  }
-  const doc = (!info || Array.isArray(info))
-    ? null
-    : info as { name?: string; capabilities?: unknown[] };
-  if (!doc) {
-    return c.json({
-      name: hostEnv["SERVER_NAME"] || rootDomain || "takos",
-      capabilities: [],
-    });
-  }
-  return c.json({
-    name: doc.name ?? (hostEnv["SERVER_NAME"] || rootDomain || "takos"),
-    capabilities: Array.isArray(doc.capabilities) ? doc.capabilities : [],
-  });
-}
-
 /** Build the root (host) app with all routing logic encapsulated. */
 export function buildRootApp(ctx: HostContext) {
   const {
@@ -76,7 +44,6 @@ export function buildRootApp(ctx: HostContext) {
     oauthApp,
     consumerApp,
     rootDomain,
-    faspServerDisabled,
     termsText,
     notFoundHtml,
     isDev,
@@ -132,13 +99,6 @@ export function buildRootApp(ctx: HostContext) {
       const newReq = new Request(url, orig);
       return await consumerApp.fetch(newReq);
     });
-  }
-
-  // FASP provider_info endpoints
-  if (!faspServerDisabled) {
-    for (const path of FASP_PROVIDER_INFO_PATHS) {
-      app.get(path, (c) => ensureProviderInfo(ctx, c));
-    }
   }
 
   if (termsText) {

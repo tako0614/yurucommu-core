@@ -122,29 +122,3 @@ export async function restartInstance(host: string): Promise<boolean> {
   });
   return res.ok;
 }
-
-// FASP Providers
-export interface FaspProvider {
-  name: string;
-  baseUrl: string;
-  serverId: string;
-  faspId?: string;
-  status: string;
-  capabilities?: Record<string, { version: string; enabled: boolean }>;
-  updatedAt?: string | null;
-}
-
-export async function fetchFaspProviders(): Promise<FaspProvider[]> {
-  const res = await fetch("/api/fasp/providers");
-  if (!res.ok) return [];
-  return await res.json();
-}
-
-export async function deleteFaspProvider(serverId: string): Promise<boolean> {
-  const res = await fetch(`/api/fasp/providers/${serverId}`, {
-    method: "DELETE",
-  });
-  return res.ok;
-}
-
-

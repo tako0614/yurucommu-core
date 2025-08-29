@@ -399,22 +399,6 @@ async function createHostEnv(outPath: string, opts: Options) {
     firebaseVapidKey = promptIfNeeded("FIREBASE_VAPID_KEY", "", opts.yes);
   }
 
-  // FASP設定は凍結されています
-  /*
-  const useFasp = promptYesNo("FASPサーバーを有効にしますか?", opts.yes);
-  let faspServerDisabled = example.FASP_SERVER_DISABLED ?? "";
-  let faspDefaultBaseUrl = example.FASP_DEFAULT_BASE_URL ?? "";
-
-  if (!useFasp) {
-    faspServerDisabled = "1";
-  } else {
-    faspDefaultBaseUrl = promptIfNeeded("FASP_DEFAULT_BASE_URL (任意)", "", opts.yes);
-    if (faspDefaultBaseUrl && !validateDomain(faspDefaultBaseUrl.replace(/^https?:\/\//, ""))) {
-      console.warn("⚠️ 警告: FASP_DEFAULT_BASE_URLの形式が正しくない可能性があります");
-    }
-  }
-  */
-
   const env: Record<string, string> = {
     ...example,
     MONGO_URI: mongo,
@@ -441,8 +425,6 @@ async function createHostEnv(outPath: string, opts: Options) {
     FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
     FIREBASE_APP_ID: firebaseAppId,
     FIREBASE_VAPID_KEY: firebaseVapidKey,
-    // FASP_SERVER_DISABLED: faspServerDisabled,
-    // FASP_DEFAULT_BASE_URL: faspDefaultBaseUrl,
   };
 
   await ensureFile(outPath);

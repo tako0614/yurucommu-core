@@ -39,19 +39,6 @@ export function Microblog() {
     url: string;
     type: "image" | "video" | "audio";
   }[]>([]);
-  /* FASP機能凍結
-  function getDefaultFaspShare() {
-    try {
-      const v = localStorage.getItem("faspShareDefault");
-      return v === null ? true : v !== "0";
-    } catch {
-      return true;
-    }
-  }
-  const [useFaspShare, setUseFaspShare] = createSignal<boolean>(
-    getDefaultFaspShare(),
-  );
-  */
   const [_showPostForm, setShowPostForm] = createSignal(false);
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);

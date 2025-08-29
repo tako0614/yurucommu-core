@@ -9,7 +9,6 @@ import {
 } from "@takos_host/db";
 import { getEnvPath } from "@takos/config";
 import { createTakosApp } from "../../core/create_takos_app.ts";
-// import { bootstrapDefaultFasp } from "../../core/services/fasp_bootstrap.ts"; // FASP機能凍結
 import { getSystemKey } from "../../core/services/system_actor.ts";
 import { takosEnv } from "../takos_env.ts";
 import { createConsumerApp } from "../consumer.ts";
@@ -19,12 +18,7 @@ import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
 import type { HostDataStore } from "../db/types.ts";
 import Instance from "../models/instance.ts";
-// import FaspClient from "../models/fasp_client.ts"; // FASP機能凍結
-import {
-  FASP_PROVIDER_INFO_PATHS,
-  FCM_KEYS,
-  isTruthyFlag,
-} from "./host_constants.ts";
+import { FCM_KEYS } from "./host_constants.ts";
 
 // Light-weight text file loader (returns empty string on failure)
 async function loadTextFile(
@@ -54,8 +48,6 @@ export interface HostContext {
   oauthApp: typeof oauthApp;
   rootActivityPubApp: ReturnType<typeof createRootActivityPubApp> | null;
   serviceActorApp: ReturnType<typeof createServiceActorApp> | null;
-  faspServerDisabled: boolean;
-  defaultFaspBaseUrl: string;
   isDev: boolean;
 }
 
@@ -96,8 +88,6 @@ export async function initHostContext(): Promise<HostContext> {
   });
   const authApp = createAuthApp({ rootDomain, termsRequired: !!termsText });
   const isDev = Deno.env.get("DEV") === "1";
-  const faspServerDisabled = isTruthyFlag(hostEnv["FASP_SERVER_DISABLED"]);
-  const defaultFaspBaseUrl = (hostEnv["FASP_DEFAULT_BASE_URL"] ?? "").trim();
 
   return {
     hostEnv,
@@ -111,8 +101,6 @@ export async function initHostContext(): Promise<HostContext> {
     oauthApp,
     rootActivityPubApp,
     serviceActorApp,
-    faspServerDisabled,
-    defaultFaspBaseUrl,
     isDev,
   };
 }
@@ -158,62 +146,6 @@ async function getEnvForHost(
   return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
 }
 
-function _canonicalizeFaspBaseUrl(u: string): string {
-  let b = u.trim();
-  if (!/^https?:\/\//i.test(b)) b = `https://${b}`;
-  try {
-    const url = new URL(b);
-    url.hash = "";
-    url.search = "";
-    let p = url.pathname.replace(/\/+$/, "");
-    if (p.endsWith("/provider_info")) {
-      p = p.slice(0, -"/provider_info".length);
-    }
-    if (p === "/") p = "";
-    return `${url.origin}${p}`.replace(/\/$/, "");
-  } catch {
-    return u.replace(/\/$/, "");
-  }
-}
-
-/* FASP機能凍結により未使用
-async function seedDefaultFasp(
-  appEnv: Record<string, string>,
-  host: string,
-  defaultFaspBaseUrl: string,
-  tenantDb: HostDataStore,
-) {
-  if (!defaultFaspBaseUrl) return;
-  try {
-    const normalized = canonicalizeFaspBaseUrl(defaultFaspBaseUrl);
-    const existing = await tenantDb.faspProviders.findByBaseUrl(normalized);
-    const secret = existing?.secret ??
-      btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
-    if (!existing) {
-      await tenantDb.faspProviders.createDefault({
-        name: normalized,
-        baseUrl: normalized,
-        serverId: `default:${crypto.randomUUID()}`,
-        secret,
-      });
-    } else if (!existing.secret) {
-      await tenantDb.faspProviders.updateSecret(normalized, secret);
-    }
-    await FaspClient.updateOne({ tenant: host }, {
-      $set: { tenant: host, secret },
-    }, { upsert: true }).catch(() => {});
-    await bootstrapDefaultFasp(
-      {
-        ...appEnv,
-        FASP_DEFAULT_BASE_URL: defaultFaspBaseUrl,
-      },
-      host,
-      tenantDb,
-    ).catch(() => {});
-  } catch { // ignore }
-}
-*/
-
 export async function getAppForHost(
   host: string,
   ctx: HostContext,
@@ -231,7 +163,6 @@ export async function getAppForHost(
     // テナント環境用のシステム鍵を用意
     const tenantDb = createDB(appEnv) as HostDataStore;
     await getSystemKey(tenantDb, host).catch(() => {});
-    // await seedDefaultFasp(appEnv, host, ctx.defaultFaspBaseUrl, tenantDb); // FASP機能凍結
     const app = await createTakosApp(appEnv, tenantDb);
     apps.set(host, app);
     return app;
@@ -240,5 +171,3 @@ export async function getAppForHost(
   const result = await p.finally(() => appInitPromises.delete(host));
   return result;
 }
-
-export { FASP_PROVIDER_INFO_PATHS };

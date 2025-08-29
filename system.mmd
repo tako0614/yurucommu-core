@@ -18,7 +18,7 @@ flowchart LR
         direction TB
         AppCluster[AppCluster_Deno_Hono_xN] --> WebSocketGW[WebSocket_Gateway]
         AppCluster --> REST[REST_JSON_API]
-        REST --> Services[Services_Accounts_Posts_Files_FASP_Groups_Notifications]
+        REST --> Services[Services_Accounts_Posts_Files_Groups_Notifications]
         Services --> Business[Business_Delivery_Inbox]
         Business --> WorkerQueue[WorkerQueue_RabbitMQ_RedisStreams]
         WorkerQueue --> Workers[Workers_Delivery_OGP_Attachments]
@@ -33,9 +33,7 @@ flowchart LR
 
     subgraph "Fediverse & 外部連携"
         ActivityPub[ActivityPub_Node]
-        FASP[FASP_Service]
         ActivityPub -->|Outbox/Inbox| RemotePeers[RemotePeers]
-        FASP --> ActivityPub
     end
 
     subgraph "データ層"
@@ -79,7 +77,6 @@ flowchart LR
     %% 主要接続
     APIGW --> AppCluster
     AppCluster --> ActivityPub
-    FASP -->|補助API| Services
     WebSocketGW --> Client
     Proxy -->|静的資産| CDN
 
