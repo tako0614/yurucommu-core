@@ -798,23 +798,6 @@ app.patch(
     if (!isOwnedGroup(found, domain, name)) {
       return c.json({ error: "他ホストのグループです" }, 403);
     }
-    // 認証済みセッションがコンテキストにあることを期待
-    // createAuthMiddleware が attach で session を設定している前提
-    // Hono コンテキスト経由で取り出す
-    // @ts-ignore: read attached session from request context
-    const session = (c.req.ctx && (c.req.ctx as any).session) as
-      | { sessionId?: string }
-      | undefined;
-    if (!session) {
-      return c.json({ error: "認証情報が見つかりません" }, 401);
-    }
-    // 管理者権限チェック: followers[0] を管理者と見なす
-    const admin = Array.isArray(found.followers) && found.followers[0];
-    const sessionUserIri = admin ? admin : undefined;
-    // If session exists but contains no direct user id, try to derive from session
-    // Many endpoints expect actor IRI like https://<domain>/users/<user>
-    // If the session does not carry the actor, fallback to checking group ownership
-    // by domain/name (already ensured above).
     const group = await db.groups.updateByName(name, update);
     if (!group) {
       c.status(404);
@@ -848,28 +831,6 @@ app.patch(
     }
     if (!isOwnedGroup(group, domain, name)) {
       return c.json({ error: "他ホストのグループです" }, 403);
-    }
-    // require session and ensure actor is admin
-    // @ts-ignore: read attached session from request context
-    const session = (c.req.ctx && (c.req.ctx as any).session) as
-      | { sessionId?: string }
-      | undefined;
-    if (!session) return c.json({ error: "認証情報が見つかりません" }, 401);
-    // Check that the current session corresponds to the group's admin (followers[0])
-    // If session does not include actor info, treat as insufficient permission.
-    // We attempt to derive the actor IRI from sessionId by looking up accounts via DB if possible.
-    let sessionActor: string | null = null;
-    try {
-      // @ts-ignore: session may include a user reference in DB implementation
-      if ((session as any).user) {
-        sessionActor = `https://${domain}/users/${(session as any).user}`;
-      }
-    } catch {
-      sessionActor = null;
-    }
-    const adminIri = Array.isArray(group.followers) ? group.followers[0] : null;
-    if (!adminIri || sessionActor !== adminIri) {
-      return c.json({ error: "管理者権限が必要です" }, 403);
     }
     const update = c.req.valid("json") as Record<string, unknown>;
     const updated = await db.groups.updateByName(name, update);
