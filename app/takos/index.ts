@@ -26,9 +26,36 @@ if (env["ACTIVITYPUB_DOMAIN"]) {
 const app = await createTakosApp(env, db);
 const hostname = env["SERVER_HOST"];
 const port = Number(env["SERVER_PORT"] ?? "80");
-const cert = env["SERVER_CERT"]?.replace(/\\n/g, "\n");
-const key = env["SERVER_KEY"]?.replace(/\\n/g, "\n");
-const options = cert && key
-  ? { hostname, port, cert, key }
-  : { hostname, port };
-Deno.serve(options, app.fetch);
+// SERVER_CERT / SERVER_KEY may be stored with surrounding quotes and `\n` escapes
+// (for example when written as "-----BEGIN...\n...\n" in .env files). Normalize
+// by removing optional surrounding quotes and converting literal "\\n" sequences
+// to real newlines so Deno's TLS loader can parse the PEM blocks correctly.
+function normalizePem(value?: string): string | undefined {
+  if (!value) return undefined;
+  // remove surrounding double quotes (multi-line values in dotenv are often
+  // written as a quoted string containing \n escapes)
+  const unquoted = value.replace(/^"([\s\S]*)"$/, "$1");
+  return unquoted.replace(/\\n/g, "\n");
+}
+
+const cert = normalizePem(env["SERVER_CERT"]);
+const key = normalizePem(env["SERVER_KEY"]);
+const options = cert && key ? { hostname, port, cert, key } : { hostname, port };
+
+try {
+  Deno.serve(options, app.fetch);
+} catch (e) {
+  // AddrNotAvailable: 要求したアドレスのコンテキストが無効です (Windows os error 10049)
+  // サーバーが特定のローカル IP にバインドできない場合は 0.0.0.0 にフォールバックして再試行する
+  if (e instanceof Error && /AddrNotAvailable|os error 10049/.test(e.message)) {
+    console.warn(
+      `警告: ホスト ${hostname} にバインドできません。0.0.0.0 にフォールバックして再試行します: ${e.message}`,
+    );
+    const fallbackOptions = cert && key
+      ? { hostname: "0.0.0.0", port, cert, key }
+      : { hostname: "0.0.0.0", port };
+    Deno.serve(fallbackOptions, app.fetch);
+  } else {
+    throw e;
+  }
+}
