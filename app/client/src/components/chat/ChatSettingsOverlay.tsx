@@ -16,7 +16,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
   const [accountValue] = useAtom(activeAccount);
   const [roomName, setRoomName] = createSignal("");
   const [roomIcon, setRoomIcon] = createSignal<string | null>(null);
-  const [uploading, setUploading] = createSignal(false);
+  const [_uploading, setUploading] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [_members, setMembers] = createSignal<string[]>([]);
@@ -43,6 +43,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     return `group:notify:${id}`;
   };
   const [notifyEnabled, setNotifyEnabled] = createSignal(true);
+  let groupFileInput: HTMLInputElement | undefined;
 
   createEffect(() => {
     if (props.isOpen && props.room) {
@@ -107,7 +108,7 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
     }
   };
 
-  const handleIconChange = async (file: File) => {
+  const _handleIconChange = async (file: File) => {
     if (!props.room) return;
     if (props.room.type !== "dm") {
       setError("グループのアイコン変更は未対応です");
@@ -394,12 +395,12 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
               {/* グループ: タブナビゲーション */}
               <Show when={props.room?.type === "group"}>
                 <div class="flex gap-2 border-b border-[#333] pb-2">
-                  <button class={`px-3 py-1 rounded ${activeTab() === "notifications" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("notifications")}>通知</button>
-                  <button class={`px-3 py-1 rounded ${activeTab() === "members" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("members")}>メンバー</button>
+                  <button type="button" class={`px-3 py-1 rounded ${activeTab() === "notifications" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("notifications")}>通知</button>
+                  <button type="button" class={`px-3 py-1 rounded ${activeTab() === "members" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("members")}>メンバー</button>
                   <Show when={isLocalGroup()}>
-                    <button class={`px-3 py-1 rounded ${activeTab() === "invites" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("invites")}>招待</button>
+                    <button type="button" class={`px-3 py-1 rounded ${activeTab() === "invites" ? "bg-[#2b2b2b] text-white" : "text-gray-300 hover:text-white"}`} onClick={() => setActiveTab("invites")}>招待</button>
                   </Show>
-                  <button class={`ml-auto px-3 py-1 rounded ${activeTab() === "leave" ? "bg-[#3b0b0b] text-white" : "text-red-400 hover:text-red-300"}`} onClick={() => setActiveTab("leave")}>退会</button>
+                  <button type="button" class={`ml-auto px-3 py-1 rounded ${activeTab() === "leave" ? "bg-[#3b0b0b] text-white" : "text-red-400 hover:text-red-300"}`} onClick={() => setActiveTab("leave")}>退会</button>
                 </div>
               </Show>
 
@@ -432,24 +433,25 @@ export function ChatSettingsOverlay(props: ChatSettingsOverlayProps) {
                   <div>
                     <label class="block text-sm text-gray-400 mb-1">アイコン</label>
                     <div class="flex items-center gap-4">
-                      <div class="w-16 h-16 rounded-lg bg-[#2b2b2b] flex items-center justify-center overflow-hidden border border-[#3a3a3a]">
+                      <div
+                        class="w-16 h-16 rounded-lg bg-[#2b2b2b] flex items-center justify-center overflow-hidden border border-[#3a3a3a] cursor-pointer"
+                        onClick={() => groupFileInput?.click()}
+                      >
                         {roomIcon()
                           ? (<img src={roomIcon()!} alt="group icon" class="w-full h-full object-cover" />)
                           : <span class="text-gray-500 text-xs">なし</span>}
                       </div>
-                      <label class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded cursor-pointer text-sm">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          class="hidden"
-                          style={{ display: "none" }}
-                          onChange={(e) => {
-                            const f = e.currentTarget.files?.[0];
-                            if (f) handleGroupIconChange(f);
-                          }}
-                        />
-                        {uploading() ? "アップロード中..." : "画像を選択"}
-                      </label>
+                      <input
+                        ref={(el) => (groupFileInput = el as HTMLInputElement | undefined)}
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        onChange={(e) => {
+                          const f = e.currentTarget.files?.[0];
+                          if (f) handleGroupIconChange(f);
+                        }}
+                      />
+                      {/* ファイル選択はアイコン領域をクリックして行う（ボタンは削除） */}
                     </div>
                   </div>
                   <div class="flex gap-2">

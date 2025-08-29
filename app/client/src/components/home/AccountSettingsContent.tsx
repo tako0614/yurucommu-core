@@ -388,7 +388,8 @@ const AccountSettingsContent: Component<{
                 id="file-input"
                 type="file"
                 accept="image/*"
-                class="absolute opacity-0 pointer-events-none"
+                class="hidden"
+                style={{ display: "none" }}
                 onInput={handleFileChange}
               />
             </div>
