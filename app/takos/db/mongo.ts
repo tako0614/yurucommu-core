@@ -466,7 +466,7 @@ export class MongoDB {
       ? from
       : `https://${domain}/users/${from}`;
     const id = domain ? createObjectId(domain) : undefined;
-    const doc = new Message({
+    const doc = this.attachEnv(new Message({
       _id: id,
       type: objectType,
       attributedTo: fromUrl,
@@ -476,7 +476,7 @@ export class MongoDB {
       mediaType: objectType === "Note" ? undefined : mediaType,
       extra,
       aud: { to: [to], cc: [] },
-    });
+    }));
     await doc.save();
     const obj = doc.toObject();
     return {
