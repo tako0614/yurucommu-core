@@ -2,6 +2,7 @@ import FaspClientProvider from "../models/takos/fasp_client_provider.ts";
 import FaspClientSetting from "../models/takos/fasp_client_setting.ts";
 import FaspClientEventSubscription from "../models/takos/fasp_client_event_subscription.ts";
 import FaspClientBackfill from "../models/takos/fasp_client_backfill.ts";
+import { createDB } from "./mod.ts";
 
 export async function listProviders(env: Record<string, string>) {
   const q = FaspClientProvider.find({}).setOptions({ $locals: { env } });
@@ -203,40 +204,36 @@ export async function registrationUpsert(env: Record<string, string>, data: {
   publicKey: string;
   faspId: string;
 }) {
-  const existing = await FaspClientProvider.findOne({
+  const db = createDB(env);
+  const existing = await db.faspProviders.findOne({
     $or: [{ serverId: data.serverId }, { baseUrl: data.baseUrl }],
-  }).setOptions({ $locals: { env } });
+  }) as { status?: string; baseUrl: string } | null;
   const now = new Date();
   if (existing && existing.status === "approved") {
-    await FaspClientProvider.updateOne(
-      { _id: existing._id },
-      {
-        $set: {
-          name: data.name,
-          baseUrl: data.baseUrl,
-          serverId: data.serverId,
-          publicKey: data.publicKey,
-          updatedAt: now,
-        },
-      },
-    ).setOptions({ $locals: { env } });
-    return existing.toObject();
+    await db.faspProviders.updateByBaseUrl(existing.baseUrl, {
+      name: data.name,
+      baseUrl: data.baseUrl,
+      serverId: data.serverId,
+      publicKey: data.publicKey,
+      updatedAt: now,
+    });
+    return existing;
   }
-  await FaspClientProvider.updateOne(
-    { $or: [{ serverId: data.serverId }, { baseUrl: data.baseUrl }] },
+  await db.faspProviders.upsertByBaseUrl(
+    data.baseUrl,
     {
-      $set: {
-        name: data.name,
-        baseUrl: data.baseUrl,
-        serverId: data.serverId,
-        publicKey: data.publicKey,
-        status: "pending",
-        approvedAt: null,
-        rejectedAt: null,
-        updatedAt: now,
-      },
-      $setOnInsert: { faspId: data.faspId },
+      name: data.name,
+      baseUrl: data.baseUrl,
+      serverId: data.serverId,
+      publicKey: data.publicKey,
+      status: "pending",
+      approvedAt: null,
+      rejectedAt: null,
+      updatedAt: now,
     },
-    { upsert: true },
-  ).setOptions({ $locals: { env } });
+    {
+      faspId: data.faspId,
+      createdAt: now,
+    },
+  );
 }
