@@ -38,6 +38,30 @@ messageSchema.pre("validate", function (next) {
 // テナントスコープを付与して正規モデル名で登録
 messageSchema.plugin(tenantScope, { envKey: "ACTIVITYPUB_DOMAIN" });
 
+// 送信時に env が伝搬しないケースに備え、
+// tenant_id が空のときは actor のホスト名から補完する
+messageSchema.pre("save", function (next) {
+  // deno-lint-ignore no-explicit-any
+  const self = this as mongoose.Document & any;
+  const cur = (self.tenant_id ?? "").trim();
+  if (!cur) {
+    const src: unknown = self.actor_id ?? self.attributedTo;
+    if (typeof src === "string" && src) {
+      let host = "";
+      try {
+        // URL 形式 (期待値)
+        host = new URL(src).hostname;
+      } catch {
+        // フォールバック: handle 形式 name@host
+        const at = src.includes("@") ? src.split("@")[1] : "";
+        host = at || "";
+      }
+      if (host) self.tenant_id = host.toLowerCase();
+    }
+  }
+  next();
+});
+
 const Message = mongoose.models.Message ??
   mongoose.model("Message", messageSchema, "messages");
 
