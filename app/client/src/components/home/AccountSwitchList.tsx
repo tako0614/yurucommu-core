@@ -26,8 +26,10 @@ const IconPreview: Component<{
         <img src={icon} alt="icon" class="h-full w-full object-cover rounded-full" />
       );
     }
-    const initials = p.displayNameValue?.charAt(0).toUpperCase() || "?";
-    return initials.substring(0, 2);
+    // デフォルトは頭文字ではなくデフォルト画像を表示
+    return (
+      <img src="/takos.png" alt="default icon" class="h-full w-full object-cover rounded-full" />
+    );
   };
   return <div class={p.class}>{displayIcon()}</div>;
 };

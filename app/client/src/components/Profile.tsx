@@ -220,8 +220,10 @@ export default function Profile() {
           />
         );
       }
-      const initials = p.displayNameValue?.charAt(0).toUpperCase() || "?";
-      return initials.substring(0, 2);
+      // フォールバックは頭文字表示ではなくデフォルト画像を返す
+      return (
+        <img src="/takos.png" alt="default icon" class="h-full w-full object-cover rounded-full" />
+      );
     };
     return <div class={p.class}>{displayIcon()}</div>;
   };

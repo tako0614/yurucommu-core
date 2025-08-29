@@ -251,9 +251,10 @@ const AccountSettingsContent: Component<{
           />
         );
       }
-      // データURLでない場合は、表示名からイニシャルを生成
-      const initials = p.displayNameValue?.charAt(0).toUpperCase() || "?";
-      return initials.substring(0, 2);
+      // データURL/外部URLでない場合はデフォルト画像を表示
+      return (
+        <img src="/takos.png" alt="default icon" class="h-full w-full object-cover rounded-full" />
+      );
     };
     return <div class={p.class}>{displayIcon()}</div>;
   };

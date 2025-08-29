@@ -91,9 +91,8 @@ export default function ChatHeader() {
                       alt={activeAcc()!.displayName}
                     />
                   ) : (
-                    <div class={`h-full w-full flex items-center justify-center text-sm font-semibold text-white bg-gradient-to-br from-blue-500 to-purple-600 rounded-full ${active ? "ring-2 ring-[#ff6060]" : ""}`}>
-                      <span>{activeAcc()!.avatarInitial.substring(0, 2)}</span>
-                    </div>
+                    // データURL/外部URLでない場合はデフォルト画像を表示
+                    <img src="/takos.png" alt="default icon" class={`h-full w-full object-cover rounded-full ${active ? "ring-2 ring-[#ff6060]" : ""}`} />
                   )
                 ) : (
                   <svg
