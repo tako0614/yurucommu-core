@@ -117,12 +117,8 @@ export function Home() {
       if (updates.avatarInitial !== undefined) { // editingIcon() が元の値から変更された場合
         if (isDataUrl(updates.avatarInitial) || isUrl(updates.avatarInitial)) {
           payload.avatarInitial = updates.avatarInitial;
-        } else { // データURLやURLでない場合は表示名からイニシャルを生成
-          const baseDisplayName = updates.displayName ||
-            currentAccount.displayName;
-          payload.avatarInitial =
-            (baseDisplayName.charAt(0).toUpperCase() || "?")
-              .substring(0, 2);
+        } else { // データURLやURLでない場合はデフォルト画像URLを使用する（DBにはURLを保存）
+          payload.avatarInitial = "/api/image/people.png";
         }
       } else if (updates.displayName) {
         // アイコンが明示的に変更されず表示名のみ変わった場合、
@@ -131,9 +127,9 @@ export function Home() {
           !isDataUrl(currentAccount.avatarInitial) &&
           !isUrl(currentAccount.avatarInitial)
         ) {
-          payload.avatarInitial =
-            (updates.displayName.charAt(0).toUpperCase() || "?")
-              .substring(0, 2);
+          // 現在DBに頭文字が格納されている可能性があるが、表示上のフォールバックはクライアントで行うため
+          // DB にはデフォルト画像URLを保存する
+          payload.avatarInitial = "/api/image/people.png";
         }
       }
       // payload.avatarInitial が未定義の場合、サーバー側はアイコンを変更しない
