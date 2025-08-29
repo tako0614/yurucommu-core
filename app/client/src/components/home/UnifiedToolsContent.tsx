@@ -1133,7 +1133,8 @@ export default function UnifiedToolsContent() {
                             <Show when={result.actor}>
                               {(localUser &&
                                   (followStatus()[result.actor!] ??
-                                    localUser.isFollowing))
+                                    localUser.isFollowing)) ||
+                                followStatus()[result.actor!]
                                 ? (
                                   <button
                                     type="button"
