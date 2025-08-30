@@ -130,7 +130,7 @@ export async function createTakosApp(
     });
   } else {
     app.all("*", async (c) => {
-      const res = await staticRoot(c, () => undefined);
+      const res = await staticRoot(c, async () => undefined);
       return res ?? await spaEntry(c, async () => {});
     });
   }

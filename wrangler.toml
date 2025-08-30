@@ -1,0 +1,21 @@
+name = "takos-worker"
+main = "app/takos_host/worker.ts"
+compatibility_date = "2024-12-01"
+
+[assets]
+binding = "ASSETS"
+directory = "app/takos_host/client/dist"
+
+[vars]
+# ローカル開発時のデフォルト（必要に応じて .dev.vars で上書き）
+ORIGIN_URL = "http://localhost:8888"
+
+[env.host1]
+[env.host1.vars]
+ORIGIN_URL = "http://localhost:8888"
+TENANT_HOST = "host1.local"
+
+[env.host2]
+[env.host2.vars]
+ORIGIN_URL = "http://localhost:8888"
+TENANT_HOST = "host2.local"
