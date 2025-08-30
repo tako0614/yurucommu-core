@@ -1,0 +1,125 @@
+// Cloudflare Workers エントリポイント（最小構成）
+// - 静的ファイルは Workers Assets（binding: ASSETS）から配信
+// - 動的 API は既存の Deno ホストへプロキシ（環境変数 ORIGIN_URL）
+// - 既存のサーバー実装や Mongo 依存には触れず、エッジ層のみ提供
+
+// Deno でも型解決できる最小形の Assets バインディング型
+interface AssetsBinding {
+  fetch(req: Request): Promise<Response>;
+}
+
+export interface Env {
+  // wrangler.toml の [assets] で設定するバインディング
+  ASSETS: AssetsBinding;
+  // 動的 API のプロキシ先（例: https://your-deno-host.example）
+  ORIGIN_URL?: string;
+  // 開発用: 強制テナントホスト（x-forwarded-host に適用）
+  TENANT_HOST?: string;
+}
+
+function stripPrefix(path: string, prefix: string): string {
+  return path.replace(new RegExp(`^${prefix}`), "") || "/";
+}
+
+function withPath(url: URL, newPath: string): URL {
+  const u = new URL(url);
+  u.pathname = newPath;
+  return u;
+}
+
+async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
+  if (!env.ASSETS) return new Response("ASSETS binding not found", { status: 500 });
+  const url = new URL(req.url);
+  const assetUrl = rewriteTo ? withPath(url, rewriteTo) : url;
+  const res = await env.ASSETS.fetch(new Request(assetUrl.toString(), req));
+  return res;
+}
+
+function requireOrigin(env: Env): string | null {
+  const origin = env.ORIGIN_URL?.replace(/\/$/, "") ?? null;
+  return origin;
+}
+
+async function proxyToOrigin(env: Env, req: Request, rewrite?: (path: string) => string) {
+  const origin = requireOrigin(env);
+  if (!origin) return new Response("ORIGIN_URL is not configured", { status: 500 });
+  const u = new URL(req.url);
+  const path = rewrite ? rewrite(u.pathname) : u.pathname;
+  const target = new URL(origin + path + u.search);
+  const headers = new Headers(req.headers);
+  // テナント解決用（サーバー側は x-forwarded-host を優先）
+  headers.set("x-forwarded-host", env.TENANT_HOST?.trim() || u.host);
+  headers.set("x-forwarded-proto", u.protocol.replace(":", ""));
+  const method = req.method.toUpperCase();
+  const init: RequestInit = {
+    method,
+    headers,
+  };
+  if (method !== "GET" && method !== "HEAD") {
+    // Body は一度しか読めないため、ここで転送
+    init.body = req.body ?? undefined;
+  }
+  const outbound = new Request(target.toString(), init);
+  return await fetch(outbound);
+}
+
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    const { pathname } = url;
+    const method = req.method.toUpperCase();
+
+    // 非 GET/HEAD はすべてオリジンへ（動的 API）
+    if (method !== "GET" && method !== "HEAD") {
+      if (pathname.startsWith("/user/")) {
+        return await proxyToOrigin(env, req, (p) => stripPrefix(p, "/user"));
+      }
+      return await proxyToOrigin(env, req);
+    }
+
+    // /user（エントリ） → index.html
+    if (pathname === "/user" || pathname === "/user/") {
+      return await serveFromAssets(env, req, "/index.html");
+    }
+    // GET /user/*: まず静的（/user を剥がす）→ 404 ならオリジンへ
+    if (pathname.startsWith("/user/")) {
+      const rewritten = stripPrefix(pathname, "/user");
+      const staticRes = await serveFromAssets(env, req, rewritten);
+      if (staticRes.status !== 404) return staticRes;
+      return await proxyToOrigin(env, req, (p) => stripPrefix(p, "/user"));
+    }
+
+    // /auth（エントリ） → index.html
+    if (pathname === "/auth" || pathname === "/auth/") {
+      return await serveFromAssets(env, req, "/index.html");
+    }
+    // GET /auth/*: まず静的（/auth を剥がす）→ 404 なら特定 API 以外も含めてオリジンへ
+    if (pathname.startsWith("/auth/")) {
+      const rewritten = stripPrefix(pathname, "/auth");
+      const staticRes = await serveFromAssets(env, req, rewritten);
+      if (staticRes.status !== 404) return staticRes;
+      return await proxyToOrigin(env, req);
+    }
+
+    // ホストの代表エンドポイントはオリジン優先
+    if (
+      pathname.startsWith("/oauth") ||
+      pathname === "/actor" ||
+      pathname === "/inbox" ||
+      pathname === "/outbox" ||
+      pathname.startsWith("/.well-known/")
+    ) {
+      return await proxyToOrigin(env, req);
+    }
+
+    // それ以外の GET/HEAD:
+    // 1) まず静的アセット
+    const res = await serveFromAssets(env, req);
+    if (res.status !== 404) return res;
+    // 2) 次にオリジン（AP/テナント動的）
+    const originRes = await proxyToOrigin(env, req);
+    if (originRes.status !== 404) return originRes;
+    // 3) 最後に SPA フォールバック（index.html）
+    return await serveFromAssets(env, req, "/index.html");
+  },
+};

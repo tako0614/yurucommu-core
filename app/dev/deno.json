@@ -1,7 +1,9 @@
 {
   "tasks": {
     "host1": "deno task --cwd ../takos_host/ dev --env C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv",
-    "host2": "deno task --cwd ../takos_host/ dev --env C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv2"
+    "host2": "deno task --cwd ../takos_host/ dev --env C:\\Users\\shout\\Desktop\\temp\\takos\\app\\dev\\.hostsEnv2",
+    "workers:host1": "wrangler dev --env host1",
+    "workers:host2": "wrangler dev --env host2"
   },
   "imports": {
     "zod": "npm:zod@^4.0.14",

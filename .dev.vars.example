@@ -1,0 +1,7 @@
+# Cloudflare Workers ローカル開発用の変数例
+# cp .dev.vars.example .dev.vars して編集してください
+
+# 既存 Deno サーバー（takos_host/main.ts を動かしたもの）
+# 例: http://127.0.0.1:8000 や http://localhost:8888
+ORIGIN_URL="http://localhost:8888"
+
