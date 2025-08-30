@@ -1,21 +1,55 @@
 name = "takos-worker"
 main = "app/takos_host/worker.ts"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
 [assets]
 binding = "ASSETS"
 directory = "app/takos_host/client/dist"
 
 [vars]
-# ローカル開発時のデフォルト（必要に応じて .dev.vars で上書き）
 ORIGIN_URL = "http://localhost:8888"
+
+OBJECT_STORAGE_PROVIDER = "r2"
+R2_BUCKET = "TAKOS_R2"
+
+[[r2_buckets]]
+binding = "TAKOS_R2"
+bucket_name = "takos-host"
+
+[[d1_databases]]
+binding = "TAKOS_HOST_DB"
+database_name = "takos_host"
+database_id = "00000000-0000-0000-0000-000000000000"
 
 [env.host1]
 [env.host1.vars]
 ORIGIN_URL = "http://localhost:8888"
 TENANT_HOST = "host1.local"
+OBJECT_STORAGE_PROVIDER = "r2"
+R2_BUCKET = "TAKOS_R2"
+
+[[env.host1.r2_buckets]]
+binding = "TAKOS_R2"
+bucket_name = "takos-host"
+
+[[env.host1.d1_databases]]
+binding = "TAKOS_HOST_DB"
+database_name = "takos_host"
+database_id = "00000000-0000-0000-0000-000000000000"
 
 [env.host2]
 [env.host2.vars]
 ORIGIN_URL = "http://localhost:8888"
 TENANT_HOST = "host2.local"
+OBJECT_STORAGE_PROVIDER = "r2"
+R2_BUCKET = "TAKOS_R2"
+
+[[env.host2.r2_buckets]]
+binding = "TAKOS_R2"
+bucket_name = "takos-host"
+
+[[env.host2.d1_databases]]
+binding = "TAKOS_HOST_DB"
+database_name = "takos_host"
+database_id = "00000000-0000-0000-0000-000000000000"
