@@ -93,6 +93,10 @@ export default {
     if (pathname === "/auth" || pathname === "/auth/") {
       return await serveFromAssets(env, req, "/index.html");
     }
+    // OAuth (google) endpoints should be handled by the origin (avoid SPA fallback)
+    if (pathname.startsWith("/auth/google")) {
+      return await proxyToOrigin(env, req);
+    }
     // GET /auth/*: まず静的（/auth を剥がす）→ 404 なら特定 API 以外も含めてオリジンへ
     if (pathname.startsWith("/auth/")) {
       const rewritten = stripPrefix(pathname, "/auth");
