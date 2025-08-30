@@ -133,8 +133,6 @@ export async function createTakosApp(
       app.get("/", proxy());
       app.get("/chat", proxy());
       app.get("/chat/*", proxy());
-      app.get("/demo", proxy());
-      app.get("/demo/*", proxy());
       app.get("/signup", proxy());
       app.get("/download", proxy());
       app.get("/home", proxy());
@@ -159,13 +157,10 @@ export async function createTakosApp(
       app.use("/assets/*", staticRoot);
       app.use("/favicon.ico", staticRoot);
       app.use("/manifest.json", staticRoot);
-
       // 明示的に許可するクライアントサイドルート（クライアント側ルーターで使われるパスを網羅）
       app.get("/", spaEntry);
       app.get("/chat", spaEntry);
       app.get("/chat/*", spaEntry);
-      app.get("/demo", spaEntry);
-      app.get("/demo/*", spaEntry);
       app.get("/signup", spaEntry);
       app.get("/download", spaEntry);
       app.get("/home", spaEntry);
