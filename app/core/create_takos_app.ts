@@ -30,7 +30,7 @@ import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 import dms from "./routes/dms.ts";
 import { handleOAuthCallback } from "./utils/oauth_callback.ts";
-// DB 依存を避けるため、createTakosApp 本体は DB 生成や操作を行わない
+// DB 依存を避けるため、createTakosApp 本体で DB 生成等の作業を行わない
 
 const isDev = Deno.env.get("DEV") === "1";
 
@@ -79,7 +79,10 @@ export async function createTakosApp(
     app.route("/api", r);
   }
 
-  // ActivityPub や公開エンドポイントは / にマウントする
+  // 未定義の API エンドポイントは SPA へフォールバックせず 404 を返す
+  app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
+
+  // ActivityPub など公開エンドポイントを / にマウントする
 
   // const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, groups];
   const rootRoutes = [nodeinfo, activitypub, rootInbox, groups];
@@ -116,7 +119,15 @@ export async function createTakosApp(
   const staticRoot = serveStatic({ root: "../client/dist" });
   const spaEntry = serveStatic({ root: "../client/dist", path: "index.html" });
   if (isDev) {
-    app.all("*", proxy());
+    // 開発時はクライアントへプロキシするが、/api/* は除外
+    app.all("*", async (c, next) => {
+      if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
+        // ここに到達するのは既存の /api ルートで未処理の場合のみ
+        return c.json({ error: "Not Found" }, 404);
+      }
+      const p = proxy();
+      return await p(c, next);
+    });
   } else {
     app.all("*", async (c) => {
       const res = await staticRoot(c, () => undefined);
