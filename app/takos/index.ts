@@ -9,8 +9,6 @@ import {
 import { getSystemKey } from "../core/services/system_actor.ts";
 import { loadConfig } from "@takos/config";
 import { getEnvPath } from "../packages/config/mod.ts";
-import { serveStatic } from "hono/deno";
-import { Context } from "hono";
 
 // コマンドライン引数から .env のパスを取得（未指定時はローカル .env を既定に）
 const envPathArg = getEnvPath();
@@ -19,7 +17,9 @@ const env = await loadConfig({ envPath: envPathArg ?? defaultEnvPath });
 await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
 // 明示的に core の DataStore 型としてキャストして型不一致を回避
-setStoreFactory((e: Record<string, string>) => createMongoDataStore(e) as unknown as DataStore);
+setStoreFactory((e: Record<string, string>) =>
+  createMongoDataStore(e) as unknown as DataStore
+);
 const db = createDB(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {
   const domain = env["ACTIVITYPUB_DOMAIN"];
@@ -43,7 +43,9 @@ function normalizePem(value?: string): string | undefined {
 
 const cert = normalizePem(env["SERVER_CERT"]);
 const key = normalizePem(env["SERVER_KEY"]);
-const options = cert && key ? { hostname, port, cert, key } : { hostname, port };
+const options = cert && key
+  ? { hostname, port, cert, key }
+  : { hostname, port };
 
 try {
   Deno.serve(options, app.fetch);

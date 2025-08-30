@@ -17,26 +17,6 @@ const devProxy =
     });
   };
 
-function serviceActorAndActivityPubMiddleware(ctx: HostContext) {
-  const { rootDomain, rootActivityPubApp, serviceActorApp } = ctx;
-  if (!(rootDomain && (rootActivityPubApp || serviceActorApp))) return null;
-  return async (c: Context, next: () => Promise<void>) => {
-    const host = getRealHost(c);
-    if (!isRootHost(host, rootDomain)) return await next();
-    if (
-      serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
-    ) {
-      const resSvc = await serviceActorApp.fetch(c.req.raw);
-      if (resSvc.status !== 404) return resSvc;
-    }
-    if (rootActivityPubApp) {
-      const res = await rootActivityPubApp.fetch(c.req.raw);
-      if (res.status !== 404) return res;
-    }
-    await next();
-  };
-}
-
 /** Build the root (host) app with all routing logic encapsulated. */
 export function buildRootApp(ctx: HostContext) {
   const {
@@ -45,7 +25,6 @@ export function buildRootApp(ctx: HostContext) {
     consumerApp,
     rootDomain,
     termsText,
-    notFoundHtml,
     isDev,
     rootActivityPubApp,
     serviceActorApp,
@@ -114,41 +93,7 @@ export function buildRootApp(ctx: HostContext) {
   // Dev vs Prod: only handle /auth static/proxy & root domain static fallback + ActivityPub
   if (isDev) {
     app.use("/auth/*", devProxy("/auth"));
-    // ルートドメインが設定されている場合は、ルートをフロントの dev サーバーへプロキシ
-    if (rootDomain && (rootActivityPubApp || serviceActorApp)) {
-      const proxyRoot = devProxy("");
-      app.use(async (c, next) => {
-        const host = getRealHost(c);
-        if (isRootHost(host, rootDomain)) {
-          if (
-            serviceActorApp &&
-            /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
-          ) {
-            const resSvc = await serviceActorApp.fetch(c.req.raw);
-            if (resSvc.status !== 404) return resSvc;
-          }
-          if (rootActivityPubApp) {
-            const res = await rootActivityPubApp.fetch(c.req.raw);
-            if (res.status !== 404) return res;
-          }
-          return await proxyRoot(c, next);
-        }
-        await next();
-      });
-    }
-    // ルートドメイン未設定の場合でも、テナントに該当しないアクセスはホストUIへフォールバック
-    if (!rootDomain) {
-      const proxyRoot = devProxy("");
-      app.use(async (c, next) => {
-        const host = getRealHost(c);
-        const tenantApp = await getAppForHost(host, ctx);
-        if (!tenantApp) return await proxyRoot(c, next);
-        await next();
-      });
-    }
   } else {
-    const mid = serviceActorAndActivityPubMiddleware(ctx);
-    if (mid) app.use(mid);
     app.use(
       "/auth/*",
       serveStatic({
@@ -156,63 +101,33 @@ export function buildRootApp(ctx: HostContext) {
         rewriteRequestPath: (p) => p.replace(/^\/auth/, ""),
       }),
     );
-    if (rootDomain) {
-      app.use(async (c, next) => {
-        const host = getRealHost(c);
-        if (host === rootDomain) {
-          await serveStatic({ root: "./client/dist" })(c, next);
-        } else await next();
-      });
-    }
-    // ルートドメイン未設定時: テナントに該当しない場合はビルド済みホストUI(index.html)を返す
-    if (!rootDomain) {
-      app.use(async (c, next) => {
-        const host = getRealHost(c);
-        const tenantApp = await getAppForHost(host, ctx);
-        if (!tenantApp) {
-          return await serveStatic({
-            root: "./client/dist",
-            rewriteRequestPath: () => "/index.html",
-          })(c, next);
-        }
-        await next();
-      });
-    }
   }
 
   // Catch-all dynamic tenant dispatch
   app.all("/*", async (c) => {
     const host = getRealHost(c);
-    if (rootDomain && host === rootDomain && rootActivityPubApp) {
-      return rootActivityPubApp.fetch(c.req.raw);
+    if (rootDomain && isRootHost(host, rootDomain)) {
+      if (
+        serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
+      ) {
+        const resSvc = await serviceActorApp.fetch(c.req.raw);
+        if (resSvc.status !== 404) return resSvc;
+      }
+      if (rootActivityPubApp) {
+        const res = await rootActivityPubApp.fetch(c.req.raw);
+        if (res.status !== 404) return res;
+      }
     }
     const tenantApp = await getAppForHost(host, ctx);
-    if (!tenantApp) {
-      // 開発時は最終フォールバックで dev サーバーへ（上の use でも対応しているが念のため）
-      if (isDev) {
-        const proxy = devProxy("");
-        return await proxy(c, async () => {});
-      }
-      // 本番時: 明示的に許可したパスのみ SPA を返す
-      // 必要に応じてここにパスを追加してください
-      const p = c.req.path;
-      const spaPath = /^(?:\/$|\/chat(?:\/|$)|\/demo(?:\/|$)|\/signup(?:\/|$)|\/download(?:\/|$)|\/terms(?:\/|$))/;
-      if (spaPath.test(p)) {
-        return await serveStatic({
-          root: "./client/dist",
-          rewriteRequestPath: () => "/index.html",
-        })(c, async () => {});
-      }
-      // 該当しないパスは既存の 404 を返す
-      if (!isDev && notFoundHtml) {
-        return new Response(notFoundHtml, {
-          status: 404,
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
-      }
-      return c.text("not found", 404);
+    if (tenantApp) return tenantApp.fetch(c.req.raw);
+    if (isDev) {
+      const proxy = devProxy("");
+      return await proxy(c, async () => {});
     }
-    return tenantApp.fetch(c.req.raw);
+    return await serveStatic({
+      root: "./client/dist",
+      rewriteRequestPath: () => "/index.html",
+    })(c, async () => {});
   });
 
   return app;

@@ -113,73 +113,15 @@ export async function createTakosApp(
       return new Response(body, { status: res.status, headers: res.headers });
     };
   }
-    // 明示的ルーティング: 静的資産は通常配信し、SPA は必要なエントリパスのみに対して返す
-    const spaEntry = async (c: Context) => {
-      return await serveStatic({ root: "../client/dist", path: "index.html" })(
-        c,
-        async () => {},
-      );
-    };
-
-    // 静的アセット一般
-    const staticRoot = serveStatic({ root: "../client/dist" });
-
-    if (isDev) {
-      // 開発時はフロントの dev サーバーへプロキシ。ただし静的資産は proxy で配信
-      app.use("/assets/*", proxy());
-      app.use("/favicon.ico", proxy());
-      app.use("/manifest.json", proxy());
-      // 明示的な SPA エントリ（クライアントで直接アクセスされうるパスを網羅）
-      app.get("/", proxy());
-      app.get("/chat", proxy());
-      app.get("/chat/*", proxy());
-      app.get("/signup", proxy());
-      app.get("/download", proxy());
-      app.get("/home", proxy());
-      app.get("/home/*", proxy());
-      app.get("/microblog", proxy());
-      app.get("/microblog/*", proxy());
-      app.get("/post", proxy());
-      app.get("/post/*", proxy());
-      app.get("/user", proxy());
-      app.get("/user/*", proxy());
-      app.get("/profile", proxy());
-      app.get("/profile/*", proxy());
-      app.get("/tools", proxy());
-      app.get("/notifications", proxy());
-      app.get("/settings", proxy());
-      app.get("/groups", proxy());
-      app.get("/groups/*", proxy());
-      app.get("/accounts", proxy());
-      app.get("/accounts/*", proxy());
-    } else {
-      // 本番: 静的ファイルは配信し、SPA は明示的パスのみ index.html を返す
-      app.use("/assets/*", staticRoot);
-      app.use("/favicon.ico", staticRoot);
-      app.use("/manifest.json", staticRoot);
-      // 明示的に許可するクライアントサイドルート（クライアント側ルーターで使われるパスを網羅）
-      app.get("/", spaEntry);
-      app.get("/chat", spaEntry);
-      app.get("/chat/*", spaEntry);
-      app.get("/signup", spaEntry);
-      app.get("/download", spaEntry);
-      app.get("/home", spaEntry);
-      app.get("/home/*", spaEntry);
-      app.get("/microblog", spaEntry);
-      app.get("/microblog/*", spaEntry);
-      app.get("/post", spaEntry);
-      app.get("/post/*", spaEntry);
-      app.get("/user", spaEntry);
-      app.get("/user/*", spaEntry);
-      app.get("/profile", spaEntry);
-      app.get("/profile/*", spaEntry);
-      app.get("/tools", spaEntry);
-      app.get("/notifications", spaEntry);
-      app.get("/settings", spaEntry);
-      app.get("/groups", spaEntry);
-      app.get("/groups/*", spaEntry);
-      app.get("/accounts", spaEntry);
-      app.get("/accounts/*", spaEntry);
-    }
+  const staticRoot = serveStatic({ root: "../client/dist" });
+  const spaEntry = serveStatic({ root: "../client/dist", path: "index.html" });
+  if (isDev) {
+    app.all("*", proxy());
+  } else {
+    app.all("*", async (c) => {
+      const res = await staticRoot(c, () => undefined);
+      return res ?? await spaEntry(c, async () => {});
+    });
+  }
   return app;
 }
