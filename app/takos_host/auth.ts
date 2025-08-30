@@ -45,26 +45,23 @@ export function createAuthApp(options?: {
   function getGoogleEnv() {
     const clientId = (globalThis as unknown as { Deno?: typeof Deno }).Deno?.env.get("GOOGLE_CLIENT_ID") ?? "";
     const clientSecret = (globalThis as unknown as { Deno?: typeof Deno }).Deno?.env.get("GOOGLE_CLIENT_SECRET") ?? "";
-    const redirectUri = (globalThis as unknown as { Deno?: typeof Deno }).Deno?.env.get("GOOGLE_REDIRECT_URI") ?? "";
-    return { clientId, clientSecret, redirectUri };
+    // Google の redirect_uri は固定で "/auth/google/callback" にします。
+    // 実際に Google へ送る値は、リクエストのオリジンに上記パスを付与して動的生成します。
+    return { clientId, clientSecret };
   }
 
-  function parseRedirectParam(url: string): string | null {
-    try {
-      const u = new URL(url);
-      const r = u.searchParams.get("redirect");
-      if (!r) return null;
-      // 相対パスのみ許可
-      if (r.startsWith("/")) return r;
-      return null;
-    } catch {
-      return null;
-    }
+  function buildGoogleRedirectUri(c: Context): string {
+    const u = new URL(c.req.url);
+    u.pathname = "/auth/google/callback";
+    u.search = "";
+    u.hash = "";
+    return u.toString();
   }
 
   app.get("/google/start", async (c) => {
-    const { clientId, redirectUri } = getGoogleEnv();
-    if (!clientId || !redirectUri) {
+    const { clientId } = getGoogleEnv();
+    const redirectUri = buildGoogleRedirectUri(c);
+    if (!clientId) {
       return c.json({ error: "google_not_configured" }, 500);
     }
     const state = crypto.randomUUID();
@@ -81,19 +78,18 @@ export function createAuthApp(options?: {
     // state を短期 Cookie に保存（10 分）
     const expires = new Date(Date.now() + 10 * 60 * 1000);
     setCookie(c, "g_state", state, createCookieOpts(c, expires));
-    // 任意のリダイレクト先（相対パスのみ）を保持
-    const redirectTo = parseRedirectParam(c.req.url);
-    if (redirectTo) setCookie(c, "g_redirect", redirectTo, createCookieOpts(c, expires));
+    // 任意リダイレクトは廃止し、固定パスに統一
 
     return c.redirect(authUrl.toString());
   });
 
   app.get("/google/callback", async (c) => {
-    const { clientId, clientSecret, redirectUri } = getGoogleEnv();
+    const { clientId, clientSecret } = getGoogleEnv();
+    const redirectUri = buildGoogleRedirectUri(c);
     const code = c.req.query("code") ?? "";
     const state = c.req.query("state") ?? "";
     const saved = getCookie(c, "g_state") ?? "";
-    if (!clientId || !clientSecret || !redirectUri) {
+    if (!clientId || !clientSecret) {
       return c.json({ error: "google_not_configured" }, 500);
     }
     if (!code || !state || !saved || state !== saved) {
@@ -185,11 +181,8 @@ export function createAuthApp(options?: {
 
     // state クッキーの掃除
     setCookie(c, "g_state", "", { ...createCookieOpts(c, new Date(0)), expires: new Date(0) });
-    const redirectTo = getCookie(c, "g_redirect");
-    setCookie(c, "g_redirect", "", { ...createCookieOpts(c, new Date(0)), expires: new Date(0) });
-
-    // リダイレクト
-    return c.redirect(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/user");
+    // リダイレクト（固定）
+    return c.redirect("/user");
   });
 
   /* --------------------------- REGISTER --------------------------- */

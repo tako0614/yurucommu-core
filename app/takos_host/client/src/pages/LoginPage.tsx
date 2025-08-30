@@ -85,7 +85,7 @@ const LoginPage: Component = () => {
               <div class="h-px bg-gray-600 flex-1" />
             </div>
             <a
-              href="/auth/google/start?redirect=/user"
+              href="/auth/google/start"
               class="w-full inline-flex items-center justify-center gap-2 bg-white text-gray-900 py-3 px-4 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" class="w-5 h-5">
