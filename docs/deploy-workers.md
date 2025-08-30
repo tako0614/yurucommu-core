@@ -87,3 +87,31 @@ wrangler deploy
 必要に応じて `app/takos_host/worker.ts` を拡張してください（例: 他の API をプロキシへ追加）。
 
 補足: Worker はオリジンへ転送する際に `x-forwarded-host` と `x-forwarded-proto` を付与します。サーバー側は `x-forwarded-host` を優先してテナント解決を行います（`app/takos_host/utils/host_context.ts:78` 付近の `getRealHost` を参照）。
+
+## Host API を Workers で直接提供（D1 + R2）
+
+takos host の API（`/auth/*`, `/user/*`）を Cloudflare Workers 上で直接提供する入口も用意しています。
+
+- エントリ: `app/takos_host/host_api_worker.ts`
+- DB: D1（バインディング `TAKOS_HOST_DB`）
+- オブジェクトストレージ: R2（`OBJECT_STORAGE_PROVIDER=r2`, `R2_BUCKET=<binding>`）
+
+手順:
+
+1) D1 を作成しスキーマを適用
+
+```sh
+wrangler d1 create takos_host
+wrangler d1 execute <DB_NAME> --file app/takos_host/db/d1/schema.sql
+```
+
+2) R2 バケットを作成（`[[r2_buckets]]` バインディングを wrangler.toml に設定）
+
+3) ローカル起動（host1/host2 テナント想定）
+
+```sh
+deno task --cwd app/dev workers:api:host1
+deno task --cwd app/dev workers:api:host2
+```
+
+host_api_worker は起動時に D1 を `setStoreFactory(createD1DataStore)` で差し込み、R2 バインディングを `globalThis[env.R2_BUCKET]` に公開して `createObjectStorage` が利用できるようにします。
