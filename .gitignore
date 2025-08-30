@@ -2,3 +2,5 @@ node_modules
 dist
 .serena/cache
 .env
+.wrangler
+wrangler.toml
