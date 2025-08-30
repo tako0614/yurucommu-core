@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { setStoreFactory } from "../core/db/mod.ts";
 import { createD1DataStore, type D1Database } from "./db/d1_store.ts";
+import { D1_SCHEMA } from "./db/d1/schema.ts";
 
 // 最小の Assets バインディング
 interface AssetsBinding { fetch(req: Request): Promise<Response> }
@@ -33,14 +34,46 @@ function mapR2BindingToGlobal(env: Env) {
   }
 }
 
-function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
+async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
   const url = new URL(req.url);
   if (rewriteTo) url.pathname = rewriteTo;
-  return env.ASSETS.fetch(new Request(url.toString(), req));
+  let target = url;
+  // 1st fetch
+  let res = await env.ASSETS.fetch(new Request(target.toString(), req));
+  // Follow simple 3xx from assets (e.g., directory redirects)
+  const seen = new Set<string>();
+  while (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location");
+    if (!loc) break;
+    const next = new URL(loc, target);
+    const key = next.toString();
+    if (seen.has(key)) break;
+    seen.add(key);
+    target = next;
+    res = await env.ASSETS.fetch(new Request(target.toString(), req));
+  }
+  const headers = new Headers(res.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("x-worker-assets-path", target.pathname || "/");
+  headers.set("x-worker-route", "assets");
+  return new Response(res.body, { status: res.status, headers });
 }
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    // 開発時: D1 スキーマを（冪等に）適用
+    if (!(globalThis as any)._takos_d1_inited) {
+      try {
+        const stmts = D1_SCHEMA.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean);
+        for (const sql of stmts) {
+          await env.TAKOS_HOST_DB.prepare(sql).run();
+        }
+      } catch (e) {
+        // 失敗しても先に進む（本番は migrations を推奨）
+        console.warn("D1 schema init warning:", (e as Error).message ?? e);
+      }
+      (globalThis as any)._takos_d1_inited = true;
+    }
     // R2 バインディングを globalThis に公開（createObjectStorage が参照）
     mapR2BindingToGlobal(env);
 
@@ -97,11 +130,31 @@ export default {
     }
 
     // Hono アプリ構築（最小）
-    const app = new Hono();
+    const app = new Hono({ strict: false });
 
-    // SPA エントリ
+    // SPA エントリ + 主要フロントルート
     app.get("/user", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/auth", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
+    app.get("/signup", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
+    app.get("/verify", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
+    app.get("/terms", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
+    app.get("/robots.txt", (c) => serveFromAssets(env, c.req.raw, "/robots.txt"));
+
+    // /auth/*, /user/* の GET は、API パスを除外した上で静的アセットへリライト
+    app.get("/auth/*", async (c, next) => {
+      // API GET: /auth/status は通す
+      if (c.req.path === "/auth/status") return await next();
+      const p = c.req.path.replace(/^\/auth/, "");
+      return serveFromAssets(env, c.req.raw, p || "/index.html");
+    });
+    app.get("/user/*", async (c, next) => {
+      // API GET 一覧は通す
+      if (/^\/user\/(instances|oauth|domains)(\/|$)/.test(c.req.path)) {
+        return await next();
+      }
+      const p = c.req.path.replace(/^\/user/, "");
+      return serveFromAssets(env, c.req.raw, p || "/index.html");
+    });
 
     // ---- /auth ----
     app.post("/auth/register", async (c) => {

@@ -2848,6 +2848,63 @@ function createD1DataStore(env2, d1, options) {
 }
 __name(createD1DataStore, "createD1DataStore");
 
+// app/takos_host/db/d1/schema.ts
+var D1_SCHEMA = `
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS tenants (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS instances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  host TEXT NOT NULL UNIQUE,
+  owner TEXT NOT NULL,
+  env_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id TEXT PRIMARY KEY,
+  client_secret TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS host_domains (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  token TEXT NOT NULL,
+  verified INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE(user_id, domain)
+);
+
+CREATE TABLE IF NOT EXISTS host_users (
+  id TEXT PRIMARY KEY,
+  user_name TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  verify_code TEXT,
+  verify_expires INTEGER,
+  hashed_password TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS host_sessions (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_instances_owner ON instances(owner);
+CREATE INDEX IF NOT EXISTS idx_domains_user ON host_domains(user_id);
+`;
+
 // app/takos_host/host_api_worker.ts
 function mapR2BindingToGlobal(env2) {
   if ((env2.OBJECT_STORAGE_PROVIDER ?? "").toLowerCase() !== "r2") return;
@@ -2859,14 +2916,42 @@ function mapR2BindingToGlobal(env2) {
   }
 }
 __name(mapR2BindingToGlobal, "mapR2BindingToGlobal");
-function serveFromAssets(env2, req, rewriteTo) {
+async function serveFromAssets(env2, req, rewriteTo) {
   const url = new URL(req.url);
   if (rewriteTo) url.pathname = rewriteTo;
-  return env2.ASSETS.fetch(new Request(url.toString(), req));
+  let target = url;
+  let res = await env2.ASSETS.fetch(new Request(target.toString(), req));
+  const seen = /* @__PURE__ */ new Set();
+  while (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location");
+    if (!loc) break;
+    const next = new URL(loc, target);
+    const key = next.toString();
+    if (seen.has(key)) break;
+    seen.add(key);
+    target = next;
+    res = await env2.ASSETS.fetch(new Request(target.toString(), req));
+  }
+  const headers = new Headers(res.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("x-worker-assets-path", target.pathname || "/");
+  headers.set("x-worker-route", "assets");
+  return new Response(res.body, { status: res.status, headers });
 }
 __name(serveFromAssets, "serveFromAssets");
 var host_api_worker_default = {
   async fetch(req, env2) {
+    if (!globalThis._takos_d1_inited) {
+      try {
+        const stmts = D1_SCHEMA.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean);
+        for (const sql of stmts) {
+          await env2.TAKOS_HOST_DB.prepare(sql).run();
+        }
+      } catch (e) {
+        console.warn("D1 schema init warning:", e.message ?? e);
+      }
+      globalThis._takos_d1_inited = true;
+    }
     mapR2BindingToGlobal(env2);
     const rootDomain = (env2.ACTIVITYPUB_DOMAIN ?? "").toLowerCase();
     const freeLimit = Number(env2.FREE_PLAN_LIMIT ?? "1");
@@ -2916,9 +3001,25 @@ var host_api_worker_default = {
       return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     }
     __name(jsonRes, "jsonRes");
-    const app = new Hono2();
+    const app = new Hono2({ strict: false });
     app.get("/user", (c) => serveFromAssets(env2, c.req.raw, "/index.html"));
     app.get("/auth", (c) => serveFromAssets(env2, c.req.raw, "/index.html"));
+    app.get("/signup", (c) => serveFromAssets(env2, c.req.raw, "/index.html"));
+    app.get("/verify", (c) => serveFromAssets(env2, c.req.raw, "/index.html"));
+    app.get("/terms", (c) => serveFromAssets(env2, c.req.raw, "/index.html"));
+    app.get("/robots.txt", (c) => serveFromAssets(env2, c.req.raw, "/robots.txt"));
+    app.get("/auth/*", async (c, next) => {
+      if (c.req.path === "/auth/status") return await next();
+      const p = c.req.path.replace(/^\/auth/, "");
+      return serveFromAssets(env2, c.req.raw, p || "/index.html");
+    });
+    app.get("/user/*", async (c, next) => {
+      if (/^\/user\/(instances|oauth|domains)(\/|$)/.test(c.req.path)) {
+        return await next();
+      }
+      const p = c.req.path.replace(/^\/user/, "");
+      return serveFromAssets(env2, c.req.raw, p || "/index.html");
+    });
     app.post("/auth/register", async (c) => {
       const { userName, email, password } = await c.req.json().catch(() => ({}));
       if (typeof userName !== "string" || typeof email !== "string" || typeof password !== "string") {
@@ -3158,7 +3259,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env2, _ctx, middlewareCtx
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-nM5WV4/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-919aum/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -3190,7 +3291,7 @@ function __facade_invoke__(request, env2, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-nM5WV4/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-919aum/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;
