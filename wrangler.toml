@@ -13,6 +13,14 @@ ORIGIN_URL = "http://localhost:8888"
 OBJECT_STORAGE_PROVIDER = "r2"
 R2_BUCKET = "TAKOS_R2"
 
+# Google OAuth（Workers 側環境変数）
+# Google Cloud Console の OAuth2 クライアントで発行した値を設定してください。
+# 本番では Worker の実ドメインを使ったコールバック URL を指定します。
+# 例: https://your-worker.example.com/auth/google/callback
+GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_SECRET = ""
+GOOGLE_REDIRECT_URI = ""
+
 [[r2_buckets]]
 binding = "TAKOS_R2"
 bucket_name = "takos-host"
@@ -29,6 +37,14 @@ TENANT_HOST = "host1.local"
 OBJECT_STORAGE_PROVIDER = "r2"
 R2_BUCKET = "TAKOS_R2"
 
+# Google OAuth（host1 用）
+# ローカル開発では Google 側に http(s) のローカル URI を登録できないため、
+# 実ドメインでのみ利用可能です。必要に応じて設定してください。
+GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_SECRET = ""
+# 例: https://host1.example.com/auth/google/callback
+GOOGLE_REDIRECT_URI = ""
+
 [[env.host1.r2_buckets]]
 binding = "TAKOS_R2"
 bucket_name = "takos-host"
@@ -44,6 +60,12 @@ ORIGIN_URL = "http://localhost:8888"
 TENANT_HOST = "host2.local"
 OBJECT_STORAGE_PROVIDER = "r2"
 R2_BUCKET = "TAKOS_R2"
+
+# Google OAuth（host2 用）
+GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_SECRET = ""
+# 例: https://host2.example.com/auth/google/callback
+GOOGLE_REDIRECT_URI = ""
 
 [[env.host2.r2_buckets]]
 binding = "TAKOS_R2"
