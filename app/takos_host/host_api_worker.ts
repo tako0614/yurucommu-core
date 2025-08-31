@@ -8,12 +8,8 @@ import { createD1DataStore, type D1Database } from "./db/d1_store.ts";
 import { D1_SCHEMA } from "./db/d1/schema.ts";
 
 // 最小の Assets バインディング
-interface AssetsBinding {
-  fetch(req: Request): Promise<Response>;
-}
 
 export interface Env {
-  ASSETS: AssetsBinding;
   // D1 バインディング
   TAKOS_HOST_DB: D1Database;
   // R2 バインディング名（env[R2_BUCKET] を globalThis へマップ）
@@ -40,30 +36,7 @@ function mapR2BindingToGlobal(env: Env) {
   }
 }
 
-async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
-  const url = new URL(req.url);
-  if (rewriteTo) url.pathname = rewriteTo;
-  let target = url;
-  // 1st fetch
-  let res = await env.ASSETS.fetch(new Request(target.toString(), req));
-  // Follow simple 3xx from assets (e.g., directory redirects)
-  const seen = new Set<string>();
-  while (res.status >= 300 && res.status < 400) {
-    const loc = res.headers.get("location");
-    if (!loc) break;
-    const next = new URL(loc, target);
-    const key = next.toString();
-    if (seen.has(key)) break;
-    seen.add(key);
-    target = next;
-    res = await env.ASSETS.fetch(new Request(target.toString(), req));
-  }
-  const headers = new Headers(res.headers);
-  headers.set("cache-control", "no-store");
-  headers.set("x-worker-assets-path", target.pathname || "/");
-  headers.set("x-worker-route", "assets");
-  return new Response(res.body, { status: res.status, headers });
-}
+// 静的アセット配信は廃止（Workers 側では行わない）
 
 // ORIGIN_URL プロキシは廃止（全処理を Workers 内で完結させる）
 
@@ -199,15 +172,12 @@ export default {
     app.use("/verify", onlyPortal);
     app.use("/terms", onlyPortal);
     app.use("/robots.txt", onlyPortal);
-    app.get("/user", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get("/auth", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get("/signup", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get("/verify", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get("/terms", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get(
-      "/robots.txt",
-      (c) => serveFromAssets(env, c.req.raw, "/robots.txt"),
-    );
+    app.get("/user", () => new Response("Not Found", { status: 404 }));
+    app.get("/auth", () => new Response("Not Found", { status: 404 }));
+    app.get("/signup", () => new Response("Not Found", { status: 404 }));
+    app.get("/verify", () => new Response("Not Found", { status: 404 }));
+    app.get("/terms", () => new Response("Not Found", { status: 404 }));
+    // robots.txt の静的配信は行わない（別配信レイヤで処理）
 
     // /auth/*, /user/* の GET は、API パスを除外した上で静的アセットへリライト
     app.use("/auth/*", onlyPortal);
@@ -219,7 +189,7 @@ export default {
         return await next();
       }
       const p = c.req.path.replace(/^\/auth/, "");
-      return serveFromAssets(env, c.req.raw, p || "/index.html");
+      return new Response("Not Found", { status: 404 });
     });
     app.use("/user/*", onlyPortal);
     app.get("/user/*", async (c, next) => {
@@ -228,7 +198,7 @@ export default {
         return await next();
       }
       const p = c.req.path.replace(/^\/user/, "");
-      return serveFromAssets(env, c.req.raw, p || "/index.html");
+      return new Response("Not Found", { status: 404 });
     });
 
     // ---- /auth ----
@@ -663,10 +633,7 @@ export default {
 
     // それ以外は 404 → SPA フォールバック
     const res = await app.fetch(req, env);
-    if (res.status !== 404) return res;
-    if (req.method === "GET") {
-      return await serveFromAssets(env, req, "/index.html");
-    }
+    // SPA フォールバックを行わない
     return res;
   },
 };
