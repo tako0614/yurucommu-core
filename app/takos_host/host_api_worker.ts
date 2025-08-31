@@ -81,7 +81,10 @@ export default {
     mapR2BindingToGlobal(env);
 
     // D1 データストアを Host 用に差し込む
-    const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? "").toLowerCase();
+    // Workers 版では ACTIVITYPUB_DOMAIN 未設定のケースがあるため、
+    // その場合は要求 Host を既定のルートドメインとして扱います（UI の表示用）。
+    const requestHost = new URL(req.url).host.toLowerCase();
+    const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
     const freeLimit = Number(env.FREE_PLAN_LIMIT ?? "1");
     const reserved = (env.RESERVED_SUBDOMAINS ?? "")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
