@@ -17,8 +17,9 @@ export interface Env {
   // D1 バインディング
   TAKOS_HOST_DB: D1Database;
   // R2 バインディング名（env[R2_BUCKET] を globalThis へマップ）
-  OBJECT_STORAGE_PROVIDER?: string; // "r2" を推奨
-  R2_BUCKET?: string; // 例: "TAKOS_R2"
+  // 必須化: Workers 上では D1 と R2 を必須とする
+  OBJECT_STORAGE_PROVIDER: string; // "r2" を推奨
+  R2_BUCKET: string; // 例: "TAKOS_R2"
   // Host 設定
   ACTIVITYPUB_DOMAIN?: string;
   FREE_PLAN_LIMIT?: string;
@@ -84,8 +85,19 @@ async function proxyToOrigin(req: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    // 必須チェック: D1 と R2 のバインディングを必須化
+    if (!env.TAKOS_HOST_DB) {
+      return new Response("TAKOS_HOST_DB binding is required", { status: 500 });
+    }
+    if (!env.OBJECT_STORAGE_PROVIDER) {
+      return new Response("OBJECT_STORAGE_PROVIDER env is required", { status: 500 });
+    }
+    if (!env.R2_BUCKET) {
+      return new Response("R2_BUCKET env is required", { status: 500 });
+    }
     // 開発時: D1 スキーマを（冪等に）適用
-    if (!(globalThis as any)._takos_d1_inited) {
+    const _g = globalThis as unknown as { _takos_d1_inited?: boolean };
+    if (!_g._takos_d1_inited) {
       try {
         const stmts = D1_SCHEMA.split(/;\s*(?:\n|$)/).map((s) => s.trim())
           .filter(Boolean);
@@ -96,10 +108,10 @@ export default {
         // 失敗しても先に進む（本番は migrations を推奨）
         console.warn("D1 schema init warning:", (e as Error).message ?? e);
       }
-      (globalThis as any)._takos_d1_inited = true;
+      _g._takos_d1_inited = true;
     }
     // R2 バインディングを globalThis に公開（createObjectStorage が参照）
-    mapR2BindingToGlobal(env);
+  mapR2BindingToGlobal(env);
 
     // D1 データストアを Host 用に差し込む
     const requestHost = new URL(req.url).host.toLowerCase();
@@ -117,13 +129,13 @@ export default {
     const reserved = (env.RESERVED_SUBDOMAINS ?? "")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
-    setStoreFactory((vars) =>
+    // 環境変数を必須値として直接渡す（vars にフォールバックしない）
+    setStoreFactory(() =>
       createD1DataStore(
         {
-          OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER ??
-            vars["OBJECT_STORAGE_PROVIDER"] ?? "r2",
-          R2_BUCKET: env.R2_BUCKET ?? vars["R2_BUCKET"] ?? "TAKOS_R2",
-          ACTIVITYPUB_DOMAIN: vars["ACTIVITYPUB_DOMAIN"] ?? rootDomain,
+          OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER,
+          R2_BUCKET: env.R2_BUCKET,
+          ACTIVITYPUB_DOMAIN: rootDomain,
         },
         env.TAKOS_HOST_DB,
         { tenantId: rootDomain, multiTenant: true },
@@ -136,11 +148,12 @@ export default {
     const db = () =>
       (globalThis as unknown as { _db: ReturnType<typeof createD1DataStore> })
         ._db;
+    // グローバル DB インスタンスも env の値を使って作成
     (globalThis as unknown as { _db?: ReturnType<typeof createD1DataStore> })
       ._db ??= createD1DataStore(
         {
-          OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER ?? "r2",
-          R2_BUCKET: env.R2_BUCKET ?? "TAKOS_R2",
+          OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER,
+          R2_BUCKET: env.R2_BUCKET,
           ACTIVITYPUB_DOMAIN: rootDomain,
         },
         env.TAKOS_HOST_DB,
@@ -188,7 +201,7 @@ export default {
 
     // Hono アプリ構築（最小）
     const app = new Hono({ strict: false });
-    const onlyPortal = async (c: any, next: () => Promise<void>) => {
+    const onlyPortal = async (_c: unknown, next: () => Promise<void>) => {
       if (!isPortalHost) return new Response("Not Found", { status: 404 });
       return await next();
     };
@@ -598,7 +611,7 @@ export default {
 
     app.post(
       "/user/instances/:host/restart",
-      async (_c) => jsonRes({ success: true }),
+      (_c) => jsonRes({ success: true }),
     );
 
     // OAuth clients
