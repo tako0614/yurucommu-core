@@ -28,7 +28,9 @@ function withPath(url: URL, newPath: string): URL {
 }
 
 async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
-  if (!env.ASSETS) return new Response("ASSETS binding not found", { status: 500 });
+  if (!env.ASSETS) {
+    return new Response("ASSETS binding not found", { status: 500 });
+  }
   const url = new URL(req.url);
   const assetUrl = rewriteTo ? withPath(url, rewriteTo) : url;
   const res = await env.ASSETS.fetch(new Request(assetUrl.toString(), req));
@@ -40,9 +42,15 @@ function requireOrigin(env: Env): string | null {
   return origin;
 }
 
-async function proxyToOrigin(env: Env, req: Request, rewrite?: (path: string) => string) {
+async function proxyToOrigin(
+  env: Env,
+  req: Request,
+  rewrite?: (path: string) => string,
+) {
   const origin = requireOrigin(env);
-  if (!origin) return new Response("ORIGIN_URL is not configured", { status: 500 });
+  if (!origin) {
+    return new Response("ORIGIN_URL is not configured", { status: 500 });
+  }
   const u = new URL(req.url);
   const path = rewrite ? rewrite(u.pathname) : u.pathname;
   const target = new URL(origin + path + u.search);
@@ -93,8 +101,13 @@ export default {
     if (pathname === "/auth" || pathname === "/auth/") {
       return await serveFromAssets(env, req, "/index.html");
     }
-    // GET /auth/*: まず静的（/auth を剥がす）→ 404 なら特定 API 以外も含めてオリジンへ
+    // GET /auth/*: OAuth の開始（*/start）はオリジンへプロキシしてリダイレクトやセットクッキーを処理させる
+    // それ以外はまず静的（/auth を剥がす）→ 404 ならオリジンへ
     if (pathname.startsWith("/auth/")) {
+      // 例: /auth/google/start や /auth/oidc/start などはオリジンで処理
+      if (/\/(start|callback)\/?$/.test(pathname)) {
+        return await proxyToOrigin(env, req);
+      }
       const rewritten = stripPrefix(pathname, "/auth");
       const staticRes = await serveFromAssets(env, req, rewritten);
       if (staticRes.status !== 404) return staticRes;
