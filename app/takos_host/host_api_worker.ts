@@ -19,11 +19,14 @@ export interface Env {
   // R2 バインディング名（env[R2_BUCKET] を globalThis へマップ）
   OBJECT_STORAGE_PROVIDER?: string; // "r2" を推奨
   R2_BUCKET?: string; // 例: "TAKOS_R2"
-
   // Host 設定
   ACTIVITYPUB_DOMAIN?: string;
   FREE_PLAN_LIMIT?: string;
   RESERVED_SUBDOMAINS?: string; // comma separated
+  // テナントはオリジン（Deno サーバ）へ委譲するための転送先
+  ORIGIN_URL?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 function mapR2BindingToGlobal(env: Env) {
@@ -61,6 +64,24 @@ async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
   return new Response(res.body, { status: res.status, headers });
 }
 
+function originBase(env: Env): string | null {
+  const base = env.ORIGIN_URL?.replace(/\/$/, "") ?? null;
+  return base;
+}
+
+async function proxyToOrigin(req: Request, env: Env): Promise<Response> {
+  const base = originBase(env);
+  if (!base) return new Response("ORIGIN_URL is not configured", { status: 500 });
+  const u = new URL(req.url);
+  const target = new URL(base + u.pathname + u.search);
+  const headers = new Headers(req.headers);
+  headers.set("x-forwarded-host", u.host);
+  headers.set("x-forwarded-proto", u.protocol.replace(":", ""));
+  const init: RequestInit = { method: req.method, headers };
+  if (req.method !== "GET" && req.method !== "HEAD") init.body = req.body ?? undefined;
+  return await fetch(new Request(target.toString(), init));
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     // 開発時: D1 スキーマを（冪等に）適用
@@ -81,9 +102,16 @@ export default {
     mapR2BindingToGlobal(env);
 
     // D1 データストアを Host 用に差し込む
-    // Workers 版では ACTIVITYPUB_DOMAIN 未設定のケースがあるため、
-    // その場合は要求 Host を既定のルートドメインとして扱います（UI の表示用）。
     const requestHost = new URL(req.url).host.toLowerCase();
+    // ポータル判定は ACTIVITYPUB_DOMAIN のみを基準にする（未設定ならポータル無し）
+    const portalDomain = env.ACTIVITYPUB_DOMAIN?.toLowerCase() ?? null;
+    const isPortalHost = !!portalDomain &&
+      (requestHost === portalDomain || requestHost === `www.${portalDomain}`);
+    // テナントホストはすべてオリジン（takos）へ委譲
+    if (!isPortalHost) {
+      return await proxyToOrigin(req, env);
+    }
+    // 既存の rootDomain は DB テナント ID に用いる（互換のため requestHost フォールバックを維持）
     const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
     const freeLimit = Number(env.FREE_PLAN_LIMIT ?? "1");
     const reserved = (env.RESERVED_SUBDOMAINS ?? "")
@@ -160,19 +188,27 @@ export default {
 
     // Hono アプリ構築（最小）
     const app = new Hono({ strict: false });
+    const onlyPortal = async (c: any, next: () => Promise<void>) => {
+      if (!isPortalHost) return new Response("Not Found", { status: 404 });
+      return await next();
+    };
 
-    // SPA エントリ + 主要フロントルート
+    // SPA エントリ + 主要フロントルート（ポータルのみ）
+    app.use("/user", onlyPortal);
+    app.use("/auth", onlyPortal);
+    app.use("/signup", onlyPortal);
+    app.use("/verify", onlyPortal);
+    app.use("/terms", onlyPortal);
+    app.use("/robots.txt", onlyPortal);
     app.get("/user", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/auth", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/signup", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/verify", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/terms", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get(
-      "/robots.txt",
-      (c) => serveFromAssets(env, c.req.raw, "/robots.txt"),
-    );
+    app.get("/robots.txt", (c) => serveFromAssets(env, c.req.raw, "/robots.txt"));
 
     // /auth/*, /user/* の GET は、API パスを除外した上で静的アセットへリライト
+    app.use("/auth/*", onlyPortal);
     app.get("/auth/*", async (c, next) => {
       // API GET: /auth/status は通す
       if (c.req.path === "/auth/status") return await next();
@@ -183,6 +219,7 @@ export default {
       const p = c.req.path.replace(/^\/auth/, "");
       return serveFromAssets(env, c.req.raw, p || "/index.html");
     });
+    app.use("/user/*", onlyPortal);
     app.get("/user/*", async (c, next) => {
       // API GET 一覧は通す
       if (/^\/user\/(instances|oauth|domains)(\/|$)/.test(c.req.path)) {
