@@ -32,14 +32,24 @@ export function buildRootApp(ctx: HostContext) {
   } = ctx;
   const app = new Hono();
 
-  // ルートドメインのホストにのみ適用するミドルウェアラッパー
+  // Portal (root) host detection:
+  // - Prod: host equals configured rootDomain
+  // - Dev (DEV=1) and rootDomain not set: treat localhost/127.0.0.1 as portal
+  const isPortalHost = (c: Context) => {
+    const host = getRealHost(c);
+    if (rootDomain) return isRootHost(host, rootDomain);
+    return isDev && (host === "localhost" || host === "127.0.0.1");
+  };
+
+  // Middleware wrapper that only runs on the portal host
   const onlyRoot = (
-    handler: (c: Context, next: () => Promise<void>) => Promise<Response> | Response,
+    handler: (
+      c: Context,
+      next: () => Promise<void>,
+    ) => Promise<Response> | Response,
   ) =>
   async (c: Context, next: () => Promise<void>) => {
-    const host = getRealHost(c);
-    const isRoot = !!rootDomain && isRootHost(host, rootDomain);
-    if (!isRoot) return await next();
+    if (!isPortalHost(c)) return await next();
     return await handler(c, next);
   };
 
@@ -73,18 +83,21 @@ export function buildRootApp(ctx: HostContext) {
   app.use("/user/", userUiHandler);
 
   // ---- /user/* Consumer API (root only) ----
-  app.use("/user/*", onlyRoot(async (c, _next) => {
-    const orig = c.req.raw;
-    const url = new URL(orig.url);
-    url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // strip /user prefix
-    const newReq = new Request(url, orig);
-    return await consumerApp.fetch(newReq);
-  }));
+  app.use(
+    "/user/*",
+    onlyRoot(async (c, _next) => {
+      const orig = c.req.raw;
+      const url = new URL(orig.url);
+      url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // strip /user prefix
+      const newReq = new Request(url, orig);
+      return await consumerApp.fetch(newReq);
+    }),
+  );
 
   if (termsText) {
     app.get(
       "/terms",
-      onlyRoot((c) =>
+      onlyRoot((_c) =>
         new Response(termsText, {
           headers: { "content-type": "text/markdown; charset=utf-8" },
         })
@@ -96,33 +109,39 @@ export function buildRootApp(ctx: HostContext) {
   // - Ensure dynamic handlers like /auth/google/start and /auth/*/callback reach authApp
   if (isDev) {
     const proxy = devProxy("/auth");
-    app.use("/auth/*", onlyRoot(async (c, next) => {
-      const p = c.req.path;
-      const isOauthEdge = /\/(start|callback)\/?$/.test(p);
-      if (isOauthEdge) {
-        return await authApp.fetch(c.req.raw);
-      }
-      return await proxy(c, next);
-    }));
+    app.use(
+      "/auth/*",
+      onlyRoot(async (c, next) => {
+        const p = c.req.path;
+        const isOauthEdge = /\/(start|callback)\/?$/.test(p);
+        if (isOauthEdge) {
+          return await authApp.fetch(c.req.raw);
+        }
+        return await proxy(c, next);
+      }),
+    );
   } else {
     const stat = serveStatic({
       root: "./client/dist",
       rewriteRequestPath: (p) => p.replace(/^\/auth/, ""),
     });
-    app.use("/auth/*", onlyRoot(async (c, next) => {
-      const p = c.req.path;
-      const isOauthEdge = /\/(start|callback)\/?$/.test(p);
-      if (isOauthEdge) {
-        return await authApp.fetch(c.req.raw);
-      }
-      return await stat(c, next);
-    }));
+    app.use(
+      "/auth/*",
+      onlyRoot(async (c, next) => {
+        const p = c.req.path;
+        const isOauthEdge = /\/(start|callback)\/?$/.test(p);
+        if (isOauthEdge) {
+          return await authApp.fetch(c.req.raw);
+        }
+        return await stat(c, next);
+      }),
+    );
   }
 
   // Catch-all dynamic tenant dispatch
   app.all("/*", async (c) => {
     const host = getRealHost(c);
-    const isRoot = !!rootDomain && isRootHost(host, rootDomain);
+    const isRoot = isPortalHost(c);
     if (isRoot) {
       if (
         serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
@@ -158,4 +177,3 @@ export function buildRootApp(ctx: HostContext) {
 
   return app;
 }
-
