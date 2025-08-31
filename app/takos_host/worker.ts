@@ -1,13 +1,22 @@
 // Cloudflare Workers: パススルー型プロキシ
-// - CF Assets は使わず、すべてのリクエストをオリジンへ転送します。
-// - ルーティング（ポータル=takos host / テナント=takos）はオリジン側で Host ヘッダから判定します。
+// - すべてのリクエストを ORIGIN_URL へ転送します（同一 URL への自己フェッチは行わない）
+// - テナント判定は x-forwarded-host を用いてオリジン側で行う想定
 
 export interface Env {
   // 開発用: 強制テナントホスト（x-forwarded-host に適用）
   TENANT_HOST?: string;
-  // OAuth: 必要に応じてヘッダでオリジンへ伝達
+  // 既存 Deno ホストなど、プロキシ先のベース URL（例: https://api.example.com）
+  ORIGIN_URL?: string;
+  // OAuth クライアント情報（必要に応じてヘッダでオリジンへ伝達）
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+}
+
+function buildOriginTarget(env: Env, req: Request): URL | null {
+  const base = (env.ORIGIN_URL || "").trim().replace(/\/$/, "");
+  if (!base) return null;
+  const u = new URL(req.url);
+  return new URL(base + u.pathname + u.search);
 }
 
 async function proxyToOrigin(
@@ -15,11 +24,19 @@ async function proxyToOrigin(
   req: Request,
   extraHeaders?: Record<string, string>,
 ) {
-  const u = new URL(req.url);
+  const originalUrl = new URL(req.url);
+  const target = buildOriginTarget(env, req);
+  if (!target) {
+    return new Response(
+      "ORIGIN_URL が未設定です。wrangler.toml の [vars] か .dev.vars で ORIGIN_URL を設定してください。",
+      { status: 500 },
+    );
+  }
+
   const headers = new Headers(req.headers);
   // オリジン側は x-forwarded-host を優先してテナント判定
-  headers.set("x-forwarded-host", env.TENANT_HOST?.trim() || u.host);
-  headers.set("x-forwarded-proto", u.protocol.replace(":", ""));
+  headers.set("x-forwarded-host", env.TENANT_HOST?.trim() || originalUrl.host);
+  headers.set("x-forwarded-proto", originalUrl.protocol.replace(":", ""));
   if (extraHeaders) {
     for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
   }
@@ -31,9 +48,14 @@ async function proxyToOrigin(
     init.body = req.body ?? undefined;
   }
 
-  // 同一 URL をそのままオリジンへ転送
-  const outbound = new Request(req.url, init);
-  return await fetch(outbound);
+  try {
+    const outbound = new Request(target.toString(), init);
+    return await fetch(outbound);
+  } catch (e) {
+    // ネットワーク到達不可などの際に 522 ではなく 502 を返す
+    const msg = (e as Error)?.message ?? String(e);
+    return new Response(`Bad Gateway: ${msg}`.slice(0, 1024), { status: 502 });
+  }
 }
 
 export default {
