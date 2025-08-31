@@ -90,17 +90,33 @@ export function buildRootApp(ctx: HostContext) {
     );
   }
 
-  // Dev vs Prod: only handle /auth static/proxy & root domain static fallback + ActivityPub
+  // Dev vs Prod: handle /auth static/proxy, but bypass OAuth endpoints
+  // - Ensure dynamic handlers like /auth/google/start and /auth/*/callback reach authApp
   if (isDev) {
-    app.use("/auth/*", devProxy("/auth"));
+    const proxy = devProxy("/auth");
+    app.use("/auth/*", async (c, next) => {
+      const p = c.req.path;
+      const isOauthEdge = /\/(start|callback)\/?$/.test(p);
+      // Force dynamic OAuth endpoints to be handled by authApp immediately
+      if (isOauthEdge) {
+        return await authApp.fetch(c.req.raw);
+      }
+      return await proxy(c, next);
+    });
   } else {
-    app.use(
-      "/auth/*",
-      serveStatic({
-        root: "./client/dist",
-        rewriteRequestPath: (p) => p.replace(/^\/auth/, ""),
-      }),
-    );
+    const stat = serveStatic({
+      root: "./client/dist",
+      rewriteRequestPath: (p) => p.replace(/^\/auth/, ""),
+    });
+    app.use("/auth/*", async (c, next) => {
+      const p = c.req.path;
+      const isOauthEdge = /\/(start|callback)\/?$/.test(p);
+      // Force dynamic OAuth endpoints to be handled by authApp immediately
+      if (isOauthEdge) {
+        return await authApp.fetch(c.req.raw);
+      }
+      return await stat(c, next);
+    });
   }
 
   // Catch-all dynamic tenant dispatch
