@@ -114,6 +114,30 @@ export const parseHost = (value: string | undefined): string =>
 export const isRootHost = (h: string, rootDomain?: string) =>
   !!rootDomain && h === rootDomain;
 
+/**
+ * 開発時（DEV=1）に ACTIVITYPUB_DOMAIN が未設定の場合、
+ * localhost/127.0.0.1（および明示的な SERVER_HOST）をポータル扱いにする。
+ */
+function isDevPortalHost(
+  host: string,
+  rootDomain: string,
+  hostEnv: Record<string, string>,
+): boolean {
+  // 本番や rootDomain が設定済みなら通常判定
+  if (rootDomain) return host === rootDomain;
+  const isDev = Deno.env.get("DEV") === "1";
+  if (!isDev) return false;
+  const candidates = new Set<string>(["localhost", "127.0.0.1"]);
+  const serverHost = (hostEnv["SERVER_HOST"] ?? "").trim().toLowerCase();
+  if (
+    serverHost && serverHost !== "0.0.0.0" && serverHost !== "::" &&
+    serverHost !== "::1"
+  ) {
+    candidates.add(serverHost);
+  }
+  return candidates.has(host);
+}
+
 export function getRealHost(c: Context): string {
   const forwarded = c.req.header("x-forwarded-host");
   const hostHeader = c.req.header("host");
@@ -138,8 +162,11 @@ async function getEnvForHost(
   host = parseHost(host);
   const baseEnv: Record<string, string> = { ...takosEnv };
   for (const k of FCM_KEYS) if (hostEnv[k]) baseEnv[k] = hostEnv[k] as string;
-  if (isRootHost(host, rootDomain)) {
-    return { ...baseEnv, ACTIVITYPUB_DOMAIN: rootDomain };
+  // ルート（ポータル）ドメインは takos アプリを作らない
+  // - 本番: host === rootDomain のとき
+  // - 開発: rootDomain 未設定 + localhost/127.0.0.1（または SERVER_HOST）
+  if (isDevPortalHost(host, rootDomain, hostEnv)) {
+    return null;
   }
   const inst = await Instance.findOne({ host }).lean();
   if (!inst || Array.isArray(inst)) return null;
