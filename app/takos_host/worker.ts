@@ -46,19 +46,13 @@ function requireOrigin(env: Env): string | null {
 
 // ルート（ポータル）ドメインの決定ロジック
 // - 優先: 環境変数 ACTIVITYPUB_DOMAIN（明示的なホストドメイン）
-// - 次点: ORIGIN_URL のホスト名（オリジンのドメインをルートとして扱う）
 // - それ以外: 判定不能（null）
 function getRootDomain(env: Env): string | null {
+  // ポータル判定は明示的な ACTIVITYPUB_DOMAIN のみを基準とする。
+  // (ORIGIN_URL にフォールバックすると開発時の workers+TENANT_HOST シミュレーションで
+  //  リクエスト先ホストがオリジンのホスト名と一致してしまい、誤ってポータル UI を配信してしまう)
   const explicit = env.ACTIVITYPUB_DOMAIN?.trim();
   if (explicit) return explicit.toLowerCase();
-  const origin = env.ORIGIN_URL?.trim();
-  if (origin) {
-    try {
-      return new URL(origin).hostname.toLowerCase();
-    } catch {
-      // ignore
-    }
-  }
   return null;
 }
 
@@ -107,19 +101,16 @@ async function proxyToOrigin(
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const { pathname } = url;
-    const method = req.method.toUpperCase();
-    const requestHost = url.host.toLowerCase();
-    const rootDomain = getRootDomain(env);
+  const url = new URL(req.url);
+  const { pathname } = url;
+  const method = req.method.toUpperCase();
     const info = parseHostInfo(env, req);
     const isPortalHost2 = info.isPortal;
     if (info.base && !info.inZone) {
       return new Response("Forbidden", { status: 403 });
     }
-    // ルートドメインが判定できない場合は、誤ってポータル扱いしない（= テナント扱いに倒す）
-    const isPortalHost = !!rootDomain && (requestHost === rootDomain || requestHost === `www.${rootDomain}`);
-    
+  // ルートドメインが判定できない場合は、誤ってポータル扱いしない（= テナント扱いに倒す）
+
     // テナントドメインの動的メソッドは無条件でオリジンへ
     if (method !== "GET" && method !== "HEAD" && !isPortalHost2) {
       return await proxyToOrigin(env, req);
