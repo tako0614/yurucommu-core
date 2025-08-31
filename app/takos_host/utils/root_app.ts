@@ -25,6 +25,7 @@ export function buildRootApp(ctx: HostContext) {
     consumerApp,
     rootDomain,
     termsText,
+    notFoundHtml,
     isDev,
     rootActivityPubApp,
     serviceActorApp,
@@ -122,7 +123,8 @@ export function buildRootApp(ctx: HostContext) {
   // Catch-all dynamic tenant dispatch
   app.all("/*", async (c) => {
     const host = getRealHost(c);
-    if (rootDomain && isRootHost(host, rootDomain)) {
+    const isRoot = !!rootDomain && isRootHost(host, rootDomain);
+    if (isRoot) {
       if (
         serviceActorApp && /^(\/actor|\/inbox|\/outbox)(\/|$)?/.test(c.req.path)
       ) {
@@ -136,14 +138,23 @@ export function buildRootApp(ctx: HostContext) {
     }
     const tenantApp = await getAppForHost(host, ctx);
     if (tenantApp) return tenantApp.fetch(c.req.raw);
-    if (isDev) {
-      const proxy = devProxy("");
-      return await proxy(c, async () => {});
+    // Fallback:
+    // - ルートドメインではホスト UI を返す（dev は Vite にプロキシ）
+    // - それ以外のホストは 404 を返却（ホスト UI を誤配信しない）
+    if (isRoot) {
+      if (isDev) {
+        const proxy = devProxy("");
+        return await proxy(c, async () => {});
+      }
+      return await serveStatic({
+        root: "./client/dist",
+        rewriteRequestPath: () => "/index.html",
+      })(c, async () => {});
     }
-    return await serveStatic({
-      root: "./client/dist",
-      rewriteRequestPath: () => "/index.html",
-    })(c, async () => {});
+    return new Response(notFoundHtml || "Not Found", {
+      status: 404,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
   });
 
   return app;
