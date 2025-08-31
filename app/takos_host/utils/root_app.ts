@@ -32,6 +32,10 @@ export function buildRootApp(ctx: HostContext) {
   } = ctx;
   const app = new Hono();
 
+  // ホスト用フロントエンド: 本番時は dist 直配信 + SPA フォールバック
+  const hostStaticRoot = serveStatic({ root: "./client/dist" });
+  const hostSpaEntry = serveStatic({ root: "./client/dist", path: "index.html" });
+
   // Portal (root) host detection:
   // - Prod: host equals configured rootDomain
   // - Dev (DEV=1) and rootDomain not set: treat localhost/127.0.0.1 as portal
@@ -81,13 +85,6 @@ export function buildRootApp(ctx: HostContext) {
   })();
   app.use("/user", userUiHandler);
   app.use("/user/", userUiHandler);
-
-  // ---- Host UI static assets (/assets/*) ----
-  if (!isDev) {
-    const staticRoot = serveStatic({ root: "./client/dist" });
-    app.use("/assets/*", onlyRoot(staticRoot));
-  }
-
   // ---- /user/* Consumer API (root only) ----
   app.use(
     "/user/*",
@@ -170,10 +167,9 @@ export function buildRootApp(ctx: HostContext) {
         const proxy = devProxy("");
         return await proxy(c, async () => {});
       }
-      return await serveStatic({
-        root: "./client/dist",
-        rewriteRequestPath: () => "/index.html",
-      })(c, async () => {});
+      // 本番: まず静的ファイルを探し、なければ SPA エントリ(index.html)を返却
+      const res = await hostStaticRoot(c, async () => undefined);
+      return res ?? await hostSpaEntry(c, async () => {});
     }
     return new Response(notFoundHtml || "Not Found", {
       status: 404,
