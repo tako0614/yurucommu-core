@@ -7,13 +7,13 @@ import { createAuthMiddleware } from "@takos/auth";
 import { createDB } from "@takos_host/db";
 import type { HostDataStore } from "./db/types.ts";
 
-/** bcrypt.hash をラップ（saltRounds = 10） */
+/** bcrypt.hash をラチE�E�E�EaltRounds = 10�E�E*/
 export async function hash(text: string): Promise<string> {
   const salt = await genSalt(10);
   return await bcryptHash(text, salt);
 }
 
-/** Cookie オプションを生成するヘルパー */
+/** Cookie オプションを生成する�Eルパ�E */
 export function createCookieOpts(c: Context, expires: Date) {
   return {
     httpOnly: true,
@@ -24,7 +24,7 @@ export function createCookieOpts(c: Context, expires: Date) {
   };
 }
 
-// DB は初期化順序の都合で遅延生成する
+// DB は初期化頁E���E都合で遁E��生�Eする
 let dbInst: HostDataStore | null = null;
 function db(): HostDataStore {
   if (!dbInst) dbInst = createDB({}) as HostDataStore;
@@ -42,11 +42,13 @@ export function createAuthApp(options?: {
   const termsRequired = options?.termsRequired ?? false;
 
   /* ------------------------- GOOGLE AUTH ------------------------- */
-  function getGoogleEnv() {
-    const clientId = (globalThis as unknown as { Deno?: typeof Deno }).Deno?.env.get("GOOGLE_CLIENT_ID") ?? "";
-    const clientSecret = (globalThis as unknown as { Deno?: typeof Deno }).Deno?.env.get("GOOGLE_CLIENT_SECRET") ?? "";
-    // Google の redirect_uri は固定で "/auth/google/callback" にします。
-    // 実際に Google へ送る値は、リクエストのオリジンに上記パスを付与して動的生成します。
+  function getGoogleEnv(c: Context) {
+    const D = (globalThis as unknown as { Deno?: typeof Deno }).Deno;
+    const headerId = c.req.header("x-google-client-id");
+    const headerSecret = c.req.header("x-google-client-secret");
+    const clientId = D?.env.get("GOOGLE_CLIENT_ID") ?? headerId ?? "";
+    const clientSecret = D?.env.get("GOOGLE_CLIENT_SECRET") ?? headerSecret ??
+      "";
     return { clientId, clientSecret };
   }
 
@@ -58,8 +60,8 @@ export function createAuthApp(options?: {
     return u.toString();
   }
 
-  app.get("/google/start", async (c) => {
-    const { clientId } = getGoogleEnv();
+  app.get("/google/start", (c) => {
+    const { clientId } = getGoogleEnv(c);
     const redirectUri = buildGoogleRedirectUri(c);
     if (!clientId) {
       return c.json({ error: "google_not_configured" }, 500);
@@ -75,16 +77,16 @@ export function createAuthApp(options?: {
     authUrl.searchParams.set("access_type", "online");
     authUrl.searchParams.set("include_granted_scopes", "true");
 
-    // state を短期 Cookie に保存（10 分）
+    // state を短朁ECookie に保存！E0 刁E��E
     const expires = new Date(Date.now() + 10 * 60 * 1000);
     setCookie(c, "g_state", state, createCookieOpts(c, expires));
-    // 任意リダイレクトは廃止し、固定パスに統一
+    // 任意リダイレクト�E廁E��し、固定パスに統一
 
     return c.redirect(authUrl.toString());
   });
 
   app.get("/google/callback", async (c) => {
-    const { clientId, clientSecret } = getGoogleEnv();
+    const { clientId, clientSecret } = getGoogleEnv(c);
     const redirectUri = buildGoogleRedirectUri(c);
     const code = c.req.query("code") ?? "";
     const state = c.req.query("state") ?? "";
@@ -96,7 +98,7 @@ export function createAuthApp(options?: {
       return c.json({ error: "invalid_state" }, 400);
     }
 
-    // トークン交換
+    // ト�Eクン交揁E
     const body = new URLSearchParams({
       code,
       client_id: clientId,
@@ -112,14 +114,20 @@ export function createAuthApp(options?: {
     if (!tokenRes.ok) {
       return c.json({ error: "token_exchange_failed" }, 400);
     }
-    const tokenJson = await tokenRes.json() as { access_token?: string; id_token?: string };
+    const tokenJson = await tokenRes.json() as {
+      access_token?: string;
+      id_token?: string;
+    };
     const accessToken = tokenJson.access_token ?? "";
     if (!accessToken) return c.json({ error: "no_access_token" }, 400);
 
-    // ユーザー情報取得
-    const userinfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    // ユーザー惁E��取征E
+    const userinfoRes = await fetch(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
     if (!userinfoRes.ok) return c.json({ error: "userinfo_failed" }, 400);
     const profile = await userinfoRes.json() as {
       email?: string;
@@ -133,14 +141,18 @@ export function createAuthApp(options?: {
     const email = profile.email ?? "";
     if (!email) return c.json({ error: "no_email" }, 400);
 
-    // ユーザー作成 or 取得
+    // ユーザー作�E or 取征E
     const baseName = email.split("@")[0].replace(/[^a-zA-Z0-9_\-\.]/g, "");
-    // 重複しない userName を生成
+    // 重褁E��なぁEuserName を生戁E
     async function ensureUserName(): Promise<string> {
-      let candidate = baseName || `user_${Math.random().toString(36).slice(2, 8)}`;
+      let candidate = baseName ||
+        `user_${Math.random().toString(36).slice(2, 8)}`;
       let n = 0;
       while (true) {
-        const exists = await db().hostUsers.findByUserNameOrEmail(candidate, email);
+        const exists = await db().hostUsers.findByUserNameOrEmail(
+          candidate,
+          email,
+        );
         if (!exists || exists.email === email) return candidate;
         n++;
         candidate = `${baseName}_${n}`;
@@ -150,7 +162,7 @@ export function createAuthApp(options?: {
     const exists = await db().hostUsers.findByUserNameOrEmail(email, email);
     let userId: string;
     if (exists) {
-      // 既存ユーザーならメール検証を有効化
+      // 既存ユーザーならメール検証を有効匁E
       await db().hostUsers.update(exists._id, {
         emailVerified: true,
         verifyCode: null,
@@ -173,16 +185,18 @@ export function createAuthApp(options?: {
       userId = created._id;
     }
 
-    // セッション発行
+    // セチE��ョン発衁E
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
     await db().hostSessions.create({ sessionId, user: userId, expiresAt });
     setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
 
-    // state クッキーの掃除
-    setCookie(c, "g_state", "", { ...createCookieOpts(c, new Date(0)), expires: new Date(0) });
-    // リダイレクト（固定）
-    return c.redirect("/user");
+    // state クチE��ーの掁E��
+    setCookie(c, "g_state", "", {
+      ...createCookieOpts(c, new Date(0)),
+      expires: new Date(0),
+    });
+    // リダイレクト（固定！E    return c.redirect("/user");
   });
 
   /* --------------------------- REGISTER --------------------------- */

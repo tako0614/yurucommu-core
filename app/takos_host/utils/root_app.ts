@@ -82,6 +82,12 @@ export function buildRootApp(ctx: HostContext) {
   app.use("/user", userUiHandler);
   app.use("/user/", userUiHandler);
 
+  // ---- Host UI static assets (/assets/*) ----
+  if (!isDev) {
+    const staticRoot = serveStatic({ root: "./client/dist" });
+    app.use("/assets/*", onlyRoot(staticRoot));
+  }
+
   // ---- /user/* Consumer API (root only) ----
   app.use(
     "/user/*",
