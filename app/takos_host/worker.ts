@@ -62,6 +62,20 @@ function getRootDomain(env: Env): string | null {
   return null;
 }
 
+// Host 情報の解析（hostname, sub, label, portal 判定）
+function parseHostInfo(env: Env, req: Request) {
+  const u = new URL(req.url);
+  const hostname = u.hostname.toLowerCase();
+  const base = getRootDomain(env);
+  const inZone = base ? (hostname === base || hostname.endsWith(`.${base}`)) : true;
+  const sub = base && hostname.endsWith(`.${base}`)
+    ? hostname.slice(0, -(base.length + 1))
+    : "";
+  const [label] = sub ? sub.split(".") : [""];
+  const isPortal = !!base && (hostname === base || hostname === `www.${base}`);
+  return { hostname, base, label, sub, inZone, isPortal } as const;
+}
+
 async function proxyToOrigin(
   env: Env,
   req: Request,
@@ -98,11 +112,16 @@ export default {
     const method = req.method.toUpperCase();
     const requestHost = url.host.toLowerCase();
     const rootDomain = getRootDomain(env);
+    const info = parseHostInfo(env, req);
+    const isPortalHost2 = info.isPortal;
+    if (info.base && !info.inZone) {
+      return new Response("Forbidden", { status: 403 });
+    }
     // ルートドメインが判定できない場合は、誤ってポータル扱いしない（= テナント扱いに倒す）
     const isPortalHost = !!rootDomain && (requestHost === rootDomain || requestHost === `www.${rootDomain}`);
-
+    
     // テナントドメインの動的メソッドは無条件でオリジンへ
-    if (method !== "GET" && method !== "HEAD" && !isPortalHost) {
+    if (method !== "GET" && method !== "HEAD" && !isPortalHost2) {
       return await proxyToOrigin(env, req);
     }
 
@@ -116,7 +135,7 @@ export default {
 
     // /user（エントリ） → index.html
     // テナントドメイン（ポータル以外）は常にオリジン優先で配信
-    if (!isPortalHost) {
+    if (!isPortalHost2) {
       const originRes = await proxyToOrigin(env, req);
       return originRes;
     }
