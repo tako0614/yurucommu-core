@@ -32,6 +32,17 @@ export function buildRootApp(ctx: HostContext) {
   } = ctx;
   const app = new Hono();
 
+  // ルートドメインのホストにのみ適用するミドルウェアラッパー
+  const onlyRoot = (
+    handler: (c: Context, next: () => Promise<void>) => Promise<Response> | Response,
+  ) =>
+  async (c: Context, next: () => Promise<void>) => {
+    const host = getRealHost(c);
+    const isRoot = !!rootDomain && isRootHost(host, rootDomain);
+    if (!isRoot) return await next();
+    return await handler(c, next);
+  };
+
   // Basic mount
   app.route("/auth", authApp);
   app.route("/oauth", oauthApp);
@@ -40,54 +51,44 @@ export function buildRootApp(ctx: HostContext) {
   const userUiHandler = (() => {
     if (isDev) {
       const proxy = devProxy("/user");
-      return async (c: Context, next: () => Promise<void>) => {
+      return onlyRoot(async (c: Context, next: () => Promise<void>) => {
         if (c.req.path === "/user" || c.req.path === "/user/") {
           return await proxy(c, next);
         }
         await next();
-      };
+      });
     }
     const stat = serveStatic({
       root: "./client/dist",
       rewriteRequestPath: (p) => p.replace(/^\/user/, ""),
     });
-    return async (c: Context, next: () => Promise<void>) => {
+    return onlyRoot(async (c: Context, next: () => Promise<void>) => {
       if (c.req.path === "/user" || c.req.path === "/user/") {
         return await stat(c, next);
       }
       await next();
-    };
+    });
   })();
   app.use("/user", userUiHandler);
   app.use("/user/", userUiHandler);
 
-  // ---- /user/* Consumer API ----
-  if (rootDomain) {
-    app.use("/user/*", async (c, _next) => {
-      const orig = c.req.raw;
-      const url = new URL(orig.url);
-      url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // strip /user prefix
-      const newReq = new Request(url, orig);
-      return await consumerApp.fetch(newReq);
-    });
-  } else {
-    // rootDomain 無し構成では API も UI も /user を共有する (従来動作踏襲)
-    app.use("/user/*", async (c, _next) => {
-      const orig = c.req.raw;
-      const url = new URL(orig.url);
-      url.pathname = url.pathname.replace(/^\/user/, "") || "/";
-      const newReq = new Request(url, orig);
-      return await consumerApp.fetch(newReq);
-    });
-  }
+  // ---- /user/* Consumer API (root only) ----
+  app.use("/user/*", onlyRoot(async (c, _next) => {
+    const orig = c.req.raw;
+    const url = new URL(orig.url);
+    url.pathname = url.pathname.replace(/^\/user/, "") || "/"; // strip /user prefix
+    const newReq = new Request(url, orig);
+    return await consumerApp.fetch(newReq);
+  }));
 
   if (termsText) {
     app.get(
       "/terms",
-      () =>
+      onlyRoot((c) =>
         new Response(termsText, {
           headers: { "content-type": "text/markdown; charset=utf-8" },
-        }),
+        })
+      ),
     );
   }
 
@@ -95,29 +96,27 @@ export function buildRootApp(ctx: HostContext) {
   // - Ensure dynamic handlers like /auth/google/start and /auth/*/callback reach authApp
   if (isDev) {
     const proxy = devProxy("/auth");
-    app.use("/auth/*", async (c, next) => {
+    app.use("/auth/*", onlyRoot(async (c, next) => {
       const p = c.req.path;
       const isOauthEdge = /\/(start|callback)\/?$/.test(p);
-      // Force dynamic OAuth endpoints to be handled by authApp immediately
       if (isOauthEdge) {
         return await authApp.fetch(c.req.raw);
       }
       return await proxy(c, next);
-    });
+    }));
   } else {
     const stat = serveStatic({
       root: "./client/dist",
       rewriteRequestPath: (p) => p.replace(/^\/auth/, ""),
     });
-    app.use("/auth/*", async (c, next) => {
+    app.use("/auth/*", onlyRoot(async (c, next) => {
       const p = c.req.path;
       const isOauthEdge = /\/(start|callback)\/?$/.test(p);
-      // Force dynamic OAuth endpoints to be handled by authApp immediately
       if (isOauthEdge) {
         return await authApp.fetch(c.req.raw);
       }
       return await stat(c, next);
-    });
+    }));
   }
 
   // Catch-all dynamic tenant dispatch
@@ -159,3 +158,4 @@ export function buildRootApp(ctx: HostContext) {
 
   return app;
 }
+
