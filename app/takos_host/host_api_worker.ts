@@ -25,7 +25,7 @@ export interface Env {
   FREE_PLAN_LIMIT?: string;
   RESERVED_SUBDOMAINS?: string; // comma separated
   // テナントはオリジン（Deno サーバ）へ委譲するための転送先
-  ORIGIN_URL?: string;
+  // ORIGIN_URL は廃止（全処理を Workers で実行）
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
 }
@@ -65,23 +65,7 @@ async function serveFromAssets(env: Env, req: Request, rewriteTo?: string) {
   return new Response(res.body, { status: res.status, headers });
 }
 
-function originBase(env: Env): string | null {
-  const base = env.ORIGIN_URL?.replace(/\/$/, "") ?? null;
-  return base;
-}
-
-async function proxyToOrigin(req: Request, env: Env): Promise<Response> {
-  const base = originBase(env);
-  if (!base) return new Response("ORIGIN_URL is not configured", { status: 500 });
-  const u = new URL(req.url);
-  const target = new URL(base + u.pathname + u.search);
-  const headers = new Headers(req.headers);
-  headers.set("x-forwarded-host", u.host);
-  headers.set("x-forwarded-proto", u.protocol.replace(":", ""));
-  const init: RequestInit = { method: req.method, headers };
-  if (req.method !== "GET" && req.method !== "HEAD") init.body = req.body ?? undefined;
-  return await fetch(new Request(target.toString(), init));
-}
+// ORIGIN_URL プロキシは廃止（全処理を Workers 内で完結させる）
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -90,7 +74,9 @@ export default {
       return new Response("TAKOS_HOST_DB binding is required", { status: 500 });
     }
     if (!env.OBJECT_STORAGE_PROVIDER) {
-      return new Response("OBJECT_STORAGE_PROVIDER env is required", { status: 500 });
+      return new Response("OBJECT_STORAGE_PROVIDER env is required", {
+        status: 500,
+      });
     }
     if (!env.R2_BUCKET) {
       return new Response("R2_BUCKET env is required", { status: 500 });
@@ -111,7 +97,7 @@ export default {
       _g._takos_d1_inited = true;
     }
     // R2 バインディングを globalThis に公開（createObjectStorage が参照）
-  mapR2BindingToGlobal(env);
+    mapR2BindingToGlobal(env);
 
     // D1 データストアを Host 用に差し込む
     const requestHost = new URL(req.url).host.toLowerCase();
@@ -121,7 +107,7 @@ export default {
       (requestHost === portalDomain || requestHost === `www.${portalDomain}`);
     // テナントホストはすべてオリジン（takos）へ委譲
     if (!isPortalHost) {
-      return await proxyToOrigin(req, env);
+      return new Response("Not Found", { status: 404 });
     }
     // 既存の rootDomain は DB テナント ID に用いる（互換のため requestHost フォールバックを維持）
     const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
@@ -218,7 +204,10 @@ export default {
     app.get("/signup", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/verify", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
     app.get("/terms", (c) => serveFromAssets(env, c.req.raw, "/index.html"));
-    app.get("/robots.txt", (c) => serveFromAssets(env, c.req.raw, "/robots.txt"));
+    app.get(
+      "/robots.txt",
+      (c) => serveFromAssets(env, c.req.raw, "/robots.txt"),
+    );
 
     // /auth/*, /user/* の GET は、API パスを除外した上で静的アセットへリライト
     app.use("/auth/*", onlyPortal);
