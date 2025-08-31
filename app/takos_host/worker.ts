@@ -15,6 +15,8 @@ export interface Env {
   ORIGIN_URL?: string;
   // 開発用: 強制テナントホスト（x-forwarded-host に適用）
   TENANT_HOST?: string;
+  // ルート（ホスト）ドメイン。未設定時はリクエストの Host を既定にする
+  ACTIVITYPUB_DOMAIN?: string;
 }
 
 function stripPrefix(path: string, prefix: string): string {
@@ -76,6 +78,14 @@ export default {
     const url = new URL(req.url);
     const { pathname } = url;
     const method = req.method.toUpperCase();
+    const requestHost = url.host.toLowerCase();
+    const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
+    const isPortalHost = requestHost === rootDomain || requestHost === `www.${rootDomain}`;
+
+    // テナントドメインの動的メソッドは無条件でオリジンへ
+    if (method !== "GET" && method !== "HEAD" && !isPortalHost) {
+      return await proxyToOrigin(env, req);
+    }
 
     // 非 GET/HEAD はすべてオリジンへ（動的 API）
     if (method !== "GET" && method !== "HEAD") {
@@ -86,6 +96,12 @@ export default {
     }
 
     // /user（エントリ） → index.html
+    // テナントドメイン（ポータル以外）は常にオリジン優先で配信
+    if (!isPortalHost) {
+      const originRes = await proxyToOrigin(env, req);
+      return originRes;
+    }
+
     if (pathname === "/user" || pathname === "/user/") {
       return await serveFromAssets(env, req, "/index.html");
     }
