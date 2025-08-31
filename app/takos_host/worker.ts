@@ -44,6 +44,24 @@ function requireOrigin(env: Env): string | null {
   return origin;
 }
 
+// ルート（ポータル）ドメインの決定ロジック
+// - 優先: 環境変数 ACTIVITYPUB_DOMAIN（明示的なホストドメイン）
+// - 次点: ORIGIN_URL のホスト名（オリジンのドメインをルートとして扱う）
+// - それ以外: 判定不能（null）
+function getRootDomain(env: Env): string | null {
+  const explicit = env.ACTIVITYPUB_DOMAIN?.trim();
+  if (explicit) return explicit.toLowerCase();
+  const origin = env.ORIGIN_URL?.trim();
+  if (origin) {
+    try {
+      return new URL(origin).hostname.toLowerCase();
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
 async function proxyToOrigin(
   env: Env,
   req: Request,
@@ -79,8 +97,9 @@ export default {
     const { pathname } = url;
     const method = req.method.toUpperCase();
     const requestHost = url.host.toLowerCase();
-    const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
-    const isPortalHost = requestHost === rootDomain || requestHost === `www.${rootDomain}`;
+    const rootDomain = getRootDomain(env);
+    // ルートドメインが判定できない場合は、誤ってポータル扱いしない（= テナント扱いに倒す）
+    const isPortalHost = !!rootDomain && (requestHost === rootDomain || requestHost === `www.${rootDomain}`);
 
     // テナントドメインの動的メソッドは無条件でオリジンへ
     if (method !== "GET" && method !== "HEAD" && !isPortalHost) {
