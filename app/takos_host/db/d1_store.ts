@@ -57,9 +57,9 @@ function createR2Storage(env: Record<string, string>) {
   if (!bucket) {
     // フォールバック: ダミー実装（開発時にエラーを避ける）
     return {
-      async put(_key: string, _data: Uint8Array) { return ""; },
-      async get(_key: string) { return null as Uint8Array | null; },
-      async delete(_key: string) { /* noop */ },
+  put(_key: string, _data: Uint8Array) { return Promise.resolve(""); },
+  get(_key: string) { return Promise.resolve(null as Uint8Array | null); },
+  delete(_key: string) { return Promise.resolve(); },
     };
   }
   return {
@@ -90,9 +90,9 @@ export function createD1DataStore(
   const storage = (env["OBJECT_STORAGE_PROVIDER"]?.toLowerCase() === "r2")
     ? createR2Storage(env)
     : {
-      async put() { return ""; },
-      async get() { return null; },
-      async delete() { /* noop */ },
+  put() { return Promise.resolve(""); },
+  get() { return Promise.resolve(null); },
+  delete() { return Promise.resolve(); },
     };
 
   return {
@@ -194,7 +194,11 @@ export function createD1DataStore(
       list: () => notImplemented("fcm.list"),
     },
     faspProviders: {
-      getSettings: async () => null,
+      getSettings: () => Promise.resolve(null),
+      // 追加の必須メソッド（未使用想定のため未実装例外）
+      findByBaseUrl: (_baseUrl: string) => notImplemented("faspProviders.findByBaseUrl"),
+      createDefault: (_data: { name: string; baseUrl: string; serverId: string; secret: string }) => notImplemented("faspProviders.createDefault"),
+      updateSecret: (_baseUrl: string, _secret: string) => notImplemented("faspProviders.updateSecret"),
       list: () => notImplemented("faspProviders.list"),
       findOne: () => notImplemented("faspProviders.findOne"),
       upsertByBaseUrl: () => notImplemented("faspProviders.upsertByBaseUrl"),
@@ -277,14 +281,41 @@ export function createD1DataStore(
       },
       find: async (clientId: string) => {
         const row = await d1.prepare(
-          "SELECT client_secret as clientSecret FROM oauth_clients WHERE client_id = ?1"
-        ).bind(clientId).first<{ clientSecret: string }>();
+          "SELECT client_secret as clientSecret, redirect_uri as redirectUri FROM oauth_clients WHERE client_id = ?1"
+        ).bind(clientId).first<{ clientSecret: string; redirectUri: string }>();
         return row ?? null;
       },
       create: async (data) => {
         await d1.prepare(
           "INSERT OR REPLACE INTO oauth_clients (client_id, client_secret, redirect_uri) VALUES (?1, ?2, ?3)"
         ).bind(data.clientId, data.clientSecret, data.redirectUri).run();
+      },
+      createCode: async (data) => {
+        await d1.prepare(
+          "INSERT INTO oauth_codes (code, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+        ).bind(data.code, data.clientId, data.user, data.expiresAt.getTime(), now()).run();
+      },
+      findCode: async (code, clientId) => {
+        const row = await d1.prepare(
+          "SELECT user_id as user, expires_at FROM oauth_codes WHERE code = ?1 AND client_id = ?2"
+        ).bind(code, clientId).first<{ user: string; expires_at: number }>();
+        return row ? { user: row.user, expiresAt: new Date(Number(row.expires_at)) } : null;
+      },
+      deleteCode: async (code) => {
+        await d1.prepare(
+          "DELETE FROM oauth_codes WHERE code = ?1"
+        ).bind(code).run();
+      },
+      createToken: async (data) => {
+        await d1.prepare(
+          "INSERT INTO oauth_tokens (token, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+        ).bind(data.token, data.clientId, data.user, data.expiresAt.getTime(), now()).run();
+      },
+      findToken: async (token) => {
+        const row = await d1.prepare(
+          "SELECT user_id as user, expires_at FROM oauth_tokens WHERE token = ?1"
+        ).bind(token).first<{ user: string; expires_at: number }>();
+        return row ? { user: row.user, expiresAt: new Date(Number(row.expires_at)) } : null;
       },
     },
     domains: {
@@ -320,6 +351,22 @@ export function createD1DataStore(
       },
     },
     hostUsers: {
+      findById: async (id: string) => {
+        const row = await d1.prepare(
+          "SELECT * FROM host_users WHERE id = ?1"
+        ).bind(id).first<Row>();
+        if (!row) return null;
+        return {
+          _id: String(row.id),
+          userName: String(row.user_name),
+          email: String(row.email),
+          emailVerified: toBool(row.email_verified),
+          verifyCode: row.verify_code ? String(row.verify_code) : undefined,
+          verifyCodeExpires: row.verify_expires ? new Date(Number(row.verify_expires)) : undefined,
+          hashedPassword: String(row.hashed_password),
+          salt: String(row.salt),
+        };
+      },
       findByUserName: async (userName: string) => {
         const row = await d1.prepare(
           "SELECT * FROM host_users WHERE user_name = ?1"

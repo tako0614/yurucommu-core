@@ -4,7 +4,8 @@
 
 import { Hono } from "hono";
 import { setStoreFactory } from "../core/db/mod.ts";
-import { createD1DataStore, type D1Database } from "./db/d1_store.ts";
+import { type D1Database } from "./db/d1_store.ts";
+import { createPrismaHostDataStore } from "./db/prisma_store.ts";
 import { D1_SCHEMA } from "./db/d1/schema.ts";
 
 // 最小の Assets バインディング
@@ -74,7 +75,7 @@ export default {
     // R2 バインディングを globalThis に公開（createObjectStorage が参照）
     mapR2BindingToGlobal(env);
 
-    // D1 データストアを Host 用に差し込む
+  // Prisma(D1) データストアを Host 用に差し込む
     const requestHost = new URL(req.url).host.toLowerCase();
     // ポータル判定は ACTIVITYPUB_DOMAIN のみを基準にする（未設定ならポータル無し）
     const portalDomain = env.ACTIVITYPUB_DOMAIN?.toLowerCase() ?? null;
@@ -92,14 +93,13 @@ export default {
 
     // 環境変数を必須値として直接渡す（vars にフォールバックしない）
     setStoreFactory(() =>
-      createD1DataStore(
+      createPrismaHostDataStore(
         {
           OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER,
           R2_BUCKET: env.R2_BUCKET,
           ACTIVITYPUB_DOMAIN: rootDomain,
         },
-        env.TAKOS_HOST_DB,
-        { tenantId: rootDomain, multiTenant: true },
+        { d1: env.TAKOS_HOST_DB, tenantId: rootDomain, multiTenant: true },
       )
     );
 
@@ -107,18 +107,17 @@ export default {
     const SESSION_COOKIE = "hostSessionId";
     const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
     const db = () =>
-      (globalThis as unknown as { _db: ReturnType<typeof createD1DataStore> })
+      (globalThis as unknown as { _db: ReturnType<typeof createPrismaHostDataStore> })
         ._db;
     // グローバル DB インスタンスも env の値を使って作成
-    (globalThis as unknown as { _db?: ReturnType<typeof createD1DataStore> })
-      ._db ??= createD1DataStore(
+    (globalThis as unknown as { _db?: ReturnType<typeof createPrismaHostDataStore> })
+      ._db ??= createPrismaHostDataStore(
         {
           OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER,
           R2_BUCKET: env.R2_BUCKET,
           ACTIVITYPUB_DOMAIN: rootDomain,
         },
-        env.TAKOS_HOST_DB,
-        { tenantId: rootDomain, multiTenant: true },
+        { d1: env.TAKOS_HOST_DB, tenantId: rootDomain, multiTenant: true },
       );
 
     function toCookieMap(c: string | null): Record<string, string> {

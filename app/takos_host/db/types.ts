@@ -28,10 +28,16 @@ export interface HostRepo {
 
 export interface OAuthRepo {
   list(): Promise<{ clientId: string; redirectUri: string }[]>;
-  find(clientId: string): Promise<{ clientSecret: string } | null>;
+  find(clientId: string): Promise<{ clientSecret: string; redirectUri: string } | null>;
   create(
     data: { clientId: string; clientSecret: string; redirectUri: string },
   ): Promise<void>;
+  // Authorization Code フロー用
+  createCode(data: { code: string; clientId: string; user: string; expiresAt: Date }): Promise<void>;
+  findCode(code: string, clientId: string): Promise<{ user: string; expiresAt: Date } | null>;
+  deleteCode(code: string): Promise<void>;
+  createToken(data: { token: string; clientId: string; user: string; expiresAt: Date }): Promise<void>;
+  findToken(token: string): Promise<{ user: string; expiresAt: Date } | null>;
 }
 
 export interface DomainsRepo {
@@ -71,6 +77,7 @@ export interface HostUserData {
 }
 
 export interface HostUserRepo {
+  findById(id: string): Promise<HostUserData | null>;
   findByUserName(userName: string): Promise<HostUserData | null>;
   findByUserNameOrEmail(
     userName: string,

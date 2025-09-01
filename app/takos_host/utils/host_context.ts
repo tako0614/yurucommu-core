@@ -5,6 +5,7 @@ import {
   connectDatabase,
   createDB,
   createMongoDataStore,
+  createPrismaHostDataStore,
   setStoreFactory,
 } from "@takos_host/db";
 import { getEnvPath } from "@takos/config";
@@ -17,7 +18,6 @@ import oauthApp from "../oauth.ts";
 import { createRootActivityPubApp } from "../root_activitypub.ts";
 import { createServiceActorApp } from "../service_actor.ts";
 import type { HostDataStore } from "../db/types.ts";
-import Instance from "../models/instance.ts";
 import { FCM_KEYS } from "./host_constants.ts";
 
 // Light-weight text file loader (returns empty string on failure)
@@ -55,9 +55,19 @@ export async function initHostContext(): Promise<HostContext> {
   const envPath = getEnvPath();
   const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), "../.env");
   const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
-  await connectDatabase(hostEnv);
+  // Prisma を使う場合は Mongo 接続を行わない
+  if ((hostEnv["HOST_DB_PROVIDER"] ?? "mongo").toLowerCase() !== "prisma") {
+    await connectDatabase(hostEnv);
+  }
   // ホスト環境では新抽象(Store)を注入
-  setStoreFactory((e) => createMongoDataStore(e, { multiTenant: true }));
+  // 環境変数 HOST_DB_PROVIDER=prisma の場合、Prisma (libsql) に切替
+  if ((hostEnv["HOST_DB_PROVIDER"] ?? "mongo").toLowerCase() === "prisma") {
+    setStoreFactory((e) =>
+      createPrismaHostDataStore(e, { tenantId: e["ACTIVITYPUB_DOMAIN"], multiTenant: true })
+    );
+  } else {
+    setStoreFactory((e) => createMongoDataStore(e, { multiTenant: true }));
+  }
 
   const rootDomain = (hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   if (rootDomain) {
@@ -168,9 +178,10 @@ async function getEnvForHost(
   if (isDevPortalHost(host, rootDomain, hostEnv)) {
     return null;
   }
-  const inst = await Instance.findOne({ host }).lean();
-  if (!inst || Array.isArray(inst)) return null;
-  return { ...baseEnv, ...inst.env, ACTIVITYPUB_DOMAIN: host };
+  const db = createDB(hostEnv) as HostDataStore;
+  const inst = await db.host.findInstanceByHost(host);
+  if (!inst) return null;
+  return { ...baseEnv, ...(inst.env ?? {}), ACTIVITYPUB_DOMAIN: host };
 }
 
 export async function getAppForHost(

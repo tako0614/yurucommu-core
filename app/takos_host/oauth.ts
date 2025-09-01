@@ -2,13 +2,8 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createCookieOpts } from "./auth.ts";
 import { cors } from "hono/cors";
-import OAuthClient from "./models/oauth_client.ts";
-import OAuthCode from "./models/oauth_code.ts";
-import OAuthToken from "./models/oauth_token.ts";
-import {
-  findHostSessionById,
-  updateHostSession,
-} from "./repositories/session.ts";
+import { createDB } from "@takos_host/db";
+import type { HostDataStore } from "./db/types.ts";
 
 // OAuth 2.0 Authorization Code Grant (最小実装)
 export const oauthApp = new Hono();
@@ -27,28 +22,23 @@ oauthApp.get("/authorize", async (c) => {
   if (!clientId || !redirectUri) {
     return c.text("invalid_request", 400);
   }
-  const client = await OAuthClient.findOne({ clientId });
+  const db = createDB({}) as HostDataStore;
+  const client = await db.oauth.find(clientId);
   if (!client || client.redirectUri !== redirectUri) {
     return c.text("invalid_client", 400);
   }
   const sid = getCookie(c, "hostSessionId");
   if (!sid) return c.text("login required", 401);
-  const session = await findHostSessionById(sid);
+  const session = await db.hostSessions.findById(sid);
   if (!session || session.expiresAt <= new Date()) {
     return c.text("login required", 401);
   }
   const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await updateHostSession(sid, newExpiresAt);
+  await db.hostSessions.update(sid, { expiresAt: newExpiresAt });
   setCookie(c, "hostSessionId", sid, createCookieOpts(c, newExpiresAt));
   const code = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + AUTH_CODE_LIFETIME_MS);
-  const oauthCode = new OAuthCode({
-    code,
-    client: client._id,
-    user: session.user,
-    expiresAt,
-  });
-  await oauthCode.save();
+  await db.oauth.createCode({ code, clientId, user: session.user, expiresAt });
   const url = new URL(redirectUri);
   url.searchParams.set("code", code);
   if (state) url.searchParams.set("state", state);
@@ -72,27 +62,19 @@ oauthApp.post("/token", async (c) => {
   ) {
     return c.json({ error: "invalid_request" }, 400);
   }
-  const client = await OAuthClient.findOne({ clientId });
-  if (
-    !client || client.clientSecret !== clientSecret ||
-    client.redirectUri !== redirectUri
-  ) {
+  const db = createDB({}) as HostDataStore;
+  const client = await db.oauth.find(clientId);
+  if (!client || client.clientSecret !== clientSecret || client.redirectUri !== redirectUri) {
     return c.json({ error: "invalid_client" }, 400);
   }
-  const authCode = await OAuthCode.findOne({ code, client: client._id });
+  const authCode = await db.oauth.findCode(code, clientId);
   if (!authCode || authCode.expiresAt <= new Date()) {
     return c.json({ error: "invalid_grant" }, 400);
   }
-  await OAuthCode.deleteOne({ code });
+  await db.oauth.deleteCode(code);
   const tokenStr = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + ACCESS_TOKEN_LIFETIME_MS);
-  const token = new OAuthToken({
-    token: tokenStr,
-    client: client._id,
-    user: authCode.user,
-    expiresAt,
-  });
-  await token.save();
+  await db.oauth.createToken({ token: tokenStr, clientId, user: authCode.user, expiresAt });
   return c.json({
     access_token: tokenStr,
     token_type: "Bearer",
@@ -104,15 +86,17 @@ oauthApp.post("/token", async (c) => {
 oauthApp.post("/verify", async (c) => {
   const { token } = await c.req.json();
   if (typeof token !== "string") return c.json({ active: false }, 400);
-  const t = await OAuthToken.findOne({ token }).populate("user");
+  const db = createDB({}) as HostDataStore;
+  const t = await db.oauth.findToken(token);
   if (!t || t.expiresAt <= new Date()) {
     return c.json({ active: false }, 401);
   }
+  const user = await db.hostUsers.findById(t.user);
   return c.json({
     active: true,
     user: {
-      id: String((t.user as { _id: unknown })._id),
-      userName: (t.user as { userName: string }).userName,
+      id: t.user,
+      userName: user?.userName ?? "",
     },
   });
 });

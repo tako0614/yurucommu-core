@@ -7,12 +7,11 @@ import {
   jsonResponse,
 } from "../core/utils/activitypub.ts";
 import { createDB } from "@takos_host/db";
-import { broadcast, sendToUser } from "../core/routes/ws.ts";
+import { broadcast } from "../core/routes/ws.ts";
 import {
   formatUserInfoForPost,
   getUserInfo,
 } from "../core/services/user-info.ts";
-import HostAccount from "./models/takos/account.ts";
 import {
   parseActivityRequest,
   storeCreateActivity,
@@ -91,15 +90,7 @@ export function createRootActivityPubApp(env: Record<string, string>) {
         type: "newPost",
         payload: { timeline: "latest", post: formatted },
       });
-      const followers = await HostAccount.find({
-        following: actorId,
-      }).lean<{ userName: string; tenant_id: string }[]>();
-      for (const acc of followers) {
-        sendToUser(`${acc.userName}@${acc.tenant_id}`, {
-          type: "newPost",
-          payload: { timeline: "following", post: formatted },
-        });
-      }
+  // 旧 Mongoose ベースのフォロワー配送はスキップ（コア側の WS ブロードキャストに依存）
       const objectUrl = `https://${domain}/objects/${
         (stored as { _id?: unknown })._id
       }`;
