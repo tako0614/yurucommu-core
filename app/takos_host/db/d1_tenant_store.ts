@@ -75,14 +75,15 @@ function createR2Storage(env: Record<string, string>) {
 
 export function createD1TenantDataStore(env: Record<string, string>, d1: D1Database): DataStore {
   const storage = createR2Storage(env);
+  const tenant = (env["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   return {
     storage,
     // ---- accounts ----
     accounts: {
       list: async () => {
         const { results } = await d1.prepare(
-          "SELECT * FROM t_accounts ORDER BY created_at DESC"
-        ).all<Row>();
+          "SELECT * FROM t_accounts WHERE tenant_host = ?1 ORDER BY created_at DESC"
+        ).bind(tenant).all<Row>();
         return (results ?? []).map(mapAccountRow);
       },
       create: async (data) => {
@@ -90,9 +91,10 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         const followers = JSON.stringify((data.followers ?? []) as unknown[]);
         const following = JSON.stringify((data.following ?? []) as unknown[]);
         await d1.prepare(
-          "INSERT INTO t_accounts (id, user_name, display_name, avatar_initial, private_key, public_key, followers_json, following_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+          "INSERT INTO t_accounts (id, tenant_host, user_name, display_name, avatar_initial, private_key, public_key, followers_json, following_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
         ).bind(
           id,
+          tenant,
           String(data.userName),
           String(data.displayName ?? data.userName),
           String(data.avatarInitial ?? "/api/image/people.png"),
@@ -114,15 +116,15 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         } as AccountDoc;
       },
       findById: async (id) => {
-        const row = await d1.prepare("SELECT * FROM t_accounts WHERE id = ?1").bind(id).first<Row>();
+        const row = await d1.prepare("SELECT * FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<Row>();
         return row ? mapAccountRow(row) : null;
       },
       findByUserName: async (username) => {
-        const row = await d1.prepare("SELECT * FROM t_accounts WHERE user_name = ?1").bind(username).first<Row>();
+        const row = await d1.prepare("SELECT * FROM t_accounts WHERE tenant_host = ?1 AND user_name = ?2").bind(tenant, username).first<Row>();
         return row ? mapAccountRow(row) : null;
       },
       updateById: async (id, update) => {
-        const row = await d1.prepare("SELECT * FROM t_accounts WHERE id = ?1").bind(id).first<Row>();
+        const row = await d1.prepare("SELECT * FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<Row>();
         if (!row) return null;
         const merged = mapAccountRow(row);
         const next: AccountDoc = {
@@ -135,7 +137,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           following: (update.following as string[] | undefined) ?? merged.following,
         };
         await d1.prepare(
-          "UPDATE t_accounts SET display_name=?2, avatar_initial=?3, private_key=?4, public_key=?5, followers_json=?6, following_json=?7 WHERE id=?1"
+          "UPDATE t_accounts SET display_name=?2, avatar_initial=?3, private_key=?4, public_key=?5, followers_json=?6, following_json=?7 WHERE id=?1 AND tenant_host=?8"
         ).bind(
           id,
           next.displayName,
@@ -144,63 +146,64 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           next.publicKey,
           JSON.stringify(next.followers ?? []),
           JSON.stringify(next.following ?? []),
+          tenant,
         ).run();
         return next;
       },
       deleteById: async (id) => {
-        const r = await d1.prepare("DELETE FROM t_accounts WHERE id = ?1").bind(id).run();
+        const r = await d1.prepare("DELETE FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).run();
         return !!r;
       },
       addFollower: async (id, follower) => {
-        const row = await d1.prepare("SELECT followers_json FROM t_accounts WHERE id = ?1").bind(id).first<{ followers_json?: string }>();
+        const row = await d1.prepare("SELECT followers_json FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<{ followers_json?: string }>();
         const list = json<string[]>(row?.followers_json) ?? [];
         if (!list.includes(follower)) list.push(follower);
-        await d1.prepare("UPDATE t_accounts SET followers_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET followers_json = ?3 WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id, JSON.stringify(list)).run();
         return list;
       },
       removeFollower: async (id, follower) => {
-        const row = await d1.prepare("SELECT followers_json FROM t_accounts WHERE id = ?1").bind(id).first<{ followers_json?: string }>();
+        const row = await d1.prepare("SELECT followers_json FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<{ followers_json?: string }>();
         const list = (json<string[]>(row?.followers_json) ?? []).filter((x) => x !== follower);
-        await d1.prepare("UPDATE t_accounts SET followers_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET followers_json = ?3 WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id, JSON.stringify(list)).run();
         return list;
       },
       addFollowing: async (id, target) => {
-        const row = await d1.prepare("SELECT following_json FROM t_accounts WHERE id = ?1").bind(id).first<{ following_json?: string }>();
+        const row = await d1.prepare("SELECT following_json FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<{ following_json?: string }>();
         const list = json<string[]>(row?.following_json) ?? [];
         if (!list.includes(target)) list.push(target);
-        await d1.prepare("UPDATE t_accounts SET following_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET following_json = ?3 WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id, JSON.stringify(list)).run();
         return list;
       },
       removeFollowing: async (id, target) => {
-        const row = await d1.prepare("SELECT following_json FROM t_accounts WHERE id = ?1").bind(id).first<{ following_json?: string }>();
+        const row = await d1.prepare("SELECT following_json FROM t_accounts WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id).first<{ following_json?: string }>();
         const list = (json<string[]>(row?.following_json) ?? []).filter((x) => x !== target);
-        await d1.prepare("UPDATE t_accounts SET following_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET following_json = ?3 WHERE tenant_host = ?1 AND id = ?2").bind(tenant, id, JSON.stringify(list)).run();
         return list;
       },
       addFollowerByName: async (username, follower) => {
-        const row = await d1.prepare("SELECT id, followers_json FROM t_accounts WHERE user_name = ?1").bind(username).first<Row>();
+        const row = await d1.prepare("SELECT id, followers_json FROM t_accounts WHERE tenant_host = ?1 AND user_name = ?2").bind(tenant, username).first<Row>();
         if (!row) return;
         const id = String(row.id);
         const list = json<string[]>(row.followers_json) ?? [];
         if (!list.includes(follower)) list.push(follower);
-        await d1.prepare("UPDATE t_accounts SET followers_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET followers_json = ?3 WHERE id = ?1 AND tenant_host = ?2").bind(id, tenant, JSON.stringify(list)).run();
       },
       removeFollowerByName: async (username, follower) => {
-        const row = await d1.prepare("SELECT id, followers_json FROM t_accounts WHERE user_name = ?1").bind(username).first<Row>();
+        const row = await d1.prepare("SELECT id, followers_json FROM t_accounts WHERE tenant_host = ?1 AND user_name = ?2").bind(tenant, username).first<Row>();
         if (!row) return;
         const id = String(row.id);
         const list = (json<string[]>(row.followers_json) ?? []).filter((x) => x !== follower);
-        await d1.prepare("UPDATE t_accounts SET followers_json = ?2 WHERE id = ?1").bind(id, JSON.stringify(list)).run();
+        await d1.prepare("UPDATE t_accounts SET followers_json = ?3 WHERE id = ?1 AND tenant_host = ?2").bind(id, tenant, JSON.stringify(list)).run();
       },
       search: async (query, limit = 20) => {
         const like = `%${String(query).replace(/^\/(.*)\/$/, "$1")}%`;
         const { results } = await d1.prepare(
-          "SELECT * FROM t_accounts WHERE user_name LIKE ?1 OR display_name LIKE ?1 LIMIT ?2"
-        ).bind(like, limit).all<Row>();
+          "SELECT * FROM t_accounts WHERE tenant_host = ?1 AND (user_name LIKE ?2 OR display_name LIKE ?2) LIMIT ?3"
+        ).bind(tenant, like, limit).all<Row>();
         return (results ?? []).map(mapAccountRow);
       },
       updateByUserName: async (username, update) => {
-        const row = await d1.prepare("SELECT * FROM t_accounts WHERE user_name = ?1").bind(username).first<Row>();
+        const row = await d1.prepare("SELECT * FROM t_accounts WHERE tenant_host = ?1 AND user_name = ?2").bind(tenant, username).first<Row>();
         if (!row) return;
         const current = mapAccountRow(row);
         const next: AccountDoc = {
@@ -213,7 +216,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           following: (update.following as string[] | undefined) ?? current.following,
         };
         await d1.prepare(
-          "UPDATE t_accounts SET display_name=?2, avatar_initial=?3, private_key=?4, public_key=?5, followers_json=?6, following_json=?7 WHERE id=?1"
+          "UPDATE t_accounts SET display_name=?2, avatar_initial=?3, private_key=?4, public_key=?5, followers_json=?6, following_json=?7 WHERE id=?1 AND tenant_host=?8"
         ).bind(
           current._id,
           next.displayName,
@@ -222,17 +225,18 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           next.publicKey,
           JSON.stringify(next.followers ?? []),
           JSON.stringify(next.following ?? []),
+          tenant,
         ).run();
       },
       findByUserNames: async (usernames) => {
         if (usernames.length === 0) return [] as AccountDoc[];
-        const placeholders = usernames.map((_x, i) => `?${i + 1}`).join(",");
-        const sql = `SELECT * FROM t_accounts WHERE user_name IN (${placeholders})`;
-        const { results } = await d1.prepare(sql).bind(...usernames).all<Row>();
+        const placeholders = usernames.map((_x, i) => `?${i + 2}`).join(",");
+        const sql = `SELECT * FROM t_accounts WHERE tenant_host = ?1 AND user_name IN (${placeholders})`;
+        const { results } = await d1.prepare(sql).bind(tenant, ...usernames).all<Row>();
         return (results ?? []).map(mapAccountRow);
       },
       count: async () => {
-        const row = await d1.prepare("SELECT COUNT(1) as cnt FROM t_accounts").first<{ cnt: number }>();
+        const row = await d1.prepare("SELECT COUNT(1) as cnt FROM t_accounts WHERE tenant_host = ?1").bind(tenant).first<{ cnt: number }>();
         return Number(row?.cnt ?? 0);
       },
     },
@@ -302,21 +306,21 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
     sessions: {
       create: async (sessionId: string, expiresAt: Date, deviceId: string) => {
         await d1.prepare(
-          "INSERT INTO t_sessions (session_id, device_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4)"
-        ).bind(sessionId, deviceId, expiresAt.getTime(), now()).run();
+          "INSERT INTO t_sessions (session_id, tenant_host, device_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+        ).bind(sessionId, tenant, deviceId, expiresAt.getTime(), now()).run();
         return { sessionId, deviceId, expiresAt } as SessionDoc;
       },
       findById: async (sessionId: string) => {
         const row = await d1.prepare(
-          "SELECT session_id, device_id, expires_at, created_at FROM t_sessions WHERE session_id = ?1"
-        ).bind(sessionId).first<{ session_id: string; device_id: string; expires_at: number; created_at: number }>();
+          "SELECT session_id, device_id, expires_at, created_at FROM t_sessions WHERE tenant_host = ?1 AND session_id = ?2"
+        ).bind(tenant, sessionId).first<{ session_id: string; device_id: string; expires_at: number; created_at: number }>();
         return row ? { sessionId: row.session_id, deviceId: row.device_id, expiresAt: new Date(Number(row.expires_at)), createdAt: new Date(Number(row.created_at)) } as SessionDoc : null;
       },
       deleteById: async (sessionId: string) => {
-        await d1.prepare("DELETE FROM t_sessions WHERE session_id = ?1").bind(sessionId).run();
+        await d1.prepare("DELETE FROM t_sessions WHERE tenant_host = ?1 AND session_id = ?2").bind(tenant, sessionId).run();
       },
       updateExpires: async (sessionId: string, expires: Date) => {
-        await d1.prepare("UPDATE t_sessions SET expires_at = ?2 WHERE session_id = ?1").bind(sessionId, expires.getTime()).run();
+        await d1.prepare("UPDATE t_sessions SET expires_at = ?3 WHERE tenant_host = ?1 AND session_id = ?2").bind(tenant, sessionId, expires.getTime()).run();
       },
       updateActivity: async (_sessionId: string, _date?: Date) => { /* noop */ },
     },

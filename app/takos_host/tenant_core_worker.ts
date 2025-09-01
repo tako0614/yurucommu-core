@@ -48,12 +48,26 @@ export default {
     const url = new URL(req.url);
     const host = url.host.toLowerCase();
 
-    // D1 初期化（開発時）
+    // D1 初期化（開発時）+ 簡易移行（tenant_host 列）
     const _g = globalThis as unknown as { _tenant_d1_inited?: boolean };
     if (!_g._tenant_d1_inited) {
       try {
         const stmts = D1_TENANT_SCHEMA.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean);
         for (const sql of stmts) await env.TAKOS_HOST_DB.prepare(sql).run();
+        // 既存テーブルに tenant_host 列がない場合に追加（NOT NULLは付与しない）
+        const hasCol = async (table: string, col: string) => {
+          const { results } = await env.TAKOS_HOST_DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+          return (results ?? []).some((r) => (r as unknown as { name: string }).name === col);
+        };
+        if (!(await hasCol("t_accounts", "tenant_host"))) {
+          await env.TAKOS_HOST_DB.prepare("ALTER TABLE t_accounts ADD COLUMN tenant_host TEXT").run();
+          await env.TAKOS_HOST_DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_t_accounts_tenant_username ON t_accounts(tenant_host, user_name)").run();
+          await env.TAKOS_HOST_DB.prepare("CREATE INDEX IF NOT EXISTS idx_t_accounts_tenant_created ON t_accounts(tenant_host, created_at)").run();
+        }
+        if (!(await hasCol("t_sessions", "tenant_host"))) {
+          await env.TAKOS_HOST_DB.prepare("ALTER TABLE t_sessions ADD COLUMN tenant_host TEXT").run();
+          await env.TAKOS_HOST_DB.prepare("CREATE INDEX IF NOT EXISTS idx_t_sessions_tenant_session ON t_sessions(tenant_host, session_id)").run();
+        }
       } catch (e) {
         console.warn("D1 tenant schema init warning:", (e as Error).message ?? e);
       }
