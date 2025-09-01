@@ -137,7 +137,7 @@ export function createServiceActorApp(env: Record<string, string>) {
     if (activity?.type === "Follow" && activity?.object === actorId) {
       const actor: string = activity.actor;
       try {
-        const inbox = await fetchActorInbox(actor, env);
+        const inbox = await fetchActorInbox(actor);
         if (inbox) {
           followers.add(inbox);
           const accept = createAcceptActivity(domain, actorId, activity);
@@ -170,7 +170,7 @@ export function createServiceActorApp(env: Record<string, string>) {
     ) {
       const actor: string = (activity.object as ActivityPubActivity).actor;
       try {
-        const inbox = await fetchActorInbox(actor, env);
+        const inbox = await fetchActorInbox(actor);
         if (inbox) followers.delete(inbox);
       } catch {
         /* ignore */

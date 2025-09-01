@@ -121,7 +121,8 @@ app.get("/users/:username/avatar", async (c) => {
       !icon.startsWith("http://") && !icon.startsWith("https://")
     )
   ) {
-    return c.body(DEFAULT_AVATAR, 200, { "content-type": "image/png" });
+  const out = new Uint8Array(DEFAULT_AVATAR);
+  return c.body(out, 200, { "content-type": "image/png" });
   }
   return c.redirect(icon);
 });
