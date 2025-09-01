@@ -1,0 +1,248 @@
+// Prisma schema for Takos core (separate from takos_host)
+// - Dialect: SQLite (D1/libsql compatible via driver adapters)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // Required by Prisma even when using adapters
+}
+
+// ===============
+// Core accounts
+// ===============
+
+model Account {
+  id              String  @id @default(cuid())
+  userName        String  @unique
+  displayName     String  @default("")
+  avatarInitial   String  @default("")
+  privateKey      String  @default("")
+  publicKey       String  @default("")
+  groupOverrides  String  @default("") // JSON string (SQLite compatible)
+
+  // Computed/derived relations implemented via other tables
+  // followers/following and groups are modeled via relations below
+}
+
+// Follow relationship (replaces scalar arrays for portability)
+// actor -> target
+model FollowEdge {
+  id        Int     @id @default(autoincrement())
+  actorId   String
+  targetId  String
+  since     DateTime @default(now())
+  relay     String?
+
+  @@index([actorId])
+  @@index([targetId])
+  @@unique([actorId, targetId])
+}
+
+// ===============
+// ActivityPub objects
+// ===============
+
+model Note {
+  id           String   @id
+  attributedTo String
+  actor_id     String   @index
+  content      String   @default("")
+  extra        String   @default("") // JSON string
+  published    DateTime @default(now())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  deleted_at   DateTime?
+  aud_to       String   @default("") // JSON string of string[]
+  aud_cc       String   @default("") // JSON string of string[]
+}
+
+model Message {
+  id           String   @id
+  attributedTo String
+  actor_id     String   @index
+  type         String
+  content      String   @default("")
+  url          String?
+  mediaType    String?
+  name         String   @default("")
+  extra        String   @default("") // JSON string
+  published    DateTime @default(now())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  deleted_at   DateTime?
+  aud_to       String   @default("") // JSON string of string[]
+  aud_cc       String   @default("") // JSON string of string[]
+}
+
+model Attachment {
+  id           String   @id
+  attributedTo String
+  actor_id     String   @index
+  extra        String   @default("") // JSON string
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  deleted_at   DateTime?
+}
+
+// ===============
+// Groups
+// ===============
+
+model Group {
+  id               Int      @id @default(autoincrement())
+  groupName        String   @unique
+  displayName      String   @default("")
+  summary          String   @default("")
+  icon             String?  // JSON string
+  image            String?  // JSON string
+  privateKey       String   @default("")
+  publicKey        String   @default("")
+  membershipPolicy String   @default("open")
+  invitePolicy     String   @default("members")
+  visibility       String   @default("public")
+  allowInvites     Int      @default(1) // boolean as int for portability
+}
+
+model GroupFollower {
+  id        Int     @id @default(autoincrement())
+  groupName String
+  actor     String
+  @@unique([groupName, actor])
+}
+
+model GroupOutbox {
+  id        Int     @id @default(autoincrement())
+  groupName String
+  activity  String  // JSON string
+  createdAt DateTime @default(now())
+  @@index([groupName])
+}
+
+// ===============
+// Notifications
+// ===============
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  owner     String
+  title     String
+  message   String
+  type      String   @default("info")
+  read      Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([owner, createdAt])
+}
+
+// ===============
+// System & cache
+// ===============
+
+model SystemKey {
+  domain     String @id
+  privateKey String
+  publicKey  String
+}
+
+model RemoteActor {
+  actorUrl          String   @id
+  name              String   @default("")
+  preferredUsername String   @default("")
+  icon              String?  // JSON string
+  summary           String   @default("")
+  cachedAt          DateTime @default(now())
+}
+
+// ===============
+// Sessions & FCM
+// ===============
+
+model Session {
+  sessionId    String   @id
+  deviceId     String
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  lastDecryptAt DateTime @default(now())
+  @@index([deviceId])
+}
+
+model FcmToken {
+  token    String @id
+  userName String
+}
+
+// ===============
+// Direct Messages (owners/conversations)
+// ===============
+
+model DirectMessage {
+  owner String
+  id    String
+  @@id([owner, id])
+}
+
+// ===============
+// Group invites/approvals
+// ===============
+
+model Invite {
+  id            Int      @id @default(autoincrement())
+  groupName     String
+  actor         String
+  inviter       String   @default("")
+  expiresAt     DateTime?
+  remainingUses Int      @default(1)
+  accepted      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+  @@unique([groupName, actor])
+}
+
+model Approval {
+  id        Int      @id @default(autoincrement())
+  groupName String
+  actor     String
+  activity  String   // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  @@unique([groupName, actor])
+}
+
+// ===============
+// FASP client (subset for portability)
+// ===============
+
+model FaspClientSettings {
+  id              String   @id @default("default")
+  shareEnabled    Int?
+  shareServerIds  String?  // JSON string
+  searchServerId  String?
+}
+
+model FaspClientProvider {
+  baseUrl    String  @id
+  name       String
+  serverId   String
+  publicKey  String
+  status     String  @default("pending")
+  faspId     String?
+  approvedAt DateTime?
+  rejectedAt DateTime?
+  updatedAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+}
+
+model FaspEventSubscription {
+  id      String @id
+  payload String // JSON string
+}
+
+model FaspBackfill {
+  id        String  @id
+  payload   String  // JSON string
+  status    String  @default("pending")
+  continuedAt DateTime?
+}
+

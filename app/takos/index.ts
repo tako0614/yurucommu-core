@@ -1,11 +1,6 @@
 import { createTakosApp } from "@takos/core";
 import type { DataStore } from "../core/db/types.ts";
-import {
-  connectDatabase,
-  createDB,
-  createMongoDataStore,
-  setStoreFactory,
-} from "./db/mod.ts";
+import { createDB, createPrismaDataStore, setStoreFactory } from "./db/mod.ts";
 import { getSystemKey } from "../core/services/system_actor.ts";
 import { loadConfig } from "@takos/config";
 import { getEnvPath } from "../packages/config/mod.ts";
@@ -14,11 +9,11 @@ import { getEnvPath } from "../packages/config/mod.ts";
 const envPathArg = getEnvPath();
 const defaultEnvPath = new URL("./.env", import.meta.url).toString();
 const env = await loadConfig({ envPath: envPathArg ?? defaultEnvPath });
-await connectDatabase(env);
 // takos 単体起動時は新抽象(Store)を登録（ホスト側では別途注入）
 // 明示的に core の DataStore 型としてキャストして型不一致を回避
+// takos は Prisma 固定（Mongo を廃止）
 setStoreFactory((e: Record<string, string>) =>
-  createMongoDataStore(e) as unknown as DataStore
+  createPrismaDataStore(e) as unknown as DataStore
 );
 const db = createDB(env);
 if (env["ACTIVITYPUB_DOMAIN"]) {

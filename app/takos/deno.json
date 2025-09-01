@@ -5,9 +5,9 @@
     "@std/fs": "jsr:@std/fs@^1.0.18",
     "@std/path": "jsr:@std/path@^1.1.0",
     "hono": "npm:hono@^4.7.11",
-    "mongoose": "npm:mongoose@^8.15.1",
+    
     "zod": "npm:zod@^3.25.56",
-    "mongodb": "npm:mongodb@^6.17.0",
+    
     "bcrypt": "https://deno.land/x/bcrypt@v0.4.1/mod.ts",
     "@cloudflare/workers-types": "npm:@cloudflare/workers-types@^4",
     "@std/flags": "jsr:@std/flags@1",
@@ -18,11 +18,15 @@
     "@takos/auth": "../packages/auth/mod.ts",
     "@takos/buffer": "../packages/buffer/mod.ts",
     "@takos/url": "../packages/url/mod.ts",
-    "@takos/firebase": "../packages/firebase/mod.ts"
+    "@takos/firebase": "../packages/firebase/mod.ts",
+    "@prisma/client": "npm:@prisma/client@^6.15.0",
+    "@prisma/adapter-d1": "npm:@prisma/adapter-d1@^6.15.0",
+    "@prisma/adapter-libsql": "npm:@prisma/adapter-libsql@^6.15.0"
   },
   "tasks": {
     "dev": "deno run -A --unstable-worker-options --watch --no-prompt --unsafely-ignore-certificate-errors index.ts --",
-    "start": "deno run -A index.ts --"
+    "start": "deno run -A index.ts --",
+    "prisma:generate": "deno run -A npm:prisma generate --schema app/takos/prisma/schema.prisma"
   },
   "nodeModulesDir": "auto"
 }
