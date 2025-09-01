@@ -34,7 +34,10 @@ try {
 const app = new Hono();
 
 app.get("/image/people.png", (c) => {
-  return c.body(DEFAULT_AVATAR, 200, { "content-type": "image/png" });
+  // Create a new Uint8Array copy (backed by a plain ArrayBuffer) so the type
+  // matches Hono's accepted Data types and avoids SharedArrayBuffer issues.
+  const out = new Uint8Array(DEFAULT_AVATAR);
+  return c.body(out, 200, { "content-type": "image/png" });
 });
 
 export default app;
