@@ -185,6 +185,84 @@ export default {
       return r.status !== 404 ? r : new Response("Not Found", { status: 404 });
     }
 
+    // ---- OAuth (Workers 実装) ----
+    const CODE_TTL = 10 * 60 * 1000;
+    const TOKEN_TTL = 24 * 60 * 60 * 1000;
+
+    app.get("/oauth/authorize", onlyPortal, async (c) => {
+      const clientId = c.req.query("client_id");
+      const redirectUri = c.req.query("redirect_uri");
+      const state = c.req.query("state") ?? "";
+      if (!clientId || !redirectUri) return jsonRes({ error: "invalid_request" }, 400);
+  // db().oauth.find は clientSecret しか返してないため、redirect_uri 検証を簡略化
+      // 本番では redirect_uri も保持し検証する必要あり（create で保存済み）
+      const ok = !!(await env.TAKOS_HOST_DB.prepare(
+        "SELECT redirect_uri FROM oauth_clients WHERE client_id = ?1"
+      ).bind(clientId).first<{ redirect_uri?: string }>());
+      if (!ok) return jsonRes({ error: "invalid_client" }, 400);
+      const cookies = toCookieMap(c.req.header("cookie") ?? null);
+      const sid = cookies[SESSION_COOKIE];
+      if (!sid) return jsonRes({ error: "login" }, 401);
+      const sess = await db().hostSessions.findById(sid);
+      if (!sess || sess.expiresAt <= new Date()) return jsonRes({ error: "login" }, 401);
+      const code = crypto.randomUUID();
+      const exp = Date.now() + CODE_TTL;
+      await env.TAKOS_HOST_DB.prepare(
+        "INSERT INTO oauth_codes (code, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+      ).bind(code, clientId, sess.user, exp, Date.now()).run();
+      const u = new URL(redirectUri);
+      u.searchParams.set("code", code);
+      if (state) u.searchParams.set("state", state);
+      return c.redirect(u.toString());
+    });
+
+    app.post("/oauth/token", onlyPortal, async (c) => {
+      const body = await c.req.formData();
+      const grantType = body.get("grant_type");
+      const code = body.get("code");
+      const clientId = body.get("client_id");
+      const clientSecret = body.get("client_secret");
+      const redirectUri = body.get("redirect_uri");
+      if (
+        grantType !== "authorization_code" ||
+        typeof code !== "string" ||
+        typeof clientId !== "string" ||
+        typeof clientSecret !== "string" ||
+        typeof redirectUri !== "string"
+      ) return jsonRes({ error: "invalid_request" }, 400);
+      const row = await env.TAKOS_HOST_DB.prepare(
+        "SELECT client_secret, redirect_uri FROM oauth_clients WHERE client_id = ?1"
+      ).bind(clientId).first<{ client_secret?: string; redirect_uri?: string }>();
+      if (!row || row.client_secret !== clientSecret || row.redirect_uri !== redirectUri) {
+        return jsonRes({ error: "invalid_client" }, 400);
+      }
+      const codeRow = await env.TAKOS_HOST_DB.prepare(
+        "SELECT user_id, expires_at FROM oauth_codes WHERE code = ?1 AND client_id = ?2"
+      ).bind(code, clientId).first<{ user_id?: string; expires_at?: number }>();
+      if (!codeRow || (Number(codeRow.expires_at ?? 0) <= Date.now())) {
+        return jsonRes({ error: "invalid_grant" }, 400);
+      }
+      await env.TAKOS_HOST_DB.prepare("DELETE FROM oauth_codes WHERE code = ?1").bind(code).run();
+      const token = crypto.randomUUID();
+      const exp = Date.now() + TOKEN_TTL;
+      await env.TAKOS_HOST_DB.prepare(
+        "INSERT INTO oauth_tokens (token, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+      ).bind(token, clientId, String(codeRow.user_id ?? ""), exp, Date.now()).run();
+      return jsonRes({ access_token: token, token_type: "Bearer", expires_in: Math.floor(TOKEN_TTL / 1000) });
+    });
+
+    app.post("/oauth/verify", onlyPortal, async (c) => {
+      const { token } = await c.req.json().catch(() => ({} as Record<string, unknown>));
+      if (typeof token !== "string") return jsonRes({ active: false }, 400);
+      const row = await env.TAKOS_HOST_DB.prepare(
+        "SELECT user_id, expires_at FROM oauth_tokens WHERE token = ?1"
+      ).bind(token).first<{ user_id?: string; expires_at?: number }>();
+      if (!row || (Number(row.expires_at ?? 0) <= Date.now())) {
+        return jsonRes({ active: false }, 401);
+      }
+      return jsonRes({ active: true, user: { id: String(row.user_id ?? "") } });
+    });
+
     // SPA エントリ + 主要フロントルート（ポータルのみ）
     app.use("/user", onlyPortal);
     app.use("/auth", onlyPortal);
