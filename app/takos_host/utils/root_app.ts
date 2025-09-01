@@ -6,8 +6,12 @@ import type { HostContext } from "./host_context.ts";
 
 /** Frontend dev proxy (GET/HEAD only). */
 const devProxy =
-  (prefix: string) => async (c: Context, next: () => Promise<void>) => {
-    if (c.req.method !== "GET" && c.req.method !== "HEAD") return await next();
+  (prefix: string) =>
+  async (c: Context, next: () => Promise<void>): Promise<Response> => {
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      await next();
+      return c.res as Response;
+    }
     const path = c.req.path.replace(new RegExp(`^${prefix}`), "");
     const url = `http://localhost:1421${path}`;
     const res = await fetch(url);
@@ -50,11 +54,15 @@ export function buildRootApp(ctx: HostContext) {
     handler: (
       c: Context,
       next: () => Promise<void>,
-    ) => Promise<Response> | Response,
+    ) => Promise<Response | void> | Response | void,
   ) =>
-  async (c: Context, next: () => Promise<void>) => {
-    if (!isPortalHost(c)) return await next();
-    return await handler(c, next);
+  async (c: Context, next: () => Promise<void>): Promise<Response> => {
+    if (!isPortalHost(c)) {
+      await next();
+      return c.res as Response;
+    }
+    const r = await handler(c, next);
+    return (r ?? (c.res as Response)) as Response;
   };
 
   // Basic mount
@@ -120,7 +128,7 @@ export function buildRootApp(ctx: HostContext) {
         if (isOauthEdge) {
           return await authApp.fetch(c.req.raw);
         }
-        return await proxy(c, next);
+  return await proxy(c, next);
       }),
     );
   } else {
@@ -136,7 +144,7 @@ export function buildRootApp(ctx: HostContext) {
         if (isOauthEdge) {
           return await authApp.fetch(c.req.raw);
         }
-        return await stat(c, next);
+  return await stat(c, next);
       }),
     );
   }
@@ -165,11 +173,11 @@ export function buildRootApp(ctx: HostContext) {
     if (isRoot) {
       if (isDev) {
         const proxy = devProxy("");
-        return await proxy(c, async () => {});
+        return await proxy(c, () => Promise.resolve());
       }
       // 本番: まず静的ファイルを探し、なければ SPA エントリ(index.html)を返却
-      const res = await hostStaticRoot(c, async () => undefined);
-      return res ?? await hostSpaEntry(c, async () => {});
+      const res = await hostStaticRoot(c, () => Promise.resolve());
+      return res ?? await hostSpaEntry(c, () => Promise.resolve());
     }
     return new Response(notFoundHtml || "Not Found", {
       status: 404,
