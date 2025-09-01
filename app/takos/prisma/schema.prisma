@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  engineType = "library"
 }
 
 datasource db {
@@ -48,7 +49,7 @@ model FollowEdge {
 model Note {
   id           String   @id
   attributedTo String
-  actor_id     String   @index
+  actor_id     String
   content      String   @default("")
   extra        String   @default("") // JSON string
   published    DateTime @default(now())
@@ -57,12 +58,14 @@ model Note {
   deleted_at   DateTime?
   aud_to       String   @default("") // JSON string of string[]
   aud_cc       String   @default("") // JSON string of string[]
+
+  @@index([actor_id])
 }
 
 model Message {
   id           String   @id
   attributedTo String
-  actor_id     String   @index
+  actor_id     String
   type         String
   content      String   @default("")
   url          String?
@@ -75,16 +78,20 @@ model Message {
   deleted_at   DateTime?
   aud_to       String   @default("") // JSON string of string[]
   aud_cc       String   @default("") // JSON string of string[]
+
+  @@index([actor_id])
 }
 
 model Attachment {
   id           String   @id
   attributedTo String
-  actor_id     String   @index
+  actor_id     String
   extra        String   @default("") // JSON string
   created_at   DateTime @default(now())
   updated_at   DateTime @default(now())
   deleted_at   DateTime?
+
+  @@index([actor_id])
 }
 
 // ===============
