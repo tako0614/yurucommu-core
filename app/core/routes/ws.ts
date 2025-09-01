@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { upgradeWebSocket } from "hono/deno";
+import { upgradeWebSocket } from 'hono/cloudflare-workers'
 import type { WSContext } from "hono/ws";
 
 export type WsState = Record<string, unknown>;

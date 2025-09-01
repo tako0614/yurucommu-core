@@ -1,6 +1,5 @@
 import type { DataStore, SortSpec } from "../../core/db/types.ts";
 import type { AccountDoc, SessionDoc } from "@takos/types";
-import { createObjectStorage } from "../../takos/storage/providers.ts";
 
 export interface D1Database {
   prepare(sql: string): {
@@ -37,8 +36,45 @@ function mapAccountRow(row: Row): AccountDoc {
   };
 }
 
+// R2 互換バケツ（Workers 環境のバインディングを利用）
+type R2BucketLike = {
+  put(key: string, data: Uint8Array): Promise<unknown>;
+  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  delete(key: string): Promise<void>;
+};
+
+function createR2Storage(env: Record<string, string>) {
+  const bucketName = env["R2_BUCKET"];
+  const binding = bucketName
+    ? (globalThis as unknown as Record<string, unknown>)[bucketName]
+    : undefined;
+  const bucket = binding as R2BucketLike | undefined;
+  if (!bucket) {
+    return {
+      async put(_key: string, _data: Uint8Array) { return ""; },
+      async get(_key: string) { return null as Uint8Array | null; },
+      async delete(_key: string) { /* noop */ },
+    };
+  }
+  return {
+    async put(key: string, data: Uint8Array) {
+      await bucket.put(key, data);
+      return key;
+    },
+    async get(key: string) {
+      const obj = await bucket.get(key);
+      if (!obj) return null;
+      const buf = await obj.arrayBuffer();
+      return new Uint8Array(buf);
+    },
+    async delete(key: string) {
+      await bucket.delete(key);
+    },
+  };
+}
+
 export function createD1TenantDataStore(env: Record<string, string>, d1: D1Database): DataStore {
-  const storage = createObjectStorage(env);
+  const storage = createR2Storage(env);
   return {
     storage,
     // ---- accounts ----

@@ -1,11 +1,36 @@
 import { Hono } from "hono";
-import { compare } from "bcrypt";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "@takos/config";
 import { issueSession } from "../utils/session.ts";
 import { getDB } from "../db/mod.ts";
-import { setCookie } from "hono/cookie";
+// Workers 互換の軽量 Cookie セッター
+function setCookie(
+  c: import("hono").Context,
+  name: string,
+  value: string,
+  opts: { httpOnly?: boolean; secure?: boolean; expires?: Date; sameSite?: "Lax" | "Strict" | "None"; path?: string },
+) {
+  const attrs: string[] = [];
+  attrs.push(`${name}=${encodeURIComponent(value)}`);
+  attrs.push(`Path=${opts.path ?? "/"}`);
+  attrs.push(`SameSite=${opts.sameSite ?? "Lax"}`);
+  if (opts.expires) attrs.push(`Expires=${opts.expires.toUTCString()}`);
+  if (opts.secure) attrs.push("Secure");
+  if (opts.httpOnly !== false) attrs.push("HttpOnly");
+  const cookieVal = attrs.join("; ");
+  (c as unknown as { header: (k: string, v: string, o?: { append?: boolean }) => void }).header(
+    "set-cookie",
+    cookieVal,
+    { append: true },
+  );
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 const app = new Hono();
 
@@ -110,7 +135,8 @@ app.post(
     }
 
     try {
-      const ok = await compare(password ?? "", hashedPassword);
+      const salt = env["salt"] ?? "";
+      const ok = (await sha256Hex((password ?? "") + salt)) === hashedPassword;
       if (!ok) {
         return c.json({ error: "Invalid password" }, 401);
       }

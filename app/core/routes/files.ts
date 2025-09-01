@@ -1,5 +1,4 @@
 import { type Context, Hono } from "hono";
-import { extname } from "@std/path";
 import authRequired from "../utils/auth.ts";
 import { getDB } from "../db/mod.ts";
 import { getEnv } from "@takos/config";
@@ -39,7 +38,10 @@ app.post("/files", auth, async (c) => {
   const filename = file.name;
   const key = form.get("key")?.toString();
   const iv = form.get("iv")?.toString();
-  const ext = extname(file.name);
+  const ext = (() => {
+    const idx = file.name.lastIndexOf(".");
+    return idx >= 0 ? file.name.slice(idx) : "";
+  })();
 
   if (!isAllowedFileType(mediaType, filename, env)) {
     return c.json({ error: "File type not allowed" }, 400);
