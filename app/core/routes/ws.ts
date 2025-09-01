@@ -85,10 +85,10 @@ app.get(
   upgradeWebSocket((c) => {
     const state: WsState = { context: c };
     return {
-      onOpen(_evt, ws) {
+      onOpen(_evt: Event, ws: WSContext<WebSocket>) {
         for (const h of openHandlers) h(ws, state);
       },
-      onMessage(evt, ws) {
+      onMessage(evt: MessageEvent, ws: WSContext<WebSocket>) {
         // WebSocket は DM 通知用に使用する。
         // 文字列メッセージは JSON を期待し、type フィールドでハンドラを呼ぶ。
         if (typeof evt.data === "string") {
@@ -103,10 +103,10 @@ app.get(
           ws.send(JSON.stringify({ error: "binary_payload_not_allowed" }));
         }
       },
-      async onClose(_evt, ws) {
+      async onClose(_evt: CloseEvent, ws: WSContext<WebSocket>) {
         for (const h of closeHandlers) await h(ws, state);
       },
-      onError(_evt, ws) {
+      onError(_evt: Event, ws: WSContext<WebSocket>) {
         for (const h of errorHandlers) h(ws, state);
       },
     };

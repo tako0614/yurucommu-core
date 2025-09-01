@@ -153,7 +153,7 @@ app.post(
 
 export default app;
 // --- helpers ---
-function getExternalOrigin(c: Parameters<Hono["get"]>[0]) {
+function getExternalOrigin(c: import("hono").Context) {
   const xfProto = c.req.header("x-forwarded-proto");
   const xfHost = c.req.header("x-forwarded-host");
   if (xfProto && xfHost) {
