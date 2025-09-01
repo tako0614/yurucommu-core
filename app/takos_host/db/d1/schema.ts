@@ -71,5 +71,12 @@ CREATE TABLE IF NOT EXISTS host_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_instances_owner ON instances(owner);
 CREATE INDEX IF NOT EXISTS idx_domains_user ON host_domains(user_id);
+
+-- SystemKey テーブル（Deno ホストの root ActivityPub 用）
+CREATE TABLE IF NOT EXISTS systemkey (
+  domain TEXT PRIMARY KEY,
+  privateKey TEXT NOT NULL,
+  publicKey TEXT NOT NULL
+);
 `;
 

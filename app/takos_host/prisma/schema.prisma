@@ -1,0 +1,85 @@
+// Prisma schema for Takos Host (shared by Deno and Cloudflare Workers)
+// - Dialect: SQLite (D1-compatible)
+// - Used via driver adapters (@prisma/adapter-libsql for Deno, @prisma/adapter-d1 for Workers)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // Not used with driver adapters, but required by Prisma
+}
+
+model Tenant {
+  id         String @id
+  domain     String
+  created_at Int
+}
+
+model Instance {
+  id         Int     @id @default(autoincrement())
+  host       String  @unique
+  owner      String
+  env_json   String?
+  created_at Int
+}
+
+model OAuthClient {
+  client_id     String @id
+  client_secret String
+  redirect_uri  String
+}
+
+model OAuthCode {
+  code       String @id
+  client_id  String
+  user_id    String
+  expires_at Int
+  created_at Int
+}
+
+model OAuthToken {
+  token      String @id
+  client_id  String
+  user_id    String
+  expires_at Int
+  created_at Int
+}
+
+model HostDomain {
+  id         Int    @id @default(autoincrement())
+  user_id    String
+  domain     String
+  token      String
+  verified   Int    @default(0)
+  created_at Int
+
+  @@unique([user_id, domain])
+}
+
+model HostUser {
+  id               String @id
+  user_name        String @unique
+  email            String @unique
+  email_verified   Int    @default(0)
+  verify_code      String?
+  verify_expires   Int?
+  hashed_password  String
+  salt             String
+  created_at       Int
+}
+
+model HostSession {
+  session_id String @id
+  user_id    String
+  expires_at Int
+  created_at Int
+}
+
+// Optional table for system keys used by root ActivityPub endpoints in Deno host
+model SystemKey {
+  domain     String @id
+  privateKey String
+  publicKey  String
+}
