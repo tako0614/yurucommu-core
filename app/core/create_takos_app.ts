@@ -25,14 +25,15 @@ import trends from "./routes/trends.ts";
 import dm from "./routes/dm.ts";
 import groups from "./routes/groups.ts";
 import { fetchOgpData } from "./services/ogp.ts";
-import { serveStatic } from "hono/deno";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 import dms from "./routes/dms.ts";
 import { handleOAuthCallback } from "./utils/oauth_callback.ts";
 // DB 依存を避けるため、createTakosApp 本体で DB 生成等の作業を行わない
 
-const isDev = Deno.env.get("DEV") === "1";
+// Deno 環境が無い場合でも評価可能にする
+// deno-lint-ignore no-explicit-any
+const isDev = (typeof (globalThis as any).Deno !== "undefined") && ((globalThis as any).Deno.env.get("DEV") === "1");
 
 export async function createTakosApp(
   env: Record<string, string>,
@@ -116,8 +117,6 @@ export async function createTakosApp(
       return new Response(body, { status: res.status, headers: res.headers });
     };
   }
-  const staticRoot = serveStatic({ root: "../client/dist" });
-  const spaEntry = serveStatic({ root: "../client/dist", path: "index.html" });
   if (isDev) {
     // 開発時はクライアントへプロキシするが、/api/* は除外
     app.all("*", async (c, next) => {
@@ -129,10 +128,8 @@ export async function createTakosApp(
       return await p(c, next);
     });
   } else {
-    app.all("*", async (c) => {
-      const res = await staticRoot(c, async () => undefined);
-      return res ?? await spaEntry(c, async () => {});
-    });
+    // 静的配信は上位レイヤ（ホストアプリや Workers [assets]）で処理
+    app.all("*", async (_c) => new Response("Not Found", { status: 404 }));
   }
   return app;
 }
