@@ -6,9 +6,8 @@ import type { DataStore } from "../../core/db/types.ts";
 import { createObjectStorage } from "../../takos/storage/providers.ts";
 import { D1_SCHEMA } from "./d1/schema.ts";
 
-// Dynamic imports keep Workers bundle smaller and avoid env-incompatible code paths.
+// Dynamic imports keep Deno bundle smaller and avoid env-incompatible code paths.
 async function getPrismaClientCtor(): Promise<new (...args: unknown[]) => unknown> {
-  // Use Edge client for Deno/Workers
   const mod = await import("@prisma/client");
   // deno-lint-ignore no-explicit-any
   return (mod as any).PrismaClient as new (...args: unknown[]) => unknown;
@@ -27,58 +26,23 @@ async function createDenoPrisma(env: Record<string, string>) {
   return new (PrismaClient as any)({ adapter });
 }
 
-async function createWorkersPrisma(d1: unknown) {
-  const { PrismaD1 } = await import("@prisma/adapter-d1");
-  const PrismaClient = await getPrismaClientCtor();
-  // deno-lint-ignore no-explicit-any
-  const adapter = new (PrismaD1 as any)(d1 as unknown as { prepare: (sql: string) => unknown });
-  // deno-lint-ignore no-explicit-any
-  return new (PrismaClient as any)({ adapter });
+// Workers では Prisma Client の事前生成が必要でデプロイ時に失敗しやすいため、
+// D1 へ直接 SQL を実行する軽量シムで代替する（本ストアは生 SQL しか使わない）。
+function createWorkersD1Shim(d1: { prepare: (sql: string) => { run: () => Promise<unknown>; all: <T>() => Promise<{ results?: T[] }>; } }) {
+  return {
+    async $executeRawUnsafe(sql: string) {
+      return await d1.prepare(sql).run();
+    },
+    async $queryRawUnsafe<T = unknown>(sql: string) {
+      const { results } = await d1.prepare(sql).all<T>();
+      return (results ?? []) as unknown as T[];
+    },
+  } as unknown as PrismaLike;
 }
 
 type PrismaLike = {
   $executeRawUnsafe: (sql: string) => Promise<unknown>;
   $queryRawUnsafe: (sql: string) => Promise<unknown>;
-  tenant: { upsert: (args: unknown) => Promise<unknown> };
-  instance: {
-    findMany: (args: unknown) => Promise<unknown>;
-    count: (args: unknown) => Promise<number>;
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    update: (args: unknown) => Promise<unknown>;
-    delete: (args: unknown) => Promise<unknown>;
-  };
-  hostUser: {
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    update: (args: unknown) => Promise<unknown>;
-  };
-  hostSession: {
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    update: (args: unknown) => Promise<unknown>;
-    delete: (args: unknown) => Promise<unknown>;
-  };
-  hostDomain: {
-    findFirst: (args: unknown) => Promise<unknown>;
-    findMany: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    update: (args: unknown) => Promise<unknown>;
-  };
-  oAuthClient: {
-    findMany: (args?: unknown) => Promise<unknown>;
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-  };
-  oAuthCode: {
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    delete: (args: unknown) => Promise<unknown>;
-  };
-  oAuthToken: {
-    findFirst: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-  };
 };
 
 function notImplemented(name: string): never {
@@ -97,7 +61,9 @@ export function createPrismaHostDataStore(
     if (!prismaPromise) {
       prismaPromise = (async () => {
         const client = opts?.d1
-          ? await createWorkersPrisma(opts.d1)
+          // Workers: 生成不要の D1 シムを使用
+          ? createWorkersD1Shim(opts.d1 as { prepare: (sql: string) => { run: () => Promise<unknown>; all: <T>() => Promise<{ results?: T[] }>; } })
+          // Deno: libsql アダプタ + Prisma Client を使用（生成前提）
           : await createDenoPrisma(env);
         return client as unknown as PrismaLike;
       })();
