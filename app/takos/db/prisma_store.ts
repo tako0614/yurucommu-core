@@ -10,13 +10,13 @@ import type {
   FcmRepo,
   GroupsRepo,
   InvitesRepo,
-  ListOpts,
   NotificationsRepo,
   PostsRepo,
   SessionsRepo,
   SortSpec,
   SystemRepo,
 } from "../../core/db/types.ts";
+import type { AccountDoc, GroupDoc, SessionDoc } from "../../packages/types/mod.ts";
 import { createObjectStorage } from "../storage/providers.ts";
 import { D1_SCHEMA } from "./d1/schema.ts";
 import { generateKeyPair } from "@takos/crypto";
@@ -64,6 +64,17 @@ function uniq(arr: (string | null | undefined)[]): string[] {
   return Array.from(new Set(arr.filter((v): v is string => !!v)));
 }
 
+// Helper: safely extract aud { to, cc } from unknown
+function getAud(v: unknown): { to: string[]; cc: string[] } {
+  if (v && typeof v === "object") {
+    const r = v as Record<string, unknown>;
+    const to = Array.isArray(r.to) ? r.to.map((x) => String(x)) : [];
+    const cc = Array.isArray(r.cc) ? r.cc.map((x) => String(x)) : [];
+    return { to, cc };
+  }
+  return { to: [], cc: [] };
+}
+
 async function getPrismaClientCtor(): Promise<new (...args: unknown[]) => unknown> {
   const mod = await import("@prisma/client/edge");
   // deno-lint-ignore no-explicit-any
@@ -92,7 +103,7 @@ async function createWorkersPrisma(d1: unknown) {
 
 type PrismaLike = {
   $executeRawUnsafe: (sql: string) => Promise<unknown>;
-  $queryRawUnsafe: (sql: string) => Promise<unknown>;
+  $queryRawUnsafe: (sql: string) => Promise<unknown[]>;
   account: {
     findMany: (args?: unknown) => Promise<unknown[]>;
     findFirst: (args: unknown) => Promise<unknown | null>;
@@ -124,6 +135,7 @@ type PrismaLike = {
   attachment: {
     findFirst: (args: unknown) => Promise<unknown | null>;
     create: (args: unknown) => Promise<unknown>;
+  delete: (args: unknown) => Promise<unknown>;
   };
   session: {
     findFirst: (args: unknown) => Promise<unknown | null>;
@@ -200,21 +212,20 @@ export function createPrismaDataStore(
       // deno-lint-ignore no-explicit-any
       return rows as any[];
     },
-    create: async (data) => {
+    create: async (data): Promise<AccountDoc> => {
       const p = await prisma();
+      const o = data as Record<string, unknown>;
       const created = await p.account.create({
-        // deno-lint-ignore no-explicit-any
         data: {
-          userName: String((data as any).userName ?? ""),
-          displayName: String((data as any).displayName ?? ""),
-          avatarInitial: String((data as any).avatarInitial ?? ""),
-          privateKey: String((data as any).privateKey ?? ""),
-          publicKey: String((data as any).publicKey ?? ""),
-          groupOverrides: JSON.stringify((data as any).groupOverrides ?? {}),
+          userName: String(o.userName ?? ""),
+          displayName: String(o.displayName ?? ""),
+          avatarInitial: String(o.avatarInitial ?? ""),
+          privateKey: String(o.privateKey ?? ""),
+          publicKey: String(o.publicKey ?? ""),
+          groupOverrides: JSON.stringify(o.groupOverrides ?? {}),
         },
       });
-      // deno-lint-ignore no-explicit-any
-      return created as any;
+      return created as unknown as AccountDoc;
     },
     findById: async (id) => {
       const p = await prisma();
@@ -249,10 +260,10 @@ export function createPrismaDataStore(
       await p.account.delete({ where: { id } });
       return true;
     },
-    addFollower: async (_id, _follower) => {
+  addFollower: (_id, _follower) => {
       notImplemented("accounts.addFollower (use addFollowerByName)");
     },
-    removeFollower: async (_id, _follower) => {
+  removeFollower: (_id, _follower) => {
       notImplemented("accounts.removeFollower (use removeFollowerByName)");
     },
     addFollowing: async (id, target) => {
@@ -329,11 +340,10 @@ export function createPrismaDataStore(
         },
       });
     },
-    findByUserNames: async (usernames) => {
+    findByUserNames: async (usernames): Promise<AccountDoc[]> => {
       const p = await prisma();
-      const rows = await p.account.findMany({ where: { userName: { in: usernames } } });
-      // deno-lint-ignore no-explicit-any
-      return rows as any[];
+  const rows = await p.account.findMany({ where: { userName: { in: usernames } } });
+      return rows as unknown as AccountDoc[];
     },
     count: async () => {
       const p = await prisma();
@@ -359,18 +369,16 @@ export function createPrismaDataStore(
       const actor = normalizeActorUrl(String(obj.attributedTo ?? obj["actor_id"] ?? ""), domain);
       if (type === "Attachment") {
         return await p.attachment.create({
-          // deno-lint-ignore no-explicit-any
           data: {
             id: String(obj._id ?? obj.id ?? crypto.randomUUID()),
             attributedTo: actor,
             actor_id: actor,
             extra: JSON.stringify(obj.extra ?? {}),
-          } as any,
+          },
         });
       }
       if (type === "Note") {
         return await p.note.create({
-          // deno-lint-ignore no-explicit-any
           data: {
             id: String(obj._id ?? obj.id ?? crypto.randomUUID()),
             attributedTo: actor,
@@ -378,13 +386,14 @@ export function createPrismaDataStore(
             content: String(obj.content ?? ""),
             extra: JSON.stringify(obj.extra ?? {}),
             published: new Date(),
-            aud_to: JSON.stringify(obj.aud?.to ?? []),
-            aud_cc: JSON.stringify(obj.aud?.cc ?? []),
-          } as any,
+            ...((): { aud_to: string; aud_cc: string } => {
+              const aud = getAud((obj as Record<string, unknown>).aud);
+              return { aud_to: JSON.stringify(aud.to), aud_cc: JSON.stringify(aud.cc) };
+            })(),
+          },
         });
       }
       return await p.message.create({
-        // deno-lint-ignore no-explicit-any
         data: {
           id: String(obj._id ?? obj.id ?? crypto.randomUUID()),
           type: type,
@@ -396,9 +405,11 @@ export function createPrismaDataStore(
           name: (obj as Record<string, unknown>).name as string | undefined,
           extra: JSON.stringify(obj.extra ?? {}),
           published: new Date(),
-          aud_to: JSON.stringify(obj.aud?.to ?? []),
-          aud_cc: JSON.stringify(obj.aud?.cc ?? []),
-        } as any,
+          ...((): { aud_to: string; aud_cc: string } => {
+            const aud = getAud((obj as Record<string, unknown>).aud);
+            return { aud_to: JSON.stringify(aud.to), aud_cc: JSON.stringify(aud.cc) };
+          })(),
+        },
       });
     },
     listTimeline: async (actorOrUrl, opts) => {
@@ -411,9 +422,8 @@ export function createPrismaDataStore(
         }
       } catch { /* not URL */ }
       const actorUrl = normalizeActorUrl(name, domain);
-      // deno-lint-ignore no-explicit-any
-      const edges = await p.followEdge.findMany({ where: { actorId: actorUrl } }) as any[];
-      const ids = edges.map((e) => String((e as any).targetId));
+  const edges = await p.followEdge.findMany({ where: { actorId: actorUrl } }) as unknown[];
+  const ids = edges.map((e) => String((e as Record<string, unknown>).targetId));
       ids.push(actorUrl);
       const where: Record<string, unknown> = { actor_id: { in: ids } };
       if (opts.before) {
@@ -421,12 +431,11 @@ export function createPrismaDataStore(
         (where as any).created_at = { lt: opts.before };
       }
       const limit = (opts.limit ?? 40);
-      const rows = await p.note.findMany({
+  const rows = await p.note.findMany({
         where: {
           AND: [
-            where,
-            // deno-lint-ignore no-explicit-any
-            { aud_to: { contains: "https://www.w3.org/ns/activitystreams#Public" } as any },
+    where,
+    { aud_to: { contains: "https://www.w3.org/ns/activitystreams#Public" } },
           ],
         },
         orderBy: { created_at: "desc" },
@@ -458,7 +467,6 @@ export function createPrismaDataStore(
       const id = crypto.randomUUID();
       const actor = normalizeActorUrl(a, d);
       return await p.note.create({
-        // deno-lint-ignore no-explicit-any
         data: {
           id,
           attributedTo: actor,
@@ -468,7 +476,7 @@ export function createPrismaDataStore(
           published: new Date(),
           aud_to: JSON.stringify(aud?.to ?? ["https://www.w3.org/ns/activitystreams#Public"]) ,
           aud_cc: JSON.stringify(aud?.cc ?? []),
-        } as any,
+        },
       });
     },
     updateNote: async (id, update) => {
@@ -491,18 +499,18 @@ export function createPrismaDataStore(
       const p = await prisma();
       const where: Record<string, unknown> = {};
       if (filter.actor_id) where["actor_id"] = filter.actor_id;
-      const orderBy = sort?.created_at ? { created_at: (String(sort.created_at).includes("-1") ? "desc" : "asc") as const } : undefined;
+      const orderBy = sort?.created_at
+        ? { created_at: (String(sort.created_at).includes("-1") ? "desc" : "asc") as "asc" | "desc" }
+        : undefined;
       return await p.note.findMany({ where, orderBy });
     },
     getPublicNotes: async (limit, before) => {
       const p = await prisma();
       const where: Record<string, unknown> = {
-        // deno-lint-ignore no-explicit-any
-        aud_to: { contains: "https://www.w3.org/ns/activitystreams#Public" } as any,
+        aud_to: { contains: "https://www.w3.org/ns/activitystreams#Public" },
       };
       if (before) {
-        // deno-lint-ignore no-explicit-any
-        (where as any).created_at = { lt: before };
+        (where as Record<string, unknown>)["created_at"] = { lt: before };
       }
       return await p.note.findMany({ where, orderBy: { created_at: "desc" }, take: limit });
     },
@@ -511,7 +519,6 @@ export function createPrismaDataStore(
       const id = crypto.randomUUID();
       const actor = normalizeActorUrl(a, d);
       return await p.message.create({
-        // deno-lint-ignore no-explicit-any
         data: {
           id,
           type: "Note",
@@ -522,7 +529,7 @@ export function createPrismaDataStore(
           published: new Date(),
           aud_to: JSON.stringify(aud?.to ?? []),
           aud_cc: JSON.stringify(aud?.cc ?? []),
-        } as any,
+        },
       });
     },
     updateMessage: async (id, update) => {
@@ -545,7 +552,9 @@ export function createPrismaDataStore(
       const p = await prisma();
       const where: Record<string, unknown> = {};
       if (filter.actor_id) where["actor_id"] = filter.actor_id;
-      const orderBy = sort?.created_at ? { created_at: (String(sort.created_at).includes("-1") ? "desc" : "asc") as const } : undefined;
+      const orderBy = sort?.created_at
+        ? { created_at: (String(sort.created_at).includes("-1") ? "desc" : "asc") as "asc" | "desc" }
+        : undefined;
       return await p.message.findMany({ where, orderBy });
     },
     updateObject: async (id, update) => {
@@ -557,22 +566,19 @@ export function createPrismaDataStore(
           return await p.message.update({ where: { id }, data: { extra: update.extra ? JSON.stringify(update.extra) : undefined, updated_at: new Date() } });
         } catch {
           return await p.attachment.create({
-            // deno-lint-ignore no-explicit-any
-            data: { id, attributedTo: String(update.attributedTo ?? ""), actor_id: String(update.actor_id ?? ""), extra: JSON.stringify(update.extra ?? {}) } as any,
+            data: { id, attributedTo: String(update.attributedTo ?? ""), actor_id: String(update.actor_id ?? ""), extra: JSON.stringify(update.extra ?? {}) },
           });
         }
       }
     },
     deleteObject: async (id) => {
       const p = await prisma();
-      try { await p.note.delete({ where: { id } }); return true; } catch {}
-      try { await p.message.delete({ where: { id } }); return true; } catch {}
-      try { await p.attachment.delete({ where: { id } }); return true; } catch {}
+      try { await p.note.delete({ where: { id } }); return true; } catch { /* ignore */ }
+      try { await p.message.delete({ where: { id } }); return true; } catch { /* ignore */ }
+      try { await p.attachment.delete({ where: { id } }); return true; } catch { /* ignore */ }
       return false;
     },
-    deleteManyObjects: async (_filter) => {
-      return { deletedCount: 0 };
-    },
+  deleteManyObjects: (_filter) => Promise.resolve({ deletedCount: 0 }),
   };
   const dms: DMRepo = {
     save: async (
@@ -598,7 +604,6 @@ export function createPrismaDataStore(
       const fromUrl = from.includes("://") ? from : normalizeActorUrl(from, domain);
       const id = crypto.randomUUID();
       await p.message.create({
-        // deno-lint-ignore no-explicit-any
         data: {
           id,
           type: objectType,
@@ -610,7 +615,7 @@ export function createPrismaDataStore(
           extra: JSON.stringify(extra),
           aud_to: JSON.stringify([to]),
           aud_cc: JSON.stringify([]),
-        } as any,
+        },
       });
       return {
         id,
@@ -642,9 +647,8 @@ export function createPrismaDataStore(
       const rows = await p.message.findMany({
         where: {
           AND: [
-            // deno-lint-ignore no-explicit-any
-            { extra: { contains: '"dm"' } as any },
-            { OR: conds as any[] },
+            { extra: { contains: '"dm"' } },
+            { OR: conds as unknown[] },
           ],
         },
         orderBy: { created_at: "asc" },
@@ -686,33 +690,31 @@ export function createPrismaDataStore(
       const p = await prisma();
       const actor = `https://${domain}/users/${member}`;
       // local groups where the actor follows
-      // deno-lint-ignore no-explicit-any
-      const follows = await p.$queryRawUnsafe(`SELECT groupName FROM GroupFollower WHERE actor = '${actor.replaceAll("'", "''")}'`) as any[];
-      const names = follows.map((r) => String((r as any).groupName));
+  const follows = await p.$queryRawUnsafe(`SELECT groupName FROM GroupFollower WHERE actor = '${actor.replaceAll("'", "''")}'`) as unknown[];
+  const names = follows.map((r) => String((r as Record<string, unknown>).groupName));
       if (names.length === 0) return [];
-      // deno-lint-ignore no-explicit-any
-      const rows = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName IN (${names.map((n) => `'${n.replaceAll("'", "''")}'`).join(",")})`) as any[];
+  const rows = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName IN (${names.map((n) => `'${n.replaceAll("'", "''")}'`).join(",")})`) as unknown[];
       const res = [] as { id: string; name: string; icon?: unknown; members: string[] }[];
       for (const g of rows) {
-        const id = `https://${domain}/groups/${String((g as any).groupName)}`;
-        // deno-lint-ignore no-explicit-any
-        const followers = await p.$queryRawUnsafe(`SELECT actor FROM GroupFollower WHERE groupName = '${String((g as any).groupName).replaceAll("'", "''")}'`) as any[];
-        const iconStr = (g as any).icon as string | null | undefined;
+        const groupName = String((g as Record<string, unknown>).groupName);
+        const id = `https://${domain}/groups/${groupName}`;
+        const followers = await p.$queryRawUnsafe(`SELECT actor FROM GroupFollower WHERE groupName = '${groupName.replaceAll("'", "''")}'`) as unknown[];
+        const iconStr = (g as Record<string, unknown>).icon as string | null | undefined;
         let icon: unknown = undefined;
         try { icon = iconStr ? JSON.parse(iconStr) : undefined; } catch { icon = iconStr; }
         res.push({
           id,
-          name: String((g as any).displayName || (g as any).groupName),
+          name: String((g as Record<string, unknown>).displayName || groupName),
           icon,
-          members: followers.map((f) => String((f as any).actor)),
+          members: followers.map((f) => String((f as Record<string, unknown>).actor)),
         });
       }
       return res;
     },
-    findByName: async (name: string) => {
+  findByName: async (name: string): Promise<GroupDoc | null> => {
       const p = await prisma();
-      const rows = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${name.replaceAll("'", "''")}' LIMIT 1`) as unknown[];
-      return rows?.[0] ?? null;
+  const rows = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${name.replaceAll("'", "''")}' LIMIT 1`) as unknown[];
+  return (rows?.[0] as unknown as GroupDoc) ?? null;
     },
     create: async (data) => {
       const p = await prisma();
@@ -725,27 +727,27 @@ export function createPrismaDataStore(
       const allowInvites = typeof (data as Record<string, unknown>).allowInvites === "boolean"
         ? ((data as Record<string, unknown>).allowInvites ? 1 : 0)
         : undefined;
+   const o = data as Record<string, unknown>;
       await p.$executeRawUnsafe(
         `INSERT INTO Group (groupName, displayName, summary, icon, image, privateKey, publicKey, membershipPolicy, invitePolicy, visibility, allowInvites)
          VALUES (
-           '${String((data as any).groupName).replaceAll("'","''")}',
-           '${String((data as any).displayName ?? "").replaceAll("'","''")}',
-           '${String((data as any).summary ?? "").replaceAll("'","''")}',
-           ${ (data as any).icon ? `'${JSON.stringify((data as any).icon).replaceAll("'","''")}'` : 'NULL' },
-           ${ (data as any).image ? `'${JSON.stringify((data as any).image).replaceAll("'","''")}'` : 'NULL' },
-           '${String((data as any).privateKey ?? "").replaceAll("'","''")}',
-           '${String((data as any).publicKey ?? "").replaceAll("'","''")}',
-           '${String((data as any).membershipPolicy ?? "open").replaceAll("'","''")}',
-           '${String((data as any).invitePolicy ?? "members").replaceAll("'","''")}',
-           '${String((data as any).visibility ?? "public").replaceAll("'","''")}',
+     '${String(o.groupName).replaceAll("'","''")}',
+     '${String(o.displayName ?? "").replaceAll("'","''")}',
+     '${String(o.summary ?? "").replaceAll("'","''")}',
+     ${ o.icon ? `'${JSON.stringify(o.icon).replaceAll("'","''")}'` : 'NULL' },
+     ${ o.image ? `'${JSON.stringify(o.image).replaceAll("'","''")}'` : 'NULL' },
+     '${String(o.privateKey ?? "").replaceAll("'","''")}',
+     '${String(o.publicKey ?? "").replaceAll("'","''")}',
+     '${String(o.membershipPolicy ?? "open").replaceAll("'","''")}',
+     '${String(o.invitePolicy ?? "members").replaceAll("'","''")}',
+     '${String(o.visibility ?? "public").replaceAll("'","''")}',
            ${allowInvites ?? 1}
          )`
       );
-      const created = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${String((data as any).groupName).replaceAll("'","''")}' LIMIT 1`) as unknown[];
-      // deno-lint-ignore no-explicit-any
-      return (created?.[0] as any) ?? null;
+   const created = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${String(o.groupName).replaceAll("'","''")}' LIMIT 1`) as unknown[];
+  return (created?.[0] as unknown as GroupDoc) ?? null;
     },
-    updateByName: async (name, update) => {
+  updateByName: async (name, update): Promise<GroupDoc | null> => {
       const p = await prisma();
       const fields: string[] = [];
       for (const [k, v] of Object.entries(update)) {
@@ -756,11 +758,11 @@ export function createPrismaDataStore(
       }
       if (fields.length === 0) {
         const row = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${name.replaceAll("'","''")}' LIMIT 1`) as unknown[];
-        return row?.[0] ?? null;
+        return (row?.[0] as unknown as GroupDoc) ?? null;
       }
       await p.$executeRawUnsafe(`UPDATE Group SET ${fields.join(", ")} WHERE groupName='${name.replaceAll("'","''")}'`);
-      const row = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${name.replaceAll("'","''")}' LIMIT 1`) as unknown[];
-      return row?.[0] ?? null;
+  const row = await p.$queryRawUnsafe(`SELECT * FROM Group WHERE groupName='${name.replaceAll("'","''")}' LIMIT 1`) as unknown[];
+  return (row?.[0] as unknown as GroupDoc) ?? null;
     },
     addFollower: async (name, actor) => {
       const p = await prisma();
@@ -810,7 +812,7 @@ export function createPrismaDataStore(
       const now = new Date();
       if (options?.upsert) {
         // upsert by composite key
-        const rows = await p.$queryRawUnsafe(`SELECT * FROM Invite WHERE groupName='${g.replaceAll("'","''")}' AND actor='${a.replaceAll("'","''")}' LIMIT 1`) as any[];
+  const rows = await p.$queryRawUnsafe(`SELECT * FROM Invite WHERE groupName='${g.replaceAll("'","''")}' AND actor='${a.replaceAll("'","''")}' LIMIT 1`) as unknown[];
         if (!rows?.[0]) {
           const remaining = typeof set["remainingUses"] === "number" ? Number(set["remainingUses"]) : 1;
           const accepted = typeof set["accepted"] === "boolean" ? (set["accepted"] ? 1 : 0) : 0;
@@ -839,12 +841,13 @@ export function createPrismaDataStore(
     save: async (data) => {
       const p = await prisma();
       const now = new Date();
+      const o = data as Record<string, unknown>;
       await p.$executeRawUnsafe(
         `INSERT INTO Invite (groupName, actor, inviter, expiresAt, remainingUses, accepted, createdAt, updatedAt)
-         VALUES ('${String((data as any).groupName).replaceAll("'","''")}', '${String((data as any).actor).replaceAll("'","''")}', ${ (data as any).inviter ? `'${String((data as any).inviter).replaceAll("'","''")}'` : 'NULL' }, ${ (data as any).expiresAt instanceof Date ? Math.floor(((data as any).expiresAt as Date).getTime()/1000) : 'NULL' }, ${Number((data as any).remainingUses ?? 1)}, ${ (data as any).accepted ? 1 : 0 }, ${Math.floor(now.getTime()/1000)}, ${Math.floor(now.getTime()/1000)})
+         VALUES ('${String(o.groupName).replaceAll("'","''")}', '${String(o.actor).replaceAll("'","''")}', ${ o.inviter ? `'${String(o.inviter).replaceAll("'","''")}'` : 'NULL' }, ${ o.expiresAt instanceof Date ? Math.floor((o.expiresAt as Date).getTime()/1000) : 'NULL' }, ${Number((o.remainingUses ?? 1) as number)}, ${ (o.accepted ? 1 : 0) }, ${Math.floor(now.getTime()/1000)}, ${Math.floor(now.getTime()/1000)})
          ON CONFLICT(groupName, actor) DO NOTHING`
       );
-      const row = await p.$queryRawUnsafe(`SELECT * FROM Invite WHERE groupName='${String((data as any).groupName).replaceAll("'","''")}' AND actor='${String((data as any).actor).replaceAll("'","''")}' LIMIT 1`) as unknown[];
+      const row = await p.$queryRawUnsafe(`SELECT * FROM Invite WHERE groupName='${String(o.groupName).replaceAll("'","''")}' AND actor='${String(o.actor).replaceAll("'","''")}' LIMIT 1`) as unknown[];
       return row?.[0] ?? null;
     },
     deleteOne: async (filter) => {
@@ -870,7 +873,7 @@ export function createPrismaDataStore(
       const a = (filter as Record<string, unknown>).actor as string | undefined;
       if (!g || !a) return null;
       const now = new Date();
-      const rows = await p.$queryRawUnsafe(`SELECT * FROM Approval WHERE groupName='${g.replaceAll("'","''")}' AND actor='${a.replaceAll("'","''")}' LIMIT 1`) as any[];
+  const rows = await p.$queryRawUnsafe(`SELECT * FROM Approval WHERE groupName='${g.replaceAll("'","''")}' AND actor='${a.replaceAll("'","''")}' LIMIT 1`) as unknown[];
       const activity = (update as Record<string, unknown>).activity ?? null;
       if (!rows?.[0] && options?.upsert) {
         await p.$executeRawUnsafe(
@@ -948,13 +951,13 @@ export function createPrismaDataStore(
     },
   };
   const sessions: SessionsRepo = {
-    create: async (sessionId, expiresAt, deviceId) => {
+    create: async (sessionId, expiresAt, deviceId): Promise<SessionDoc> => {
       const p = await prisma();
-      return await p.session.create({ data: { sessionId, deviceId, expiresAt } });
+  return await p.session.create({ data: { sessionId, deviceId, expiresAt } }) as unknown as SessionDoc;
     },
-    findById: async (sessionId) => {
+    findById: async (sessionId): Promise<SessionDoc | null> => {
       const p = await prisma();
-      return await p.session.findFirst({ where: { sessionId } });
+  return await p.session.findFirst({ where: { sessionId } }) as unknown as SessionDoc | null;
     },
     deleteById: async (sessionId) => {
       const p = await prisma();
@@ -1005,9 +1008,9 @@ export function createPrismaDataStore(
     list: async (filter) => {
       const p = await prisma();
       if (filter && (filter as Record<string, unknown>).baseUrl) {
-        return await p.$queryRawUnsafe(`SELECT * FROM FaspClientProvider WHERE baseUrl = '${String((filter as Record<string, unknown>).baseUrl).replaceAll("'", "''")}'`);
+        return await p.$queryRawUnsafe(`SELECT * FROM FaspClientProvider WHERE baseUrl = '${String((filter as Record<string, unknown>).baseUrl).replaceAll("'", "''")}'`) as unknown[];
       }
-      return await p.$queryRawUnsafe("SELECT * FROM FaspClientProvider ORDER BY status ASC, updatedAt DESC");
+      return await p.$queryRawUnsafe("SELECT * FROM FaspClientProvider ORDER BY status ASC, updatedAt DESC") as unknown[];
     },
     findOne: async (filter) => {
       const p = await prisma();
@@ -1067,7 +1070,7 @@ export function createPrismaDataStore(
     },
     listProviders: async () => {
       const p = await prisma();
-      return await p.$queryRawUnsafe("SELECT * FROM FaspClientProvider ORDER BY status ASC, updatedAt DESC");
+  return await p.$queryRawUnsafe("SELECT * FROM FaspClientProvider ORDER BY status ASC, updatedAt DESC") as unknown[];
     },
     insertEventSubscription: async (id, payload) => {
       const p = await prisma();

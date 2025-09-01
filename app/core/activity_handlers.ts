@@ -41,8 +41,12 @@ async function saveObject(
   }
 
   const attachments = extractAttachments(obj);
+  const baseExtra = ((): Record<string, unknown> => {
+    const v = obj.extra as unknown;
+    return (v && typeof v === "object") ? (v as Record<string, unknown>) : {};
+  })();
   const extra: Record<string, unknown> = {
-    ...(obj.extra ?? {}),
+    ...baseExtra,
     actorInfo: Object.keys(actorInfo).length > 0 ? actorInfo : undefined,
   };
   if (attachments.length > 0) extra.attachments = attachments;
