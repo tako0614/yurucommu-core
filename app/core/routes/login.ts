@@ -111,36 +111,19 @@ app.post(
       try {
         const res = await fetch(`${url}/oauth/verify`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token: accessToken }),
           signal: controller.signal,
         });
 
         if (!res.ok) return c.json({ error: "Invalid token" }, 401);
-        const data: unknown = await res.json();
-        const isVerify = (v: unknown): v is { active: boolean; user?: { id?: string } } => {
-          if (!v || typeof v !== "object") return false;
-          const o = v as Record<string, unknown>;
-          return typeof o.active === "boolean" && (o.user === undefined || typeof (o.user as Record<string, unknown>).id === "string");
-        };
-        if (!isVerify(data) || data.active !== true) {
-          return c.json({ error: "Invalid token" }, 401);
-        }
-        const user = data.user;
+  const data = await res.json() as { active?: boolean; user?: { id?: string } };
+  if (!data?.active) return c.json({ error: "Invalid token" }, 401);
+  const user = data.user;
         if (!user || !user.id) return c.json({ error: "Invalid user" }, 401);
 
         await issueSession(c, getDB(c));
         return c.json({ success: true, message: "Login successful" });
-      } catch (e) {
-        const err = e as Error;
-        if (err?.name === "AbortError") {
-          return c.json({ error: "OAuth verification timeout" }, 504);
-        }
-        console.error("OAuth verify request failed:", err?.message ?? e);
-        return c.json({ error: "OAuth host unreachable" }, 502);
       } finally {
         clearTimeout(timeout);
       }

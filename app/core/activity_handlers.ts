@@ -189,24 +189,16 @@ export const activityHandlers: Record<string, ActivityHandler> = {
       const toHandle = iriToHandle(target);
       // DM ルームを双方に作成（未作成時）
       try {
-        const fromInfo = await getUserInfo(db, fromHandle, domain).catch(
-          () => null,
-        );
-        const toInfo = await getUserInfo(db, toHandle, domain).catch(
-          () => null,
-        );
+  await getUserInfo(db, fromHandle, domain).catch(() => null);
+  await getUserInfo(db, toHandle, domain).catch(() => null);
         await Promise.all([
           db.dms.create({
             owner: fromHandle,
             id: toHandle,
-            name: toInfo?.displayName || toInfo?.userName || toHandle,
-            icon: toInfo?.authorAvatar,
           }),
           db.dms.create({
             owner: toHandle,
             id: fromHandle,
-            name: fromInfo?.displayName || fromInfo?.userName || fromHandle,
-            icon: fromInfo?.authorAvatar,
           }),
         ]);
       } catch {

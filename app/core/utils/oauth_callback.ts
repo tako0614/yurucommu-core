@@ -64,8 +64,8 @@ export function createHandleOAuthCallback(
         body: JSON.stringify({ token: tokenData.access_token }),
       });
       if (!verifyRes.ok) return await next();
-      const v = await verifyRes.json();
-      if (!v.active) return await next();
+  const v = await verifyRes.json() as { active?: boolean };
+  if (!v?.active) return await next();
       await deps.issueSession(c, getDB(c));
       return c.redirect("/");
     } catch (_e) {
