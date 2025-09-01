@@ -54,16 +54,17 @@ function copyKeys(
 
 // ベースとなる固定値
 const base: Record<string, string> = {
-  MONGO_URI: hostEnv["MONGO_URI"],
+  HOST_DB_PROVIDER: hostEnv["HOST_DB_PROVIDER"] ?? "prisma",
+  MONGO_URI: hostEnv["MONGO_URI"] ?? "",
   hashedPassword: "", // 後続で設定される想定
   salt: "", // 後続で設定される想定
   ACTIVITYPUB_DOMAIN: "", // テナント or root ごとに差し替え
   host: hostEnv["OAUTH_HOST"] ? `https://${hostEnv["OAUTH_HOST"]}` : "",
   OAUTH_CLIENT_ID: "",
   OAUTH_CLIENT_SECRET: "",
-  OBJECT_STORAGE_PROVIDER: "gridfs",
+  OBJECT_STORAGE_PROVIDER: hostEnv["OBJECT_STORAGE_PROVIDER"] ?? "fs",
   LOCAL_STORAGE_DIR: "uploads",
-  GRIDFS_BUCKET: "uploads",
+  GRIDFS_BUCKET: hostEnv["GRIDFS_BUCKET"] ?? "uploads",
 };
 
 // カテゴリ別キーを集約

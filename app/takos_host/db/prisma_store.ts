@@ -230,7 +230,7 @@ export function createPrismaHostDataStore(
       list: () => notImplemented("fcm.list"),
     },
     faspProviders: {
-      getSettings: () => null,
+  getSettings: () => null,
       list: () => notImplemented("faspProviders.list"),
       findOne: () => notImplemented("faspProviders.findOne"),
       upsertByBaseUrl: () => notImplemented("faspProviders.upsertByBaseUrl"),
@@ -287,21 +287,21 @@ export function createPrismaHostDataStore(
         if (!row) return null;
         return { _id: String(row.id), host: String(row.host), env: row.env_json ? JSON.parse(String(row.env_json)) : undefined };
       },
-      createInstance: async (data) => {
+  createInstance: async (data: { host: string; owner: string; env?: Record<string, string> }) => {
         const p = await prisma();
         const envJson = data.env ? JSON.stringify(data.env) : null;
         await p.$executeRawUnsafe(
           `INSERT INTO instances (host, owner, env_json, created_at) VALUES ('${data.host.replaceAll("'", "''")}', '${data.owner.replaceAll("'", "''")}', ${envJson ? `'${envJson.replaceAll("'", "''")}'` : 'NULL'}, ${Date.now()})`
         );
       },
-      updateInstanceEnv: async (id, envVars) => {
+  updateInstanceEnv: async (id: string, envVars: Record<string, string>) => {
         const p = await prisma();
         const envJson = JSON.stringify(envVars);
         await p.$executeRawUnsafe(
           `UPDATE instances SET env_json='${envJson.replaceAll("'", "''")}' WHERE id=${Number(id)}`
         );
       },
-      deleteInstance: async (host, owner) => {
+  deleteInstance: async (host: string, owner: string) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `DELETE FROM instances WHERE host='${host.replaceAll("'", "''")}' AND owner='${owner.replaceAll("'", "''")}'`
@@ -322,36 +322,36 @@ export function createPrismaHostDataStore(
         const row = rows?.[0];
         return row ? { clientSecret: String(row.client_secret), redirectUri: String(row.redirect_uri) } : null;
       },
-      create: async (data) => {
+  create: async (data: { clientId: string; clientSecret: string; redirectUri: string }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO oauth_clients (client_id, client_secret, redirect_uri) VALUES ('${data.clientId.replaceAll("'", "''")}', '${data.clientSecret.replaceAll("'", "''")}', '${data.redirectUri.replaceAll("'", "''")}')`
         );
       },
-      createCode: async (data) => {
+  createCode: async (data: { code: string; clientId: string; user: string; expiresAt: Date }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO oauth_codes (code, client_id, user_id, expires_at, created_at) VALUES ('${data.code.replaceAll("'","''")}', '${data.clientId.replaceAll("'","''")}', '${data.user.replaceAll("'","''")}', ${Number(data.expiresAt)}, ${Date.now()})`
         );
       },
-      findCode: async (code, clientId) => {
+  findCode: async (code: string, clientId: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT user_id, expires_at FROM oauth_codes WHERE code='${code.replaceAll("'","''")}' AND client_id='${clientId.replaceAll("'","''")}'`) as any[];
         const row = rows?.[0];
         return row ? { user: String(row.user_id), expiresAt: new Date(Number(row.expires_at)) } : null;
       },
-      deleteCode: async (code) => {
+  deleteCode: async (code: string) => {
         const p = await prisma();
         await p.$executeRawUnsafe(`DELETE FROM oauth_codes WHERE code='${code.replaceAll("'","''")}'`);
       },
-      createToken: async (data) => {
+  createToken: async (data: { token: string; clientId: string; user: string; expiresAt: Date }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO oauth_tokens (token, client_id, user_id, expires_at, created_at) VALUES ('${data.token.replaceAll("'","''")}', '${data.clientId.replaceAll("'","''")}', '${data.user.replaceAll("'","''")}', ${Number(data.expiresAt)}, ${Date.now()})`
         );
       },
-      findToken: async (token) => {
+  findToken: async (token: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT user_id, expires_at FROM oauth_tokens WHERE token='${token.replaceAll("'","''")}'`) as any[];
@@ -360,13 +360,13 @@ export function createPrismaHostDataStore(
       },
     },
     domains: {
-      list: async (user) => {
+  list: async (user: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT domain, verified FROM host_domains WHERE user_id='${user.replaceAll("'", "''")}' ORDER BY created_at DESC`) as any[];
         return rows.map((r) => ({ domain: String(r.domain), verified: Number(r.verified) === 1 }));
       },
-      find: async (domain, user) => {
+  find: async (domain: string, user?: string) => {
         const p = await prisma();
         let sql = `SELECT id, token, verified FROM host_domains WHERE domain='${domain.replaceAll("'", "''")}'`;
         if (user) sql += ` AND user_id='${user.replaceAll("'", "''")}'`;
@@ -375,19 +375,19 @@ export function createPrismaHostDataStore(
         const row = rows?.[0];
         return row ? { _id: String(row.id), token: String(row.token), verified: Number(row.verified) === 1 } : null;
       },
-      create: async (domain, user, token) => {
+  create: async (domain: string, user: string, token: string) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO host_domains (user_id, domain, token, verified, created_at) VALUES ('${user.replaceAll("'", "''")}', '${domain.replaceAll("'", "''")}', '${token.replaceAll("'", "''")}', 0, ${Date.now()})`
         );
       },
-      verify: async (id) => {
+  verify: async (id: string) => {
         const p = await prisma();
         await p.$executeRawUnsafe(`UPDATE host_domains SET verified=1 WHERE id=${Number(id)}`);
       },
     },
     hostUsers: {
-      findById: async (id) => {
+  findById: async (id: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT id, user_name, email, email_verified, verify_code, verify_expires, hashed_password, salt FROM host_users WHERE id='${id.replaceAll("'","''")}'`) as any[];
@@ -403,7 +403,7 @@ export function createPrismaHostDataStore(
           salt: String(row.salt),
         } : null;
       },
-      findByUserName: async (userName) => {
+  findByUserName: async (userName: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT id, user_name, email, email_verified, verify_code, verify_expires, hashed_password, salt FROM host_users WHERE user_name='${userName.replaceAll("'", "''")}'`) as any[];
@@ -419,7 +419,7 @@ export function createPrismaHostDataStore(
           salt: String(row.salt),
         } : null;
       },
-      findByUserNameOrEmail: async (userName, email) => {
+  findByUserNameOrEmail: async (userName: string, email: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT id, user_name, email, email_verified, verify_code, verify_expires, hashed_password, salt FROM host_users WHERE user_name='${userName.replaceAll("'", "''")}' OR email='${email.replaceAll("'", "''")}' LIMIT 1`) as any[];
@@ -435,7 +435,7 @@ export function createPrismaHostDataStore(
           salt: String(row.salt),
         } : null;
       },
-      create: async (data) => {
+  create: async (data: { userName: string; email: string; hashedPassword: string; salt: string; verifyCode: string; verifyCodeExpires: Date; emailVerified?: boolean }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO host_users (id, user_name, email, email_verified, verify_code, verify_expires, hashed_password, salt, created_at) VALUES ('${crypto.randomUUID()}', '${data.userName.replaceAll("'", "''")}', '${data.email.replaceAll("'", "''")}', ${data.emailVerified ? 1 : 0}, ${data.verifyCode ? `'${data.verifyCode.replaceAll("'", "''")}'` : 'NULL'}, ${data.verifyCodeExpires ? Number(data.verifyCodeExpires) : 'NULL'}, '${data.hashedPassword.replaceAll("'", "''")}', '${data.salt.replaceAll("'", "''")}', ${Date.now()})`
@@ -444,7 +444,7 @@ export function createPrismaHostDataStore(
         // deno-lint-ignore no-explicit-any
         return created as any;
       },
-      update: async (id, data) => {
+  update: async (id: string, data: Partial<{ userName: string; email: string; hashedPassword: string; salt: string; verifyCode: string | null; verifyCodeExpires: Date | null; emailVerified: boolean }>) => {
         const p = await prisma();
         const sets: string[] = [];
         const set = (k: string, v: string | number | null) => {
@@ -465,7 +465,7 @@ export function createPrismaHostDataStore(
       },
     },
     hostSessions: {
-      findById: async (sessionId) => {
+  findById: async (sessionId: string) => {
         const p = await prisma();
         // deno-lint-ignore no-explicit-any
         const rows = await p.$queryRawUnsafe(`SELECT session_id, user_id, expires_at FROM host_sessions WHERE session_id='${sessionId.replaceAll("'", "''")}'`) as any[];
@@ -477,18 +477,18 @@ export function createPrismaHostDataStore(
           expiresAt: new Date(Number(row.expires_at)),
         } : null;
       },
-      create: async (data) => {
+  create: async (data: { sessionId: string; user: string; expiresAt: Date }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(
           `INSERT INTO host_sessions (session_id, user_id, expires_at, created_at) VALUES ('${data.sessionId.replaceAll("'", "''")}', '${data.user.replaceAll("'", "''")}', ${Number(data.expiresAt)}, ${Date.now()})`
         );
         return (await store.hostSessions.findById(data.sessionId))!;
       },
-      update: async (sessionId, data) => {
+  update: async (sessionId: string, data: { expiresAt: Date }) => {
         const p = await prisma();
         await p.$executeRawUnsafe(`UPDATE host_sessions SET expires_at=${Number(data.expiresAt)} WHERE session_id='${sessionId.replaceAll("'", "''")}'`);
       },
-      delete: async (sessionId) => {
+  delete: async (sessionId: string) => {
         const p = await prisma();
         await p.$executeRawUnsafe(`DELETE FROM host_sessions WHERE session_id='${sessionId.replaceAll("'", "''")}'`);
       },

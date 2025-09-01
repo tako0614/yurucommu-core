@@ -31,9 +31,8 @@ export async function loadConfig(options?: { envPath?: string }) {
 }
 
 function validateEnv(env: Record<string, string>) {
-  const schema = z.object({
-    MONGO_URI: z.string().min(1),
-  });
+  // 汎用に: MONGO_URI は任意
+  const schema = z.object({ MONGO_URI: z.string().min(1).optional() });
   schema.parse(env);
 }
 

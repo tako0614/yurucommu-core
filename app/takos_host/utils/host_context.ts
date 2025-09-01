@@ -2,9 +2,7 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import type { Context } from "hono";
 import { loadConfig } from "@takos/config";
 import {
-  connectDatabase,
   createDB,
-  createMongoDataStore,
   createPrismaHostDataStore,
   setStoreFactory,
 } from "@takos_host/db";
@@ -55,19 +53,10 @@ export async function initHostContext(): Promise<HostContext> {
   const envPath = getEnvPath();
   const defaultEnvPath = join(dirname(fromFileUrl(import.meta.url)), "../.env");
   const hostEnv = await loadConfig({ envPath: envPath ?? defaultEnvPath });
-  // Prisma を使う場合は Mongo 接続を行わない
-  if ((hostEnv["HOST_DB_PROVIDER"] ?? "mongo").toLowerCase() !== "prisma") {
-    await connectDatabase(hostEnv);
-  }
-  // ホスト環境では新抽象(Store)を注入
-  // 環境変数 HOST_DB_PROVIDER=prisma の場合、Prisma (libsql) に切替
-  if ((hostEnv["HOST_DB_PROVIDER"] ?? "mongo").toLowerCase() === "prisma") {
-    setStoreFactory((e) =>
-      createPrismaHostDataStore(e, { tenantId: e["ACTIVITYPUB_DOMAIN"], multiTenant: true })
-    );
-  } else {
-    setStoreFactory((e) => createMongoDataStore(e, { multiTenant: true }));
-  }
+  // ホストは Prisma（libsql/D1）を常用
+  setStoreFactory((e) =>
+    createPrismaHostDataStore(e, { tenantId: e["ACTIVITYPUB_DOMAIN"], multiTenant: true })
+  );
 
   const rootDomain = (hostEnv["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
   if (rootDomain) {

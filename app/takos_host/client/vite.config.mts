@@ -8,7 +8,8 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 1421,
-    strictPort: true,
+  // 既に使用中なら次の空きポートへフォールバック
+  strictPort: false,
     proxy: {
       "/auth": {
         target: "http://localhost:8001",
