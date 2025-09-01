@@ -3,7 +3,7 @@
 // - R2 はファイル保管（OBJECT_STORAGE_PROVIDER=r2 推奨）
 // - 静的アセットは [assets] で配信
 
-import { Hono } from "hono";
+import { Hono as _Hono } from "hono";
 import { setStoreFactory } from "../core/db/mod.ts";
 import { createTakosApp } from "../core/create_takos_app.ts";
 import type { D1Database } from "./db/d1_tenant_store.ts";
@@ -64,9 +64,29 @@ export default {
     mapR2BindingToGlobal(env);
 
     // DataStore を D1 で差し込み
+    // 併せて: インスタンスごとの環境変数（OAuthなど）を D1 から取得して注入
+    let instEnv: Record<string, string> = {};
+    try {
+      const row = await env.TAKOS_HOST_DB
+        .prepare("SELECT env_json FROM instances WHERE host = ?1")
+        .bind(host)
+        .first<{ env_json?: string }>();
+      if (row?.env_json) {
+        try {
+          const parsed = JSON.parse(String(row.env_json));
+          if (parsed && typeof parsed === "object") instEnv = parsed as Record<string, string>;
+        } catch { /* ignore JSON parse error */ }
+      }
+    } catch {
+      // 読み取り失敗時は無視（最低限で動作継続）
+    }
+
     const coreEnv = {
       OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER ?? "r2",
       R2_BUCKET: env.R2_BUCKET ?? "",
+      // まずインスタンス環境を取り込み（OAUTH_HOST/CLIENT_ID/SECRET 等）
+      ...instEnv,
+      // ACTIVITYPUB_DOMAIN は常に実リクエストのホストを優先
       ACTIVITYPUB_DOMAIN: host,
     } as Record<string, string>;
     setStoreFactory(() => createD1TenantDataStore(coreEnv, env.TAKOS_HOST_DB));

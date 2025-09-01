@@ -8,7 +8,6 @@ app.get("/config", (c) => {
   const env = getEnv(c);
   const host = env["OAUTH_HOST"] ?? null;
   const clientId = env["OAUTH_CLIENT_ID"] ?? null;
-  const clientSecret = env["OAUTH_CLIENT_SECRET"] ?? null;
   const firebaseConfig = parseFirebaseClientConfig(env);
   const vapidKey = env["FIREBASE_VAPID_KEY"] ?? null;
   const adsenseClient = env["ADSENSE_CLIENT"] ?? null;
@@ -18,7 +17,6 @@ app.get("/config", (c) => {
   return c.json({
     oauthHost: host,
     oauthClientId: clientId,
-    oauthClientSecret: clientSecret,
     firebase: firebaseConfig,
     vapidKey,
     adsenseClient,
