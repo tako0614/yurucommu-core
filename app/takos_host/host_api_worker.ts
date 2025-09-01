@@ -24,6 +24,8 @@ export interface Env {
   // ORIGIN_URL は廃止（全処理を Workers で実行）
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // Wrangler Assets バインディング（ポータルの静的配信に使用）
+  ASSETS?: { fetch: (req: Request) => Promise<Response> };
 }
 
 function mapR2BindingToGlobal(env: Env) {
@@ -80,7 +82,7 @@ export default {
       (requestHost === portalDomain || requestHost === `www.${portalDomain}`);
     // テナントホストはすべてオリジン（takos）へ委譲
     if (!isPortalHost) {
-      return new Response("Not Found", { status: 404 });
+      return fetch(req);
     }
     // 既存の rootDomain は DB テナント ID に用いる（互換のため requestHost フォールバックを維持）
     const rootDomain = (env.ACTIVITYPUB_DOMAIN ?? requestHost).toLowerCase();
