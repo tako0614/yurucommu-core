@@ -1,4 +1,9 @@
-import { extname } from "@std/path";
+// Workers 環境でも動く簡易 extname
+function extname(filename: string): string {
+  const i = filename.lastIndexOf(".");
+  if (i <= 0) return "";
+  return filename.slice(i);
+}
 
 /**
  * 環境変数のファイルサイズ指定をバイト数に変換する。

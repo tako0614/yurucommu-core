@@ -1,5 +1,42 @@
-import { getCookie, setCookie } from "hono/cookie";
 import type { Context, MiddlewareHandler } from "hono";
+
+function getCookie(c: Context, name: string): string | undefined {
+  const raw = c.req.header("cookie");
+  if (!raw) return undefined;
+  const parts = raw.split(/;\s*/);
+  for (const p of parts) {
+    const [k, v] = p.split("=");
+    if (k && v && k.trim() === name) return decodeURIComponent(v);
+  }
+  return undefined;
+}
+
+function setCookie(
+  c: Context,
+  name: string,
+  value: string,
+  opts: {
+    httpOnly?: boolean;
+    secure?: boolean;
+    expires?: Date;
+    sameSite?: "Lax" | "Strict" | "None";
+    path?: string;
+  },
+): void {
+  const attrs: string[] = [];
+  attrs.push(`${name}=${encodeURIComponent(value)}`);
+  attrs.push(`Path=${opts.path ?? "/"}`);
+  attrs.push(`SameSite=${opts.sameSite ?? "Lax"}`);
+  if (opts.expires) attrs.push(`Expires=${opts.expires.toUTCString()}`);
+  if (opts.secure) attrs.push("Secure");
+  if (opts.httpOnly !== false) attrs.push("HttpOnly");
+  const cookieVal = attrs.join("; ");
+  (c as unknown as { header: (k: string, v: string, o?: { append?: boolean }) => void }).header(
+    "set-cookie",
+    cookieVal,
+    { append: true },
+  );
+}
 
 export interface AuthOptions<T> {
   cookieName: string;

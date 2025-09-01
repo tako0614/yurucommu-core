@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@takos/config": ["app/polyfills/takos_config_worker.ts"],
+      "@takos/auth": ["app/packages/auth/mod.ts"],
+      "@takos/types": ["app/packages/types/mod.ts"],
+      "@takos/crypto": ["app/packages/crypto/mod.ts"],
+      "@takos/firebase": ["app/packages/firebase/mod.ts"],
+      "@takos/buffer": ["app/packages/buffer/mod.ts"],
+      "@takos/url": ["app/packages/url/mod.ts"]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  }
+}

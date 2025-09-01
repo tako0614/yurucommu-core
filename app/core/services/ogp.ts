@@ -1,5 +1,3 @@
-import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.53/deno-dom-wasm.ts";
-
 export interface OgpData {
   title?: string;
   description?: string;
@@ -60,27 +58,7 @@ async function validateUrl(url: string): Promise<void> {
       throw new Error("Access to private IP addresses is not allowed");
     }
   } else {
-    // ホスト名の場合、DNSリゾルブして検証
-    try {
-      const resolvedIPs = await Deno.resolveDns(parsedUrl.hostname, "A");
-      for (const ip of resolvedIPs) {
-        if (isPrivateIP(ip)) {
-          throw new Error("DNS resolves to a private IP address");
-        }
-      }
-    } catch (_e) {
-      // IPv6も確認
-      try {
-        const resolvedIPv6 = await Deno.resolveDns(parsedUrl.hostname, "AAAA");
-        for (const ip of resolvedIPv6) {
-          if (isPrivateIP(ip)) {
-            throw new Error("DNS resolves to a private IP address");
-          }
-        }
-      } catch {
-        // DNS解決できない場合は続行（外部ドメインの可能性）
-      }
-    }
+    // Workers では `Deno.resolveDns` が使えないため、DNSによる私有アドレス検査は省略
   }
 
   // ポート制限（標準ポート以外を制限）
@@ -88,6 +66,18 @@ async function validateUrl(url: string): Promise<void> {
   if (parsedUrl.port && !standardPorts.includes(parsedUrl.port)) {
     throw new Error(`Non-standard port ${parsedUrl.port} is not allowed`);
   }
+}
+
+function extractMeta(html: string, names: string[]): string | undefined {
+  for (const n of names) {
+    const reProp = new RegExp(`<meta[^>]+property=["']${n}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i");
+    const m1 = html.match(reProp);
+    if (m1 && m1[1]) return m1[1];
+    const reName = new RegExp(`<meta[^>]+name=["']${n}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i");
+    const m2 = html.match(reName);
+    if (m2 && m2[1]) return m2[1];
+  }
+  return undefined;
 }
 
 export async function fetchOgpData(url: string): Promise<OgpData | null> {
@@ -120,34 +110,13 @@ export async function fetchOgpData(url: string): Promise<OgpData | null> {
       }
 
       const html = await response.text();
-      const document = new DOMParser().parseFromString(html, "text/html");
 
-      if (!document) {
-        return null;
-      }
+      const title = extractMeta(html, ["og:title"]) ||
+        (html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]);
+      const description = extractMeta(html, ["og:description", "description"]);
+      const image = extractMeta(html, ["og:image"]);
 
-      const getMetaContent = (
-        doc: typeof document,
-        property: string,
-      ): string | undefined => {
-        return doc.querySelector(`meta[property="${property}"]`)?.getAttribute(
-          "content",
-        ) ||
-          doc.querySelector(`meta[name="${property}"]`)?.getAttribute(
-            "content",
-          ) ||
-          undefined;
-      };
-
-      const title = getMetaContent(document, "og:title") ||
-        document.querySelector("title")?.textContent ||
-        undefined;
-      const description = getMetaContent(document, "og:description") ||
-        getMetaContent(document, "description") ||
-        undefined;
-      const image = getMetaContent(document, "og:image") || undefined;
-
-      return { title, description, image, url };
+      return { title: title ?? undefined, description: description ?? undefined, image: image ?? undefined, url };
     } finally {
       clearTimeout(timeout);
     }
