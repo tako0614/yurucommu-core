@@ -21,6 +21,7 @@ interface Options {
   // 共通/任意上書き
   envTakos?: string;
   envHost?: string;
+  // Mongo は takos 本体向けのみ使用（host は D1/Prisma 前提）
   mongo?: string;
   domain?: string; // takos: テナント/単体ドメイン, host: ルートドメイン
   // takos 向け
@@ -279,12 +280,7 @@ async function createHostEnv(outPath: string, opts: Options) {
   const examplePath = resolve(root, "../app/takos_host/.env.example");
   const example = await loadExampleEnv(examplePath);
 
-  const mongo = opts.mongo ??
-    promptIfNeeded(
-      "MONGO_URI (host)",
-      example.MONGO_URI ?? "mongodb://localhost:27017/takos-host",
-      opts.yes,
-    );
+  // host は D1/Prisma 前提のため Mongo 設定は不要
   const domain = opts.domain ??
     promptIfNeeded(
       "ACTIVITYPUB_DOMAIN (root domain)",
@@ -401,7 +397,7 @@ async function createHostEnv(outPath: string, opts: Options) {
 
   const env: Record<string, string> = {
     ...example,
-    MONGO_URI: mongo,
+  // host は Mongo を使用しない
     SERVER_HOST: serverHost,
     SERVER_PORT: serverPort,
     SERVER_CERT: serverCert,

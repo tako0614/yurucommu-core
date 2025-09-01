@@ -92,7 +92,7 @@ OAuth ボタンを表示します。
 
 1. 初期設定（CLIで自動生成・手動編集不要）
    - ルートから実行: `deno task setup:host`
-   - 対話なしで生成: `deno run -A scripts/setup_env.ts --target host --force --yes --mongo mongodb://localhost:27017/takos-host --domain host.example.com`
+   - 対話なしで生成: `deno run -A scripts/setup_env.ts --target host --force --yes --domain host.example.com`
    - 生成後、必要に応じて `.env` を編集してください。
    - 主な変数:
      - `OAUTH_HOST`: OAuth サーバードメイン
@@ -105,7 +105,7 @@ OAuth ボタンを表示します。
   には利用禁止とするサブドメインをカンマ区切りで設定します。
 - `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
 
-2. `deno run -A app/takos_host/main.ts` でサーバーを起動します。
+2. `deno run -A app/takos_host/main.ts` でサーバーを起動します（takos host は D1/Prisma 前提）。
    特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`、
    ポート番号を変更したい場合は `SERVER_PORT` を設定してください。 HTTPS
    で待ち受けるには `SERVER_CERT` と `SERVER_KEY`

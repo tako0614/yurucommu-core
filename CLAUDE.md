@@ -9,12 +9,14 @@ takosは、ActivityPubプロトコルを実装したソーシャルWebアプリ�
 
 ## 技術スタック
 
-- **ランタイム**: Deno
-- **バックエンド**: Hono (Web framework)
-- **フロントエンド**: Solid.js, Tauri (デスクトップアプリ)
-- **データベース**: MongoDB (Mongoose ODM)
-- **通信プロトコル**: ActivityPub
-- **言語**: TypeScript
+- ランタイム: Deno / Cloudflare Workers (一部)
+- バックエンド: Hono (Web framework)
+- フロントエンド: Solid.js, Tauri (デスクトップアプリ)
+- データベース:
+  - takos 本体: 既存の実装に依存（アプリごとに切替可能）
+  - takos host: D1(SQLite互換) + R2（Prisma Edge + adapter）
+- 通信プロトコル: ActivityPub
+- 言語: TypeScript
 
 ## 開発コマンド
 
@@ -58,7 +60,6 @@ deno task setup:host
 
 # 非対話で一括生成の例
 deno run -A scripts/setup_env.ts --target takos --force --yes \
-  --mongo mongodb://localhost:27017/takos \
   --domain dev.takos.local \
   --password yourpass
 ```
@@ -72,10 +73,10 @@ deno run -A scripts/setup_env.ts --target takos --force --yes \
   - `services/` - ビジネスロジック層
   - `utils/` - ユーティリティ関数
   - `activity_handlers.ts` - ActivityPub アクティビティハンドラー
-- `app/takos/` - 単体運用向けの起動コードと MongoDB 実装
-  - `db/` - MongoDB 接続とストア実装
+- `app/takos/` - 単体運用向けの起動コード
+  - `db/` - アプリ固有の DB 実装
 - `app/takos_host/` - マルチテナント向けホスティングサービス
-  - `db/` - ホスト環境向け DB 実装
+  - `db/` - ホスト環境向け DB 実装（Prisma + D1/R2）
 - `app/client/` - フロントエンドアプリケーション
   - `src/` - Solid.js コンポーネント
   - `src-tauri/` - Tauri デスクトップアプリ設定
@@ -115,7 +116,6 @@ deno run -A scripts/setup_env.ts --target takos --force --yes \
 
 必須の環境変数（`.env`ファイル）：
 
-- `MONGO_URI` - MongoDBの接続URI
 - `ACTIVITYPUB_DOMAIN` - 公開ドメイン名（外部からアクセスされるドメイン）
 - `SERVER_HOST` - サーバーバインドアドレス（省略時: 0.0.0.0）
 - `SERVER_PORT` - サーバーポート（省略時: 80）
@@ -142,6 +142,6 @@ deno run -A scripts/setup_env.ts --target takos --force --yes \
 
 - TypeScriptの型定義を活用する
 - Honoフレームワークのミドルウェアパターンに従う
-- MongooseのスキーマでDBモデルを定義
+- Prisma モデル（D1/SQLite 互換）または既存のコア実装の規約に従う
 - ActivityPubの仕様に準拠したJSONLD形式を使用
 - エラーハンドリングを適切に実装する

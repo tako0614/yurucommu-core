@@ -36,8 +36,8 @@ Deno をベースに、バックエンド（takos）、ホスティングコン�
 - 全体の対話的セットアップ: `deno task setup`
 - サーバー(takos)のみ: `deno task setup:takos`
 - ホスト(host)のみ: `deno task setup:host`
-- 非対話で一括生成例（Mongo/ドメイン/初期パスワード指定）:
-  - `deno run -A scripts/setup_env.ts --target takos --force --yes --mongo mongodb://localhost:27017/takos --domain dev.takos.local --password yourpass`
+- 非対話で一括生成例（ドメイン/初期パスワード指定）:
+  - `deno run -A scripts/setup_env.ts --target takos --force --yes --domain dev.takos.local --password yourpass`
 
 CLIにより `.env`
 を自動生成できるため、手動での初期設定は不要です（必要に応じて後から編集可能）。
@@ -78,7 +78,7 @@ CLIにより `.env`
 - `SERVER_CERT`, `SERVER_KEY`: 文字列で証明書/秘密鍵を指定すると HTTPS で待受
 - `ACTIVITYPUB_DOMAIN`: takos 側の連合用ドメイン名（設定時に system actor
   キーを生成）
-- Mongo 接続などの詳細は各 `.env.example` を参照（`deno task setup`
+- 外部接続などの詳細は各 `.env.example` を参照（`deno task setup`
   は最低限の値を自動設定します）
 
 ## トラブルシューティング
