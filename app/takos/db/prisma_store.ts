@@ -76,7 +76,7 @@ function getAud(v: unknown): { to: string[]; cc: string[] } {
 }
 
 async function getPrismaClientCtor(): Promise<new (...args: unknown[]) => unknown> {
-  const mod = await import("@prisma/client/edge");
+  const mod = await import("@prisma/client");
   // deno-lint-ignore no-explicit-any
   return (mod as any).PrismaClient as new (...args: unknown[]) => unknown;
 }

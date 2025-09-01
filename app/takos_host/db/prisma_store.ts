@@ -9,7 +9,7 @@ import { D1_SCHEMA } from "./d1/schema.ts";
 // Dynamic imports keep Workers bundle smaller and avoid env-incompatible code paths.
 async function getPrismaClientCtor(): Promise<new (...args: unknown[]) => unknown> {
   // Use Edge client for Deno/Workers
-  const mod = await import("@prisma/client/edge");
+  const mod = await import("@prisma/client");
   // deno-lint-ignore no-explicit-any
   return (mod as any).PrismaClient as new (...args: unknown[]) => unknown;
 }
