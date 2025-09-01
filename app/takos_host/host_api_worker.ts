@@ -189,7 +189,7 @@ export default {
     const CODE_TTL = 10 * 60 * 1000;
     const TOKEN_TTL = 24 * 60 * 60 * 1000;
 
-    app.get("/oauth/authorize", onlyPortal, async (c) => {
+  app.get("/oauth/authorize", onlyPortal, async (c) => {
       const clientId = c.req.query("client_id");
       const redirectUri = c.req.query("redirect_uri");
       const state = c.req.query("state") ?? "";
@@ -202,9 +202,28 @@ export default {
       if (!ok) return jsonRes({ error: "invalid_client" }, 400);
       const cookies = toCookieMap(c.req.header("cookie") ?? null);
       const sid = cookies[SESSION_COOKIE];
-      if (!sid) return jsonRes({ error: "login" }, 401);
+      if (!sid) {
+        // 続き先を Cookie に保存して /auth へ
+        const secure = c.req.url.startsWith("https://");
+        const expires = new Date(Date.now() + 10 * 60 * 1000);
+        const nextUrl = new URL(c.req.url).toString();
+        const headers = new Headers({
+          Location: "/auth",
+          "set-cookie": setCookieHeader("oauth_next", nextUrl, secure, expires),
+        });
+        return new Response(null, { status: 302, headers });
+      }
       const sess = await db().hostSessions.findById(sid);
-      if (!sess || sess.expiresAt <= new Date()) return jsonRes({ error: "login" }, 401);
+      if (!sess || sess.expiresAt <= new Date()) {
+        const secure = c.req.url.startsWith("https://");
+        const expires = new Date(Date.now() + 10 * 60 * 1000);
+        const nextUrl = new URL(c.req.url).toString();
+        const headers = new Headers({
+          Location: "/auth",
+          "set-cookie": setCookieHeader("oauth_next", nextUrl, secure, expires),
+        });
+        return new Response(null, { status: 302, headers });
+      }
       const code = crypto.randomUUID();
       const exp = Date.now() + CODE_TTL;
       await env.TAKOS_HOST_DB.prepare(
