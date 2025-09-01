@@ -167,6 +167,24 @@ export default {
       return await next();
     };
 
+    // Assets 経由でクライアント(SPA)を返すためのユーティリティ
+    function urlWithPath(req: Request, toPath: string) {
+      const u = new URL(req.url);
+      u.pathname = toPath;
+      u.search = "";
+      u.hash = "";
+      return new Request(u.toString(), req);
+    }
+    async function serveClient(env: Env, req: Request): Promise<Response> {
+      if (!env.ASSETS) return new Response("Not Found", { status: 404 });
+      // まず要求パスのまま静的配信を試す
+      let r = await env.ASSETS.fetch(req);
+      if (r.status !== 404) return r;
+      // SPA フォールバック（index.html）
+      r = await env.ASSETS.fetch(urlWithPath(req, "/"));
+      return r.status !== 404 ? r : new Response("Not Found", { status: 404 });
+    }
+
     // SPA エントリ + 主要フロントルート（ポータルのみ）
     app.use("/user", onlyPortal);
     app.use("/auth", onlyPortal);
@@ -174,11 +192,11 @@ export default {
     app.use("/verify", onlyPortal);
     app.use("/terms", onlyPortal);
     app.use("/robots.txt", onlyPortal);
-    app.get("/user", () => new Response("Not Found", { status: 404 }));
-    app.get("/auth", () => new Response("Not Found", { status: 404 }));
-    app.get("/signup", () => new Response("Not Found", { status: 404 }));
-    app.get("/verify", () => new Response("Not Found", { status: 404 }));
-    app.get("/terms", () => new Response("Not Found", { status: 404 }));
+    app.get("/user", (c) => serveClient(env, c.req.raw));
+    app.get("/auth", (c) => serveClient(env, c.req.raw));
+    app.get("/signup", (c) => serveClient(env, c.req.raw));
+    app.get("/verify", (c) => serveClient(env, c.req.raw));
+    app.get("/terms", (c) => serveClient(env, c.req.raw));
     // robots.txt の静的配信は行わない（別配信レイヤで処理）
 
     // /auth/*, /user/* の GET は、API パスを除外した上で静的アセットへリライト
@@ -190,8 +208,7 @@ export default {
       if (/\/auth\/.+\/(start|callback)\/?$/.test(c.req.path)) {
         return await next();
       }
-      const p = c.req.path.replace(/^\/auth/, "");
-      return new Response("Not Found", { status: 404 });
+      return await serveClient(env, c.req.raw);
     });
     app.use("/user/*", onlyPortal);
     app.get("/user/*", async (c, next) => {
@@ -199,8 +216,7 @@ export default {
       if (/^\/user\/(instances|oauth|domains)(\/|$)/.test(c.req.path)) {
         return await next();
       }
-      const p = c.req.path.replace(/^\/user/, "");
-      return new Response("Not Found", { status: 404 });
+      return await serveClient(env, c.req.raw);
     });
 
     // ---- /auth ----
@@ -635,6 +651,9 @@ export default {
 
     // それ以外は 404 → SPA フォールバック
     const res = await app.fetch(req, env);
+    if (isPortalHost && res.status === 404) {
+      return await serveClient(env, req);
+    }
     // SPA フォールバックを行わない
     return res;
   },
