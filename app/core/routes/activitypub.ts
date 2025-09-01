@@ -9,10 +9,34 @@ import {
 
 import { activityHandlers } from "../activity_handlers.ts";
 
-// 未設定時に返すデフォルトアイコン
-const DEFAULT_AVATAR = await Deno.readFile(
-  new URL("../image/people.png", import.meta.url),
-);
+// 未設定時に返すデフォルトアイコン（Deno 不可時は 1x1 PNG を埋め込み）
+function base64ToUint8Array(b64: string): Uint8Array {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const atobFn = (globalThis as any).atob as ((s: string) => string) | undefined;
+    if (atobFn) {
+      const bin = atobFn(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+  } catch { /* ignore */ }
+  return new Uint8Array();
+}
+let DEFAULT_AVATAR: Uint8Array;
+try {
+  // deno-lint-ignore no-explicit-any
+  if (typeof (globalThis as any).Deno !== "undefined") {
+    // deno-lint-ignore no-explicit-any
+    const D = (globalThis as any).Deno as typeof Deno;
+    DEFAULT_AVATAR = await D.readFile(new URL("../image/people.png", import.meta.url));
+  } else {
+    throw new Error("no deno");
+  }
+} catch {
+  const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9YvWcWwAAAAASUVORK5CYII=";
+  DEFAULT_AVATAR = base64ToUint8Array(b64);
+}
 
 import {
   buildActivityFromStored,
