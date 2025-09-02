@@ -1,4 +1,4 @@
-import { load } from "@std/dotenv";
+import { load } from "jsr:@std/dotenv";
 import { z } from "zod";
 import type { Context, Hono } from "hono";
 
