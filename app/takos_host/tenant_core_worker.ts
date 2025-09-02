@@ -31,6 +31,15 @@ function mapR2BindingToGlobal(env: Env) {
 }
 
 async function assetFallback(env: Env, req: Request): Promise<Response> {
+  // API 系は SPA へフォールバックしない（明示的に 404 を返す）
+  try {
+    const p = new URL(req.url).pathname;
+    if (p === "/api" || p.startsWith("/api/")) {
+      return new Response("Not Found", { status: 404 });
+    }
+  } catch {
+    // URL 解析失敗時は従来挙動にフォールバック
+  }
   if (!env.ASSETS) return new Response("Not Found", { status: 404 });
   const res = await env.ASSETS.fetch(req);
   if (res.status !== 404) return res;
@@ -111,8 +120,13 @@ export default {
     // まず Hono に処理を委譲
     const res = await app.fetch(req);
     if (res.status !== 404) return res;
+    // /api は Hono 未定義なら即 404（SPA へは落とさない）
+    const p = new URL(req.url).pathname;
+    if (p === "/api" || p.startsWith("/api/")) {
+      return new Response("Not Found", { status: 404 });
+    }
 
     // 404 は静的へフォールバック（SPA 含む）
-    return assetFallback(env, req);
+  return assetFallback(env, req);
   },
 };
