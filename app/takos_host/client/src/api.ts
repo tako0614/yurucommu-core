@@ -33,13 +33,18 @@ export async function fetchStatus(): Promise<Status> {
 export async function login(
   userName: string,
   password: string,
-): Promise<boolean> {
+): Promise<{ success: boolean; redirect?: string }> {
   const res = await fetch("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userName, password }),
   });
-  return res.ok;
+  if (!res.ok) return { success: false };
+  const data = await res.json().catch(() => ({} as Record<string, unknown>));
+  return {
+    success: true,
+    redirect: typeof data.redirect === "string" ? data.redirect : undefined,
+  };
 }
 
 export async function register(

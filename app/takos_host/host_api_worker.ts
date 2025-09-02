@@ -75,7 +75,7 @@ export default {
     // R2 バインディングを globalThis に公開（createObjectStorage が参照）
     mapR2BindingToGlobal(env);
 
-  // Prisma(D1) データストアを Host 用に差し込む
+    // Prisma(D1) データストアを Host 用に差し込む
     const requestHost = new URL(req.url).host.toLowerCase();
     // ポータル判定は ACTIVITYPUB_DOMAIN のみを基準にする（未設定ならポータル無し）
     const portalDomain = env.ACTIVITYPUB_DOMAIN?.toLowerCase() ?? null;
@@ -107,10 +107,14 @@ export default {
     const SESSION_COOKIE = "hostSessionId";
     const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
     const db = () =>
-      (globalThis as unknown as { _db: ReturnType<typeof createPrismaHostDataStore> })
+      (globalThis as unknown as {
+        _db: ReturnType<typeof createPrismaHostDataStore>;
+      })
         ._db;
     // グローバル DB インスタンスも env の値を使って作成
-    (globalThis as unknown as { _db?: ReturnType<typeof createPrismaHostDataStore> })
+    (globalThis as unknown as {
+      _db?: ReturnType<typeof createPrismaHostDataStore>;
+    })
       ._db ??= createPrismaHostDataStore(
         {
           OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER,
@@ -188,15 +192,17 @@ export default {
     const CODE_TTL = 10 * 60 * 1000;
     const TOKEN_TTL = 24 * 60 * 60 * 1000;
 
-  app.get("/oauth/authorize", onlyPortal, async (c) => {
+    app.get("/oauth/authorize", onlyPortal, async (c) => {
       const clientId = c.req.query("client_id");
       const redirectUri = c.req.query("redirect_uri");
       const state = c.req.query("state") ?? "";
-      if (!clientId || !redirectUri) return jsonRes({ error: "invalid_request" }, 400);
-  // db().oauth.find は clientSecret しか返してないため、redirect_uri 検証を簡略化
+      if (!clientId || !redirectUri) {
+        return jsonRes({ error: "invalid_request" }, 400);
+      }
+      // db().oauth.find は clientSecret しか返してないため、redirect_uri 検証を簡略化
       // 本番では redirect_uri も保持し検証する必要あり（create で保存済み）
       const ok = !!(await env.TAKOS_HOST_DB.prepare(
-        "SELECT redirect_uri FROM oauth_clients WHERE client_id = ?1"
+        "SELECT redirect_uri FROM oauth_clients WHERE client_id = ?1",
       ).bind(clientId).first<{ redirect_uri?: string }>());
       if (!ok) return jsonRes({ error: "invalid_client" }, 400);
       const cookies = toCookieMap(c.req.header("cookie") ?? null);
@@ -226,7 +232,7 @@ export default {
       const code = crypto.randomUUID();
       const exp = Date.now() + CODE_TTL;
       await env.TAKOS_HOST_DB.prepare(
-        "INSERT INTO oauth_codes (code, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
+        "INSERT INTO oauth_codes (code, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
       ).bind(code, clientId, sess.user, exp, Date.now()).run();
       const u = new URL(redirectUri);
       u.searchParams.set("code", code);
@@ -249,31 +255,44 @@ export default {
         typeof redirectUri !== "string"
       ) return jsonRes({ error: "invalid_request" }, 400);
       const row = await env.TAKOS_HOST_DB.prepare(
-        "SELECT client_secret, redirect_uri FROM oauth_clients WHERE client_id = ?1"
-      ).bind(clientId).first<{ client_secret?: string; redirect_uri?: string }>();
-      if (!row || row.client_secret !== clientSecret || row.redirect_uri !== redirectUri) {
+        "SELECT client_secret, redirect_uri FROM oauth_clients WHERE client_id = ?1",
+      ).bind(clientId).first<
+        { client_secret?: string; redirect_uri?: string }
+      >();
+      if (
+        !row || row.client_secret !== clientSecret ||
+        row.redirect_uri !== redirectUri
+      ) {
         return jsonRes({ error: "invalid_client" }, 400);
       }
       const codeRow = await env.TAKOS_HOST_DB.prepare(
-        "SELECT user_id, expires_at FROM oauth_codes WHERE code = ?1 AND client_id = ?2"
+        "SELECT user_id, expires_at FROM oauth_codes WHERE code = ?1 AND client_id = ?2",
       ).bind(code, clientId).first<{ user_id?: string; expires_at?: number }>();
       if (!codeRow || (Number(codeRow.expires_at ?? 0) <= Date.now())) {
         return jsonRes({ error: "invalid_grant" }, 400);
       }
-      await env.TAKOS_HOST_DB.prepare("DELETE FROM oauth_codes WHERE code = ?1").bind(code).run();
+      await env.TAKOS_HOST_DB.prepare("DELETE FROM oauth_codes WHERE code = ?1")
+        .bind(code).run();
       const token = crypto.randomUUID();
       const exp = Date.now() + TOKEN_TTL;
       await env.TAKOS_HOST_DB.prepare(
-        "INSERT INTO oauth_tokens (token, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)"
-      ).bind(token, clientId, String(codeRow.user_id ?? ""), exp, Date.now()).run();
-      return jsonRes({ access_token: token, token_type: "Bearer", expires_in: Math.floor(TOKEN_TTL / 1000) });
+        "INSERT INTO oauth_tokens (token, client_id, user_id, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+      ).bind(token, clientId, String(codeRow.user_id ?? ""), exp, Date.now())
+        .run();
+      return jsonRes({
+        access_token: token,
+        token_type: "Bearer",
+        expires_in: Math.floor(TOKEN_TTL / 1000),
+      });
     });
 
     app.post("/oauth/verify", onlyPortal, async (c) => {
-      const { token } = await c.req.json().catch(() => ({} as Record<string, unknown>));
+      const { token } = await c.req.json().catch(
+        () => ({} as Record<string, unknown>),
+      );
       if (typeof token !== "string") return jsonRes({ active: false }, 400);
       const row = await env.TAKOS_HOST_DB.prepare(
-        "SELECT user_id, expires_at FROM oauth_tokens WHERE token = ?1"
+        "SELECT user_id, expires_at FROM oauth_tokens WHERE token = ?1",
       ).bind(token).first<{ user_id?: string; expires_at?: number }>();
       if (!row || (Number(row.expires_at ?? 0) <= Date.now())) {
         return jsonRes({ active: false }, 401);
@@ -524,13 +543,26 @@ export default {
         expiresAt: expires,
       });
       const secure = c.req.url.startsWith("https://");
-      const headers = new Headers({
-        "set-cookie": setCookieHeader(SESSION_COOKIE, sid, secure, expires),
-      });
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers,
-      });
+      const cookies = toCookieMap(c.req.header("cookie") ?? null);
+      const nextUrl = cookies["oauth_next"];
+      const headers = new Headers();
+      headers.append(
+        "set-cookie",
+        setCookieHeader(SESSION_COOKIE, sid, secure, expires),
+      );
+      if (nextUrl) {
+        headers.append(
+          "set-cookie",
+          setCookieHeader("oauth_next", "", secure, new Date(0)),
+        );
+      }
+      return new Response(
+        JSON.stringify({ success: true, redirect: nextUrl }),
+        {
+          status: 200,
+          headers,
+        },
+      );
     });
 
     app.get("/auth/status", async (c) => {
