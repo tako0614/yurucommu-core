@@ -100,18 +100,32 @@ OAuth ボタンを表示します。
      - `RESERVED_SUBDOMAINS`: 利用禁止サブドメイン（カンマ区切り）
      - `TERMS_FILE`: 規約テキスト/Markdown のファイルパス
 
-- `FREE_PLAN_LIMIT` で無料プランのインスタンス数上限を指定します。
-- `RESERVED_SUBDOMAINS`
-  には利用禁止とするサブドメインをカンマ区切りで設定します。
-- `SMTP_HOST` などを設定すると登録時に確認メールを送信します。
+## 起動方法
 
-2. `deno run -A app/takos_host/main.ts` でサーバーを起動します（takos host は D1/Prisma 前提）。
-   特定のインターフェースのみで待ち受けたい場合は `SERVER_HOST`、
-   ポート番号を変更したい場合は `SERVER_PORT` を設定してください。 HTTPS
-   で待ち受けるには `SERVER_CERT` と `SERVER_KEY`
-   に証明書と秘密鍵の内容を直接指定します。開発モードでは
-   `--unsafely-ignore-certificate-errors`
-   を付けて起動することで自己署名証明書などの SSL エラーを無視します。
+takos host は Cloudflare Workers 専用のソフトウェアです。
+
+1. Cloudflare Workers の設定を行います：
+   - `wrangler.toml`: Host Worker 設定（ポータル用）
+   - `wrangler.tenant.toml`: Tenant Worker 設定（テナント用）
+   - D1 データベースと R2 ストレージの設定が必要です
+
+2. クライアントをビルドします：
+   ```sh
+   cd app/takos_host/client
+   deno task build
+   ```
+
+3. Workers をデプロイします：
+   ```sh
+   wrangler deploy --config wrangler.toml
+   wrangler deploy --config wrangler.tenant.toml
+   ```
+
+## Cloudflare Workers 構成
+
+- **Host Worker**: ルートドメイン（`takos.jp`, `www.takos.jp`）のポータル機能
+- **Tenant Worker**: サブドメイン（`*.takos.jp`）のテナント機能
+- 両方とも同一の D1 データベースと R2 ストレージを共有します
 
 ## 初期設定CLIについて
 
