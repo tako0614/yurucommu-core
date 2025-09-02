@@ -11,10 +11,10 @@ const LoginPage: Component = () => {
 
   const login = async (e: SubmitEvent) => {
     e.preventDefault();
-    const res = await apiLogin(userName(), password());
-    if (res.success) {
+    const success = await apiLogin(userName(), password());
+    if (success) {
       setLoggedIn(true);
-      globalThis.location.href = res.redirect ?? "/user";
+      globalThis.location.href = "/user";
     } else {
       setError("ログインに失敗しました");
     }
