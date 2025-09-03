@@ -4,27 +4,9 @@ import { zValidator } from "@hono/zod-validator";
 import { getEnv } from "@takos/config";
 import { issueSession } from "../utils/session.ts";
 import { getDB } from "../db/mod.ts";
-// Workers 互換の軽量 Cookie セッター
-function setCookie(
-  c: import("hono").Context,
-  name: string,
-  value: string,
-  opts: { httpOnly?: boolean; secure?: boolean; expires?: Date; sameSite?: "Lax" | "Strict" | "None"; path?: string },
-) {
-  const attrs: string[] = [];
-  attrs.push(`${name}=${encodeURIComponent(value)}`);
-  attrs.push(`Path=${opts.path ?? "/"}`);
-  attrs.push(`SameSite=${opts.sameSite ?? "Lax"}`);
-  if (opts.expires) attrs.push(`Expires=${opts.expires.toUTCString()}`);
-  if (opts.secure) attrs.push("Secure");
-  if (opts.httpOnly !== false) attrs.push("HttpOnly");
-  const cookieVal = attrs.join("; ");
-  (c as unknown as { header: (k: string, v: string, o?: { append?: boolean }) => void }).header(
-    "set-cookie",
-    cookieVal,
-    { append: true },
-  );
-}
+import {
+  setCookie,
+} from 'hono/cookie'
 
 async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);

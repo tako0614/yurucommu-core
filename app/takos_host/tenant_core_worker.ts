@@ -4,8 +4,8 @@
 // - 静的アセットは [assets] で配信
 
 import { Hono as _Hono } from "hono";
-import { setStoreFactory } from "@core/db/mod.ts";
-import { createTakosApp } from "@core/create_takos_app.ts";
+import { setStoreFactory } from "../core/db/mod.ts";
+import { createTakosApp } from "../core/create_takos_app.ts";
 import type { D1Database } from "./db/d1_tenant_store.ts";
 import { createD1TenantDataStore } from "./db/d1_tenant_store.ts";
 import { D1_TENANT_SCHEMA } from "./db/d1_tenant_schema.ts";
