@@ -573,12 +573,18 @@ export async function resolveActorFromAcct(
 
 export function iriToHandle(iri: string): string {
   try {
+    if (!iri || typeof iri !== "string") {
+      return iri || "";
+    }
     const u = new URL(iri);
+    if (!u.pathname) {
+      return iri;
+    }
     const segments = u.pathname.split("/").filter(Boolean);
     const name = segments[segments.length - 1];
     return `${name}@${u.hostname}`;
   } catch {
-    return iri;
+    return iri || "";
   }
 }
 

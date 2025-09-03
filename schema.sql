@@ -1,5 +1,3 @@
-// Cloudflare D1 用スキーマ（tenant: takos hostのtenant用DB の最小項目）
-export const D1_TENANT_SCHEMA = `
 PRAGMA foreign_keys = ON;
 
 -- テナント分離: tenant_host 列でスコープする（新規作成時は NOT NULL）
@@ -161,4 +159,3 @@ CREATE INDEX IF NOT EXISTS idx_t_invites_tenant_invitee ON t_invites(tenant_host
 CREATE INDEX IF NOT EXISTS idx_t_invites_tenant_status ON t_invites(tenant_host, status);
 CREATE INDEX IF NOT EXISTS idx_t_approvals_tenant_target ON t_approvals(tenant_host, target);
 CREATE INDEX IF NOT EXISTS idx_t_approvals_tenant_status ON t_approvals(tenant_host, status);
-`;
