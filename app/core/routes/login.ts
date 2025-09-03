@@ -133,20 +133,6 @@ app.post(
   },
 );
 
-export default app;
-// --- helpers ---
-function getExternalOrigin(c: import("hono").Context) {
-  const xfProto = c.req.header("x-forwarded-proto");
-  const xfHost = c.req.header("x-forwarded-host");
-  if (xfProto && xfHost) {
-    const proto = xfProto.split(",")[0].trim();
-    const host = xfHost.split(",")[0].trim();
-    return `${proto}://${host}`;
-  }
-  const u = new URL(c.req.url);
-  return `${u.protocol}//${u.host}`;
-}
-
 // --- OAuth server-side flow ---
 
 // Client-driven flow: return authorize URL as JSON and set state cookie
@@ -180,3 +166,127 @@ app.get("/login/oauth/prepare", (c) => {
   c.header("Expires", "0");
   return c.json({ authorizeUrl: url.toString() });
 });
+
+// OAuth コールバックエンドポイント
+app.get("/login/oauth/callback", async (c) => {
+  try {
+    console.log("[oauth] callback endpoint hit directly");
+    
+    const code = c.req.query("code");
+    const state = c.req.query("state") ?? "";
+    
+    if (!code) {
+      return c.json({ error: "Missing authorization code" }, 400);
+    }
+    
+    console.log("[oauth] callback start", {
+      hasCode: !!code,
+      hasState: !!state,
+    });
+    
+    const env = getEnv(c);
+    const host = env["OAUTH_HOST"];
+    const clientId = env["OAUTH_CLIENT_ID"];
+    const clientSecret = env["OAUTH_CLIENT_SECRET"];
+    
+    if (!host || !clientId || !clientSecret) {
+      console.warn("[oauth] missing env", {
+        hasHost: !!host,
+        hasClientId: !!clientId,
+        hasClientSecret: !!clientSecret,
+      });
+      return c.json({ error: "OAuth configuration error" }, 500);
+    }
+    
+    // Get state cookie and verify
+    const { getCookie, deleteCookie } = await import("hono/cookie");
+    const stateCookie = getCookie(c, "oauthState") ?? "";
+    
+    if (!state || !stateCookie || state !== stateCookie) {
+      console.warn("[oauth] state mismatch", {
+        hasState: !!state,
+        hasStateCookie: !!stateCookie,
+        eq: state === stateCookie,
+      });
+      return c.json({ error: "Invalid state parameter" }, 400);
+    }
+    
+    deleteCookie(c, "oauthState", { path: "/" });
+    
+    // Build redirect URI
+    const origin = getExternalOrigin(c);
+    const redirectPath = (env["OAUTH_REDIRECT_PATH"] ?? "/api/login/oauth/callback").trim() || "/api/login/oauth/callback";
+    const normPath = redirectPath.startsWith("/") ? redirectPath : `/${redirectPath}`;
+    const redirectUri = `${origin}${normPath}`;
+    
+    // Exchange code for token
+    const base = host.startsWith("http") ? host : `https://${host}`;
+    const form = new URLSearchParams();
+    form.set("grant_type", "authorization_code");
+    form.set("code", code);
+    form.set("client_id", clientId);
+    form.set("client_secret", clientSecret);
+    form.set("redirect_uri", redirectUri);
+    
+    const tokenRes = await fetch(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+    
+    if (!tokenRes.ok) {
+      console.warn("[oauth] token exchange failed", { status: tokenRes.status });
+      return c.json({ error: "Token exchange failed" }, 400);
+    }
+    
+    const tokenData = await tokenRes.json() as { access_token?: string };
+    if (!tokenData.access_token) {
+      console.warn("[oauth] no access_token in token response");
+      return c.json({ error: "No access token received" }, 400);
+    }
+    
+    // Verify token
+    const verifyRes = await fetch(`${base}/oauth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tokenData.access_token }),
+    });
+    
+    if (!verifyRes.ok) {
+      console.warn("[oauth] verify failed", { status: verifyRes.status });
+      return c.json({ error: "Token verification failed" }, 400);
+    }
+    
+    const v = await verifyRes.json() as { active?: boolean };
+    if (!v?.active) {
+      console.warn("[oauth] token inactive");
+      return c.json({ error: "Token is not active" }, 400);
+    }
+    
+    console.log("[oauth] verified, issuing session");
+    
+    // Issue session
+    await issueSession(c, getDB(c));
+    
+    // Redirect to home
+    return c.redirect("/");
+    
+  } catch (error) {
+    console.error("[oauth] callback error", error);
+    return c.json({ error: "OAuth callback failed" }, 500);
+  }
+});
+
+export default app;
+// --- helpers ---
+function getExternalOrigin(c: import("hono").Context) {
+  const xfProto = c.req.header("x-forwarded-proto");
+  const xfHost = c.req.header("x-forwarded-host");
+  if (xfProto && xfHost) {
+    const proto = xfProto.split(",")[0].trim();
+    const host = xfHost.split(",")[0].trim();
+    return `${proto}://${host}`;
+  }
+  const u = new URL(c.req.url);
+  return `${u.protocol}//${u.host}`;
+}
