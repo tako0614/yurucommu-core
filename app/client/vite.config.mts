@@ -9,7 +9,13 @@ export default defineConfig({
   plugins: [
     solid(),
     tailwindcss(),
-    VitePWA({ registerType: "autoUpdate" }),
+    VitePWA({ 
+      registerType: "autoUpdate",
+      workbox: {
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api(\/|$)/],
+      },
+    }),
   ],
 
   server: {
