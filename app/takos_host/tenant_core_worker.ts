@@ -18,6 +18,22 @@ export interface Env {
   R2_BUCKET?: string; // e.g. "takos_host_r2"
   // 静的アセット (wrangler [assets])
   ASSETS?: { fetch: (req: Request) => Promise<Response> };
+  // Firebase 環境変数
+  FIREBASE_API_KEY?: string;
+  FIREBASE_AUTH_DOMAIN?: string;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_STORAGE_BUCKET?: string;
+  FIREBASE_MESSAGING_SENDER_ID?: string;
+  FIREBASE_APP_ID?: string;
+  FIREBASE_VAPID_KEY?: string;
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
+  // Google Ads 環境変数
+  GOOGLE_ADS_CLIENT_ID?: string;
+  GOOGLE_ADS_CLIENT_SECRET?: string;
+  GOOGLE_ADS_DEVELOPER_TOKEN?: string;
+  // ads.txt 内容
+  ADS_TXT_CONTENT?: string;
 }
 
 function mapR2BindingToGlobal(env: Env) {
@@ -56,6 +72,18 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const host = url.host.toLowerCase();
+    const pathname = url.pathname;
+
+    // ads.txt の処理
+    if (pathname === "/ads.txt" && (req.method === "GET" || req.method === "HEAD")) {
+      const adsTxtContent = env.ADS_TXT_CONTENT ?? "";
+      return new Response(adsTxtContent, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "public, max-age=3600", // 1時間キャッシュ
+        },
+      });
+    }
 
     // D1 初期化（開発時）+ 簡易移行（tenant_host 列）
     const _g = globalThis as unknown as { _tenant_d1_inited?: boolean };
@@ -107,6 +135,20 @@ export default {
     const coreEnv = {
       OBJECT_STORAGE_PROVIDER: env.OBJECT_STORAGE_PROVIDER ?? "r2",
       R2_BUCKET: env.R2_BUCKET ?? "",
+      // Firebase 環境変数
+      FIREBASE_API_KEY: env.FIREBASE_API_KEY ?? "",
+      FIREBASE_AUTH_DOMAIN: env.FIREBASE_AUTH_DOMAIN ?? "",
+      FIREBASE_PROJECT_ID: env.FIREBASE_PROJECT_ID ?? "",
+      FIREBASE_STORAGE_BUCKET: env.FIREBASE_STORAGE_BUCKET ?? "",
+      FIREBASE_MESSAGING_SENDER_ID: env.FIREBASE_MESSAGING_SENDER_ID ?? "",
+      FIREBASE_APP_ID: env.FIREBASE_APP_ID ?? "",
+      FIREBASE_VAPID_KEY: env.FIREBASE_VAPID_KEY ?? "",
+      FIREBASE_CLIENT_EMAIL: env.FIREBASE_CLIENT_EMAIL ?? "",
+      FIREBASE_PRIVATE_KEY: env.FIREBASE_PRIVATE_KEY ?? "",
+      // Google Ads 環境変数
+      GOOGLE_ADS_CLIENT_ID: env.GOOGLE_ADS_CLIENT_ID ?? "",
+      GOOGLE_ADS_CLIENT_SECRET: env.GOOGLE_ADS_CLIENT_SECRET ?? "",
+      GOOGLE_ADS_DEVELOPER_TOKEN: env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
       // まずインスタンス環境を取り込み（OAUTH_HOST/CLIENT_ID/SECRET 等）
       ...instEnv,
       // ACTIVITYPUB_DOMAIN は常に実リクエストのホストを優先

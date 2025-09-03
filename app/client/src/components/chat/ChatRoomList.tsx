@@ -7,6 +7,8 @@ import {
   Show,
 } from "solid-js";
 import { GoogleAd } from "../GoogleAd.tsx";
+import HtmlAd from "../HtmlAd.tsx";
+import { getChatBannerHtml } from "../../utils/adsense.ts";
 import { isUrl } from "../../utils/url.ts";
 import type { Room } from "./types.ts";
 import { isFriendRoom, isGroupRoom } from "./types.ts";
@@ -286,7 +288,13 @@ export function ChatRoomList(props: ChatRoomListProps) {
         />
         <Show when={props.showAds}>
           <div class="my-2">
-            <GoogleAd />
+            {/* サーバーが chatBannerHtml を提供している場合はそれを優先表示 */}
+            <Show when={getChatBannerHtml()}>
+              <HtmlAd html={getChatBannerHtml() ?? undefined} class="w-full" />
+            </Show>
+            <Show when={!getChatBannerHtml()}>
+              <GoogleAd />
+            </Show>
           </div>
         </Show>
       </div>

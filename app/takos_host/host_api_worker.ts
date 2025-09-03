@@ -28,6 +28,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET?: string;
   // Wrangler Assets バインディング（ポータルの静的配信に使用）
   ASSETS?: { fetch: (req: Request) => Promise<Response> };
+  // ads.txt 内容
+  ADS_TXT_CONTENT?: string;
 }
 
 function mapR2BindingToGlobal(env: Env) {
@@ -46,6 +48,20 @@ function mapR2BindingToGlobal(env: Env) {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    const pathname = url.pathname;
+
+    // ads.txt の処理
+    if (pathname === "/ads.txt" && (req.method === "GET" || req.method === "HEAD")) {
+      const adsTxtContent = env.ADS_TXT_CONTENT ?? "";
+      return new Response(adsTxtContent, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "public, max-age=3600", // 1時間キャッシュ
+        },
+      });
+    }
+
     // 必須チェック: D1 と R2 のバインディングを必須化
     if (!env.TAKOS_HOST_DB) {
       return new Response("TAKOS_HOST_DB binding is required", { status: 500 });
