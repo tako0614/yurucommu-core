@@ -148,8 +148,9 @@ function getExternalOrigin(c: import("hono").Context) {
 }
 
 // --- OAuth server-side flow ---
-// Start: redirect user to OAuth host authorize with server-computed redirect_uri
-app.get("/login/oauth/start", (c) => {
+
+// Client-driven flow: return authorize URL as JSON and set state cookie
+app.get("/login/oauth/prepare", (c) => {
   const env = getEnv(c);
   const host = env["OAUTH_HOST"];
   const clientId = env["OAUTH_CLIENT_ID"];
@@ -158,11 +159,10 @@ app.get("/login/oauth/start", (c) => {
   }
   const base = host.startsWith("http") ? host : `https://${host}`;
   const origin = getExternalOrigin(c);
-  // takos_host 側のクライアント登録はリダイレクトURIにルート(オリジン)を期待する
-  // 既存のフロント実装は ?code=... を受けてトークン交換するため、ここは origin に合わせる
-  const redirectUri = `${origin}`;
+  const redirectPath = (env["OAUTH_REDIRECT_PATH"] ?? "/api/login/oauth/callback").trim() || "/api/login/oauth/callback";
+  const normPath = redirectPath.startsWith("/") ? redirectPath : `/${redirectPath}`;
+  const redirectUri = `${origin}${normPath}`;
   const state = crypto.randomUUID();
-  // Save state in cookie to validate later
   const expires = new Date(Date.now() + 10 * 60 * 1000);
   setCookie(c, "oauthState", state, {
     path: "/",
@@ -175,10 +175,8 @@ app.get("/login/oauth/start", (c) => {
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", state);
-  return c.redirect(url.toString());
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+  return c.json({ authorizeUrl: url.toString() });
 });
-// Callback: exchange code -> token and issue session, then redirect to app root
-// (旧) /login/oauth/callback は利用しない（redirect_uri はオリジンのみ）。
-
-// Debug endpoint: shows computed OAuth parameters
-// (デバッグ用エンドポイント) は削除しました。

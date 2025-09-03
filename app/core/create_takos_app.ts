@@ -75,6 +75,7 @@ export async function createTakosApp(
     users,
     dm,
     dms,
+    groups,
   ];
   for (const r of apiRoutes) {
     app.route("/api", r);
@@ -85,13 +86,16 @@ export async function createTakosApp(
 
   // ActivityPub など公開エンドポイントを / にマウントする
 
-  // const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp, groups];
-  const rootRoutes = [nodeinfo, activitypub, rootInbox, groups];
+  // const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp];
+  const rootRoutes = [nodeinfo, activitypub, rootInbox];
   for (const r of rootRoutes) {
     app.route("/", r);
   }
 
   app.use("/*", handleOAuthCallback);
+
+  // 明示的なコールバックパスを /api 側に用意（実処理はミドルウェアで発火）
+  app.get("/api/login/oauth/callback", (_c) => new Response(null, { status: 204 }));
 
   app.get("/api/ogp", async (c) => {
     const url = c.req.query("url");
@@ -129,7 +133,7 @@ export async function createTakosApp(
     });
   } else {
     // 静的配信は上位レイヤ（ホストアプリや Workers [assets]）で処理
-    app.all("*", async (_c) => new Response("Not Found", { status: 404 }));
+  app.all("*", (_c) => new Response("Not Found", { status: 404 }));
   }
   return app;
 }

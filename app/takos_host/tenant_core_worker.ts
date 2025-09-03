@@ -126,7 +126,7 @@ export default {
       return new Response("Not Found", { status: 404 });
     }
 
-    // 404 は静的へフォールバック（SPA 含む）
-  return assetFallback(env, req);
+    // 404 は静的へフォールバックしない
+    return new Response("Not Found", { status: 404 });
   },
 };
