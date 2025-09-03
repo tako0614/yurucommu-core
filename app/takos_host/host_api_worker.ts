@@ -239,6 +239,15 @@ export default {
       const clientId = body.get("client_id");
       const clientSecret = body.get("client_secret");
       const redirectUri = body.get("redirect_uri");
+      try {
+        console.log("[host oauth] /token", {
+          grantType,
+          hasCode: typeof code === "string",
+          clientId,
+          hasSecret: typeof clientSecret === "string",
+          redirectUri,
+        });
+  } catch { /* noop: console may be unavailable */ }
       if (
         grantType !== "authorization_code" ||
         typeof code !== "string" ||
@@ -255,12 +264,26 @@ export default {
         !row || row.client_secret !== clientSecret ||
         row.redirect_uri !== redirectUri
       ) {
+        try {
+          console.warn("[host oauth] invalid_client", {
+            okClient: !!row,
+            redirectMatches: row?.redirect_uri === redirectUri,
+            clientMatches: row?.client_secret === clientSecret ? "yes" : "no",
+          });
+  } catch { /* noop */ }
         return jsonRes({ error: "invalid_client" }, 400);
       }
       const codeRow = await env.TAKOS_HOST_DB.prepare(
         "SELECT user_id, expires_at FROM oauth_codes WHERE code = ?1 AND client_id = ?2",
       ).bind(code, clientId).first<{ user_id?: string; expires_at?: number }>();
       if (!codeRow || (Number(codeRow.expires_at ?? 0) <= Date.now())) {
+        try {
+          console.warn("[host oauth] invalid_grant", {
+            hasRow: !!codeRow,
+            now: Date.now(),
+            exp: Number(codeRow?.expires_at ?? 0),
+          });
+  } catch { /* noop */ }
         return jsonRes({ error: "invalid_grant" }, 400);
       }
       await env.TAKOS_HOST_DB.prepare("DELETE FROM oauth_codes WHERE code = ?1")
@@ -282,11 +305,21 @@ export default {
       const { token } = await c.req.json().catch(
         () => ({} as Record<string, unknown>),
       );
+      try {
+        console.log("[host oauth] /verify", { hasToken: typeof token === "string" });
+  } catch { /* noop */ }
       if (typeof token !== "string") return jsonRes({ active: false }, 400);
       const row = await env.TAKOS_HOST_DB.prepare(
         "SELECT user_id, expires_at FROM oauth_tokens WHERE token = ?1",
       ).bind(token).first<{ user_id?: string; expires_at?: number }>();
       if (!row || (Number(row.expires_at ?? 0) <= Date.now())) {
+        try {
+          console.warn("[host oauth] verify failed", {
+            hasRow: !!row,
+            now: Date.now(),
+            exp: Number(row?.expires_at ?? 0),
+          });
+  } catch { /* noop */ }
         return jsonRes({ active: false }, 401);
       }
       return jsonRes({ active: true, user: { id: String(row.user_id ?? "") } });
