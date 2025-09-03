@@ -53,7 +53,7 @@ export function createHandleOAuthCallback(
       deps.deleteCookie(c, "oauthState", { path: "/" });
       const xfProto = c.req.header("x-forwarded-proto");
       const xfHost = c.req.header("x-forwarded-host");
-      let origin: string;
+  let origin: string;
       if (xfProto && xfHost) {
         origin = `${xfProto.split(",")[0].trim()}://${
           xfHost.split(",")[0].trim()
@@ -62,7 +62,9 @@ export function createHandleOAuthCallback(
         const u = new URL(c.req.url);
         origin = `${u.protocol}//${u.host}`;
       }
-      const redirectUri = origin;
+  const redirectPath = (env["OAUTH_REDIRECT_PATH"] ?? "/api/login/oauth/callback").trim() || "/api/login/oauth/callback";
+  const normPath = redirectPath.startsWith("/") ? redirectPath : `/${redirectPath}`;
+  const redirectUri = `${origin}${normPath}`;
       const base = host.startsWith("http") ? host : `https://${host}`;
       const form = new URLSearchParams();
       form.set("grant_type", "authorization_code");

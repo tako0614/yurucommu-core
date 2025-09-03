@@ -35,7 +35,7 @@ export function LoginForm(props: LoginFormProps) {
       // ignore
     }
 
-  // OAuth コード処理はサーバー側に一本化（/api/login/oauth/start → callback → セッション発行）
+  // OAuth コード処理はサーバー側に一本化（/api/login/oauth/prepare でURL取得 → authorize → callback → セッション発行）
   });
 
   onMount(() => {
@@ -89,8 +89,25 @@ export function LoginForm(props: LoginFormProps) {
   };
 
   const loginWithOAuth = () => {
-    // サーバー側フローに委譲（正しいredirect_uriとstateをサーバーが管理）
-    globalThis.location.href = "/api/login/oauth/start";
+    // クライアント主導: まず /api/login/oauth/prepare で authorizeUrl を取得し遷移
+    (async () => {
+      try {
+        const res = await fetch("/api/login/oauth/prepare", {
+          cache: "no-store",
+          headers: { "Accept": "application/json", "Cache-Control": "no-store" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const loc = (data && typeof data.authorizeUrl === "string") ? data.authorizeUrl : "";
+          if (loc) {
+            globalThis.location.assign(loc);
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      // 失敗時フォールバック（サーバ側 302 経路を試す）
+      globalThis.location.href = "/api/login/oauth/start";
+    })();
   };
 
   return (

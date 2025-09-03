@@ -3,6 +3,7 @@
     "build": "deno task --cwd client build"
   },
   "imports": {
+    "@prisma/adapter-libsql": "npm:@prisma/adapter-libsql@^6.15.0",
     "@prisma/client": "npm:@prisma/client@^6.15.0",
     "@prisma/adapter-d1": "npm:@prisma/adapter-d1@^6.15.0",
     "hono": "npm:hono@^4.8.4",
