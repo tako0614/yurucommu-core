@@ -28,7 +28,6 @@ import { fetchOgpData } from "./services/ogp.ts";
 import type { Context } from "hono";
 import { rateLimit } from "./utils/rate_limit.ts";
 import dms from "./routes/dms.ts";
-import { handleOAuthCallback } from "./utils/oauth_callback.ts";
 // DB 依存を避けるため、createTakosApp 本体で DB 生成等の作業を行わない
 
 // Deno 環境が無い場合でも評価可能にする
@@ -91,11 +90,6 @@ export async function createTakosApp(
   for (const r of rootRoutes) {
     app.route("/", r);
   }
-
-  app.use("/*", handleOAuthCallback);
-
-  // 明示的なコールバックパスを /api 側に用意（実処理はミドルウェアで発火）
-  app.get("/api/login/oauth/callback", (_c) => new Response(null, { status: 204 }));
 
   app.get("/api/ogp", async (c) => {
     const url = c.req.query("url");
