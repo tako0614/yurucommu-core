@@ -84,6 +84,7 @@ async function saveObject(
   return await db.posts.saveObject({
     type: obj.type ?? "Note",
     attributedTo,
+    actor_id: attributedTo, // actor_id を明示的に設定
     content: obj.content,
     // aud フィールドに to/cc/audience を正規化して保存（グループ絞り込み用）
     aud: {

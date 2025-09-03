@@ -112,16 +112,16 @@ app.post(
         : undefined;
 
     const payload = await db.dms.save(
-      localName,
+      localName || fromHandle,
       to,
       type,
-      content,
+      content || "",
       attachmentsNormalized,
-      url,
-      mediaType,
-      key,
-      iv,
-      preview,
+      url || null,
+      mediaType || null,
+      key || null,
+      iv || null,
+      preview || null,
     );
     (payload as { from: string }).from = fromHandle;
     await Promise.all([
