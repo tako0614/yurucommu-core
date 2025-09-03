@@ -3,6 +3,7 @@
 // - DB は D1、ストレージは R2。メール送信は未実装（検証コードは発行のみ）
 
 import { Hono } from "hono";
+import { setCookie } from "hono/cookie";
 import { setStoreFactory } from "../core/db/mod.ts";
 import { type D1Database } from "./db/d1_store.ts";
 import { createPrismaHostDataStore } from "./db/prisma_store.ts";
@@ -133,22 +134,7 @@ export default {
       }
       return out;
     }
-    function setCookieHeader(
-      name: string,
-      value: string,
-      secure: boolean,
-      expires: Date,
-    ) {
-      const attrs = [
-        `${name}=${encodeURIComponent(value)}`,
-        `Path=/`,
-        `SameSite=Lax`,
-        `Expires=${expires.toUTCString()}`,
-      ];
-      if (secure) attrs.push("Secure");
-      attrs.push("HttpOnly");
-      return attrs.join("; ");
-    }
+  // setCookieHeader was removed: Hono's setCookie(c, ...) is used in Hono handlers.
     async function sha256Hex(text: string) {
       const data = new TextEncoder().encode(text);
       const digest = await crypto.subtle.digest("SHA-256", data);
@@ -212,22 +198,28 @@ export default {
         const secure = c.req.url.startsWith("https://");
         const expires = new Date(Date.now() + 10 * 60 * 1000);
         const nextUrl = new URL(c.req.url).toString();
-        const headers = new Headers({
-          Location: "/auth",
-          "set-cookie": setCookieHeader("oauth_next", nextUrl, secure, expires),
+        setCookie(c, "oauth_next", nextUrl, {
+          path: "/",
+          httpOnly: true,
+          secure,
+          expires,
+          sameSite: "Lax",
         });
-        return new Response(null, { status: 302, headers });
+        return c.redirect("/auth");
       }
       const sess = await db().hostSessions.findById(sid);
       if (!sess || sess.expiresAt <= new Date()) {
         const secure = c.req.url.startsWith("https://");
         const expires = new Date(Date.now() + 10 * 60 * 1000);
         const nextUrl = new URL(c.req.url).toString();
-        const headers = new Headers({
-          Location: "/auth",
-          "set-cookie": setCookieHeader("oauth_next", nextUrl, secure, expires),
+        setCookie(c, "oauth_next", nextUrl, {
+          path: "/",
+          httpOnly: true,
+          secure,
+          expires,
+          sameSite: "Lax",
         });
-        return new Response(null, { status: 302, headers });
+        return c.redirect("/auth");
       }
       const code = crypto.randomUUID();
       const exp = Date.now() + CODE_TTL;
@@ -367,11 +359,14 @@ export default {
       // state を短期 Cookie に保存（10 分）
       const secure = c.req.url.startsWith("https://");
       const expires = new Date(Date.now() + 10 * 60 * 1000);
-      const headers = new Headers({
-        Location: authUrl.toString(),
-        "set-cookie": setCookieHeader("g_state", state, secure, expires),
+      setCookie(c, "g_state", state, {
+        path: "/",
+        httpOnly: true,
+        secure,
+        expires,
+        sameSite: "Lax",
       });
-      return new Response(null, { status: 302, headers });
+      return c.redirect(authUrl.toString());
     });
 
     app.get("/auth/google/callback", async (c) => {
@@ -466,17 +461,21 @@ export default {
         expiresAt: expires,
       });
       const secure = c.req.url.startsWith("https://");
-      const headers = new Headers();
-      headers.append(
-        "set-cookie",
-        setCookieHeader(SESSION_COOKIE, sid, secure, expires),
-      );
-      headers.append(
-        "set-cookie",
-        setCookieHeader("g_state", "", secure, new Date(0)),
-      );
-      headers.set("Location", "/user");
-      return new Response(null, { status: 302, headers });
+      setCookie(c, SESSION_COOKIE, sid, {
+        path: "/",
+        httpOnly: true,
+        secure,
+        expires,
+        sameSite: "Lax",
+      });
+      setCookie(c, "g_state", "", {
+        path: "/",
+        httpOnly: true,
+        secure,
+        expires: new Date(0),
+        sameSite: "Lax",
+      });
+      return c.redirect("/user");
     });
     app.post("/auth/register", async (c) => {
       const { userName, email, password } = await c.req.json().catch(
@@ -545,24 +544,23 @@ export default {
       const secure = c.req.url.startsWith("https://");
       const cookies = toCookieMap(c.req.header("cookie") ?? null);
       const nextUrl = cookies["oauth_next"];
-      const headers = new Headers();
-      headers.append(
-        "set-cookie",
-        setCookieHeader(SESSION_COOKIE, sid, secure, expires),
-      );
+      setCookie(c, SESSION_COOKIE, sid, {
+        path: "/",
+        httpOnly: true,
+        secure,
+        expires,
+        sameSite: "Lax",
+      });
       if (nextUrl) {
-        headers.append(
-          "set-cookie",
-          setCookieHeader("oauth_next", "", secure, new Date(0)),
-        );
+        setCookie(c, "oauth_next", "", {
+          path: "/",
+          httpOnly: true,
+          secure,
+          expires: new Date(0),
+          sameSite: "Lax",
+        });
       }
-      return new Response(
-        JSON.stringify({ success: true, redirect: nextUrl }),
-        {
-          status: 200,
-          headers,
-        },
-      );
+      return c.json({ success: true, redirect: nextUrl });
     });
 
     app.get("/auth/status", async (c) => {
@@ -578,18 +576,19 @@ export default {
       const newExp = new Date(Date.now() + SESSION_LIFETIME_MS);
       await db().hostSessions.update(sid, { expiresAt: newExp });
       const secure = c.req.url.startsWith("https://");
-      const headers = new Headers({
-        "set-cookie": setCookieHeader(SESSION_COOKIE, sid, secure, newExp),
+      setCookie(c, SESSION_COOKIE, sid, {
+        path: "/",
+        httpOnly: true,
+        secure,
+        expires: newExp,
+        sameSite: "Lax",
       });
-      return new Response(
-        JSON.stringify({
-          login: true,
-          user: sess.user,
-          rootDomain,
-          termsRequired: false,
-        }),
-        { headers },
-      );
+      return c.json({
+        login: true,
+        user: sess.user,
+        rootDomain,
+        termsRequired: false,
+      });
     });
 
     app.delete("/auth/logout", async (c) => {
