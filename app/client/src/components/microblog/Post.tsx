@@ -12,6 +12,8 @@ import {
 import { fetchPostById } from "./api.ts";
 import { GoogleAd } from "../GoogleAd.tsx";
 import { isAdsenseEnabled, loadAdsenseConfig } from "../../utils/adsense.ts";
+import HtmlAd from "../HtmlAd.tsx";
+import { getBetweenPostsHtml } from "../../utils/adsense.ts";
 import { navigate } from "../../utils/router.ts";
 
 interface OgpData {
@@ -173,10 +175,10 @@ export function PostItem(props: PostItemProps) {
         !userInfo.isLocalUser && post.userName &&
         post.userName.startsWith("http")
       ) {
-        // まずキャッシュを確認
-        return getCachedUserInfo(post.userName).then((cached) =>
-          cached ?? fetchUserInfo(post.userName)
-        );
+  // まずキャッシュを確認 (getCachedUserInfo は同期で null か UserInfo を返す)
+  const cached = getCachedUserInfo(post.userName);
+  if (cached) return Promise.resolve(cached);
+  return fetchUserInfo(post.userName);
       }
       return Promise.resolve(null);
     },
@@ -496,7 +498,12 @@ export function PostList(props: {
             </Motion.div>
             <Show when={showAds() && i() === 4}>
               <div class="my-4">
-                <GoogleAd />
+                <Show when={getBetweenPostsHtml()}>
+                  <HtmlAd html={getBetweenPostsHtml() ?? undefined} class="w-full" />
+                </Show>
+                <Show when={!getBetweenPostsHtml()}>
+                  <GoogleAd />
+                </Show>
               </div>
             </Show>
           </>
