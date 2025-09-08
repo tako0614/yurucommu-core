@@ -1,4 +1,4 @@
-import {
+﻿import {
   createEffect,
   createMemo,
   createSignal,
@@ -2375,6 +2375,7 @@ export function Chat() {
                   setChatRooms((prev) => prev.filter((r) => r.id !== room.id));
                 }
               }}
+              roomsReady={roomsReady()}
             />
           </div>
           <div
