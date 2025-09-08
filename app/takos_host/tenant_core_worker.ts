@@ -73,6 +73,58 @@ export default {
     const url = new URL(req.url);
     const host = url.host.toLowerCase();
     const pathname = url.pathname;
+    const method = req.method.toUpperCase();
+
+    // テナント単位・日次レート制限（takos host 側で管理）
+    const DAY = Math.floor(Date.now() / 86_400_000); // UTC日単位
+    async function getCount(name: string): Promise<number> {
+      const row = await env.TAKOS_HOST_DB
+        .prepare(
+          "SELECT count FROM t_usage_counters WHERE tenant_host = ?1 AND name = ?2 AND day = ?3",
+        )
+        .bind(host, name, DAY)
+        .first<{ count?: number }>();
+      return Number(row?.count ?? 0);
+    }
+    async function incr(name: string, delta = 1): Promise<void> {
+      const row = await env.TAKOS_HOST_DB
+        .prepare(
+          "SELECT count FROM t_usage_counters WHERE tenant_host = ?1 AND name = ?2 AND day = ?3",
+        )
+        .bind(host, name, DAY)
+        .first<{ count?: number }>();
+      if (row) {
+        await env.TAKOS_HOST_DB
+          .prepare(
+            "UPDATE t_usage_counters SET count = count + ?4 WHERE tenant_host = ?1 AND name = ?2 AND day = ?3",
+          )
+          .bind(host, name, DAY, delta)
+          .run();
+      } else {
+        await env.TAKOS_HOST_DB
+          .prepare(
+            "INSERT INTO t_usage_counters (tenant_host, name, day, count) VALUES (?1, ?2, ?3, ?4)",
+          )
+          .bind(host, name, DAY, delta)
+          .run();
+      }
+    }
+    async function enforceDailyLimit(name: string, limit: number): Promise<Response | null> {
+      const used = await getCount(name);
+      if (used + 1 > limit) {
+        const headers = new Headers({
+          "Content-Type": "application/json; charset=utf-8",
+          "X-Daily-Limit": String(limit),
+          "X-Daily-Remaining": "0",
+        });
+        return new Response(
+          JSON.stringify({ error: "rate_limited", scope: name }),
+          { status: 429, headers },
+        );
+      }
+      await incr(name, 1);
+      return null;
+    }
 
     // ads.txt の処理
     if (pathname === "/ads.txt" && (req.method === "GET" || req.method === "HEAD")) {
@@ -113,6 +165,51 @@ export default {
 
     // R2 バインディングを公開
     mapR2BindingToGlobal(env);
+
+    // まず、レート制限の対象となるいくつかのパスを事前にチェック（ホスト側で全テナント共通）
+    // 仕様:
+    // - DM送信: /api/dm (POST) -> 10,000/日
+    // - フォロー/アンフォロー: /api/follow (POST/DELETE) -> 1,000/日
+    // - 投稿作成: /api/posts (POST) -> 1,000/日
+    // - inbox（フォロー以外）: /inbox, /users/:name/inbox (POST) -> 1,000/日
+    const DM_LIMIT = 10_000;
+    const FOLLOW_LIMIT = 1_000;
+    const POST_LIMIT = 1_000;
+    const INBOX_NON_FOLLOW_LIMIT = 1_000;
+
+    if (method === "POST" && pathname === "/api/dm") {
+      const r = await enforceDailyLimit("dm_send", DM_LIMIT);
+      if (r) return r;
+    }
+    if ((method === "POST" || method === "DELETE") && pathname === "/api/follow") {
+      const r = await enforceDailyLimit("follow", FOLLOW_LIMIT);
+      if (r) return r;
+    }
+  if (method === "POST" && (pathname === "/api/posts" || /^\/users\/[^/]+\/outbox$/.test(pathname))) {
+      const r = await enforceDailyLimit("post_create", POST_LIMIT);
+      if (r) return r;
+    }
+    if (method === "POST" && (pathname === "/inbox" || /^\/users\/[^/]+\/inbox$/.test(pathname))) {
+      try {
+        // 本体を消費しないよう clone() で読む
+        const clone = req.clone();
+        const text = await clone.text();
+        try {
+          const body = JSON.parse(text) as { type?: string };
+          const type = typeof body.type === "string" ? body.type : "";
+          if (type.toLowerCase() !== "follow") {
+            const r = await enforceDailyLimit("inbox_non_follow", INBOX_NON_FOLLOW_LIMIT);
+            if (r) return r;
+          }
+        } catch {
+          // 形式不正でも非フォローとして扱い、負荷を抑える
+          const r = await enforceDailyLimit("inbox_non_follow", INBOX_NON_FOLLOW_LIMIT);
+          if (r) return r;
+        }
+      } catch {
+        // 読み取り失敗時はスキップ（安全側に倒すにはここで制限してもよい）
+      }
+    }
 
     // DataStore を D1 で差し込み
     // 併せて: インスタンスごとの環境変数（OAuthなど）を D1 から取得して注入

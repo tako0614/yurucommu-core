@@ -1,4 +1,4 @@
-import type { DataStore, SortSpec } from "../../core/db/types.ts";
+import type { DataStore } from "../../core/db/types.ts";
 import type { AccountDoc, SessionDoc, DirectMessageDoc, GroupDoc, ListedGroup } from "@takos/types";
 
 export interface D1Database {
@@ -144,7 +144,7 @@ type R2BucketLike = {
   delete(key: string): Promise<void>;
 };
 
-function createR2Storage(env: Record<string, string>) {
+function createR2Storage(env: Record<string, string>, d1: D1Database, tenant: string) {
   const bucketName = env["R2_BUCKET"];
   const binding = bucketName
     ? (globalThis as unknown as Record<string, unknown>)[bucketName]
@@ -152,14 +152,74 @@ function createR2Storage(env: Record<string, string>) {
   const bucket = binding as R2BucketLike | undefined;
   if (!bucket) {
     return {
-      async put(_key: string, _data: Uint8Array) { return ""; },
-      async get(_key: string) { return null as Uint8Array | null; },
-      async delete(_key: string) { /* noop */ },
+      put(_key: string, _data: Uint8Array) { return Promise.resolve(""); },
+      get(_key: string) { return Promise.resolve(null as Uint8Array | null); },
+      delete(_key: string) { return Promise.resolve(); },
     };
+  }
+  const MAX_BYTES = 15 * 1024 * 1024 * 1024; // 15GB
+  async function addUsage(bytes: number) {
+    const now = Date.now();
+    const row = await d1
+      .prepare("SELECT used_bytes FROM t_storage_usage WHERE tenant_host = ?1")
+      .bind(tenant)
+      .first<{ used_bytes?: number }>();
+    const used = Number(row?.used_bytes ?? 0);
+    const next = used + bytes;
+    if (next > MAX_BYTES) {
+      throw Object.assign(new Error("storage quota exceeded"), {
+        code: "STORAGE_QUOTA",
+        used,
+        limit: MAX_BYTES,
+      });
+    }
+    if (row) {
+      await d1
+        .prepare("UPDATE t_storage_usage SET used_bytes = ?2, updated_at = ?3 WHERE tenant_host = ?1")
+        .bind(tenant, next, now)
+        .run();
+    } else {
+      await d1
+        .prepare("INSERT INTO t_storage_usage (tenant_host, used_bytes, updated_at) VALUES (?1, ?2, ?3)")
+        .bind(tenant, next, now)
+        .run();
+    }
+  }
+  async function subUsage(bytes: number) {
+    const now = Date.now();
+    const row = await d1
+      .prepare("SELECT used_bytes FROM t_storage_usage WHERE tenant_host = ?1")
+      .bind(tenant)
+      .first<{ used_bytes?: number }>();
+    const used = Math.max(0, Number(row?.used_bytes ?? 0) - Math.max(0, bytes));
+    if (row) {
+      await d1
+        .prepare("UPDATE t_storage_usage SET used_bytes = ?2, updated_at = ?3 WHERE tenant_host = ?1")
+        .bind(tenant, used, now)
+        .run();
+    } else {
+      await d1
+        .prepare("INSERT INTO t_storage_usage (tenant_host, used_bytes, updated_at) VALUES (?1, ?2, ?3)")
+        .bind(tenant, used, now)
+        .run();
+    }
   }
   return {
     async put(key: string, data: Uint8Array) {
+      // 既存サイズを把握
+      const existing = await d1
+        .prepare("SELECT size FROM t_storage_objects WHERE tenant_host = ?1 AND key = ?2")
+        .bind(tenant, key)
+        .first<{ size?: number }>();
+      const prev = Number(existing?.size ?? 0);
+      const delta = data.byteLength - prev;
+      if (delta > 0) await addUsage(delta);
       await bucket.put(key, data);
+      const now = Date.now();
+      await d1
+        .prepare("INSERT OR REPLACE INTO t_storage_objects (tenant_host, key, size, created_at) VALUES (?1, ?2, ?3, ?4)")
+        .bind(tenant, key, data.byteLength, now)
+        .run();
       return key;
     },
     async get(key: string) {
@@ -169,16 +229,26 @@ function createR2Storage(env: Record<string, string>) {
       return new Uint8Array(buf);
     },
     async delete(key: string) {
+      const existing = await d1
+        .prepare("SELECT size FROM t_storage_objects WHERE tenant_host = ?1 AND key = ?2")
+        .bind(tenant, key)
+        .first<{ size?: number }>();
+      const size = Number(existing?.size ?? 0);
+      if (size > 0) await subUsage(size);
+      await d1
+        .prepare("DELETE FROM t_storage_objects WHERE tenant_host = ?1 AND key = ?2")
+        .bind(tenant, key)
+        .run();
       await bucket.delete(key);
     },
   };
 }
 
 export function createD1TenantDataStore(env: Record<string, string>, d1: D1Database): DataStore {
-  const storage = createR2Storage(env);
   const tenant = (env["ACTIVITYPUB_DOMAIN"] ?? "").toLowerCase();
+  const storage = createR2Storage(env, d1, tenant);
   return {
-    storage,
+  storage,
     // ---- accounts ----
     accounts: {
       list: async () => {
@@ -395,14 +465,14 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         
         return (results ?? []).map(mapPostRow);
       },
-      follow: async (follower: string, target: string) => {
+  follow: async (_follower: string, _target: string) => {
         // Follow関係は accounts テーブルで管理されるため、ここでは何もしない
       },
-      unfollow: async (follower: string, target: string) => {
+  unfollow: async (_follower: string, _target: string) => {
         // Unfollow関係は accounts テーブルで管理されるため、ここでは何もしない
       },
       saveNote: async (
-        domain: string,
+        _domain: string,
         author: string,
         content: string,
         extra: Record<string, unknown>,
@@ -502,7 +572,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         return (results ?? []).map(mapPostRow);
       },
       saveMessage: async (
-        domain: string,
+        _domain: string,
         author: string,
         content: string,
         extra: Record<string, unknown>,
@@ -542,7 +612,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           updated_at: createdAt,
         });
       },
-      updateMessage: async (id: string, update: Record<string, unknown>) => {
+  updateMessage: async (_id: string, _update: Record<string, unknown>) => {
         return await d1.prepare("SELECT 1").first(); // 簡略実装
       },
       deleteMessage: async (id: string) => {
@@ -552,7 +622,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         
         return (result as { changes?: number })?.changes === 1;
       },
-      findMessages: async (filter: Record<string, unknown>) => {
+  findMessages: async (_filter: Record<string, unknown>) => {
         const { results } = await d1.prepare(
           "SELECT * FROM t_posts WHERE tenant_host = ?1"
         ).bind(tenant).all<Row>();
@@ -586,7 +656,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
         
         return (result as { changes?: number })?.changes === 1;
       },
-      deleteManyObjects: async (filter: Record<string, unknown>) => {
+  deleteManyObjects: async (_filter: Record<string, unknown>) => {
         // 簡略実装 - 実際の使用に応じて拡張
         const result = await d1.prepare(
           "DELETE FROM t_posts WHERE tenant_host = ?1"
@@ -691,7 +761,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
           id: data.id,
         };
       },
-      update: async (owner: string, id: string, update: Record<string, unknown>) => {
+  update: async (owner: string, id: string, _update: Record<string, unknown>) => {
         // DM conversations don't typically need updates, but implement for completeness
         const existing = await d1.prepare(
           "SELECT * FROM t_dm_conversations WHERE tenant_host = ?1 AND owner = ?2 AND participant_id = ?3"
@@ -1208,7 +1278,7 @@ export function createD1TenantDataStore(env: Record<string, string>, d1: D1Datab
     fcm: {
       register: async () => {},
       unregister: async () => {},
-      list: async () => [],
+  list: () => Promise.resolve([] as { token: string }[]),
     },
     faspProviders: {
       getSettings: () => Promise.resolve(null),

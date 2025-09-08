@@ -47,8 +47,16 @@ app.post("/files", auth, async (c) => {
     return c.json({ error: "File type not allowed" }, 400);
   }
 
-  const { url } = await saveFile(db, bytes, env, { mediaType, key, iv, ext });
-  return c.json({ url }, 201);
+  try {
+    const { url } = await saveFile(db, bytes, env, { mediaType, key, iv, ext });
+    return c.json({ url }, 201);
+  } catch (e) {
+    const err = e as { code?: string; message?: string; limit?: number; used?: number };
+    if (err && err.code === "STORAGE_QUOTA") {
+      return c.json({ error: "storage_quota_exceeded", message: err.message }, 413);
+    }
+    throw e;
+  }
 });
 
 app.get("/files/:id", async (c) => {

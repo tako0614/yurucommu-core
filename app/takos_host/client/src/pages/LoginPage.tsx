@@ -1,24 +1,29 @@
 import { Component, createSignal, Show } from "solid-js";
 import { useAtom } from "solid-jotai";
 import { login as apiLogin } from "../api.ts";
-import { loggedInState, passwordState, userNameState } from "../state.ts";
+import { loggedInState, passwordState, userNameState, termsRequiredState } from "../state.ts";
 
 const LoginPage: Component = () => {
   const [userName, setUserName] = useAtom(userNameState);
   const [password, setPassword] = useAtom(passwordState);
   const [, setLoggedIn] = useAtom(loggedInState);
   const [error, setError] = createSignal("");
+  const [termsRequired] = useAtom(termsRequiredState);
+  const [agreed, setAgreed] = createSignal(false);
 
-  const login = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const success = await apiLogin(userName(), password());
-    if (success) {
-      setLoggedIn(true);
-      globalThis.location.href = "/user";
+  // 規約に同意したら短命Cookieをセット（サーバー側の /auth/google/start で検証）
+  const onAgreeChange = (checked: boolean) => {
+    setAgreed(checked);
+    if (checked) {
+      // 10分の短命クッキー
+      const maxAge = 10 * 60; // seconds
+      document.cookie = `terms_agreed=yes; Max-Age=${maxAge}; Path=/; SameSite=Lax`;
     } else {
-      setError("ログインに失敗しました");
+      // 明示的に削除
+      document.cookie = "terms_agreed=; Max-Age=0; Path=/; SameSite=Lax";
     }
   };
+
   return (
     <div class="min-h-screen flex flex-col bg-[#181818] text-gray-100">
       <main class="flex-grow flex items-center justify-center px-4 py-12">
@@ -27,67 +32,35 @@ const LoginPage: Component = () => {
             <h2 class="text-3xl font-semibold mb-2 text-white">
               takos host ログイン
             </h2>
-            <p class="text-gray-400 text-sm">管理画面へログイン</p>
+            <p class="text-gray-400 text-sm">Google アカウントでログインしてください</p>
           </div>
-          <form onSubmit={login} class="space-y-6">
-            <div>
-              <label
-                for="userName"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                ユーザー名
-              </label>
-              <input
-                id="userName"
-                placeholder="ユーザー名"
-                value={userName()}
-                onInput={(e) => setUserName(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                required
-              />
-            </div>
-            <div>
-              <label
-                for="password"
-                class="block text-sm font-medium text-gray-300 mb-2"
-              >
-                パスワード
-              </label>
-              <input
-                type="password"
-                id="password"
-                placeholder="パスワード"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
-                class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500"
-                required
-              />
-            </div>
-            <Show when={error()}>
-              <p class="text-red-400 text-sm font-medium bg-red-900/30 p-3 rounded-md">
-                {error()}
-              </p>
+          <div class="space-y-6">
+            <Show when={termsRequired()}>
+              <div>
+                <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+                    checked={agreed()}
+                    onChange={(e) => onAgreeChange((e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>
+                    利用規約に同意します（
+                    <a href="/terms" target="_blank" class="text-blue-400 hover:underline">規約を開く</a>
+                    ）
+                  </span>
+                </label>
+              </div>
             </Show>
-            <button
-              type="submit"
-              class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
-            >
-              ログイン
-            </button>
-            <p class="text-sm text-center mt-6">
-              アカウントをお持ちでない方は
-              <a href="/signup" class="text-blue-400 hover:underline ml-1">
-                新規登録
-              </a>
-            </p>
-            <div class="flex items-center gap-2 my-2">
-              <div class="h-px bg-gray-600 flex-1" />
-              <span class="text-gray-400 text-xs">または</span>
-              <div class="h-px bg-gray-600 flex-1" />
-            </div>
             <a
               href="/auth/google/start"
-              class="w-full inline-flex items-center justify-center gap-2 bg-white text-gray-900 py-3 px-4 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200"
+              class="w-full inline-flex items-center justify-center gap-2 bg-white text-gray-900 py-3 px-4 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-colors duration-200 disabled:opacity-50 disabled:pointer-events-none"
+              aria-disabled={termsRequired() && !agreed()}
+              onClick={(e) => {
+                if (termsRequired() && !agreed()) {
+                  e.preventDefault();
+                }
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -113,7 +86,7 @@ const LoginPage: Component = () => {
               </svg>
               Google でログイン
             </a>
-          </form>
+          </div>
         </div>
       </main>
       <footer class="py-6 border-t border-gray-700 text-center">

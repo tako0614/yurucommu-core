@@ -6,7 +6,7 @@
     "@prisma/adapter-libsql": "npm:@prisma/adapter-libsql@^6.15.0",
     "@prisma/client": "npm:@prisma/client@^6.15.0",
     "@prisma/adapter-d1": "npm:@prisma/adapter-d1@^6.15.0",
-    "hono": "npm:hono@^4.8.4",
+  "hono": "npm:hono@^4.9.6",
     "@hono/zod-validator": "npm:@hono/zod-validator@^0.7.0",
     "zod": "npm:zod@^3.25.56",
     "@takos_host/db": "./db/mod.ts",

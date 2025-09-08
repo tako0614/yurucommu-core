@@ -26,7 +26,6 @@ import dm from "./routes/dm.ts";
 import groups from "./routes/groups.ts";
 import { fetchOgpData } from "./services/ogp.ts";
 import type { Context } from "hono";
-import { rateLimit } from "./utils/rate_limit.ts";
 import dms from "./routes/dms.ts";
 // DB 依存を避けるため、createTakosApp 本体で DB 生成等の作業を行わない
 
@@ -44,41 +43,28 @@ export async function createTakosApp(
     c.set("db", db);
     await next();
   });
-  app.use("/api/*", async (c: Context, next: () => Promise<void>) => {
-    if (c.req.path === "/api/ws") {
-      await next();
-      return;
-    }
-    const rl = rateLimit({ windowMs: 60_000, limit: 100 });
-    await rl(c, next);
-  });
   await initFileModule(env);
   // DB 初期化や鍵生成はホスト側（takos host）や起動スクリプトで実施する
-  const apiRoutes = [
-    wsRouter,
-    login,
-    logout,
-    session,
-    accounts,
-    follow,
-    notifications,
-    posts,
-    config,
-    fcm,
-    onboarding,
-    placeholder,
-    image,
-    trends,
-    files,
-    search,
-    users,
-    dm,
-    dms,
-    groups,
-  ];
-  for (const r of apiRoutes) {
-    app.route("/api", r);
-  }
+  app.route("/api", wsRouter);
+  app.route("/api", login);
+  app.route("/api", logout);
+  app.route("/api", session);
+  app.route("/api", accounts);
+  app.route("/api", follow);
+  app.route("/api", notifications);
+  app.route("/api", posts);
+  app.route("/api", config);
+  app.route("/api", fcm);
+  app.route("/api", onboarding);
+  app.route("/api", placeholder);
+  app.route("/api", image);
+  app.route("/api", trends);
+  app.route("/api", files);
+  app.route("/api", search);
+  app.route("/api", users);
+  app.route("/api", dm);
+  app.route("/api", dms);
+  app.route("/api", groups);
 
   // 未定義の API エンドポイントは SPA へフォールバックせず 404 を返す
   app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
@@ -86,10 +72,9 @@ export async function createTakosApp(
   // ActivityPub など公開エンドポイントを / にマウントする
 
   // const rootRoutes = [nodeinfo, activitypub, rootInbox, fasp];
-  const rootRoutes = [nodeinfo, activitypub, rootInbox];
-  for (const r of rootRoutes) {
-    app.route("/", r);
-  }
+  app.route("/", nodeinfo);
+  app.route("/", activitypub);
+  app.route("/", rootInbox);
 
   app.get("/api/ogp", async (c) => {
     const url = c.req.query("url");

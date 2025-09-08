@@ -161,4 +161,31 @@ CREATE INDEX IF NOT EXISTS idx_t_invites_tenant_invitee ON t_invites(tenant_host
 CREATE INDEX IF NOT EXISTS idx_t_invites_tenant_status ON t_invites(tenant_host, status);
 CREATE INDEX IF NOT EXISTS idx_t_approvals_tenant_target ON t_approvals(tenant_host, target);
 CREATE INDEX IF NOT EXISTS idx_t_approvals_tenant_status ON t_approvals(tenant_host, status);
+
+-- 日次レート制限カウンタ（テナント単位）
+CREATE TABLE IF NOT EXISTS t_usage_counters (
+  tenant_host TEXT NOT NULL,
+  name TEXT NOT NULL,
+  day INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (tenant_host, name, day)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_tenant_day ON t_usage_counters(tenant_host, day);
+
+-- ストレージ使用量（テナント単位の合計バイト数）
+CREATE TABLE IF NOT EXISTS t_storage_usage (
+  tenant_host TEXT PRIMARY KEY,
+  used_bytes INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+-- オブジェクトごとのサイズを保持（削除時の差分更新に利用）
+CREATE TABLE IF NOT EXISTS t_storage_objects (
+  tenant_host TEXT NOT NULL,
+  key TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_host, key)
+);
+CREATE INDEX IF NOT EXISTS idx_storage_objs_tenant ON t_storage_objects(tenant_host);
 `;
