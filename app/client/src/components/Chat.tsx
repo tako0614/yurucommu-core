@@ -8,7 +8,7 @@
   Show,
 } from "solid-js";
 import { useAtom } from "solid-jotai";
-import { selectedRoomState } from "../states/chat.ts";
+import { selectedRoomState, chatRoomsState, roomsReadyState } from "../states/chat.ts";
 import { type Account, activeAccount } from "../states/account.ts";
 import { apiFetch, getDomain } from "../utils/config.ts";
 import { navigate } from "../utils/router.ts";
@@ -444,6 +444,8 @@ function getSelfRoomId(_user: Account | null): string | null {
 
 export function Chat() {
   const [selectedRoom, setSelectedRoom] = useAtom(selectedRoomState); // グローバル状態を使用
+  const [chatRooms, setChatRooms] = useAtom(chatRoomsState);
+  const [roomsReady, setRoomsReady] = useAtom(roomsReadyState);
   const [account] = useAtom(activeAccount);
   const _bindingStatus = () => null as string | null;
   const _bindingInfo = () => null as unknown;
@@ -461,8 +463,6 @@ export function Chat() {
   const [mediaPreviews, setMediaPreviews] = createSignal<string[]>([]);
   const [showRoomList, setShowRoomList] = createSignal(true); // モバイル用: 部屋リスト表示制御
   const [isMobile, setIsMobile] = createSignal(false); // モバイル判定
-  const [chatRooms, setChatRooms] = createSignal<Room[]>([]);
-  const [roomsReady, setRoomsReady] = createSignal(false);
   const [pendingRoom, setPendingRoom] = createSignal<string | null>(null);
 
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);

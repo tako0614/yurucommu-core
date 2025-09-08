@@ -9,6 +9,13 @@ import {
 import { useAtom } from "solid-jotai";
 import { activeAccount } from "../states/account.ts";
 import { selectedPostIdState } from "../states/router.ts";
+import {
+  microblogPostsState,
+  microblogCursorState,
+  microblogLoadingMoreState,
+  microblogLoadingInitialState,
+  microblogMobileTabState,
+} from "../states/microblog.ts";
 import { PostForm, PostList } from "./microblog/Post.tsx";
 import { PostDetailView } from "./microblog/PostDetailView.tsx";
 import SwipeTabs from "./ui/SwipeTabs.tsx";
@@ -31,9 +38,11 @@ import { addMessageHandler, removeMessageHandler } from "../utils/ws.ts";
 
 export function Microblog() {
   const [account] = useAtom(activeAccount);
-  const [mobileTab, setMobileTab] = createSignal<
-    "latest" | "following"
-  >("following");
+  const [mobileTab, setMobileTab] = useAtom(microblogMobileTabState);
+  const [posts, setPosts] = useAtom(microblogPostsState);
+  const [cursor, setCursor] = useAtom(microblogCursorState);
+  const [loadingMore, setLoadingMore] = useAtom(microblogLoadingMoreState);
+  const [loadingInitial, setLoadingInitial] = useAtom(microblogLoadingInitialState);
   const [newPostContent, setNewPostContent] = createSignal("");
   const [newPostAttachments, setNewPostAttachments] = createSignal<{
     url: string;
@@ -43,10 +52,6 @@ export function Microblog() {
   const [_replyingTo, _setReplyingTo] = createSignal<string | null>(null);
   const [quoteTarget, setQuoteTarget] = createSignal<string | null>(null);
   const [limit] = useAtom(microblogPostLimitState);
-  const [posts, setPosts] = createSignal<MicroblogPost[]>([]);
-  const [cursor, setCursor] = createSignal<string | null>(null);
-  const [loadingMore, setLoadingMore] = createSignal(false);
-  const [loadingInitial, setLoadingInitial] = createSignal(true);
   // スケルトンの遅延表示（速いレスポンスでは出さない）
   const showInitialSkeleton = createDelayedVisibility(
     () => loadingInitial(),
