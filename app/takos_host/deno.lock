@@ -2,21 +2,33 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/dotenv@*": "0.225.5",
+    "jsr:@std/internal@^1.0.10": "1.0.10",
+    "jsr:@std/path@*": "1.1.2",
     "jsr:@std/streams@*": "1.0.10",
-    "npm:@hono/zod-validator@0.7": "0.7.1_hono@4.9.1_zod@3.25.76",
+    "npm:@hono/zod-validator@0.7": "0.7.2_hono@4.9.6_zod@3.25.76",
     "npm:@prisma/adapter-d1@^6.15.0": "6.15.0",
     "npm:@prisma/adapter-libsql@^6.15.0": "6.15.0",
     "npm:@prisma/client@^6.15.0": "6.15.0",
     "npm:@types/node@*": "22.15.15",
     "npm:bcrypt@*": "6.0.0",
-    "npm:hono@*": "4.9.1",
-    "npm:hono@^4.8.4": "4.9.1",
+    "npm:hono@^4.9.4": "4.9.6",
+    "npm:hono@^4.9.6": "4.9.6",
+    "npm:node-gyp-build@4.8.4": "4.8.4",
     "npm:vite@5.4.19": "5.4.19_@types+node@22.15.15",
     "npm:zod@^3.25.56": "3.25.76"
   },
   "jsr": {
     "@std/dotenv@0.225.5": {
       "integrity": "9ce6f9d0ec3311f74a32535aa1b8c62ed88b1ab91b7f0815797d77a6f60c922f"
+    },
+    "@std/internal@1.0.10": {
+      "integrity": "e3be62ce42cab0e177c27698e5d9800122f67b766a0bea6ca4867886cbde8cf7"
+    },
+    "@std/path@1.1.2": {
+      "integrity": "c0b13b97dfe06546d5e16bf3966b1cadf92e1cc83e56ba5476ad8b498d9e3038",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
     },
     "@std/streams@1.0.10": {
       "integrity": "75c0b1431873cd0d8b3d679015220204d36d3c7420d93b60acfc379eb0dc30af"
@@ -141,8 +153,8 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
-    "@hono/zod-validator@0.7.1_hono@4.9.1_zod@3.25.76": {
-      "integrity": "sha512-8+vJT1RvezAx5sN7hiZ5Mis0RMuFL77nBEcqQQgT9ufoLkxr+7ll461WlBJQcGoQSY6EGMClVae19v3s/7bbgQ==",
+    "@hono/zod-validator@0.7.2_hono@4.9.6_zod@3.25.76": {
+      "integrity": "sha512-ub5eL/NeZ4eLZawu78JpW/J+dugDAYhwqUIdp9KYScI6PZECij4Hx4UsrthlEUutqDDhPwRI0MscUfNkvn/mqQ==",
       "dependencies": [
         "hono",
         "zod"
@@ -448,8 +460,8 @@
       "os": ["darwin"],
       "scripts": true
     },
-    "hono@4.9.1": {
-      "integrity": "sha512-qfvdJ42t6CQE0N/iSCa8KsW8SQqYD67YB+TYbwPHlnALvX+s7ynh8otR1NEk5jXtUg73gpV/B82OSufDmwtX3w=="
+    "hono@4.9.6": {
+      "integrity": "sha512-doVjXhSFvYZ7y0dNokjwwSahcrAfdz+/BCLvAMa/vHLzjj8+CFyV5xteThGUsKdkaasgN+gF2mUxao+SGLpUeA=="
     },
     "js-base64@3.7.8": {
       "integrity": "sha512-hNngCeKxIUQiEUN3GPJOkz4wF/YvdUdbNL9hsBcMQTkKzboD7T/q3OYOuuPZLUE6dBxSGpwhk5mwuDud7JVAow=="
@@ -671,7 +683,7 @@
       "npm:@prisma/adapter-d1@^6.15.0",
       "npm:@prisma/adapter-libsql@^6.15.0",
       "npm:@prisma/client@^6.15.0",
-      "npm:hono@^4.8.4",
+      "npm:hono@^4.9.6",
       "npm:zod@^3.25.56"
     ]
   }

@@ -66,6 +66,13 @@ export function createAuthApp(options?: {
     if (!clientId) {
       return c.json({ error: "google_not_configured" }, 500);
     }
+    // 規約必須の場合は短命クッキーで同意確認
+    if (termsRequired) {
+      const agreed = getCookie(c, "terms_agreed");
+      if (agreed !== "yes") {
+        return c.json({ error: "terms_not_accepted" }, 400);
+      }
+    }
     const state = crypto.randomUUID();
     const scopes = ["openid", "email", "profile"].join(" ");
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -200,52 +207,9 @@ export function createAuthApp(options?: {
   });
 
   /* --------------------------- REGISTER --------------------------- */
+  // Registration is disabled for takos host - use Google OAuth only.
   app.post("/register", async (c) => {
-    const { userName, email, password, accepted } = await c.req.json();
-    if (
-      typeof userName !== "string" ||
-      typeof email !== "string" ||
-      typeof password !== "string" ||
-      (termsRequired && accepted !== true)
-    ) {
-      return c.json({ error: "invalid" }, 400);
-    }
-
-    const exists = await db().hostUsers.findByUserNameOrEmail(userName, email);
-    if (exists) {
-      if (exists.emailVerified) return c.json({ error: "exists" }, 400);
-
-      const newSalt = crypto.randomUUID();
-      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await db().hostUsers.update(exists._id, {
-        userName,
-        email,
-        salt: newSalt,
-        hashedPassword: await hash(password + newSalt),
-        verifyCode: newCode,
-        verifyCodeExpires: new Date(Date.now() + 10 * 60 * 1000),
-      });
-      await sendVerifyMail(email, newCode);
-      return c.json({ success: true });
-    }
-
-    const salt = crypto.randomUUID();
-    const hashedPassword = await hash(password + salt);
-    const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verifyCodeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-
-    await db().hostUsers.create({
-      userName,
-      email,
-      hashedPassword,
-      salt,
-      verifyCode,
-      verifyCodeExpires,
-      emailVerified: false,
-    });
-
-    await sendVerifyMail(email, verifyCode);
-    return c.json({ success: true });
+    return c.json({ error: "registration_disabled" }, 403);
   });
 
   /* ---------------------------- RESEND ---------------------------- */
@@ -303,26 +267,9 @@ export function createAuthApp(options?: {
   });
 
   /* ----------------------------- LOGIN ---------------------------- */
+  // Password login is disabled for takos host - use Google OAuth only.
   app.post("/login", async (c) => {
-    const { userName, password } = await c.req.json();
-    if (typeof userName !== "string" || typeof password !== "string") {
-      return c.json({ error: "invalid" }, 400);
-    }
-
-    const user = await db().hostUsers.findByUserName(userName);
-    if (!user) return c.json({ error: "invalid" }, 401);
-    if (!user.emailVerified) return c.json({ error: "unverified" }, 403);
-
-    const ok = await compare(password + user.salt, user.hashedPassword);
-    if (!ok) return c.json({ error: "invalid" }, 401);
-
-    const sessionId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
-    await db().hostSessions.create({ sessionId, user: user._id, expiresAt });
-
-    setCookie(c, "hostSessionId", sessionId, createCookieOpts(c, expiresAt));
-
-    return c.json({ success: true });
+    return c.json({ error: "password_login_disabled" }, 403);
   });
 
   /* --------------------------- STATUS ----------------------------- */

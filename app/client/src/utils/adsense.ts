@@ -57,7 +57,10 @@ export function isTauri(): boolean {
 export function isAdsenseEnabled(): boolean {
   // Tauri builds use AdMob; explicitly disable AdSense there
   if (isTauri()) return false;
-  return !!(config?.client && config?.slot);
+  // enabled if classic AdSense config is present OR HTML fragments are provided
+  const hasClassic = !!(config?.client && config?.slot);
+  const hasHtml = !!(config?.chatBannerHtml || config?.betweenPostsHtml);
+  return hasClassic || hasHtml;
 }
 
 export function getAdsenseClient(): string | null {

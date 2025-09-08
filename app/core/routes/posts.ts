@@ -24,7 +24,6 @@ import {
   getUserInfoBatch,
 } from "../services/user-info.ts";
 import { addNotification } from "../services/notification.ts";
-import { rateLimit } from "../utils/rate_limit.ts";
 // import { announceIfPublicAndDiscoverable } from "../services/fasp.ts"; // FASP機能凍結
 import {
   // announceToFasp,
@@ -102,7 +101,6 @@ app.get("/posts", async (c) => {
 
 app.post(
   "/posts",
-  rateLimit({ windowMs: 60_000, limit: 10 }),
   zValidator(
     "json",
     z.object({
