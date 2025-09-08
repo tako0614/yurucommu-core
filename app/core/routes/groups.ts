@@ -68,11 +68,11 @@ async function toGroupId(raw: string, domain: string): Promise<string> {
   return `https://${domain}/groups/${decoded}`;
 }
 
-app.use("/api/groups/*", auth);
+app.use("/groups/*", auth);
 
 // 汎用: Actor情報取得（Group/User問わず）
-app.use("/api/actors", auth);
-app.get("/api/actors", async (c) => {
+app.use("/actors", auth);
+app.get("/actors", async (c) => {
   const url = c.req.query("url");
   if (!url) return c.json({ error: "url is required" }, { status: 400 });
   try {
@@ -128,7 +128,7 @@ app.get("/api/actors", async (c) => {
   }
 });
 
-app.get("/api/groups", async (c) => {
+app.get("/groups", async (c) => {
   const member = c.req.query("member");
   if (!member) return c.json({ error: "member is required" }, 400);
   const username = member.split("@")[0];
@@ -137,7 +137,7 @@ app.get("/api/groups", async (c) => {
   return c.json(groups);
 });
 
-app.get("/api/groups/:groupId/messages", async (c) => {
+app.get("/groups/:groupId/messages", async (c) => {
   const raw = c.req.param("groupId");
   const domain = getDomain(c);
   // URL エンコードや acct 形式を許容して正規化

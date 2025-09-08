@@ -1,4 +1,4 @@
-import {
+﻿import {
   createEffect,
   createMemo,
   createSignal,
@@ -30,6 +30,7 @@ interface ChatRoomListProps {
   onCreateFriendRoom?: (friendId: string) => void;
   onAcceptInvite?: (room: Room) => void;
   onIgnoreInvite?: (room: Room) => void;
+  roomsReady?: boolean;
 }
 
 export function ChatRoomList(props: ChatRoomListProps) {
@@ -87,12 +88,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
   const [query, setQuery] = createSignal("");
   // リストが空のときだけ、遅延してスケルトンを表示する（点滅防止）
   const showAllSkeleton = useDelayedVisibility(
-    () => getFilteredRoomsFor("all").length === 0 && query().trim() === "",
+    () => getFilteredRoomsFor("all").length === 0 && query().trim() === "" && !(props.roomsReady ?? true),
     250,
     250,
   );
   const showGroupSkeleton = useDelayedVisibility(
-    () => getFilteredRoomsFor("groups").length === 0 && query().trim() === "",
+    () => getFilteredRoomsFor("groups").length === 0 && query().trim() === "" && !(props.roomsReady ?? true),
     250,
     250,
   );
@@ -135,9 +136,8 @@ export function ChatRoomList(props: ChatRoomListProps) {
     if (seg === "people") {
       base = base.filter((r) => isStrictFriendRoom(r));
     } else if (seg === "groups") {
-      const memoRoom = base.find((r) => r.type === "memo");
-      const rest = base.filter((r) => isGroupRoom(r));
-      base = memoRoom ? [memoRoom, ...rest] : rest;
+      // グループ一覧から memo ルームを完全に分離
+      base = base.filter((r) => isGroupRoom(r));
     }
 
     let list = q
@@ -182,9 +182,12 @@ export function ChatRoomList(props: ChatRoomListProps) {
 
   const segUnread = createMemo(() => {
     const all = props.rooms.reduce((a, r) => a + (r.unreadCount || 0), 0);
-    const people = props.rooms.filter((r) => isStrictFriendRoom(r))
+    const people = props.rooms
+      .filter((r) => isStrictFriendRoom(r))
       .reduce((a, r) => a + (r.unreadCount || 0), 0);
-    const groups = all - people;
+    const groups = props.rooms
+      .filter((r) => r.type === "group")
+      .reduce((a, r) => a + (r.unreadCount || 0), 0);
     return { all, people, groups };
   });
 
