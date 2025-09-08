@@ -276,14 +276,32 @@ export default {
       ).bind(clientId).first<
         { client_secret?: string; redirect_uri?: string }
       >();
+      // 互換のため、same-origin かつ保存側がパス付きなら完全一致、
+      // 保存側がルート("/")またはパス無しの場合は任意パスを許容
+      const redirectMatches = (() => {
+        const stored = row?.redirect_uri;
+        if (!stored) return false;
+        try {
+          const a = new URL(stored);
+          const b = new URL(String(redirectUri));
+          if (a.origin !== b.origin) return false;
+          const aPath = a.pathname || "/";
+          const bPath = b.pathname || "/";
+          return aPath === "/" ? true : (aPath === bPath);
+        } catch {
+          return stored === redirectUri;
+        }
+      })();
       if (
         !row || row.client_secret !== clientSecret ||
-        row.redirect_uri !== redirectUri
+        !redirectMatches
       ) {
         try {
           console.warn("[host oauth] invalid_client", {
             okClient: !!row,
-            redirectMatches: row?.redirect_uri === redirectUri,
+            redirectMatches,
+            storedRedirect: row?.redirect_uri,
+            providedRedirect: redirectUri,
             clientMatches: row?.client_secret === clientSecret ? "yes" : "no",
           });
   } catch { /* noop */ }
@@ -698,7 +716,9 @@ export default {
       const envVars: Record<string, string> = {};
       if (rootDomain) {
         envVars.OAUTH_HOST = rootDomain;
-        const redirect = `https://${fullHost}`;
+        // コア側の既定コールバックに合わせて、パス付きで登録する
+        const redirectPath = "/api/login/oauth/callback";
+        const redirect = `https://${fullHost}${redirectPath}`;
         const clientId = redirect;
         const found = await db().oauth.find(clientId);
         const clientSecret = found?.clientSecret ?? crypto.randomUUID();
@@ -711,6 +731,7 @@ export default {
         }
         envVars.OAUTH_CLIENT_ID = clientId;
         envVars.OAUTH_CLIENT_SECRET = clientSecret;
+        envVars.OAUTH_REDIRECT_PATH = redirectPath;
       }
       if (typeof password === "string" && password) {
         const salt = crypto.randomUUID();
