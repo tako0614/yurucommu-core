@@ -1,0 +1,268 @@
+import { QRMaskPattern } from "./QRMaskPattern";
+import { QRMode } from "./QRMode";
+import { QRPolynomial } from "./QRPolynomial";
+import { QRMath } from "./QRMath";
+
+export type QRCodeLike = {
+  getModuleCount(): number;
+  isDark(row: number, col: number): boolean;
+};
+
+export const QRUtil = {
+  PATTERN_POSITION_TABLE: [
+    [],
+    [6, 18],
+    [6, 22],
+    [6, 26],
+    [6, 30],
+    [6, 34],
+    [6, 22, 38],
+    [6, 24, 42],
+    [6, 26, 46],
+    [6, 28, 50],
+    [6, 30, 54],
+    [6, 32, 58],
+    [6, 34, 62],
+    [6, 26, 46, 66],
+    [6, 26, 48, 70],
+    [6, 26, 50, 74],
+    [6, 30, 54, 78],
+    [6, 30, 56, 82],
+    [6, 30, 58, 86],
+    [6, 34, 62, 90],
+    [6, 28, 50, 72, 94],
+    [6, 26, 50, 74, 98],
+    [6, 30, 54, 78, 102],
+    [6, 28, 54, 80, 106],
+    [6, 32, 58, 84, 110],
+    [6, 30, 58, 86, 114],
+    [6, 34, 62, 90, 118],
+    [6, 26, 50, 74, 98, 122],
+    [6, 30, 54, 78, 102, 126],
+    [6, 26, 52, 78, 104, 130],
+    [6, 30, 56, 82, 108, 134],
+    [6, 34, 60, 86, 112, 138],
+    [6, 30, 58, 86, 114, 142],
+    [6, 34, 62, 90, 118, 146],
+    [6, 30, 54, 78, 102, 126, 150],
+    [6, 24, 50, 76, 102, 128, 154],
+    [6, 28, 54, 80, 106, 132, 158],
+    [6, 32, 58, 84, 110, 136, 162],
+    [6, 26, 54, 82, 110, 138, 166],
+    [6, 30, 58, 86, 114, 142, 170],
+  ] as const,
+
+  G15: (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | 1,
+  G18:
+    (1 << 12) |
+    (1 << 11) |
+    (1 << 10) |
+    (1 << 9) |
+    (1 << 8) |
+    (1 << 5) |
+    (1 << 2) |
+    1,
+  G15_MASK: (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1),
+
+  getBCHTypeInfo(data: number): number {
+    let d = data << 10;
+    while (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G15) >= 0) {
+      d ^= QRUtil.G15 << (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G15));
+    }
+    return ((data << 10) | d) ^ QRUtil.G15_MASK;
+  },
+
+  getBCHTypeNumber(data: number): number {
+    let d = data << 12;
+    while (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G18) >= 0) {
+      d ^= QRUtil.G18 << (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G18));
+    }
+    return (data << 12) | d;
+  },
+
+  getBCHDigit(data: number): number {
+    let digit = 0;
+    let value = data;
+    while (value !== 0) {
+      digit += 1;
+      value >>>= 1;
+    }
+    return digit;
+  },
+
+  getPatternPosition(typeNumber: number): readonly number[] {
+    return QRUtil.PATTERN_POSITION_TABLE[typeNumber - 1];
+  },
+
+  getMask(maskPattern: number, i: number, j: number): boolean {
+    switch (maskPattern) {
+      case QRMaskPattern.PATTERN000:
+        return (i + j) % 2 === 0;
+      case QRMaskPattern.PATTERN001:
+        return i % 2 === 0;
+      case QRMaskPattern.PATTERN010:
+        return j % 3 === 0;
+      case QRMaskPattern.PATTERN011:
+        return (i + j) % 3 === 0;
+      case QRMaskPattern.PATTERN100:
+        return (Math.floor(i / 2) + Math.floor(j / 3)) % 2 === 0;
+      case QRMaskPattern.PATTERN101:
+        return ((i * j) % 2) + ((i * j) % 3) === 0;
+      case QRMaskPattern.PATTERN110:
+        return (((i * j) % 2) + ((i * j) % 3)) % 2 === 0;
+      case QRMaskPattern.PATTERN111:
+        return (((i * j) % 3) + ((i + j) % 2)) % 2 === 0;
+      default:
+        throw new Error(`bad maskPattern:${maskPattern}`);
+    }
+  },
+
+  getErrorCorrectPolynomial(errorCorrectLength: number): QRPolynomial {
+    let a = new QRPolynomial([1], 0);
+    for (let i = 0; i < errorCorrectLength; i += 1) {
+      a = a.multiply(new QRPolynomial([1, QRMath.gexp(i)], 0));
+    }
+    return a;
+  },
+
+  getLengthInBits(mode: number, type: number): number {
+    if (type >= 1 && type < 10) {
+      switch (mode) {
+        case QRMode.MODE_NUMBER:
+          return 10;
+        case QRMode.MODE_ALPHA_NUM:
+          return 9;
+        case QRMode.MODE_8BIT_BYTE:
+          return 8;
+        case QRMode.MODE_KANJI:
+          return 8;
+        default:
+          throw new Error(`mode:${mode}`);
+      }
+    }
+    if (type < 27) {
+      switch (mode) {
+        case QRMode.MODE_NUMBER:
+          return 12;
+        case QRMode.MODE_ALPHA_NUM:
+          return 11;
+        case QRMode.MODE_8BIT_BYTE:
+          return 16;
+        case QRMode.MODE_KANJI:
+          return 10;
+        default:
+          throw new Error(`mode:${mode}`);
+      }
+    }
+    if (type < 41) {
+      switch (mode) {
+        case QRMode.MODE_NUMBER:
+          return 14;
+        case QRMode.MODE_ALPHA_NUM:
+          return 13;
+        case QRMode.MODE_8BIT_BYTE:
+          return 16;
+        case QRMode.MODE_KANJI:
+          return 12;
+        default:
+          throw new Error(`mode:${mode}`);
+      }
+    }
+    throw new Error(`type:${type}`);
+  },
+
+  getLostPoint(qrCode: QRCodeLike): number {
+    const moduleCount = qrCode.getModuleCount();
+    let lostPoint = 0;
+
+    for (let row = 0; row < moduleCount; row += 1) {
+      for (let col = 0; col < moduleCount; col += 1) {
+        let sameCount = 0;
+        const dark = qrCode.isDark(row, col);
+        for (let r = -1; r <= 1; r += 1) {
+          const targetRow = row + r;
+          if (targetRow < 0 || moduleCount <= targetRow) {
+            continue;
+          }
+          for (let c = -1; c <= 1; c += 1) {
+            const targetCol = col + c;
+            if (targetCol < 0 || moduleCount <= targetCol) {
+              continue;
+            }
+            if (r === 0 && c === 0) {
+              continue;
+            }
+            if (dark === qrCode.isDark(targetRow, targetCol)) {
+              sameCount += 1;
+            }
+          }
+        }
+        if (sameCount > 5) {
+          lostPoint += 3 + sameCount - 5;
+        }
+      }
+    }
+
+    for (let row = 0; row < moduleCount - 1; row += 1) {
+      for (let col = 0; col < moduleCount - 1; col += 1) {
+        let count = 0;
+        for (let dy = 0; dy < 2; dy += 1) {
+          for (let dx = 0; dx < 2; dx += 1) {
+            if (qrCode.isDark(row + dy, col + dx)) {
+              count += 1;
+            }
+          }
+        }
+        if (count === 0 || count === 4) {
+          lostPoint += 3;
+        }
+      }
+    }
+
+    for (let row = 0; row < moduleCount; row += 1) {
+      for (let col = 0; col < moduleCount - 6; col += 1) {
+        if (
+          qrCode.isDark(row, col) &&
+          !qrCode.isDark(row, col + 1) &&
+          qrCode.isDark(row, col + 2) &&
+          qrCode.isDark(row, col + 3) &&
+          qrCode.isDark(row, col + 4) &&
+          !qrCode.isDark(row, col + 5) &&
+          qrCode.isDark(row, col + 6)
+        ) {
+          lostPoint += 40;
+        }
+      }
+    }
+
+    for (let col = 0; col < moduleCount; col += 1) {
+      for (let row = 0; row < moduleCount - 6; row += 1) {
+        if (
+          qrCode.isDark(row, col) &&
+          !qrCode.isDark(row + 1, col) &&
+          qrCode.isDark(row + 2, col) &&
+          qrCode.isDark(row + 3, col) &&
+          qrCode.isDark(row + 4, col) &&
+          !qrCode.isDark(row + 5, col) &&
+          qrCode.isDark(row + 6, col)
+        ) {
+          lostPoint += 40;
+        }
+      }
+    }
+
+    let darkCount = 0;
+    for (let col = 0; col < moduleCount; col += 1) {
+      for (let row = 0; row < moduleCount; row += 1) {
+        if (qrCode.isDark(row, col)) {
+          darkCount += 1;
+        }
+      }
+    }
+
+    const ratio = Math.abs((100 * darkCount) / (moduleCount * moduleCount) - 50) / 5;
+    lostPoint += Math.floor(ratio) * 10;
+
+    return lostPoint;
+  },
+};

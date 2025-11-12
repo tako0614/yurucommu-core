@@ -1,7 +1,30 @@
-node_modules
-dist
-.serena/cache
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+.wrangler/
+
+# Secrets and environment
+.dev.vars
 .env
-.wrangler
-wrangler.toml
-wrangler.tenant.toml
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+

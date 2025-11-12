@@ -1,0 +1,14 @@
+{
+  "name": "takos",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "platform"
+  ],
+  "scripts": {
+    "dev": "npm --workspace backend run dev",
+    "deploy": "npm --workspace backend run deploy",
+    "lint": "npm --workspaces run lint || true"
+  }
+}

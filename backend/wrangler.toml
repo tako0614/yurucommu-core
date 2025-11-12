@@ -1,0 +1,34 @@
+name = "your-app-account"
+main = "src/index.ts"
+compatibility_date = "2025-09-10"
+compatibility_flags = ["no_handle_cross_request_promise_resolution","nodejs_compat"]
+workers_dev = true
+
+[vars]
+SESSION_COOKIE_NAME = "token"
+SESSION_TTL_HOURS = "8760"
+SESSION_REFRESH_INTERVAL_SECONDS = "2592000"
+INSTANCE_DOMAIN = "yourdomain.com"
+ACTIVITYPUB_ENABLED = "true"
+# Authentication credentials (change these!)
+AUTH_USERNAME = "admin"
+AUTH_PASSWORD = "changeme"
+
+[observability]
+enabled = true
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "your-media-bucket"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "your-app-db"
+database_id = "your-database-id"
+migrations_dir = "d1_migrations"
+
+[triggers]
+crons = [
+  "*/5 * * * *",
+  "0 2 * * *"
+]

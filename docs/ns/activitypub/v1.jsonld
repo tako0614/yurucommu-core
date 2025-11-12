@@ -1,0 +1,94 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@vocab": "https://www.w3.org/ns/activitystreams#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "takos": "https://docs.takos.jp/ns/activitypub/v1#",
+    "as": "https://www.w3.org/ns/activitystreams#",
+    "sec": "https://w3id.org/security#",
+
+    "Story": {
+      "@id": "takos:Story",
+      "@context": {
+        "slides": {
+          "@id": "takos:slides",
+          "@container": "@list",
+          "@type": "@id"
+        },
+        "visibility": {
+          "@id": "takos:visibility",
+          "@type": "xsd:string"
+        },
+        "expiresAt": {
+          "@id": "takos:expiresAt",
+          "@type": "xsd:dateTime"
+        }
+      }
+    },
+
+    "DirectMessage": {
+      "@id": "takos:DirectMessage",
+      "@context": {
+        "thread": {
+          "@id": "takos:thread",
+          "@type": "@id"
+        }
+      }
+    },
+
+    "ChannelMessage": {
+      "@id": "takos:ChannelMessage",
+      "@context": {
+        "channel": {
+          "@id": "takos:channel",
+          "@type": "@id"
+        }
+      }
+    },
+
+    "StoryImageSlide": {
+      "@id": "takos:StoryImageSlide",
+      "@context": {
+        "media": { "@type": "@id" },
+        "durationMs": { "@type": "xsd:integer" },
+        "order": { "@type": "xsd:integer" },
+        "alt": { "@type": "xsd:string" },
+        "blurhash": { "@type": "xsd:string" }
+      }
+    },
+
+    "StoryVideoSlide": {
+      "@id": "takos:StoryVideoSlide",
+      "@context": {
+        "media": { "@type": "@id" },
+        "durationMs": { "@type": "xsd:integer" },
+        "order": { "@type": "xsd:integer" },
+        "hasAudio": { "@type": "xsd:boolean" },
+        "poster": { "@type": "@id" }
+      }
+    },
+
+    "StoryTextSlide": {
+      "@id": "takos:StoryTextSlide",
+      "@context": {
+        "durationMs": { "@type": "xsd:integer" },
+        "order": { "@type": "xsd:integer" },
+        "format": { "@type": "xsd:string" },
+        "align": { "@type": "xsd:string" },
+        "backgroundColor": { "@type": "xsd:string" },
+        "fontFamily": { "@type": "xsd:string" },
+        "fontWeight": { "@type": "xsd:string" }
+      }
+    },
+
+    "StoryExtensionSlide": {
+      "@id": "takos:StoryExtensionSlide",
+      "@context": {
+        "durationMs": { "@type": "xsd:integer" },
+        "order": { "@type": "xsd:integer" },
+        "extensionType": { "@type": "xsd:string" },
+        "payload": { "@type": "@json" }
+      }
+    }
+  }
+}
