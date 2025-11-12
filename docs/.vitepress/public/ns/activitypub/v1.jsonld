@@ -1,0 +1,35 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "Story": "https://docs.takos.jp/ns/story#Story",
+    "StorySlide": "https://docs.takos.jp/ns/story#StorySlide",
+    "DirectMessage": "https://docs.takos.jp/ns/messaging#DirectMessage",
+    "ChannelMessage": "https://docs.takos.jp/ns/messaging#ChannelMessage",
+    "slides": {
+      "@id": "https://docs.takos.jp/ns/story#slides",
+      "@container": "@list"
+    },
+    "visibility": "https://docs.takos.jp/ns/story#visibility",
+    "dom": "https://docs.takos.jp/ns/story#dom",
+    "durationMs": {
+      "@id": "https://docs.takos.jp/ns/story#durationMs",
+      "@type": "http://www.w3.org/2001/XMLSchema#integer"
+    },
+    "expiresAt": {
+      "@id": "https://docs.takos.jp/ns/story#expiresAt",
+      "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "thread": {
+      "@id": "https://docs.takos.jp/ns/messaging#thread",
+      "@type": "@id"
+    },
+    "channel": {
+      "@id": "https://docs.takos.jp/ns/messaging#channel",
+      "@type": "@id"
+    },
+    "inReplyTo": {
+      "@id": "https://www.w3.org/ns/activitystreams#inReplyTo",
+      "@type": "@id"
+    }
+  }
+}

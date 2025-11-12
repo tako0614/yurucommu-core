@@ -1,0 +1,65 @@
+# Wrangler configuration template for takos
+# Copy this file to wrangler.toml and fill in your own values
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "your-app-account"
+main = "src/index.ts"
+compatibility_date = "2025-09-10"
+compatibility_flags = ["no_handle_cross_request_promise_resolution","nodejs_compat"]
+workers_dev = true  # Set to false in production and configure routes
+
+# Uncomment and configure for production with custom domain
+# routes = [{ pattern = "*.yourdomain.com/*", zone_name = "yourdomain.com" }]
+
+[vars]
+SESSION_COOKIE_NAME = "token"
+SESSION_TTL_HOURS = "8760" # 24 * 365 = 8760 hours (1 year)
+SESSION_REFRESH_INTERVAL_SECONDS = "2592000" # 30 days in seconds (30*24*3600)
+
+# ActivityPub configuration
+INSTANCE_DOMAIN = "yourdomain.com"  # Replace with your instance domain
+ACTIVITYPUB_ENABLED = "true"
+
+[observability]
+enabled = true
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "your-media-bucket"  # Create with: wrangler r2 bucket create your-media-bucket
+
+[[d1_databases]]
+binding = "DB"
+database_name = "your-app-db"
+database_id = "your-database-id"  # Create with: wrangler d1 create your-app-db
+migrations_dir = "d1_migrations"
+
+# Cron Triggers for ActivityPub workers
+[triggers]
+crons = [
+  "*/5 * * * *",  # Every 5 minutes: delivery + inbox workers
+  "0 2 * * *"     # Daily at 2 AM UTC: cleanup worker
+]
+
+# Push Notification Configuration
+# There are three methods available (in order of priority):
+
+# Method 1: Direct FCM Integration (Recommended for production)
+# Set FCM_SERVER_KEY as a secret:
+#   npx wrangler secret put FCM_SERVER_KEY
+# This sends push notifications directly to Firebase Cloud Messaging.
+
+# Method 2: Custom Push Gateway
+# Set these secrets to use your own push gateway:
+#   npx wrangler secret put PUSH_GATEWAY_URL
+#   npx wrangler secret put PUSH_WEBHOOK_SECRET
+# This delegates push notification delivery to your custom gateway service.
+
+# Method 3: Default Push Service (Fallback)
+# If neither FCM nor custom gateway is configured, the default service will be used.
+# You can customize the default service URL and secret:
+#   DEFAULT_PUSH_SERVICE_URL = "https://your-push-service.com/events"
+# And set the secret:
+#   npx wrangler secret put DEFAULT_PUSH_SERVICE_SECRET
+
+# Optional: Customize notification title
+#   npx wrangler secret put PUSH_NOTIFICATION_TITLE

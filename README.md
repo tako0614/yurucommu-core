@@ -1,99 +1,114 @@
-Takos は、分散型ソーシャル（ActivityPub）に対応し、
-一人用に特化してweb自主をすることを目的にしたモダンなマイクロブログ/チャット基盤です。
-Deno をベースに、バックエンド（takos）、ホスティングコントローラ（takos_host）、
-デスクトップ/ブラウザ クライアント（client）を一つのリポジトリで管理します。
+# takos
 
-主な特徴
+Cloudflare Workers ベースのマルチテナント SNS バックエンドテンプレートです。
 
-- ActivityPub 対応: 連合用の `inbox`/`outbox` や system actor 管理を実装
-- ホスティング: 1 プロセスで複数インスタンスを模倣する takos_host を提供
-- クライアント: Vite 製フロントエンドと Tauri（デスクトップ）を用意
-- Deno ベース: Node 事前インストール不要（npm は deno task 実行時に取得）
+- `backend` … テナント用ワーカー。認証・コミュニティ・投稿・Stories・ActivityPub を提供。
+- `shared` … Story エディタなどの共通モジュール群。
 
-リポジトリ構成（抜粋）
+## Quick Start
 
-- `app/takos/`: takos 本体サーバー（ActivityPub/REST 等）
-- `app/takos_host/`: 複数インスタンスを管理・提供するホスティング層
-- `app/client/`: フロントエンド（Vite + React/Tauri）
-- `app/core/`: 共通ロジック（ルーティング、サービス、DB 抽象 など）
-- `app/packages/`: 設定・DB・認証などの共通パッケージ
-- `docs/`: 補足ドキュメント
+```bash
+git clone https://github.com/your-org/takos.git
+cd takos
+npm install
+```
 
-詳細な設計や背景は `app/takos_host/README.md` や `docs/` を参照してください。
+### セットアップ
 
-## 前提条件
+1. Cloudflare にログイン:
+   ```bash
+   npx wrangler login
+   ```
 
-- Deno v1.28.0 以上（なるべく最新の安定版）
-- 外部サービスの接続先は `.env` を作成して設定
-  - 例: `app/takos/.env.example`, `app/takos_host/.env.example`
-- ポート既定値は 80 です。開発中に競合する場合は `SERVER_PORT=8080` 等を `.env`
-  に設定してください。
+2. D1 データベースを作成:
+   ```bash
+   cd backend
+   npx wrangler d1 create your-app-db
+   ```
+   出力された `database_id` をメモします。
 
-## クイックスタート（ルートで実行）
+3. R2 バケットを作成:
+   ```bash
+   npx wrangler r2 bucket create your-media-bucket
+   ```
 
-1. 初期設定（CLIで自動生成・手動編集不要）
+4. 設定ファイルをコピー:
+   ```bash
+   cp example.wrangler.toml wrangler.toml
+   ```
+   `wrangler.toml` を編集して、`database_id`、`bucket_name`、`INSTANCE_DOMAIN` などを設定します。
 
-- 全体の対話的セットアップ: `deno task setup`
-- サーバー(takos)のみ: `deno task setup:takos`
-- ホスト(host)のみ: `deno task setup:host`
-- 非対話で一括生成例（ドメイン/初期パスワード指定）:
-  - `deno run -A scripts/setup_env.ts --target takos --force --yes --domain dev.takos.local --password yourpass`
+5. マイグレーションを適用:
+   ```bash
+   npx wrangler d1 migrations apply your-app-db --local
+   ```
 
-CLIにより `.env`
-を自動生成できるため、手動での初期設定は不要です（必要に応じて後から編集可能）。
+6. 認証関連の環境変数を設定:
+   ```bash
+   npx wrangler var set HOST_ORIGIN=https://yourdomain.com
+   # optional: テナントAPIの基底パターンを変更する場合
+   # npx wrangler var set ACCOUNT_SERVICE_ORIGIN=https://{handle}.example.com
+   ```
 
-2. 開発サーバーの同時起動（takos + takos_host）
+7. Push 通知の設定（任意）:
 
-- `deno task dev --env path/to/.env`
-- 異なる環境で起動:
-  `deno task dev -- --env-takos path/to/takos.env --env-host path/to/host.env`
+   **方法1: FCM直接配信（本番環境推奨）**
+   ```bash
+   npx wrangler secret put FCM_SERVER_KEY
+   ```
+   Firebase Cloud Messaging のサーバーキーを設定します。
+   [Firebase Console](https://console.firebase.google.com/) でプロジェクトを作成し、
+   プロジェクト設定 → Cloud Messaging からサーバーキーを取得してください。
 
-3. ビルド（フロントエンド群）
+   **方法2: 独自Push Gateway経由**
+   ```bash
+   npx wrangler secret put PUSH_GATEWAY_URL
+   npx wrangler secret put PUSH_WEBHOOK_SECRET
+   ```
+   独自のPush Gatewayサーバーを使用する場合に設定します。
 
-- `deno task build`
+   **方法3: デフォルトPushサービス（フォールバック）**
+   FCMまたは独自Gatewayが設定されていない場合、デフォルトサービスが使用されます。
+   カスタマイズする場合は `wrangler.toml` で `DEFAULT_PUSH_SERVICE_URL` を設定してください。
 
-4. 本番起動（watch 無し）
+   **通知タイトルのカスタマイズ（任意）:**
+   ```bash
+   npx wrangler secret put PUSH_NOTIFICATION_TITLE
+   ```
 
-- 両方起動: `deno task start --env path/to/.env`
-- 片方のみ: `deno task start -- --only takos` または `--only host`
-- 別々の env を指定:
-  `deno task start -- --env-takos path/to/takos.env --env-host path/to/host.env`
+### 開発
 
-アクセス例
+```bash
+npm run dev
+```
 
-- takos_host ルート（ウェルカム/ユーザー画面）: `http(s)://<HOST>/`
-- takos API（ActivityPub/アプリ API）: `http(s)://<TAKOS_HOST>/api/...`
-  - 実際のポート/ドメインは `.env` の
-    `SERVER_HOST`/`SERVER_PORT`/`ACTIVITYPUB_DOMAIN` 等に依存します。
+ローカル開発サーバーが `http://127.0.0.1:8787` で起動します。
 
-## よく使うタスク（個別実行）
+### デプロイ
 
-- `deno task dev:takos` / `deno task dev:host`（個別開発起動）
-- `deno task build:host` / `deno task build:client`（個別ビルド）
-- `deno task start:takos` / `deno task start:host`（個別本番起動）
+```bash
+npm run deploy
+```
 
-## 環境変数のヒント
+カスタムドメインを使う場合は、`wrangler.toml` の `routes` を設定してください。
 
-- `SERVER_HOST`, `SERVER_PORT`: バインド先ホスト/ポート（未指定時はポート 80）
-- `SERVER_CERT`, `SERVER_KEY`: 文字列で証明書/秘密鍵を指定すると HTTPS で待受
-- `ACTIVITYPUB_DOMAIN`: takos 側の連合用ドメイン名（設定時に system actor
-  キーを生成）
-- 外部接続などの詳細は各 `.env.example` を参照（`deno task setup`
-  は最低限の値を自動設定します）
+## アーキテクチャ
 
-## トラブルシューティング
+このワーカーは、サブドメインベースのマルチテナント構成を想定しています：
 
-- ポート 80 が権限エラー: `.env` で `SERVER_PORT=8080` などへ変更
-- Node が無くても大丈夫？: ルートの `deno task` が npm 依存を自動取得します
-- 開発中の再起動が頻発: ルートの `dev`
-  は両プロセスを起動します。個別に起動して問題の切り分けをしてください
+- `user1.yourdomain.com` → user1 のデータ
+- `user2.yourdomain.com` → user2 のデータ
 
-## ライセンス
+各テナントは独立した ActivityPub アクターとして動作し、他のテナントや外部の ActivityPub サーバーと連携できます。
 
-本リポジトリのライセンスは `LICENSE` を参照してください。
+詳細は `backend/README.md` を参照してください。
 
-## 補足ドキュメント
+## takos-private との関係
 
-- 開発ガイドライン: `AGENTS.md`
-- takos_host の詳細: `app/takos_host/README.md`
-- フロントエンド（client）の使い方: `app/client/README.md`
+このリポジトリは OSS 版です。実運用版の `takos-private` では、以下の追加コンポーネントがあります：
+
+- `services/host-backend` … ルートドメイン用ワーカー（SPA 配信・テナントディスカバリ・プッシュ通知）
+- `frontend` … SolidJS フロントエンド
+- `app` … Expo モバイルアプリ
+
+OSS 版は `backend` のみを提供し、独自のフロントエンド・モバイルアプリから API を利用できます。
