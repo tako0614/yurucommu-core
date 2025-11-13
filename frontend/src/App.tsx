@@ -138,14 +138,7 @@ export default function App() {
                   </RequireAuth>
                 )}
               />
-              <Route
-                path="/@:handle"
-                component={() => (
-                  <RequireAuth>
-                    <UserProfile />
-                  </RequireAuth>
-                )}
-              />
+              <Route path="/@:handle" component={UserProfile} />
               <Route path="*" component={() => <Navigate href="/" />} />
             </Route>
         </Router>

@@ -19,7 +19,7 @@ features:
 
 ## Purpose
 
-Takos publishes **https://docs.takos.jp** as the public contract for the platform’s ActivityPub extensions. This site tracks the worker implementation and is meant to be stable enough for external integrators.
+Takos publishes **https://docs.takos.jp** as the public contract for the platform’s ActivityPub extensions. This site tracks the OSS worker implementation that can run on its own, and the same modules are reused by the hosted **takos-private** service to offer multi-tenant deployments.
 
 ## Scope
 
@@ -31,4 +31,4 @@ Document every HTTP surface exposed under `/ap/*`, the object schemas used for d
 
 - English and Japanese pages live side-by-side; switch languages from the nav bar when needed.
 - Link directly to sections (for example `/activitypub#story-federation`) when referencing the spec from issues or PRs so reviewers can validate behavior.
-- Keep this site up to date whenever ActivityPub payloads change—`docs.takos.jp` is treated as the source of truth for partners.
+- Keep this site up to date whenever ActivityPub payloads change—`docs.takos.jp` is treated as the source of truth for partners using either the OSS build or takos-private.

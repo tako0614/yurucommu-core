@@ -1,9 +1,9 @@
 # Takos Platform
 
-Reusable domain code that both Takos backends (public and private) and the
-front-end clients consume. The package is intentionally limited to code that is
-safe to use across services; deployment-specific behaviour lives alongside the
-service that owns it.
+Reusable domain code consumed by the takos OSS backend, the hosted
+takos-private services, and all front-end clients. The package is intentionally
+limited to code that is safe to use across services; deployment-specific
+behaviour lives alongside the service that owns it.
 
 ## Responsibilities
 

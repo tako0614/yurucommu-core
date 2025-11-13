@@ -10,7 +10,10 @@ export function createJwtStoreAdapter(
   store: TenantScopedDatabaseAPI,
 ): JWTStore {
   return {
-    getUser: (_tenantId: string, id: string) => store.getUser(id),
+    getUser: (_tenantId: string, id: string) => {
+      console.debug("jwtStore.getUser", { id, type: typeof id });
+      return store.getUser(id);
+    },
     getUserJwtSecret: (_tenantId: string, userId: string) =>
       store.getUserJwtSecret(userId),
     setUserJwtSecret: (_tenantId: string, userId: string, secret: string) =>

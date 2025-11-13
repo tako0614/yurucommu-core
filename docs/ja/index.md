@@ -19,7 +19,8 @@ features:
 
 ## 目的
 
-**https://docs.takos.jp** は、TakosプラットフォームのActivityPub独自仕様をまとめたサイトです。Worker実装と同期し、外部連携でも参照できる安定した仕様として管理します。
+**https://docs.takos.jp** は、Takosプラットフォームの ActivityPub 独自仕様をまとめたサイトです。  
+単体で動作する OSS 版 Worker の実装と同期しつつ、同じモジュールを利用するホスティングサービス **takos-private** でも参照できる安定仕様として管理します。
 
 ## スコープ
 
@@ -31,4 +32,4 @@ features:
 
 - 英語/日本語ページを用意しているので、必要に応じてナビゲーションから切り替えてください。
 - 仕様へのリンクは節単位（例: `/ja/activitypub#story-surface`）でPRやIssueに貼り、挙動確認を容易にします。
-- ActivityPubのペイロード変更があれば即座に反映し、`docs.takos.jp` を常に信頼できる参照元として運用します。
+- ActivityPub のペイロード変更があれば即座に反映し、OSS 版 / takos-private 双方の利用者が頼れる参照元として `docs.takos.jp` を維持します。

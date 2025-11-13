@@ -626,6 +626,28 @@ const auth = async (c: any, next: () => Promise<void>) => {
   }
 };
 
+const optionalAuth = async (c: any, next: () => Promise<void>) => {
+  const tenantMode = c.get("tenantMode");
+  const tenantHandle = c.get("tenantHandle");
+  if (tenantMode !== "user" || !tenantHandle) {
+    await next();
+    return;
+  }
+  const store = makeData(c.env as any, c);
+  const jwtStore = createJwtStoreAdapter(store);
+  try {
+    const authResult = await authenticateJWT(c, jwtStore, tenantHandle);
+    if (authResult && (authResult.user as any)?.id === tenantHandle) {
+      c.set("user", authResult.user);
+    }
+  } catch {
+    // ignore authentication failures and continue as guest
+  } finally {
+    await releaseStore(store);
+  }
+  await next();
+};
+
 // (Removed) Mock login endpoint for development
 
 // Registration disabled - using environment variable authentication
@@ -1702,17 +1724,37 @@ app.patch("/me", auth, async (c) => {
   return ok(c, updated);
 });
 
+const normalizeUserIdParam = (input: string): string => {
+  const trimmed = (input || "").trim();
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  if (!withoutPrefix.includes("@")) {
+    return withoutPrefix || trimmed;
+  }
+  const [local] = withoutPrefix.split("@");
+  return local || withoutPrefix || trimmed;
+};
+
 // Fetch another user's public profile
-app.get("/users/:id", auth, async (c) => {
+app.get("/users/:id", optionalAuth, async (c) => {
+  const tenantMode = c.get("tenantMode");
+  const tenantHandle = c.get("tenantHandle");
+  if (tenantMode !== "user" || !tenantHandle) {
+    return fail(
+      c,
+      "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
+      404,
+    );
+  }
   const store = makeData(c.env as any, c);
   const me = c.get("user") as any;
-  const id = c.req.param("id");
-  const u: any = await store.getUser(id);
+  const rawId = c.req.param("id");
+  const normalizedId = normalizeUserIdParam(rawId);
+  const u: any = await store.getUser(normalizedId);
   if (!u) return fail(c, "user not found", 404);
   // Accounts are private by default. For now, still return basic profile, and include friend status.
   let relation: any = null;
-  if (me?.id && id !== me.id) {
-    relation = await store.getFriendshipBetween(me.id, id).catch(() => null);
+  if (me?.id && normalizedId !== me.id) {
+    relation = await store.getFriendshipBetween(me.id, normalizedId).catch(() => null);
   }
   return ok(c, { ...u, friend_status: relation?.status || null });
 });

@@ -179,18 +179,29 @@ export async function authenticateJWT<TEnv extends { Bindings: PublicAccountBind
     const payloadBytes = base64urlDecode(parts[1]);
     const payloadStr = new TextDecoder().decode(payloadBytes);
     const payload = JSON.parse(payloadStr) as JWTPayload;
-    if (!payload?.sub || typeof payload.sub !== "string") {
+    const rawSubject =
+      typeof payload?.sub === "string" ? payload.sub.trim() : "";
+    const userId = rawSubject || actualTenantId;
+
+    if (!userId) {
       console.error("JWT authentication failed: missing subject");
       return null;
     }
 
+    if (!rawSubject) {
+      console.warn(
+        "JWT payload missing subject; falling back to tenant handle",
+        actualTenantId,
+      );
+    }
+
     // Get user and their JWT secret
-    const user = await store.getUser(actualTenantId, payload.sub);
+    const user = await store.getUser(actualTenantId, userId);
     if (!user) return null;
 
-    const secret = await store.getUserJwtSecret(actualTenantId, payload.sub);
+    const secret = await store.getUserJwtSecret(actualTenantId, userId);
     if (!secret) {
-      console.error('User has no JWT secret:', payload.sub);
+      console.error("User has no JWT secret:", userId);
       return null;
     }
 
