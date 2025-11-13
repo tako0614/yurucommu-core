@@ -35,12 +35,23 @@ export async function accessTokenGuard(c: Context, next: () => Promise<void>) {
       return unauthorized(c);
     }
 
+    const resolveUserId = (value: unknown): string => {
+      if (typeof value === "string" && value.trim()) {
+        return value;
+      }
+      if (value && typeof (value as any)?.id === "string") {
+        return (value as any).id;
+      }
+      return tenantHandle;
+    };
+
     const jwtStore: JWTStore = {
-      getUser: (_tenantId: string, id: string) => store.getUser(id),
+      getUser: (_tenantId: string, id: string) =>
+        store.getUser(tenantHandle, resolveUserId(id)),
       getUserJwtSecret: (_tenantId: string, userId: string) =>
-        store.getUserJwtSecret(userId),
+        store.getUserJwtSecret(tenantHandle, resolveUserId(userId)),
       setUserJwtSecret: (_tenantId: string, userId: string, secret: string) =>
-        store.setUserJwtSecret(userId, secret),
+        store.setUserJwtSecret(tenantHandle, resolveUserId(userId), secret),
     };
 
     const jwtAuth = await authenticateJWT(c as any, jwtStore, tenantHandle);

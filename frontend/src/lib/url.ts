@@ -1,4 +1,4 @@
-import { getConfiguredBackendHost } from "./config";
+import { getConfiguredBackendHost, getConfiguredBackendOrigin } from "./config";
 
 export function buildAbsoluteUrl(path: string): string {
   if (typeof window !== "undefined" && window.location?.origin) {
@@ -12,17 +12,104 @@ export function buildAbsoluteUrl(path: string): string {
  * @param handle - User handle
  * @param domain - Full domain (e.g., "example.com")
  */
+function parseHandleParts(rawHandle: string): { local: string; domain?: string } {
+  const trimmed = (rawHandle || "").trim();
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  if (!withoutPrefix) {
+    return { local: "" };
+  }
+  const parts = withoutPrefix.split("@");
+  const local = parts.shift()?.trim() ?? "";
+  const domainPart = parts.length ? parts.join("@").trim() : undefined;
+  return {
+    local,
+    domain: domainPart || undefined,
+  };
+}
+
+function resolveOrigin(preferredDomain?: string): { origin?: string; host?: string } {
+  const windowOrigin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : undefined;
+  const windowHost =
+    typeof window !== "undefined" && window.location?.host
+      ? window.location.host
+      : undefined;
+  const configuredOrigin = getConfiguredBackendOrigin();
+
+  const normalizedPreferred = preferredDomain?.trim();
+  if (normalizedPreferred) {
+    if (configuredOrigin) {
+      try {
+        const configuredUrl = new URL(configuredOrigin);
+        if (configuredUrl.host === normalizedPreferred) {
+          return { origin: configuredUrl.origin, host: configuredUrl.host };
+        }
+      } catch {
+        // ignore parse errors and fall back to manual origin construction
+      }
+    }
+    if (windowHost && normalizedPreferred === windowHost) {
+      return { origin: windowOrigin, host: windowHost };
+    }
+    const origin = `https://${normalizedPreferred}`;
+    try {
+      const url = new URL(origin);
+      return { origin: url.origin, host: url.host };
+    } catch {
+      return { origin, host: normalizedPreferred };
+    }
+  }
+
+  if (configuredOrigin) {
+    try {
+      const url = new URL(configuredOrigin);
+      return { origin: url.origin, host: url.host };
+    } catch {
+      return { origin: configuredOrigin };
+    }
+  }
+
+  if (windowOrigin) {
+    try {
+      const url = new URL(windowOrigin);
+      return { origin: url.origin, host: url.host };
+    } catch {
+      return { origin: windowOrigin, host: windowHost };
+    }
+  }
+
+  return {};
+}
+
 export function buildProfileUrlByHandle(handle: string, domain?: string): string {
-  // If domain is provided, use it directly
-  if (domain) {
-    return `https://${domain}/@${encodeURIComponent(handle)}`;
+  const { local, domain: embeddedDomain } = parseHandleParts(handle);
+  if (!local) {
+    return buildAbsoluteUrl("/profile");
   }
-  const backendHost = getConfiguredBackendHost();
-  if (backendHost) {
-    return `https://${backendHost}/@${encodeURIComponent(handle)}`;
+
+  const preferredHost =
+    (domain && domain.trim()) ||
+    embeddedDomain ||
+    getConfiguredBackendHost() ||
+    (typeof window !== "undefined" && window.location?.hostname
+      ? window.location.hostname
+      : undefined);
+
+  const { origin, host } = resolveOrigin(preferredHost);
+  const handleHost = preferredHost || host;
+
+  if (origin && handleHost) {
+    const cleanOrigin = origin.replace(/\/+$/, "");
+    return `${cleanOrigin}/@${local}@${handleHost}`;
   }
-  // Fallback to current domain
-  return buildAbsoluteUrl(`/@${encodeURIComponent(handle)}`);
+
+  if (handleHost) {
+    return buildAbsoluteUrl(`/@${local}@${handleHost}`);
+  }
+
+  return buildAbsoluteUrl(`/@${encodeURIComponent(local)}`);
 }
 
 /**

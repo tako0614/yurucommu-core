@@ -5,10 +5,17 @@ import Avatar from "../components/Avatar";
 import ProfileModal from "../components/ProfileModal";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
 
+function normalizeProfileLookup(raw: string): string {
+  const trimmed = (raw || "").trim();
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  if (!withoutPrefix) return "";
+  const [local] = withoutPrefix.split("@");
+  return local || withoutPrefix;
+}
+
 export default function UserProfile() {
   const params = useParams();
-  const profileId = createMemo(() => {
-    // Get handle from /@:handle route
+  const profileParam = createMemo(() => {
     const raw = (params as any).handle || "";
     let current = raw;
     for (let i = 0; i < 3; i += 1) {
@@ -22,12 +29,16 @@ export default function UserProfile() {
     }
     return current;
   });
+  const lookupId = createMemo(() => normalizeProfileLookup(profileParam()));
   const me = useMe();
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
   const [user, { mutate: setUser }] = createResource(
-    profileId,
-    (id) => getUser(id),
+    lookupId,
+    (id) => {
+      if (!id) throw new Error("missing profile id");
+      return getUser(id);
+    },
   );
   const [loading, setLoading] = createSignal(false);
   // 自分の参加コミュニティから閲覧可能な投稿のみ集計
