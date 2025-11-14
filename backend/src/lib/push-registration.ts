@@ -16,18 +16,22 @@ let cachedPrivateKey: CachedKey | null = null;
 
 const encoder = new TextEncoder();
 
-function canonicalize(input: Record<string, unknown>): string {
+export function canonicalizePushPayload(
+  input: Record<string, unknown>,
+): string {
   const sortedKeys = Object.keys(input).sort();
   const entries = sortedKeys.map((key) => {
     const value = input[key];
     if (value && typeof value === "object" && !Array.isArray(value)) {
-      return `"${key}":${canonicalize(value as Record<string, unknown>)}`;
+      return `"${key}":${canonicalizePushPayload(
+        value as Record<string, unknown>,
+      )}`;
     }
     if (Array.isArray(value)) {
       const items = value
         .map((v) =>
           v && typeof v === "object"
-            ? canonicalize(v as Record<string, unknown>)
+            ? canonicalizePushPayload(v as Record<string, unknown>)
             : JSON.stringify(v),
         )
         .join(",");
@@ -80,7 +84,7 @@ export async function buildPushRegistrationPayload(
     expiresAt: expiresAt.toISOString(),
     nonce: crypto.randomUUID(),
   };
-  const canonical = canonicalize(envelope);
+  const canonical = canonicalizePushPayload(envelope);
   const key = await getPrivateKey(env);
   const signatureBytes = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
@@ -91,4 +95,22 @@ export async function buildPushRegistrationPayload(
     String.fromCharCode(...new Uint8Array(signatureBytes)),
   );
   return { ...envelope, signature };
+}
+
+export async function signPushPayload(
+  env: EnvWithKey,
+  payload: Record<string, unknown>,
+): Promise<string> {
+  const normalized = JSON.parse(JSON.stringify(payload)) as Record<
+    string,
+    unknown
+  >;
+  const canonical = canonicalizePushPayload(normalized);
+  const key = await getPrivateKey(env);
+  const signatureBytes = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    key,
+    encoder.encode(canonical),
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
 }
