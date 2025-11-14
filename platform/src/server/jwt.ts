@@ -2,9 +2,9 @@ import type { Context } from "hono";
 import type { PublicAccountBindings } from "../types";
 
 export interface JWTStore {
-  getUser(instance_id: string, id: string): Promise<any>;
-  getUserJwtSecret(instance_id: string, userId: string): Promise<string | null>;
-  setUserJwtSecret(instance_id: string, userId: string, secret: string): Promise<void>;
+  getUser(id: string): Promise<any>;
+  getUserJwtSecret(userId: string): Promise<string | null>;
+  setUserJwtSecret(userId: string, secret: string): Promise<void>;
 }
 
 type JWTContext<TEnv extends { Bindings: PublicAccountBindings }> = Context<TEnv>;
@@ -159,17 +159,9 @@ export function extractJWT<TEnv extends { Bindings: PublicAccountBindings }>(
 export async function authenticateJWT<TEnv extends { Bindings: PublicAccountBindings }>(
   c: JWTContext<TEnv>,
   store: JWTStore,
-  instance_id?: string,
 ): Promise<{ token: string; payload: JWTPayload; user: any } | null> {
   const { token } = extractJWT(c);
   if (!token) return null;
-
-  // Extract instance_id from context if not provided
-  const actualInstanceId = instance_id || (c.get as any)("instanceHandle");
-  if (!actualInstanceId) {
-    console.error('No instance_id available for JWT authentication');
-    return null;
-  }
 
   // Parse token to get user ID (without verification yet)
   const parts = token.split('.');
@@ -181,25 +173,18 @@ export async function authenticateJWT<TEnv extends { Bindings: PublicAccountBind
     const payload = JSON.parse(payloadStr) as JWTPayload;
     const rawSubject =
       typeof payload?.sub === "string" ? payload.sub.trim() : "";
-    const userId = rawSubject || actualInstanceId;
+    const userId = rawSubject;
 
     if (!userId) {
       console.error("JWT authentication failed: missing subject");
       return null;
     }
 
-    if (!rawSubject) {
-      console.warn(
-        "JWT payload missing subject; falling back to instance handle",
-        actualInstanceId,
-      );
-    }
-
     // Get user and their JWT secret
-    const user = await store.getUser(actualInstanceId, userId);
+    const user = await store.getUser(userId);
     if (!user) return null;
 
-    const secret = await store.getUserJwtSecret(actualInstanceId, userId);
+    const secret = await store.getUserJwtSecret(userId);
     if (!secret) {
       console.error("User has no JWT secret:", userId);
       return null;
@@ -222,14 +207,13 @@ export async function createUserJWT<
 >(
   c: Context<TEnv>,
   store: JWTStore,
-  instance_id: string,
   userId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
   // Get or create JWT secret for user
-  let secret = await store.getUserJwtSecret(instance_id, userId);
+  let secret = await store.getUserJwtSecret(userId);
   if (!secret) {
     secret = await generateJwtSecret();
-    await store.setUserJwtSecret(instance_id, userId, secret);
+    await store.setUserJwtSecret(userId, secret);
   }
 
   const ttlSeconds = getJwtTtlSeconds(c.env);

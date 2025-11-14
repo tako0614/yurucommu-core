@@ -172,24 +172,6 @@ export interface AccessTokenTouchFields {
 }
 
 // Host user management (instance-independent)
-export interface HostUserInput {
-  id?: string;
-  email: string;
-  name: string;
-  picture?: string;
-  provider: string;
-  provider_id: string;
-  created_at?: string | Date;
-  updated_at?: string | Date;
-}
-
-export interface InstanceOwnershipInput {
-  instance_id: string;
-  host_user_id: string;
-  role?: string;
-  created_at?: string | Date;
-}
-
 // ActivityPub types
 export interface ApFollowerInput {
   id?: string;
@@ -302,131 +284,118 @@ export interface ClaimedInboxBatch {
  * Complete Database API interface with instance support
  */
 export interface DatabaseAPI {
-  // Host Users (instance-independent)
-  getHostUserById(id: string): Promise<any>;
-  getHostUserByProvider(provider: string, provider_id: string): Promise<any>;
-  getHostUserByEmail(email: string): Promise<any>;
-  createHostUser(user: HostUserInput): Promise<any>;
-  updateHostUser(id: string, fields: Partial<HostUserInput>): Promise<any>;
+  // Users
+  getUser(id: string): Promise<any>;
+  getUserByHandle(handle: string): Promise<any>;
+  searchUsersByName(query: string, limit?: number): Promise<any[]>;
+  createUser(user: UserInput): Promise<any>;
+  updateUser(id: string, fields: UserUpdateFields): Promise<any>;
+  renameUserId(oldId: string, newId: string): Promise<any>;
 
-  // Instance Ownerships
-  getInstanceOwnership(instance_id: string, host_user_id: string): Promise<any>;
-  createInstanceOwnership(ownership: InstanceOwnershipInput): Promise<any>;
-  listInstancesByHostUser(host_user_id: string): Promise<any[]>;
-  listHostUsersByInstance(instance_id: string): Promise<any[]>;
+  // User Accounts
+  getAccountByProvider(provider: string, providerAccountId: string): Promise<any>;
+  createUserAccount(account: UserAccountInput): Promise<any>;
+  updateAccountUser(provider: string, providerAccountId: string, user_id: string): Promise<any>;
+  updateUserAccountPassword(accountId: string, newPasswordHash: string): Promise<any>;
+  listAccountsByUser(user_id: string): Promise<any[]>;
 
-  // Users (instance-scoped)
-  getUser(instance_id: string, id: string): Promise<any>;
-  getUserByHandle(instance_id: string, handle: string): Promise<any>;
-  searchUsersByName(instance_id: string, query: string, limit?: number): Promise<any[]>;
-  createUser(instance_id: string, user: UserInput): Promise<any>;
-  updateUser(instance_id: string, id: string, fields: UserUpdateFields): Promise<any>;
-  renameUserId(instance_id: string, oldId: string, newId: string): Promise<any>;
+  // JWT
+  getUserJwtSecret(userId: string): Promise<string | null>;
+  setUserJwtSecret(userId: string, secret: string): Promise<void>;
 
-  // User Accounts (instance-scoped)
-  getAccountByProvider(instance_id: string, provider: string, providerAccountId: string): Promise<any>;
-  createUserAccount(instance_id: string, account: UserAccountInput): Promise<any>;
-  updateAccountUser(instance_id: string, provider: string, providerAccountId: string, user_id: string): Promise<any>;
-  updateUserAccountPassword(instance_id: string, accountId: string, newPasswordHash: string): Promise<any>;
-  listAccountsByUser(instance_id: string, user_id: string): Promise<any[]>;
+  // Friendships
+  getFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
+  getFriendshipBetween(user_id: string, other_id: string): Promise<any>;
+  createFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
+  setFriendStatus(requester_id: string, addressee_id: string, status: FriendStatus): Promise<any>;
+  listFriendships(user_id: string, status?: FriendStatus | null): Promise<any[]>;
 
-  // JWT (instance-scoped)
-  getUserJwtSecret(instance_id: string, userId: string): Promise<string | null>;
-  setUserJwtSecret(instance_id: string, userId: string, secret: string): Promise<void>;
+  // Notifications
+  addNotification(notification: NotificationInput): Promise<any>;
+  listNotifications(user_id: string): Promise<any[]>;
+  markNotificationRead(id: string): Promise<void>;
+  countUnreadNotifications(user_id: string): Promise<number>;
 
-  // Friendships (instance-scoped)
-  getFriendRequest(instance_id: string, requester_id: string, addressee_id: string): Promise<any>;
-  getFriendshipBetween(instance_id: string, user_id: string, other_id: string): Promise<any>;
-  createFriendRequest(instance_id: string, requester_id: string, addressee_id: string): Promise<any>;
-  setFriendStatus(instance_id: string, requester_id: string, addressee_id: string, status: FriendStatus): Promise<any>;
-  listFriendships(instance_id: string, user_id: string, status?: FriendStatus | null): Promise<any[]>;
+  // Communities & Memberships
+  createCommunity(community: CommunityInput): Promise<any>;
+  getCommunity(id: string): Promise<any>;
+  updateCommunity(id: string, fields: Record<string, any>): Promise<any>;
+  setMembership(community_id: string, user_id: string, membership: MembershipInput): Promise<void>;
+  hasMembership(community_id: string, user_id: string): Promise<boolean>;
+  listMembershipsByCommunity(community_id: string): Promise<any[]>;
+  listUserCommunities(user_id: string): Promise<any[]>;
+  listCommunityMembersWithUsers(community_id: string): Promise<any[]>;
 
-  // Notifications (instance-scoped)
-  addNotification(instance_id: string, notification: NotificationInput): Promise<any>;
-  listNotifications(instance_id: string, user_id: string): Promise<any[]>;
-  markNotificationRead(instance_id: string, id: string): Promise<void>;
-  countUnreadNotifications(instance_id: string, user_id: string): Promise<number>;
+  // Channels
+  listChannelsByCommunity(community_id: string): Promise<any[]>;
+  createChannel(community_id: string, channel: ChannelInput): Promise<any>;
+  getChannel(community_id: string, id: string): Promise<any>;
+  deleteChannel(community_id: string, id: string): Promise<void>;
 
-  // Communities & Memberships (instance-scoped)
-  createCommunity(instance_id: string, community: CommunityInput): Promise<any>;
-  getCommunity(instance_id: string, id: string): Promise<any>;
-  updateCommunity(instance_id: string, id: string, fields: Record<string, any>): Promise<any>;
-  setMembership(instance_id: string, community_id: string, user_id: string, membership: MembershipInput): Promise<void>;
-  hasMembership(instance_id: string, community_id: string, user_id: string): Promise<boolean>;
-  listMembershipsByCommunity(instance_id: string, community_id: string): Promise<any[]>;
-  listUserCommunities(instance_id: string, user_id: string): Promise<any[]>;
-  listCommunityMembersWithUsers(instance_id: string, community_id: string): Promise<any[]>;
+  // Invites
+  createInvite(invite: InviteInput): Promise<any>;
+  listInvites(community_id: string): Promise<any[]>;
+  getInvite(code: string): Promise<any>;
+  updateInvite(code: string, fields: Record<string, any>): Promise<any>;
+  disableInvite(code: string): Promise<any>;
+  resetInvites(community_id: string): Promise<void>;
 
-  // Channels (instance-scoped)
-  listChannelsByCommunity(instance_id: string, community_id: string): Promise<any[]>;
-  createChannel(instance_id: string, community_id: string, channel: ChannelInput): Promise<any>;
-  getChannel(instance_id: string, community_id: string, id: string): Promise<any>;
-  deleteChannel(instance_id: string, community_id: string, id: string): Promise<void>;
+  // Member Invites
+  createMemberInvite(invite: MemberInviteInput): Promise<any>;
+  listMemberInvitesByCommunity(community_id: string): Promise<any[]>;
+  listMemberInvitesForUser(user_id: string): Promise<any[]>;
+  getMemberInvite(id: string): Promise<any>;
+  setMemberInviteStatus(id: string, status: string): Promise<any>;
 
-  // Invites (instance-scoped)
-  createInvite(instance_id: string, invite: InviteInput): Promise<any>;
-  listInvites(instance_id: string, community_id: string): Promise<any[]>;
-  getInvite(instance_id: string, code: string): Promise<any>;
-  updateInvite(instance_id: string, code: string, fields: Record<string, any>): Promise<any>;
-  disableInvite(instance_id: string, code: string): Promise<any>;
-  resetInvites(instance_id: string, community_id: string): Promise<void>;
+  // Posts
+  createPost(post: PostInput): Promise<any>;
+  getPost(id: string): Promise<any>;
+  listPostsByCommunity(community_id: string): Promise<any[]>;
+  listGlobalPostsForUser(user_id: string): Promise<any[]>;
+  updatePost(id: string, fields: Record<string, any>): Promise<any>;
 
-  // Member Invites (instance-scoped)
-  createMemberInvite(instance_id: string, invite: MemberInviteInput): Promise<any>;
-  listMemberInvitesByCommunity(instance_id: string, community_id: string): Promise<any[]>;
-  listMemberInvitesForUser(instance_id: string, user_id: string): Promise<any[]>;
-  getMemberInvite(instance_id: string, id: string): Promise<any>;
-  setMemberInviteStatus(instance_id: string, id: string, status: string): Promise<any>;
+  // Reactions
+  addReaction(reaction: ReactionInput): Promise<any>;
+  listReactionsByPost(post_id: string): Promise<any[]>;
 
-  // Posts (instance-scoped)
-  createPost(instance_id: string, post: PostInput): Promise<any>;
-  getPost(instance_id: string, id: string): Promise<any>;
-  listPostsByCommunity(instance_id: string, community_id: string): Promise<any[]>;
-  listGlobalPostsForUser(instance_id: string, user_id: string): Promise<any[]>;
-  updatePost(instance_id: string, id: string, fields: Record<string, any>): Promise<any>;
+  // Comments
+  addComment(comment: CommentInput): Promise<any>;
+  listCommentsByPost(post_id: string): Promise<any[]>;
 
-  // Reactions (instance-scoped)
-  addReaction(instance_id: string, reaction: ReactionInput): Promise<any>;
-  listReactionsByPost(instance_id: string, post_id: string): Promise<any[]>;
+  // Stories
+  createStory(story: StoryInput): Promise<any>;
+  getStory(id: string): Promise<any>;
+  listStoriesByCommunity(community_id: string): Promise<any[]>;
+  listGlobalStoriesForUser(user_id: string): Promise<any[]>;
+  updateStory(id: string, fields: Record<string, any>): Promise<any>;
+  deleteStory(id: string): Promise<void>;
 
-  // Comments (instance-scoped)
-  addComment(instance_id: string, comment: CommentInput): Promise<any>;
-  listCommentsByPost(instance_id: string, post_id: string): Promise<any[]>;
+  // Push Devices
+  registerPushDevice(device: PushDeviceInput): Promise<any>;
+  listPushDevicesByUser(user_id: string): Promise<any[]>;
+  removePushDevice(token: string): Promise<void>;
 
-  // Stories (instance-scoped)
-  createStory(instance_id: string, story: StoryInput): Promise<any>;
-  getStory(instance_id: string, id: string): Promise<any>;
-  listStoriesByCommunity(instance_id: string, community_id: string): Promise<any[]>;
-  listGlobalStoriesForUser(instance_id: string, user_id: string): Promise<any[]>;
-  updateStory(instance_id: string, id: string, fields: Record<string, any>): Promise<any>;
-  deleteStory(instance_id: string, id: string): Promise<void>;
+  // Access Tokens
+  createAccessToken(input: AccessTokenInput): Promise<any>;
+  getAccessTokenByHash(token_hash: string): Promise<any>;
+  listAccessTokensByUser(user_id: string): Promise<any[]>;
+  touchAccessToken(token_hash: string, fields?: AccessTokenTouchFields): Promise<void>;
+  deleteAccessToken(token_hash: string): Promise<void>;
 
-  // Push Devices (instance-scoped)
-  registerPushDevice(instance_id: string, device: PushDeviceInput): Promise<any>;
-  listPushDevicesByUser(instance_id: string, user_id: string): Promise<any[]>;
-  removePushDevice(instance_id: string, token: string): Promise<void>;
+  // Chat - DM
+  upsertDmThread(participantsHash: string, participantsJson: string): Promise<any>;
+  createDmMessage(threadId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
+  listDmMessages(threadId: string, limit?: number): Promise<any[]>;
 
-  // Access Tokens (instance-scoped)
-  createAccessToken(instance_id: string, input: AccessTokenInput): Promise<any>;
-  getAccessTokenByHash(instance_id: string, token_hash: string): Promise<any>;
-  listAccessTokensByUser(instance_id: string, user_id: string): Promise<any[]>;
-  touchAccessToken(instance_id: string, token_hash: string, fields?: AccessTokenTouchFields): Promise<void>;
-  deleteAccessToken(instance_id: string, token_hash: string): Promise<void>;
+  // Chat - Channel
+  createChannelMessageRecord(communityId: string, channelId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
+  listChannelMessages(communityId: string, channelId: string, limit?: number): Promise<any[]>;
 
-  // Chat - DM (instance-scoped)
-  upsertDmThread(instance_id: string, participantsHash: string, participantsJson: string): Promise<any>;
-  createDmMessage(instance_id: string, threadId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
-  listDmMessages(instance_id: string, threadId: string, limit?: number): Promise<any[]>;
-
-  // Chat - Channel (instance-scoped)
-  createChannelMessageRecord(instance_id: string, communityId: string, channelId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
-  listChannelMessages(instance_id: string, communityId: string, channelId: string, limit?: number): Promise<any[]>;
-
-  // Sessions (instance-scoped)
-  createSession(instance_id: string, session: SessionInput): Promise<any>;
-  getSession(instance_id: string, id: string): Promise<any>;
-  updateSession(instance_id: string, id: string, data: SessionUpdateData): Promise<any>;
-  deleteSession(instance_id: string, id: string): Promise<void>;
+  // Sessions
+  createSession(session: SessionInput): Promise<any>;
+  getSession(id: string): Promise<any>;
+  updateSession(id: string, data: SessionUpdateData): Promise<any>;
+  deleteSession(id: string): Promise<void>;
 
   // ActivityPub - Followers
   upsertApFollower(input: ApFollowerInput): Promise<any>;
