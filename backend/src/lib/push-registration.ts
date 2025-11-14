@@ -71,7 +71,7 @@ export async function buildPushRegistrationPayload(
   );
   const envelope = {
     action,
-    tenant: payload.tenant ?? "",
+    instance: payload.instance ?? "",
     userId: payload.userId ?? "",
     token: payload.token ?? "",
     platform: payload.platform ?? "",

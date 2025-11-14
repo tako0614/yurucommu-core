@@ -150,7 +150,7 @@ async function notify(
   if (gateway && secret) {
     try {
       const payload = {
-        tenant: instanceDomain,
+        instance: instanceDomain,
         userId: user_id,
         notification: record,
       };
@@ -172,7 +172,7 @@ async function notify(
   try {
     const pushServiceUrl = env.DEFAULT_PUSH_SERVICE_URL || "https://yurucommu.com/internal/push/events";
     const payload = {
-      tenant: instanceDomain,
+      instance: instanceDomain,
       userId: user_id,
       notification: record,
     };

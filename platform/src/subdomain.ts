@@ -1,22 +1,22 @@
 /**
  * Instance-scoped routing helpers.
  *
- * The platform treats every Worker instance as operating on a fully qualified
- * domain (INSTANCE_DOMAIN) and accepts an explicit tenant handle when needed.
+ * The platform treats every Worker deployment as operating on a fully qualified
+ * domain (INSTANCE_DOMAIN) and accepts an explicit instance handle when needed.
  */
 
 import type { Context, Next } from "hono";
 
 export const DEFAULT_INSTANCE_DOMAIN = "yurucommu.com";
 
-export type TenantContext = {
-  tenantHandle: string | null;
-  tenantMode: "user" | "root" | "reserved";
+export type InstanceContext = {
+  instanceHandle: string | null;
+  instanceMode: "user" | "root" | "reserved";
 };
 
 export type InstanceConfig = {
   instanceDomain?: string;
-  tenantHandle?: string | null;
+  instanceHandle?: string | null;
 };
 
 let activeInstanceConfig: InstanceConfig = {};
@@ -63,15 +63,15 @@ function resolveInstanceDomain(env: any, override?: string): string | undefined 
   );
 }
 
-function resolveTenantHandle(
+function resolveInstanceHandle(
   env: any,
   instanceDomain?: string,
   override?: string | null,
 ): string | null {
   const configured = normalizeHandle(
     override ??
-      activeInstanceConfig.tenantHandle ??
-      env?.INSTANCE_TENANT_HANDLE ??
+      activeInstanceConfig.instanceHandle ??
+      env?.INSTANCE_OWNER_HANDLE ??
       null,
   );
   if (configured) {
@@ -95,15 +95,15 @@ export function requireInstanceDomain(env: any): string {
 
 export type SubdomainMiddlewareOptions = {
   instanceDomain?: string;
-  tenantHandle?: string | null;
+  instanceHandle?: string | null;
 };
 
 /**
  * Instance routing middleware.
  *
  * The middleware ensures c.env.INSTANCE_DOMAIN is always populated with the
- * resolved domain and stores tenant metadata on the context for downstream
- * handlers. Reserved tenant mode is kept for backward compatibility, although
+ * resolved domain and stores instance metadata on the context for downstream
+ * handlers. Reserved instance mode is kept for backward compatibility, although
  * the platform no longer distinguishes reserved subdomains explicitly.
  */
 export function subdomainMiddleware(
@@ -121,41 +121,41 @@ export function subdomainMiddleware(
       // Ensure downstream consumers observe the resolved domain.
       c.env.INSTANCE_DOMAIN = instanceDomain;
 
-      const tenantHandle = resolveTenantHandle(
+      const instanceHandle = resolveInstanceHandle(
         c.env,
         instanceDomain,
-        options.tenantHandle,
+        options.instanceHandle,
       );
-      const tenantMode: TenantContext["tenantMode"] = tenantHandle
+      const instanceMode: InstanceContext["instanceMode"] = instanceHandle
         ? "user"
         : "root";
 
-      c.set("tenantHandle", tenantHandle);
-      c.set("tenantMode", tenantMode);
+      c.set("instanceHandle", instanceHandle);
+      c.set("instanceMode", instanceMode);
 
       await next();
     } catch (error) {
       console.error("Instance context error:", error);
-      c.set("tenantHandle", null);
-      c.set("tenantMode", "root");
+      c.set("instanceHandle", null);
+      c.set("instanceMode", "root");
       await next();
     }
   };
 }
 
 /**
- * Require that the current request is scoped to a tenant.
+ * Require that the current request is scoped to an instance.
  */
-export function requireUserTenant() {
+export function requireInstanceScope() {
   return async (c: Context, next: Next) => {
-    const tenantMode = c.get("tenantMode");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceMode = c.get("instanceMode");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (tenantMode !== "user" || !tenantHandle) {
+    if (instanceMode !== "user" || !instanceHandle) {
       return c.json(
         {
           ok: false,
-          error: "This endpoint must be accessed with a tenant-scoped domain",
+          error: "This endpoint must be accessed with an instance-scoped domain",
         },
         404,
       );

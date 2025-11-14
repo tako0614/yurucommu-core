@@ -143,16 +143,16 @@ export async function importPublicKey(pem: string): Promise<CryptoKey> {
 export async function ensureUserKeyPair(
   store: any,
   env: EnvWithEncryptionKey,
-  tenant_id: string,
+  instance_id: string,
   userId?: string
 ): Promise<KeyPair> {
-  const actualUserId = userId ?? tenant_id;
+  const actualUserId = userId ?? instance_id;
   const encryptionKey = await getEncryptionKey(env);
 
   // Check if keypair exists
   const existing = await store.query(
-    "SELECT public_key_pem, private_key_pem FROM ap_keypairs WHERE tenant_id = ? AND user_id = ?",
-    [tenant_id, actualUserId]
+    "SELECT public_key_pem, private_key_pem FROM ap_keypairs WHERE instance_id = ? AND user_id = ?",
+    [instance_id, actualUserId]
   );
 
   if (existing && existing.length > 0) {
@@ -162,7 +162,7 @@ export async function ensureUserKeyPair(
       store,
       encryptionKey,
       storedPrivate,
-      tenant_id,
+      instance_id,
       actualUserId
     );
     return {
@@ -172,15 +172,15 @@ export async function ensureUserKeyPair(
   }
 
   // Generate new keypair
-  console.log(`Generating new RSA keypair for tenant ${tenant_id}, user: ${actualUserId}`);
+  console.log(`Generating new RSA keypair for instance ${instance_id}, user: ${actualUserId}`);
   const keyPair = await generateRsaKeyPair();
   const encryptedPrivateKey = await encryptPrivateKey(encryptionKey, keyPair.privateKeyPem);
 
   // Store in database
   await store.query(
-    `INSERT INTO ap_keypairs (tenant_id, user_id, public_key_pem, private_key_pem, created_at)
+    `INSERT INTO ap_keypairs (instance_id, user_id, public_key_pem, private_key_pem, created_at)
      VALUES (?, ?, ?, ?, datetime('now'))`,
-    [tenant_id, actualUserId, keyPair.publicKeyPem, encryptedPrivateKey]
+    [instance_id, actualUserId, keyPair.publicKeyPem, encryptedPrivateKey]
   );
 
   return keyPair;
@@ -229,7 +229,7 @@ async function decryptPrivateKey(
   store: any,
   key: CryptoKey,
   storedValue: string,
-  tenant_id: string,
+  instance_id: string,
   userId: string
 ): Promise<string> {
   const trimmed = (storedValue || "").trim();
@@ -251,8 +251,8 @@ async function decryptPrivateKey(
     const encrypted = await encryptPrivateKey(key, trimmed);
     try {
       await store.query(
-        "UPDATE ap_keypairs SET private_key_pem = ? WHERE tenant_id = ? AND user_id = ?",
-        [encrypted, tenant_id, userId]
+        "UPDATE ap_keypairs SET private_key_pem = ? WHERE instance_id = ? AND user_id = ?",
+        [encrypted, instance_id, userId]
       );
     } catch (error) {
       console.error("failed to re-encrypt legacy private key", error);

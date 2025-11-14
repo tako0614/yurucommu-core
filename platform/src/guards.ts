@@ -7,10 +7,10 @@ function unauthorized(c: Context) {
   return c.json({ ok: false, error: "Unauthorized" }, 401 as any);
 }
 
-function ensureTenantContext(c: Context, handle: string) {
-  if (!c.get("tenantHandle")) {
-    c.set("tenantHandle", handle);
-    c.set("tenantMode", "user");
+function ensureInstanceContext(c: Context, handle: string) {
+  if (!c.get("instanceHandle")) {
+    c.set("instanceHandle", handle);
+    c.set("instanceMode", "user");
   }
 }
 
@@ -24,14 +24,14 @@ export async function accessTokenGuard(c: Context, next: () => Promise<void>) {
       if (!user) {
         return unauthorized(c);
       }
-      ensureTenantContext(c, user.id);
+      ensureInstanceContext(c, user.id);
       c.set("accessTokenUser", user);
       await next();
       return;
     }
 
-    const tenantHandle = c.get("tenantHandle");
-    if (!tenantHandle) {
+    const instanceHandle = c.get("instanceHandle");
+    if (!instanceHandle) {
       return unauthorized(c);
     }
 
@@ -42,23 +42,23 @@ export async function accessTokenGuard(c: Context, next: () => Promise<void>) {
       if (value && typeof (value as any)?.id === "string") {
         return (value as any).id;
       }
-      return tenantHandle;
+      return instanceHandle;
     };
 
     const jwtStore: JWTStore = {
-      getUser: (_tenantId: string, id: string) =>
-        store.getUser(tenantHandle, resolveUserId(id)),
-      getUserJwtSecret: (_tenantId: string, userId: string) =>
-        store.getUserJwtSecret(tenantHandle, resolveUserId(userId)),
-      setUserJwtSecret: (_tenantId: string, userId: string, secret: string) =>
-        store.setUserJwtSecret(tenantHandle, resolveUserId(userId), secret),
+      getUser: (_instanceId: string, id: string) =>
+        store.getUser(instanceHandle, resolveUserId(id)),
+      getUserJwtSecret: (_instanceId: string, userId: string) =>
+        store.getUserJwtSecret(instanceHandle, resolveUserId(userId)),
+      setUserJwtSecret: (_instanceId: string, userId: string, secret: string) =>
+        store.setUserJwtSecret(instanceHandle, resolveUserId(userId), secret),
     };
 
-    const jwtAuth = await authenticateJWT(c as any, jwtStore, tenantHandle);
+    const jwtAuth = await authenticateJWT(c as any, jwtStore, instanceHandle);
     if (!jwtAuth) {
       return unauthorized(c);
     }
-    ensureTenantContext(c, jwtAuth.user.id);
+    ensureInstanceContext(c, jwtAuth.user.id);
     c.set("accessTokenUser", jwtAuth.user);
     await next();
   } finally {

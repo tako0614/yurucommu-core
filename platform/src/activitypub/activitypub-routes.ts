@@ -20,11 +20,7 @@ import {
   wrapInCreateActivity,
   ACTIVITYSTREAMS_CONTEXT,
 } from "./activitypub";
-import {
-  requireUserTenant,
-  getActorUri,
-  requireInstanceDomain,
-} from "../subdomain";
+import { getActorUri, requireInstanceDomain } from "../subdomain";
 import { verifySignature, verifyDigest } from "../auth/http-signature";
 import { getOrFetchActor, verifyActorOwnsKey } from "./actor-fetch";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
@@ -44,12 +40,12 @@ import { releaseStore } from "../utils/utils";
 type Bindings = {
   DB: D1Database;
   INSTANCE_DOMAIN?: string;
-  INSTANCE_TENANT_HANDLE?: string | null;
+  INSTANCE_OWNER_HANDLE?: string | null;
 };
 
 type Variables = {
-  tenantHandle?: string | null;
-  tenantMode?: string;
+  instanceHandle?: string | null;
+  instanceMode?: string;
   instanceDomain?: string;
 };
 
@@ -153,10 +149,10 @@ app.get("/ap/users/:handle", async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
     // Verify subdomain matches requested handle
-    if (tenantHandle !== handle) {
+    if (instanceHandle !== handle) {
       return fail(c, "handle mismatch with subdomain", 404);
     }
 
@@ -213,7 +209,7 @@ app.get("/ap/groups/:slug", async (c) => {
   const store = makeData(c.env as any);
   try {
     const slug = c.req.param("slug");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
 
@@ -243,7 +239,7 @@ app.get("/ap/groups/:slug", async (c) => {
 
     const groupActor = generateGroupActor(
       community,
-      tenantHandle || "unknown",
+      instanceHandle || "unknown",
       instanceDomain,
       protocol,
       groupPublicKey,
@@ -264,7 +260,7 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
     const slug = c.req.param("slug");
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
     const outboxUrl = `${protocol}://${instanceDomain}/ap/groups/${slug}/outbox`;
 
     const community = await store.getCommunity(slug);
@@ -541,9 +537,9 @@ app.get("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (tenantHandle !== handle) {
+    if (instanceHandle !== handle) {
       return fail(c, "handle mismatch", 404);
     }
 
@@ -613,9 +609,9 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (tenantHandle !== handle) {
+    if (instanceHandle !== handle) {
       return fail(c, "handle mismatch", 404);
     }
 
@@ -625,10 +621,10 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
     }
 
     // All accounts restrict access to self or accepted friends
-    if (tenantHandle && tenantHandle !== handle) {
+    if (instanceHandle && instanceHandle !== handle) {
       const friendship = await store.findApFollower(
         handle,
-        getActorUri(tenantHandle, getInstanceDomain(c)),
+        getActorUri(instanceHandle, getInstanceDomain(c)),
       );
       if (!friendship || friendship.status !== "accepted") {
         return fail(c, "forbidden", 403);
@@ -691,9 +687,9 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (tenantHandle !== handle) {
+    if (instanceHandle !== handle) {
       return fail(c, "handle mismatch", 404);
     }
 
@@ -703,10 +699,10 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
     }
 
     // All accounts restrict access to self or accepted friends
-    if (tenantHandle && tenantHandle !== handle) {
+    if (instanceHandle && instanceHandle !== handle) {
       const friendship = await store.findApFollower(
         handle,
-        getActorUri(tenantHandle, getInstanceDomain(c)),
+        getActorUri(instanceHandle, getInstanceDomain(c)),
       );
       if (!friendship || friendship.status !== "accepted") {
         return fail(c, "forbidden", 403);
@@ -770,9 +766,9 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (tenantHandle !== handle) {
+    if (instanceHandle !== handle) {
       return fail(c, "handle mismatch", 404);
     }
 
@@ -922,14 +918,14 @@ app.get("/ap/objects/:id", async (c) => {
   const store = makeData(c.env as any);
   try {
     const objectId = c.req.param("id");
-    const tenantHandle = c.get("tenantHandle");
+    const instanceHandle = c.get("instanceHandle");
 
-    if (!tenantHandle) {
+    if (!instanceHandle) {
       return fail(c, "must access from user subdomain", 404);
     }
 
     // Find post by ID
-    const post = await store.getPostWithAuthor(objectId, tenantHandle);
+    const post = await store.getPostWithAuthor(objectId, instanceHandle);
 
     if (!post) {
       return fail(c, "object not found", 404);
@@ -939,7 +935,7 @@ app.get("/ap/objects/:id", async (c) => {
 
     const noteObject = generateNoteObject(
       post,
-      { id: tenantHandle, display_name: post.display_name, avatar_url: post.avatar_url },
+      { id: instanceHandle, display_name: post.display_name, avatar_url: post.avatar_url },
       instanceDomain,
       protocol
     );
@@ -954,20 +950,20 @@ app.get("/ap/stories/:id", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const storyId = c.req.param("id");
-    const tenantHandle = c.get("tenantHandle");
-    if (!tenantHandle) {
+    const instanceHandle = c.get("instanceHandle");
+    if (!instanceHandle) {
       return fail(c, "must access from user subdomain", 404);
     }
     const story = await store.getStory(storyId);
     if (!story) return fail(c, "story not found", 404);
-    if (story.author_id !== tenantHandle) {
-      return fail(c, "story not owned by this tenant", 404);
+    if (story.author_id !== instanceHandle) {
+      return fail(c, "story not owned by this instance", 404);
     }
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
-    const actor = await store.getUser(tenantHandle);
+    const actor = await store.getUser(instanceHandle);
     if (!actor) return fail(c, "author not found", 404);
-    const storyObject = toStoryObject(story, tenantHandle, instanceDomain, { protocol });
+    const storyObject = toStoryObject(story, instanceHandle, instanceDomain, { protocol });
     return activityPubResponse(c, storyObject);
   } finally {
     await releaseStore(store);
