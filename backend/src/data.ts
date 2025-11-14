@@ -17,9 +17,9 @@ export type DataFactory = (
   context?: AppContext<PublicAccountBindings>,
 ) => DatabaseAPI;
 
-// Tenant-scoped database API that automatically injects tenant_id from context
-export interface TenantScopedDatabaseAPI {
-  // Tenant-scoped methods without tenant_id parameter
+// Instance-scoped database API that automatically injects instance_id from context
+export interface InstanceScopedDatabaseAPI {
+  // Instance-scoped methods without instance_id parameter
   getUser(id: string): Promise<any>;
   getUserByHandle(handle: string): Promise<any>;
   searchUsersByName(query: string, limit?: number): Promise<any[]>;
@@ -137,156 +137,156 @@ export interface TenantScopedDatabaseAPI {
   countRateLimits(key: string, windowStart: number): Promise<{ count: number; oldestWindow: number }>;
   createRateLimitEntry(id: string, key: string, windowStart: number, createdAt: number): Promise<void>;
 
-  // Host-level methods (no tenant_id)
+  // Host-level methods (no instance_id)
   getHostUserById(id: string): Promise<any>;
   getHostUserByProvider(provider: string, provider_id: string): Promise<any>;
   getHostUserByEmail(email: string): Promise<any>;
   createHostUser(user: any): Promise<any>;
   updateHostUser(id: string, fields: any): Promise<any>;
   
-  getTenantOwnership(tenant_id: string, host_user_id: string): Promise<any>;
-  createTenantOwnership(ownership: any): Promise<any>;
-  listTenantsByHostUser(host_user_id: string): Promise<any[]>;
-  listHostUsersByTenant(tenant_id: string): Promise<any[]>;
+  getInstanceOwnership(instance_id: string, host_user_id: string): Promise<any>;
+  createInstanceOwnership(ownership: any): Promise<any>;
+  listInstancesByHostUser(host_user_id: string): Promise<any[]>;
+  listHostUsersByInstance(instance_id: string): Promise<any[]>;
   
   query(sql: string, params?: any[]): Promise<any[]>;
   disconnect(): Promise<void>;
 }
 
 /**
- * Wraps a DatabaseAPI to automatically inject tenant_id from the app context
+ * Wraps a DatabaseAPI to automatically inject instance_id from the app context
  */
-function wrapWithTenantScope(
+function wrapWithInstanceScope(
   api: DatabaseAPI,
   context?: AppContext<PublicAccountBindings>,
-): TenantScopedDatabaseAPI {
-  const getTenantId = (): string => {
+): InstanceScopedDatabaseAPI {
+  const getInstanceId = (): string => {
     if (!context) {
-      throw new Error("Cannot determine tenant_id: no context provided");
+      throw new Error("Cannot determine instance_id: no context provided");
     }
-    const tenantHandle = (context as any).get?.("tenantHandle");
-    if (!tenantHandle || typeof tenantHandle !== "string") {
-      throw new Error(`Cannot determine tenant_id: tenantHandle is ${tenantHandle}`);
+    const instanceHandle = (context as any).get?.("instanceHandle");
+    if (!instanceHandle || typeof instanceHandle !== "string") {
+      throw new Error(`Cannot determine instance_id: instanceHandle is ${instanceHandle}`);
     }
-    return tenantHandle;
+    return instanceHandle;
   };
 
   return {
-    // Tenant-scoped methods - automatically inject tenant_id
-    getUser: (id: string) => api.getUser(getTenantId(), id),
-    getUserByHandle: (handle: string) => api.getUserByHandle(getTenantId(), handle),
-    searchUsersByName: (query: string, limit?: number) => api.searchUsersByName(getTenantId(), query, limit),
-    createUser: (user: any) => api.createUser(getTenantId(), user),
-    updateUser: (id: string, fields: any) => api.updateUser(getTenantId(), id, fields),
-    renameUserId: (oldId: string, newId: string) => api.renameUserId(getTenantId(), oldId, newId),
+    // Instance-scoped methods - automatically inject instance_id
+    getUser: (id: string) => api.getUser(getInstanceId(), id),
+    getUserByHandle: (handle: string) => api.getUserByHandle(getInstanceId(), handle),
+    searchUsersByName: (query: string, limit?: number) => api.searchUsersByName(getInstanceId(), query, limit),
+    createUser: (user: any) => api.createUser(getInstanceId(), user),
+    updateUser: (id: string, fields: any) => api.updateUser(getInstanceId(), id, fields),
+    renameUserId: (oldId: string, newId: string) => api.renameUserId(getInstanceId(), oldId, newId),
     
     getAccountByProvider: (provider: string, providerAccountId: string) => 
-      api.getAccountByProvider(getTenantId(), provider, providerAccountId),
-    createUserAccount: (account: any) => api.createUserAccount(getTenantId(), account),
+      api.getAccountByProvider(getInstanceId(), provider, providerAccountId),
+    createUserAccount: (account: any) => api.createUserAccount(getInstanceId(), account),
     updateAccountUser: (provider: string, providerAccountId: string, user_id: string) => 
-      api.updateAccountUser(getTenantId(), provider, providerAccountId, user_id),
+      api.updateAccountUser(getInstanceId(), provider, providerAccountId, user_id),
     updateUserAccountPassword: (accountId: string, newPasswordHash: string) => 
-      api.updateUserAccountPassword(getTenantId(), accountId, newPasswordHash),
-    listAccountsByUser: (user_id: string) => api.listAccountsByUser(getTenantId(), user_id),
+      api.updateUserAccountPassword(getInstanceId(), accountId, newPasswordHash),
+    listAccountsByUser: (user_id: string) => api.listAccountsByUser(getInstanceId(), user_id),
     
-    getUserJwtSecret: (userId: string) => api.getUserJwtSecret(getTenantId(), userId),
-    setUserJwtSecret: (userId: string, secret: string) => api.setUserJwtSecret(getTenantId(), userId, secret),
+    getUserJwtSecret: (userId: string) => api.getUserJwtSecret(getInstanceId(), userId),
+    setUserJwtSecret: (userId: string, secret: string) => api.setUserJwtSecret(getInstanceId(), userId, secret),
     
     getFriendRequest: (requester_id: string, addressee_id: string) => 
-      api.getFriendRequest(getTenantId(), requester_id, addressee_id),
+      api.getFriendRequest(getInstanceId(), requester_id, addressee_id),
     getFriendshipBetween: (user_id: string, other_id: string) => 
-      api.getFriendshipBetween(getTenantId(), user_id, other_id),
+      api.getFriendshipBetween(getInstanceId(), user_id, other_id),
     createFriendRequest: (requester_id: string, addressee_id: string) => 
-      api.createFriendRequest(getTenantId(), requester_id, addressee_id),
+      api.createFriendRequest(getInstanceId(), requester_id, addressee_id),
     setFriendStatus: (requester_id: string, addressee_id: string, status: any) => 
-      api.setFriendStatus(getTenantId(), requester_id, addressee_id, status),
+      api.setFriendStatus(getInstanceId(), requester_id, addressee_id, status),
     listFriendships: (user_id: string, status?: any) => 
-      api.listFriendships(getTenantId(), user_id, status),
+      api.listFriendships(getInstanceId(), user_id, status),
     
-    addNotification: (notification: any) => api.addNotification(getTenantId(), notification),
-    listNotifications: (user_id: string) => api.listNotifications(getTenantId(), user_id),
-    markNotificationRead: (id: string) => api.markNotificationRead(getTenantId(), id),
-    countUnreadNotifications: (user_id: string) => api.countUnreadNotifications(getTenantId(), user_id),
+    addNotification: (notification: any) => api.addNotification(getInstanceId(), notification),
+    listNotifications: (user_id: string) => api.listNotifications(getInstanceId(), user_id),
+    markNotificationRead: (id: string) => api.markNotificationRead(getInstanceId(), id),
+    countUnreadNotifications: (user_id: string) => api.countUnreadNotifications(getInstanceId(), user_id),
     
-    createCommunity: (community: any) => api.createCommunity(getTenantId(), community),
-    getCommunity: (id: string) => api.getCommunity(getTenantId(), id),
-    updateCommunity: (id: string, fields: Record<string, any>) => api.updateCommunity(getTenantId(), id, fields),
+    createCommunity: (community: any) => api.createCommunity(getInstanceId(), community),
+    getCommunity: (id: string) => api.getCommunity(getInstanceId(), id),
+    updateCommunity: (id: string, fields: Record<string, any>) => api.updateCommunity(getInstanceId(), id, fields),
     setMembership: (community_id: string, user_id: string, membership: any) => 
-      api.setMembership(getTenantId(), community_id, user_id, membership),
+      api.setMembership(getInstanceId(), community_id, user_id, membership),
     hasMembership: (community_id: string, user_id: string) => 
-      api.hasMembership(getTenantId(), community_id, user_id),
+      api.hasMembership(getInstanceId(), community_id, user_id),
     listMembershipsByCommunity: (community_id: string) => 
-      api.listMembershipsByCommunity(getTenantId(), community_id),
-    listUserCommunities: (user_id: string) => api.listUserCommunities(getTenantId(), user_id),
+      api.listMembershipsByCommunity(getInstanceId(), community_id),
+    listUserCommunities: (user_id: string) => api.listUserCommunities(getInstanceId(), user_id),
     listCommunityMembersWithUsers: (community_id: string) => 
-      api.listCommunityMembersWithUsers(getTenantId(), community_id),
+      api.listCommunityMembersWithUsers(getInstanceId(), community_id),
     
-    listChannelsByCommunity: (community_id: string) => api.listChannelsByCommunity(getTenantId(), community_id),
+    listChannelsByCommunity: (community_id: string) => api.listChannelsByCommunity(getInstanceId(), community_id),
     createChannel: (community_id: string, channel: any) => 
-      api.createChannel(getTenantId(), community_id, channel),
-    getChannel: (community_id: string, id: string) => api.getChannel(getTenantId(), community_id, id),
-    deleteChannel: (community_id: string, id: string) => api.deleteChannel(getTenantId(), community_id, id),
+      api.createChannel(getInstanceId(), community_id, channel),
+    getChannel: (community_id: string, id: string) => api.getChannel(getInstanceId(), community_id, id),
+    deleteChannel: (community_id: string, id: string) => api.deleteChannel(getInstanceId(), community_id, id),
     
-    createInvite: (invite: any) => api.createInvite(getTenantId(), invite),
-    listInvites: (community_id: string) => api.listInvites(getTenantId(), community_id),
-    getInvite: (code: string) => api.getInvite(getTenantId(), code),
-    updateInvite: (code: string, fields: Record<string, any>) => api.updateInvite(getTenantId(), code, fields),
-    disableInvite: (code: string) => api.disableInvite(getTenantId(), code),
-    resetInvites: (community_id: string) => api.resetInvites(getTenantId(), community_id),
+    createInvite: (invite: any) => api.createInvite(getInstanceId(), invite),
+    listInvites: (community_id: string) => api.listInvites(getInstanceId(), community_id),
+    getInvite: (code: string) => api.getInvite(getInstanceId(), code),
+    updateInvite: (code: string, fields: Record<string, any>) => api.updateInvite(getInstanceId(), code, fields),
+    disableInvite: (code: string) => api.disableInvite(getInstanceId(), code),
+    resetInvites: (community_id: string) => api.resetInvites(getInstanceId(), community_id),
     
-    createMemberInvite: (invite: any) => api.createMemberInvite(getTenantId(), invite),
+    createMemberInvite: (invite: any) => api.createMemberInvite(getInstanceId(), invite),
     listMemberInvitesByCommunity: (community_id: string) => 
-      api.listMemberInvitesByCommunity(getTenantId(), community_id),
-    listMemberInvitesForUser: (user_id: string) => api.listMemberInvitesForUser(getTenantId(), user_id),
-    getMemberInvite: (id: string) => api.getMemberInvite(getTenantId(), id),
-    setMemberInviteStatus: (id: string, status: string) => api.setMemberInviteStatus(getTenantId(), id, status),
+      api.listMemberInvitesByCommunity(getInstanceId(), community_id),
+    listMemberInvitesForUser: (user_id: string) => api.listMemberInvitesForUser(getInstanceId(), user_id),
+    getMemberInvite: (id: string) => api.getMemberInvite(getInstanceId(), id),
+    setMemberInviteStatus: (id: string, status: string) => api.setMemberInviteStatus(getInstanceId(), id, status),
     
-    createPost: (post: any) => api.createPost(getTenantId(), post),
-    getPost: (id: string) => api.getPost(getTenantId(), id),
-    listPostsByCommunity: (community_id: string) => api.listPostsByCommunity(getTenantId(), community_id),
-    listGlobalPostsForUser: (user_id: string) => api.listGlobalPostsForUser(getTenantId(), user_id),
-    updatePost: (id: string, fields: Record<string, any>) => api.updatePost(getTenantId(), id, fields),
+    createPost: (post: any) => api.createPost(getInstanceId(), post),
+    getPost: (id: string) => api.getPost(getInstanceId(), id),
+    listPostsByCommunity: (community_id: string) => api.listPostsByCommunity(getInstanceId(), community_id),
+    listGlobalPostsForUser: (user_id: string) => api.listGlobalPostsForUser(getInstanceId(), user_id),
+    updatePost: (id: string, fields: Record<string, any>) => api.updatePost(getInstanceId(), id, fields),
     
-    addReaction: (reaction: any) => api.addReaction(getTenantId(), reaction),
-    listReactionsByPost: (post_id: string) => api.listReactionsByPost(getTenantId(), post_id),
+    addReaction: (reaction: any) => api.addReaction(getInstanceId(), reaction),
+    listReactionsByPost: (post_id: string) => api.listReactionsByPost(getInstanceId(), post_id),
     
-    addComment: (comment: any) => api.addComment(getTenantId(), comment),
-    listCommentsByPost: (post_id: string) => api.listCommentsByPost(getTenantId(), post_id),
+    addComment: (comment: any) => api.addComment(getInstanceId(), comment),
+    listCommentsByPost: (post_id: string) => api.listCommentsByPost(getInstanceId(), post_id),
     
-    createStory: (story: any) => api.createStory(getTenantId(), story),
-    getStory: (id: string) => api.getStory(getTenantId(), id),
-    listStoriesByCommunity: (community_id: string) => api.listStoriesByCommunity(getTenantId(), community_id),
-    listGlobalStoriesForUser: (user_id: string) => api.listGlobalStoriesForUser(getTenantId(), user_id),
-    updateStory: (id: string, fields: Record<string, any>) => api.updateStory(getTenantId(), id, fields),
-    deleteStory: (id: string) => api.deleteStory(getTenantId(), id),
+    createStory: (story: any) => api.createStory(getInstanceId(), story),
+    getStory: (id: string) => api.getStory(getInstanceId(), id),
+    listStoriesByCommunity: (community_id: string) => api.listStoriesByCommunity(getInstanceId(), community_id),
+    listGlobalStoriesForUser: (user_id: string) => api.listGlobalStoriesForUser(getInstanceId(), user_id),
+    updateStory: (id: string, fields: Record<string, any>) => api.updateStory(getInstanceId(), id, fields),
+    deleteStory: (id: string) => api.deleteStory(getInstanceId(), id),
     
-    registerPushDevice: (device: any) => api.registerPushDevice(getTenantId(), device),
-    listPushDevicesByUser: (user_id: string) => api.listPushDevicesByUser(getTenantId(), user_id),
-    removePushDevice: (token: string) => api.removePushDevice(getTenantId(), token),
+    registerPushDevice: (device: any) => api.registerPushDevice(getInstanceId(), device),
+    listPushDevicesByUser: (user_id: string) => api.listPushDevicesByUser(getInstanceId(), user_id),
+    removePushDevice: (token: string) => api.removePushDevice(getInstanceId(), token),
     
-    createAccessToken: (input: any) => api.createAccessToken(getTenantId(), input),
-    getAccessTokenByHash: (token_hash: string) => api.getAccessTokenByHash(getTenantId(), token_hash),
-    listAccessTokensByUser: (user_id: string) => api.listAccessTokensByUser(getTenantId(), user_id),
+    createAccessToken: (input: any) => api.createAccessToken(getInstanceId(), input),
+    getAccessTokenByHash: (token_hash: string) => api.getAccessTokenByHash(getInstanceId(), token_hash),
+    listAccessTokensByUser: (user_id: string) => api.listAccessTokensByUser(getInstanceId(), user_id),
     touchAccessToken: (token_hash: string, fields?: any) => 
-      api.touchAccessToken(getTenantId(), token_hash, fields),
-    deleteAccessToken: (token_hash: string) => api.deleteAccessToken(getTenantId(), token_hash),
+      api.touchAccessToken(getInstanceId(), token_hash, fields),
+    deleteAccessToken: (token_hash: string) => api.deleteAccessToken(getInstanceId(), token_hash),
     
     upsertDmThread: (participantsHash: string, participantsJson: string) => 
-      api.upsertDmThread(getTenantId(), participantsHash, participantsJson),
+      api.upsertDmThread(getInstanceId(), participantsHash, participantsJson),
     createDmMessage: (threadId: string, authorId: string, contentHtml: string, rawActivity: any) => 
-      api.createDmMessage(getTenantId(), threadId, authorId, contentHtml, rawActivity),
-    listDmMessages: (threadId: string, limit?: number) => api.listDmMessages(getTenantId(), threadId, limit),
+      api.createDmMessage(getInstanceId(), threadId, authorId, contentHtml, rawActivity),
+    listDmMessages: (threadId: string, limit?: number) => api.listDmMessages(getInstanceId(), threadId, limit),
     
     createChannelMessageRecord: (communityId: string, channelId: string, authorId: string, contentHtml: string, rawActivity: any) => 
-      api.createChannelMessageRecord(getTenantId(), communityId, channelId, authorId, contentHtml, rawActivity),
+      api.createChannelMessageRecord(getInstanceId(), communityId, channelId, authorId, contentHtml, rawActivity),
     listChannelMessages: (communityId: string, channelId: string, limit?: number) => 
-      api.listChannelMessages(getTenantId(), communityId, channelId, limit),
+      api.listChannelMessages(getInstanceId(), communityId, channelId, limit),
     
     // Session methods
-    createSession: (session: any) => api.createSession(getTenantId(), session),
-    getSession: (id: string) => api.getSession(getTenantId(), id),
-    updateSession: (id: string, data: Record<string, unknown>) => api.updateSession(getTenantId(), id, data),
-    deleteSession: (id: string) => api.deleteSession(getTenantId(), id),
+    createSession: (session: any) => api.createSession(getInstanceId(), session),
+    getSession: (id: string) => api.getSession(getInstanceId(), id),
+    updateSession: (id: string, data: Record<string, unknown>) => api.updateSession(getInstanceId(), id, data),
+    deleteSession: (id: string) => api.deleteSession(getInstanceId(), id),
     
     upsertApOutboxActivity: (input: any) => api.upsertApOutboxActivity(input),
     createApDeliveryQueueItem: (input: any) => api.createApDeliveryQueueItem(input),
@@ -308,17 +308,17 @@ function wrapWithTenantScope(
     countRateLimits: api.countRateLimits,
     createRateLimitEntry: api.createRateLimitEntry,
 
-    // Host-level methods (pass through without tenant_id)
+    // Host-level methods (pass through without instance_id)
     getHostUserById: api.getHostUserById,
     getHostUserByProvider: api.getHostUserByProvider,
     getHostUserByEmail: api.getHostUserByEmail,
     createHostUser: api.createHostUser,
     updateHostUser: api.updateHostUser,
     
-    getTenantOwnership: api.getTenantOwnership,
-    createTenantOwnership: api.createTenantOwnership,
-    listTenantsByHostUser: api.listTenantsByHostUser,
-    listHostUsersByTenant: api.listHostUsersByTenant,
+    getInstanceOwnership: api.getInstanceOwnership,
+    createInstanceOwnership: api.createInstanceOwnership,
+    listInstancesByHostUser: api.listInstancesByHostUser,
+    listHostUsersByInstance: api.listHostUsersByInstance,
     
     query: api.query,
     disconnect: api.disconnect,
@@ -334,14 +334,14 @@ let currentFactory: DataFactory = (env) =>
 /**
  * Creates a database API instance for the takos backend.
  * Uses the currently configured factory (defaults to Prisma+D1).
- * Automatically wraps the API to inject tenant_id from context.
+ * Automatically wraps the API to inject instance_id from context.
  */
 export function makeData(
   env: EnvWithDatabase,
   context?: AppContext<PublicAccountBindings>,
-): TenantScopedDatabaseAPI {
+): InstanceScopedDatabaseAPI {
   const rawApi = currentFactory(env, context);
-  return wrapWithTenantScope(rawApi, context);
+  return wrapWithInstanceScope(rawApi, context);
 }
 
 /**

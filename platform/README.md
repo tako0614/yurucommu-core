@@ -32,7 +32,7 @@ platform/
 │   ├── utils/            # Misc helpers
 │   ├── db-init.ts        # D1 initialisation helpers
 │   ├── guards.ts         # Access-token guard used by ActivityPub routes
-│   ├── subdomain.ts      # Tenant routing middleware
+│   ├── subdomain.ts      # Instance routing middleware
 │   └── types.ts          # Shared binding + model types
 └── package.json
 ```

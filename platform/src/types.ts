@@ -54,8 +54,8 @@ export type Bindings = PrivateAccountBindings;
 
 export type Variables = {
   user: any;
-  tenantHandle: string | null;
-  tenantMode: "user" | "root" | "reserved";
+  instanceHandle: string | null;
+  instanceMode: "user" | "root" | "reserved";
 };
 
 export type AppContext<TBindings extends BaseBindings = Bindings> = Context<{

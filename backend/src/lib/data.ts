@@ -60,7 +60,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return [];
   };
 
-  // -------------- Host Users (tenant-independent) --------------
+  // -------------- Host Users (instance-independent) --------------
   const getHostUserById = async (id: string) => {
     return (prisma as any).host_users.findUnique({ where: { id } });
   };
@@ -115,22 +115,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return (prisma as any).host_users.update({ where: { id }, data });
   };
 
-  // -------------- Tenant Ownerships --------------
-  const getTenantOwnership = async (tenant_id: string, host_user_id: string) => {
-    return (prisma as any).tenant_ownerships.findUnique({
-      where: { tenant_id_host_user_id: { tenant_id, host_user_id } },
+  // -------------- Instance Ownerships --------------
+  const getInstanceOwnership = async (instance_id: string, host_user_id: string) => {
+    return (prisma as any).instance_ownerships.findUnique({
+      where: { instance_id_host_user_id: { instance_id, host_user_id } },
     });
   };
 
-  const createTenantOwnership = async (ownership: {
-    tenant_id: string;
+  const createInstanceOwnership = async (ownership: {
+    instance_id: string;
     host_user_id: string;
     role?: string;
     created_at?: string | Date;
   }) => {
-    return (prisma as any).tenant_ownerships.create({
+    return (prisma as any).instance_ownerships.create({
       data: {
-        tenant_id: ownership.tenant_id,
+        instance_id: ownership.instance_id,
         host_user_id: ownership.host_user_id,
         role: ownership.role ?? "owner",
         created_at: ownership.created_at ? new Date(ownership.created_at) : new Date(),
@@ -138,32 +138,32 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const listTenantsByHostUser = async (host_user_id: string) => {
-    return (prisma as any).tenant_ownerships.findMany({ where: { host_user_id } });
+  const listInstancesByHostUser = async (host_user_id: string) => {
+    return (prisma as any).instance_ownerships.findMany({ where: { host_user_id } });
   };
 
-  const listHostUsersByTenant = async (tenant_id: string) => {
-    return (prisma as any).tenant_ownerships.findMany({ where: { tenant_id } });
+  const listHostUsersByInstance = async (instance_id: string) => {
+    return (prisma as any).instance_ownerships.findMany({ where: { instance_id } });
   };
 
   // -------------- Users --------------
-  const getUser = async (tenant_id: string, id: string) => {
+  const getUser = async (instance_id: string, id: string) => {
     const row = await (prisma as any).users.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
     return mapUser(row);
   };
 
-  const searchUsersByName = async (tenant_id: string, q: string, limit: number = 20) => {
+  const searchUsersByName = async (instance_id: string, q: string, limit: number = 20) => {
     const list = await (prisma as any).users.findMany({
-      where: { tenant_id, display_name: { contains: q } },
+      where: { instance_id, display_name: { contains: q } },
       take: limit,
     });
     return list.map(mapUser);
   };
 
   const createUser = async (
-    tenant_id: string,
+    instance_id: string,
     user: {
       id?: string;
       handle?: string | null;
@@ -178,7 +178,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     if (!id) throw new Error("user id is required");
     const created = await (prisma as any).users.create({
       data: {
-        tenant_id,
+        instance_id,
         id,
         display_name: user.display_name ?? "",
         avatar_url: user.avatar_url ?? "",
@@ -196,7 +196,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const updateUser = async (
-    tenant_id: string,
+    instance_id: string,
     id: string,
     fields: {
       display_name?: string;
@@ -221,27 +221,27 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         : null;
     }
     if (!Object.keys(data).length) {
-      return getUser(tenant_id, id);
+      return getUser(instance_id, id);
     }
     const row = await (prisma as any).users.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data,
     });
     return mapUser(row);
   };
 
-  const getUserByHandle = async (tenant_id: string, handle: string) =>
-    getUser(tenant_id, handle);
+  const getUserByHandle = async (instance_id: string, handle: string) =>
+    getUser(instance_id, handle);
 
   const getAccountByProvider = async (
-    tenant_id: string,
+    instance_id: string,
     provider: string,
     providerAccountId: string,
   ) =>
     (prisma as any).user_accounts.findUnique({
       where: {
-        tenant_id_provider_provider_account_id: {
-          tenant_id,
+        instance_id_provider_provider_account_id: {
+          instance_id,
           provider,
           provider_account_id: providerAccountId,
         },
@@ -249,7 +249,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const createUserAccount = async (
-    tenant_id: string,
+    instance_id: string,
     account: {
       id: string;
       user_id: string;
@@ -261,7 +261,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     const row = await (prisma as any).user_accounts.create({
       data: {
-        tenant_id,
+        instance_id,
         id: account.id,
         user_id: account.user_id,
         provider: account.provider,
@@ -278,15 +278,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const updateAccountUser = async (
-    tenant_id: string,
+    instance_id: string,
     provider: string,
     providerAccountId: string,
     user_id: string,
   ) =>
     (prisma as any).user_accounts.update({
       where: {
-        tenant_id_provider_provider_account_id: {
-          tenant_id,
+        instance_id_provider_provider_account_id: {
+          instance_id,
           provider,
           provider_account_id: providerAccountId,
         },
@@ -295,149 +295,149 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const updateUserAccountPassword = async (
-    tenant_id: string,
+    instance_id: string,
     accountId: string,
     newPasswordHash: string,
   ) =>
     (prisma as any).user_accounts.update({
       where: {
-        tenant_id_id: {
-          tenant_id,
+        instance_id_id: {
+          instance_id,
           id: accountId,
         },
       },
       data: { provider_account_id: newPasswordHash, updated_at: new Date() },
     });
 
-  const listAccountsByUser = async (tenant_id: string, user_id: string) =>
-    (prisma as any).user_accounts.findMany({ where: { tenant_id, user_id } });
+  const listAccountsByUser = async (instance_id: string, user_id: string) =>
+    (prisma as any).user_accounts.findMany({ where: { instance_id, user_id } });
 
-  const renameUserId = async (tenant_id: string, oldId: string, newId: string) => {
+  const renameUserId = async (instance_id: string, oldId: string, newId: string) => {
     if (!oldId || !newId) throw new Error("invalid user id");
-    if (oldId === newId) return getUser(tenant_id, oldId);
+    if (oldId === newId) return getUser(instance_id, oldId);
     const existing = await (prisma as any).users.findUnique({
-      where: { tenant_id_id: { tenant_id, id: newId } },
+      where: { instance_id_id: { instance_id, id: newId } },
     });
     if (existing) throw new Error("user id already exists");
 
     await (prisma as any).$transaction(async (tx: any) => {
       await tx.users.update({
-        where: { tenant_id_id: { tenant_id, id: oldId } },
+        where: { instance_id_id: { instance_id, id: oldId } },
         data: { id: newId },
       });
       await tx.communities.updateMany({
-        where: { tenant_id, created_by: oldId },
+        where: { instance_id, created_by: oldId },
         data: { created_by: newId },
       });
       await tx.memberships.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.member_invites.updateMany({
-        where: { tenant_id, invited_user_id: oldId },
+        where: { instance_id, invited_user_id: oldId },
         data: { invited_user_id: newId },
       });
       await tx.member_invites.updateMany({
-        where: { tenant_id, invited_by: oldId },
+        where: { instance_id, invited_by: oldId },
         data: { invited_by: newId },
       });
       await tx.invites.updateMany({
-        where: { tenant_id, created_by: oldId },
+        where: { instance_id, created_by: oldId },
         data: { created_by: newId },
       });
       await tx.posts.updateMany({
-        where: { tenant_id, author_id: oldId },
+        where: { instance_id, author_id: oldId },
         data: { author_id: newId },
       });
       await tx.post_reactions.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.comments.updateMany({
-        where: { tenant_id, author_id: oldId },
+        where: { instance_id, author_id: oldId },
         data: { author_id: newId },
       });
       await tx.stories.updateMany({
-        where: { tenant_id, author_id: oldId },
+        where: { instance_id, author_id: oldId },
         data: { author_id: newId },
       });
       await tx.friendships.updateMany({
-        where: { tenant_id, requester_id: oldId },
+        where: { instance_id, requester_id: oldId },
         data: { requester_id: newId },
       });
       await tx.friendships.updateMany({
-        where: { tenant_id, addressee_id: oldId },
+        where: { instance_id, addressee_id: oldId },
         data: { addressee_id: newId },
       });
       await tx.access_tokens.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.notifications.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.notifications.updateMany({
-        where: { tenant_id, actor_id: oldId },
+        where: { instance_id, actor_id: oldId },
         data: { actor_id: newId },
       });
       await tx.push_devices.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.sessions.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.user_accounts.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId, updated_at: new Date() },
       });
       await tx.chat_dm_messages.updateMany({
-        where: { tenant_id, author_id: oldId },
+        where: { instance_id, author_id: oldId },
         data: { author_id: newId },
       });
       await tx.chat_channel_messages.updateMany({
-        where: { tenant_id, author_id: oldId },
+        where: { instance_id, author_id: oldId },
         data: { author_id: newId },
       });
       await tx.ap_keypairs.updateMany({
-        where: { tenant_id, user_id: oldId },
+        where: { instance_id, user_id: oldId },
         data: { user_id: newId },
       });
       await tx.ap_outbox_activities.updateMany({
-        where: { tenant_id, local_user_id: oldId },
+        where: { instance_id, local_user_id: oldId },
         data: { local_user_id: newId },
       });
       await tx.ap_inbox_activities.updateMany({
-        where: { tenant_id, local_user_id: oldId },
+        where: { instance_id, local_user_id: oldId },
         data: { local_user_id: newId },
       });
       await tx.ap_follows.updateMany({
-        where: { tenant_id, local_user_id: oldId },
+        where: { instance_id, local_user_id: oldId },
         data: { local_user_id: newId },
       });
       await tx.ap_followers.updateMany({
-        where: { tenant_id, local_user_id: oldId },
+        where: { instance_id, local_user_id: oldId },
         data: { local_user_id: newId },
       });
     });
 
-    return getUser(tenant_id, newId);
+    return getUser(instance_id, newId);
   };
 
   // -------------- JWT Authentication --------------
-  const getUserJwtSecret = async (tenant_id: string, userId: string): Promise<string | null> => {
+  const getUserJwtSecret = async (instance_id: string, userId: string): Promise<string | null> => {
     const user = await (prisma as any).users.findUnique({
-      where: { tenant_id_id: { tenant_id, id: userId } },
+      where: { instance_id_id: { instance_id, id: userId } },
       select: { jwt_secret: true },
     });
     return user?.jwt_secret || null;
   };
 
-  const setUserJwtSecret = async (tenant_id: string, userId: string, secret: string): Promise<void> => {
+  const setUserJwtSecret = async (instance_id: string, userId: string, secret: string): Promise<void> => {
     await (prisma as any).users.update({
-      where: { tenant_id_id: { tenant_id, id: userId } },
+      where: { instance_id_id: { instance_id, id: userId } },
       data: { jwt_secret: secret },
     });
   };
@@ -445,21 +445,21 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   // -------------- Friendships --------------
   type FriendStatus = "pending" | "accepted" | "rejected";
 
-  const getFriendRequest = async (tenant_id: string, requester_id: string, addressee_id: string) =>
+  const getFriendRequest = async (instance_id: string, requester_id: string, addressee_id: string) =>
     (prisma as any).friendships.findUnique({
       where: {
-        tenant_id_requester_id_addressee_id: {
-          tenant_id,
+        instance_id_requester_id_addressee_id: {
+          instance_id,
           requester_id,
           addressee_id,
         },
       },
     });
 
-  const getFriendshipBetween = async (tenant_id: string, user_id: string, other_id: string) =>
+  const getFriendshipBetween = async (instance_id: string, user_id: string, other_id: string) =>
     (prisma as any).friendships.findFirst({
       where: {
-        tenant_id,
+        instance_id,
         OR: [
           { requester_id: user_id, addressee_id: other_id },
           { requester_id: other_id, addressee_id: user_id },
@@ -468,20 +468,20 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const createFriendRequest = async (
-    tenant_id: string,
+    instance_id: string,
     requester_id: string,
     addressee_id: string,
   ) => {
     await (prisma as any).friendships.upsert({
       where: {
-        tenant_id_requester_id_addressee_id: {
-          tenant_id,
+        instance_id_requester_id_addressee_id: {
+          instance_id,
           requester_id,
           addressee_id,
         },
       },
       create: {
-        tenant_id,
+        instance_id,
         requester_id,
         addressee_id,
         status: "pending",
@@ -489,36 +489,36 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       },
       update: { status: "pending" },
     });
-    return getFriendRequest(tenant_id, requester_id, addressee_id);
+    return getFriendRequest(instance_id, requester_id, addressee_id);
   };
 
   const setFriendStatus = async (
-    tenant_id: string,
+    instance_id: string,
     requester_id: string,
     addressee_id: string,
     status: FriendStatus,
   ) => {
     await (prisma as any).friendships.update({
       where: {
-        tenant_id_requester_id_addressee_id: {
-          tenant_id,
+        instance_id_requester_id_addressee_id: {
+          instance_id,
           requester_id,
           addressee_id,
         },
       },
       data: { status },
     });
-    return getFriendRequest(tenant_id, requester_id, addressee_id);
+    return getFriendRequest(instance_id, requester_id, addressee_id);
   };
 
   const listFriendships = async (
-    tenant_id: string,
+    instance_id: string,
     user_id: string,
     status: FriendStatus | null = null,
   ) =>
     (prisma as any).friendships.findMany({
       where: {
-        tenant_id,
+        instance_id,
         ...(status ? { status } : {}),
         OR: [
           { requester_id: user_id },
@@ -530,7 +530,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   // -------------- Notifications --------------
   const addNotification = async (
-    tenant_id: string,
+    instance_id: string,
     n: {
       id: string;
       user_id: string;
@@ -545,7 +545,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).notifications.create({
       data: {
-        tenant_id,
+        instance_id,
         id: n.id,
         user_id: n.user_id,
         type: n.type,
@@ -562,9 +562,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return n;
   };
 
-  const listNotifications = async (tenant_id: string, user_id: string) => {
+  const listNotifications = async (instance_id: string, user_id: string) => {
     const res = await (prisma as any).notifications.findMany({
-      where: { tenant_id, user_id },
+      where: { instance_id, user_id },
     });
     // sort newest first at API
     return (res as Array<any>).sort((
@@ -576,23 +576,23 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     }));
   };
 
-  const markNotificationRead = async (tenant_id: string, id: string) => {
+  const markNotificationRead = async (instance_id: string, id: string) => {
     await (prisma as any).notifications.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data: { read: 1 },
     });
   };
 
-  const countUnreadNotifications = async (tenant_id: string, user_id: string) => {
+  const countUnreadNotifications = async (instance_id: string, user_id: string) => {
     const res = await (prisma as any).notifications.findMany({
-      where: { tenant_id, user_id, read: 0 },
+      where: { instance_id, user_id, read: 0 },
     });
     return res.length;
   };
 
   // -------------- Communities / Memberships --------------
   const createCommunity = async (
-    tenant_id: string,
+    instance_id: string,
     community: {
       id: string;
       name: string;
@@ -604,7 +604,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).communities.create({
       data: {
-        tenant_id,
+        instance_id,
         id: community.id,
         name: community.name,
         icon_url: community.icon_url ?? "",
@@ -618,12 +618,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return community;
   };
 
-  const getCommunity = async (tenant_id: string, id: string) =>
+  const getCommunity = async (instance_id: string, id: string) =>
     (prisma as any).communities.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
 
-  const updateCommunity = async (tenant_id: string, id: string, fields: Record<string, any>) => {
+  const updateCommunity = async (instance_id: string, id: string, fields: Record<string, any>) => {
     const allowed = [
       "name",
       "icon_url",
@@ -635,16 +635,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     for (const [k, v] of Object.entries(fields)) {
       if (allowed.includes(k)) data[k] = v;
     }
-    if (Object.keys(data).length === 0) return getCommunity(tenant_id, id);
+    if (Object.keys(data).length === 0) return getCommunity(instance_id, id);
     await (prisma as any).communities.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data,
     });
-    return getCommunity(tenant_id, id);
+    return getCommunity(instance_id, id);
   };
 
   const setMembership = async (
-    tenant_id: string,
+    instance_id: string,
     community_id: string,
     user_id: string,
     v: {
@@ -656,10 +656,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).memberships.upsert({
       where: {
-        tenant_id_community_id_user_id: { tenant_id, community_id, user_id },
+        instance_id_community_id_user_id: { instance_id, community_id, user_id },
       },
       create: {
-        tenant_id,
+        instance_id,
         community_id,
         user_id,
         role: v.role ?? "Member",
@@ -676,38 +676,38 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const hasMembership = async (tenant_id: string, community_id: string, user_id: string) => {
+  const hasMembership = async (instance_id: string, community_id: string, user_id: string) => {
     const m = await (prisma as any).memberships.findUnique({
       where: {
-        tenant_id_community_id_user_id: { tenant_id, community_id, user_id },
+        instance_id_community_id_user_id: { instance_id, community_id, user_id },
       },
     });
     return !!m;
   };
 
-  const listMembershipsByCommunity = async (tenant_id: string, community_id: string) =>
-    (prisma as any).memberships.findMany({ where: { tenant_id, community_id } });
+  const listMembershipsByCommunity = async (instance_id: string, community_id: string) =>
+    (prisma as any).memberships.findMany({ where: { instance_id, community_id } });
 
-  const listUserCommunities = async (tenant_id: string, user_id: string) => {
+  const listUserCommunities = async (instance_id: string, user_id: string) => {
     const mems = await (prisma as any).memberships.findMany({
-      where: { tenant_id, user_id },
+      where: { instance_id, user_id },
     });
     const ids = mems.map((m: { community_id: string }) => m.community_id);
     if (ids.length === 0) return [];
     return (prisma as any).communities.findMany({
-      where: { tenant_id, id: { in: ids } },
+      where: { instance_id, id: { in: ids } },
     });
   };
 
-  const listCommunityMembersWithUsers = async (tenant_id: string, community_id: string) => {
+  const listCommunityMembersWithUsers = async (instance_id: string, community_id: string) => {
     const mems: any[] = await (prisma as any).memberships.findMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
     });
     const userIds = Array.from(new Set(mems.map((m: any) => m.user_id)));
     const users = userIds.length
       ? await (prisma as any).users.findMany({
           where: {
-            tenant_id,
+            instance_id,
             id: { in: userIds },
           },
         })
@@ -735,9 +735,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         : (row.created_at ?? new Date().toISOString()),
   });
 
-  const listChannelsByCommunity = async (tenant_id: string, community_id: string) => {
+  const listChannelsByCommunity = async (instance_id: string, community_id: string) => {
     const rows = await (prisma as any).channels.findMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
     });
     const mapped = rows.map(mapChannelRow);
     mapped.sort((a: { id: string; name: any; }, b: { id: string; name: any; }) =>
@@ -751,13 +751,13 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const createChannel = async (
-    tenant_id: string,
+    instance_id: string,
     community_id: string,
     channel: { id: string; name: string; created_at?: string | Date },
   ) => {
     const created = await (prisma as any).channels.create({
       data: {
-        tenant_id,
+        instance_id,
         id: channel.id,
         community_id,
         name: channel.name,
@@ -767,22 +767,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return mapChannelRow(created);
   };
 
-  const getChannel = async (tenant_id: string, community_id: string, id: string) => {
+  const getChannel = async (instance_id: string, community_id: string, id: string) => {
     const row = await (prisma as any).channels.findFirst({
-      where: { tenant_id, community_id, id },
+      where: { instance_id, community_id, id },
     });
     return row ? mapChannelRow(row) : null;
   };
 
-  const deleteChannel = async (tenant_id: string, community_id: string, id: string) => {
+  const deleteChannel = async (instance_id: string, community_id: string, id: string) => {
     if (id === "general") return; // never delete general
     await (prisma as any).channels.deleteMany({
-      where: { tenant_id, community_id, id },
+      where: { instance_id, community_id, id },
     });
   };
 
   // -------------- Invites --------------
-  const createInvite = async (tenant_id: string, invite: {
+  const createInvite = async (instance_id: string, invite: {
     code: string;
     community_id: string;
     expires_at?: NullableDate;
@@ -793,7 +793,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   }) => {
     await (prisma as any).invites.create({
       data: {
-        tenant_id,
+        instance_id,
         code: invite.code,
         community_id: invite.community_id,
         expires_at: invite.expires_at ? new Date(invite.expires_at) : null,
@@ -808,9 +808,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return invite;
   };
 
-  const listInvites = async (tenant_id: string, community_id: string) => {
+  const listInvites = async (instance_id: string, community_id: string) => {
     const res = await (prisma as any).invites.findMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
     });
     return res.map((r: any) => ({
       ...r,
@@ -818,39 +818,39 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     })) as any;
   };
 
-  const getInvite = async (tenant_id: string, code: string) => {
+  const getInvite = async (instance_id: string, code: string) => {
     const r = await (prisma as any).invites.findUnique({
-      where: { tenant_id_code: { tenant_id, code } },
+      where: { instance_id_code: { instance_id, code } },
     });
     return r ? { ...r, active: toBool(r.active) } as any : null;
   };
 
-  const updateInvite = async (tenant_id: string, code: string, fields: Record<string, any>) => {
+  const updateInvite = async (instance_id: string, code: string, fields: Record<string, any>) => {
     const data: any = {};
     for (const [k, v] of Object.entries(fields)) {
       if (k === "active") data[k] = v ? 1 : 0;
       else data[k] = v;
     }
     await (prisma as any).invites.update({
-      where: { tenant_id_code: { tenant_id, code } },
+      where: { instance_id_code: { instance_id, code } },
       data,
     });
-    return getInvite(tenant_id, code);
+    return getInvite(instance_id, code);
   };
 
-  const disableInvite = async (tenant_id: string, code: string) =>
-    updateInvite(tenant_id, code, { active: 0 });
+  const disableInvite = async (instance_id: string, code: string) =>
+    updateInvite(instance_id, code, { active: 0 });
 
-  const resetInvites = async (tenant_id: string, community_id: string) => {
+  const resetInvites = async (instance_id: string, community_id: string) => {
     await (prisma as any).invites.updateMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
       data: { active: 0 },
     });
   };
 
   // -------------- Direct Member Invites --------------
   const createMemberInvite = async (
-    tenant_id: string,
+    instance_id: string,
     invite: {
       id: string;
       community_id: string;
@@ -862,7 +862,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).member_invites.create({
       data: {
-        tenant_id,
+        instance_id,
         id: invite.id,
         community_id: invite.community_id,
         invited_user_id: invite.invited_user_id,
@@ -876,27 +876,27 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return invite;
   };
 
-  const listMemberInvitesByCommunity = async (tenant_id: string, community_id: string) =>
-    (prisma as any).member_invites.findMany({ where: { tenant_id, community_id } });
-  const listMemberInvitesForUser = async (tenant_id: string, user_id: string) =>
+  const listMemberInvitesByCommunity = async (instance_id: string, community_id: string) =>
+    (prisma as any).member_invites.findMany({ where: { instance_id, community_id } });
+  const listMemberInvitesForUser = async (instance_id: string, user_id: string) =>
     (prisma as any).member_invites.findMany({
-      where: { tenant_id, invited_user_id: user_id, status: "pending" },
+      where: { instance_id, invited_user_id: user_id, status: "pending" },
     });
-  const getMemberInvite = async (tenant_id: string, id: string) =>
+  const getMemberInvite = async (instance_id: string, id: string) =>
     (prisma as any).member_invites.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
-  const setMemberInviteStatus = async (tenant_id: string, id: string, status: string) => {
+  const setMemberInviteStatus = async (instance_id: string, id: string, status: string) => {
     await (prisma as any).member_invites.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data: { status },
     });
-    return getMemberInvite(tenant_id, id);
+    return getMemberInvite(instance_id, id);
   };
 
   // -------------- Posts --------------
   const createPost = async (
-    tenant_id: string,
+    instance_id: string,
     post: {
       id: string;
       community_id: string | null;
@@ -921,7 +921,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         : !!post.visible_to_friends;
     await (prisma as any).posts.create({
       data: {
-        tenant_id,
+        instance_id,
         id: post.id,
         community_id: post.community_id ?? null,
         author_id: post.author_id,
@@ -948,9 +948,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
   };
 
-  const getPost = async (tenant_id: string, id: string) => {
+  const getPost = async (instance_id: string, id: string) => {
     const r = await (prisma as any).posts.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
     return r
       ? {
@@ -965,10 +965,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       : null;
   };
 
-  const listPostsByCommunity = async (tenant_id: string, community_id: string) => {
+  const listPostsByCommunity = async (instance_id: string, community_id: string) => {
     // Restrict community timelines to posts explicitly authored for the community.
     const res = await (prisma as any).posts.findMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
     });
     return res.map((r: any) => ({
       ...r,
@@ -981,10 +981,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     })) as any;
   };
 
-  const listGlobalPostsForUser = async (tenant_id: string, user_id: string) => {
+  const listGlobalPostsForUser = async (instance_id: string, user_id: string) => {
     const relations: any[] = await (prisma as any).friendships.findMany({
       where: {
-        tenant_id,
+        instance_id,
         status: "accepted",
         OR: [
           { requester_id: user_id },
@@ -1003,7 +1003,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const authorIds = [user_id, ...friendIds];
     const res = await (prisma as any).posts.findMany({
       where: {
-        tenant_id,
+        instance_id,
         community_id: null,
         author_id: { in: authorIds as any },
       },
@@ -1025,7 +1025,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const updatePost = async (tenant_id: string, id: string, fields: Record<string, any>) => {
+  const updatePost = async (instance_id: string, id: string, fields: Record<string, any>) => {
     const data: any = {};
     for (const [k, v] of Object.entries(fields)) {
       if (k === "media_urls") data["media_json"] = JSON.stringify(v ?? []);
@@ -1036,15 +1036,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       else data[k] = v;
     }
     await (prisma as any).posts.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data,
     });
-    return getPost(tenant_id, id);
+    return getPost(instance_id, id);
   };
 
   // -------------- Reactions --------------
   const addReaction = async (
-    tenant_id: string,
+    instance_id: string,
     r: {
       id: string;
       post_id: string;
@@ -1056,7 +1056,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).post_reactions.create({
       data: {
-        tenant_id,
+        instance_id,
         ...r,
         created_at: new Date(r.created_at),
         ap_activity_id: r.ap_activity_id || null,
@@ -1065,12 +1065,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return r;
   };
 
-  const listReactionsByPost = async (tenant_id: string, post_id: string) =>
-    (prisma as any).post_reactions.findMany({ where: { tenant_id, post_id } });
+  const listReactionsByPost = async (instance_id: string, post_id: string) =>
+    (prisma as any).post_reactions.findMany({ where: { instance_id, post_id } });
 
   // -------------- Comments --------------
   const addComment = async (
-    tenant_id: string,
+    instance_id: string,
     cmt: {
       id: string;
       post_id: string;
@@ -1083,7 +1083,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     await (prisma as any).comments.create({
       data: {
-        tenant_id,
+        instance_id,
         ...cmt,
         created_at: new Date(cmt.created_at),
         ap_object_id: cmt.ap_object_id || null,
@@ -1093,12 +1093,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return cmt;
   };
 
-  const listCommentsByPost = async (tenant_id: string, post_id: string) =>
-    (prisma as any).comments.findMany({ where: { tenant_id, post_id } });
+  const listCommentsByPost = async (instance_id: string, post_id: string) =>
+    (prisma as any).comments.findMany({ where: { instance_id, post_id } });
 
   // -------------- Stories --------------
   const createStory = async (
-    tenant_id: string,
+    instance_id: string,
     story: {
       id: string;
       community_id: string | null;
@@ -1119,7 +1119,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         : !!story.visible_to_friends;
     await (prisma as any).stories.create({
       data: {
-        tenant_id,
+        instance_id,
         id: story.id,
         community_id: story.community_id ?? null,
         author_id: story.author_id,
@@ -1139,9 +1139,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
   };
 
-  const getStory = async (tenant_id: string, id: string) => {
+  const getStory = async (instance_id: string, id: string) => {
     const r = await (prisma as any).stories.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
     return r
       ? {
@@ -1154,9 +1154,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       : null;
   };
 
-  const listStoriesByCommunity = async (tenant_id: string, community_id: string) => {
+  const listStoriesByCommunity = async (instance_id: string, community_id: string) => {
     const mems: any[] = await (prisma as any).memberships.findMany({
-      where: { tenant_id, community_id },
+      where: { instance_id, community_id },
     });
     const memberIds = Array.from(new Set(mems.map((m: any) => m.user_id)));
     const orConds: any[] = [{ community_id }];
@@ -1164,7 +1164,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       orConds.push({ broadcast_all: 1, author_id: { in: memberIds as any } });
     }
     const res = await (prisma as any).stories.findMany({
-      where: { tenant_id, OR: orConds as any },
+      where: { instance_id, OR: orConds as any },
     });
     return res.map((r: any) => ({
       ...r,
@@ -1175,10 +1175,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     })) as any;
   };
 
-  const listGlobalStoriesForUser = async (tenant_id: string, user_id: string) => {
+  const listGlobalStoriesForUser = async (instance_id: string, user_id: string) => {
     const relations: any[] = await (prisma as any).friendships.findMany({
       where: {
-        tenant_id,
+        instance_id,
         status: "accepted",
         OR: [
           { requester_id: user_id },
@@ -1197,7 +1197,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const authorIds = [user_id, ...friendIds];
     const res = await (prisma as any).stories.findMany({
       where: {
-        tenant_id,
+        instance_id,
         community_id: null,
         author_id: { in: authorIds as any },
       },
@@ -1217,7 +1217,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const updateStory = async (tenant_id: string, id: string, fields: Record<string, any>) => {
+  const updateStory = async (instance_id: string, id: string, fields: Record<string, any>) => {
     const data: any = {};
     for (const [k, v] of Object.entries(fields)) {
       if (k === "items") data["items_json"] = JSON.stringify(v ?? []);
@@ -1226,15 +1226,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       else data[k] = v;
     }
     await (prisma as any).stories.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data,
     });
-    return getStory(tenant_id, id);
+    return getStory(instance_id, id);
   };
 
-  const deleteStory = async (tenant_id: string, id: string) => {
+  const deleteStory = async (instance_id: string, id: string) => {
     await (prisma as any).stories.delete({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
   };
 
@@ -1247,10 +1247,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     locale?: string | null;
   };
 
-  const registerPushDevice = async (tenant_id: string, device: PushDeviceInput) => {
+  const registerPushDevice = async (instance_id: string, device: PushDeviceInput) => {
     const now = new Date();
     return (prisma as any).push_devices.upsert({
-      where: { tenant_id_token: { tenant_id, token: device.token } },
+      where: { instance_id_token: { instance_id, token: device.token } },
       update: {
         user_id: device.user_id,
         platform: device.platform,
@@ -1260,7 +1260,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       },
       create: {
         id: crypto.randomUUID(),
-        tenant_id,
+        instance_id,
         user_id: device.user_id,
         token: device.token,
         platform: device.platform,
@@ -1272,13 +1272,13 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const listPushDevicesByUser = async (tenant_id: string, user_id: string) =>
-    (prisma as any).push_devices.findMany({ where: { tenant_id, user_id } });
+  const listPushDevicesByUser = async (instance_id: string, user_id: string) =>
+    (prisma as any).push_devices.findMany({ where: { instance_id, user_id } });
 
-  const removePushDevice = async (tenant_id: string, token: string) => {
+  const removePushDevice = async (instance_id: string, token: string) => {
     try {
       await (prisma as any).push_devices.delete({
-        where: { tenant_id_token: { tenant_id, token } },
+        where: { instance_id_token: { instance_id, token } },
       });
     } catch (error) {
       // Ignore missing token errors so callers can fire-and-forget.
@@ -1290,7 +1290,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   // -------------- Access tokens --------------
   const createAccessToken = async (
-    tenant_id: string,
+    instance_id: string,
     input: {
       id?: string;
       user_id: string;
@@ -1303,7 +1303,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const row = await (prisma as any).access_tokens.create({
       data: {
         id: input.id ?? crypto.randomUUID(),
-        tenant_id,
+        instance_id,
         user_id: input.user_id,
         token_hash: input.token_hash,
         label: input.label ?? "",
@@ -1314,16 +1314,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return row;
   };
 
-  const getAccessTokenByHash = async (tenant_id: string, token_hash: string) =>
+  const getAccessTokenByHash = async (instance_id: string, token_hash: string) =>
     (prisma as any).access_tokens.findUnique({
-      where: { tenant_id_token_hash: { tenant_id, token_hash } },
+      where: { instance_id_token_hash: { instance_id, token_hash } },
     });
 
-  const listAccessTokensByUser = async (tenant_id: string, user_id: string) =>
-    (prisma as any).access_tokens.findMany({ where: { tenant_id, user_id } });
+  const listAccessTokensByUser = async (instance_id: string, user_id: string) =>
+    (prisma as any).access_tokens.findMany({ where: { instance_id, user_id } });
 
   const touchAccessToken = async (
-    tenant_id: string,
+    instance_id: string,
     token_hash: string,
     fields: { last_used_at?: string | Date | null; expires_at?: string | Date | null } = {},
   ) => {
@@ -1341,7 +1341,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     }
     try {
       await (prisma as any).access_tokens.update({
-        where: { tenant_id_token_hash: { tenant_id, token_hash } },
+        where: { instance_id_token_hash: { instance_id, token_hash } },
         data,
       });
     } catch (error) {
@@ -1349,10 +1349,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     }
   };
 
-  const deleteAccessToken = async (tenant_id: string, token_hash: string) => {
+  const deleteAccessToken = async (instance_id: string, token_hash: string) => {
     try {
       await (prisma as any).access_tokens.delete({
-        where: { tenant_id_token_hash: { tenant_id, token_hash } },
+        where: { instance_id_token_hash: { instance_id, token_hash } },
       });
     } catch (error) {
       if ((error as any)?.code !== "P2025") throw error;
@@ -1361,17 +1361,17 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   // -------------- Chat: DM --------------
   const upsertDmThread = async (
-    tenant_id: string,
+    instance_id: string,
     participantsHash: string,
     participantsJson: string,
   ) => {
     const thread = await (prisma as any).chat_dm_threads.upsert({
       where: {
-        tenant_id_participants_hash: { tenant_id, participants_hash: participantsHash },
+        instance_id_participants_hash: { instance_id, participants_hash: participantsHash },
       },
       create: {
         id: participantsHash,
-        tenant_id,
+        instance_id,
         participants_hash: participantsHash,
         participants_json: participantsJson,
       },
@@ -1383,7 +1383,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const createDmMessage = async (
-    tenant_id: string,
+    instance_id: string,
     threadId: string,
     authorId: string,
     contentHtml: string,
@@ -1392,7 +1392,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return (prisma as any).chat_dm_messages.create({
       data: {
         id: crypto.randomUUID(),
-        tenant_id,
+        instance_id,
         thread_id: threadId,
         author_id: authorId,
         content_html: contentHtml,
@@ -1401,16 +1401,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const listDmMessages = async (tenant_id: string, threadId: string, limit = 50) =>
+  const listDmMessages = async (instance_id: string, threadId: string, limit = 50) =>
     (prisma as any).chat_dm_messages.findMany({
-      where: { tenant_id, thread_id: threadId },
+      where: { instance_id, thread_id: threadId },
       orderBy: { created_at: "desc" },
       take: limit,
     });
 
   // -------------- Chat: Channel --------------
   const createChannelMessageRecord = async (
-    tenant_id: string,
+    instance_id: string,
     communityId: string,
     channelId: string,
     authorId: string,
@@ -1420,7 +1420,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     (prisma as any).chat_channel_messages.create({
       data: {
         id: crypto.randomUUID(),
-        tenant_id,
+        instance_id,
         community_id: communityId,
         channel_id: channelId,
         author_id: authorId,
@@ -1430,19 +1430,19 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const listChannelMessages = async (
-    tenant_id: string,
+    instance_id: string,
     communityId: string,
     channelId: string,
     limit = 50,
   ) =>
     (prisma as any).chat_channel_messages.findMany({
-      where: { tenant_id, community_id: communityId, channel_id: channelId },
+      where: { instance_id, community_id: communityId, channel_id: channelId },
       orderBy: { created_at: "desc" },
       take: limit,
   });
 
   // -------------- Sessions --------------
-  const createSession = async (tenant_id: string, session: {
+  const createSession = async (instance_id: string, session: {
     id: string;
     user_id: string;
     created_at?: string | Date;
@@ -1452,7 +1452,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const now = new Date();
     return (prisma as any).sessions.create({
       data: {
-        tenant_id,
+        instance_id,
         id: session.id,
         user_id: session.user_id,
         created_at: session.created_at ? new Date(session.created_at) : now,
@@ -1462,12 +1462,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const getSession = async (tenant_id: string, id: string) =>
+  const getSession = async (instance_id: string, id: string) =>
     (prisma as any).sessions.findUnique({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
     });
 
-  const updateSession = async (tenant_id: string, id: string, data: {
+  const updateSession = async (instance_id: string, id: string, data: {
     last_seen?: string | Date;
     expires_at?: string | Date | null;
   }) => {
@@ -1479,15 +1479,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       updateData.expires_at = data.expires_at ? new Date(data.expires_at) : null;
     }
     return (prisma as any).sessions.update({
-      where: { tenant_id_id: { tenant_id, id } },
+      where: { instance_id_id: { instance_id, id } },
       data: updateData,
     });
   };
 
-  const deleteSession = async (tenant_id: string, id: string) => {
+  const deleteSession = async (instance_id: string, id: string) => {
     try {
       await (prisma as any).sessions.delete({
-        where: { tenant_id_id: { tenant_id, id } },
+        where: { instance_id_id: { instance_id, id } },
       });
     } catch (error) {
       if ((error as any)?.code !== "P2025") throw error;
@@ -2172,17 +2172,17 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   return {
-    // Host Users (tenant-independent)
+    // Host Users (instance-independent)
     getHostUserById,
     getHostUserByProvider,
     getHostUserByEmail,
     createHostUser,
     updateHostUser,
-    // Tenant Ownerships
-    getTenantOwnership,
-    createTenantOwnership,
-    listTenantsByHostUser,
-    listHostUsersByTenant,
+    // Instance Ownerships
+    getInstanceOwnership,
+    createInstanceOwnership,
+    listInstancesByHostUser,
+    listHostUsersByInstance,
     // users
     getUser,
     getUserByHandle,

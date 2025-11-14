@@ -17,7 +17,7 @@ model users {
   created_at           DateTime
   is_private           Int       @default(1)
   profile_completed_at DateTime?
-  jwt_secret           String? // JWT secret for this user (tenant)
+  jwt_secret           String? // JWT secret for this user (instance)
 
   // ActivityPub fields
   summary                     String? // Bio/profile description

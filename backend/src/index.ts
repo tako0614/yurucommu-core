@@ -92,7 +92,7 @@ export type CreateTakosAppConfig = {
   ensureDatabase?: EnsureDatabaseFn;
   features?: FeatureConfig;
   instanceDomain?: string;
-  tenantHandle?: string | null;
+  instanceHandle?: string | null;
 };
 
 type DefaultConfig = {
@@ -100,7 +100,7 @@ type DefaultConfig = {
   prismaFactory: (env: PrismaEnv) => unknown;
   ensureDatabase: EnsureDatabaseFn;
   instanceDomain: string | undefined;
-  tenantHandle: string | null;
+  instanceHandle: string | null;
 };
 
 const defaultConfig: DefaultConfig = {
@@ -108,7 +108,7 @@ const defaultConfig: DefaultConfig = {
   prismaFactory: (env: PrismaEnv) => getPrisma(env.DB),
   ensureDatabase: (env: Bindings) => ensureDatabaseDefault(env.DB),
   instanceDomain: undefined,
-  tenantHandle: null,
+  instanceHandle: null,
 };
 
 let ensureDatabaseFn: EnsureDatabaseFn = defaultConfig.ensureDatabase;
@@ -129,7 +129,7 @@ function applyConfig(config: CreateTakosAppConfig = {}): void {
   setFeatureConfig(config.features);
   setInstanceConfig({
     instanceDomain: config.instanceDomain,
-    tenantHandle: config.tenantHandle ?? null,
+    instanceHandle: config.instanceHandle ?? null,
   });
 }
 
@@ -434,7 +434,7 @@ async function notify(
   if (gateway && secret) {
     try {
       const payload = {
-        tenant: env.INSTANCE_DOMAIN,
+        instance: env.INSTANCE_DOMAIN,
         userId: user_id,
         notification: record,
       };
@@ -461,7 +461,7 @@ async function notify(
   try {
     const pushServiceUrl = env.DEFAULT_PUSH_SERVICE_URL || "https://yurucommu.com/internal/push/events";
     const payload = {
-      tenant: env.INSTANCE_DOMAIN,
+      instance: env.INSTANCE_DOMAIN,
       userId: user_id,
       notification: record,
     };
@@ -602,9 +602,9 @@ app.get("/media/*", async (c) => {
 
 // Simple auth: cookie or Authorization: Bearer <session_id>
 const auth = async (c: any, next: () => Promise<void>) => {
-  const tenantMode = c.get("tenantMode");
-  const tenantHandle = c.get("tenantHandle");
-  if (tenantMode !== "user" || !tenantHandle) {
+  const instanceMode = c.get("instanceMode");
+  const instanceHandle = c.get("instanceHandle");
+  if (instanceMode !== "user" || !instanceHandle) {
     return fail(
       c,
       "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
@@ -614,10 +614,10 @@ const auth = async (c: any, next: () => Promise<void>) => {
   const store = makeData(c.env as any, c);
   const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore, tenantHandle);
+    const authResult = await authenticateJWT(c, jwtStore, instanceHandle);
     if (!authResult) return fail(c, "Unauthorized", 401);
-    if ((authResult.user as any)?.id !== tenantHandle) {
-      return fail(c, "tenant mismatch", 403);
+    if ((authResult.user as any)?.id !== instanceHandle) {
+      return fail(c, "instance mismatch", 403);
     }
     c.set("user", authResult.user);
     await next();
@@ -627,17 +627,17 @@ const auth = async (c: any, next: () => Promise<void>) => {
 };
 
 const optionalAuth = async (c: any, next: () => Promise<void>) => {
-  const tenantMode = c.get("tenantMode");
-  const tenantHandle = c.get("tenantHandle");
-  if (tenantMode !== "user" || !tenantHandle) {
+  const instanceMode = c.get("instanceMode");
+  const instanceHandle = c.get("instanceHandle");
+  if (instanceMode !== "user" || !instanceHandle) {
     await next();
     return;
   }
   const store = makeData(c.env as any, c);
   const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore, tenantHandle);
-    if (authResult && (authResult.user as any)?.id === tenantHandle) {
+    const authResult = await authenticateJWT(c, jwtStore, instanceHandle);
+    if (authResult && (authResult.user as any)?.id === instanceHandle) {
       c.set("user", authResult.user);
     }
   } catch {
@@ -685,8 +685,8 @@ app.post("/auth/password/login", async (c) => {
     if (!user) {
       return fail(c, "user not found in database", 500);
     }
-    const tenantId = c.get("tenantHandle") || user.id;
-    const { token } = await createUserJWT(c, store, tenantId, user.id);
+    const instanceId = c.get("instanceHandle") || user.id;
+    const { token } = await createUserJWT(c, store, instanceId, user.id);
     return ok(c, { user, token });
   } finally {
     await releaseStore(store);
@@ -694,9 +694,9 @@ app.post("/auth/password/login", async (c) => {
 });
 
 app.post("/auth/session/token", async (c) => {
-  const tenantId = c.get("tenantHandle");
-  if (!tenantId) {
-    return fail(c, "tenant context required", 400);
+  const instanceId = c.get("instanceHandle");
+  if (!instanceId) {
+    return fail(c, "instance context required", 400);
   }
   const store = makeData(c.env as any, c);
   try {
@@ -708,7 +708,7 @@ app.post("/auth/session/token", async (c) => {
     if (!userId) {
       return fail(c, "invalid session", 400);
     }
-    const { token } = await createUserJWT(c, store, tenantId, userId);
+    const { token } = await createUserJWT(c, store, instanceId, userId);
     return ok(c, { token, user: authResult.user });
   } finally {
     await releaseStore(store);
@@ -1736,9 +1736,9 @@ const normalizeUserIdParam = (input: string): string => {
 
 // Fetch another user's public profile
 app.get("/users/:id", optionalAuth, async (c) => {
-  const tenantMode = c.get("tenantMode");
-  const tenantHandle = c.get("tenantHandle");
-  if (tenantMode !== "user" || !tenantHandle) {
+  const instanceMode = c.get("instanceMode");
+  const instanceHandle = c.get("instanceHandle");
+  if (instanceMode !== "user" || !instanceHandle) {
     return fail(
       c,
       "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
@@ -2001,13 +2001,13 @@ app.post("/me/push-devices", auth, async (c) => {
       device_name: deviceName,
       locale,
     });
-    const tenant = c.env.INSTANCE_DOMAIN!;
+    const instance = c.env.INSTANCE_DOMAIN!;
     let registration: PushRegistrationEnvelope | null = null;
     try {
       registration = await buildPushRegistrationPayload(c.env, {
         action: "register",
         payload: {
-          tenant,
+          instance,
           userId: me.id,
           token,
           platform,
@@ -2034,13 +2034,13 @@ app.delete("/me/push-devices", auth, async (c) => {
     if (!token) return fail(c, "token is required", 400);
     await store.removePushDevice(token);
     const me = c.get("user") as any;
-    const tenant = c.env.INSTANCE_DOMAIN!;
+    const instance = c.env.INSTANCE_DOMAIN!;
     let registration: PushRegistrationEnvelope | null = null;
     try {
       registration = await buildPushRegistrationPayload(c.env, {
         action: "deregister",
         payload: {
-          tenant,
+          instance,
           userId: me?.id || "",
           token,
           platform: "",
