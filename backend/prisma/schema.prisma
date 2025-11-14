@@ -25,7 +25,6 @@ model users {
 
   // Relations
   accounts                 user_accounts[]
-  access_tokens            access_tokens[]
   friend_requests_received friendships[]           @relation("addressee")
   friend_requests_sent     friendships[]           @relation("requester")
   created_communities      communities[]           @relation("community_creator")
@@ -239,21 +238,6 @@ model user_accounts {
   @@unique([provider, provider_account_id])
   @@index([user_id])
   @@map("user_accounts")
-}
-
-model access_tokens {
-  id           String    @id
-  user_id      String
-  token_hash   String    @unique
-  label        String    @default("")
-  created_at   DateTime  @default(now())
-  expires_at   DateTime?
-  last_used_at DateTime?
-
-  user users @relation(fields: [user_id], references: [id])
-
-  @@index([user_id])
-  @@map("access_tokens")
 }
 
 model chat_dm_threads {

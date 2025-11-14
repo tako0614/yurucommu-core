@@ -269,10 +269,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         where: { addressee_id: oldId },
         data: { addressee_id: newId },
       });
-      await tx.access_tokens.updateMany({
-        where: { user_id: oldId },
-        data: { user_id: newId },
-      });
       await tx.notifications.updateMany({
         where: { user_id: oldId },
         data: { user_id: newId },
