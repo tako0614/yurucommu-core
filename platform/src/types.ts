@@ -54,7 +54,7 @@ export type Bindings = PrivateAccountBindings;
 
 export type Variables = {
   user: any;
-  accessTokenUser?: any;
+  activityPubUser?: any;
 };
 
 export type AppContext<TBindings extends BaseBindings = Bindings> = Context<{

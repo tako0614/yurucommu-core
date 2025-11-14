@@ -18,7 +18,7 @@ outline: deep
 ## ドメイン/アクセス/認証
 
 - `INSTANCE_DOMAIN` にはハンドル＋ドメイン（`alice.example.com`）を含めます。`https://example.com/ap/...` のようなApexアクセスは早期に拒否されます。
-- ディスカバリ（`/.well-known/webfinger`、`/ap/users/:handle`、`/ap/groups/:slug`）は常に公開で、プライベートコレクション（`/ap/users/:handle/outbox`、`/ap/stories/:id`、DM/チャンネル）は `acc_` で始まるBearerトークンを `platform/src/auth/account-auth.ts` で検証します。
+- ディスカバリ（`/.well-known/webfinger`、`/ap/users/:handle`、`/ap/groups/:slug`）は常に公開で、プライベートコレクション（`/ap/users/:handle/outbox`、`/ap/stories/:id`、DM/チャンネル）は `/auth/session/token` で払い出すJWTを `platform/src/server/jwt.ts` の `authenticateJWT` で検証します。
 - `/ap/inbox` へのPOSTは、投稿Actorの公開鍵で検証できるHTTPシグネチャが必須です。
 
 ## ディスカバリとルーティング

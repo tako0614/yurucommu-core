@@ -158,19 +158,6 @@ export interface PushDeviceInput {
   locale?: string | null;
 }
 
-export interface AccessTokenInput {
-  id?: string;
-  user_id: string;
-  token_hash: string;
-  label?: string;
-  expires_at?: string | Date | null;
-}
-
-export interface AccessTokenTouchFields {
-  last_used_at?: string | Date | null;
-  expires_at?: string | Date | null;
-}
-
 // Host user management (instance-independent)
 // ActivityPub types
 export interface ApFollowerInput {
@@ -374,13 +361,6 @@ export interface DatabaseAPI {
   registerPushDevice(device: PushDeviceInput): Promise<any>;
   listPushDevicesByUser(user_id: string): Promise<any[]>;
   removePushDevice(token: string): Promise<void>;
-
-  // Access Tokens
-  createAccessToken(input: AccessTokenInput): Promise<any>;
-  getAccessTokenByHash(token_hash: string): Promise<any>;
-  listAccessTokensByUser(user_id: string): Promise<any[]>;
-  touchAccessToken(token_hash: string, fields?: AccessTokenTouchFields): Promise<void>;
-  deleteAccessToken(token_hash: string): Promise<void>;
 
   // Chat - DM
   upsertDmThread(participantsHash: string, participantsJson: string): Promise<any>;

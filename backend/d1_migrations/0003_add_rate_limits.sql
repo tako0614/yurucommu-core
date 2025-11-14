@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_rate_limits_key_window
 CREATE INDEX IF NOT EXISTS idx_rate_limits_created
   ON ap_rate_limits(created_at);
 
--- Access tokens for authenticated actions
+-- Legacy access tokens table (retained for backward compatibility)
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

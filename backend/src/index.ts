@@ -15,7 +15,6 @@ import {
 import type { DataFactory } from "./data";
 import { getPrisma } from "./prisma";
 import {
-  hashToken,
   ensureDatabase as ensureDatabaseDefault,
   ensureUserKeyPair,
   publishStoryCreate,
@@ -42,11 +41,6 @@ import {
 } from "@takos/platform/server";
 import { buildPushRegistrationPayload } from "./lib/push-registration";
 import { createJwtStoreAdapter } from "./lib/jwt-store";
-import {
-  mintAccessToken,
-  revokeAccessTokenByHash,
-  getAccessTokenByHash,
-} from "./lib/access-tokens";
 import type {
   PublicAccountBindings as Bindings,
   Variables,
@@ -2422,46 +2416,6 @@ app.notFound((c) => {
     console.error("asset fallback failed", error);
     return c.text("Not Found", 404);
   }
-});
-
-// ActivityPub access tokens
-app.post("/account/access-tokens", auth, async (c) => {
-  const me = c.get("user") as any;
-  const body = await c.req.json().catch(() => ({})) as any;
-  const label = typeof body.label === "string" ? body.label.slice(0, 100) : "default";
-  const expiresAt = body.expires_at ? new Date(body.expires_at) : null;
-  const token = await mintAccessToken(c, me.id, label, expiresAt);
-  return ok(c, { token, label, expires_at: expiresAt ? expiresAt.toISOString() : null }, 201);
-});
-
-app.get("/account/access-tokens", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  try {
-    const me = c.get("user") as any;
-    const rows = await store.listAccessTokensByUser(me.id);
-    const sanitized = rows.map((row: any) => ({
-      id: row.id,
-      label: row.label,
-      created_at: row.created_at,
-      expires_at: row.expires_at,
-      last_used_at: row.last_used_at,
-    }));
-    return ok(c, sanitized);
-  } finally {
-    await releaseStore(store);
-  }
-});
-
-app.delete("/account/access-tokens", auth, async (c) => {
-  const me = c.get("user") as any;
-  const body = await c.req.json().catch(() => ({})) as any;
-  const token = typeof body.token === "string" ? body.token.trim() : "";
-  if (!token) return fail(c, "token required", 400);
-  const hash = await hashToken(token);
-  const row = await getAccessTokenByHash(c, hash);
-  if (!row || row.user_id !== me.id) return fail(c, "token not found", 404);
-  await revokeAccessTokenByHash(c, hash);
-  return ok(c, { deleted: true });
 });
 
 export default app;
