@@ -6,22 +6,23 @@ import type {
   Variables,
 } from "@takos/platform/server";
 import { makeData } from "../data";
-import { 
-  ok, 
-  fail, 
-  nowISO, 
-  uuid, 
-  HttpError, 
-  releaseStore, 
+import {
+  ok,
+  fail,
+  nowISO,
+  uuid,
+  HttpError,
+  releaseStore,
   enqueueDeliveriesToFollowers,
   getActorUri,
   getObjectUri,
   getActivityUri,
   requireInstanceDomain,
   generateNoteObject,
-  ACTIVITYSTREAMS_CONTEXT
+  ACTIVITYSTREAMS_CONTEXT,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
+import { notify } from "../lib/notifications";
 
 const posts = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -33,160 +34,6 @@ async function requireMember(
 ): Promise<boolean> {
   if (!communityId) return true;
   return await store.hasMembership(communityId, userId);
-}
-
-/**
- * FCM直接配信: デバイストークンに直接プッシュ通知を送信
- */
-async function dispatchFcmDirect(
-  env: Bindings,
-  store: ReturnType<typeof makeData>,
-  user_id: string,
-  notification: {
-    id: string;
-    type: string;
-    message: string;
-    actor_id: string;
-    ref_type: string;
-    ref_id: string;
-  },
-) {
-  const serverKey = env.FCM_SERVER_KEY;
-  if (!serverKey) {
-    console.warn("FCM_SERVER_KEY not configured");
-    return;
-  }
-
-  // ユーザーのデバイストークンを取得
-  const devices = await store.listPushDevicesByUser(user_id);
-  if (!devices || devices.length === 0) {
-    console.log("no push devices registered for user", user_id);
-    return;
-  }
-
-  const tokens = Array.from(new Set(devices.map((d: any) => d.token).filter((t: string) => t?.trim())));
-  if (tokens.length === 0) return;
-
-  const title = env.PUSH_NOTIFICATION_TITLE?.trim() || "通知";
-  const data: Record<string, string> = {
-    notification_id: notification.id,
-    type: notification.type,
-    ref_type: notification.ref_type,
-    ref_id: notification.ref_id,
-    actor_id: notification.actor_id,
-  };
-
-  const endpoint = "https://fcm.googleapis.com/fcm/send";
-
-  // 各デバイストークンに送信
-  await Promise.all(
-    tokens.map(async (token) => {
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `key=${serverKey}`,
-          },
-          body: JSON.stringify({
-            to: token,
-            notification: {
-              title,
-              body: notification.message || "",
-            },
-            data,
-          }),
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          console.error("FCM send failed", res.status, text);
-        }
-      } catch (error: unknown) {
-        console.error("FCM send error", error);
-      }
-    }),
-  );
-}
-
-// Helper: notify user
-async function notify(
-  store: ReturnType<typeof makeData>,
-  env: Bindings,
-  user_id: string,
-  type: string,
-  actor_id: string,
-  ref_type: string,
-  ref_id: string,
-  message: string,
-) {
-  const record = {
-    id: crypto.randomUUID(),
-    user_id,
-    type,
-    actor_id,
-    ref_type,
-    ref_id,
-    message,
-    created_at: new Date(),
-    read: 0,
-  };
-  await store.addNotification(record);
-
-  const instanceDomain = requireInstanceDomain(env);
-
-  // 優先順位1: カスタムFCM直接配信
-  if (env.FCM_SERVER_KEY) {
-    try {
-      await dispatchFcmDirect(env, store, user_id, record);
-    } catch (error: unknown) {
-      console.error("FCM direct dispatch failed", error);
-    }
-    return;
-  }
-
-  // 優先順位2: カスタムPush Gateway
-  const gateway = env.PUSH_GATEWAY_URL;
-  const secret = env.PUSH_WEBHOOK_SECRET;
-  if (gateway && secret) {
-    try {
-      const payload = {
-        instance: instanceDomain,
-        userId: user_id,
-        notification: record,
-      };
-      await fetch(`${gateway}/internal/push/events`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Push-Secret": secret,
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (error: unknown) {
-      console.error("push gateway dispatch failed", error);
-    }
-    return;
-  }
-
-  // 優先順位3: デフォルト push service
-  try {
-    const pushServiceUrl = env.DEFAULT_PUSH_SERVICE_URL || "https://yurucommu.com/internal/push/events";
-    const payload = {
-      instance: instanceDomain,
-      userId: user_id,
-      notification: record,
-    };
-    await fetch(pushServiceUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Push-Secret": env.DEFAULT_PUSH_SERVICE_SECRET || "takos-default-push-secret",
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error: unknown) {
-    console.error("default push service dispatch failed", error);
-  }
 }
 
 // Helper: build post payload
@@ -255,6 +102,48 @@ async function buildPostPayload(
   };
 }
 
+async function createPostWithActivity(
+  store: ReturnType<typeof makeData>,
+  env: Bindings,
+  user: { id: string },
+  post: Awaited<ReturnType<typeof buildPostPayload>>,
+): Promise<void> {
+  await store.createPost(post);
+
+  const instanceDomain = requireInstanceDomain(env);
+  const protocol = "https";
+  const noteObject = generateNoteObject(
+    { ...post, media_json: JSON.stringify(post.media_urls) },
+    { id: user.id },
+    instanceDomain,
+    protocol,
+  );
+  const actorUri = getActorUri(user.id, instanceDomain);
+  const createActivity = {
+    "@context": ACTIVITYSTREAMS_CONTEXT,
+    type: "Create",
+    id: post.ap_activity_id,
+    actor: actorUri,
+    object: noteObject,
+    published: new Date(post.created_at).toISOString(),
+    to: noteObject.to,
+    cc: noteObject.cc,
+  };
+
+  await store.upsertApOutboxActivity({
+    id: crypto.randomUUID(),
+    local_user_id: user.id,
+    activity_id: post.ap_activity_id!,
+    activity_type: "Create",
+    activity_json: JSON.stringify(createActivity),
+    object_id: post.ap_object_id ?? null,
+    object_type: "Note",
+    created_at: new Date(),
+  });
+
+  await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+}
+
 // POST /communities/:id/posts
 posts.post("/communities/:id/posts", auth, async (c) => {
   const store = makeData(c.env as any, c);
@@ -267,42 +156,7 @@ posts.post("/communities/:id/posts", auth, async (c) => {
       allowBodyCommunityOverride: false,
       env: c.env,
     });
-    await store.createPost(post);
-
-    // Generate and save Create Activity to ap_outbox_activities
-    const instanceDomain = requireInstanceDomain(c.env);
-    const protocol = "https";
-    const noteObject = generateNoteObject(
-      { ...post, media_json: JSON.stringify(post.media_urls) },
-      { id: user.id },
-      instanceDomain,
-      protocol
-    );
-    const actorUri = getActorUri(user.id, instanceDomain);
-    const createActivity = {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "Create",
-      id: post.ap_activity_id,
-      actor: actorUri,
-      object: noteObject,
-      published: new Date(post.created_at).toISOString(),
-      to: noteObject.to,
-      cc: noteObject.cc,
-    };
-
-    await store.upsertApOutboxActivity({
-      id: crypto.randomUUID(),
-      local_user_id: user.id,
-      activity_id: post.ap_activity_id!,
-      activity_type: "Create",
-      activity_json: JSON.stringify(createActivity),
-      object_id: post.ap_object_id ?? null,
-      object_type: "Note",
-      created_at: new Date(),
-    });
-
-    // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+    await createPostWithActivity(store, c.env as Bindings, user, post);
 
     return ok(c, post, 201);
   } catch (error: unknown) {
@@ -327,42 +181,7 @@ posts.post("/", auth, async (c) => {
       allowBodyCommunityOverride: false,
       env: c.env,
     });
-    await store.createPost(post);
-
-    // Generate and save Create Activity to ap_outbox_activities
-    const instanceDomain = requireInstanceDomain(c.env);
-    const protocol = "https";
-    const noteObject = generateNoteObject(
-      { ...post, media_json: JSON.stringify(post.media_urls) },
-      { id: user.id },
-      instanceDomain,
-      protocol
-    );
-    const actorUri = getActorUri(user.id, instanceDomain);
-    const createActivity = {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "Create",
-      id: post.ap_activity_id,
-      actor: actorUri,
-      object: noteObject,
-      published: new Date(post.created_at).toISOString(),
-      to: noteObject.to,
-      cc: noteObject.cc,
-    };
-
-    await store.upsertApOutboxActivity({
-      id: crypto.randomUUID(),
-      local_user_id: user.id,
-      activity_id: post.ap_activity_id!,
-      activity_type: "Create",
-      activity_json: JSON.stringify(createActivity),
-      object_id: post.ap_object_id ?? null,
-      object_type: "Note",
-      created_at: new Date(),
-    });
-
-    // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+    await createPostWithActivity(store, c.env as Bindings, user, post);
 
     return ok(c, post, 201);
   } catch (error: unknown) {

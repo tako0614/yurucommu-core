@@ -14,6 +14,7 @@ import {
 } from "./data";
 import type { DataFactory } from "./data";
 import { getPrisma } from "./prisma";
+import { notify as notifyBase } from "./lib/notifications";
 import {
   ensureDatabase as ensureDatabaseDefault,
   ensureUserKeyPair,
@@ -308,79 +309,7 @@ class HttpError extends Error {
 }
 
 
-/**
- * FCM直接配信: デバイストークンに直接プッシュ通知を送信
- */
-async function dispatchFcmDirect(
-  env: Bindings,
-  store: ReturnType<typeof makeData>,
-  user_id: string,
-  notification: {
-    id: string;
-    type: string;
-    message: string;
-    actor_id: string;
-    ref_type: string;
-    ref_id: string;
-  },
-) {
-  const serverKey = env.FCM_SERVER_KEY;
-  if (!serverKey) {
-    console.warn("FCM_SERVER_KEY not configured");
-    return;
-  }
-
-  // ユーザーのデバイストークンを取得
-  const devices = await store.listPushDevicesByUser(user_id);
-  if (!devices || devices.length === 0) {
-    console.log("no push devices registered for user", user_id);
-    return;
-  }
-
-  const tokens = Array.from(new Set(devices.map((d: any) => d.token).filter((t: string) => t?.trim())));
-  if (tokens.length === 0) return;
-
-  const title = env.PUSH_NOTIFICATION_TITLE?.trim() || "通知";
-  const data: Record<string, string> = {
-    notification_id: notification.id,
-    type: notification.type,
-    ref_type: notification.ref_type,
-    ref_id: notification.ref_id,
-    actor_id: notification.actor_id,
-  };
-
-  const endpoint = "https://fcm.googleapis.com/fcm/send";
-
-  // 各デバイストークンに送信
-  await Promise.all(
-    tokens.map(async (token) => {
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `key=${serverKey}`,
-          },
-          body: JSON.stringify({
-            to: token,
-            notification: {
-              title,
-              body: notification.message || "",
-            },
-            data,
-          }),
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          console.error("FCM send failed", res.status, text);
-        }
-      } catch (error) {
-        console.error("FCM send error", error);
-      }
-    }),
-  );
-}
-
+// Notification helper with instance-level feature gates
 async function notify(
   store: ReturnType<typeof makeData>,
   env: Bindings,
@@ -391,77 +320,10 @@ async function notify(
   ref_id: string,
   message: string,
 ) {
-  const record = {
-    id: crypto.randomUUID(),
-    user_id,
-    type,
-    actor_id,
-    ref_type,
-    ref_id,
-    message,
-    created_at: new Date(),
-    read: 0,
-  };
-  await store.addNotification(record);
-
-  // 優先順位1: カスタムFCM直接配信
-  if (env.FCM_SERVER_KEY) {
-    try {
-      await dispatchFcmDirect(env, store, user_id, record);
-    } catch (error) {
-      console.error("FCM direct dispatch failed", error);
-    }
-    return;
-  }
-
-  // 優先順位2: カスタムPush Gateway
-  const gateway = env.PUSH_GATEWAY_URL;
-  const secret = env.PUSH_WEBHOOK_SECRET;
-  if (gateway && secret) {
-    try {
-      const payload = {
-        instance: env.INSTANCE_DOMAIN,
-        userId: user_id,
-        notification: record,
-      };
-      await fetch(`${gateway}/internal/push/events`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Push-Secret": secret,
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      console.error("push gateway dispatch failed", error);
-    }
-    return;
-  }
-
-  if (!featureEnabled("defaultPushFallback")) {
-    console.warn("push gateway not configured");
-    return;
-  }
-
-  // 優先順位3: デフォルト push service
-  try {
-    const pushServiceUrl = env.DEFAULT_PUSH_SERVICE_URL || "https://yurucommu.com/internal/push/events";
-    const payload = {
-      instance: env.INSTANCE_DOMAIN,
-      userId: user_id,
-      notification: record,
-    };
-    await fetch(pushServiceUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Push-Secret": env.DEFAULT_PUSH_SERVICE_SECRET || "",
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) { 
-    console.error("default push service dispatch failed", error);
-  }
+  await notifyBase(store, env, user_id, type, actor_id, ref_type, ref_id, message, {
+    allowDefaultPushFallback: featureEnabled("defaultPushFallback"),
+    defaultPushSecret: env.DEFAULT_PUSH_SERVICE_SECRET || "",
+  });
 }
 
 type PushRegistrationEnvelope = Awaited<
