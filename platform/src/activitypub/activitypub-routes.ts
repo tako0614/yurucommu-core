@@ -525,7 +525,7 @@ app.get("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const viewer = c.get("accessTokenUser");
+    const viewer = c.get("activityPubUser");
     if (!viewer || viewer.id !== handle) {
       return fail(c, "handle mismatch", 404);
     }
@@ -596,7 +596,7 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const viewer = c.get("accessTokenUser");
+    const viewer = c.get("activityPubUser");
     if (!viewer) {
       return fail(c, "unauthorized", 401);
     }
@@ -666,7 +666,7 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
   const store = makeData(c.env as any);
   try {
     const handle = c.req.param("handle");
-    const viewer = c.get("accessTokenUser");
+    const viewer = c.get("activityPubUser");
     if (!viewer) {
       return fail(c, "unauthorized", 401);
     }

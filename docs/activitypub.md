@@ -18,7 +18,7 @@ The sections below only spell out Takos-specific routing, auth, and payload diff
 ## Domains, access, and authentication
 
 - `INSTANCE_DOMAIN` already includes the handle + domain (`alice.example.com`). Requests against the apex such as `https://example.com/ap/...` are rejected early.
-- Discovery surfaces (`/.well-known/webfinger`, `/ap/users/:handle`, `/ap/groups/:slug`) remain public, while private collections (`/ap/users/:handle/outbox`, `/ap/stories/:id`, DM/channels) reuse bearer tokens that start with `acc_` and are validated by `platform/src/auth/account-auth.ts`.
+- Discovery surfaces (`/.well-known/webfinger`, `/ap/users/:handle`, `/ap/groups/:slug`) remain public, while private collections (`/ap/users/:handle/outbox`, `/ap/stories/:id`, DM/channels) reuse the same JWT bearer tokens issued via `/auth/session/token` and validated by `authenticateJWT` in `platform/src/server/jwt.ts`.
 - `/ap/inbox` always requires a valid HTTP Signature whose public key belongs to the posting actor.
 
 ## Discovery & routing

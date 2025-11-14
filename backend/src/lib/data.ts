@@ -1148,74 +1148,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     }
   };
 
-  // -------------- Access tokens --------------
-  const createAccessToken = async (
-    input: {
-      id?: string;
-      user_id: string;
-      token_hash: string;
-      label?: string;
-      expires_at?: string | Date | null;
-    },
-  ) => {
-    const now = new Date();
-    const row = await (prisma as any).access_tokens.create({
-      data: {
-        id: input.id ?? crypto.randomUUID(),
-        user_id: input.user_id,
-        token_hash: input.token_hash,
-        label: input.label ?? "",
-        created_at: now,
-        expires_at: input.expires_at ? new Date(input.expires_at) : null,
-      },
-    });
-    return row;
-  };
-
-  const getAccessTokenByHash = async (token_hash: string) =>
-    (prisma as any).access_tokens.findUnique({
-      where: { token_hash },
-    });
-
-  const listAccessTokensByUser = async (user_id: string) =>
-    (prisma as any).access_tokens.findMany({ where: { user_id } });
-
-  const touchAccessToken = async (
-    token_hash: string,
-    fields: { last_used_at?: string | Date | null; expires_at?: string | Date | null } = {},
-  ) => {
-    const data: Record<string, any> = {};
-    if (fields.last_used_at !== undefined) {
-      data.last_used_at = fields.last_used_at
-        ? new Date(fields.last_used_at)
-        : new Date();
-    }
-    if (fields.expires_at !== undefined) {
-      data.expires_at = fields.expires_at ? new Date(fields.expires_at) : null;
-    }
-    if (!Object.keys(data).length) {
-      data.last_used_at = new Date();
-    }
-    try {
-      await (prisma as any).access_tokens.update({
-        where: { token_hash },
-        data,
-      });
-    } catch (error) {
-      if ((error as any)?.code !== "P2025") throw error;
-    }
-  };
-
-  const deleteAccessToken = async (token_hash: string) => {
-    try {
-      await (prisma as any).access_tokens.delete({
-        where: { token_hash },
-      });
-    } catch (error) {
-      if ((error as any)?.code !== "P2025") throw error;
-    }
-  };
-
   // -------------- Chat: DM --------------
   const upsertDmThread = async (
     participantsHash: string,
@@ -2097,12 +2029,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     registerPushDevice,
     listPushDevicesByUser,
     removePushDevice,
-    // Access tokens
-    createAccessToken,
-    getAccessTokenByHash,
-    listAccessTokensByUser,
-    touchAccessToken,
-    deleteAccessToken,
     // chat messages
     upsertDmThread,
     createDmMessage,

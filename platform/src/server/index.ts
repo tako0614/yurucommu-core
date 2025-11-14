@@ -14,7 +14,6 @@ export type {
 export * from "../subdomain";
 export * from "../guards";
 export * from "../auth/crypto-keys";
-export * from "../auth/account-auth";
 export * from "../auth/http-signature";
 export * from "../auth/auth-state";
 export * from "../utils/utils";
