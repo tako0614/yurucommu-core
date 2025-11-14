@@ -14,6 +14,7 @@ type PushBindings = {
   PUSH_GATEWAY_URL?: string;
   PUSH_WEBHOOK_SECRET?: string;
   PUSH_REGISTRATION_PRIVATE_KEY?: string;
+  PUSH_REGISTRATION_PUBLIC_KEY?: string;
   FCM_SERVER_KEY?: string;
   DEFAULT_PUSH_SERVICE_URL?: string;
   DEFAULT_PUSH_SERVICE_SECRET?: string;

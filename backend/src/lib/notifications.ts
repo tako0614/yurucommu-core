@@ -1,6 +1,7 @@
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { requireInstanceDomain } from "@takos/platform/server";
 import type { DatabaseAPI, NotificationInput } from "./types";
+import { signPushPayload } from "./push-registration";
 
 type NotificationStore = Pick<
   DatabaseAPI,
@@ -110,6 +111,7 @@ export async function notify(
 
   const instanceDomain =
     options.instanceDomain ?? requireInstanceDomain(env);
+  const tenant = instanceDomain;
 
   if (env.FCM_SERVER_KEY) {
     try {
@@ -120,21 +122,31 @@ export async function notify(
     return;
   }
 
+  const payload = {
+    tenant,
+    instance: instanceDomain,
+    userId,
+    notification: record,
+  };
+  let payloadSignature: string | null = null;
+  try {
+    payloadSignature = await signPushPayload(env, payload);
+  } catch (error) {
+    console.error("failed to sign push notification payload", error);
+  }
+
   const gateway = env.PUSH_GATEWAY_URL;
   const secret = env.PUSH_WEBHOOK_SECRET;
-  if (gateway && secret) {
+  if (gateway) {
     try {
-      const payload = {
-        instance: instanceDomain,
-        userId,
-        notification: record,
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
       };
+      if (secret) headers["X-Push-Secret"] = secret;
+      if (payloadSignature) headers["X-Push-Signature"] = payloadSignature;
       await fetch(`${gateway}/internal/push/events`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Push-Secret": secret,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
     } catch (error) {
@@ -153,21 +165,16 @@ export async function notify(
     const pushServiceUrl =
       env.DEFAULT_PUSH_SERVICE_URL ||
       "https://yurucommu.com/internal/push/events";
-    const payload = {
-      instance: instanceDomain,
-      userId,
-      notification: record,
-    };
     const defaultSecret =
-      options.defaultPushSecret ??
-      env.DEFAULT_PUSH_SERVICE_SECRET ??
-      "takos-default-push-secret";
+      options.defaultPushSecret ?? env.DEFAULT_PUSH_SERVICE_SECRET ?? "";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (defaultSecret) headers["X-Push-Secret"] = defaultSecret;
+    if (payloadSignature) headers["X-Push-Signature"] = payloadSignature;
     await fetch(pushServiceUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Push-Secret": defaultSecret,
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (error) {

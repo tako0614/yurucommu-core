@@ -162,6 +162,25 @@ npm run deploy
 3. `FCM_SERVER_KEY` シークレットを設定
 4. アプリ側で FCM トークンを `/me/push-devices` エンドポイントに登録
 
+### takos-private Push Gateway を利用する（デフォルト）
+
+`takos-private` ホストのプッシュゲートウェイは、OSS 版 takos からも利用できる共有サービスとして公開されています。ホスト側で FCM への送信をラップしているため、各インスタンスはサーバーキーを持たなくても通知を配信できます。公式の takos モバイルアプリはこのゲートウェイ経由で通知を受け取る前提なので、プッシュ未設定のインスタンスでは標準アプリに通知が届きません。
+
+- `DEFAULT_PUSH_SERVICE_URL` … 既定値は `https://yurucommu.com/internal/push/events`
+- `DEFAULT_PUSH_SERVICE_SECRET` … 互換性のための任意ヘッダー（未設定でも可）
+
+推奨構成:
+
+1. `PUSH_GATEWAY_URL=https://yurucommu.com`（`/push/register` を指すベース URL）
+2. `npm run generate:push-key` などで P-256 鍵ペアを生成し、`PUSH_REGISTRATION_PRIVATE_KEY`（secret）と `PUSH_REGISTRATION_PUBLIC_KEY` を設定
+3. 上記 2 を設定すると `/.well-known/takos-push.json` が自動で公開されるため、ブラウザで確認
+4. `/me/push-devices` で返却される `registration` ペイロードをそのままホストへ送信（`syncPushDeviceWithHost` が自動で実行）
+5. 通知送信時は `X-Push-Signature` ヘッダーが自動で追加されるため、追加のシークレット無しで takos-private ゲートウェイに配信可能
+
+独自でプッシュを完結させたい場合は、`DEFAULT_PUSH_SERVICE_URL` を空にするか `allowDefaultPushFallback` を無効化し、`FCM_SERVER_KEY` または独自ゲートウェイ (`PUSH_GATEWAY_URL` + `PUSH_WEBHOOK_SECRET`) を設定してください。
+
+詳細仕様は `docs/push-service.md` を参照してください。
+
 ## トラブルシューティング
 
 ### D1 マイグレーションが失敗する
