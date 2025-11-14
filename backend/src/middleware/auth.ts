@@ -19,18 +19,6 @@ export const auth = async (c: AuthContext, next: Next) => {
   try {
     const result = await authenticateJWT(c, jwtStore);
     if (!result) return fail(c, "Unauthorized", 401);
-    const instanceMode = c.get("instanceMode");
-    const instanceHandle = c.get("instanceHandle");
-    if (instanceMode !== "user" || !instanceHandle) {
-      return fail(
-        c,
-        "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
-        404,
-      );
-    }
-    if ((result.user as any)?.id !== instanceHandle) {
-      return fail(c, "instance mismatch", 403);
-    }
     c.set("user", result.user);
     await next();
   } finally {

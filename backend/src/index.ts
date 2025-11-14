@@ -17,7 +17,6 @@ import { getPrisma } from "./prisma";
 import {
   hashToken,
   ensureDatabase as ensureDatabaseDefault,
-  subdomainMiddleware,
   ensureUserKeyPair,
   publishStoryCreate,
   publishStoryDelete,
@@ -92,7 +91,6 @@ export type CreateTakosAppConfig = {
   ensureDatabase?: EnsureDatabaseFn;
   features?: FeatureConfig;
   instanceDomain?: string;
-  instanceHandle?: string | null;
 };
 
 type DefaultConfig = {
@@ -100,7 +98,6 @@ type DefaultConfig = {
   prismaFactory: (env: PrismaEnv) => unknown;
   ensureDatabase: EnsureDatabaseFn;
   instanceDomain: string | undefined;
-  instanceHandle: string | null;
 };
 
 const defaultConfig: DefaultConfig = {
@@ -108,7 +105,6 @@ const defaultConfig: DefaultConfig = {
   prismaFactory: (env: PrismaEnv) => getPrisma(env.DB),
   ensureDatabase: (env: Bindings) => ensureDatabaseDefault(env.DB),
   instanceDomain: undefined,
-  instanceHandle: null,
 };
 
 let ensureDatabaseFn: EnsureDatabaseFn = defaultConfig.ensureDatabase;
@@ -129,7 +125,6 @@ function applyConfig(config: CreateTakosAppConfig = {}): void {
   setFeatureConfig(config.features);
   setInstanceConfig({
     instanceDomain: config.instanceDomain,
-    instanceHandle: config.instanceHandle ?? null,
   });
 }
 
@@ -173,9 +168,6 @@ app.use("*", async (c, next) => {
   await ensureDatabaseFn(c.env);
   await next();
 });
-
-// Subdomain routing middleware for ActivityPub
-app.use("*", subdomainMiddleware());
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
 // These routes are only accessible from user subdomains (alice.example.com)
@@ -602,23 +594,11 @@ app.get("/media/*", async (c) => {
 
 // Simple auth: cookie or Authorization: Bearer <session_id>
 const auth = async (c: any, next: () => Promise<void>) => {
-  const instanceMode = c.get("instanceMode");
-  const instanceHandle = c.get("instanceHandle");
-  if (instanceMode !== "user" || !instanceHandle) {
-    return fail(
-      c,
-      "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
-      404,
-    );
-  }
   const store = makeData(c.env as any, c);
   const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore, instanceHandle);
+    const authResult = await authenticateJWT(c, jwtStore);
     if (!authResult) return fail(c, "Unauthorized", 401);
-    if ((authResult.user as any)?.id !== instanceHandle) {
-      return fail(c, "instance mismatch", 403);
-    }
     c.set("user", authResult.user);
     await next();
   } finally {
@@ -627,17 +607,11 @@ const auth = async (c: any, next: () => Promise<void>) => {
 };
 
 const optionalAuth = async (c: any, next: () => Promise<void>) => {
-  const instanceMode = c.get("instanceMode");
-  const instanceHandle = c.get("instanceHandle");
-  if (instanceMode !== "user" || !instanceHandle) {
-    await next();
-    return;
-  }
   const store = makeData(c.env as any, c);
   const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore, instanceHandle);
-    if (authResult && (authResult.user as any)?.id === instanceHandle) {
+    const authResult = await authenticateJWT(c, jwtStore);
+    if (authResult) {
       c.set("user", authResult.user);
     }
   } catch {
@@ -685,8 +659,7 @@ app.post("/auth/password/login", async (c) => {
     if (!user) {
       return fail(c, "user not found in database", 500);
     }
-    const instanceId = c.get("instanceHandle") || user.id;
-    const { token } = await createUserJWT(c, store, instanceId, user.id);
+    const { token } = await createUserJWT(c, store, user.id);
     return ok(c, { user, token });
   } finally {
     await releaseStore(store);
@@ -694,10 +667,6 @@ app.post("/auth/password/login", async (c) => {
 });
 
 app.post("/auth/session/token", async (c) => {
-  const instanceId = c.get("instanceHandle");
-  if (!instanceId) {
-    return fail(c, "instance context required", 400);
-  }
   const store = makeData(c.env as any, c);
   try {
     const authResult = await authenticateSession(c, store, { renewCookie: true });
@@ -708,7 +677,7 @@ app.post("/auth/session/token", async (c) => {
     if (!userId) {
       return fail(c, "invalid session", 400);
     }
-    const { token } = await createUserJWT(c, store, instanceId, userId);
+    const { token } = await createUserJWT(c, store, userId);
     return ok(c, { token, user: authResult.user });
   } finally {
     await releaseStore(store);
@@ -1736,15 +1705,6 @@ const normalizeUserIdParam = (input: string): string => {
 
 // Fetch another user's public profile
 app.get("/users/:id", optionalAuth, async (c) => {
-  const instanceMode = c.get("instanceMode");
-  const instanceHandle = c.get("instanceHandle");
-  if (instanceMode !== "user" || !instanceHandle) {
-    return fail(
-      c,
-      "This endpoint must be accessed via user subdomain (e.g., alice.example.com)",
-      404,
-    );
-  }
   const store = makeData(c.env as any, c);
   const me = c.get("user") as any;
   const rawId = c.req.param("id");

@@ -1,32 +1,19 @@
 /**
- * Instance-scoped routing helpers.
+ * Instance utilities for the single-instance OSS deployment.
  *
- * The platform treats every Worker deployment as operating on a fully qualified
- * domain (INSTANCE_DOMAIN) and accepts an explicit instance handle when needed.
+ * Previously this module handled multi-tenant subdomain routing. In the OSS
+ * build we only care about resolving the configured INSTANCE_DOMAIN to build
+ * ActivityPub URLs.
  */
 
-import type { Context, Next } from "hono";
+const DEFAULT_INSTANCE_DOMAIN = "yurucommu.com";
 
-export const DEFAULT_INSTANCE_DOMAIN = "yurucommu.com";
-
-export type InstanceContext = {
-  instanceHandle: string | null;
-  instanceMode: "user" | "root" | "reserved";
-};
-
-export type InstanceConfig = {
+type InstanceConfig = {
   instanceDomain?: string;
-  instanceHandle?: string | null;
 };
 
 let activeInstanceConfig: InstanceConfig = {};
 
-const HANDLE_PATTERN = /^[a-z0-9_]{3,32}$/;
-
-/**
- * Update the default instance configuration used by platform helpers.
- * Can be called from the backend factory to inject per-app settings.
- */
 export function setInstanceConfig(config: InstanceConfig): void {
   activeInstanceConfig = {
     ...activeInstanceConfig,
@@ -39,170 +26,42 @@ function normalizeDomain(domain: string | undefined | null): string | undefined 
   return String(domain).trim().toLowerCase();
 }
 
-function normalizeHandle(value?: string | null): string | null {
-  if (value == null) return null;
-  const handle = String(value).trim().toLowerCase();
-  if (!handle) return null;
-  return HANDLE_PATTERN.test(handle) ? handle : null;
-}
-
-function deriveHandleFromDomain(domain?: string | null): string | null {
-  const normalizedDomain = normalizeDomain(domain);
-  if (!normalizedDomain) return null;
-  const [candidate, ...rest] = normalizedDomain.split(".");
-  if (!candidate || rest.length === 0) return null;
-  return HANDLE_PATTERN.test(candidate) ? candidate : null;
-}
-
-function resolveInstanceDomain(env: any, override?: string): string | undefined {
-  return normalizeDomain(
-    override ??
-      activeInstanceConfig.instanceDomain ??
-      env?.INSTANCE_DOMAIN ??
-      DEFAULT_INSTANCE_DOMAIN,
-  );
-}
-
-function resolveInstanceHandle(
-  env: any,
-  instanceDomain?: string,
-  override?: string | null,
-): string | null {
-  const configured = normalizeHandle(
-    override ??
-      activeInstanceConfig.instanceHandle ??
-      env?.INSTANCE_OWNER_HANDLE ??
-      null,
-  );
-  if (configured) {
-    return configured;
-  }
-  return deriveHandleFromDomain(instanceDomain ?? resolveInstanceDomain(env));
-}
-
-/**
- * Require INSTANCE_DOMAIN to be present. Throws if missing.
- */
 export function requireInstanceDomain(env: any): string {
-  const domain = resolveInstanceDomain(env);
+  const domain = normalizeDomain(
+    env?.INSTANCE_DOMAIN ?? activeInstanceConfig.instanceDomain ?? DEFAULT_INSTANCE_DOMAIN,
+  );
   if (!domain) {
-    throw new Error(
-      "INSTANCE_DOMAIN must be configured via createTakosApp() or env.INSTANCE_DOMAIN",
-    );
+    throw new Error("INSTANCE_DOMAIN must be configured");
   }
   return domain;
 }
 
-export type SubdomainMiddlewareOptions = {
-  instanceDomain?: string;
-  instanceHandle?: string | null;
-};
-
-/**
- * Instance routing middleware.
- *
- * The middleware ensures c.env.INSTANCE_DOMAIN is always populated with the
- * resolved domain and stores instance metadata on the context for downstream
- * handlers. Reserved instance mode is kept for backward compatibility, although
- * the platform no longer distinguishes reserved subdomains explicitly.
- */
-export function subdomainMiddleware(
-  options: SubdomainMiddlewareOptions = {},
-) {
-  return async (c: Context, next: Next) => {
-    try {
-      const instanceDomain = resolveInstanceDomain(
-        c.env,
-        options.instanceDomain,
-      );
-      if (!instanceDomain) {
-        throw new Error("INSTANCE_DOMAIN not configured");
-      }
-      // Ensure downstream consumers observe the resolved domain.
-      c.env.INSTANCE_DOMAIN = instanceDomain;
-
-      const instanceHandle = resolveInstanceHandle(
-        c.env,
-        instanceDomain,
-        options.instanceHandle,
-      );
-      const instanceMode: InstanceContext["instanceMode"] = instanceHandle
-        ? "user"
-        : "root";
-
-      c.set("instanceHandle", instanceHandle);
-      c.set("instanceMode", instanceMode);
-
-      await next();
-    } catch (error) {
-      console.error("Instance context error:", error);
-      c.set("instanceHandle", null);
-      c.set("instanceMode", "root");
-      await next();
-    }
-  };
-}
-
-/**
- * Require that the current request is scoped to an instance.
- */
-export function requireInstanceScope() {
-  return async (c: Context, next: Next) => {
-    const instanceMode = c.get("instanceMode");
-    const instanceHandle = c.get("instanceHandle");
-
-    if (instanceMode !== "user" || !instanceHandle) {
-      return c.json(
-        {
-          ok: false,
-          error: "This endpoint must be accessed with an instance-scoped domain",
-        },
-        404,
-      );
-    }
-
-    await next();
-  };
-}
-
-/**
- * Build Actor URI for a local user on this instance.
- */
 export function getActorUri(
   handle: string,
   instanceDomain: string,
-  protocol: string = "https",
+  protocol = "https",
 ): string {
   return `${protocol}://${instanceDomain}/ap/users/${handle}`;
 }
 
-/**
- * Build Object URI for a local post.
- */
 export function getObjectUri(
   handle: string,
   objectId: string,
   instanceDomain: string,
-  protocol: string = "https",
+  protocol = "https",
 ): string {
   return `${protocol}://${instanceDomain}/ap/objects/${objectId}`;
 }
 
-/**
- * Build Activity URI for a local activity.
- */
 export function getActivityUri(
   handle: string,
   activityId: string,
   instanceDomain: string,
-  protocol: string = "https",
+  protocol = "https",
 ): string {
   return `${protocol}://${instanceDomain}/ap/activities/${activityId}`;
 }
 
-/**
- * Parse an Actor URI and determine whether it belongs to this instance.
- */
 export function parseActorUri(
   uri: string,
   instanceDomain: string,
@@ -211,12 +70,9 @@ export function parseActorUri(
     const url = new URL(uri);
     const domain = url.hostname.toLowerCase();
     const isLocal = domain === instanceDomain.toLowerCase();
-
     const match = url.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,20})$/);
     if (!match) return null;
-
     const handle = match[1];
-
     return {
       handle,
       domain,
@@ -226,3 +82,4 @@ export function parseActorUri(
     return null;
   }
 }
+
