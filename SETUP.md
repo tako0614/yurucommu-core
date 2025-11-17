@@ -177,6 +177,15 @@ npm run deploy
 4. `/me/push-devices` で返却される `registration` ペイロードをそのままホストへ送信（`syncPushDeviceWithHost` が自動で実行）
 5. 通知送信時は `X-Push-Signature` ヘッダーが自動で追加されるため、追加のシークレット無しで takos-private ゲートウェイに配信可能
 
+#### 検証手順（Next Step）
+
+運用前に以下を実施し、鍵配信と署名受け入れを確認してください。
+
+1. **公開鍵の配信を確認** — `curl https://<instance-domain>/.well-known/takos-push.json` を実行し、`registrationPublicKey` と `webhook.publicKey` が期待通りであることを確認。レスポンスが 503 になる場合は `PUSH_REGISTRATION_PUBLIC_KEY` が未設定です。
+2. **/me/push-devices を叩く** — ログイン済みクライアントから `/me/push-devices` にトークンを登録し、レスポンスの `registration` ペイロードが存在すること、およびホストゲートウェイに `action="register"` が到達することを KV ログで確認。
+3. **署名付き通知の送信** — `notify` をトリガーするアクション、または `curl -H "X-Push-Signature: <signed>` ...` で `${PUSH_GATEWAY_URL}/internal/push/events` にサンプル通知を送り、ホスト側で `delivered` が 1 以上になることを確認。
+4. **フォールバック確認** — `DEFAULT_PUSH_SERVICE_URL` を利用する場合は、同じリクエストを `https://yurucommu.com/internal/push/events` に送って署名のみで受け入れられることを確認。
+
 独自でプッシュを完結させたい場合は、`DEFAULT_PUSH_SERVICE_URL` を空にするか `allowDefaultPushFallback` を無効化し、`FCM_SERVER_KEY` または独自ゲートウェイ (`PUSH_GATEWAY_URL` + `PUSH_WEBHOOK_SECRET`) を設定してください。
 
 詳細仕様は `docs/push-service.md` を参照してください。

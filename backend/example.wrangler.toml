@@ -16,6 +16,14 @@ SESSION_COOKIE_NAME = "token"
 SESSION_TTL_HOURS = "8760" # 24 * 365 = 8760 hours (1 year)
 SESSION_REFRESH_INTERVAL_SECONDS = "2592000" # 30 days in seconds (30*24*3600)
 
+# Push delegation defaults (override per environment)
+PUSH_GATEWAY_URL = "https://yurucommu.com"
+DEFAULT_PUSH_SERVICE_URL = "https://yurucommu.com/internal/push/events"
+# Leave the secret empty unless you control a private gateway
+DEFAULT_PUSH_SERVICE_SECRET = ""
+# Public portion of the registration keypair advertised at /.well-known/takos-push.json
+PUSH_REGISTRATION_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\\nREPLACE_WITH_PUBLIC_KEY\\n-----END PUBLIC KEY-----"
+
 # ActivityPub configuration
 INSTANCE_DOMAIN = "yourdomain.com"  # Replace with your instance domain
 ACTIVITYPUB_ENABLED = "true"
@@ -63,3 +71,9 @@ crons = [
 
 # Optional: Customize notification title
 #   npx wrangler secret put PUSH_NOTIFICATION_TITLE
+
+# Push Registration Keys (Required when delegating to takos-private gateway)
+#   npx wrangler secret put PUSH_REGISTRATION_PRIVATE_KEY < push-key.private.pem
+#   # Update wrangler.toml with the matching public key (PUSH_REGISTRATION_PUBLIC_KEY)
+#   # Verify the well-known document before rollout:
+#   #   curl https://<instance-domain>/.well-known/takos-push.json

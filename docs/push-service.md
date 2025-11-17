@@ -79,6 +79,15 @@ You can override `DEFAULT_PUSH_SERVICE_SECRET` at deployment time. Coordinate ro
 4. **Verify registration:** call `/me/push-devices` from a dev client, confirm the response contains `registration`, and check the host logs/KV to ensure the device appears under your tenant.
 5. **Send a test notification:** trigger any action that produces a notification or manually POST to `${DEFAULT_PUSH_SERVICE_URL}`; the signature in `X-Push-Signature` should validate without any shared secret.
 
+## Verification Checklist (Next Step)
+
+Use the following quick tests before shipping to a new tenant or environment:
+
+1. **Well-known metadata** – `curl https://<instance>/.well-known/takos-push.json` should include `registrationPublicKey` and `webhook.publicKey`. A 503 implies `PUSH_REGISTRATION_PUBLIC_KEY` is missing.
+2. **Device registration** – using a staging client, call `POST /me/push-devices` and confirm the JSON response contains `registration.signature`. Monitor the host gateway (`/push/register`) logs to ensure the signed payload arrives with HTTP 200.
+3. **Notification delivery** – POST a sample body (or trigger a real notification) to `${PUSH_GATEWAY_URL}/internal/push/events` with `X-Push-Signature`. The host should respond with `delivered > 0`, showing the signature was accepted and devices synced.
+4. **Fallback path** – if you rely on `DEFAULT_PUSH_SERVICE_URL`, repeat step 3 against `https://yurucommu.com/internal/push/events` to make sure the hosted gateway works without a shared secret.
+
 ## Opting Out
 
 If you prefer to keep push delivery entirely inside your takos OSS deployment, configure:
