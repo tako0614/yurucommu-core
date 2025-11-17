@@ -38,10 +38,11 @@ outline: deep
 ### Group Actor固有の挙動
 
 - **オーナー鍵の再利用** — `generateGroupActor` はコミュニティ作成者の鍵ペアを `ensureUserKeyPair` で発行し、`publicKey.owner` をGroup URIに設定しつつPEM本体はオーナー由来のものを埋め込みます。オーナーの鍵を更新するとコミュニティActorも更新されます。
-- **`members` コレクション** — `members` には `local_user_id = group:{slug}` として `ap_followers` に保存されている受理済みフォロワーIDを公開します。`followers`/`following` はActivityStreams準拠ですが `members` はTakos拡張です。
+- **フォロワー = メンバー** — 承認済みフォロワーをそのままメンバーとして扱い、独自の `members` フィールドは使いません (Lemmy互換)。
 - **Followの自動承認** — Group inboxで `Follow` を受信すると所有者のアウトボックスに `Accept` を記録しつつ配送キューに積み、`group:{slug}` 名義で `ap_followers` に `status = "accepted"` として保存します。
 - **Inboxゲーティング** — `Follow` 以外のアクティビティは、送信Actorがすでに `status = "accepted"` なフォロワーとして存在しない限り `403` で拒否され、実質的に `Follow` が入室ハンドシェイクになります。
 - **非ActivityPubアクセスのリダイレクト** — `/ap/groups/:slug` をブラウザで開くと `/communities/:slug` へリダイレクトし、BotにはJSON、ユーザーにはWebページを提供します。
+- **Lemmy互換フィールド** — Group Actor は `@context = ["https://join-lemmy.org/context.json", "https://www.w3.org/ns/activitystreams", ...]` とし、`preferredUsername`、`summary` + `source`、`sensitive`、`postingRestrictedToMods`、`featured`、`icon` / `image`、`publicKey`、`inbox` / `outbox` / `followers` を公開します。
 
 ## コレクション
 
@@ -162,7 +163,7 @@ Takosは `platform/src/activitypub/chat.ts` のヘルパーでDMとチャンネ�
 ### チャンネル
 
 - チャンネルID: `https://{domain}/ap/channels/{communityId}/{channelId}`。
-- `sendChannelMessage` が `object.type = "ChannelMessage"` の `Create` を発行し、レコードを保存。
+- `sendChannelMessage` が `object.type = "ChannelMessage"` の `Create` を発行し、レコードを保存（`channel` エイリアスや `Note` フォールバックは廃止）。
 - `GET /ap/channels/:communityId/:channelId/messages` は認証済みメンバー向けの時系列ログ。
 - `handleIncomingChannelMessage` がリモートメッセージを保存後、REST経由で公開します。
 

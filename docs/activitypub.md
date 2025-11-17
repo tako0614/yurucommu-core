@@ -40,13 +40,14 @@ Only the Takos-specific traits differ from the baseline ActivityStreams actor do
 
 ### Group-specific behavior
 
-Community actors add federation glue that differs from user accounts:
+Community actors add federation glue that differs from user accounts and match Lemmy’s Group actor shape:
 
 - **Owner-backed keys** — `generateGroupActor` reuses the community owner's key pair; the group `publicKey.owner` correctly points at the group URI and the PEM payload is issued by `ensureUserKeyPair` for the owner. Rotating the owner's key therefore refreshes the community actor as well. This approach allows the owner to sign activities on behalf of the group.
 - **Followers as members** — Community members are represented as followers who have been accepted. The standard `followers` collection is used instead of a custom `members` field for ActivityPub compatibility.
 - **Auto-accept follows** — Incoming `Follow` requests to the group inbox trigger an automatic `Accept` activity recorded in the owner’s outbox and enqueued for delivery (`group:{slug}` becomes the local follower record).
 - **Inbox gating** — Any activity other than `Follow` is rejected unless the remote actor already appears in the group’s follower table with `status = "accepted"`, effectively turning `Follow` into the membership handshake.
 - **Redirect for non-ActivityPub requests** — Plain HTTP requests to `/ap/groups/:slug` are redirected to `/communities/:slug`, letting humans view the community page while bots fetch JSON.
+- **Lemmy-compatible fields** — Group actors emit `@context = ["https://join-lemmy.org/context.json", "https://www.w3.org/ns/activitystreams", ...]` and surface `preferredUsername`, `summary` + `source`, `sensitive`, `postingRestrictedToMods`, `featured`, `icon`/`image`, and `publicKey` alongside `inbox`/`outbox`/`followers`.
 
 ## Collections
 
@@ -174,7 +175,7 @@ Both message types reuse the same custom context (`https://docs.takos.jp/ns/acti
 ### Channel messages
 
 - Channel IDs take the form `https://{domain}/ap/channels/{communityId}/{channelId}`.
-- `sendChannelMessage` emits a `Create` with `object.type = "ChannelMessage"` and saves the record.
+- `sendChannelMessage` emits a `Create` with `object.type = "ChannelMessage"` (no legacy `channel` alias or `Note` fallback) and saves the record.
 - `GET /ap/channels/:communityId/:channelId/messages` exposes the ordered log for authenticated members.
 - `handleIncomingChannelMessage` stores remote messages before surfacing them through the REST API.
 

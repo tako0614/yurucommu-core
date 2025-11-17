@@ -861,7 +861,7 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
     return activityPubResponse(c, { ok: true }, 202);
   }
   if (body?.object?.type === "ChannelMessage") {
-    const channelUri = body.object.channel;
+    const channelUri = body.object.channelId;
     const parts = channelUri?.split("/ap/channels/")[1]?.split("/") || [];
     if (parts.length >= 2) {
       const [communityId, channelId] = parts;

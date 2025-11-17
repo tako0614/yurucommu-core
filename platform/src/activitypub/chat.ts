@@ -41,7 +41,7 @@ export async function handleIncomingDm(env: any, activity: any) {
 
 export async function handleIncomingChannelMessage(env: any, activity: any) {
   const object = activity.object;
-  const channelUri = object?.channel;
+  const channelUri = object?.channelId;
   if (!channelUri) return;
   const parts = channelUri.split("/ap/channels/")[1]?.split("/") || [];
   if (parts.length < 2) return;
@@ -53,7 +53,13 @@ export async function handleIncomingChannelMessage(env: any, activity: any) {
       channelId,
       activity.actor,
       object.content || "",
-      activity,
+      {
+        ...activity,
+        object: {
+          ...activity.object,
+          channelId: channelUri,
+        },
+      },
     );
   } finally {
     await store.disconnect?.();
@@ -101,10 +107,10 @@ function buildChannelMessageActivity(
     cc: [] as string[],
     published: now,
     object: {
-      type: ["ChannelMessage", "Note"], // Fallback to Note for compatibility
+      type: "ChannelMessage",
       id: `${channelUri}/messages/${crypto.randomUUID()}`,
       content: contentHtml,
-      channel: channelUri,
+      channelId: channelUri,
       inReplyTo: inReplyTo || null,
       published: now,
     },
@@ -176,7 +182,27 @@ export async function getDmThreadMessages(env: any, threadId: string, limit = 50
 export async function getChannelMessages(env: any, communityId: string, channelId: string, limit = 50) {
   const store = makeData(env);
   try {
-    return store.listChannelMessages(communityId, channelId, limit);
+    const baseChannelUri = `https://${requireInstanceDomain(env)}/ap/channels/${communityId}/${channelId}`;
+    const rows = await store.listChannelMessages(communityId, channelId, limit);
+    return rows.map((row: any) => {
+      let parsed: any = null;
+      try {
+        parsed = row?.raw_activity_json ? JSON.parse(row.raw_activity_json) : null;
+      } catch (e) {
+        console.warn("Failed to parse channel raw_activity_json", e);
+      }
+      const candidate = parsed?.object ?? parsed ?? {};
+      const channelUri = candidate.channelId || baseChannelUri;
+      return {
+        id: candidate.id || row.id || `${channelUri}/messages/${crypto.randomUUID()}`,
+        type: Array.isArray(candidate.type) ? candidate.type[0] : candidate.type || "ChannelMessage",
+        content: candidate.content ?? row.content_html ?? "",
+        actor: candidate.actor ?? row.author_id,
+        inReplyTo: candidate.inReplyTo ?? candidate.in_reply_to ?? null,
+        channelId: channelUri,
+        published: candidate.published ?? row.created_at ?? null,
+      };
+    });
   } finally {
     await store.disconnect?.();
   }
