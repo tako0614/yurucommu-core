@@ -12,6 +12,7 @@ export type ActivityPubContext = string | string[] | Record<string, unknown>;
 export const ACTIVITYSTREAMS_CONTEXT = "https://www.w3.org/ns/activitystreams";
 export const SECURITY_CONTEXT = "https://w3id.org/security/v1";
 export const TAKOS_CONTEXT = "https://docs.takos.jp/ns/activitypub/v1.jsonld";
+export const LEMMY_CONTEXT = "https://join-lemmy.org/context.json";
 
 /**
  * Generate ActivityPub Person object for a user
@@ -68,25 +69,48 @@ export function generateGroupActor(
   const slug = community.id;
   const baseUrl = `${protocol}://${instanceDomain}`;
   const groupUri = `${baseUrl}/ap/groups/${slug}`;
+  const sharedInbox = community.shared_inbox_url;
 
   return {
-    "@context": [ACTIVITYSTREAMS_CONTEXT, SECURITY_CONTEXT],
+    // Lemmy の Group Actor 互換: 必須コンテキストを先頭に含める
+    "@context": [LEMMY_CONTEXT, ACTIVITYSTREAMS_CONTEXT, SECURITY_CONTEXT],
     type: "Group",
     id: groupUri,
     preferredUsername: slug,
     name: community.name,
     summary: community.description || "",
+    source: community.description
+      ? {
+        content: community.description,
+        mediaType: "text/html",
+      }
+      : undefined,
+    sensitive: Boolean(community.is_nsfw || community.sensitive),
+    postingRestrictedToMods: Boolean(community.posting_restricted_to_mods),
     attributedTo: getActorUri(ownerHandle, instanceDomain, protocol),
     inbox: `${baseUrl}/ap/groups/${slug}/inbox`,
     outbox: `${baseUrl}/ap/groups/${slug}/outbox`,
     followers: `${baseUrl}/ap/groups/${slug}/followers`,
-    // Note: 'members' is non-standard. Use 'followers' for ActivityPub compatibility.
-    // Members are represented as followers who have been accepted.
+    featured: `${baseUrl}/ap/groups/${slug}/featured`,
+    ...(sharedInbox
+      ? {
+        endpoints: {
+          sharedInbox,
+        },
+      }
+      : {}),
     icon: community.icon_url
       ? {
         type: "Image",
         mediaType: "image/jpeg",
         url: community.icon_url,
+      }
+      : undefined,
+    image: community.banner_url
+      ? {
+        type: "Image",
+        mediaType: "image/jpeg",
+        url: community.banner_url,
       }
       : undefined,
     publicKey: publicKeyPem
@@ -96,6 +120,8 @@ export function generateGroupActor(
         publicKeyPem,
       }
       : undefined,
+    published: community.created_at ? new Date(community.created_at).toISOString() : undefined,
+    updated: community.updated_at ? new Date(community.updated_at).toISOString() : undefined,
   };
 }
 
