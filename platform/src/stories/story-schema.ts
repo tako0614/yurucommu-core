@@ -82,6 +82,11 @@ export type StoryTextSlide = StorySlideBase & {
   fontWeight?: number;
 };
 
+/**
+ * StoryExtensionSlide は Story 内で特殊なコンテンツタイプを表現するためのスライド型です。
+ * Canvas（座標配置型エディタ）などの組み込み機能で使用されます。
+ * 注: これは DSL/AI による拡張システムとは無関係です。
+ */
 export type StoryExtensionSlide = StorySlideBase & {
   type: "extension";
   extensionType: string;
