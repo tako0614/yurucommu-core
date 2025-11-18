@@ -1,5 +1,5 @@
 import { makeData } from "../server/data-factory";
-import { ACTIVITYSTREAMS_CONTEXT, TAKOS_CONTEXT } from "./activitypub";
+import { ACTIVITYSTREAMS_CONTEXT } from "./activitypub";
 import { getActorUri, requireInstanceDomain } from "../subdomain";
 import { deliverActivity } from "./delivery";
 
@@ -41,7 +41,7 @@ export async function handleIncomingDm(env: any, activity: any) {
 
 export async function handleIncomingChannelMessage(env: any, activity: any) {
   const object = activity.object;
-  const channelUri = object?.channelId;
+  const channelUri = object?.context;
   if (!channelUri) return;
   const parts = channelUri.split("/ap/channels/")[1]?.split("/") || [];
   if (parts.length < 2) return;
@@ -53,13 +53,7 @@ export async function handleIncomingChannelMessage(env: any, activity: any) {
       channelId,
       activity.actor,
       object.content || "",
-      {
-        ...activity,
-        object: {
-          ...activity.object,
-          channelId: channelUri,
-        },
-      },
+      activity,
     );
   } finally {
     await store.disconnect?.();
@@ -74,20 +68,24 @@ function buildDirectMessageActivity(
   inReplyTo?: string,
 ) {
   const now = new Date().toISOString();
+  const messageId = `${threadUri}/${crypto.randomUUID()}`;
   return {
-    "@context": [ACTIVITYSTREAMS_CONTEXT, TAKOS_CONTEXT],
+    "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "Create",
     actor,
     to: recipients,
     cc: [actor],
     published: now,
     object: {
-      type: ["DirectMessage", "Note"], // Fallback to Note for compatibility
-      id: `${threadUri}/${crypto.randomUUID()}`,
+      type: "Note",
+      id: messageId,
+      attributedTo: actor,
       content: contentHtml,
-      thread: threadUri,
-      inReplyTo: inReplyTo || null,
+      context: threadUri, // 標準の context プロパティで会話をグループ化
+      inReplyTo: inReplyTo || undefined,
       published: now,
+      to: recipients,
+      cc: [actor],
     },
   };
 }
@@ -99,20 +97,23 @@ function buildChannelMessageActivity(
   inReplyTo?: string,
 ) {
   const now = new Date().toISOString();
+  const messageId = `${channelUri}/messages/${crypto.randomUUID()}`;
   return {
-    "@context": [ACTIVITYSTREAMS_CONTEXT, TAKOS_CONTEXT],
+    "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "Create",
     actor,
     to: [channelUri],
     cc: [] as string[],
     published: now,
     object: {
-      type: "ChannelMessage",
-      id: `${channelUri}/messages/${crypto.randomUUID()}`,
+      type: "Note",
+      id: messageId,
+      attributedTo: actor,
       content: contentHtml,
-      channelId: channelUri,
-      inReplyTo: inReplyTo || null,
+      context: channelUri, // 標準の context プロパティでチャンネルを識別
+      inReplyTo: inReplyTo || undefined,
       published: now,
+      to: [channelUri],
     },
   };
 }
@@ -192,14 +193,15 @@ export async function getChannelMessages(env: any, communityId: string, channelI
         console.warn("Failed to parse channel raw_activity_json", e);
       }
       const candidate = parsed?.object ?? parsed ?? {};
-      const channelUri = candidate.channelId || baseChannelUri;
+      // 標準の context プロパティを優先、フォールバックとして channelId
+      const channelUri = candidate.context || candidate.channelId || baseChannelUri;
       return {
         id: candidate.id || row.id || `${channelUri}/messages/${crypto.randomUUID()}`,
-        type: Array.isArray(candidate.type) ? candidate.type[0] : candidate.type || "ChannelMessage",
+        type: "Note", // 標準の Note タイプ
         content: candidate.content ?? row.content_html ?? "",
-        actor: candidate.actor ?? row.author_id,
+        attributedTo: candidate.attributedTo ?? candidate.actor ?? row.author_id,
+        context: channelUri,
         inReplyTo: candidate.inReplyTo ?? candidate.in_reply_to ?? null,
-        channelId: channelUri,
         published: candidate.published ?? row.created_at ?? null,
       };
     });

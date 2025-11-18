@@ -856,19 +856,32 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
 app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
   const handle = c.req.param("handle");
   const body = await c.req.json();
-  if (body?.object?.type === "DirectMessage") {
-    await sendDirectMessage(c.env, handle, body.to || [], body.object.content || "", body.object.inReplyTo);
-    return activityPubResponse(c, { ok: true }, 202);
-  }
-  if (body?.object?.type === "ChannelMessage") {
-    const channelUri = body.object.channelId;
-    const parts = channelUri?.split("/ap/channels/")[1]?.split("/") || [];
-    if (parts.length >= 2) {
-      const [communityId, channelId] = parts;
-      await sendChannelMessage(c.env, handle, communityId, channelId, body.cc || [], body.object.content || "", body.object.inReplyTo);
+  
+  // 標準の Note で DM を判定（to に Public がなく、特定のユーザーのみの場合）
+  if (body?.object?.type === "Note" && body?.type === "Create") {
+    const to = body.to || [];
+    const cc = body.cc || [];
+    const hasPublic = to.includes("https://www.w3.org/ns/activitystreams#Public") || 
+                      cc.includes("https://www.w3.org/ns/activitystreams#Public");
+    
+    // context プロパティでチャンネルメッセージかDMかを判定
+    const context = body.object.context;
+    
+    if (context && context.includes("/ap/channels/")) {
+      // チャンネルメッセージ
+      const parts = context.split("/ap/channels/")[1]?.split("/") || [];
+      if (parts.length >= 2) {
+        const [communityId, channelId] = parts;
+        await sendChannelMessage(c.env, handle, communityId, channelId, cc, body.object.content || "", body.object.inReplyTo);
+        return activityPubResponse(c, { ok: true }, 202);
+      }
+    } else if (!hasPublic && to.length > 0) {
+      // DM（Public なし、かつ to が存在）
+      await sendDirectMessage(c.env, handle, to, body.object.content || "", body.object.inReplyTo);
       return activityPubResponse(c, { ok: true }, 202);
     }
   }
+  
   return activityPubResponse(c, { ok: false, error: "unsupported activity" }, 400);
 });
 
