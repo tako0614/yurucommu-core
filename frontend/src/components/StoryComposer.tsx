@@ -752,7 +752,7 @@ export default function StoryComposer(props: Props) {
           >
             <div class="flex flex-col gap-6">
               <div
-                class="relative aspect-[1080/1920] w-full rounded-[32px] bg-black shadow-2xl overflow-hidden mx-auto"
+                class="relative aspect-1080/1920 w-full rounded-4xl bg-black shadow-2xl overflow-hidden mx-auto"
                 style={previewStyle()}
               >
                 <div class="absolute inset-0 bg-black" />
@@ -863,8 +863,8 @@ export default function StoryComposer(props: Props) {
                   </div>
                 </div>
 
-                <div class="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
-                <div class="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                <div class="absolute inset-x-0 top-0 h-48 bg-linear-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
+                <div class="absolute inset-x-0 bottom-0 h-56 bg-linear-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
                 <div class="absolute top-5 left-5 right-5 flex items-center justify-between text-white">
               <button

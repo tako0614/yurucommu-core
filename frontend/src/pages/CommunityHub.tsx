@@ -47,7 +47,7 @@ function FeedItem(props: { p: any; community: any }) {
         <div class="px-4 pb-3 pt-2 flex items-start gap-3">
           <a
             href={`/@${encodeURIComponent((props.p as any).author_handle || props.p.author_id)}`}
-            class="flex-shrink-0"
+            class="shrink-0"
           >
             <Avatar
               src={author()?.avatar_url || ""}
