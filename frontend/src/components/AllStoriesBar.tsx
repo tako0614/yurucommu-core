@@ -185,7 +185,7 @@ export default function AllStoriesBar(props: Props) {
       <div class="px-2 sm:px-3 lg:px-5 py-3 overflow-x-auto">
         <div class="flex gap-4">
           {/* 自分のアイコン（常に表示）。丸は自分のストーリー閲覧、＋は常にアップロード */}
-          <div class="flex-shrink-0 flex flex-col items-center gap-1">
+          <div class="shrink-0 flex flex-col items-center gap-1">
             <div class="relative">
               {/* hidden input with ref */}
               <input
@@ -249,7 +249,7 @@ export default function AllStoriesBar(props: Props) {
                   {/* Decorative ring only when user has stories */}
                   <div
                     class={hasMyStory()
-                      ? "p-[3px] rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500"
+                      ? "p-[3px] rounded-full bg-linear-to-tr from-pink-500 via-purple-500 to-yellow-500"
                       : ""}
                   >
                     <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px] overflow-hidden">
@@ -300,7 +300,7 @@ export default function AllStoriesBar(props: Props) {
                 };
                 return (
                   <button
-                    class="flex-shrink-0 flex flex-col items-center gap-1 active:opacity-80"
+                    class="shrink-0 flex flex-col items-center gap-1 active:opacity-80"
                     onClick={() => {
                       setViewerStories(group);
                       setViewerAuthor(author() || null);
@@ -317,8 +317,8 @@ export default function AllStoriesBar(props: Props) {
                   >
                     <div
                       class={"p-[3px] rounded-full " + (isViewed()
-                        ? "bg-gradient-to-tr from-gray-300 to-gray-200"
-                        : "bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500")}
+                        ? "bg-linear-to-tr from-gray-300 to-gray-200"
+                        : "bg-linear-to-tr from-pink-500 via-purple-500 to-yellow-500")}
                     >
                       <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px]">
                         <div class="w-full h-full rounded-full overflow-hidden bg-neutral-200">

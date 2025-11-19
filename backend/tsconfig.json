@@ -7,7 +7,7 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "@types/node"],
     "baseUrl": ".",
     "paths": {
       "@takos/platform": ["../../platform/src/index.ts"],
@@ -19,5 +19,5 @@
     },
     "rootDirs": ["./src", "../../platform"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "prisma.config.ts"]
 }

@@ -144,7 +144,7 @@ export default function Profile() {
             <Avatar
               src={author()?.avatar_url || ""}
               alt="アバター"
-              class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover flex-shrink-0"
+              class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover shrink-0"
             />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1 text-[15px]">

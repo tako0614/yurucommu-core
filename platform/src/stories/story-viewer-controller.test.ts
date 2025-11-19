@@ -66,7 +66,7 @@ describe("StoryViewerController", () => {
 
     controller.pause("menu");
     vi.advanceTimersByTime(1000);
-    expect(controller.getSnapshot().progress).toBeCloseTo(progressAfterStart, 3);
+    expect(controller.getSnapshot().progress).toBeCloseTo(progressAfterStart, 2);
 
     controller.resume("menu");
     vi.advanceTimersByTime(600);

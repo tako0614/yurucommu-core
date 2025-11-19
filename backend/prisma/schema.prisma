@@ -6,8 +6,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  // Local development only. Runtime on Workers uses D1Adapter and ignores this.
-  url      = "file:./dev.db"
+  // Connection details are defined via prisma.config.ts for migrate tooling.
 }
 
 model users {
