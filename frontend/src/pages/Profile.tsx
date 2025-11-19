@@ -1,5 +1,11 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { listMyCommunities, getUser, useMe } from "../lib/api";
+import {
+  listMyCommunities,
+  listCommunityPosts,
+  listGlobalPosts,
+  getUser,
+  useMe,
+} from "../lib/api";
 import Avatar from "../components/Avatar";
 import ProfileModal from "../components/ProfileModal";
 import AccountManager from "../components/AccountManager";
@@ -30,39 +36,59 @@ export default function Profile() {
 
   // 自分の投稿（参加コミュニティ横断で取得して author_id で絞り込み）
   const [myPosts] = createResource(
-    () => communities(),
-    async (comms) => {
-      if (!comms || !me()) return [];
-      const u = me()!;
-      const all: any[] = [];
+    () => ({
+      communities: communities(),
+      userId: me()?.id,
+    }),
+    async (ctx) => {
+      if (!ctx?.userId) return [];
+
+      const appendCommunityMeta = (post: any, community: any) => {
+        if (!post) return post;
+        if (community) {
+          if (!post.community_name) post.community_name = community.name;
+          if (!post.community_icon_url) post.community_icon_url = community.icon_url;
+        }
+        return post;
+      };
+
+      const dedup = new Map<string, any>();
+      const addPost = (post: any, community?: any) => {
+        if (!post?.id || post.author_id !== ctx.userId) return;
+        const enriched = appendCommunityMeta({ ...post }, community);
+        dedup.set(post.id, enriched);
+      };
+
       try {
-        // TODO: Implement global posts listing
-        // const globalPosts = await api("/posts");
-        // for (const p of (Array.isArray(globalPosts) ? globalPosts : []) as any[]) {
-        //   if ((p as any)?.author_id === u.id) {
-        //     all.push(p);
-        //   }
-        // }
-      } catch {}
-      for (const c of comms as any[]) {
-        try {
-          const posts = await Promise.resolve([]);
-          // TODO: Implement listCommunityPosts
-          // const posts = await api(`/communities/${c.id}/posts`);
-          for (const p of posts as any[]) {
-            if (p.author_id === u.id) {
-              all.push({
-                ...p,
-                community_name: c.name,
-                community_icon_url: c.icon_url,
-              });
-            }
-          }
-        } catch {}
+        const globalPosts = await listGlobalPosts();
+        for (const post of globalPosts || []) {
+          addPost(post);
+        }
+      } catch {
+        // ignore timeline fetch errors
       }
-      return all.sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+
+      const communitiesList = Array.isArray(ctx.communities) ? (ctx.communities as any[]) : [];
+      if (communitiesList.length) {
+        const lists = await Promise.all(
+          communitiesList.map((community) =>
+            listCommunityPosts(community.id).catch(() => null),
+          ),
+        );
+        lists.forEach((posts, index) => {
+          if (!Array.isArray(posts)) return;
+          const community = communitiesList[index];
+          for (const post of posts) {
+            addPost(post, community);
+          }
+        });
+      }
+
+      const items = Array.from(dedup.values());
+      items.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
       );
+      return items;
     },
   );
 

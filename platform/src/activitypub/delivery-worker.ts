@@ -10,6 +10,7 @@ import { signRequest } from "../auth/http-signature";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
 import { requireInstanceDomain } from "../subdomain";
 import { withTransaction } from "../utils/utils";
+import { getOrFetchActor } from "./actor-fetch";
 
 interface Env {
   DB: D1Database;
@@ -96,7 +97,7 @@ async function deliverActivity(
       method: "POST",
       headers: {
         "Content-Type": "application/activity+json",
-        "User-Agent": "YuruCommu/1.0",
+        "User-Agent": "Takos/1.0",
       },
       body: activityJson,
     });
@@ -127,6 +128,43 @@ async function deliverActivity(
 }
 
 /**
+ * Resolve inbox URL for a recipient
+ */
+async function resolveInbox(recipient: string, env: Env): Promise<string | null> {
+  // Skip the special Public collection
+  if (recipient === "https://www.w3.org/ns/activitystreams#Public") {
+    return null;
+  }
+
+  // If it's already an inbox URL, use it
+  if (recipient.endsWith("/inbox")) {
+    return recipient;
+  }
+
+  // If it's a followers/following collection, skip direct delivery
+  // (these should be expanded elsewhere)
+  if (recipient.includes("/followers") || recipient.includes("/following")) {
+    return null;
+  }
+
+  // Otherwise, fetch the actor and get their inbox
+  try {
+    const actor = await getOrFetchActor(recipient, env);
+    if (!actor) {
+      console.error(`Failed to resolve inbox for ${recipient}`);
+      return null;
+    }
+
+    // Prefer sharedInbox for efficiency
+    return actor.endpoints?.sharedInbox || actor.inbox;
+  } catch (error) {
+    console.error(`Error resolving inbox for ${recipient}:`, error);
+    // Fallback: assume it's an actor URI and append /inbox
+    return `${recipient}/inbox`;
+  }
+}
+
+/**
  * Process delivery queue
  * Fetches pending deliveries and attempts to deliver them
  */
@@ -140,7 +178,11 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
        FROM ap_delivery_queue dq
        JOIN ap_outbox_activities oa ON dq.activity_id = oa.activity_id
        WHERE dq.status = 'pending'
-       AND (dq.last_attempt_at IS NULL OR datetime(dq.last_attempt_at, '+5 minutes') < datetime('now'))
+       AND (
+         (dq.next_attempt_at IS NOT NULL AND dq.next_attempt_at <= datetime('now'))
+         OR
+         (dq.next_attempt_at IS NULL AND (dq.last_attempt_at IS NULL OR datetime(dq.last_attempt_at, '+5 minutes') < datetime('now')))
+       )
        ORDER BY dq.created_at ASC
        LIMIT ?`,
       [batchSize]
@@ -188,14 +230,19 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
               );
               console.error(`✗ Failed permanently: ${delivery.target_inbox_url} - ${result.error}`);
             } else {
-              // Update retry count and error
+              // Update retry count and error with exponential backoff
+              // Base delay: 5 minutes. Multiplier: 2^retry_count
+              // Retry 1: 5m, Retry 2: 10m, Retry 3: 20m, Retry 4: 40m
+              const backoffMinutes = 5 * Math.pow(2, newRetryCount - 1);
+              
               await store.query(
                 `UPDATE ap_delivery_queue
-                 SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
+                 SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now'),
+                     next_attempt_at = datetime('now', '+${backoffMinutes} minutes')
                  WHERE id = ?`,
                 [newRetryCount, result.error || "unknown error", delivery.id]
               );
-              console.warn(`⚠ Retry ${newRetryCount}/${maxRetries}: ${delivery.target_inbox_url} - ${result.error}`);
+              console.warn(`⚠ Retry ${newRetryCount}/${maxRetries} in ${backoffMinutes}m: ${delivery.target_inbox_url} - ${result.error}`);
             }
           }
         });
@@ -210,10 +257,96 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
 }
 
 /**
+ * Process outbox jobs
+ * Expands activities to recipients and queues them for delivery
+ */
+export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void> {
+  const store = makeData(env);
+  try {
+    // Get pending outbox jobs
+    const jobs = await store.query(
+      `SELECT id, activity_json, created_at FROM ap_outbox_jobs ORDER BY created_at ASC LIMIT ?`,
+      [batchSize]
+    );
+
+    if (!jobs || jobs.length === 0) {
+      return;
+    }
+
+    console.log(`Processing ${jobs.length} outbox jobs`);
+
+    for (const job of jobs) {
+      try {
+        const activity = JSON.parse(job.activity_json);
+        const allRecipients = [
+          ...(activity.to || []),
+          ...(activity.cc || []),
+          ...(activity.bcc || []),
+        ];
+        const uniqueRecipients = Array.from(new Set(allRecipients)).filter(Boolean) as string[];
+        
+        // Resolve inboxes
+        const inboxes = new Set<string>();
+        for (const recipient of uniqueRecipients) {
+          const inbox = await resolveInbox(recipient, env);
+          if (inbox) {
+            inboxes.add(inbox);
+          }
+        }
+
+        // Queue delivery for each unique inbox
+        if (inboxes.size > 0) {
+          const activityId = activity.id;
+          
+          // Use transaction to ensure atomicity
+          await withTransaction(store, async () => {
+            for (const inbox of inboxes) {
+              // Check if already queued
+              const existing = await store.query(
+                `SELECT 1 FROM ap_delivery_queue WHERE activity_id = ? AND target_inbox_url = ?`,
+                [activityId, inbox]
+              );
+              
+              if (existing.length === 0) {
+                await store.query(
+                  `INSERT INTO ap_delivery_queue 
+                   (id, activity_id, target_inbox_url, status, created_at)
+                   VALUES (?, ?, ?, 'pending', datetime('now'))`,
+                  [crypto.randomUUID(), activityId, inbox]
+                );
+              }
+            }
+            
+            // Delete processed job
+            await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
+          });
+          
+          console.log(`✓ Queued activity ${activityId} to ${inboxes.size} inboxes`);
+        } else {
+          // No recipients, just delete the job
+          await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
+          console.log(`ℹ︎ No recipients for activity ${activity.id}, job deleted`);
+        }
+      } catch (error) {
+        console.error(`Failed to process outbox job ${job.id}:`, error);
+        // Don't delete failed jobs immediately, maybe add retry count later
+      }
+    }
+  } finally {
+    await store.disconnect?.();
+  }
+}
+
+/**
  * Scheduled handler for Cloudflare Workers Cron Triggers
  */
 export async function handleScheduled(event: ScheduledEvent, env: Env): Promise<void> {
   console.log("Delivery worker triggered at", new Date(event.scheduledTime).toISOString());
+  
+  // Process outbox jobs first (expand to delivery queue)
+  await processOutboxQueue(env, 10);
+  
+  // Then process delivery queue
   await processDeliveryQueue(env, 20);
 }
 

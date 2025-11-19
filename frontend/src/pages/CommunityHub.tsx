@@ -2,6 +2,9 @@ import { useParams } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import {
   getUser,
+  getCommunity,
+  listCommunityPosts,
+  createDirectInvites,
   searchUsers,
   updateCommunity,
   uploadMedia,
@@ -179,13 +182,28 @@ function FeedItem(props: { p: any; community: any }) {
 
 export default function CommunityHub() {
   const params = useParams();
-  const [community] = createResource<Community | null>(async () =>
-    // TODO: Implement getCommunity in shared API
-    await Promise.resolve(null)
+  const communityId = () => params.id;
+  const [community] = createResource<Community | null, string | undefined>(
+    communityId,
+    async (id) => {
+      if (!id) return null;
+      try {
+        return await getCommunity(id);
+      } catch {
+        return null;
+      }
+    },
   );
-  const [posts] = createResource(async () =>
-    // TODO: Implement listCommunityPosts in shared API
-    await Promise.resolve([])
+  const [posts] = createResource(
+    () => community()?.id,
+    async (id) => {
+      if (!id) return [];
+      try {
+        return await listCommunityPosts(id);
+      } catch {
+        return [];
+      }
+    },
   );
   // stories removed from hub view
 
@@ -220,13 +238,14 @@ export default function CommunityHub() {
   const inviteUser = async (userId: string) => {
     setBusyInvite(userId);
     try {
-      // TODO: Implement createDirectInvites in shared API
-      // await createDirectInvites(params.id, [userId]);
-      alert("招待機能は準備中です");
+      if (!params.id) throw new Error("コミュニティIDが不明です");
+      await createDirectInvites(params.id, [userId]);
+      alert("招待を送信しました");
     } catch (e: any) {
       alert(e?.message || "招待に失敗しました");
+    } finally {
+      setBusyInvite(null);
     }
-    setBusyInvite(null);
   };
 
   // Mobile sidebar toggle

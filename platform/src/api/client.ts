@@ -74,6 +74,10 @@ export function createApiClient(config: ApiClientConfig) {
       return apiFetch<Community[]>('/me/communities');
     },
 
+    async getCommunity(id: string) {
+      return apiFetch<Community>(`/communities/${encodeURIComponent(id)}`);
+    },
+
     async searchCommunities(q: string) {
       const query = q.trim();
       if (!query) {
@@ -107,6 +111,10 @@ export function createApiClient(config: ApiClientConfig) {
 
     async listCommunityPosts(communityId: string) {
       return apiFetch<Post[]>(`/communities/${encodeURIComponent(communityId)}/posts`);
+    },
+
+    async listGlobalPosts() {
+      return apiFetch<Post[]>('/posts');
     },
 
     async createCommunityPost(communityId: string, payload: {
@@ -191,6 +199,16 @@ export function createApiClient(config: ApiClientConfig) {
     // ---- Invitation APIs ----
     async listMyInvitations() {
       return apiFetch<CommunityInvitation[]>('/me/invitations');
+    },
+
+    async createDirectInvites(communityId: string, userIds: string[]) {
+      return apiFetch<CommunityInvitation[]>(
+        `/communities/${encodeURIComponent(communityId)}/direct-invites`,
+        {
+          method: 'POST',
+          body: { user_ids: userIds },
+        },
+      );
     },
 
     async acceptCommunityInvite(communityId: string) {

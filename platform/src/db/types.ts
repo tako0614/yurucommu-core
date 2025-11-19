@@ -432,6 +432,11 @@ export interface DatabaseAPI {
   findApActor(id: string): Promise<any | null>;
   upsertApActor(actor: Record<string, any>): Promise<any>;
 
+  // Reports
+  createReport(report: ReportInput): Promise<any>;
+  listReports(status?: string, limit?: number, offset?: number): Promise<any[]>;
+  updateReportStatus(id: string, status: string): Promise<void>;
+
   // Low-level operations (for complex queries)
   transaction<T>(fn: (tx: DatabaseAPI) => Promise<T>): Promise<T>;
   executeRaw(sql: string, ...params: any[]): Promise<number>;
@@ -442,4 +447,15 @@ export interface DatabaseAPI {
 
   // Cleanup
   disconnect(): Promise<void>;
+}
+
+export interface ReportInput {
+  id: string;
+  reporter_actor_id: string;
+  target_actor_id: string;
+  target_object_id?: string | null;
+  reason?: string;
+  status?: string;
+  created_at?: string | Date;
+  updated_at?: string | Date;
 }

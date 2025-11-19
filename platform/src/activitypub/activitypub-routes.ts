@@ -955,4 +955,229 @@ app.get("/ap/channels/:communityId/:channelId/messages", accessTokenGuard, async
   });
 });
 
+// ============================================
+// NodeInfo
+// ============================================
+
+/**
+ * NodeInfo discovery endpoint
+ * GET /.well-known/nodeinfo
+ */
+app.get("/.well-known/nodeinfo", (c) => {
+  const instanceDomain = getInstanceDomain(c);
+  const protocol = getProtocol(c);
+  const baseUrl = `${protocol}://${instanceDomain}`;
+
+  return c.json({
+    links: [
+      {
+        rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
+        href: `${baseUrl}/nodeinfo/2.0`,
+      },
+    ],
+  }, 200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "max-age=3600",
+  });
+});
+
+/**
+ * NodeInfo 2.0 endpoint
+ * GET /nodeinfo/2.0
+ */
+app.get("/nodeinfo/2.0", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    // Get user count (approximate or exact)
+    // Note: countUsers might not be exposed in DatabaseAPI yet, using raw query or fallback
+    let userCount = 0;
+    try {
+      // Assuming we can count users. If not, default to 1 (admin)
+      const users = await store.queryRaw("SELECT COUNT(*) as count FROM users");
+      userCount = (users[0] as any).count || 0;
+    } catch (e) {
+      console.warn("Failed to count users for NodeInfo", e);
+    }
+
+    return c.json({
+      version: "2.0",
+      software: {
+        name: "takos",
+        version: "0.1.0",
+      },
+      protocols: [
+        "activitypub",
+      ],
+      services: {
+        inbound: [],
+        outbound: [],
+      },
+      openRegistrations: false, // TODO: Make configurable
+      usage: {
+        users: {
+          total: userCount,
+        },
+      },
+      metadata: {
+        nodeName: "Takos Instance", // TODO: Make configurable
+        nodeDescription: "A Takos instance", // TODO: Make configurable
+      },
+    }, 200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "max-age=3600",
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// ============================================
+// Shared Inbox
+// ============================================
+
+/**
+ * System-wide Shared Inbox
+ * POST /ap/inbox
+ * 
+ * Receives activities for multiple users on this instance.
+ * Improves federation performance by reducing the number of requests.
+ */
+app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    // Parse activity
+    const bodyText = await c.req.text();
+    let activity: any;
+    try {
+      activity = JSON.parse(bodyText);
+    } catch (error) {
+      console.error("Failed to parse activity JSON:", error);
+      return fail(c, "invalid JSON", 400);
+    }
+
+    if (!activity || !activity.type) {
+      return fail(c, "invalid activity", 400);
+    }
+
+    // Extract actor URI
+    const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
+    if (!actorId) {
+      return fail(c, "missing actor", 400);
+    }
+
+    // Verify HTTP Signature
+    const signatureHeader = c.req.header("signature");
+    if (!signatureHeader) {
+      console.warn(`Shared inbox request without signature from ${actorId}`);
+      return fail(c, "missing signature", 401);
+    }
+
+    const keyIdMatch = signatureHeader.match(/keyId="([^"]+)"/);
+    if (!keyIdMatch) {
+      return fail(c, "invalid signature format", 401);
+    }
+    const keyId = keyIdMatch[1];
+
+    // Verify actor owns the key
+    const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any);
+    if (!ownsKey) {
+      return fail(c, "key ownership verification failed", 403);
+    }
+
+    // Fetch actor and get public key
+    const actor = await getOrFetchActor(actorId, c.env as any);
+    if (!actor || !actor.publicKey) {
+      return fail(c, "could not verify signature", 403);
+    }
+
+    // Verify digest
+    const digestHeader = c.req.header("digest");
+    if (!digestHeader) {
+      return fail(c, "digest header required for POST requests", 400);
+    }
+
+    const digestValid = await verifyDigest(c, bodyText);
+    if (!digestValid) {
+      return fail(c, "digest verification failed", 403);
+    }
+
+    // Verify HTTP signature
+    const signatureValid = await verifySignature(c, actor.publicKey.publicKeyPem);
+    if (!signatureValid) {
+      return fail(c, "signature verification failed", 403);
+    }
+
+    console.log(`✓ Verified shared inbox signature from ${actorId}`);
+
+    // Determine recipients
+    const instanceDomain = getInstanceDomain(c);
+    const recipients = new Set<string>();
+    
+    const addToRecipients = (field: any) => {
+      if (!field) return;
+      const targets = Array.isArray(field) ? field : [field];
+      for (const target of targets) {
+        if (typeof target === "string") {
+          try {
+            const url = new URL(target);
+            if (url.hostname === instanceDomain) {
+              // Extract handle from /ap/users/:handle
+              const match = url.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,20})$/);
+              if (match) {
+                recipients.add(match[1]);
+              }
+            }
+          } catch {
+            // Ignore invalid URLs
+          }
+        }
+      }
+    };
+
+    addToRecipients(activity.to);
+    addToRecipients(activity.cc);
+    addToRecipients(activity.audience);
+
+    if (recipients.size === 0) {
+      // No local recipients found. 
+      // TODO: Handle public posts for global timeline if needed
+      console.log(`ℹ︎ No local recipients for activity ${activity.id} in shared inbox`);
+      return c.json({}, 202);
+    }
+
+    console.log(`✓ Distributing activity ${activity.id} to ${recipients.size} local users`);
+
+    // Distribute to each recipient's inbox
+    const activityId = activity.id || crypto.randomUUID();
+    
+    // Use Promise.all to insert in parallel (or use a transaction if strict consistency needed)
+    await Promise.all(Array.from(recipients).map(async (handle) => {
+      // Check if actor is blocked or not followed (if required)
+      // For now, we just insert and let inbox-worker handle logic
+      
+      try {
+        await store.createApInboxActivity({
+          local_user_id: handle,
+          remote_actor_id: actorId,
+          activity_id: activityId,
+          activity_type: activity.type,
+          activity_json: JSON.stringify(activity),
+          status: "pending",
+          created_at: new Date(),
+        });
+      } catch (e) {
+        // Ignore duplicate key errors (idempotency)
+        console.log(`Activity ${activityId} already queued for ${handle}`);
+      }
+    }));
+
+    return c.json({}, 202);
+  } catch (error) {
+    console.error("Shared inbox processing error:", error);
+    return fail(c, "internal server error", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 export default app;

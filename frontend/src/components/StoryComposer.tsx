@@ -16,6 +16,7 @@ import type {
   TextElement,
 } from "../lib/stories";
 import { createStory, fileToDataUrl } from "../lib/stories";
+import { listMyCommunities } from "../lib/api";
 import StoryEditor, { type StoryEditorSnapshot } from "@platform/stories/story-editor";
 import { CANVAS_EXTENSION_TYPE } from "@takos/platform";
 
@@ -67,10 +68,13 @@ export default function StoryComposer(props: Props) {
   const [posting, setPosting] = createSignal(false);
   const [bgMenuOpen, setBgMenuOpen] = createSignal(false);
   const [audience, setAudience] = createSignal<'all' | 'community'>('all');
-  const [communities] = createResource(async () =>
-    // TODO: Implement listMyCommunities in shared API
-    ([] as any) as { id: string; name?: string }[],
-  );
+  const [communities] = createResource(async () => {
+    try {
+      return await listMyCommunities();
+    } catch {
+      return [];
+    }
+  });
   const [selectedCommunityId, setSelectedCommunityId] = createSignal<string | null>(
     props.communityId ?? null,
   );

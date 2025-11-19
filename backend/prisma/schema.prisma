@@ -488,3 +488,19 @@ model ap_delivery_queue {
   @@index([next_attempt_at])
   @@map("ap_delivery_queue")
 }
+
+// Moderation reports
+model reports {
+  id                String   @id
+  reporter_actor_id String
+  target_actor_id   String
+  target_object_id  String?
+  reason            String?
+  status            String   @default("pending") // pending, resolved, rejected
+  created_at        DateTime @default(now())
+  updated_at        DateTime @default(now())
+
+  @@index([status])
+  @@index([target_actor_id])
+  @@map("reports")
+}
