@@ -383,3 +383,78 @@ export async function webfingerLookup(account: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Fetch remote object (Note, Article, etc.) from their instance
+ *
+ * @param objectUri - Full URI of the object
+ * @returns Remote object
+ */
+export async function fetchRemoteObject(objectUri: string): Promise<any | null> {
+  try {
+    console.log(`Fetching remote object: ${objectUri}`);
+
+    // Create timeout controller
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(objectUri, {
+        headers: {
+          Accept: "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.error(`Failed to fetch object ${objectUri}: ${response.status} ${response.statusText}`);
+        return null;
+      }
+
+      // Check Content-Length header for early size validation
+      const contentLength = response.headers.get("content-length");
+      if (contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (size > MAX_RESPONSE_SIZE) {
+          console.error(`Object response too large: ${size} bytes (max ${MAX_RESPONSE_SIZE})`);
+          return null;
+        }
+      }
+
+      // Read response with size limit
+      const text = await response.text();
+      if (text.length > MAX_RESPONSE_SIZE) {
+        console.error(`Object response body too large: ${text.length} bytes`);
+        return null;
+      }
+
+      // Parse JSON with error handling
+      let object: any;
+      try {
+        object = JSON.parse(text);
+      } catch (parseError) {
+        console.error(`Failed to parse object JSON from ${objectUri}:`, parseError);
+        return null;
+      }
+
+      // Validate required fields
+      if (!object || typeof object !== 'object' || !object.id || !object.type) {
+        console.error(`Invalid object from ${objectUri}:`, object);
+        return null;
+      }
+
+      return object;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    if ((error as Error).name === "AbortError") {
+      console.error(`Timeout fetching remote object ${objectUri}`);
+    } else {
+      console.error(`Error fetching remote object ${objectUri}:`, error);
+    }
+    return null;
+  }
+}

@@ -267,6 +267,17 @@ export interface ClaimedInboxBatch {
   }>;
 }
 
+export interface ReportInput {
+  id: string;
+  reporter_actor_id: string;
+  target_actor_id: string;
+  target_object_id?: string | null;
+  reason?: string;
+  status?: string;
+  created_at?: string | Date;
+  updated_at?: string | Date;
+}
+
 /**
  * Complete Database API interface with instance support
  */
@@ -457,4 +468,9 @@ export interface DatabaseAPI {
 
   // Cleanup
   disconnect(): Promise<void>;
+
+  // Reports
+  createReport(report: ReportInput): Promise<any>;
+  listReports(status?: string, limit?: number, offset?: number): Promise<any[]>;
+  updateReportStatus(id: string, status: string): Promise<void>;
 }

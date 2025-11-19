@@ -6,7 +6,7 @@ import {
   For,
   Show,
 } from "solid-js";
-import { getUser, useMe } from "../lib/api";
+import { getUser, useMe, listMyCommunities } from "../lib/api";
 import {
   getStoryViewedMap,
   listGlobalStories,
@@ -28,10 +28,13 @@ type Props = {
 export default function AllStoriesBar(props: Props) {
   const me = useMe();
   let uploadInput: HTMLInputElement | undefined = undefined;
-  const [communities] = createResource(async () =>
-    // TODO: Implement listMyCommunities in shared API
-    Promise.resolve([])
-  );
+  const [communities] = createResource(async () => {
+    try {
+      return await listMyCommunities();
+    } catch {
+      return [];
+    }
+  });
   // communities() の解決後に自動で再取得されるよう source を渡す
   const [stories, { refetch: refetchStories }] = createResource<Story[], any>(
     () => communities(),

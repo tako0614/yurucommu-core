@@ -1923,6 +1923,45 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  // -------------- Reports --------------
+  const createReport = async (report: any) => {
+    return await (prisma as any).reports.create({
+      data: {
+        id: report.id,
+        reporter_actor_id: report.reporter_actor_id,
+        target_actor_id: report.target_actor_id,
+        target_object_id: report.target_object_id,
+        reason: report.reason,
+        status: report.status || "pending",
+        created_at: report.created_at ? new Date(report.created_at) : new Date(),
+        updated_at: report.updated_at ? new Date(report.updated_at) : new Date(),
+      },
+    });
+  };
+
+  const listReports = async (status?: string, limit = 20, offset = 0) => {
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    return await (prisma as any).reports.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { created_at: "desc" },
+    });
+  };
+
+  const updateReportStatus = async (id: string, status: string) => {
+    await (prisma as any).reports.update({
+      where: { id },
+      data: {
+        status,
+        updated_at: new Date(),
+      },
+    });
+  };
+
   // Low-level operations
   const transaction = async <T>(fn: (tx: import("./types").DatabaseAPI) => Promise<T>): Promise<T> => {
     return (prisma as any).$transaction(async (txPrisma: any) => {
@@ -2018,6 +2057,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listGlobalStoriesForUser,
     updateStory,
     deleteStory,
+    // Reports
+    createReport,
+    listReports,
+    updateReportStatus,
     // JWT
     getUserJwtSecret,
     setUserJwtSecret,

@@ -7,10 +7,11 @@
 
 import type { DatabaseAPI } from "../db/types";
 import { makeData } from "../server/data-factory";
-import { getOrFetchActor } from "./actor-fetch";
+import { getOrFetchActor, fetchRemoteObject } from "./actor-fetch";
 import { requireInstanceDomain, getActorUri } from "../subdomain";
 import { ACTIVITYSTREAMS_CONTEXT } from "./activitypub";
 import { sanitizeHtml } from "../utils/sanitize";
+import { handleIncomingDm, handleIncomingChannelMessage } from "./chat";
 
 export interface Env {
   DB: D1Database;
@@ -33,6 +34,9 @@ const ACTIVITY_TYPES = new Set([
   "Create",
   "Announce",
   "Undo",
+  "Update",
+  "Delete",
+  "Flag",
 ]);
 
 /**
@@ -182,6 +186,15 @@ async function processActivity(
       break;
     case "Undo":
       await handleIncomingUndo(db, localUserId, activity);
+      break;
+    case "Update":
+      await handleIncomingUpdate(db, env, localUserId, activity);
+      break;
+    case "Delete":
+      await handleIncomingDelete(db, localUserId, activity);
+      break;
+    case "Flag":
+      await handleIncomingFlag(db, env, localUserId, activity);
       break;
     default:
       console.warn(`Unhandled activity type: ${type}`);
@@ -352,16 +365,14 @@ async function handleIncomingLike(
   }
 
   const instanceDomain = requireInstanceDomain(env);
-  const normalizedObjectUri = normalizeLocalObjectUri(objectUri, instanceDomain);
-  if (!normalizedObjectUri) {
-    console.warn(`Like for non-local object: ${objectUri}`);
-    return;
-  }
+  // Try to normalize as local URI first
+  const localUri = normalizeLocalObjectUri(objectUri, instanceDomain);
+  const targetObjectId = localUri || objectUri;
 
   // Check if post exists
-  const post = await db.findPostByApObjectId(normalizedObjectUri);
+  const post = await db.findPostByApObjectId(targetObjectId);
   if (!post) {
-    console.warn(`Like for non-existent post: ${normalizedObjectUri}`);
+    console.warn(`Like for non-existent post: ${targetObjectId}`);
     return;
   }
 
@@ -417,8 +428,30 @@ async function handleIncomingCreate(
     return;
   }
 
-  // Handle Note (post or comment)
+  // Handle Note (post, comment, or chat message)
   if (objectType === "Note") {
+    // Check if this is a chat message by examining context and audience
+    const context = object.context;
+    const to = activity.to || [];
+    const cc = activity.cc || [];
+    const hasPublic = to.includes("https://www.w3.org/ns/activitystreams#Public") || 
+                      cc.includes("https://www.w3.org/ns/activitystreams#Public");
+    
+    // Channel message: has context pointing to a channel
+    if (context && typeof context === "string" && context.includes("/ap/channels/")) {
+      await handleIncomingChannelMessage(env, activity);
+      console.log(`✓ Channel message processed from ${actorUri}`);
+      return;
+    }
+    
+    // Direct message: no Public audience and has explicit recipients
+    if (!hasPublic && (to.length > 0 || cc.length > 0)) {
+      await handleIncomingDm(env, activity);
+      console.log(`✓ Direct message processed from ${actorUri}`);
+      return;
+    }
+    
+    // Otherwise, handle as regular post or comment
     const inReplyTo = typeof object.inReplyTo === "string" ? object.inReplyTo : object.inReplyTo?.id;
 
     if (inReplyTo) {
@@ -501,17 +534,29 @@ async function handleIncomingComment(
 ): Promise<void> {
   const instanceDomain = requireInstanceDomain(env);
 
-  const normalizedObjectUri = normalizeLocalObjectUri(inReplyTo, instanceDomain);
-  if (!normalizedObjectUri) {
-    console.warn(`Comment reply to non-local object: ${inReplyTo}`);
-    return;
-  }
+  const localUri = normalizeLocalObjectUri(inReplyTo, instanceDomain);
+  const targetObjectId = localUri || inReplyTo;
 
   // Check if post exists
-  const post = await db.findPostByApObjectId(normalizedObjectUri);
+  let post = await db.findPostByApObjectId(targetObjectId);
   if (!post) {
-    console.warn(`Comment for non-existent post: ${normalizedObjectUri}`);
-    return;
+    // Thread resolution: try to fetch parent post if it's remote
+    if (!localUri) {
+      console.log(`Fetching missing parent post: ${targetObjectId}`);
+      const remoteObject = await fetchRemoteObject(targetObjectId);
+      if (remoteObject && remoteObject.type === "Note") {
+        // Recursively handle the parent post
+        // Note: We pass a dummy localUserId because we just want to store it
+        await handleIncomingPost(db, env, "system", remoteObject, remoteObject.attributedTo || remoteObject.actor);
+        // Try to find it again
+        post = await db.findPostByApObjectId(targetObjectId);
+      }
+    }
+    
+    if (!post) {
+      console.warn(`Comment for non-existent post: ${targetObjectId}`);
+      return;
+    }
   }
 
   // Determine if actor is local or remote
@@ -573,16 +618,13 @@ async function handleIncomingAnnounce(
 
   // Parse object URI to find local post
   const instanceDomain = requireInstanceDomain(env);
-  const normalizedObjectUri = normalizeLocalObjectUri(objectUri, instanceDomain);
-  if (!normalizedObjectUri) {
-    console.warn(`Announce for non-local object: ${objectUri}`);
-    return;
-  }
+  const localUri = normalizeLocalObjectUri(objectUri, instanceDomain);
+  const targetObjectId = localUri || objectUri;
 
   // Check if post exists
-  const post = await db.findPostByApObjectId(normalizedObjectUri);
+  const post = await db.findPostByApObjectId(targetObjectId);
   if (!post) {
-    console.warn(`Announce for non-existent post: ${normalizedObjectUri}`);
+    console.warn(`Announce for non-existent post: ${targetObjectId}`);
     return;
   }
 
@@ -604,7 +646,7 @@ async function handleIncomingAnnounce(
   await db.createApAnnounce({
     activity_id: announceId,
     actor_id: actorUri,
-    object_id: normalizedObjectUri,
+    object_id: targetObjectId,
     local_post_id: post.id,
   });
 
@@ -657,6 +699,117 @@ async function handleIncomingUndo(
 
     default:
       console.warn(`Unhandled Undo type: ${objectType}`);
+  }
+}
+
+/**
+ * Handle incoming Update activity
+ */
+async function handleIncomingUpdate(
+  db: DatabaseAPI,
+  env: Env,
+  _localUserId: string,
+  activity: any,
+): Promise<void> {
+  const object = activity.object;
+  if (!object) return;
+
+  const objectId = typeof object === "string" ? object : object.id;
+  const objectType = extractType(object);
+  const actorUri = extractActorUri(activity.actor);
+
+  if (!actorUri || !validateActorUri(actorUri)) return;
+
+  // Update Actor (Profile update)
+  if (objectId === actorUri || objectType === "Person" || objectType === "Service") {
+    // Force refresh actor data
+    await getOrFetchActor(actorUri, env, true);
+    console.log(`✓ Updated actor profile: ${actorUri}`);
+    return;
+  }
+
+  // Update Note (Post edit)
+  if (objectType === "Note") {
+    console.log(`ℹ︎ Received update for post ${objectId} (not implemented yet)`);
+    // TODO: Implement post editing
+  }
+}
+
+/**
+ * Handle incoming Delete activity
+ */
+async function handleIncomingDelete(
+  db: DatabaseAPI,
+  _localUserId: string,
+  activity: any,
+): Promise<void> {
+  const object = activity.object;
+  if (!object) return;
+
+  const objectId = typeof object === "string" ? object : object.id;
+  const actorUri = extractActorUri(activity.actor);
+
+  if (!actorUri || !validateActorUri(actorUri)) return;
+
+  // Try to delete post first
+  const post = await db.findPostByApObjectId(objectId);
+  if (post) {
+    // Verify ownership: post author must match activity actor
+    if (post.ap_attributed_to === actorUri) {
+      // Use executeRaw since deletePost might not be exposed in DatabaseAPI yet
+      await db.executeRaw("DELETE FROM posts WHERE id = ?", post.id);
+      console.log(`✓ Deleted post ${objectId}`);
+    } else {
+      console.warn(`⚠ Unauthorized delete attempt for ${objectId} by ${actorUri}`);
+    }
+    return;
+  }
+
+  console.log(`ℹ︎ Received delete for unknown object ${objectId}`);
+}
+
+/**
+ * Handle incoming Flag activity (Report)
+ */
+async function handleIncomingFlag(
+  db: DatabaseAPI,
+  env: Env,
+  _localUserId: string,
+  activity: any,
+): Promise<void> {
+  const actorUri = extractActorUri(activity.actor);
+  if (!actorUri || !validateActorUri(actorUri)) {
+    console.error("Flag activity has invalid actor URI");
+    return;
+  }
+
+  // Object can be string (URI) or array of strings/objects
+  const objects = Array.isArray(activity.object) ? activity.object : [activity.object];
+  
+  for (const object of objects) {
+    const objectUri = typeof object === "string" ? object : object.id;
+    if (!objectUri) continue;
+
+    // Extract reason
+    const content = sanitizeHtml(activity.content || "");
+
+    // Try to identify target actor from object URI
+    // If object is a post, we might want to find the author
+    // For now, we store the object URI as target_object_id and also as target_actor_id if it looks like an actor
+    // But to be safe, we just store what we have.
+    
+    await db.createReport({
+      id: crypto.randomUUID(),
+      reporter_actor_id: actorUri,
+      target_actor_id: objectUri, // In many cases Flag targets the user URI directly
+      target_object_id: objectUri,
+      reason: content,
+      status: "pending",
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    
+    console.log(`✓ Report received from ${actorUri} against ${objectUri}`);
   }
 }
 
