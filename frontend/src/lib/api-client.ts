@@ -520,3 +520,53 @@ export async function loginWithPassword(input: {
     body: input,
   });
 }
+
+// Storage management
+export interface StorageFile {
+  key: string;
+  size: number;
+  uploaded: string;
+  contentType?: string;
+}
+
+export async function getStorage(): Promise<StorageFile[]> {
+  const res = await apiFetch<{ data?: { files?: StorageFile[] } }>("/storage", { method: "GET" });
+  return res.data?.files || [];
+}
+
+export async function uploadStorage(file: File): Promise<string> {
+  const backendUrl = getBackendUrl();
+  if (!backendUrl) {
+    throw new ApiError("BACKEND_URL not configured", 0, null);
+  }
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const headers: Record<string, string> = {};
+  const jwt = getJWT();
+  if (jwt) {
+    headers["Authorization"] = `Bearer ${jwt}`;
+  }
+
+  const res = await fetch(`${backendUrl}/storage/upload`, {
+    method: "POST",
+    headers,
+    body: fd,
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok || json?.ok === false) {
+    throw new Error(json.error || `HTTP ${res.status}`);
+  }
+  const url = json.data?.url || json.url || "";
+  if (typeof url === "string" && url.startsWith("/")) {
+    return `${backendUrl}${url}`;
+  }
+  return url;
+}
+
+export async function deleteStorage(key: string): Promise<void> {
+  await apiFetch("/storage", {
+    method: "DELETE",
+    body: { key },
+  });
+}
