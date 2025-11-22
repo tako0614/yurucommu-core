@@ -291,18 +291,39 @@ export function generateOrderedCollectionPage(
   id: string,
   partOf: string,
   orderedItems: any[],
+  totalItems?: number,
+  startIndex?: number,
   next?: string,
   prev?: string,
 ) {
-  return {
+  const page: any = {
     "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "OrderedCollectionPage",
     id,
     partOf,
     orderedItems,
-    next,
-    prev,
   };
+
+  // Include totalItems if provided (helpful for clients to know total count)
+  if (typeof totalItems === 'number') {
+    page.totalItems = totalItems;
+  }
+
+  // Include startIndex if provided (required for proper pagination)
+  if (typeof startIndex === 'number') {
+    page.startIndex = startIndex;
+  }
+
+  // Only include next/prev if they exist
+  if (next) {
+    page.next = next;
+  }
+
+  if (prev) {
+    page.prev = prev;
+  }
+
+  return page;
 }
 
 /**

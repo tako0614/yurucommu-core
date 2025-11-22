@@ -69,6 +69,22 @@ function buildDirectMessageActivity(
 ) {
   const now = new Date().toISOString();
   const messageId = `${threadUri}/${crypto.randomUUID()}`;
+  const object: any = {
+    type: "Note",
+    id: messageId,
+    attributedTo: actor,
+    content: contentHtml,
+    context: threadUri, // 標準の context プロパティで会話をグループ化
+    published: now,
+    to: recipients,
+    cc: [actor],
+  };
+
+  // Only include inReplyTo if it's a valid non-empty string
+  if (typeof inReplyTo === 'string' && inReplyTo.trim()) {
+    object.inReplyTo = inReplyTo.trim();
+  }
+
   return {
     "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "Create",
@@ -76,17 +92,7 @@ function buildDirectMessageActivity(
     to: recipients,
     cc: [actor],
     published: now,
-    object: {
-      type: "Note",
-      id: messageId,
-      attributedTo: actor,
-      content: contentHtml,
-      context: threadUri, // 標準の context プロパティで会話をグループ化
-      inReplyTo: inReplyTo || undefined,
-      published: now,
-      to: recipients,
-      cc: [actor],
-    },
+    object,
   };
 }
 
@@ -98,6 +104,21 @@ function buildChannelMessageActivity(
 ) {
   const now = new Date().toISOString();
   const messageId = `${channelUri}/messages/${crypto.randomUUID()}`;
+  const object: any = {
+    type: "Note",
+    id: messageId,
+    attributedTo: actor,
+    content: contentHtml,
+    context: channelUri, // 標準の context プロパティでチャンネルを識別
+    published: now,
+    to: [channelUri],
+  };
+
+  // Only include inReplyTo if it's a valid non-empty string
+  if (typeof inReplyTo === 'string' && inReplyTo.trim()) {
+    object.inReplyTo = inReplyTo.trim();
+  }
+
   return {
     "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "Create",
@@ -105,16 +126,7 @@ function buildChannelMessageActivity(
     to: [channelUri],
     cc: [] as string[],
     published: now,
-    object: {
-      type: "Note",
-      id: messageId,
-      attributedTo: actor,
-      content: contentHtml,
-      context: channelUri, // 標準の context プロパティでチャンネルを識別
-      inReplyTo: inReplyTo || undefined,
-      published: now,
-      to: [channelUri],
-    },
+    object,
   };
 }
 
@@ -174,7 +186,25 @@ export async function sendChannelMessage(
 export async function getDmThreadMessages(env: any, threadId: string, limit = 50) {
   const store = makeData(env);
   try {
-    return store.listDmMessages(threadId, limit);
+    const messages = await store.listDmMessages(threadId, limit);
+    // Return standard ActivityStreams Note objects
+    return messages.map((msg: any) => {
+      const note: any = {
+        type: "Note",
+        id: msg.id || `${msg.thread_id || threadId}/messages/${crypto.randomUUID()}`,
+        attributedTo: msg.author_id,
+        content: msg.content_html || "",
+        published: msg.created_at || new Date().toISOString(),
+        context: msg.thread_id || threadId,
+      };
+
+      // Only include inReplyTo if present
+      if (msg.in_reply_to && typeof msg.in_reply_to === 'string' && msg.in_reply_to.trim()) {
+        note.inReplyTo = msg.in_reply_to.trim();
+      }
+
+      return note;
+    });
   } finally {
     await store.disconnect?.();
   }
@@ -195,15 +225,23 @@ export async function getChannelMessages(env: any, communityId: string, channelI
       const candidate = parsed?.object ?? parsed ?? {};
       // 標準の context プロパティを優先、フォールバックとして channelId
       const channelUri = candidate.context || candidate.channelId || baseChannelUri;
-      return {
+
+      const note: any = {
         id: candidate.id || row.id || `${channelUri}/messages/${crypto.randomUUID()}`,
         type: "Note", // 標準の Note タイプ
         content: candidate.content ?? row.content_html ?? "",
         attributedTo: candidate.attributedTo ?? candidate.actor ?? row.author_id,
         context: channelUri,
-        inReplyTo: candidate.inReplyTo ?? candidate.in_reply_to ?? null,
-        published: candidate.published ?? row.created_at ?? null,
+        published: candidate.published ?? row.created_at ?? new Date().toISOString(),
       };
+
+      // Only include inReplyTo if it's a valid non-empty string
+      const inReplyTo = candidate.inReplyTo ?? candidate.in_reply_to ?? row.in_reply_to ?? null;
+      if (typeof inReplyTo === 'string' && inReplyTo.trim()) {
+        note.inReplyTo = inReplyTo.trim();
+      }
+
+      return note;
     });
   } finally {
     await store.disconnect?.();

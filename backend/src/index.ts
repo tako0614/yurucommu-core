@@ -716,6 +716,23 @@ app.post("/auth/logout", async (c) => {
 });
 
 // Communities
+app.get("/communities", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  try {
+    const url = new URL(c.req.url);
+    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+    const list = await store.listUserCommunities(user.id);
+    if (!q) return ok(c, list);
+    const filtered = list.filter((comm: any) =>
+      (comm?.name || "").toLowerCase().includes(q),
+    );
+    return ok(c, filtered);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 app.post("/communities", auth, async (c) => {
   const store = makeData(c.env as any, c);
   const user = c.get("user") as any;
@@ -954,6 +971,38 @@ app.post("/communities/:id/channels", auth, async (c) => {
     created_at: new Date().toISOString(),
   });
   return ok(c, created, 201);
+});
+
+app.patch("/communities/:id/channels/:channelId", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  const community_id = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  const community = await store.getCommunity(community_id);
+  if (!community) return fail(c, "community not found", 404);
+  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))) {
+    return fail(c, "forbidden", 403);
+  }
+  const body = await c.req.json().catch(() => ({})) as any;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const updated = await store.updateChannel?.(community_id, channelId, { name });
+  if (!updated) return fail(c, "channel not found", 404);
+  return ok(c, updated);
+});
+
+app.delete("/communities/:id/channels/:channelId", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  const community_id = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  const community = await store.getCommunity(community_id);
+  if (!community) return fail(c, "community not found", 404);
+  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))) {
+    return fail(c, "forbidden", 403);
+  }
+  if (channelId === "general") return fail(c, "cannot delete general channel", 400);
+  await store.deleteChannel(community_id, channelId);
+  return ok(c, { deleted: true });
 });
 
 // Invites
@@ -1296,8 +1345,10 @@ app.get("/users", auth, async (c) => {
   const raw = (url.searchParams.get("q") || "").trim();
   const q = raw.startsWith("@") ? raw.slice(1) : raw;
   if (!q) return ok(c, []);
-  const user = await store.getUser(q).catch(() => null);
-  return ok(c, user ? [user] : []);
+  const users =
+    (await store.searchUsers?.(q, 20)) ??
+    (await store.searchUsersByName(q, 20));
+  return ok(c, users || []);
 });
 
 // Posts
