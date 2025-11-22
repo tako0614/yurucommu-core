@@ -230,7 +230,7 @@ feat: Add user profile page + API エンドポイント追加
 3. **環境変更**: D1/R2/Wrangler 設定変更があれば記載
 4. **UI 変更**: Before/After スクリーンショットを添付
 5. **スキーマ変更**: `backend/d1_migrations/` diff と新 Prisma クライアント出力を確認
-6. **テスト実行結果**: `npm run test` などの実行コマンドと結果を記載
+6. **テスト実行結果**: ルート (`takos/`) で `npm run test`（backend + platform を順番に実行）などのコマンドと結果を記載
 
 ```markdown
 ## 概要
