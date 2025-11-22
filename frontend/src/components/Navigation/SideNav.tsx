@@ -4,7 +4,6 @@ import {
   IconMessage,
   IconPlus,
   IconSettings,
-  IconStory,
   IconUser,
   IconUsers,
 } from "../icons";
@@ -41,14 +40,6 @@ export default function SideNav(props: Props) {
       >
         <IconHome />
         <span class="hidden xl:inline text-sm">ホーム</span>
-      </a>
-      <a
-        class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
-        href="/stories"
-        title="ストーリーズ"
-      >
-        <IconStory />
-        <span class="hidden xl:inline text-sm">ストーリーズ</span>
       </a>
       <button
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
