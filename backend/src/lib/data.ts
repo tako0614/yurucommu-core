@@ -957,6 +957,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return getPost(id);
   };
 
+  const deletePost = async (id: string) => {
+    await (prisma as any).posts.delete({
+      where: { id },
+    });
+  };
+
   // -------------- Reactions --------------
   const addReaction = async (
     r: {
@@ -980,6 +986,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const listReactionsByPost = async (post_id: string) =>
     (prisma as any).post_reactions.findMany({ where: { post_id } });
+
+  const deleteReaction = async (id: string) => {
+    await (prisma as any).post_reactions.delete({
+      where: { id },
+    });
+  };
+
+  const getReaction = async (id: string) =>
+    (prisma as any).post_reactions.findUnique({ where: { id } });
 
   // -------------- Comments --------------
   const addComment = async (
@@ -1006,6 +1021,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const listCommentsByPost = async (post_id: string) =>
     (prisma as any).comments.findMany({ where: { post_id } });
+
+  const deleteComment = async (id: string) => {
+    await (prisma as any).comments.delete({
+      where: { id },
+    });
+  };
+
+  const getComment = async (id: string) =>
+    (prisma as any).comments.findUnique({ where: { id } });
 
   // -------------- Stories --------------
   const createStory = async (
@@ -1237,6 +1261,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       where: { thread_id: threadId },
       orderBy: { created_at: "desc" },
       take: limit,
+    });
+
+  const getDmThread = async (threadId: string) =>
+    (prisma as any).chat_dm_threads.findUnique({
+      where: { id: threadId },
+    });
+
+  const listAllDmThreads = async () =>
+    (prisma as any).chat_dm_threads.findMany({
+      orderBy: { created_at: "desc" },
     });
 
   // -------------- Chat: Channel --------------
@@ -2097,12 +2131,17 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listPostsByCommunity,
     listGlobalPostsForUser,
     updatePost,
+    deletePost,
     // reactions
     addReaction,
     listReactionsByPost,
+    getReaction,
+    deleteReaction,
     // comments
     addComment,
     listCommentsByPost,
+    getComment,
+    deleteComment,
     // stories
     createStory,
     getStory,
@@ -2123,6 +2162,8 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     removePushDevice,
     // chat messages
     upsertDmThread,
+    getDmThread,
+    listAllDmThreads,
     createDmMessage,
     listDmMessages,
     createChannelMessageRecord,

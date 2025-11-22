@@ -354,14 +354,19 @@ export interface DatabaseAPI {
   listPostsByCommunity(community_id: string): Promise<any[]>;
   listGlobalPostsForUser(user_id: string): Promise<any[]>;
   updatePost(id: string, fields: Record<string, any>): Promise<any>;
+  deletePost(id: string): Promise<void>;
 
   // Reactions
   addReaction(reaction: ReactionInput): Promise<any>;
   listReactionsByPost(post_id: string): Promise<any[]>;
+  getReaction(id: string): Promise<any>;
+  deleteReaction(id: string): Promise<void>;
 
   // Comments
   addComment(comment: CommentInput): Promise<any>;
   listCommentsByPost(post_id: string): Promise<any[]>;
+  getComment(id: string): Promise<any>;
+  deleteComment(id: string): Promise<void>;
 
   // Stories
   createStory(story: StoryInput): Promise<any>;
@@ -378,6 +383,8 @@ export interface DatabaseAPI {
 
   // Chat - DM
   upsertDmThread(participantsHash: string, participantsJson: string): Promise<any>;
+  getDmThread?(threadId: string): Promise<any>;
+  listAllDmThreads?(): Promise<any[]>;
   createDmMessage(threadId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
   listDmMessages(threadId: string, limit?: number): Promise<any[]>;
 
