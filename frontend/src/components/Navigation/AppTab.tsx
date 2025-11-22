@@ -1,4 +1,4 @@
-import { IconHome, IconMessage, IconPlus, IconStory, IconUsers } from "../icons";
+import { IconHome, IconMessage, IconPlus, IconUsers } from "../icons";
 
 type Props = {
   onOpenComposer?: () => void;
@@ -15,14 +15,6 @@ export default function AppTab(props: Props) {
         aria-label="ホーム"
       >
         <IconHome />
-      </a>
-      {/* Stories */}
-      <a
-        href="/stories"
-        class="p-2 rounded-full active:bg-gray-100"
-        aria-label="ストーリーズ"
-      >
-        <IconStory />
       </a>
       {/* Messages (DM) */}
       <a
