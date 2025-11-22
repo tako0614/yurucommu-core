@@ -497,4 +497,249 @@ posts.post("/:id/comments", auth, async (c) => {
   }
 });
 
+// DELETE /posts/:id
+posts.delete("/:id", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const post_id = c.req.param("id");
+    const post = await store.getPost(post_id);
+    if (!post) return fail(c, "post not found", 404);
+
+    // Check ownership
+    if ((post as any).author_id !== user.id) {
+      return fail(c, "forbidden", 403);
+    }
+
+    // Generate Delete Activity
+    const instanceDomain = requireInstanceDomain(c.env);
+    const deleteActivityId = getActivityUri(user.id, `delete-${post_id}`, instanceDomain);
+    const actorUri = getActorUri(user.id, instanceDomain);
+    const postObjectId = (post as any).ap_object_id || getObjectUri(user.id, post_id, instanceDomain);
+
+    const deleteActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Delete",
+      id: deleteActivityId,
+      actor: actorUri,
+      object: postObjectId,
+      published: new Date().toISOString(),
+    };
+
+    // Save Delete Activity
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: user.id,
+      activity_id: deleteActivityId,
+      activity_type: "Delete",
+      activity_json: JSON.stringify(deleteActivity),
+      object_id: postObjectId,
+      object_type: "Note",
+      created_at: new Date(),
+    });
+
+    // Enqueue delivery to followers
+    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId);
+
+    // Delete the post from database
+    await store.deletePost(post_id);
+
+    return ok(c, { deleted: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// PATCH /posts/:id
+posts.patch("/:id", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const post_id = c.req.param("id");
+    const post = await store.getPost(post_id);
+    if (!post) return fail(c, "post not found", 404);
+
+    // Check ownership
+    if ((post as any).author_id !== user.id) {
+      return fail(c, "forbidden", 403);
+    }
+
+    const body = await c.req.json().catch(() => ({})) as any;
+    const updateFields: Record<string, any> = {};
+
+    if (body.text !== undefined) updateFields.text = String(body.text || "").trim();
+    if (body.media !== undefined) updateFields.media_urls = Array.isArray(body.media) ? body.media : [];
+    if (body.pinned !== undefined) updateFields.pinned = !!body.pinned;
+
+    if (!updateFields.text && (!updateFields.media_urls || updateFields.media_urls.length === 0)) {
+      return fail(c, "text or media is required", 400);
+    }
+
+    // Update post
+    const updatedPost = await store.updatePost(post_id, updateFields);
+
+    // Generate Update Activity
+    const instanceDomain = requireInstanceDomain(c.env);
+    const updateActivityId = getActivityUri(user.id, `update-${post_id}`, instanceDomain);
+    const actorUri = getActorUri(user.id, instanceDomain);
+    const noteObject = generateNoteObject(
+      { ...updatedPost, media_json: JSON.stringify(updatedPost.media_urls || []) },
+      { id: user.id },
+      instanceDomain,
+      "https",
+    );
+
+    const updateActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Update",
+      id: updateActivityId,
+      actor: actorUri,
+      object: noteObject,
+      published: new Date().toISOString(),
+    };
+
+    // Save Update Activity
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: user.id,
+      activity_id: updateActivityId,
+      activity_type: "Update",
+      activity_json: JSON.stringify(updateActivity),
+      object_id: (post as any).ap_object_id || getObjectUri(user.id, post_id, instanceDomain),
+      object_type: "Note",
+      created_at: new Date(),
+    });
+
+    // Enqueue delivery to followers
+    await enqueueDeliveriesToFollowers(store, user.id, updateActivityId);
+
+    return ok(c, updatedPost);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// DELETE /posts/:id/comments/:commentId
+posts.delete("/:id/comments/:commentId", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const post_id = c.req.param("id");
+    const comment_id = c.req.param("commentId");
+
+    const post = await store.getPost(post_id);
+    if (!post) return fail(c, "post not found", 404);
+
+    const comment = await store.getComment(comment_id);
+    if (!comment) return fail(c, "comment not found", 404);
+    if ((comment as any).post_id !== post_id) return fail(c, "comment does not belong to this post", 400);
+
+    // Check ownership
+    if ((comment as any).author_id !== user.id) {
+      return fail(c, "forbidden", 403);
+    }
+
+    // Generate Delete Activity
+    const instanceDomain = requireInstanceDomain(c.env);
+    const deleteActivityId = getActivityUri(user.id, `delete-comment-${comment_id}`, instanceDomain);
+    const actorUri = getActorUri(user.id, instanceDomain);
+    const commentObjectId = (comment as any).ap_object_id || getObjectUri(user.id, comment_id, instanceDomain);
+
+    const deleteActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Delete",
+      id: deleteActivityId,
+      actor: actorUri,
+      object: commentObjectId,
+      published: new Date().toISOString(),
+    };
+
+    // Save Delete Activity
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: user.id,
+      activity_id: deleteActivityId,
+      activity_type: "Delete",
+      activity_json: JSON.stringify(deleteActivity),
+      object_id: commentObjectId,
+      object_type: "Note",
+      created_at: new Date(),
+    });
+
+    // Enqueue delivery to followers
+    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId);
+
+    // Delete the comment from database
+    await store.deleteComment(comment_id);
+
+    return ok(c, { deleted: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// DELETE /posts/:id/reactions/:reactionId
+posts.delete("/:id/reactions/:reactionId", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const post_id = c.req.param("id");
+    const reaction_id = c.req.param("reactionId");
+
+    const post = await store.getPost(post_id);
+    if (!post) return fail(c, "post not found", 404);
+
+    const reaction = await store.getReaction(reaction_id);
+    if (!reaction) return fail(c, "reaction not found", 404);
+    if ((reaction as any).post_id !== post_id) return fail(c, "reaction does not belong to this post", 400);
+
+    // Check ownership
+    if ((reaction as any).user_id !== user.id) {
+      return fail(c, "forbidden", 403);
+    }
+
+    // Generate Undo Activity
+    const instanceDomain = requireInstanceDomain(c.env);
+    const undoActivityId = getActivityUri(user.id, `undo-like-${reaction_id}`, instanceDomain);
+    const actorUri = getActorUri(user.id, instanceDomain);
+    const likeActivityId = (reaction as any).ap_activity_id || getActivityUri(user.id, `like-${reaction_id}`, instanceDomain);
+
+    const undoActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Undo",
+      id: undoActivityId,
+      actor: actorUri,
+      object: {
+        type: "Like",
+        id: likeActivityId,
+        actor: actorUri,
+        object: (post as any).ap_object_id || getObjectUri((post as any).author_id, post_id, instanceDomain),
+      },
+      published: new Date().toISOString(),
+    };
+
+    // Save Undo Activity
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: user.id,
+      activity_id: undoActivityId,
+      activity_type: "Undo",
+      activity_json: JSON.stringify(undoActivity),
+      object_id: likeActivityId,
+      object_type: "Like",
+      created_at: new Date(),
+    });
+
+    // Enqueue delivery to followers
+    await enqueueDeliveriesToFollowers(store, user.id, undoActivityId);
+
+    // Delete the reaction from database
+    await store.deleteReaction(reaction_id);
+
+    return ok(c, { deleted: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 export default posts;

@@ -2501,6 +2501,248 @@ app.notFound((c) => {
   }
 });
 
+// ============= Chat / DM Routes =============
+
+// GET /dm/threads - List all DM threads for the authenticated user
+app.get("/dm/threads", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const instanceDomain = requireInstanceDomain(c.env);
+    const userActorUri = `https://${instanceDomain}/ap/users/${user.handle || user.id}`;
+
+    // Get all threads where user is a participant
+    const allThreads = await store.listAllDmThreads?.();
+    if (!allThreads) {
+      return ok(c, []);
+    }
+
+    const userThreads = allThreads.filter((thread: any) => {
+      try {
+        const participants = JSON.parse(thread.participants_json || "[]");
+        return participants.includes(userActorUri);
+      } catch {
+        return false;
+      }
+    });
+
+    // Enrich with latest message
+    const enriched = await Promise.all(
+      userThreads.map(async (thread: any) => {
+        const messages = await store.listDmMessages(thread.id, 1);
+        return {
+          id: thread.id,
+          participants: JSON.parse(thread.participants_json || "[]"),
+          created_at: thread.created_at,
+          latest_message: messages[0] || null,
+        };
+      })
+    );
+
+    return ok(c, enriched);
+  } catch (error: unknown) {
+    console.error("list dm threads failed", error);
+    return fail(c, "failed to list dm threads", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// GET /dm/threads/:threadId/messages - Get messages in a DM thread
+app.get("/dm/threads/:threadId/messages", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const threadId = c.req.param("threadId");
+    const limit = parseInt(c.req.query("limit") || "50", 10);
+
+    // Verify user is participant in this thread
+    const thread = await store.getDmThread?.(threadId);
+    if (!thread) {
+      return fail(c, "thread not found", 404);
+    }
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const userActorUri = `https://${instanceDomain}/ap/users/${user.handle || user.id}`;
+    const participants = JSON.parse(thread.participants_json || "[]");
+
+    if (!participants.includes(userActorUri)) {
+      return fail(c, "forbidden", 403);
+    }
+
+    const messages = await getDmThreadMessages(c.env, threadId, limit);
+    return ok(c, messages);
+  } catch (error: unknown) {
+    console.error("get dm messages failed", error);
+    return fail(c, "failed to get messages", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// GET /dm/with/:handle - Get or create DM thread with specific user
+app.get("/dm/with/:handle", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const otherHandle = c.req.param("handle");
+    const limit = parseInt(c.req.query("limit") || "50", 10);
+
+    const { threadId, messages } = await (async () => {
+      const protocol = "https";
+      const instanceDomain = requireInstanceDomain(c.env);
+      const localActor = getActorUri(user.handle || user.id, instanceDomain, protocol);
+      const otherActor = getActorUri(otherHandle, instanceDomain, protocol);
+      const { canonicalizeParticipants, computeParticipantsHash } = await import("@takos/platform/server");
+      const participants = canonicalizeParticipants([localActor, otherActor]);
+      const hash = computeParticipantsHash(participants);
+      const participantsJson = JSON.stringify(participants);
+      const thread = await store.upsertDmThread(hash, participantsJson);
+      const messages = await store.listDmMessages(thread.id, limit);
+      return { threadId: thread.id, messages };
+    })();
+
+    return ok(c, { threadId, messages });
+  } catch (error: unknown) {
+    console.error("get dm thread by handle failed", error);
+    return fail(c, "failed to get dm thread", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// POST /dm/send - Send a direct message
+app.post("/dm/send", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const body = (await c.req.json().catch(() => ({}))) as any;
+
+    const recipients = Array.isArray(body.recipients)
+      ? body.recipients
+      : body.recipient
+      ? [body.recipient]
+      : [];
+
+    if (recipients.length === 0) {
+      return fail(c, "recipients required", 400);
+    }
+
+    const content = String(body.content || "").trim();
+    if (!content) {
+      return fail(c, "content required", 400);
+    }
+
+    const inReplyTo = body.in_reply_to || body.inReplyTo || undefined;
+
+    const { sendDirectMessage: sendDm } = await import("@takos/platform/server");
+    const { threadId, activity } = await sendDm(
+      c.env,
+      user.handle || user.id,
+      recipients,
+      content,
+      inReplyTo,
+    );
+
+    return ok(c, { threadId, activity }, 201);
+  } catch (error: unknown) {
+    console.error("send dm failed", error);
+    return fail(c, "failed to send message", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// GET /communities/:id/channels/:channelId/messages - Get channel messages
+app.get("/communities/:id/channels/:channelId/messages", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const communityId = c.req.param("id");
+    const channelId = c.req.param("channelId");
+    const limit = parseInt(c.req.query("limit") || "50", 10);
+
+    // Verify community exists
+    const community = await store.getCommunity(communityId);
+    if (!community) {
+      return fail(c, "community not found", 404);
+    }
+
+    // Verify user is member
+    if (!(await requireMember(store, communityId, user.id))) {
+      return fail(c, "forbidden", 403);
+    }
+
+    // Verify channel exists
+    const channel = await store.getChannel?.(communityId, channelId);
+    if (!channel) {
+      return fail(c, "channel not found", 404);
+    }
+
+    const messages = await getChannelMessages(c.env, communityId, channelId, limit);
+    return ok(c, messages);
+  } catch (error: unknown) {
+    console.error("get channel messages failed", error);
+    return fail(c, "failed to get messages", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// POST /communities/:id/channels/:channelId/messages - Send channel message
+app.post("/communities/:id/channels/:channelId/messages", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const communityId = c.req.param("id");
+    const channelId = c.req.param("channelId");
+    const body = (await c.req.json().catch(() => ({}))) as any;
+
+    // Verify community exists
+    const community = await store.getCommunity(communityId);
+    if (!community) {
+      return fail(c, "community not found", 404);
+    }
+
+    // Verify user is member
+    if (!(await requireMember(store, communityId, user.id))) {
+      return fail(c, "forbidden", 403);
+    }
+
+    // Verify channel exists
+    const channel = await store.getChannel?.(communityId, channelId);
+    if (!channel) {
+      return fail(c, "channel not found", 404);
+    }
+
+    const content = String(body.content || "").trim();
+    if (!content) {
+      return fail(c, "content required", 400);
+    }
+
+    const recipients = Array.isArray(body.recipients) ? body.recipients : [];
+    const inReplyTo = body.in_reply_to || body.inReplyTo || undefined;
+
+    const { sendChannelMessage: sendChannel } = await import("@takos/platform/server");
+    const { activity } = await sendChannel(
+      c.env,
+      user.handle || user.id,
+      communityId,
+      channelId,
+      recipients,
+      content,
+      inReplyTo,
+    );
+
+    return ok(c, { activity }, 201);
+  } catch (error: unknown) {
+    console.error("send channel message failed", error);
+    return fail(c, "failed to send message", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 export default app;
 
 export function createTakosApp(
