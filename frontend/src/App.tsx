@@ -19,6 +19,7 @@ import EditProfile from "./pages/EditProfile";
 import UserProfile from "./pages/UserProfile";
 import Onboarding from "./pages/Onboarding";
 import Home from "./pages/Home";
+import Stories from "./pages/Stories";
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);
@@ -111,6 +112,14 @@ export default function App() {
                 component={() => (
                   <RequireAuth>
                     <Compose />
+                  </RequireAuth>
+                )}
+              />
+              <Route
+                path="/stories"
+                component={() => (
+                  <RequireAuth>
+                    <Stories />
                   </RequireAuth>
                 )}
               />

@@ -156,3 +156,12 @@ export function IconQr(props: IconProps) {
     </svg>
   );
 }
+
+export function IconStory(props: IconProps) {
+  return (
+    <svg {...svgAttrs(props)} class={props.class}>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+    </svg>
+  );
+}
