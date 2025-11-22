@@ -173,7 +173,7 @@ async function processActivity(
       await handleIncomingFollow(db, env, localUserId, activity);
       break;
     case "Accept":
-      await handleIncomingAccept(db, localUserId, activity);
+      await handleIncomingAccept(db, env, localUserId, activity);
       break;
     case "Like":
       await handleIncomingLike(db, env, localUserId, activity);
@@ -185,13 +185,13 @@ async function processActivity(
       await handleIncomingAnnounce(db, env, localUserId, activity);
       break;
     case "Undo":
-      await handleIncomingUndo(db, localUserId, activity);
+      await handleIncomingUndo(db, env, localUserId, activity);
       break;
     case "Update":
       await handleIncomingUpdate(db, env, localUserId, activity);
       break;
     case "Delete":
-      await handleIncomingDelete(db, localUserId, activity);
+      await handleIncomingDelete(db, env, localUserId, activity);
       break;
     case "Flag":
       await handleIncomingFlag(db, env, localUserId, activity);
@@ -225,6 +225,60 @@ function parseActorUri(actorUri: string, instanceDomain: string): {
   }
 }
 
+function parseDomain(uri: string): string | null {
+  try {
+    return new URL(uri).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function domainMatches(hostname: string, pattern: string): boolean {
+  const host = hostname.toLowerCase();
+  const pat = pattern.toLowerCase();
+  return host === pat || host.endsWith(`.${pat}`);
+}
+
+function parseList(value: any): string[] {
+  if (!value || typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function isBlockedDomain(hostname: string, env: any): boolean {
+  const blocklist = parseList(env?.AP_BLOCKLIST ?? env?.ACTIVITYPUB_BLOCKLIST);
+  return blocklist.some((entry) => domainMatches(hostname, entry));
+}
+
+function isAllowedDomain(hostname: string, env: any): boolean {
+  const allowlist = parseList(env?.AP_ALLOWLIST ?? env?.ACTIVITYPUB_ALLOWLIST);
+  if (!allowlist.length) return true;
+  return allowlist.some((entry) => domainMatches(hostname, entry));
+}
+
+function isFederationDomainAllowed(actorUri: string, env: any): boolean {
+  const hostname = parseDomain(actorUri);
+  if (!hostname) return false;
+  if (isBlockedDomain(hostname, env)) {
+    console.warn(`Federation blocked for ${hostname}`);
+    return false;
+  }
+  if (!isAllowedDomain(hostname, env)) {
+    console.warn(`Federation denied by allowlist for ${hostname}`);
+    return false;
+  }
+  return true;
+}
+
+function isRemoteActorAllowed(actorUri: string, env: any): boolean {
+  if (!validateActorUri(actorUri)) {
+    return false;
+  }
+  return isFederationDomainAllowed(actorUri, env);
+}
+
 /**
  * Handle incoming Follow activity
  */
@@ -235,7 +289,7 @@ async function handleIncomingFollow(
   activity: any,
 ): Promise<void> {
   const followerUri = extractActorUri(activity.actor);
-  if (!followerUri || !validateActorUri(followerUri)) {
+  if (!followerUri || !isRemoteActorAllowed(followerUri, env)) {
     console.error("Follow activity has invalid actor URI");
     return;
   }
@@ -317,6 +371,7 @@ async function sendAcceptActivity(
  */
 async function handleIncomingAccept(
   db: DatabaseAPI,
+  env: Env,
   localUserId: string,
   activity: any,
 ): Promise<void> {
@@ -324,6 +379,12 @@ async function handleIncomingAccept(
   const followActivity = activity.object;
   if (!followActivity || followActivity.type !== "Follow") {
     console.error("Accept activity does not contain Follow object");
+    return;
+  }
+
+  const actorUri = extractActorUri(activity.actor);
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
+    console.error("Accept activity has invalid actor URI");
     return;
   }
 
@@ -354,7 +415,7 @@ async function handleIncomingLike(
   const actorUri = extractActorUri(activity.actor);
   const objectUri = typeof activity.object === "string" ? activity.object : activity.object?.id;
 
-  if (!actorUri || !validateActorUri(actorUri)) {
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Like activity has invalid actor URI");
     return;
   }
@@ -423,7 +484,7 @@ async function handleIncomingCreate(
   const objectType = extractType(object);
   const actorUri = extractActorUri(activity.actor);
 
-  if (!actorUri || !validateActorUri(actorUri)) {
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Create activity has invalid actor URI");
     return;
   }
@@ -606,7 +667,7 @@ async function handleIncomingAnnounce(
   const actorUri = extractActorUri(activity.actor);
   const objectUri = typeof activity.object === "string" ? activity.object : activity.object?.id;
 
-  if (!actorUri || !validateActorUri(actorUri)) {
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Announce activity has invalid actor URI");
     return;
   }
@@ -658,6 +719,7 @@ async function handleIncomingAnnounce(
  */
 async function handleIncomingUndo(
   db: DatabaseAPI,
+  env: Env,
   localUserId: string,
   activity: any,
 ): Promise<void> {
@@ -670,7 +732,7 @@ async function handleIncomingUndo(
   const objectType = extractType(object);
   const actorUri = extractActorUri(activity.actor);
 
-  if (!actorUri || !validateActorUri(actorUri)) {
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Undo activity has invalid actor URI");
     return;
   }
@@ -718,7 +780,7 @@ async function handleIncomingUpdate(
   const objectType = extractType(object);
   const actorUri = extractActorUri(activity.actor);
 
-  if (!actorUri || !validateActorUri(actorUri)) return;
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) return;
 
   // Update Actor (Profile update)
   if (objectId === actorUri || objectType === "Person" || objectType === "Service") {
@@ -730,8 +792,59 @@ async function handleIncomingUpdate(
 
   // Update Note (Post edit)
   if (objectType === "Note") {
-    console.log(`ℹ︎ Received update for post ${objectId} (not implemented yet)`);
-    // TODO: Implement post editing
+    const instanceDomain = requireInstanceDomain(env);
+    const normalizedObjectId = objectId
+      ? normalizeLocalObjectUri(objectId, instanceDomain) || objectId
+      : null;
+
+    let noteObject: any = objectType === "Note" && typeof object === "object" ? object : null;
+    if (!noteObject && objectId) {
+      noteObject = await fetchRemoteObject(objectId);
+    }
+
+    if (!noteObject || extractType(noteObject) !== "Note") {
+      console.warn(`Update activity did not contain a Note object for ${objectId}`);
+      return;
+    }
+
+    const post = normalizedObjectId
+      ? await db.findPostByApObjectId(normalizedObjectId)
+      : null;
+    if (!post) {
+      console.warn(`Update for unknown post ${normalizedObjectId ?? objectId}`);
+      return;
+    }
+
+    if (post.ap_attributed_to && post.ap_attributed_to !== actorUri) {
+      console.warn(`Update actor mismatch for post ${post.id}: ${actorUri} !== ${post.ap_attributed_to}`);
+      return;
+    }
+
+    const updatedText = sanitizeHtml(noteObject.content || "");
+    const attachments = Array.isArray(noteObject.attachment) ? noteObject.attachment : [];
+    const mediaUrls = attachments
+      .map((attachment: any) => {
+        if (!attachment) return null;
+        if (typeof attachment.url === "string") return attachment.url;
+        if (attachment.href && typeof attachment.href === "string") return attachment.href;
+        if (Array.isArray(attachment.url)) {
+          const first = attachment.url.find(
+            (item: any) => typeof item === "string" || (item && typeof item.href === "string"),
+          );
+          if (typeof first === "string") return first;
+          if (first && typeof first.href === "string") return first.href;
+        }
+        return null;
+      })
+      .filter((url: string | null): url is string => Boolean(url));
+
+    const updateFields: Record<string, any> = { text: updatedText };
+    if (mediaUrls.length) {
+      updateFields.media_urls = mediaUrls;
+    }
+
+    await db.updatePost(post.id, updateFields);
+    console.log(`✓ Updated post ${post.id} (${normalizedObjectId ?? objectId}) from ${actorUri}`);
   }
 }
 
@@ -740,6 +853,7 @@ async function handleIncomingUpdate(
  */
 async function handleIncomingDelete(
   db: DatabaseAPI,
+  env: Env,
   _localUserId: string,
   activity: any,
 ): Promise<void> {
@@ -749,7 +863,7 @@ async function handleIncomingDelete(
   const objectId = typeof object === "string" ? object : object.id;
   const actorUri = extractActorUri(activity.actor);
 
-  if (!actorUri || !validateActorUri(actorUri)) return;
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) return;
 
   // Try to delete post first
   const post = await db.findPostByApObjectId(objectId);
@@ -778,7 +892,7 @@ async function handleIncomingFlag(
   activity: any,
 ): Promise<void> {
   const actorUri = extractActorUri(activity.actor);
-  if (!actorUri || !validateActorUri(actorUri)) {
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Flag activity has invalid actor URI");
     return;
   }
@@ -885,3 +999,12 @@ export async function processInboxQueue(env: Env, batchSize = 10): Promise<void>
 export async function handleInboxScheduled(env: Env, batchSize = 10): Promise<void> {
   await processInboxQueue(env, batchSize);
 }
+
+// Internal hooks exported only for testing
+export const _test = {
+  extractType,
+  extractActorUri,
+  validateActorUri,
+  normalizeLocalObjectUri,
+  processActivity,
+};

@@ -41,6 +41,9 @@ import type { Variables } from "../types";
 type Bindings = {
   DB: D1Database;
   INSTANCE_DOMAIN?: string;
+  INSTANCE_NAME?: string;
+  INSTANCE_DESCRIPTION?: string;
+  INSTANCE_OPEN_REGISTRATIONS?: string | boolean;
 };
 
 type ActivityPubContext = Context<{ Bindings: Bindings; Variables: Variables }>;
@@ -64,6 +67,16 @@ function getProtocol(_c: ActivityPubContext): string {
  */
 function getInstanceDomain(c: ActivityPubContext): string {
   return requireInstanceDomain(c.env);
+}
+
+function parseBooleanEnv(value: string | boolean | undefined, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
 }
 
 // ============================================
@@ -161,9 +174,17 @@ app.get("/ap/users/:handle", async (c) => {
       const keypair = await store.getApKeypair(handle);
       if (keypair) {
         publicKeyPem = keypair.public_key_pem;
+      } else {
+        const generated = await ensureUserKeyPair(
+          store,
+          c.env as any,
+          handle,
+        );
+        publicKeyPem = generated.publicKeyPem;
       }
     } catch (error) {
       console.error("Failed to fetch keypair:", error);
+      return fail(c, "failed to load actor key", 500);
     }
 
     const actor = generatePersonActor(user, instanceDomain, protocol);
@@ -274,6 +295,7 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
     const pageNum = parseInt(page) || 1;
     const offset = (pageNum - 1) * limit;
 
+    const totalItems = await store.countPostsByCommunity(slug);
     const posts = await store.listPostsByCommunityPage(slug, limit, offset);
 
     const orderedItems = (posts || []).map((post: any) => {
@@ -299,8 +321,88 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
       `${outboxUrl}?page=${pageNum}`,
       outboxUrl,
       orderedItems,
+      totalItems,
+      offset,
       orderedItems.length === limit ? `${outboxUrl}?page=${pageNum + 1}` : undefined,
       pageNum > 1 ? `${outboxUrl}?page=${pageNum - 1}` : undefined
+    );
+
+    return activityPubResponse(c, collectionPage);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+/**
+ * Group Followers Collection
+ * GET /ap/groups/:slug/followers
+ *
+ * Returns the list of members (followers) of a community.
+ * Access control: Only group members (accepted followers) can view the followers list
+ */
+app.get("/ap/groups/:slug/followers", accessTokenGuard, async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const slug = c.req.param("slug");
+    const viewer = c.get("activityPubUser");
+
+    if (!viewer) {
+      return fail(c, "unauthorized", 401);
+    }
+
+    const community = await store.getCommunity(slug);
+    if (!community) {
+      return fail(c, "community not found", 404);
+    }
+
+    const instanceDomain = getInstanceDomain(c);
+    const protocol = getProtocol(c);
+    const followersUrl = `${protocol}://${instanceDomain}/ap/groups/${slug}/followers`;
+    const localGroupId = `group:${slug}`;
+
+    // Check if viewer is a member (accepted follower) or the owner
+    const isOwner = viewer.id === community.created_by;
+    const isMember = await store.findApFollower(localGroupId, getActorUri(viewer.id, instanceDomain, protocol));
+
+    if (!isOwner && (!isMember || isMember.status !== "accepted")) {
+      return fail(c, "forbidden - only members can view followers", 403);
+    }
+
+    const page = c.req.query("page");
+
+    if (!page) {
+      // Return collection metadata
+      const totalItems = await store.countApFollowers(localGroupId, "accepted");
+
+      const collection = generateOrderedCollection(
+        followersUrl,
+        totalItems,
+        `${followersUrl}?page=1`
+      );
+
+      return activityPubResponse(c, collection);
+    }
+
+    // Return paginated items
+    const limit = 100;
+    const pageNum = parseInt(page) || 1;
+    const offset = (pageNum - 1) * limit;
+
+    const totalItems = await store.countApFollowers(localGroupId, "accepted");
+    const followers = await store.listApFollowers(localGroupId, "accepted", limit, offset);
+
+    const orderedItems = followers.map(
+      (f: { remote_actor_id: string }) => f.remote_actor_id,
+    );
+
+    const collectionPage = generateOrderedCollectionPage(
+      `${followersUrl}?page=${pageNum}`,
+      followersUrl,
+      orderedItems,
+      totalItems,
+      offset,
+      orderedItems.length === limit ? `${followersUrl}?page=${pageNum + 1}` : undefined,
+      pageNum > 1 ? `${followersUrl}?page=${pageNum - 1}` : undefined
     );
 
     return activityPubResponse(c, collectionPage);
@@ -490,6 +592,7 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     }
 
     const activityId = typeof activity.id === "string" ? activity.id : crypto.randomUUID();
+    const idempotencyKey = `${localGroupId}:${activityId}`;
 
     const inboxResult = await store.createApInboxActivity({
       local_user_id: localGroupId,
@@ -502,11 +605,12 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     });
 
     if (inboxResult) {
-      console.log(`Stored ${activity.type} activity from ${actorId} for group ${slug}`);
+      console.log(`Stored ${activity.type} activity from ${actorId} for group ${slug} (key: ${idempotencyKey})`);
     } else {
-      console.log(`Activity ${activityId} already queued for group ${slug}`);
+      console.log(`Activity ${activityId} already queued for group ${slug} (idempotent, key: ${idempotencyKey})`);
     }
 
+    // Return 202 Accepted immediately (idempotent response)
     return c.json({}, 202);
   } finally {
     await releaseStore(store);
@@ -559,6 +663,7 @@ app.get("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
     const pageNum = parseInt(page) || 1;
     const offset = (pageNum - 1) * limit;
 
+    const totalItems = await store.countApOutboxActivities(handle);
     const activities = await store.listApOutboxActivitiesPage(handle, limit, offset);
 
     const orderedItems = (activities || []).map((row: any) => {
@@ -574,6 +679,8 @@ app.get("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
       `${outboxUrl}?page=${pageNum}`,
       outboxUrl,
       orderedItems,
+      totalItems,
+      offset,
       orderedItems.length === limit ? `${outboxUrl}?page=${pageNum + 1}` : undefined,
       pageNum > 1 ? `${outboxUrl}?page=${pageNum - 1}` : undefined
     );
@@ -634,6 +741,7 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
     const pageNum = parseInt(page) || 1;
     const offset = (pageNum - 1) * limit;
 
+    const totalItems = await store.countApFollowers(handle, "accepted");
     const followers = await store.listApFollowers(handle, "accepted", limit, offset);
 
     const orderedItems = followers.map(
@@ -644,6 +752,8 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
       `${followersUrl}?page=${pageNum}`,
       followersUrl,
       orderedItems,
+      totalItems,
+      offset,
       orderedItems.length === limit ? `${followersUrl}?page=${pageNum + 1}` : undefined,
       pageNum > 1 ? `${followersUrl}?page=${pageNum - 1}` : undefined
     );
@@ -702,6 +812,7 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
     const pageNum = parseInt(page) || 1;
     const offset = (pageNum - 1) * limit;
 
+    const totalItems = await store.countApFollows(handle, "accepted");
     const following = await store.listApFollows(handle, "accepted", limit, offset);
 
     const orderedItems = following.map(
@@ -712,6 +823,8 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
       `${followingUrl}?page=${pageNum}`,
       followingUrl,
       orderedItems,
+      totalItems,
+      offset,
       orderedItems.length === limit ? `${followingUrl}?page=${pageNum + 1}` : undefined,
       pageNum > 1 ? `${followingUrl}?page=${pageNum - 1}` : undefined
     );
@@ -824,8 +937,9 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
       return fail(c, "forbidden", 403);
     }
 
-    // Store in inbox for processing (冪等性を保証)
+    // Store in inbox for processing with idempotency key
     const activityId = activity.id || crypto.randomUUID();
+    const idempotencyKey = `${handle}:${activityId}`;
 
     const inboxResult = await store.createApInboxActivity({
       local_user_id: handle,
@@ -838,12 +952,12 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     });
 
     if (inboxResult) {
-      console.log(`Stored ${activity.type} activity from ${actorId} in inbox for ${handle}`);
+      console.log(`Stored ${activity.type} activity from ${actorId} in inbox for ${handle} (key: ${idempotencyKey})`);
     } else {
-      console.log(`Activity ${activityId} already received (idempotent)`);
+      console.log(`Activity ${activityId} already received for ${handle} (idempotent, key: ${idempotencyKey})`);
     }
 
-    // Return 202 Accepted immediately
+    // Return 202 Accepted immediately (idempotent response)
     return c.json({}, 202);
   } catch (error) {
     console.error("Inbox processing error:", error);
@@ -999,6 +1113,13 @@ app.get("/nodeinfo/2.0", async (c) => {
       console.warn("Failed to count users for NodeInfo", e);
     }
 
+    const openRegistrations = parseBooleanEnv(
+      c.env.INSTANCE_OPEN_REGISTRATIONS as any,
+      false,
+    );
+    const nodeName = (c.env.INSTANCE_NAME || "Takos Instance").toString().trim() || "Takos Instance";
+    const nodeDescription = (c.env.INSTANCE_DESCRIPTION || "A Takos instance").toString().trim() || "A Takos instance";
+
     return c.json({
       version: "2.0",
       software: {
@@ -1012,15 +1133,15 @@ app.get("/nodeinfo/2.0", async (c) => {
         inbound: [],
         outbound: [],
       },
-      openRegistrations: false, // TODO: Make configurable
+      openRegistrations,
       usage: {
         users: {
           total: userCount,
         },
       },
       metadata: {
-        nodeName: "Takos Instance", // TODO: Make configurable
-        nodeDescription: "A Takos instance", // TODO: Make configurable
+        nodeName,
+        nodeDescription,
       },
     }, 200, {
       "Content-Type": "application/json; charset=utf-8",
@@ -1112,7 +1233,23 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     // Determine recipients
     const instanceDomain = getInstanceDomain(c);
     const recipients = new Set<string>();
-    
+    const activityType = Array.isArray(activity.type)
+      ? activity.type[0]
+      : typeof activity.type === "string"
+        ? activity.type
+        : "";
+    const objectType = Array.isArray(activity.object?.type)
+      ? activity.object?.type?.[0]
+      : typeof activity.object?.type === "string"
+        ? activity.object.type
+        : "";
+
+    const hasPublicAudience = (field: any): boolean => {
+      if (!field) return false;
+      const targets = Array.isArray(field) ? field : [field];
+      return targets.some((target) => target === "https://www.w3.org/ns/activitystreams#Public");
+    };
+
     const addToRecipients = (field: any) => {
       if (!field) return;
       const targets = Array.isArray(field) ? field : [field];
@@ -1139,24 +1276,43 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     addToRecipients(activity.audience);
 
     if (recipients.size === 0) {
-      // No local recipients found. 
-      // TODO: Handle public posts for global timeline if needed
-      console.log(`ℹ︎ No local recipients for activity ${activity.id} in shared inbox`);
+      const isPublicActivity = hasPublicAudience(activity.to) ||
+        hasPublicAudience(activity.cc) ||
+        hasPublicAudience(activity.audience);
+
+      if (activityType === "Create" && objectType === "Note" && isPublicActivity) {
+        const activityId = activity.id || crypto.randomUUID();
+        try {
+          await store.createApInboxActivity({
+            local_user_id: "__public__",
+            remote_actor_id: actorId,
+            activity_id: activityId,
+            activity_type: activity.type,
+            activity_json: JSON.stringify(activity),
+            status: "pending",
+            created_at: new Date(),
+          });
+          console.log(`✓ Queued public activity ${activityId} for global timeline ingestion`);
+        } catch (error) {
+          console.error("Failed to queue public shared inbox activity", error);
+        }
+      } else {
+        console.log(`ℹ︎ No local recipients for activity ${activity.id} in shared inbox`);
+      }
       return c.json({}, 202);
     }
 
     console.log(`✓ Distributing activity ${activity.id} to ${recipients.size} local users`);
 
-    // Distribute to each recipient's inbox
+    // Distribute to each recipient's inbox with idempotency
     const activityId = activity.id || crypto.randomUUID();
-    
+
     // Use Promise.all to insert in parallel (or use a transaction if strict consistency needed)
     await Promise.all(Array.from(recipients).map(async (handle) => {
-      // Check if actor is blocked or not followed (if required)
-      // For now, we just insert and let inbox-worker handle logic
-      
+      const idempotencyKey = `${handle}:${activityId}`;
+
       try {
-        await store.createApInboxActivity({
+        const result = await store.createApInboxActivity({
           local_user_id: handle,
           remote_actor_id: actorId,
           activity_id: activityId,
@@ -1165,12 +1321,17 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
           status: "pending",
           created_at: new Date(),
         });
+
+        if (!result) {
+          console.log(`Activity ${activityId} already queued for ${handle} (idempotent, key: ${idempotencyKey})`);
+        }
       } catch (e) {
         // Ignore duplicate key errors (idempotency)
-        console.log(`Activity ${activityId} already queued for ${handle}`);
+        console.log(`Activity ${activityId} already queued for ${handle} (idempotent, key: ${idempotencyKey})`);
       }
     }));
 
+    // Return 202 Accepted immediately (idempotent response)
     return c.json({}, 202);
   } catch (error) {
     console.error("Shared inbox processing error:", error);

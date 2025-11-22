@@ -285,6 +285,7 @@ export interface DatabaseAPI {
   // Users
   getUser(id: string): Promise<any>;
   getUserByHandle(handle: string): Promise<any>;
+  searchUsers?(query: string, limit?: number): Promise<any[]>;
   searchUsersByName(query: string, limit?: number): Promise<any[]>;
   createUser(user: UserInput): Promise<any>;
   updateUser(id: string, fields: UserUpdateFields): Promise<any>;
@@ -318,6 +319,7 @@ export interface DatabaseAPI {
   createCommunity(community: CommunityInput): Promise<any>;
   getCommunity(id: string): Promise<any>;
   updateCommunity(id: string, fields: Record<string, any>): Promise<any>;
+  searchCommunities?(query: string, userId?: string): Promise<any[]>;
   setMembership(community_id: string, user_id: string, membership: MembershipInput): Promise<void>;
   hasMembership(community_id: string, user_id: string): Promise<boolean>;
   listMembershipsByCommunity(community_id: string): Promise<any[]>;
@@ -328,6 +330,7 @@ export interface DatabaseAPI {
   listChannelsByCommunity(community_id: string): Promise<any[]>;
   createChannel(community_id: string, channel: ChannelInput): Promise<any>;
   getChannel(community_id: string, id: string): Promise<any>;
+  updateChannel?(community_id: string, id: string, fields: { name?: string }): Promise<any>;
   deleteChannel(community_id: string, id: string): Promise<void>;
 
   // Invites

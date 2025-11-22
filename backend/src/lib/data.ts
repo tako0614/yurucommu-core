@@ -76,6 +76,21 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return list.map(mapUser);
   };
 
+  const searchUsers = async (q: string, limit: number = 20) => {
+    const needle = q.trim();
+    if (!needle) return [];
+    const list = await (prisma as any).users.findMany({
+      where: {
+        OR: [
+          { id: { contains: needle } },
+          { display_name: { contains: needle } },
+        ],
+      },
+      take: limit,
+    });
+    return list.map(mapUser);
+  };
+
   const createUser = async (
     user: {
       id?: string;
@@ -576,6 +591,23 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  const searchCommunities = async (query: string, userId?: string) => {
+    const needle = query.trim();
+    if (!needle) return listUserCommunities(userId || "");
+    // Limit search scope to the user's memberships when userId is provided
+    if (userId) {
+      const joined = await listUserCommunities(userId);
+      const lower = needle.toLowerCase();
+      return joined.filter((c: any) =>
+        (c?.name || "").toLowerCase().includes(lower),
+      );
+    }
+    return (prisma as any).communities.findMany({
+      where: { name: { contains: needle } },
+      take: 20,
+    });
+  };
+
   const listCommunityMembersWithUsers = async (community_id: string) => {
     const mems: any[] = await (prisma as any).memberships.findMany({
       where: { community_id },
@@ -644,6 +676,24 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       where: { community_id, id },
     });
     return row ? mapChannelRow(row) : null;
+  };
+
+  const updateChannel = async (
+    community_id: string,
+    id: string,
+    fields: { name?: string },
+  ) => {
+    if (id === "general") return getChannel(community_id, id);
+    const data: Record<string, any> = {};
+    if (fields.name !== undefined) {
+      data.name = String(fields.name || "").slice(0, 200);
+    }
+    if (!Object.keys(data).length) return getChannel(community_id, id);
+    const updated = await (prisma as any).channels.update({
+      where: { id_community_id: { id, community_id } },
+      data,
+    });
+    return mapChannelRow(updated);
   };
 
   const deleteChannel = async (community_id: string, id: string) => {
@@ -1992,6 +2042,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     getUser,
     getUserByHandle,
     searchUsersByName,
+    searchUsers,
     createUser,
     updateUser,
     renameUserId,
@@ -2020,6 +2071,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listMembershipsByCommunity,
     listUserCommunities,
     listCommunityMembersWithUsers,
+    searchCommunities,
     // invites
     createInvite,
     listInvites,
@@ -2037,6 +2089,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listChannelsByCommunity,
     createChannel,
     getChannel,
+    updateChannel,
     deleteChannel,
     // posts
     createPost,

@@ -18,11 +18,11 @@ takos は **「1人1台、24時間稼働のパーソナルサーバー + 専用�
 
 takos は **ActivityPub 対応の SNS バックエンドおよび共通モジュール群**をまとめた、完全独立したオープンソースプロジェクトです。
 
-このパッケージ単体で 1 つの完全な takos インスタンスを構築できます。同じ `backend` と `platform` モジュールを再利用し、複数テナントをホスティングするマネージドサービス版が別パッケージの `takos-private` です。
+このパッケージ単体で **1 つの takos インスタンス** を構築できます。複数テナントをホスティングする場合は別パッケージの `takos-private` を利用してください（OSS 版はシングルインスタンス専用）。
 
 ## モジュール構成
 
-- **`backend`** … Cloudflare Workers で動作する API ワーカー。認証・ユーザー管理・コミュニティ・Stories・ActivityPub フェデレーション。単一インスタンスとしても、サブドメイン別マルチテナントとしても動作。
+- **`backend`** … Cloudflare Workers で動作する API ワーカー。認証・ユーザー管理・コミュニティ・Stories・ActivityPub フェデレーション。**単一インスタンス専用**（マルチテナントは takos-private 側で提供）。
 - **`platform`** … backend / frontend で共有するドメインロジック。ユーザー、投稿、コミュニティ、ActivityPub エンティティなどの抽象化層。複数の UI やクライアントで再利用可能。
 - **`frontend`** … SolidJS + Vite で実装されたリファレンス UI。好きなフレームワークに置き換え可能。
 - **`docs`** … ActivityPub 拡張仕様と REST API リファレンス。
@@ -116,9 +116,7 @@ npm run deploy
 
 ## アーキテクチャ
 
-takos の `backend` ワーカーは **2 つのデプロイモード**をサポートしています。
-
-### 単一インスタンスモード
+takos の `backend` ワーカーは **単一インスタンス** を前提にしています。複数テナントやサブドメイン運用は `takos-private` に実装されています。
 
 ```
 Domain: example.com
@@ -129,26 +127,7 @@ Domain: example.com
    └─ /static/... → メディア・静的ファイル
 ```
 
-このモードでは、domain 全体が 1 つのインスタンスで、`@user@example.com` が ActivityPub アクターになります。
-
-### マルチテナント（サブドメイン）モード
-
-```
-Domain: example.com
-│
-├─ user1.example.com/* → Cloudflare Worker
-│  └─ /api/... → user1 用 REST API
-│
-├─ user2.example.com/* → Cloudflare Worker
-│  └─ /api/... → user2 用 REST API
-│
-└─ example.com/* → Cloudflare Worker（オプション）
-   └─ /api/admin/... → 管理 API
-```
-
-各サブドメインが独立した ActivityPub アクター（`@user1@example.com`, `@user2@example.com`, …）になり、これらは外部の ActivityPub サーバーと連合できます。
-
-詳細は `backend/README.md` を参照してください。
+このモードでは、ドメイン全体が 1 つのインスタンスとなり、`@user@example.com` が ActivityPub アクターになります。
 
 ## takos-private との関係
 
