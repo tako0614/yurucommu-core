@@ -50,6 +50,12 @@ import type {
 import { authenticateSession } from "@takos/platform/server/session";
 /// <reference types="@cloudflare/workers-types" />
 
+// Import route modules
+import postsRoutes from "./routes/posts";
+import storiesRoutes from "./routes/stories";
+import chatRoutes from "./routes/chat";
+import mediaRoutes from "./routes/media";
+
 type EnsureDatabaseFn = (env: Bindings) => Promise<void>;
 
 export type FeatureConfig = {
@@ -167,6 +173,12 @@ app.use("*", async (c, next) => {
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
 // These routes are only accessible from user subdomains (alice.example.com)
 app.route("/", activityPubRoutes);
+
+// Mount feature route modules
+app.route("/", postsRoutes);
+app.route("/", storiesRoutes);
+app.route("/", chatRoutes);
+app.route("/", mediaRoutes);
 
 // Root endpoint for health/checks and baseline tests
 app.get("/", (c) => c.text("Hello World!"));
