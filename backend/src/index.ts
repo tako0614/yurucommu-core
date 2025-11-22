@@ -419,6 +419,44 @@ function datePrefix(d = new Date()) {
   return `${y}/${m}/${dd}`;
 }
 
+const STORAGE_ROOT = "storage";
+
+function normalizePathPrefix(input: string): string {
+  const cleaned = (input || "").replace(/\\/g, "/");
+  const parts = cleaned
+    .split("/")
+    .map((p) => p.trim())
+    .filter((p) => p && p !== "." && p !== "..");
+  return parts.join("/");
+}
+
+function userStoragePrefix(userId: string, prefix?: string): string {
+  const safeUser = (userId || "anon").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safePrefix = normalizePathPrefix(prefix || "");
+  const base = `${STORAGE_ROOT}/${safeUser}`;
+  return safePrefix ? `${base}/${safePrefix}` : base;
+}
+
+function stripUserStoragePrefix(fullKey: string, userId: string): string {
+  const base = `${STORAGE_ROOT}/${(userId || "anon").replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  if (fullKey === base) return "";
+  if (fullKey.startsWith(`${base}/`)) {
+    return fullKey.slice(base.length + 1);
+  }
+  return fullKey;
+}
+
+function safeFileName(name: string, fallback: string, ext: string): string {
+  const raw = (name || "").split("/").pop() || "";
+  const normalized = raw.replace(/[^a-zA-Z0-9._-]/g, "").replace(/^\.*/, "");
+  let base = normalized.replace(/\s+/g, "-").slice(0, 64);
+  if (!base) base = fallback.slice(0, 32);
+  if (ext && !base.toLowerCase().endsWith(`.${ext}`)) {
+    base = `${base}.${ext}`;
+  }
+  return base;
+}
+
 app.post("/media/upload", async (c) => {
   const env = c.env as Bindings;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
@@ -497,6 +535,118 @@ const optionalAuth = async (c: any, next: () => Promise<void>) => {
   }
   await next();
 };
+
+// -------- User storage (R2) with folder-like prefixes --------
+app.get("/storage", auth, async (c) => {
+  const env = c.env as Bindings;
+  if (!env.MEDIA) return fail(c, "media storage not configured", 500);
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  try {
+    const url = new URL(c.req.url);
+    const prefixParam = url.searchParams.get("prefix") || "";
+    const cursor = url.searchParams.get("cursor") || undefined;
+    const basePrefix = userStoragePrefix((user as any)?.id || "anon", prefixParam);
+    const listPrefix = basePrefix.endsWith("/") ? basePrefix : `${basePrefix}/`;
+
+    const result = await env.MEDIA.list({
+      prefix: listPrefix,
+      delimiter: "/",
+      cursor,
+    });
+
+    const objects = (result?.objects || []).map((obj: any) => {
+      const relative = stripUserStoragePrefix(obj.key, (user as any)?.id || "anon");
+      return {
+        key: relative,
+        full_key: obj.key,
+        size: obj.size,
+        uploaded: obj.uploaded,
+        etag: obj.httpEtag || null,
+        content_type: obj.httpMetadata?.contentType || null,
+        cache_control: obj.httpMetadata?.cacheControl || null,
+        url: `/media/${encodeURI(obj.key)}`,
+      };
+    });
+
+    const folders = (result?.delimitedPrefixes || []).map((p: string) =>
+      stripUserStoragePrefix(p.replace(/\/$/, ""), (user as any)?.id || "anon")
+    );
+
+    return ok(c, {
+      prefix: normalizePathPrefix(prefixParam),
+      folders,
+      objects,
+      truncated: !!result?.truncated,
+      cursor: result?.cursor || null,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+app.post("/storage/upload", auth, async (c) => {
+  const env = c.env as Bindings;
+  if (!env.MEDIA) return fail(c, "media storage not configured", 500);
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  try {
+    const form = await c.req.formData().catch(() => null);
+    if (!form) return fail(c, "invalid form data", 400);
+    const file = form.get("file") as File | null;
+    if (!file) return fail(c, "file required", 400);
+
+    const pathInput = form.get("path");
+    const basePrefix = userStoragePrefix(
+      (user as any)?.id || "anon",
+      typeof pathInput === "string" ? pathInput : "",
+    );
+    const prefixWithSlash = basePrefix.endsWith("/") ? basePrefix : `${basePrefix}/`;
+
+    const id = crypto.randomUUID().replace(/-/g, "");
+    const ext = safeFileExt((file as any).name || "", file.type);
+    const filename = safeFileName((file as any).name || "", id, ext);
+    const key = `${prefixWithSlash}${filename}`;
+
+    await env.MEDIA.put(key, file, {
+      httpMetadata: {
+        contentType: file.type || "application/octet-stream",
+        cacheControl: "public, max-age=31536000, immutable",
+      },
+    });
+    const url = `/media/${encodeURI(key)}`;
+    return ok(c, {
+      key: stripUserStoragePrefix(key, (user as any)?.id || "anon"),
+      full_key: key,
+      url,
+    }, 201);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+app.delete("/storage", auth, async (c) => {
+  const env = c.env as Bindings;
+  if (!env.MEDIA) return fail(c, "media storage not configured", 500);
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  try {
+    const url = new URL(c.req.url);
+    const body = (await c.req.json().catch(() => ({}))) as any;
+    const keyInput =
+      typeof body.key === "string"
+        ? body.key
+        : url.searchParams.get("key") || "";
+    const normalized = normalizePathPrefix(keyInput);
+    if (!normalized) return fail(c, "key required", 400);
+
+    const fullKey = `${userStoragePrefix((user as any)?.id || "anon")}/${normalized}`;
+    await env.MEDIA.delete(fullKey);
+    return ok(c, { deleted: normalized });
+  } finally {
+    await releaseStore(store);
+  }
+});
 
 // (Removed) Mock login endpoint for development
 
