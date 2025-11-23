@@ -160,7 +160,7 @@ stories.post("/communities/:id/stories", auth, async (c) => {
 });
 
 // POST /stories
-stories.post("/", auth, async (c) => {
+stories.post("/stories", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
@@ -181,7 +181,7 @@ stories.post("/", auth, async (c) => {
 });
 
 // GET /stories
-stories.get("/", auth, async (c) => {
+stories.get("/stories", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
@@ -219,7 +219,7 @@ stories.get("/communities/:id/stories", auth, async (c) => {
 });
 
 // GET /stories/:id
-stories.get("/:id", auth, async (c) => {
+stories.get("/stories/:id", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
@@ -255,7 +255,7 @@ stories.get("/:id", auth, async (c) => {
 });
 
 // PATCH /stories/:id
-stories.patch("/:id", auth, async (c) => {
+stories.patch("/stories/:id", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
@@ -309,7 +309,7 @@ stories.patch("/:id", auth, async (c) => {
 });
 
 // DELETE /stories/:id
-stories.delete("/:id", auth, async (c) => {
+stories.delete("/stories/:id", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
