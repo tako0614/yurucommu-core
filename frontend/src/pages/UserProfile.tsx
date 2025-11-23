@@ -1,22 +1,43 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { useParams } from "@solidjs/router";
+import { useParams, useLocation } from "@solidjs/router";
 import { api, getUser, sendFriendRequest, useMe } from "../lib/api";
 import Avatar from "../components/Avatar";
 import ProfileModal from "../components/ProfileModal";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
 
-function normalizeProfileLookup(raw: string): string {
+console.log("[UserProfile] Module loaded");
+
+function parseFullHandle(raw: string): { username: string; domain: string | null } {
   const trimmed = (raw || "").trim();
   const withoutPrefix = trimmed.replace(/^@+/, "");
-  if (!withoutPrefix) return "";
-  const [local] = withoutPrefix.split("@");
-  return local || withoutPrefix;
+  if (!withoutPrefix) return { username: "", domain: null };
+
+  const parts = withoutPrefix.split("@");
+  if (parts.length >= 2) {
+    // Full handle: user@domain or user@domain@domain (handle redundancy)
+    return {
+      username: parts[0] || "",
+      domain: parts[1] || null,
+    };
+  }
+
+  // Local handle only
+  return {
+    username: parts[0] || withoutPrefix,
+    domain: null,
+  };
 }
 
 export default function UserProfile() {
+  console.log("[UserProfile] Component rendering");
   const params = useParams();
+  const location = useLocation();
   const profileParam = createMemo(() => {
-    const raw = (params as any).handle || "";
+    // Get handle from pathname (everything after /@)
+    const pathname = location.pathname;
+    const match = pathname.match(/^\/@(.+)$/);
+    const raw = match ? match[1] : (params as any).rest || (params as any).handle || (params as any)["*"] || "";
+    console.log("[UserProfile] pathname:", pathname, "raw handle:", raw, "params:", params);
     let current = raw;
     for (let i = 0; i < 3; i += 1) {
       try {
@@ -29,16 +50,49 @@ export default function UserProfile() {
     }
     return current;
   });
-  const lookupId = createMemo(() => normalizeProfileLookup(profileParam()));
+  const handleInfo = createMemo(() => {
+    const parsed = parseFullHandle(profileParam());
+    console.log("[UserProfile] parsed handle:", {
+      raw: profileParam(),
+      username: parsed.username,
+      domain: parsed.domain,
+    });
+    return parsed;
+  });
+  const lookupId = createMemo(() => handleInfo().username);
+
   // me() can be undefined if not logged in - profile pages are public
   const me = useMe();
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
   const [user, { mutate: setUser }] = createResource(
-    lookupId,
-    (id) => {
+    () => ({ id: lookupId(), domain: handleInfo().domain }),
+    async (params) => {
+      const { id, domain } = params;
       if (!id) throw new Error("missing profile id");
-      return getUser(id);
+      console.log("[UserProfile] fetching user with id:", id, "domain:", domain);
+
+      try {
+        let result;
+        if (domain) {
+          // Cross-domain fetch: fetch from the specified domain
+          const apiUrl = `https://${domain}/users/${encodeURIComponent(id)}`;
+          console.log("[UserProfile] cross-domain fetch:", apiUrl);
+          const response = await fetch(apiUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          result = await response.json();
+        } else {
+          // Same-domain fetch: use the current domain's API
+          result = await getUser(id);
+        }
+        console.log("[UserProfile] user fetch success:", result);
+        return result;
+      } catch (error) {
+        console.error("[UserProfile] user fetch failed:", error);
+        throw error;
+      }
     },
   );
   const [loading, setLoading] = createSignal(false);
@@ -275,6 +329,12 @@ export default function UserProfile() {
     return `https://yurucommu.com/${handle}`;
   });
 
+  // Only show "Open in yurucommu" button if we're not already on yurucommu.com
+  const shouldShowYurucommuButton = createMemo(() => {
+    const currentDomain = window.location.hostname.toLowerCase();
+    return currentDomain !== "yurucommu.com" && !!user();
+  });
+
   const openInYurucommu = () => {
     const url = yurucommuUrl();
     if (url) {
@@ -286,7 +346,7 @@ export default function UserProfile() {
     <div class="px-3 sm:px-4 lg:px-6 pt-14">
       <div class="max-w-[680px] mx-auto">
         {/* yurucommuで開くボタン */}
-        <Show when={user()}>
+        <Show when={shouldShowYurucommuButton()}>
           <div class="mb-4 bg-linear-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 border hairline rounded-md p-4">
             <div class="flex items-center justify-between gap-4">
               <div class="flex-1">
@@ -308,9 +368,25 @@ export default function UserProfile() {
         </Show>
 
         <div class="bg-white dark:bg-neutral-900 border hairline rounded-md p-4">
+          <Show when={user.error}>
+            <div class="text-center p-6">
+              <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                ユーザーが見つかりません
+              </h2>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                @{lookupId()} は存在しないか、アクセスできません。
+              </p>
+              <a
+                href="/"
+                class="inline-block px-4 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700"
+              >
+                ホームに戻る
+              </a>
+            </div>
+          </Show>
           <Show
-            when={user()}
-            fallback={<div class="text-muted">読み込み中…</div>}
+            when={!user.error && user()}
+            fallback={!user.error && <div class="text-muted">読み込み中…</div>}
           >
             <div class="flex items-start gap-4">
               <img

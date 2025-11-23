@@ -26,8 +26,10 @@ users.get("/me", auth, (c) => {
     path: new URL(c.req.url).pathname,
     method: c.req.method,
   });
-  const user = c.get("user");
-  return ok(c, user);
+  const user = c.get("user") as any;
+  // Remove sensitive/internal fields before returning
+  const { jwt_secret, tenant_id, ...publicProfile } = user;
+  return ok(c, publicProfile);
 });
 
 // Get notifications
@@ -133,7 +135,12 @@ users.get("/users", auth, async (c) => {
     const users =
       (await store.searchUsers?.(q, 20)) ??
       (await store.searchUsersByName(q, 20));
-    return ok(c, users || []);
+    // Remove sensitive/internal fields from each user
+    const sanitized = (users || []).map((u: any) => {
+      const { jwt_secret, tenant_id, ...publicProfile } = u;
+      return publicProfile;
+    });
+    return ok(c, sanitized);
   } finally {
     await releaseStore(store);
   }
@@ -163,7 +170,10 @@ users.get("/users/:id", optionalAuth, async (c) => {
     if (me?.id && normalizedId !== me.id) {
       relation = await store.getFriendshipBetween(me.id, normalizedId).catch(() => null);
     }
-    return ok(c, { ...u, friend_status: relation?.status || null });
+
+    // Remove sensitive/internal fields before returning
+    const { jwt_secret, tenant_id, ...publicProfile } = u;
+    return ok(c, { ...publicProfile, friend_status: relation?.status || null });
   } finally {
     await releaseStore(store);
   }
@@ -207,8 +217,10 @@ users.patch("/me", auth, async (c) => {
     }
 
     await store.updateUser(user.id, updates);
-    const updated = await store.getUser(user.id);
-    return ok(c, updated);
+    const updated: any = await store.getUser(user.id);
+    // Remove sensitive/internal fields before returning
+    const { jwt_secret, tenant_id, ...publicProfile } = updated;
+    return ok(c, publicProfile);
   } finally {
     await releaseStore(store);
   }

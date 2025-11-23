@@ -26,6 +26,7 @@ const Profile = resolveComponent("Profile", DefaultProfile);
 const AuthCallback = resolveComponent("AuthCallback", DefaultAuthCallback);
 
 export default function App() {
+  console.log("[App] Component mounted");
   const [composerOpen, setComposerOpen] = createSignal(false);
   const [notificationsOpen, setNotificationsOpen] = createSignal(false);
 
@@ -147,16 +148,7 @@ export default function App() {
                   </RequireAuth>
                 )}
               />
-              <Route path="/@:handle" component={UserProfile} />
-              <Route path="*" component={() => (
-                <div class="p-6 text-center">
-                  <h1 class="text-2xl font-bold">404 Not Found</h1>
-                  <p class="mt-2">ページが見つかりませんでした。</p>
-                  <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
-                    ホームに戻る
-                  </a>
-                </div>
-              )} />
+              <Route path="*" component={CatchAllRoute} />
             </Route>
         </Router>
 
@@ -186,6 +178,11 @@ function MainLayout(props: RouteSectionProps) {
 
   createEffect(() => {
     // Reset scroll position when navigating to a new route
+    console.log("[MainLayout] location changed:", {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash,
+    });
     location.pathname;
     location.search;
     location.hash;
@@ -204,6 +201,29 @@ function MainLayout(props: RouteSectionProps) {
       >
         {props.children}
       </main>
+    </div>
+  );
+}
+
+function CatchAllRoute() {
+  const location = useLocation();
+  console.log("[CatchAllRoute] pathname:", location.pathname);
+
+  // Check if this is a user profile route (starts with /@)
+  if (location.pathname.startsWith("/@")) {
+    console.log("[CatchAllRoute] Rendering UserProfile");
+    return <UserProfile />;
+  }
+
+  // Otherwise show 404
+  console.log("[CatchAllRoute] Showing 404");
+  return (
+    <div class="p-6 text-center">
+      <h1 class="text-2xl font-bold">404 Not Found</h1>
+      <p class="mt-2">ページが見つかりませんでした。</p>
+      <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
+        ホームに戻る
+      </a>
     </div>
   );
 }
