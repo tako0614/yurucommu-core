@@ -9,12 +9,12 @@ export interface ClientConfig {
   backendOrigin?: string | null;
 }
 
-export const DEFAULT_HOST_ORIGIN = "https://yurucommu.com";
+export const DEFAULT_HOST_ORIGIN = "";
 
 const config: ClientConfig = {
   mode: "selfHosted",
   hostHandle: null,
-  backendOrigin: DEFAULT_HOST_ORIGIN,
+  backendOrigin: null,
 };
 
 export function configureClient(partial: Partial<ClientConfig>): void {
@@ -34,7 +34,11 @@ export function getConfiguredHostHandle(): string | null {
 }
 
 export function getConfiguredBackendOrigin(): string | null {
-  return config.backendOrigin ?? null;
+  const origin = config.backendOrigin ?? null;
+  if (typeof origin === "string" && origin.trim() === "") {
+    return null;
+  }
+  return origin;
 }
 
 export function getConfiguredBackendHost(): string | null {
