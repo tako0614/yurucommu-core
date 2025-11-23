@@ -301,7 +301,7 @@ communities.post("/communities/:id/channels", auth, async (c) => {
     /^-+|-+$/g,
     "",
   );
-  if (!base) base = "channel";
+  if (!base) base = `ch-${crypto.randomUUID().slice(0, 8)}`;
   let id = base;
   const existing = await store.listChannelsByCommunity(community_id);
   let n = 1;

@@ -339,10 +339,21 @@ export default function Chat() {
     const channelParams = matchChannel();
     if (channelParams) {
       const { communityId, channelId } = channelParams.params;
+      const decodedCommunityId = decodeURIComponent(communityId);
+
+      // If no channelId in URL, use the first available channel for this community
+      let finalChannelId: string;
+      if (channelId) {
+        finalChannelId = decodeURIComponent(channelId);
+      } else {
+        const channels = channelsByCommunity[decodedCommunityId];
+        finalChannelId = channels?.[0]?.id ?? "general";
+      }
+
       setSelection({
         kind: "channel",
-        communityId: decodeURIComponent(communityId),
-        channelId: decodeURIComponent(channelId ?? "general"),
+        communityId: decodedCommunityId,
+        channelId: finalChannelId,
       });
       return;
     }
