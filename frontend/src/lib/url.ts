@@ -141,29 +141,35 @@ export function buildActivityPubHandle(handle: string, domain?: string): string 
  * Checks for domain field, or uses current hostname
  */
 export function getUserDomain(user: any): string | undefined {
+  const fallbackDomain = () => {
+    const backendHost = getConfiguredBackendHost();
+    if (backendHost) {
+      return backendHost;
+    }
+
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      return window.location.hostname;
+    }
+
+    return undefined;
+  };
+
+  if (!user) {
+    return fallbackDomain();
+  }
+
   // Check if user has a domain field
   if (user.domain) return user.domain;
 
   // Check for handle in @handle@domain format
-  const handle = user.handle || '';
-  if (handle.includes('@')) {
-    const parts = handle.split('@');
-    if (parts.length === 3 && parts[0] === '') {
+  const handle = user.handle || "";
+  if (handle.includes("@")) {
+    const parts = handle.split("@");
+    if (parts.length === 3 && parts[0] === "") {
       // Format: @handle@domain
       return parts[2];
     }
   }
 
-  // Prefer configured backend host when available
-  const backendHost = getConfiguredBackendHost();
-  if (backendHost) {
-    return backendHost;
-  }
-
-  // Fallback to current hostname
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    return window.location.hostname;
-  }
-
-  return undefined;
+  return fallbackDomain();
 }
