@@ -616,7 +616,6 @@ app.post("/auth/password/login", async (c) => {
     return fail(c, "password authentication disabled", 404);
   }
   const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
-  const username = typeof body.handle === "string" ? body.handle : "";
   const password = typeof body.password === "string" ? body.password : "";
 
   // Check against environment variables
@@ -627,7 +626,8 @@ app.post("/auth/password/login", async (c) => {
     return fail(c, "authentication not configured", 500);
   }
 
-  if (username !== envUsername || password !== envPassword) {
+  // Only check password - username is implicit (single-user instance)
+  if (password !== envPassword) {
     return fail(c, "invalid credentials", 401);
   }
 

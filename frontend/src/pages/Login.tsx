@@ -9,7 +9,6 @@ import {
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [handle, setHandle] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
@@ -39,10 +38,6 @@ export default function Login() {
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setError("");
-    if (!handle()) {
-      setError("ハンドルを入力してください。");
-      return;
-    }
     if (!password()) {
       setError("パスワードを入力してください。");
       return;
@@ -50,7 +45,6 @@ export default function Login() {
     setSubmitting(true);
     try {
       const result = await loginWithPassword({
-        handle: handle(),
         password: password(),
       });
       const token = typeof (result as any)?.token === "string" ? (result as any).token : null;
@@ -100,17 +94,6 @@ export default function Login() {
 
           <form class="space-y-4 text-left" onSubmit={handleSubmit}>
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300">
-              ユーザーハンドル
-              <input
-                type="text"
-                class="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
-                placeholder="例: alice"
-                value={handle()}
-                onInput={(ev) => setHandle(ev.currentTarget.value.trim().toLowerCase())}
-                autocomplete="username"
-              />
-            </label>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300">
               パスワード
               <input
                 type="password"
@@ -118,6 +101,7 @@ export default function Login() {
                 value={password()}
                 onInput={(ev) => setPassword(ev.currentTarget.value)}
                 autocomplete="current-password"
+                placeholder="パスワードを入力"
               />
             </label>
 

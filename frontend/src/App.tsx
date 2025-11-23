@@ -148,7 +148,15 @@ export default function App() {
                 )}
               />
               <Route path="/@:handle" component={UserProfile} />
-              <Route path="*" component={() => <Navigate href="/" />} />
+              <Route path="*" component={() => (
+                <div class="p-6 text-center">
+                  <h1 class="text-2xl font-bold">404 Not Found</h1>
+                  <p class="mt-2">ページが見つかりませんでした。</p>
+                  <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
+                    ホームに戻る
+                  </a>
+                </div>
+              )} />
             </Route>
         </Router>
 
