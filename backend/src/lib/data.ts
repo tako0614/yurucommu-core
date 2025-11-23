@@ -678,6 +678,13 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return row ? mapChannelRow(row) : null;
   };
 
+  const getChannelByName = async (community_id: string, name: string) => {
+    const row = await (prisma as any).channels.findFirst({
+      where: { community_id, name },
+    });
+    return row ? mapChannelRow(row) : null;
+  };
+
   const updateChannel = async (
     community_id: string,
     id: string,
@@ -2123,6 +2130,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listChannelsByCommunity,
     createChannel,
     getChannel,
+    getChannelByName,
     updateChannel,
     deleteChannel,
     // posts

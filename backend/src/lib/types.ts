@@ -330,6 +330,7 @@ export interface DatabaseAPI {
   listChannelsByCommunity(community_id: string): Promise<any[]>;
   createChannel(community_id: string, channel: ChannelInput): Promise<any>;
   getChannel(community_id: string, id: string): Promise<any>;
+  getChannelByName?(community_id: string, name: string): Promise<any>;
   updateChannel?(community_id: string, id: string, fields: { name?: string }): Promise<any>;
   deleteChannel(community_id: string, id: string): Promise<void>;
 

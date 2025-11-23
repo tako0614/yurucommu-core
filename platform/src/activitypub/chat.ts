@@ -45,12 +45,26 @@ export async function handleIncomingChannelMessage(env: any, activity: any) {
   if (!channelUri) return;
   const parts = channelUri.split("/ap/channels/")[1]?.split("/") || [];
   if (parts.length < 2) return;
-  const [communityId, channelId] = parts;
+  const [communityId, channelName] = parts;
   const store = makeData(env);
   try {
+    // Resolve channel name to ID
+    let channel;
+    if (store.getChannelByName) {
+      channel = await store.getChannelByName(communityId, channelName);
+    } else {
+      const channels = await store.listChannelsByCommunity(communityId);
+      channel = channels.find((c: any) => c.name === channelName);
+    }
+
+    if (!channel) {
+      console.warn(`Channel not found: ${communityId}/${channelName}`);
+      return;
+    }
+    
     await store.createChannelMessageRecord(
       communityId,
-      channelId,
+      channel.id,
       activity.actor,
       object.content || "",
       activity,
@@ -164,11 +178,23 @@ export async function sendChannelMessage(
 ) {
   const instanceDomain = requireInstanceDomain(env);
   const actorUri = getActorUri(localHandle, instanceDomain);
-  const channelUri = `https://${instanceDomain}/ap/channels/${communityId}/${channelId}`;
+  
+  // Get channel name for the URI
+  const store = makeData(env);
+  let channelName = channelId; // fallback to ID if channel not found
+  try {
+    const channel = await store.getChannel(communityId, channelId);
+    if (channel) {
+      channelName = channel.name;
+    }
+  } catch (e) {
+    console.warn(`Failed to get channel name for ${channelId}`, e);
+  }
+  
+  const channelUri = `https://${instanceDomain}/ap/channels/${communityId}/${channelName}`;
   const activity = buildChannelMessageActivity(actorUri, channelUri, contentHtml, inReplyTo);
   if (recipients.length) activity.cc = recipients;
   await deliverActivity(env, activity);
-  const store = makeData(env);
   try {
     await store.createChannelMessageRecord(
       communityId,
@@ -210,10 +236,41 @@ export async function getDmThreadMessages(env: any, threadId: string, limit = 50
   }
 }
 
-export async function getChannelMessages(env: any, communityId: string, channelId: string, limit = 50) {
+export async function getChannelMessages(env: any, communityId: string, channelNameOrId: string, limit = 50) {
   const store = makeData(env);
   try {
-    const baseChannelUri = `https://${requireInstanceDomain(env)}/ap/channels/${communityId}/${channelId}`;
+    // Resolve channel name to channel ID if necessary
+    let channelId = channelNameOrId;
+    let channelName = channelNameOrId;
+    
+    // If it looks like a UUID, try to get the channel name
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(channelNameOrId)) {
+      // It's a UUID, get the channel to find its name
+      const channel = await store.getChannel(communityId, channelNameOrId);
+      if (channel) {
+        channelName = channel.name;
+      }
+    } else {
+      // It's a name, get the channel to find its ID
+      let channel;
+      if (store.getChannelByName) {
+        channel = await store.getChannelByName(communityId, channelNameOrId);
+      } else {
+        // Fallback: list all channels and find by name
+        const channels = await store.listChannelsByCommunity(communityId);
+        channel = channels.find((c: any) => c.name === channelNameOrId);
+      }
+      
+      if (!channel) {
+        // Channel not found
+        return [];
+      }
+      channelId = channel.id;
+      channelName = channel.name;
+    }
+    
+    const baseChannelUri = `https://${requireInstanceDomain(env)}/ap/channels/${communityId}/${channelName}`;
     const rows = await store.listChannelMessages(communityId, channelId, limit);
     return rows.map((row: any) => {
       let parsed: any = null;
