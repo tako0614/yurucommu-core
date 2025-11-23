@@ -171,7 +171,7 @@ posts.post("/communities/:id/posts", auth, async (c) => {
 });
 
 // POST /posts
-posts.post("/", auth, async (c) => {
+posts.post("/posts", auth, async (c) => {
   const store = makeData(c.env as any, c);
   const user = c.get("user") as any;
   const body = (await c.req.json().catch(() => ({}))) as any;
@@ -219,7 +219,7 @@ posts.get("/communities/:id/posts", auth, async (c) => {
 });
 
 // GET /posts
-posts.get("/", auth, async (c) => {
+posts.get("/posts", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
@@ -232,7 +232,7 @@ posts.get("/", auth, async (c) => {
 });
 
 // GET /posts/:id/reactions
-posts.get("/:id/reactions", auth, async (c) => {
+posts.get("/posts/:id/reactions", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
@@ -250,7 +250,7 @@ posts.get("/:id/reactions", auth, async (c) => {
 });
 
 // GET /posts/:id/comments
-posts.get("/:id/comments", auth, async (c) => {
+posts.get("/posts/:id/comments", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
@@ -299,7 +299,7 @@ posts.get("/communities/:id/reactions-summary", auth, async (c) => {
 });
 
 // POST /posts/:id/reactions
-posts.post("/:id/reactions", auth, async (c) => {
+posts.post("/posts/:id/reactions", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
@@ -390,7 +390,7 @@ posts.post("/:id/reactions", auth, async (c) => {
 });
 
 // POST /posts/:id/comments
-posts.post("/:id/comments", auth, async (c) => {
+posts.post("/posts/:id/comments", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
