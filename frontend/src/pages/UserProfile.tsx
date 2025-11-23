@@ -308,33 +308,52 @@ export default function UserProfile() {
     );
   }
 
+  const profileDomain = createMemo(() => getUserDomain(user()));
+
   const shareUrl = createMemo(() => {
     const handle = (user() as any)?.handle;
     if (!handle) return "";
-    const domain = getUserDomain(user());
+    const domain = profileDomain();
     return buildProfileUrlByHandle(handle, domain);
   });
 
   const shareHandle = createMemo(() => {
     const handle = (user() as any)?.handle;
     if (!handle) return user()?.id || "";
-    const domain = getUserDomain(user());
+    const domain = profileDomain();
     return buildActivityPubHandle(handle, domain);
   });
   const shareAvatar = createMemo(() => user()?.avatar_url || "");
 
-  const yurucommuUrl = createMemo(() => {
-    const handle = shareHandle();
-    if (!handle) return "";
-    return `https://yurucommu.com/${handle}`;
+  const externalProfileUrl = createMemo(() => {
+    const handle = (user() as any)?.handle;
+    const domain = profileDomain();
+    if (!handle || !domain) return "";
+    return buildProfileUrlByHandle(handle, domain);
   });
-
-  // Only show "Open in yurucommu" button if we're not already on yurucommu.com
+  const yurucommuUrl = createMemo(() => {
+    const handle = (user() as any)?.handle;
+    if (!handle) return "";
+    const domain = profileDomain();
+    const apHandle = buildActivityPubHandle(handle, domain).replace(/^@/, "");
+    return `https://yurucommu.com/@${apHandle}`;
+  });
+  const shouldShowExternalProfileLink = createMemo(() => {
+    const domain = profileDomain();
+    if (!domain) return false;
+    const currentDomain = window.location.hostname.toLowerCase();
+    return currentDomain !== domain.toLowerCase();
+  });
   const shouldShowYurucommuButton = createMemo(() => {
     const currentDomain = window.location.hostname.toLowerCase();
     return currentDomain !== "yurucommu.com" && !!user();
   });
-
+  const openOnDomain = () => {
+    const url = externalProfileUrl();
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
   const openInYurucommu = () => {
     const url = yurucommuUrl();
     if (url) {
@@ -345,21 +364,43 @@ export default function UserProfile() {
   return (
     <div class="px-3 sm:px-4 lg:px-6 pt-14">
       <div class="max-w-[680px] mx-auto">
+        {/* 外部ドメインで開くボタン */}
+        <Show when={shouldShowExternalProfileLink()}>
+          <div class="mb-4 bg-linear-to-r from-blue-50 to-cyan-50 dark:from-blue-950 dark:to-cyan-950 border hairline rounded-md p-4">
+            <div class="flex items-center justify-between gap-4">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                  {profileDomain()}で開く
+                </div>
+                <div class="text-xs text-gray-600 dark:text-gray-400 mt-1 break-all">
+                  {externalProfileUrl()}
+                </div>
+              </div>
+              <button
+                onClick={openOnDomain}
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-medium transition-colors shrink-0"
+              >
+                開く
+              </button>
+            </div>
+          </div>
+        </Show>
+
         {/* yurucommuで開くボタン */}
         <Show when={shouldShowYurucommuButton()}>
-          <div class="mb-4 bg-linear-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 border hairline rounded-md p-4">
+          <div class="mb-4 bg-linear-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950 border hairline rounded-md p-4">
             <div class="flex items-center justify-between gap-4">
-              <div class="flex-1">
-                <div class="text-sm font-semibold text-gray-900 dark:text-white">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">
                   yurucommuで開く
                 </div>
-                <div class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                <div class="text-xs text-gray-600 dark:text-gray-400 mt-1 break-all">
                   {yurucommuUrl()}
                 </div>
               </div>
               <button
                 onClick={openInYurucommu}
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-medium transition-colors shrink-0"
+                class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-full text-sm font-medium transition-colors shrink-0"
               >
                 開く
               </button>

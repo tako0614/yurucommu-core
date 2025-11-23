@@ -6,7 +6,7 @@
  * ActivityPub URLs.
  */
 
-const DEFAULT_INSTANCE_DOMAIN = "yurucommu.com";
+const DEFAULT_INSTANCE_DOMAIN = "example.com";
 
 type InstanceConfig = {
   instanceDomain?: string;
@@ -82,4 +82,3 @@ export function parseActorUri(
     return null;
   }
 }
-
