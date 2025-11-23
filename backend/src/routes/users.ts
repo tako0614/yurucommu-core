@@ -153,15 +153,32 @@ users.get("/users/:id", optionalAuth, async (c) => {
     const me = c.get("user") as any;
     const rawId = c.req.param("id");
 
-    // Normalize user ID (handle @username format)
-    const normalizeUserIdParam = (input: string): string => {
+    // Normalize user ID and enforce domain if provided (@user@domain)
+    const parseUserIdParam = (input: string): { local: string; domain?: string } => {
       const trimmed = (input || "").trim();
-      const withoutPrefix = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-      const [local] = withoutPrefix.split("@");
-      return local || withoutPrefix || trimmed;
+      const withoutPrefix = trimmed.replace(/^@+/, "");
+      const parts = withoutPrefix.split("@");
+      const local = (parts.shift() || "").trim();
+      const domain = parts.length ? parts.join("@").trim() : undefined;
+      return { local, domain: domain || undefined };
     };
 
-    const normalizedId = normalizeUserIdParam(rawId);
+    const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(rawId);
+    const instanceDomain = c.env.INSTANCE_DOMAIN?.trim();
+
+    if (!normalizedId) {
+      return fail(c, "invalid user id", 400);
+    }
+
+    // If a domain is included in the path, ensure it matches this instance
+    if (
+      requestedDomain &&
+      instanceDomain &&
+      requestedDomain.toLowerCase() !== instanceDomain.toLowerCase()
+    ) {
+      return fail(c, "user not found", 404);
+    }
+
     const u: any = await store.getUser(normalizedId);
     if (!u) return fail(c, "user not found", 404);
 
@@ -173,7 +190,11 @@ users.get("/users/:id", optionalAuth, async (c) => {
 
     // Remove sensitive/internal fields before returning
     const { jwt_secret, tenant_id, ...publicProfile } = u;
-    return ok(c, { ...publicProfile, friend_status: relation?.status || null });
+    return ok(c, {
+      ...publicProfile,
+      domain: instanceDomain || publicProfile.domain || undefined,
+      friend_status: relation?.status || null,
+    });
   } finally {
     await releaseStore(store);
   }

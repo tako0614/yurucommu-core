@@ -28,6 +28,57 @@ function parseFullHandle(raw: string): { username: string; domain: string | null
   };
 }
 
+function extractDomainFromUrl(input?: string | null): string | undefined {
+  if (!input || typeof input !== "string") return undefined;
+  try {
+    const url = new URL(input);
+    return url.hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeUserProfile(raw: any, fallbackHandle: string, fallbackDomain?: string) {
+  const data = (raw && typeof raw === "object" && "data" in raw && (raw as any).data) || raw || {};
+  const actorId = typeof data.id === "string" ? data.id : undefined;
+  const candidateDomain =
+    (typeof data.domain === "string" && data.domain.trim()) ||
+    (typeof fallbackDomain === "string" && fallbackDomain.trim()) ||
+    extractDomainFromUrl(typeof data.url === "string" ? data.url : undefined) ||
+    extractDomainFromUrl(actorId);
+
+  const handle =
+    (typeof data.handle === "string" && data.handle.trim()) ||
+    (typeof data.username === "string" && data.username.trim()) ||
+    (typeof data.preferredUsername === "string" && data.preferredUsername.trim()) ||
+    (typeof fallbackHandle === "string" && fallbackHandle.trim()) ||
+    (actorId ? actorId.split("/").pop() : undefined);
+
+  const displayName =
+    (typeof data.display_name === "string" && data.display_name.trim()) ||
+    (typeof data.name === "string" && data.name.trim()) ||
+    (typeof data.preferredUsername === "string" && data.preferredUsername.trim()) ||
+    (typeof data.username === "string" && data.username.trim()) ||
+    handle ||
+    fallbackHandle;
+
+  const avatarUrl =
+    (typeof data.avatar_url === "string" && data.avatar_url.trim()) ||
+    (Array.isArray(data.icon)
+      ? data.icon.find((icon: any) => icon?.url)?.url
+      : data.icon && typeof data.icon === "object"
+        ? (data.icon as any).url
+        : undefined);
+
+  const normalized: any = { ...data };
+  if (!normalized.handle && handle) normalized.handle = handle;
+  if (!normalized.id && handle) normalized.id = handle;
+  normalized.display_name = displayName;
+  normalized.domain = candidateDomain;
+  if (avatarUrl) normalized.avatar_url = avatarUrl;
+  return normalized;
+}
+
 export default function UserProfile() {
   console.log("[UserProfile] Component rendering");
   const params = useParams();
@@ -76,7 +127,8 @@ export default function UserProfile() {
         let result;
         if (domain) {
           // Cross-domain fetch: fetch from the specified domain
-          const apiUrl = `https://${domain}/users/${encodeURIComponent(id)}`;
+          const handleWithDomain = `@${id}@${domain}`;
+          const apiUrl = `https://${domain}/users/${encodeURIComponent(handleWithDomain)}`;
           console.log("[UserProfile] cross-domain fetch:", apiUrl);
           const response = await fetch(apiUrl);
           if (!response.ok) {
@@ -88,7 +140,7 @@ export default function UserProfile() {
           result = await getUser(id);
         }
         console.log("[UserProfile] user fetch success:", result);
-        return result;
+        return normalizeUserProfile(result, id, domain || undefined);
       } catch (error) {
         console.error("[UserProfile] user fetch failed:", error);
         throw error;
