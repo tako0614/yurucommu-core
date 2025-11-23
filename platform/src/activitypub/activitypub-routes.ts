@@ -985,9 +985,26 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
       // チャンネルメッセージ
       const parts = context.split("/ap/channels/")[1]?.split("/") || [];
       if (parts.length >= 2) {
-        const [communityId, channelId] = parts;
-        await sendChannelMessage(c.env, handle, communityId, channelId, cc, body.object.content || "", body.object.inReplyTo);
-        return activityPubResponse(c, { ok: true }, 202);
+        const [communityId, channelName] = parts;
+        // Resolve channel name to ID
+        const store = makeData(c.env as any);
+        try {
+          let channel;
+          if (store.getChannelByName) {
+            channel = await store.getChannelByName(communityId, channelName);
+          } else {
+            const channels = await store.listChannelsByCommunity(communityId);
+            channel = channels.find((c: any) => c.name === channelName);
+          }
+
+          if (!channel) {
+            return activityPubResponse(c, { ok: false, error: "channel not found" }, 404);
+          }
+          await sendChannelMessage(c.env, handle, communityId, channel.id, cc, body.object.content || "", body.object.inReplyTo);
+          return activityPubResponse(c, { ok: true }, 202);
+        } finally {
+          await releaseStore(store);
+        }
       }
     } else if (!hasPublic && to.length > 0) {
       // DM（Public なし、かつ to が存在）
@@ -1060,6 +1077,11 @@ app.get("/ap/dm/:threadId", accessTokenGuard, async (c) => {
   });
 });
 
+/**
+ * Channel messages endpoint
+ * GET /ap/channels/:communityId/:channelName/messages
+ * Note: channelId parameter is actually the channel name (not UUID)
+ */
 app.get("/ap/channels/:communityId/:channelId/messages", accessTokenGuard, async (c) => {
   const items = await getChannelMessages(c.env, c.req.param("communityId"), c.req.param("channelId"), 50);
   return activityPubResponse(c, {
@@ -1340,5 +1362,11 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     await releaseStore(store);
   }
 });
+
+// ============================================
+// Test Route
+// ============================================
+
+
 
 export default app;

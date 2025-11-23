@@ -183,9 +183,9 @@ app.use("*", async (c, next) => {
 });
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
-// Scope to ActivityPub paths to avoid intercepting API routes.
-app.route("/ap", activityPubRoutes);
-app.route("/.well-known", activityPubRoutes);
+// ActivityPub routes define their own full paths (/ap/..., /.well-known/..., /nodeinfo/...)
+// so we mount at root.
+app.route("/", activityPubRoutes);
 
 // Mount feature route modules
 // IMPORTANT: usersRoutes and communitiesRoutes must be mounted BEFORE postsRoutes
