@@ -39,6 +39,8 @@ import {
   setDataFactory,
   setPrismaFactory,
   setInstanceConfig,
+  ok,
+  fail,
 } from "@takos/platform/server";
 import { buildPushRegistrationPayload } from "./lib/push-registration";
 import { createJwtStoreAdapter } from "./lib/jwt-store";
@@ -51,6 +53,8 @@ import { authenticateSession } from "@takos/platform/server/session";
 /// <reference types="@cloudflare/workers-types" />
 
 // Import route modules
+import usersRoutes from "./routes/users";
+import communitiesRoutes from "./routes/communities";
 import postsRoutes from "./routes/posts";
 import storiesRoutes from "./routes/stories";
 import chatRoutes from "./routes/chat";
@@ -133,6 +137,14 @@ applyConfig();
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+// Trace entry into backend router for debugging.
+app.use("*", async (c, next) => {
+  console.log("[backend] enter", {
+    path: new URL(c.req.url).pathname,
+    method: c.req.method,
+  });
+  await next();
+});
 
 // Simplified CORS middleware that mirrors back the request Origin.
 app.use("*", async (c, next) => {
@@ -171,10 +183,15 @@ app.use("*", async (c, next) => {
 });
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
-// These routes are only accessible from user subdomains (alice.example.com)
-app.route("/", activityPubRoutes);
+// Scope to ActivityPub paths to avoid intercepting API routes.
+app.route("/ap", activityPubRoutes);
+app.route("/.well-known", activityPubRoutes);
 
 // Mount feature route modules
+// IMPORTANT: usersRoutes and communitiesRoutes must be mounted BEFORE postsRoutes
+// to prevent catch-all routes in postsRoutes from shadowing specific routes
+app.route("/", usersRoutes);
+app.route("/", communitiesRoutes);
 app.route("/", postsRoutes);
 app.route("/", storiesRoutes);
 app.route("/", chatRoutes);
@@ -207,10 +224,6 @@ app.get("/.well-known/takos-push.json", (c) => {
 // Helpers
 const nowISO = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
-const ok = (c: any, data: any, status = 200) =>
-  c.json({ ok: true, data }, status);
-const fail = (c: any, message: string, status = 400) =>
-  c.json({ ok: false, error: message }, status);
 const addHours = (date: Date, h: number) =>
   new Date(date.getTime() + h * 3600 * 1000);
 
@@ -469,14 +482,13 @@ function safeFileName(name: string, fallback: string, ext: string): string {
   return base;
 }
 
-app.post("/media/upload", async (c) => {
+app.post("/media/upload", auth, async (c) => {
   const env = c.env as Bindings;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const store = makeData(c.env as any, c);
   try {
-    const authResult = await authenticateSession(c, store, { renewCookie: true });
-    if (!authResult) return fail(c, "Unauthorized", 401);
-    const user = authResult.user;
+    const user = c.get("user") as any;
+    if (!user?.id) return fail(c, "Unauthorized", 401);
 
     const form = await c.req.formData().catch(() => null);
     if (!form) return fail(c, "invalid form data", 400);
@@ -518,12 +530,33 @@ app.get("/media/*", async (c) => {
   return new Response(obj.body, { headers });
 });
 
-// Simple auth: cookie or Authorization: Bearer <session_id>
+// Unified auth: prefer JWT, fall back to session cookie for legacy paths.
+const authenticateUser = async (c: any, store: any) => {
+  const jwtStore = createJwtStoreAdapter(store);
+  const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
+  console.log("[backend] auth jwt", {
+    path: new URL(c.req.url).pathname,
+    ok: !!jwtResult,
+  });
+  if (jwtResult) return jwtResult;
+  const sessionResult = await authenticateSession(c, store, { renewCookie: true }).catch(
+    () => null,
+  );
+  console.log("[backend] auth session", {
+    path: new URL(c.req.url).pathname,
+    ok: !!sessionResult,
+  });
+  return sessionResult;
+};
+
 const auth = async (c: any, next: () => Promise<void>) => {
   const store = makeData(c.env as any, c);
-  const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore);
+    console.log("[backend] auth start", {
+      path: new URL(c.req.url).pathname,
+      method: c.req.method,
+    });
+    const authResult = await authenticateUser(c, store);
     if (!authResult) return fail(c, "Unauthorized", 401);
     c.set("user", authResult.user);
     await next();
@@ -534,9 +567,8 @@ const auth = async (c: any, next: () => Promise<void>) => {
 
 const optionalAuth = async (c: any, next: () => Promise<void>) => {
   const store = makeData(c.env as any, c);
-  const jwtStore = createJwtStoreAdapter(store);
   try {
-    const authResult = await authenticateJWT(c, jwtStore);
+    const authResult = await authenticateUser(c, store);
     if (authResult) {
       c.set("user", authResult.user);
     }
@@ -707,7 +739,7 @@ app.post("/auth/password/login", async (c) => {
 app.post("/auth/session/token", async (c) => {
   const store = makeData(c.env as any, c);
   try {
-    const authResult = await authenticateSession(c, store, { renewCookie: true });
+    const authResult = await authenticateUser(c, store);
     if (!authResult) {
       return fail(c, "Unauthorized", 401);
     }
@@ -1719,6 +1751,10 @@ app.get("/communities/:id/reactions-summary", auth, async (c) => {
 });
 
 app.get("/me", auth, (c) => {
+  console.log("[backend] /me handler", {
+    path: new URL(c.req.url).pathname,
+    method: c.req.method,
+  });
   const user = c.get("user");
   return ok(c, user);
 });
