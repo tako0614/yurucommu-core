@@ -394,6 +394,8 @@ export default function UserProfile() {
     const domain = profileDomain();
     if (!domain) return false;
     const currentDomain = window.location.hostname.toLowerCase();
+    // On yurucommu.com root, we don't need a "open on domain" button
+    if (currentDomain === "yurucommu.com") return false;
     return currentDomain !== domain.toLowerCase();
   });
   const shouldShowYurucommuButton = createMemo(() => {
