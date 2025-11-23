@@ -15,7 +15,7 @@ type AuthContext = AppContext<Bindings> & {
 };
 
 // Unified auth: prefer JWT, fall back to session cookie for legacy paths.
-const authenticateUser = async (c: any, store: any) => {
+export const authenticateUser = async (c: any, store: any) => {
   const jwtStore = createJwtStoreAdapter(store);
   const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
   console.log("[backend] auth jwt", {
