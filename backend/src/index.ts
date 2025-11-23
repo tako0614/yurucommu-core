@@ -634,12 +634,14 @@ app.post("/auth/password/login", async (c) => {
   // Get the single user from database (assumes single-user setup)
   const store = makeData(c.env as any, c);
   try {
-    const user = await store.getUser(envUsername);
+    const user: any = await store.getUser(envUsername);
     if (!user) {
       return fail(c, "user not found in database", 500);
     }
     const { token } = await createUserJWT(c, store, user.id);
-    return ok(c, { user, token });
+    // Remove sensitive/internal fields before returning
+    const { jwt_secret, tenant_id, ...publicProfile } = user;
+    return ok(c, { user: publicProfile, token });
   } finally {
     await releaseStore(store);
   }
@@ -657,7 +659,10 @@ app.post("/auth/session/token", async (c) => {
       return fail(c, "invalid session", 400);
     }
     const { token } = await createUserJWT(c, store, userId);
-    return ok(c, { token, user: authResult.user });
+    // Remove sensitive/internal fields before returning
+    const user: any = authResult.user;
+    const { jwt_secret, tenant_id, ...publicProfile } = user;
+    return ok(c, { token, user: publicProfile });
   } finally {
     await releaseStore(store);
   }
