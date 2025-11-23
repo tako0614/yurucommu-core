@@ -1676,6 +1676,18 @@ app.post("/posts/:id/comments", auth, async (c) => {
 
 function cleanupExpiredStories() {/* read-time filter only */}
 
+async function requireRole(
+  store: ReturnType<typeof makeData>,
+  communityId: string,
+  userId: string,
+  roles: string[],
+): Promise<boolean> {
+  const list = await store.listMembershipsByCommunity(communityId);
+  const m = (list as any[]).find((x) => (x as any).user_id === userId);
+  if (!m) return false;
+  return roles.includes((m as any).role);
+}
+
 app.post("/communities/:id/stories", auth, async (c) => {
   const store = makeData(c.env, c);
   const user = c.get("user") as any;

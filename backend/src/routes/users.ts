@@ -149,11 +149,8 @@ users.patch("/me", auth, async (c) => {
       return fail(c, "invalid handle", 400);
     }
     if (handle !== user.id) {
-      const existing = await store.getUser(handle);
-      if (existing) {
-        return fail(c, "handle already taken", 409);
-      }
-      newHandle = handle;
+      // Note: Changing user ID (handle) is not supported due to database constraints
+      return fail(c, "changing user handle is not supported", 400);
     }
   } else if (body.handle !== undefined) {
     return fail(c, "invalid handle", 400);
@@ -163,18 +160,15 @@ users.patch("/me", auth, async (c) => {
     updates.profile_completed_at = new Date().toISOString();
   }
 
-  if (!Object.keys(updates).length && !newHandle) {
+  if (!Object.keys(updates).length) {
     return fail(c, "no valid fields", 400);
   }
 
-  if (newHandle) {
-    await store.updateUserId(user.id, newHandle);
-  }
   if (Object.keys(updates).length > 0) {
-    await store.updateUser(newHandle || user.id, updates);
+    await store.updateUser(user.id, updates);
   }
 
-  const updated = await store.getUser(newHandle || user.id);
+  const updated = await store.getUser(user.id);
   return ok(c, updated);
 });
 
@@ -184,20 +178,14 @@ users.post("/me/push-devices", auth, async (c) => {
   try {
     const me = c.get("user") as any;
     const body = await c.req.json().catch(() => ({})) as any;
-    const { token, platform } = body;
+    const { token, platform, device_name, locale } = body;
     if (!token || !platform) return fail(c, "token and platform required", 400);
-    const existing = await store.findPushDevice(token);
-    if (existing) {
-      await store.updatePushDevice(existing.id, { user_id: me.id, updated_at: new Date() });
-      return ok(c, existing);
-    }
-    const device = await store.createPushDevice({
-      id: crypto.randomUUID(),
+    const device = await store.registerPushDevice({
       user_id: me.id,
       token,
       platform,
-      created_at: new Date(),
-      updated_at: new Date(),
+      device_name,
+      locale,
     });
     return ok(c, device, 201);
   } finally {
@@ -209,14 +197,10 @@ users.post("/me/push-devices", auth, async (c) => {
 users.delete("/me/push-devices", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
-    const me = c.get("user") as any;
     const body = await c.req.json().catch(() => ({})) as any;
     const { token } = body;
     if (!token) return fail(c, "token required", 400);
-    const device = await store.findPushDevice(token);
-    if (!device) return ok(c, { deleted: false });
-    if (device.user_id !== me.id) return fail(c, "forbidden", 403);
-    await store.deletePushDevice(device.id);
+    await store.removePushDevice(token);
     return ok(c, { deleted: true });
   } finally {
     // Note: store is not released here; caller should handle
