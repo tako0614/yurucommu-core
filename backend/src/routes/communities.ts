@@ -5,13 +5,19 @@ import type {
   PublicAccountBindings as Bindings,
   Variables,
 } from "@takos/platform/server";
-import { ok, fail, releaseStore } from "@takos/platform/server";
+import {
+  ok,
+  fail,
+  releaseStore,
+  requireInstanceDomain,
+  getActorUri,
+  getActivityUri,
+  ACTIVITYSTREAMS_CONTEXT,
+  enqueueDeliveriesToFollowers,
+} from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
-import { requireInstanceDomain, getActorUri, getActivityUri } from "../lib/helpers";
-import { ACTIVITYSTREAMS_CONTEXT } from "../lib/ap-constants";
-import { enqueueDeliveriesToFollowers } from "../lib/ap-delivery";
-import { notify } from "../lib/notify";
+import { notify } from "../lib/notifications";
 
 const communities = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
