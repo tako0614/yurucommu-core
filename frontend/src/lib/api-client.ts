@@ -512,7 +512,6 @@ export async function registerWithPassword(input: {
 }
 
 export async function loginWithPassword(input: {
-  handle: string;
   password: string;
 }) {
   return apiFetch("/auth/password/login", {

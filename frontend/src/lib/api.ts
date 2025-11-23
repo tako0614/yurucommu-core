@@ -78,9 +78,19 @@ let mePromise: Promise<User> | null = null;
 function ensureMeResource() {
   if (!meResource) {
     const fetcher = async () => {
-      const data = await fetchMeFromApi();
-      cachedMe = data as any;
-      return data as any;
+      // If no JWT, return undefined instead of throwing
+      if (!hasJWT()) {
+        return undefined;
+      }
+      try {
+        const data = await fetchMeFromApi();
+        cachedMe = data as any;
+        return data as any;
+      } catch (error) {
+        // Return undefined on error (e.g., 401 Unauthorized)
+        console.warn("Failed to fetch user info:", error);
+        return undefined;
+      }
     };
     const [resource, controls] = createResource(fetcher, {
       initialValue: cachedMe,
@@ -284,6 +294,21 @@ function requireBackendOrigin(): string {
   throw new Error("BACKEND_URL not configured");
 }
 
+function buildActorUri(handle: string): string {
+  return `${requireBackendOrigin().replace(/\/+$/, "")}/ap/users/${encodeURIComponent(handle)}`;
+}
+
+function canonicalizeParticipants(participants: string[]): string[] {
+  return participants
+    .map((uri) => uri.trim())
+    .filter(Boolean)
+    .sort();
+}
+
+function computeDmThreadId(localActor: string, recipients: string[]): string {
+  return canonicalizeParticipants([localActor, ...recipients]).join("#");
+}
+
 async function activityRequest(
   path: string,
   init: RequestInit = {},
@@ -370,19 +395,84 @@ export async function fetchChannelMessages(
 }
 
 export async function postDirectMessage(
-  activity: Record<string, unknown>,
+  params: {
+    recipients: string[];
+    content: string;
+    inReplyTo?: string | null;
+    context?: string | null;
+  },
 ) {
-  await activityRequest("/ap/outbox", {
+  const me = await fetchMe();
+  const handle = (me as any)?.handle || me.id;
+  const actorUri = buildActorUri(handle);
+  const recipients = Array.isArray(params.recipients)
+    ? params.recipients
+    : [];
+  if (!recipients.length) {
+    throw new Error("recipient required");
+  }
+  const threadId = computeDmThreadId(actorUri, recipients);
+  const threadContext =
+    params.context ||
+    `${requireBackendOrigin().replace(/\/+$/, "")}/ap/dm/${threadId}`;
+
+  const payload = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: "Create",
+    actor: actorUri,
+    to: recipients,
+    cc: [actorUri],
+    object: {
+      type: "Note",
+      content: params.content,
+      context: threadContext,
+      ...(params.inReplyTo && typeof params.inReplyTo === "string" && params.inReplyTo.trim()
+        ? { inReplyTo: params.inReplyTo.trim() }
+        : {}),
+    },
+  };
+
+  await activityRequest(`/ap/users/${encodeURIComponent(handle)}/outbox`, {
     method: "POST",
-    body: JSON.stringify(activity),
+    body: JSON.stringify(payload),
   });
+  return { threadId };
 }
 
 export async function postChannelMessage(
-  activity: Record<string, unknown>,
+  params: {
+    channelUri: string;
+    content: string;
+    cc?: string[];
+    inReplyTo?: string | null;
+  },
 ) {
-  await activityRequest("/ap/outbox", {
+  const me = await fetchMe();
+  const handle = (me as any)?.handle || me.id;
+  const actorUri = buildActorUri(handle);
+  const channelUri = params.channelUri;
+  if (!channelUri) {
+    throw new Error("channelUri required");
+  }
+
+  const payload = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: "Create",
+    actor: actorUri,
+    to: [channelUri],
+    cc: Array.isArray(params.cc) ? params.cc : [],
+    object: {
+      type: "Note",
+      content: params.content,
+      context: channelUri,
+      ...(params.inReplyTo && typeof params.inReplyTo === "string" && params.inReplyTo.trim()
+        ? { inReplyTo: params.inReplyTo.trim() }
+        : {}),
+    },
+  };
+
+  await activityRequest(`/ap/users/${encodeURIComponent(handle)}/outbox`, {
     method: "POST",
-    body: JSON.stringify(activity),
+    body: JSON.stringify(payload),
   });
 }

@@ -62,6 +62,22 @@ function resolveInstanceOrigin(): string {
   throw new Error("Backend origin not configured");
 }
 
+function buildActorUri(origin: string, handle: string): string {
+  const base = origin.replace(/\/+$/, "");
+  return `${base}/ap/users/${encodeURIComponent(handle)}`;
+}
+
+function computeThreadId(origin: string, localHandle: string, otherHandle: string): string {
+  const participants = [
+    buildActorUri(origin, localHandle),
+    buildActorUri(origin, otherHandle),
+  ]
+    .map((uri) => uri.trim())
+    .filter(Boolean)
+    .sort();
+  return participants.join("#");
+}
+
 function keyOf(selection: Selection): string {
   return selection.kind === "dm"
     ? `dm:${selection.id}`
@@ -80,8 +96,8 @@ function mapCollection(collection: any): MessageObject[] {
   }));
 }
 
-async function loadDm(threadId: string) {
-  const key = `dm:${threadId}`;
+async function loadDm(threadId: string, conversationId?: string) {
+  const key = `dm:${conversationId || threadId}`;
   const isLoading = untrack(() => loadingConvo[key]);
   if (isLoading) return;
   setLoadingConvo(key, true);
@@ -96,14 +112,15 @@ async function loadDm(threadId: string) {
   }
 }
 
-async function loadChannel(communityId: string, channelId: string) {
+async function loadChannel(communityId: string, channelId: string, channelName?: string) {
   const key = `channel:${communityId}#${channelId}`;
   const isLoading = untrack(() => loadingConvo[key]);
   if (isLoading) return;
   setLoadingConvo(key, true);
   setErrorConvo(key, "");
   try {
-    const data = await fetchChannelMessages(communityId, channelId);
+    const channelParam = channelName || channelId;
+    const data = await fetchChannelMessages(communityId, channelParam);
     setMessagesByConversation(key, mapCollection(data));
   } catch (err: any) {
     setErrorConvo(key, err?.message || "メッセージの読み込みに失敗しました");
@@ -112,35 +129,37 @@ async function loadChannel(communityId: string, channelId: string) {
   }
 }
 
-async function sendDm(selection: { kind: "dm"; id: string }, text: string) {
+async function sendDm(
+  selection: { kind: "dm"; id: string },
+  text: string,
+  localHandle?: string,
+) {
+  if (!localHandle) {
+    throw new Error("sender handle is required");
+  }
   const instanceOrigin = resolveInstanceOrigin();
-  const activity = {
-    type: "Create",
-    to: [
-      `${instanceOrigin}/ap/users/${selection.id}`,
-    ],
-    object: {
-      type: "DirectMessage",
-      content: text,
-    },
-  };
-  await postDirectMessage(activity);
-  await loadDm(selection.id);
+  const threadId = computeThreadId(instanceOrigin, localHandle, selection.id);
+  await postDirectMessage({
+    recipients: [`${instanceOrigin}/ap/users/${selection.id}`],
+    content: text,
+    context: `${instanceOrigin}/ap/dm/${threadId}`,
+  });
+  await loadDm(threadId, selection.id);
 }
 
-async function sendChannel(selection: { kind: "channel"; communityId: string; channelId: string }, text: string) {
+async function sendChannel(
+  selection: { kind: "channel"; communityId: string; channelId: string },
+  text: string,
+  channelName?: string,
+) {
   const instanceOrigin = resolveInstanceOrigin();
-  const channelUri = `${instanceOrigin}/ap/channels/${selection.communityId}/${selection.channelId}`;
-  const activity = {
-    type: "Create",
-    object: {
-      type: "ChannelMessage",
-      channel: channelUri,
-      content: text,
-    },
-  };
-  await postChannelMessage(activity);
-  await loadChannel(selection.communityId, selection.channelId);
+  const channelSegment = channelName || selection.channelId;
+  const channelUri = `${instanceOrigin}/ap/channels/${selection.communityId}/${encodeURIComponent(channelSegment)}`;
+  await postChannelMessage({
+    channelUri,
+    content: text,
+  });
+  await loadChannel(selection.communityId, selection.channelId, channelSegment);
 }
 
 function MessageBubble(props: { msg: MessageObject; mine: boolean }) {
@@ -170,6 +189,7 @@ function ChatWindow(props: {
   selection: Selection | null;
   title: string;
   localHandle: string | undefined;
+  channelName?: string;
   onBack?: () => void;
   onOpenSettings?: () => void;
 }) {
@@ -184,9 +204,10 @@ function ChatWindow(props: {
     const handle = props.localHandle;
     if (!sel || !handle) return;
     if (sel.kind === "dm") {
-      loadDm(sel.id);
+      const threadId = computeThreadId(resolveInstanceOrigin(), handle, sel.id);
+      loadDm(threadId, sel.id);
     } else {
-      loadChannel(sel.communityId, sel.channelId);
+      loadChannel(sel.communityId, sel.channelId, props.channelName);
     }
   });
 
@@ -199,9 +220,9 @@ function ChatWindow(props: {
     setInput("");
     try {
       if (sel.kind === "dm") {
-        await sendDm(sel, text);
+        await sendDm(sel, text, handle);
       } else {
-        await sendChannel(sel, text);
+        await sendChannel(sel, text, props.channelName);
       }
     } catch (err: any) {
       alert(err?.message || "送信に失敗しました");
@@ -384,6 +405,14 @@ export default function Chat() {
       x.id === s.channelId
     );
     return `${c?.name || s.communityId} ／ #${ch?.name || s.channelId}`;
+  });
+
+  const selectedChannel = createMemo(() => {
+    const s = selection();
+    if (!s || s.kind !== "channel") return null;
+    return (channelsByCommunity[s.communityId] || []).find(
+      (x) => x.id === s.channelId,
+    ) || null;
   });
 
   const addChannel = async (communityId: string) => {
@@ -725,7 +754,12 @@ export default function Chat() {
             </div>
           }
         >
-          <ChatWindow selection={selection()} title={selTitle()} localHandle={me()?.id} />
+          <ChatWindow
+            selection={selection()}
+            title={selTitle()}
+            localHandle={(me() as any)?.handle || me()?.id}
+            channelName={selectedChannel()?.name}
+          />
         </Show>
       </section>
 
@@ -1010,7 +1044,8 @@ utral-800 flex-1 min-w-0 ${
           <ChatWindow
             selection={selection()}
             title={selTitle()}
-            localHandle={me()?.id}
+            localHandle={(me() as any)?.handle || me()?.id}
+            channelName={selectedChannel()?.name}
             onBack={() => {
               setMobileSettingsOpen(false);
               setSelection(null);

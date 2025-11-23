@@ -30,6 +30,7 @@ export default function UserProfile() {
     return current;
   });
   const lookupId = createMemo(() => normalizeProfileLookup(profileParam()));
+  // me() can be undefined if not logged in - profile pages are public
   const me = useMe();
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
@@ -41,10 +42,12 @@ export default function UserProfile() {
     },
   );
   const [loading, setLoading] = createSignal(false);
-  // 自分の参加コミュニティから閲覧可能な投稿のみ集計
-  const [communities] = createResource(async () =>
-    api("/me/communities").catch(() => [])
-  );
+  // 自分の参加コミュニティから閲覧可能な投稿のみ集計（ログインしていない場合は空配列）
+  const [communities] = createResource(async () => {
+    // Only fetch communities if logged in
+    if (!me()) return [];
+    return api("/me/communities").catch(() => []);
+  });
   const [posts] = createResource(
     () => ({ u: user(), comms: communities() }),
     async (deps) => {
@@ -266,9 +269,44 @@ export default function UserProfile() {
   });
   const shareAvatar = createMemo(() => user()?.avatar_url || "");
 
+  const yurucommuUrl = createMemo(() => {
+    const handle = shareHandle();
+    if (!handle) return "";
+    return `https://yurucommu.com/${handle}`;
+  });
+
+  const openInYurucommu = () => {
+    const url = yurucommuUrl();
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
   return (
     <div class="px-3 sm:px-4 lg:px-6 pt-14">
       <div class="max-w-[680px] mx-auto">
+        {/* yurucommuで開くボタン */}
+        <Show when={user()}>
+          <div class="mb-4 bg-linear-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 border hairline rounded-md p-4">
+            <div class="flex items-center justify-between gap-4">
+              <div class="flex-1">
+                <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                  yurucommuで開く
+                </div>
+                <div class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  {yurucommuUrl()}
+                </div>
+              </div>
+              <button
+                onClick={openInYurucommu}
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-medium transition-colors shrink-0"
+              >
+                開く
+              </button>
+            </div>
+          </div>
+        </Show>
+
         <div class="bg-white dark:bg-neutral-900 border hairline rounded-md p-4">
           <Show
             when={user()}
