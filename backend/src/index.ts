@@ -2496,6 +2496,11 @@ app.delete("/stories/:id", auth, async (c) => {
 // If no API route is matched, fall back to serving static assets.
 // The 'ASSETS' binding is configured in wrangler.toml to handle SPA routing.
 app.notFound((c) => {
+  console.log("[backend] notFound", {
+    path: new URL(c.req.url).pathname,
+    method: c.req.method,
+    accept: c.req.header("accept"),
+  });
   if (!c.env.ASSETS) {
     return c.text("Not Found", 404);
   }
