@@ -13,6 +13,8 @@ import {
   requireInstanceDomain,
   ACTIVITYSTREAMS_CONTEXT,
   releaseStore,
+  webfingerLookup,
+  getOrFetchActor,
 } from "@takos/platform/server";
 import { auth, optionalAuth } from "../middleware/auth";
 import { makeData } from "../data";
@@ -153,7 +155,7 @@ users.get("/users/:id", optionalAuth, async (c) => {
     const me = c.get("user") as any;
     const rawId = c.req.param("id");
 
-    // Normalize user ID and enforce domain if provided (@user@domain)
+    // Normalize user ID (@user or @user@domain) without enforcing domain
     const parseUserIdParam = (input: string): { local: string; domain?: string } => {
       const trimmed = (input || "").trim();
       const withoutPrefix = trimmed.replace(/^@+/, "");
@@ -170,17 +172,38 @@ users.get("/users/:id", optionalAuth, async (c) => {
       return fail(c, "invalid user id", 400);
     }
 
-    // If a domain is included in the path, ensure it matches this instance
-    if (
-      requestedDomain &&
-      instanceDomain &&
-      requestedDomain.toLowerCase() !== instanceDomain.toLowerCase()
-    ) {
+    const u: any = await store.getUser(normalizedId);
+    if (!u && requestedDomain) {
+      // Fallback: fetch remote actor via ActivityPub when handle includes a domain.
+      const account = `${normalizedId}@${requestedDomain}`;
+      const actorUri = await webfingerLookup(account);
+      if (!actorUri) {
+        return fail(c, "user not found", 404);
+      }
+
+      const actor = await getOrFetchActor(actorUri, c.env as any);
+      if (!actor) {
+        return fail(c, "user not found", 404);
+      }
+
+      const avatar =
+        (Array.isArray(actor.icon) ? actor.icon.find((i: any) => i?.url)?.url : undefined) ||
+        (actor.icon && typeof actor.icon === "object" ? (actor.icon as any).url : undefined) ||
+        null;
+
+      return ok(c, {
+        id: normalizedId,
+        handle: normalizedId,
+        domain: requestedDomain,
+        actor_id: actor.id,
+        display_name: actor.name || actor.preferredUsername || normalizedId,
+        avatar_url: avatar,
+        url: actor.url || actor.id,
+        friend_status: null,
+      });
+    } else if (!u) {
       return fail(c, "user not found", 404);
     }
-
-    const u: any = await store.getUser(normalizedId);
-    if (!u) return fail(c, "user not found", 404);
 
     // Accounts are private by default. For now, still return basic profile, and include friend status.
     let relation: any = null;

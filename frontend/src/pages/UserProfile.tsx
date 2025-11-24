@@ -124,21 +124,11 @@ export default function UserProfile() {
       console.log("[UserProfile] fetching user with id:", id, "domain:", domain);
 
       try {
-        let result;
-        if (domain) {
-          // Cross-domain fetch: fetch from the specified domain
-          const handleWithDomain = `@${id}@${domain}`;
-          const apiUrl = `https://${domain}/users/${encodeURIComponent(handleWithDomain)}`;
-          console.log("[UserProfile] cross-domain fetch:", apiUrl);
-          const response = await fetch(apiUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          result = await response.json();
-        } else {
-          // Same-domain fetch: use the current domain's API
-          result = await getUser(id);
-        }
+        // Always resolve profiles through the current backend.
+        // Remote servers might not expose the same API (ActivityPub only),
+        // so avoid direct cross-domain fetches.
+        const lookup = domain ? `@${id}@${domain}` : id;
+        const result = await getUser(lookup);
         console.log("[UserProfile] user fetch success:", result);
         return normalizeUserProfile(result, id, domain || undefined);
       } catch (error) {
