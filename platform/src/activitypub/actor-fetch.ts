@@ -348,11 +348,12 @@ export async function webfingerLookup(account: string): Promise<string | null> {
   try {
     const [username, domain] = account.split("@");
     if (!username || !domain) {
+      console.error(`[WebFinger] Invalid account format: "${account}" (expected "user@domain")`);
       return null;
     }
 
     const webfingerUrl = `https://${domain}/.well-known/webfinger?resource=acct:${account}`;
-    console.log(`WebFinger lookup: ${webfingerUrl}`);
+    console.log(`[WebFinger] Lookup: ${webfingerUrl}`);
 
     const response = await fetch(webfingerUrl, {
       headers: {
@@ -361,11 +362,16 @@ export async function webfingerLookup(account: string): Promise<string | null> {
     });
 
     if (!response.ok) {
-      console.error(`WebFinger failed: ${response.status}`);
+      console.error(`[WebFinger] Failed: ${response.status} ${response.statusText} for ${webfingerUrl}`);
+      const text = await response.text().catch(() => "");
+      if (text) {
+        console.error(`[WebFinger] Response body: ${text.substring(0, 500)}`);
+      }
       return null;
     }
 
     const data = await response.json() as any;
+    console.log(`[WebFinger] Response data:`, JSON.stringify(data, null, 2));
 
     // Find self link with application/activity+json
     const selfLink = data?.links?.find(
@@ -373,13 +379,15 @@ export async function webfingerLookup(account: string): Promise<string | null> {
     );
 
     if (!selfLink || !selfLink.href) {
-      console.error("No ActivityPub self link in WebFinger response");
+      console.error(`[WebFinger] No ActivityPub self link in response for ${account}`);
+      console.error(`[WebFinger] Available links:`, data?.links);
       return null;
     }
 
+    console.log(`[WebFinger] Found actor URI: ${selfLink.href}`);
     return selfLink.href;
   } catch (error) {
-    console.error(`WebFinger error for ${account}:`, error);
+    console.error(`[WebFinger] Error for ${account}:`, error);
     return null;
   }
 }
