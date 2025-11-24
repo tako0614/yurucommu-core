@@ -152,8 +152,9 @@ app.use("*", async (c, next) => {
   const allowOrigin = requestOrigin || "*";
   const allowHeaders =
     c.req.header("Access-Control-Request-Headers") ||
-    "Content-Type, Authorization";
-  const allowMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+    "Content-Type, Authorization, Accept, X-Requested-With";
+  const allowMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD";
+  const exposeHeaders = "Content-Type, Content-Length, ETag";
 
   if (c.req.method === "OPTIONS") {
     const headers = new Headers();
@@ -161,8 +162,10 @@ app.use("*", async (c, next) => {
     headers.set("Access-Control-Allow-Credentials", "true");
     headers.set("Access-Control-Allow-Headers", allowHeaders);
     headers.set("Access-Control-Allow-Methods", allowMethods);
+    headers.set("Access-Control-Expose-Headers", exposeHeaders);
     headers.set("Access-Control-Max-Age", "86400");
     headers.append("Vary", "Origin");
+    headers.append("Vary", "Access-Control-Request-Headers");
     return new Response(null, { status: 204, headers });
   }
 
@@ -173,7 +176,9 @@ app.use("*", async (c, next) => {
   responseHeaders.set("Access-Control-Allow-Credentials", "true");
   responseHeaders.set("Access-Control-Allow-Headers", allowHeaders);
   responseHeaders.set("Access-Control-Allow-Methods", allowMethods);
+  responseHeaders.set("Access-Control-Expose-Headers", exposeHeaders);
   responseHeaders.append("Vary", "Origin");
+  responseHeaders.append("Vary", "Access-Control-Request-Headers");
 });
 
 // Ensure the D1 schema exists before any handlers run
