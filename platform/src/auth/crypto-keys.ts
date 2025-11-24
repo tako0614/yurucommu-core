@@ -150,25 +150,52 @@ export async function ensureUserKeyPair(
   const encryptionKey = await getEncryptionKey(env);
 
   // Check if keypair exists
-  const existing = await store.query(
-    "SELECT public_key_pem, private_key_pem FROM ap_keypairs WHERE instance_id = ? AND user_id = ?",
-    [instance_id, actualUserId]
-  );
-
-  if (existing && existing.length > 0) {
-    const publicKeyPem = existing[0].public_key_pem;
-    const storedPrivate = existing[0].private_key_pem;
-    const privateKeyPem = await decryptPrivateKey(
-      store,
-      encryptionKey,
-      storedPrivate,
-      instance_id,
-      actualUserId
+  // Note: In multi-tenant setup, instance_id is the tenant_id
+  // The column name in DB might be 'instance_id' (OSS) or 'tenant_id' (SaaS)
+  // We try to detect which one to use based on the error or context, but for now
+  // we'll use a try-catch approach or check the schema if possible.
+  // However, since this is shared code, we should probably use the store abstraction
+  // instead of raw SQL if possible, OR handle both column names.
+  
+  // Better approach: Use store.getApKeypair if available (it abstracts the query)
+  if (typeof store.getApKeypair === 'function') {
+    const existing = await store.getApKeypair(actualUserId);
+    if (existing) {
+      const { public_key_pem, private_key_pem: storedPrivate } = existing;
+      const privateKeyPem = await decryptPrivateKey(
+        store,
+        encryptionKey,
+        storedPrivate,
+        instance_id,
+        actualUserId
+      );
+      return {
+        publicKeyPem: public_key_pem,
+        privateKeyPem,
+      };
+    }
+  } else {
+    // Fallback to raw SQL for legacy support (OSS version)
+    const existing = await store.query(
+      "SELECT public_key_pem, private_key_pem FROM ap_keypairs WHERE instance_id = ? AND user_id = ?",
+      [instance_id, actualUserId]
     );
-    return {
-      publicKeyPem,
-      privateKeyPem,
-    };
+
+    if (existing && existing.length > 0) {
+      const publicKeyPem = existing[0].public_key_pem;
+      const storedPrivate = existing[0].private_key_pem;
+      const privateKeyPem = await decryptPrivateKey(
+        store,
+        encryptionKey,
+        storedPrivate,
+        instance_id,
+        actualUserId
+      );
+      return {
+        publicKeyPem,
+        privateKeyPem,
+      };
+    }
   }
 
   // Generate new keypair
@@ -177,11 +204,20 @@ export async function ensureUserKeyPair(
   const encryptedPrivateKey = await encryptPrivateKey(encryptionKey, keyPair.privateKeyPem);
 
   // Store in database
-  await store.query(
-    `INSERT INTO ap_keypairs (instance_id, user_id, public_key_pem, private_key_pem, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))`,
-    [instance_id, actualUserId, keyPair.publicKeyPem, encryptedPrivateKey]
-  );
+  if (typeof store.createApKeypair === 'function') {
+    await store.createApKeypair({
+      user_id: actualUserId,
+      public_key_pem: keyPair.publicKeyPem,
+      private_key_pem: encryptedPrivateKey,
+    });
+  } else {
+    // Fallback to raw SQL
+    await store.query(
+      `INSERT INTO ap_keypairs (instance_id, user_id, public_key_pem, private_key_pem, created_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`,
+      [instance_id, actualUserId, keyPair.publicKeyPem, encryptedPrivateKey]
+    );
+  }
 
   return keyPair;
 }
