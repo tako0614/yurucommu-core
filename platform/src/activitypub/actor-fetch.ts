@@ -160,7 +160,10 @@ const FETCH_TIMEOUT_MS = 10000; // 10 seconds
  * @param actorUri - Full URI of the actor (e.g., https://mastodon.social/users/alice)
  * @returns Remote actor object
  */
-export async function fetchRemoteActor(actorUri: string): Promise<RemoteActor | null> {
+export async function fetchRemoteActor(
+  actorUri: string,
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
+): Promise<RemoteActor | null> {
   try {
     console.log(`Fetching remote actor: ${actorUri}`);
 
@@ -169,7 +172,7 @@ export async function fetchRemoteActor(actorUri: string): Promise<RemoteActor | 
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const response = await fetch(actorUri, {
+      const response = await fetcher(actorUri, {
         headers: {
           Accept: "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
         },
@@ -241,6 +244,7 @@ export async function getOrFetchActor(
   actorUri: string,
   env: { DB: D1Database },
   forceRefresh = false,
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<RemoteActor | null> {
   const db = makeData(env as any);
 
@@ -259,7 +263,7 @@ export async function getOrFetchActor(
     }
 
     // Fetch from remote
-    const actor = await fetchRemoteActor(actorUri);
+    const actor = await fetchRemoteActor(actorUri, fetcher);
     if (!actor) {
       return null;
     }
@@ -342,9 +346,13 @@ export async function verifyActorOwnsKey(
  * WebFinger lookup to discover actor URI
  *
  * @param account - Account in format "user@domain.com"
+ * @param fetcher - Optional custom fetch function (e.g. for Service Bindings)
  * @returns Actor URI or null
  */
-export async function webfingerLookup(account: string): Promise<string | null> {
+export async function webfingerLookup(
+  account: string,
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
+): Promise<string | null> {
   try {
     const [username, domain] = account.split("@");
     if (!username || !domain) {
@@ -355,7 +363,7 @@ export async function webfingerLookup(account: string): Promise<string | null> {
     const webfingerUrl = `https://${domain}/.well-known/webfinger?resource=acct:${account}`;
     console.log(`[WebFinger] Lookup: ${webfingerUrl}`);
 
-    const response = await fetch(webfingerUrl, {
+    const response = await fetcher(webfingerUrl, {
       headers: {
         Accept: "application/jrd+json",
       },

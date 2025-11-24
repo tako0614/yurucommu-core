@@ -19,6 +19,19 @@ async function postWithSignature(env: any, actorHandle: string, inboxUrl: string
   }
 }
 
+/**
+ * Sign and send an activity to a specific inbox
+ * Wrapper around postWithSignature with different argument order for compatibility
+ */
+export async function signAndSendActivity(
+  activity: any,
+  inboxUrl: string,
+  actorHandle: string,
+  env: any
+) {
+  return postWithSignature(env, actorHandle, inboxUrl, activity);
+}
+
 async function resolveInbox(recipient: string, env: any): Promise<string | null> {
   // Skip the special Public collection
   if (recipient === "https://www.w3.org/ns/activitystreams#Public") {
