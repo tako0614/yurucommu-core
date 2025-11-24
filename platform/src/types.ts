@@ -41,6 +41,7 @@ type EnvCredentialBindings = {
 type HostIntegrationBindings = {
   HOST_ORIGIN?: string;
   HOST_SHARED_SECRET?: string;
+  INSTANCE_OWNER_HANDLE?: string;
 };
 
 export type PublicAccountBindings = BaseBindings &
