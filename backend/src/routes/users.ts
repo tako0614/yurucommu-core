@@ -176,80 +176,16 @@ users.get("/users/:id", optionalAuth, async (c) => {
     }
 
     // Domain check: determine if this is a local or remote user
-    const rootDomain = (c.env as any).ROOT_DOMAIN ? String((c.env as any).ROOT_DOMAIN).trim().toLowerCase() : null;
-    const isLocalDomain = requestedDomain
-      ? (requestedDomain === instanceDomain || (rootDomain && requestedDomain.endsWith(`.${rootDomain}`)))
-      : true;
+    const isLocalDomain = requestedDomain ? requestedDomain === instanceDomain : true;
 
-    console.log(`[GET /users/:id] normalizedId="${normalizedId}", requestedDomain="${requestedDomain || "none"}", isLocalDomain=${isLocalDomain}`);
+    console.log(`[GET /users/:id] normalizedId="${normalizedId}", requestedDomain="${requestedDomain || "none"}", instanceDomain="${instanceDomain}", isLocalDomain=${isLocalDomain}`);
 
     if (isLocalDomain) {
       // LOCAL DOMAIN: Search in database
       console.log(`[GET /users/:id] Local domain - searching database`);
 
-      let u: any = await store.getUser(normalizedId);
-      console.log(`[GET /users/:id] Current tenant search: ${u ? `found (id=${u.id})` : "not found"}`);
-
-      // If not found and we have a sibling tenant, try cross-tenant lookup
-      if (!u && requestedDomain && rootDomain && requestedDomain.endsWith(`.${rootDomain}`)) {
-        try {
-          console.log(`[GET /users/:id] Trying sibling tenant via Service Binding: domain="${requestedDomain}"`);
-
-          // Use Service Binding to call sibling tenant's Worker
-          const accountBackend = c.env.ACCOUNT_BACKEND;
-          if (accountBackend) {
-            // Build request URL for sibling tenant
-            const siblingUrl = `https://${requestedDomain}/users/${normalizedId}`;
-            console.log(`[GET /users/:id] Calling sibling tenant: ${siblingUrl}`);
-
-            // Forward request to sibling tenant via Service Binding
-            const siblingRequest = new Request(siblingUrl, {
-              method: "GET",
-              headers: {
-                "Accept": "application/json",
-              },
-            });
-
-            const siblingResponse = await accountBackend.fetch(siblingRequest);
-            console.log(`[GET /users/:id] Sibling tenant response: status=${siblingResponse.status}`);
-
-            if (siblingResponse.ok) {
-              const siblingUser = await siblingResponse.json() as any;
-              console.log(`[GET /users/:id] Found in sibling tenant: id="${siblingUser.id}"`);
-
-              // Return sibling user directly with domain info
-              return ok(c, {
-                ...(siblingUser as Record<string, any>),
-                domain: requestedDomain,
-              });
-            }
-          } else {
-            console.warn(`[GET /users/:id] ACCOUNT_BACKEND binding not available, using direct DB access`);
-
-            // Fallback: direct DB access
-            const withoutRoot = requestedDomain.slice(0, requestedDomain.length - rootDomain.length - 1);
-            const parts = withoutRoot.split(".").filter(Boolean);
-            const tenantHandle = parts.length ? parts[parts.length - 1] : null;
-
-            if (tenantHandle) {
-              const db = c.env.DB;
-              if (db && typeof (db as any).prepare === "function") {
-                const result = await (db as any)
-                  .prepare("SELECT id, display_name, avatar_url, created_at FROM users WHERE id = ? AND tenant_id = ? LIMIT 1")
-                  .bind(normalizedId, tenantHandle)
-                  .first();
-
-                if (result) {
-                  console.log(`[GET /users/:id] Found in sibling tenant (DB): id="${result.id}"`);
-                  u = result;
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error(`[GET /users/:id] Sibling tenant lookup error:`, error);
-        }
-      }
+      const u: any = await store.getUser(normalizedId);
+      console.log(`[GET /users/:id] Local user lookup result: ${u ? `found (id=${u.id})` : "not found"}`);
 
       if (!u) {
         console.error(`[GET /users/:id] User not found in local domain`);
@@ -265,7 +201,7 @@ users.get("/users/:id", optionalAuth, async (c) => {
       const { jwt_secret, tenant_id, ...publicProfile } = u;
       return ok(c, {
         ...publicProfile,
-        domain: requestedDomain || instanceDomain || publicProfile.domain || undefined,
+        domain: instanceDomain || publicProfile.domain || undefined,
         friend_status: relation?.status || null,
       });
     } else {
