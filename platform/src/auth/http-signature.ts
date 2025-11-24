@@ -326,6 +326,7 @@ export async function signRequest(
   const headers = new Headers(request.headers);
   headers.set("Signature", signature);
   headers.set("Date", new Date().toUTCString());
+  headers.set("Host", url.host);
   if (body) {
     headers.set("Digest", await generateDigest(body));
   }

@@ -324,6 +324,28 @@ async function handleIncomingFollow(
   });
 
   console.log(`✓ Follow from ${followerUri} -> ${localUserId} (${status})`);
+
+  // Create notification for the local user
+  try {
+    const remoteHandle = follower.preferredUsername || followerUri.split("/").pop() || "unknown";
+    const remoteDomain = new URL(followerUri).hostname;
+    const remoteUserId = `@${remoteHandle}@${remoteDomain}`;
+
+    await db.addNotification({
+      id: crypto.randomUUID(),
+      user_id: localUserId,
+      type: "friend_request",
+      actor_id: remoteUserId,
+      ref_type: "user",
+      ref_id: remoteUserId,
+      message: `${remoteUserId} sent you a friend request`,
+      created_at: new Date(),
+      read: false,
+    });
+    console.log(`✓ Notification created for ${localUserId} about follow from ${remoteUserId}`);
+  } catch (error) {
+    console.error("Failed to create notification for follow request", error);
+  }
 }
 
 /**
