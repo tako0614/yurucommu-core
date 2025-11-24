@@ -432,6 +432,10 @@ export interface DatabaseAPI {
   findApActor(id: string): Promise<any | null>;
   upsertApActor(actor: Record<string, any>): Promise<any>;
 
+  // ActivityPub - Keypairs
+  getApKeypair?(user_id: string): Promise<{ public_key_pem: string; private_key_pem: string } | null>;
+  createApKeypair?(input: { user_id: string; public_key_pem: string; private_key_pem: string }): Promise<void>;
+
   // Reports
   createReport(report: ReportInput): Promise<any>;
   listReports(status?: string, limit?: number, offset?: number): Promise<any[]>;
