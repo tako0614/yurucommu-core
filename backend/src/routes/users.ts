@@ -155,6 +155,8 @@ users.get("/users/:id", optionalAuth, async (c) => {
     const me = c.get("user") as any;
     const rawId = c.req.param("id");
 
+    console.log(`[GET /users/:id] rawId="${rawId}", me=${me?.id || "anonymous"}`);
+
     // Normalize user ID (@user or @user@domain) without enforcing domain
     const parseUserIdParam = (input: string): { local: string; domain?: string } => {
       const trimmed = (input || "").trim();
@@ -169,20 +171,122 @@ users.get("/users/:id", optionalAuth, async (c) => {
     const instanceDomain = c.env.INSTANCE_DOMAIN?.trim();
 
     if (!normalizedId) {
+      console.error(`[GET /users/:id] Invalid user ID: rawId="${rawId}"`);
       return fail(c, "invalid user id", 400);
     }
 
-    const u: any = await store.getUser(normalizedId);
-    if (!u && requestedDomain) {
-      // Fallback: fetch remote actor via ActivityPub when handle includes a domain.
-      const account = `${normalizedId}@${requestedDomain}`;
-      const actorUri = await webfingerLookup(account);
-      if (!actorUri) {
+    // Domain check: determine if this is a local or remote user
+    const rootDomain = (c.env as any).ROOT_DOMAIN ? String((c.env as any).ROOT_DOMAIN).trim().toLowerCase() : null;
+    const isLocalDomain = requestedDomain
+      ? (requestedDomain === instanceDomain || (rootDomain && requestedDomain.endsWith(`.${rootDomain}`)))
+      : true;
+
+    console.log(`[GET /users/:id] normalizedId="${normalizedId}", requestedDomain="${requestedDomain || "none"}", isLocalDomain=${isLocalDomain}`);
+
+    if (isLocalDomain) {
+      // LOCAL DOMAIN: Search in database
+      console.log(`[GET /users/:id] Local domain - searching database`);
+
+      let u: any = await store.getUser(normalizedId);
+      console.log(`[GET /users/:id] Current tenant search: ${u ? `found (id=${u.id})` : "not found"}`);
+
+      // If not found and we have a sibling tenant, try cross-tenant lookup
+      if (!u && requestedDomain && rootDomain && requestedDomain.endsWith(`.${rootDomain}`)) {
+        try {
+          console.log(`[GET /users/:id] Trying sibling tenant via Service Binding: domain="${requestedDomain}"`);
+
+          // Use Service Binding to call sibling tenant's Worker
+          const accountBackend = c.env.ACCOUNT_BACKEND;
+          if (accountBackend) {
+            // Build request URL for sibling tenant
+            const siblingUrl = `https://${requestedDomain}/users/${normalizedId}`;
+            console.log(`[GET /users/:id] Calling sibling tenant: ${siblingUrl}`);
+
+            // Forward request to sibling tenant via Service Binding
+            const siblingRequest = new Request(siblingUrl, {
+              method: "GET",
+              headers: {
+                "Accept": "application/json",
+              },
+            });
+
+            const siblingResponse = await accountBackend.fetch(siblingRequest);
+            console.log(`[GET /users/:id] Sibling tenant response: status=${siblingResponse.status}`);
+
+            if (siblingResponse.ok) {
+              const siblingUser = await siblingResponse.json() as any;
+              console.log(`[GET /users/:id] Found in sibling tenant: id="${siblingUser.id}"`);
+
+              // Return sibling user directly with domain info
+              return ok(c, {
+                ...(siblingUser as Record<string, any>),
+                domain: requestedDomain,
+              });
+            }
+          } else {
+            console.warn(`[GET /users/:id] ACCOUNT_BACKEND binding not available, using direct DB access`);
+
+            // Fallback: direct DB access
+            const withoutRoot = requestedDomain.slice(0, requestedDomain.length - rootDomain.length - 1);
+            const parts = withoutRoot.split(".").filter(Boolean);
+            const tenantHandle = parts.length ? parts[parts.length - 1] : null;
+
+            if (tenantHandle) {
+              const db = c.env.DB;
+              if (db && typeof (db as any).prepare === "function") {
+                const result = await (db as any)
+                  .prepare("SELECT id, display_name, avatar_url, created_at FROM users WHERE id = ? AND tenant_id = ? LIMIT 1")
+                  .bind(normalizedId, tenantHandle)
+                  .first();
+
+                if (result) {
+                  console.log(`[GET /users/:id] Found in sibling tenant (DB): id="${result.id}"`);
+                  u = result;
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[GET /users/:id] Sibling tenant lookup error:`, error);
+        }
+      }
+
+      if (!u) {
+        console.error(`[GET /users/:id] User not found in local domain`);
         return fail(c, "user not found", 404);
       }
 
+      // Return local user profile
+      let relation: any = null;
+      if (me?.id && normalizedId !== me.id) {
+        relation = await store.getFriendshipBetween(me.id, normalizedId).catch(() => null);
+      }
+
+      const { jwt_secret, tenant_id, ...publicProfile } = u;
+      return ok(c, {
+        ...publicProfile,
+        domain: requestedDomain || instanceDomain || publicProfile.domain || undefined,
+        friend_status: relation?.status || null,
+      });
+    } else {
+      // REMOTE DOMAIN: Fetch via ActivityPub
+      const account = `${normalizedId}@${requestedDomain}`;
+      console.log(`[GET /users/:id] Remote domain - fetching via ActivityPub: "${account}"`);
+
+      const actorUri = await webfingerLookup(account);
+      console.log(`[GET /users/:id] WebFinger result: ${actorUri ? `found actorUri="${actorUri}"` : "not found"}`);
+
+      if (!actorUri) {
+        console.error(`[GET /users/:id] WebFinger lookup failed`);
+        return fail(c, "user not found", 404);
+      }
+
+      console.log(`[GET /users/:id] Fetching remote actor from actorUri="${actorUri}"`);
       const actor = await getOrFetchActor(actorUri, c.env as any);
+      console.log(`[GET /users/:id] Remote actor result: ${actor ? `success` : "failed"}`);
+
       if (!actor) {
+        console.error(`[GET /users/:id] Failed to fetch remote actor`);
         return fail(c, "user not found", 404);
       }
 
@@ -191,6 +295,8 @@ users.get("/users/:id", optionalAuth, async (c) => {
         (actor.icon && typeof actor.icon === "object" ? (actor.icon as any).url : undefined) ||
         null;
 
+      console.log(`[GET /users/:id] Returning remote user profile`);
+
       return ok(c, {
         id: normalizedId,
         handle: normalizedId,
@@ -198,26 +304,10 @@ users.get("/users/:id", optionalAuth, async (c) => {
         actor_id: actor.id,
         display_name: actor.name || actor.preferredUsername || normalizedId,
         avatar_url: avatar,
-        url: actor.url || actor.id,
+        url: (actor as any).url || actor.id,
         friend_status: null,
       });
-    } else if (!u) {
-      return fail(c, "user not found", 404);
     }
-
-    // Accounts are private by default. For now, still return basic profile, and include friend status.
-    let relation: any = null;
-    if (me?.id && normalizedId !== me.id) {
-      relation = await store.getFriendshipBetween(me.id, normalizedId).catch(() => null);
-    }
-
-    // Remove sensitive/internal fields before returning
-    const { jwt_secret, tenant_id, ...publicProfile } = u;
-    return ok(c, {
-      ...publicProfile,
-      domain: instanceDomain || publicProfile.domain || undefined,
-      friend_status: relation?.status || null,
-    });
   } finally {
     await releaseStore(store);
   }

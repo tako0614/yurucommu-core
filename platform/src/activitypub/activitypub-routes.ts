@@ -93,7 +93,10 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
   const store = makeData(c.env as any);
   try {
     const resource = c.req.query("resource");
+    console.log(`[WebFinger Server] Incoming request: resource="${resource}", host="${c.req.header("host")}"`);
+
     if (!resource) {
+      console.error(`[WebFinger Server] Missing resource parameter`);
       return c.json({ error: "resource parameter required" }, 400);
     }
 
@@ -105,6 +108,7 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
       const acctPart = resource.slice(5); // Remove "acct:"
       const [user] = acctPart.split("@");
       handle = user;
+      console.log(`[WebFinger Server] Parsed acct resource: handle="${handle}"`);
     } else if (resource.startsWith("http://") || resource.startsWith("https://")) {
       // https://alice.example.com/ap/users/alice
       try {
@@ -112,25 +116,37 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
         const match = url.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,20})$/);
         if (match) {
           handle = match[1];
+          console.log(`[WebFinger Server] Parsed URI resource: handle="${handle}"`);
+        } else {
+          console.error(`[WebFinger Server] URI resource did not match pattern: pathname="${url.pathname}"`);
         }
-      } catch {
-        // Invalid URL
+      } catch (err) {
+        console.error(`[WebFinger Server] Invalid URL resource:`, err);
       }
+    } else {
+      console.error(`[WebFinger Server] Unknown resource format: "${resource}"`);
     }
 
     if (!handle) {
+      console.error(`[WebFinger Server] Failed to extract handle from resource="${resource}"`);
       return c.json({ error: "invalid resource format" }, 400);
     }
 
     // Verify user exists
     const user = await store.getUser(handle);
+    console.log(`[WebFinger Server] User lookup: handle="${handle}", found=${!!user}`);
+
     if (!user) {
+      console.error(`[WebFinger Server] User not found: handle="${handle}"`);
       return c.json({ error: "user not found" }, 404);
     }
 
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
     const webfinger = generateWebFinger(handle, instanceDomain, protocol);
+
+    console.log(`[WebFinger Server] Returning WebFinger for handle="${handle}", domain="${instanceDomain}"`);
+    console.log(`[WebFinger Server] Response:`, JSON.stringify(webfinger, null, 2));
 
     return c.json(webfinger, 200, {
       "Content-Type": "application/jrd+json; charset=utf-8",
@@ -150,18 +166,24 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
  * Accept: application/activity+json
  */
 app.get("/ap/users/:handle", async (c) => {
+  const handle = c.req.param("handle");
+  const isAP = isActivityPubRequest(c);
+  console.log(`[Actor Endpoint] GET /ap/users/${handle}, isActivityPubRequest=${isAP}, accept="${c.req.header("accept")}"`);
+
   // Only respond to ActivityPub requests
-  if (!isActivityPubRequest(c)) {
-    return c.redirect(`/@${c.req.param("handle")}`);
+  if (!isAP) {
+    console.log(`[Actor Endpoint] Redirecting non-AP request to /@${handle}`);
+    return c.redirect(`/@${handle}`);
   }
 
   const store = makeData(c.env as any);
   try {
-    const handle = c.req.param("handle");
-
     // Get user from database
     const user = await store.getUser(handle);
+    console.log(`[Actor Endpoint] User lookup: handle="${handle}", found=${!!user}`);
+
     if (!user) {
+      console.error(`[Actor Endpoint] User not found: handle="${handle}"`);
       return fail(c, "user not found", 404);
     }
 
@@ -174,7 +196,9 @@ app.get("/ap/users/:handle", async (c) => {
       const keypair = await store.getApKeypair(handle);
       if (keypair) {
         publicKeyPem = keypair.public_key_pem;
+        console.log(`[Actor Endpoint] Found existing keypair for handle="${handle}"`);
       } else {
+        console.log(`[Actor Endpoint] Generating new keypair for handle="${handle}"`);
         const generated = await ensureUserKeyPair(
           store,
           c.env as any,
@@ -183,7 +207,7 @@ app.get("/ap/users/:handle", async (c) => {
         publicKeyPem = generated.publicKeyPem;
       }
     } catch (error) {
-      console.error("Failed to fetch keypair:", error);
+      console.error(`[Actor Endpoint] Failed to fetch keypair for handle="${handle}":`, error);
       return fail(c, "failed to load actor key", 500);
     }
 
@@ -194,9 +218,10 @@ app.get("/ap/users/:handle", async (c) => {
       actor.publicKey.publicKeyPem = publicKeyPem;
     } else {
       // Generate keypair on first request (will be implemented)
-      console.warn(`No keypair found for user ${handle}, returning actor without key`);
+      console.warn(`[Actor Endpoint] No keypair found for user ${handle}, returning actor without key`);
     }
 
+    console.log(`[Actor Endpoint] Returning actor: id="${actor.id}", type="${actor.type}"`);
     return activityPubResponse(c, actor);
   } finally {
     await releaseStore(store);
