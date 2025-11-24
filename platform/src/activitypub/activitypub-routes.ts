@@ -971,12 +971,15 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     console.log(`✓ Verified signature from ${actorId} for activity ${activity.type}`);
 
     // Check if actor is a friend (accepted follower) - all accounts only accept from friends
-    const follower = await store.findApFollower(handle, actorId);
+    // EXCEPT for Follow activities (which are used to become friends)
+    if (activity.type !== "Follow" && activity.type !== "Undo") {
+      const follower = await store.findApFollower(handle, actorId);
 
-    // Only accept activities from accepted followers
-    if (!follower || follower.status !== "accepted") {
-      console.warn(`Rejecting activity from non-friend actor ${actorId} to account ${handle}`);
-      return fail(c, "forbidden", 403);
+      // Only accept activities from accepted followers
+      if (!follower || follower.status !== "accepted") {
+        console.warn(`Rejecting activity from non-friend actor ${actorId} to account ${handle}`);
+        return fail(c, "forbidden", 403);
+      }
     }
 
     // Store in inbox for processing with idempotency key
