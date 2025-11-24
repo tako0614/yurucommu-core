@@ -69,13 +69,28 @@ export async function withTransaction<T>(
   store: QueryableStore,
   fn: () => Promise<T>,
 ): Promise<T> {
-  await store.query("BEGIN TRANSACTION");
+  try {
+    // D1 does not support interactive transactions; fall back to best-effort execution
+    await store.query("BEGIN TRANSACTION");
+  } catch (error: any) {
+    const msg = String(error?.message || error);
+    if (msg.includes("does not support interactive transactions")) {
+      console.warn("Transaction not supported on this database - executing without BEGIN/COMMIT");
+      return fn();
+    }
+    throw error;
+  }
+
   try {
     const result = await fn();
     await store.query("COMMIT");
     return result;
   } catch (error) {
-    await store.query("ROLLBACK");
+    try {
+      await store.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("ROLLBACK failed", rollbackError);
+    }
     throw error;
   }
 }

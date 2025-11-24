@@ -30,6 +30,7 @@ enum InboxStatus {
 const ACTIVITY_TYPES = new Set([
   "Follow",
   "Accept",
+  "Reject",
   "Like",
   "Create",
   "Announce",
@@ -174,6 +175,9 @@ async function processActivity(
       break;
     case "Accept":
       await handleIncomingAccept(db, env, localUserId, activity);
+      break;
+    case "Reject":
+      await handleIncomingReject(db, env, localUserId, activity);
       break;
     case "Like":
       await handleIncomingLike(db, env, localUserId, activity);
@@ -400,7 +404,96 @@ async function handleIncomingAccept(
   // Update following relationship to accepted
   await db.updateApFollowsStatus(localUserId, followedUri, "accepted", new Date());
 
+  // Fetch remote actor info for notification
+  const remoteActor = await getOrFetchActor(actorUri, env);
+  if (remoteActor) {
+    const remoteHandle = remoteActor.preferredUsername || actorUri.split("/").pop() || "unknown";
+    const remoteDomain = new URL(actorUri).hostname;
+    const remoteUserId = `@${remoteHandle}@${remoteDomain}`;
+
+    // Send notification to local user
+    try {
+      await db.addNotification({
+        id: crypto.randomUUID(),
+        user_id: localUserId,
+        type: "friend_accepted",
+        actor_id: remoteUserId,
+        ref_type: "user",
+        ref_id: remoteUserId,
+        message: `${remoteUserId} accepted your friend request`,
+        created_at: new Date(),
+        read: false,
+      });
+      console.log(`✓ Notification sent to ${localUserId} for friend acceptance from ${remoteUserId}`);
+    } catch (error) {
+      console.error("Failed to create notification for friend acceptance", error);
+    }
+  }
+
   console.log(`✓ Accept received for follow to ${followedUri}`);
+}
+
+/**
+ * Handle incoming Reject activity (for Follow)
+ */
+async function handleIncomingReject(
+  db: DatabaseAPI,
+  env: Env,
+  localUserId: string,
+  activity: any,
+): Promise<void> {
+  // Extract the Follow activity from the Reject
+  const followActivity = activity.object;
+  if (!followActivity || followActivity.type !== "Follow") {
+    console.error("Reject activity does not contain Follow object");
+    return;
+  }
+
+  const actorUri = extractActorUri(activity.actor);
+  if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
+    console.error("Reject activity has invalid actor URI");
+    return;
+  }
+
+  const followedUri = typeof followActivity.object === "string"
+    ? followActivity.object
+    : followActivity.object?.id;
+
+  if (!followedUri) {
+    console.error("Reject activity missing follow target");
+    return;
+  }
+
+  // Update following relationship to rejected
+  await db.updateApFollowsStatus(localUserId, followedUri, "rejected", new Date());
+
+  // Fetch remote actor info for notification
+  const remoteActor = await getOrFetchActor(actorUri, env);
+  if (remoteActor) {
+    const remoteHandle = remoteActor.preferredUsername || actorUri.split("/").pop() || "unknown";
+    const remoteDomain = new URL(actorUri).hostname;
+    const remoteUserId = `@${remoteHandle}@${remoteDomain}`;
+
+    // Send notification to local user
+    try {
+      await db.addNotification({
+        id: crypto.randomUUID(),
+        user_id: localUserId,
+        type: "friend_rejected",
+        actor_id: remoteUserId,
+        ref_type: "user",
+        ref_id: remoteUserId,
+        message: `${remoteUserId} rejected your friend request`,
+        created_at: new Date(),
+        read: false,
+      });
+      console.log(`✓ Notification sent to ${localUserId} for friend rejection from ${remoteUserId}`);
+    } catch (error) {
+      console.error("Failed to create notification for friend rejection", error);
+    }
+  }
+
+  console.log(`✓ Reject received for follow to ${followedUri}`);
 }
 
 /**
@@ -969,10 +1062,10 @@ export async function processInboxQueue(env: Env, batchSize = 10): Promise<void>
           continue;
         }
 
-        await db.transaction(async (tx: DatabaseAPI) => {
-          await processActivity(tx, env, item.local_user_id, activity);
-          await markActivityStatus(tx, item.id, InboxStatus.Processed);
-        });
+        // D1 does not support interactive transactions
+        // Process activity and mark status sequentially
+        await processActivity(db, env, item.local_user_id, activity);
+        await markActivityStatus(db, item.id, InboxStatus.Processed);
 
         console.log(
           `✓ Processed activity ${item.id} (${activity.type}) in ${Date.now() - startedAt}ms`,
