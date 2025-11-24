@@ -316,10 +316,11 @@ export async function getActorPublicKey(actorUri: string, env: { DB: D1Database 
 export async function verifyActorOwnsKey(
   activityActorUri: string,
   signatureKeyId: string,
-  env: { DB: D1Database }
+  env: { DB: D1Database },
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<boolean> {
   // Fetch actor
-  const actor = await getOrFetchActor(activityActorUri, env);
+  const actor = await getOrFetchActor(activityActorUri, env, false, fetcher);
   if (!actor || !actor.publicKey) {
     console.error(`Actor ${activityActorUri} has no public key`);
     return false;

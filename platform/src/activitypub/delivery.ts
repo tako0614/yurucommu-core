@@ -12,7 +12,17 @@ async function postWithSignature(env: any, actorHandle: string, inboxUrl: string
       body: JSON.stringify(activity),
     });
     const signed = await signRequest(req, `${activity.actor}#main-key`, keypair.privateKeyPem);
-    const resp = await fetch(inboxUrl, signed);
+    
+    let resp;
+    const url = new URL(inboxUrl);
+    // Check if internal request (same root domain) and Service Binding is available
+    if (env.ACCOUNT_BACKEND && env.ROOT_DOMAIN && url.hostname.endsWith(env.ROOT_DOMAIN)) {
+       console.log(`[Delivery] Using Service Binding for internal delivery: ${inboxUrl}`);
+       resp = await env.ACCOUNT_BACKEND.fetch(inboxUrl, signed);
+    } else {
+       resp = await fetch(inboxUrl, signed);
+    }
+
     if (!resp.ok) throw new Error(`delivery failed ${resp.status}`);
   } finally {
     await store.disconnect?.();
